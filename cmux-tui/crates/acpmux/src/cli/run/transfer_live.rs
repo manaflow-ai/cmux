@@ -60,8 +60,7 @@ pub(super) fn lists(reply: &Value, pointer: &str, id: &str) -> bool {
 }
 
 /// A move's copy, as it goes: how it pages and how far it is.
-pub(super) struct Pager<'a> {
-    src: &'a Daemon<'a>,
+pub(super) struct Pager {
     session: String,
     live: Live,
     /// The target takes zstd pages.
@@ -80,10 +79,9 @@ pub(super) struct Pager<'a> {
     last_report: Option<Instant>,
 }
 
-impl<'a> Pager<'a> {
-    pub(super) fn new(src: &'a Daemon<'a>, session: &str, live: Live, zstd: bool) -> Self {
+impl Pager {
+    pub(super) fn new(session: &str, live: Live, zstd: bool) -> Self {
         Self {
-            src,
             session: session.to_owned(),
             live,
             zstd,
@@ -137,14 +135,14 @@ impl<'a> Pager<'a> {
 
     /// Tells the source (and the console) where the move is, at most every [`REPORT_EVERY`]
     /// unless `now`; refuses with [`SLOW`] once the estimate is past the move's bound.
-    pub(super) async fn tick(&mut self, now: bool) -> Result<()> {
+    pub(super) async fn tick(&mut self, src: &mut MoveEnd<'_>, now: bool) -> Result<()> {
         if !now && self.last_report.is_some_and(|t| t.elapsed() < REPORT_EVERY) {
             return Ok(());
         }
         self.last_report = Some(Instant::now());
         let report = self.report();
         // An older source has no progress to show: the move goes on all the same.
-        let _ = self.src.request("_acpmux/transfer_progress", report.clone()).await;
+        let _ = src.request("_acpmux/transfer_progress", report.clone()).await;
         if self.live.verbose {
             eprintln!("move: {}", progress_text(&report));
         }
@@ -168,14 +166,9 @@ impl<'a> Pager<'a> {
     }
 
     /// The move is over: its report goes.
-    pub(super) async fn done(&self) {
-        let _ = self
-            .src
-            .request(
-                "_acpmux/transfer_progress",
-                json!({"sessionId": self.session, "phase": "done"}),
-            )
-            .await;
+    pub(super) async fn done(&self, src: &mut MoveEnd<'_>) {
+        let report = json!({"sessionId": self.session, "phase": "done"});
+        let _ = src.request("_acpmux/transfer_progress", report).await;
     }
 }
 
@@ -195,14 +188,14 @@ fn files_bytes(manifest: &Value) -> u64 {
 /// takes it.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn page_files(
-    src: &Daemon<'_>,
-    dst: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
     manifest: &Value,
     transfer_id: &Value,
     receive_id: &Value,
     epoch: Option<u64>,
     from: &HashMap<String, u64>,
-    pager: &mut Pager<'_>,
+    pager: &mut Pager,
 ) -> Result<()> {
     let files = manifest.get("files").and_then(Value::as_array).cloned().unwrap_or_default();
     for file in &files {
@@ -216,7 +209,8 @@ pub(super) async fn page_files(
         loop {
             let mut read = json!({"transferId": transfer_id, "path": path, "offset": offset,
                                   "limit": PAGE});
-            let page = src.request("_acpmux/transfer_read", stamped(&mut read, epoch)).await?;
+            let read = stamped(&mut read, epoch);
+            let page = src.call("_acpmux/transfer_read", read, Wait::Page, true).await?;
             let next = page
                 .get("next")
                 .and_then(Value::as_u64)
@@ -235,10 +229,10 @@ pub(super) async fn page_files(
                 write.set("data", json!(data));
                 data.len() as u64
             };
-            if let Err(e) = dst.request("_acpmux/transfer_write", stamped(&mut write, epoch)).await
-            {
+            let write = stamped(&mut write, epoch);
+            if let Err(e) = dst.call("_acpmux/transfer_write", write, Wait::Page, true).await {
                 // A page the target took whose answer was lost (its daemon was swapped), or one
-                // it holds more of: go on from what it holds (`transfer_reconnect.rs`).
+                // it holds more of: go on from what it holds (`move_end.rs`).
                 match held_after(&e).filter(|held| *held <= size && *held != offset) {
                     Some(held) => {
                         pager.done = pager.done.saturating_sub(offset) + held;
@@ -251,7 +245,7 @@ pub(super) async fn page_files(
             let moved = next.saturating_sub(offset);
             (pager.done, pager.sent, pager.wire) =
                 (pager.done + moved, pager.sent + moved, pager.wire + wire);
-            pager.tick(false).await?;
+            pager.tick(src, false).await?;
             offset = next;
             if page.get("eof") == Some(&Value::Bool(true)) {
                 break;
@@ -284,7 +278,7 @@ pub(super) fn stamped(params: &mut Value, epoch: Option<u64>) -> Value {
 /// a move) agrees; from zero (the target writes it again) when it does not or the source cannot
 /// say.
 pub(super) async fn resume_offsets(
-    src: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
     prepare_id: &str,
     stage: &Value,
 ) -> HashMap<String, u64> {

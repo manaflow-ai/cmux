@@ -470,11 +470,10 @@ impl Hub {
         }
         // A delta bundle comes with the prefix staged for it (`transfer_precopy.rs`), never alone.
         let stage_id = params.get("stageId").and_then(Value::as_str);
-        if names_prefix(&manifest) != stage_id.is_some() || (stage_id.is_some() && guard.is_some())
-        {
+        if names_prefix(&manifest) != stage_id.is_some() {
             return Err(transfer_error(
                 "unstaged",
-                "a manifest with a prefix needs its stageId, unguarded, and only it does",
+                "a manifest with a prefix needs its stageId, and only it does",
             ));
         }
         let _receives = RECEIVES.lock().await;
@@ -497,7 +496,8 @@ impl Hub {
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let mut have = Vec::new();
-        match stage_id.map(|stage| self.take_stage(stage, &manifest, &dir)) {
+        let control = guard.as_ref().map(|g| g.control);
+        match stage_id.map(|stage| self.take_stage(stage, &manifest, &dir, control)) {
             Some(Err(e)) => {
                 let _ = crate::home_fs::remove_dir_all(&dir);
                 return Err(e);
