@@ -99,14 +99,6 @@ pub trait Daemon: Send + Sync {
     fn workspace_name(&self, _id: &str) -> Option<String> {
         None
     }
-    /// After the daemon refused `computer-use-endpoint`: swap a daemon older
-    /// than the installed build for that build, keeping its terminals
-    /// (`outdated_daemon.rs`). Ok(true) once swapped, so the endpoint is
-    /// worth asking again; Ok(false) when the refusal is the daemon's own
-    /// answer; Err with the reason no swap could fix it.
-    fn update_outdated(&self) -> Result<bool, String> {
-        Ok(false)
-    }
 }
 
 /// Where a workspace named `id` sits in a `list-workspaces` answer: its `name`.
@@ -149,17 +141,41 @@ impl std::fmt::Display for DaemonError {
 pub const DAEMON_SOCKET_ENV: &str = "CMUX_TUI_SOCKET";
 
 /// The real daemons: the cmux-tui daemon on its local socket
-/// (`CMUX_TUI_SOCKET`, else the `main` session's default socket) and this
-/// user's acpmux daemon (`ACPMUX_SOCKET` / `ACPMUX_HOME`).
+/// (`CMUX_TUI_SOCKET`, else the running app's daemon, else the `main`
+/// session's: [`super::daemon_socket`]) and this user's acpmux daemon
+/// (`ACPMUX_SOCKET` / `ACPMUX_HOME`).
 pub struct SocketDaemon {
     pub path: PathBuf,
+    /// Every path the lookup considered, for the error when none answers.
+    looked: Vec<super::daemon_socket::Candidate>,
 }
 
 impl SocketDaemon {
     pub fn from_env() -> Self {
-        let path =
-            cmux::raw::env_socket_path().unwrap_or_else(|| cmux::raw::default_socket_path("main"));
-        Self { path }
+        Self::from_candidates(super::daemon_socket::from_process())
+    }
+
+    /// The first of `candidates` whose socket exists, else the first.
+    pub fn from_candidates(candidates: Vec<super::daemon_socket::Candidate>) -> Self {
+        let path = super::daemon_socket::pick(&candidates)
+            .map(|c| c.path.clone())
+            .unwrap_or_else(|| cmux::raw::default_socket_path("main"));
+        Self { path, looked: candidates }
+    }
+
+    /// Why the daemon could not be reached: the path tried and, when the lookup had others,
+    /// every one it looked at and what named it.
+    fn unreachable(&self, error: &io::Error) -> DaemonError {
+        let mut why = format!("{} at {}", error, self.path.display());
+        if self.looked.len() > 1 {
+            let looked: Vec<String> = self
+                .looked
+                .iter()
+                .map(|c| format!("{} ({})", c.path.display(), c.source))
+                .collect();
+            why.push_str(&format!("; looked for {}", looked.join(", ")));
+        }
+        DaemonError::Unreachable(why)
     }
 
     #[cfg(unix)]
@@ -178,9 +194,21 @@ impl SocketDaemon {
         Ok(stream)
     }
 
-    /// `{"cmd": cmd, ...params}` on a new connection; the reply's `data`.
+    /// `{"cmd": cmd, ...params}` on a new connection; the reply's `data`. A
+    /// daemon older than the command is restarted once with the installed
+    /// build first (`daemon_skew.rs`).
     pub fn request(&self, cmd: &str, params: Value) -> Result<Value, DaemonError> {
-        let unreachable = |e: io::Error| DaemonError::Unreachable(e.to_string());
+        crate::daemon_skew::request(self, cmd, params)
+    }
+}
+
+impl crate::daemon_skew::RawDaemon for SocketDaemon {
+    fn restart_in_place(&self, cli: &std::path::Path) -> Result<(), String> {
+        crate::daemon_skew::restart_in_place(cli, &self.path)
+    }
+
+    fn send_once(&self, cmd: &str, params: Value) -> Result<Value, DaemonError> {
+        let unreachable = |e: io::Error| self.unreachable(&e);
         let mut stream = self.connect().map_err(unreachable)?;
         let id = format!("cu-{}", uuid::Uuid::now_v7().simple());
         let mut request = match params {
@@ -263,25 +291,6 @@ impl Daemon for SocketDaemon {
 
     fn workspace_name(&self, id: &str) -> Option<String> {
         workspace_name_in(&self.request("list-workspaces", json!({})).ok()?, id)
-    }
-
-    fn update_outdated(&self) -> Result<bool, String> {
-        use super::outdated_daemon::{self as outdated, Verdict};
-        let identity =
-            self.request("identify", json!({"revisions": true})).map_err(|e| e.to_string())?;
-        let installed = identity["cli_path"]
-            .as_str()
-            .and_then(|cli| outdated::installed_build(std::path::Path::new(cli)));
-        match outdated::verdict(&identity, installed.as_ref()) {
-            Verdict::Current => Ok(false),
-            Verdict::NoNewerBuild(why) => Err(why),
-            Verdict::Restart { cli } => {
-                if !outdated::first_restart(identity["pid"].as_u64()) {
-                    return Err("the cmux daemon still lacks Computer Use after a restart".into());
-                }
-                outdated::restart_in_place(&cli, &self.path).map(|()| true)
-            }
-        }
     }
 }
 
@@ -485,9 +494,6 @@ pub struct Caller<D: Daemon> {
     /// ends and its cursor never lingers. None until the first call, and
     /// again once the worker it was open to went away.
     attached: std::sync::Arc<Mutex<Option<Endpoint>>>,
-    /// Set once this caller asked the daemon to update an outdated build
-    /// (`Daemon::update_outdated`): a second refusal is final.
-    updated_daemon: std::sync::atomic::AtomicBool,
 }
 
 /// Where the agent cursor's tag comes from.
@@ -514,7 +520,6 @@ impl<D: Daemon> Caller<D> {
             next_id: std::sync::atomic::AtomicU64::new(1),
             tag: Mutex::new(CursorTag::default()),
             attached: std::sync::Arc::new(Mutex::new(None)),
-            updated_daemon: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -710,7 +715,7 @@ impl<D: Daemon> Caller<D> {
     }
 
     fn send(&self, request: &Value) -> Result<Value, Outcome> {
-        let mut deadline = Instant::now() + self.budget;
+        let deadline = Instant::now() + self.budget;
         let mut backoff = FIRST_BACKOFF;
         let mut last = String::new();
         loop {
@@ -740,24 +745,13 @@ impl<D: Daemon> Caller<D> {
                         }
                     },
                     Err(DaemonError::Refused { code, message }) => {
-                        // A daemon without the command never gets it by waiting, but an
-                        // older daemon an update left running is swapped for the installed
-                        // build once (cmux#48044); then the endpoint is asked again.
-                        let first =
-                            !self.updated_daemon.swap(true, std::sync::atomic::Ordering::SeqCst);
-                        let why = match first.then(|| self.daemon.update_outdated()) {
-                            Some(Ok(true)) => {
-                                deadline = Instant::now() + self.budget;
-                                last = "the cmux daemon restarted with the installed build".into();
-                                continue;
-                            }
-                            Some(Err(why)) => format!(" {why}."),
-                            Some(Ok(false)) | None => String::new(),
-                        };
+                        // A daemon without the command never gets it by waiting. An older
+                        // daemon an update left running was already swapped for the
+                        // installed build once (`daemon_skew.rs`); the message says why not.
                         return Err(Outcome::Failed {
                             code: "computer_use_unavailable".into(),
                             message: format!(
-                                "cmux could not start Computer Use: {message} ({code}).{why}"
+                                "cmux could not start Computer Use: {message} ({code})."
                             ),
                         });
                     }

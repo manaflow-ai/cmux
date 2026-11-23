@@ -474,6 +474,28 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "action app-try-undo",
         ..Action::DEFAULT
     },
+    // The recovery key (customization capability matrix row `recovery-hotkey`): one fixed chord
+    // that runs `cmux customize revert`, so a look that broke the window is undone without
+    // finding Settings or a terminal. Its handler runs the bundled CLI's verb (the engine is
+    // cmux-customize `try_on.rs`), as Settings' Revert Now does. The chord is one no other
+    // default, macOS or Ghostty takes (`tests/default_keymap_conflicts.rs`). A person's
+    // keybindings can still rebind it: the catalog has no unbindable flag, and safe mode
+    // (`cmux safe-mode on`) loads the defaults with no customization.
+    Action {
+        id: "customize.revert",
+        group: GROUP,
+        title: t("ActionCatalog", "action.customize.revert", "Undo Look Change"),
+        hint: Some(t("ActionCatalog", "action.customize.revert.hint", "Stop trying on a look and put back what was there before.")),
+        description: Some("Runs `cmux customize revert`: ends the look being tried on and puts back what was there before."),
+        keywords: &["customize", "customization", "look", "theme", "revert", "undo", "put back", "broken", "recover", "reset", "try on"],
+        default_shortcut: Some(Shortcut { key: "z", modifiers: CTRL | OPT | CMD }),
+        category: "settings",
+        symbol: "arrow.uturn.backward.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action customize-revert",
+        ..Action::DEFAULT
+    },
     Action {
         id: "palette.pro.upgrade",
         group: GROUP,
@@ -1046,6 +1068,20 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Every tooltip state on the real tooltip surface, light, dark and an accent theme, with a live toolbar to hover
+    // (Lawrence 2026-11-20: "tooltips everywhere needs to be redesigned to be better and consistent").
+    Action {
+        id: "debug.tooltipGallery",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.tooltipGallery", "Tooltip Gallery"),
+        keywords: &["tooltip", "tooltips", "hover", "help", "shortcut", "keycap", "gallery", "playground", "debug"],
+        category: "settings",
+        symbol: "questionmark.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-tooltip-gallery",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,
@@ -1067,6 +1103,19 @@ pub static ACTIONS: &[Action] = &[
         symbol: "paintpalette",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-all-themes-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.envSecretsPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.envSecretsPlayground", "Environment Secrets Playground"),
+        keywords: &["environment", "variables", "secrets", "env", "cloud", "keys", "hosts", "playground", "variants", "debug"],
+        category: "settings",
+        symbol: "key.horizontal",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::VARIANT.optional(), args::STATE.optional(), args::DARK.optional()],
+        cli_name: "action debug-env-secrets-playground",
         is_debug_only: true,
         ..Action::DEFAULT
     },

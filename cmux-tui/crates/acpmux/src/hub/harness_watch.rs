@@ -5,8 +5,12 @@
 //! the user folder and cmux.json. Linux: inotify for changes only
 //! (`quiet_dirs`), since notify asks for every open. Others: notify's watcher
 //! (inotify). macOS: kqueue vnode events (`record_watch::DirWatch`) on the
-//! folders and on each file in them, made again when the files change, and
-//! a change counts only when what the sources hold changed (`sources_print`).
+//! folders and on each file in them, made again when the files change.
+//! On every platform a burst reloads only when what the sources hold changed
+//! since the last reload (`sources_print`): a folder made on the way to a
+//! missing source folder (a new folder in the home or `~/.config`) moves the
+//! watch, but reloads nothing, since each reload drops the warming pooled
+//! sessions (`reload_catalog`).
 //! Not FSEvents: it goes through fseventsd, which falls behind a burst of
 //! writes anywhere on the volume (a build, a full test run) by many seconds
 //! or drops the events (cx-ckdxf), so a new profile was missed or its event
@@ -118,6 +122,9 @@ impl Hub {
         if sources == ProfileSources::none() {
             return;
         }
+        // Before the watch is armed: a change made after this has an event, and the event's
+        // burst sees that the sources differ from what the loaded catalog read.
+        let loaded = sources_print(&sources);
         let (tx, rx) = std::sync::mpsc::channel();
         #[cfg(target_os = "linux")]
         let watcher = match crate::quiet_dirs::QuietDirs::follow(
@@ -172,7 +179,7 @@ impl Hub {
         let watch = Arc::downgrade(&watch);
         let thread = std::thread::Builder::new()
             .name("acpmux-harness-watch".into())
-            .spawn(move || run(&rx, &watch, &sources, &signal));
+            .spawn(move || run(&rx, &watch, &sources, loaded, &signal));
         if let Err(e) = thread {
             tracing::warn!("harness watch thread cannot start: {e}");
         }
@@ -384,12 +391,11 @@ fn source_files(sources: &ProfileSources) -> Vec<PathBuf> {
 }
 
 /// A path's size and modification time.
-#[cfg(target_os = "macos")]
 type Stamp = (u64, Option<std::time::SystemTime>);
 
 /// What the profile sources hold: each source folder's entries with their
 /// size and modification time (None for a missing folder), and cmux.json's.
-#[cfg(target_os = "macos")]
+/// A folder on the way to a missing source folder is not in it.
 fn sources_print(sources: &ProfileSources) -> Vec<(PathBuf, Option<Stamp>)> {
     let stamp = |path: &Path| std::fs::metadata(path).ok().map(|m| (m.len(), m.modified().ok()));
     let mut print = Vec::new();
@@ -468,11 +474,13 @@ fn followed(_path: &Path, _sources: &ProfileSources) -> bool {
 }
 
 /// Ends when the watcher is dropped (the channel closes), or when the reload
-/// task is gone (the runtime stopped or the hub dropped).
+/// task is gone (the runtime stopped or the hub dropped). `loaded` is what the
+/// sources held before the watch was armed (`sources_print`).
 fn run(
     rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
     watch: &std::sync::Weak<HarnessWatcher>,
     sources: &ProfileSources,
+    mut loaded: Vec<(PathBuf, Option<Stamp>)>,
     signal: &tokio::sync::mpsc::UnboundedSender<()>,
 ) {
     // FSEvents reports real paths: a symlinked ~/.config must still match.
@@ -513,9 +521,16 @@ fn run(
             let Some(watch) = watch.upgrade() else { return };
             watch.refresh(sources);
             drop(watch);
-            // Only a signal: the reload runs on the runtime, never here.
-            if signal.send(()).is_err() {
-                return;
+            // The watch follows a folder made on the way, but the catalog reloads only when
+            // the sources hold something else: a reload drops the warming pooled sessions.
+            // Read after the refresh, so a change the refresh's look found counts too.
+            let now = sources_print(sources);
+            if now != loaded {
+                loaded = now;
+                // Only a signal: the reload runs on the runtime, never here.
+                if signal.send(()).is_err() {
+                    return;
+                }
             }
         }
         if closed {
