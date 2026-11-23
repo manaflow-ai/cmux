@@ -13,9 +13,7 @@ pub(crate) const RECORD_KIND: &str = "task_list";
 impl Hub {
     /// Logs and saves `session`'s task list after it changed.
     pub(super) fn task_list_changed(&self, session: &Session) {
-        let list = session
-            .read_meta(|m| m.task_list.as_ref().map(task_list::TaskList::summary))
-            .map_or(Value::Null, |s| serde_json::to_value(s).unwrap_or(Value::Null));
+        let list = self.task_list_get(session);
         self.append(session, "mux", RECORD_KIND, json!({"taskList": list}));
         self.save_meta(session);
     }
@@ -30,7 +28,8 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            match task_list::after_set(m.task_list.as_ref(), source, items, now_ms()) {
+            match task_list::after_set(m.task_list.as_ref(), source, items, now_ms(), m.turn_count)
+            {
                 Some(list) => {
                     m.task_list = list;
                     true
@@ -46,10 +45,20 @@ impl Hub {
         Ok(self.task_list_get(session))
     }
 
-    /// `session`'s task list's summary, or null.
+    /// `session`'s task list's summary, or null: also once it expired (`TaskList::current`).
     pub(crate) fn task_list_get(&self, session: &Session) -> Value {
         session
-            .read_meta(|m| m.task_list.as_ref().map(task_list::TaskList::summary))
+            .read_meta(current_task_list)
             .map_or(Value::Null, |s| serde_json::to_value(s).unwrap_or(Value::Null))
     }
+}
+
+/// The summary of `m`'s task list while it is the chat's plan, else None: a list a turn that never
+/// touched it went past has expired (`TaskList::current`).
+pub(crate) fn current_task_list(m: &SessionMeta) -> Option<task_list::TaskListSummary> {
+    let running = matches!(m.status, SessionStatus::Running | SessionStatus::Waiting);
+    m.task_list
+        .as_ref()
+        .filter(|list| list.current(m.turn_count, running))
+        .map(task_list::TaskList::summary)
 }

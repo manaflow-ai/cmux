@@ -11,8 +11,11 @@
 //! in.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use futures_util::StreamExt as _;
+use futures_util::stream::FuturesUnordered;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::UnixStream;
@@ -25,17 +28,62 @@ pub const MACHINE_PIPE_METHOD: &str = "_acpmux/remote.pipe";
 /// The longest reply line read before the pipe's bytes.
 const MAX_REPLY_BYTES: usize = 16 * 1024;
 
+/// How long one pipe has alone before another is asked for beside it. A pipe is a hub circuit
+/// (a ticket, a relay allocation, the far machine joining, a Noise exchange): about 1 s to a
+/// machine on a good uplink, 2 to 8 s to a Mac on a slow one, and now and then 12 s or a join that
+/// never comes, while the next circuit to the same machine opens in the usual time.
+const PIPE_STAGGER: Duration = Duration::from_secs(3);
+/// Pipes asked for in one dial, at most; the caller's connect stage bounds the dial as a whole.
+const PIPE_ATTEMPTS: usize = 3;
+
 /// Dials a loopback route on `machine` through the acpmux daemon at `socket`.
 #[derive(Debug, Clone)]
 pub struct MachinePipeDialer {
     socket: PathBuf,
     machine: String,
+    stagger: Duration,
 }
 
 impl MachinePipeDialer {
     /// `machine`: an acpmux peer name or the machine's node key (`wgPublicKey`).
     pub fn new(socket: PathBuf, machine: String) -> Self {
-        Self { socket, machine }
+        Self { socket, machine, stagger: PIPE_STAGGER }
+    }
+
+    #[cfg(test)]
+    fn with_stagger(mut self, stagger: Duration) -> Self {
+        self.stagger = stagger;
+        self
+    }
+
+    /// One pipe: the request line, the reply line, then the circuit's bytes.
+    async fn open_pipe(&self, port: u16) -> Result<UnixStream, LinkError> {
+        let mut stream = UnixStream::connect(&self.socket).await.map_err(|error| {
+            LinkError::Transport(format!(
+                "acpmux is not running at {}: {error}",
+                self.socket.display()
+            ))
+        })?;
+        stream
+            .write_all(machine_pipe_request(&self.machine, port).as_bytes())
+            .await
+            .map_err(|error| LinkError::Transport(error.to_string()))?;
+        // One byte at a time: nothing past the newline may be read, it is the daemon's.
+        let mut line = Vec::new();
+        loop {
+            let byte = stream.read_u8().await.map_err(|_| {
+                LinkError::Transport("acpmux closed the pipe before answering".into())
+            })?;
+            if byte == b'\n' {
+                break;
+            }
+            if line.len() == MAX_REPLY_BYTES {
+                return Err(LinkError::Protocol("acpmux's pipe reply is too long".into()));
+            }
+            line.push(byte);
+        }
+        machine_pipe_reply(&line)?;
+        Ok(stream)
     }
 }
 
@@ -135,6 +183,16 @@ impl Dialer for MachinePipeDialer {
         "machine"
     }
 
+    /// One link for every lane: each dial is a hub circuit of its own (a ticket, a relay
+    /// allocation, the far machine joining, a Noise exchange, then the route's WebSocket and
+    /// Noise), all through the same relay and the same far uplink, so links of their own buy no
+    /// separate path. Measured to a Mac on a slow uplink, 2 to 8 s each: the first connect's three
+    /// circuits (the second and third after the first) outran the 15 s attempt and started over,
+    /// and a slow join on any one of them ended the whole connect.
+    fn parallel_links(&self) -> bool {
+        false
+    }
+
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
         if !loopback_host(host) {
             // Not redialed: no redial makes this route reachable this way.
@@ -143,32 +201,35 @@ impl Dialer for MachinePipeDialer {
                  (ws://127.0.0.1:PORT), not {host}"
             )));
         }
-        let mut stream = UnixStream::connect(&self.socket).await.map_err(|error| {
-            LinkError::Transport(format!(
-                "acpmux is not running at {}: {error}",
-                self.socket.display()
-            ))
-        })?;
-        stream
-            .write_all(machine_pipe_request(&self.machine, port).as_bytes())
-            .await
-            .map_err(|error| LinkError::Transport(error.to_string()))?;
-        // One byte at a time: nothing past the newline may be read, it is the daemon's.
-        let mut line = Vec::new();
+        // A slow circuit is not a sign of the next one: ask for another beside it every
+        // `stagger` while none has answered, and keep the first that opens. The ones still
+        // pending are dropped, which closes their sockets and the circuits behind them. A failure
+        // ends the dial only once nothing else is in flight; a transport failure with nothing in
+        // flight asks again at once, and a refusal (one no redial cures) is the answer.
+        let mut pending = FuturesUnordered::new();
+        let mut asked = 0_usize;
+        let mut next = tokio::time::Instant::now();
         loop {
-            let byte = stream.read_u8().await.map_err(|_| {
-                LinkError::Transport("acpmux closed the pipe before answering".into())
-            })?;
-            if byte == b'\n' {
-                break;
+            if asked < PIPE_ATTEMPTS && tokio::time::Instant::now() >= next {
+                pending.push(self.open_pipe(port));
+                asked += 1;
+                next = tokio::time::Instant::now() + self.stagger;
             }
-            if line.len() == MAX_REPLY_BYTES {
-                return Err(LinkError::Protocol("acpmux's pipe reply is too long".into()));
+            let may_ask = asked < PIPE_ATTEMPTS;
+            tokio::select! {
+                biased;
+                Some(result) = pending.next() => match result {
+                    Ok(stream) => return Ok(Box::new(stream)),
+                    Err(error) if !pending.is_empty() => drop(error),
+                    Err(error) if error.refusal().is_some() || !may_ask => return Err(error),
+                    Err(_) => next = tokio::time::Instant::now(),
+                },
+                () = tokio::time::sleep_until(next), if may_ask => {}
+                else => {
+                    return Err(LinkError::Transport("acpmux opened no pipe".into()));
+                }
             }
-            line.push(byte);
         }
-        machine_pipe_reply(&line)?;
-        Ok(Box::new(stream))
     }
 }
 

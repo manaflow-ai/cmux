@@ -39,6 +39,10 @@ pub struct Done {
 pub struct Frame {
     pub access_unit: Vec<u8>,
     pub idr: bool,
+    /// When the capture started, on the protocol clock in µs: from here to `t_capture_us` is
+    /// the frame's capture cost (Linux: the XShm readback and the I420 conversion; macOS:
+    /// taking ScreenCaptureKit's newest frame).
+    pub capture_start_us: u64,
     /// Why the encoder made this IDR on its own (`None` when asked for, or a delta frame).
     pub idr_cause: Option<&'static str>,
     /// When the capture ended, on the protocol clock in µs (the frame's timestamp).
@@ -231,6 +235,8 @@ fn frame_kbps(job: &Job, current_kbps: u32) -> u32 {
 
 fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     let req = &job.req;
+    source.set_picture(req.picture);
+    let capture_start_us = now_ns() / 1000;
     source.capture(req.damage)?;
     let t_capture_us = now_ns() / 1000;
     source.set_profile(req.profile, req.refine);
@@ -243,6 +249,7 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     Ok(Frame {
         access_unit,
         idr,
+        capture_start_us,
         idr_cause: if idr { source.idr_cause() } else { None },
         t_capture_us,
         released_us: job.released_us,

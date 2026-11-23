@@ -184,15 +184,24 @@ impl Serve {
     }
 
     /// `stop`, then end of input; the process stops its session and exits (killed after 3 s).
-    fn stop(mut self) {
+    /// The helper's own end reason, when it gave one: a line it wrote before or as it stopped
+    /// (a link that had already failed says so here, not "stopped by the host").
+    fn stop(mut self) -> Option<String> {
         self.send(&json!({ "stop": true }));
         self.stdin = None;
-        if let Ok(Some(_)) = self.child.wait_timeout(Duration::from_secs(3)) {
-            return;
+        if !matches!(self.child.wait_timeout(Duration::from_secs(3)), Ok(Some(_))) {
+            // Our own child, by its handle (dropping it would end it too).
+            let _ = self.child.kill();
+            let _ = self.child.wait();
         }
-        // Our own child, by its handle (dropping it would end it too).
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        // The process is gone, so its stdout reader ends soon; never wait on it long.
+        let mut ended = None;
+        while let Ok(line) = self.lines.recv_timeout(Duration::from_millis(200)) {
+            if let Some(reason) = line["ended"].as_str() {
+                ended.get_or_insert_with(|| reason.to_owned());
+            }
+        }
+        ended
     }
 }
 
@@ -220,8 +229,12 @@ pub fn serve(
     let mut serve: Option<Serve> = None;
     let mut answer: Option<RdDocument> = None;
     let (mut answered, mut connected, mut signaling) = (false, false, true);
+    // The helper's last status line, so a session stopped before it connected says how far it got.
+    let mut last_status: Option<String> = None;
+    let mut stopped = false;
     let ended = loop {
         if stop.load(Ordering::SeqCst) {
+            stopped = true;
             break Ended { reason: "stopped".into(), connected, tell_hub: None };
         }
         // The host process's lines.
@@ -257,7 +270,8 @@ pub fn serve(
                                 doc.candidates.push(candidate.to_owned());
                             }
                         }
-                        // The answer goes once every candidate this side will find is known.
+                        // The answer goes once this side's host candidates are known (serve
+                        // says candidates_done then); reflexive and relayed ones trickle after it.
                         if line["candidates_done"].as_bool() == Some(true) && !answered {
                             if let Some(doc) = answer.as_ref().filter(|d| !d.key.is_empty()) {
                                 answered = true;
@@ -285,6 +299,7 @@ pub fn serve(
                                 ws.send_text(&json!({"type": "path", "path": path}).to_string());
                         }
                         if let Some(message) = line["status"]["message"].as_str() {
+                            last_status = Some(message.to_owned());
                             eprintln!(
                                 "{}: session {}: {}",
                                 command.status_prefix,
@@ -397,11 +412,51 @@ pub fn serve(
             _ => {}
         }
     };
-    if let Some(s) = serve {
-        s.stop();
-    }
+    let offered = serve.is_some();
+    let helper_end = serve.and_then(Serve::stop);
     ws.close();
+    if stopped && !ended.connected {
+        // Stopped (a newer session replaced it, a revocation, the host stopping) before the
+        // viewer connected: say how far it got and what the helper said, not only "stopped".
+        let progress = Progress { offered, answered, last_status, helper_end };
+        return Ended { reason: stopped_reason(&progress), ..ended };
+    }
     ended
+}
+
+/// How far a session got before it was stopped.
+#[derive(Debug, Default)]
+struct Progress {
+    /// The viewer's offer arrived and the helper started.
+    offered: bool,
+    /// The helper's answer went to the viewer.
+    answered: bool,
+    /// The helper's last status line.
+    last_status: Option<String>,
+    /// The helper's own end reason (its `ended` line).
+    helper_end: Option<String>,
+}
+
+/// The end reason of a session stopped before the viewer connected: `stopped before the viewer
+/// connected: <stage>`, then the helper's last status and its own end reason, when it gave one
+/// other than the stop itself (a link failure or handshake timeout it had already reached).
+fn stopped_reason(progress: &Progress) -> String {
+    let stage = if !progress.offered {
+        "no offer from the viewer yet"
+    } else if !progress.answered {
+        "the screen host had not answered the viewer's offer"
+    } else {
+        "answered; the link to the viewer was not up"
+    };
+    let mut reason = format!("stopped before the viewer connected: {stage}");
+    if let Some(status) = &progress.last_status {
+        reason.push_str(&format!("; last status: {}", crate::printable(status)));
+    }
+    if let Some(end) = progress.helper_end.as_deref().filter(|e| !e.contains("stopped by the host"))
+    {
+        reason.push_str(&format!("; the screen host said: {}", crate::printable(end)));
+    }
+    reason
 }
 
 /// Starts the helper as its own responsible process in its own session (macOS).

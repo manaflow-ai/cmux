@@ -6,6 +6,8 @@
 
 pub mod ffi;
 pub mod plan;
+pub mod relaunch_cover;
+pub mod relaunch_cover_ffi;
 
 pub use plan::{
     Appearance, Display, Frame, ImageKey, Now, Plan, Reason, SavedWindow, plan, png_size,

@@ -54,6 +54,33 @@ fn a_failed_end_says_why_within_the_hubs_limit() {
 }
 
 #[test]
+fn a_stopped_session_says_how_far_it_got_and_what_the_helper_said() {
+    assert_eq!(
+        stopped_reason(&Progress::default()),
+        "stopped before the viewer connected: no offer from the viewer yet"
+    );
+    let offered = Progress { offered: true, ..Progress::default() };
+    assert_eq!(
+        stopped_reason(&offered),
+        "stopped before the viewer connected: the screen host had not answered the viewer's offer"
+    );
+    // A link the helper had already given up on is not hidden behind the stop.
+    let failed = Progress {
+        offered: true,
+        answered: true,
+        last_status: Some("gathering".into()),
+        helper_end: Some("link failed: the secure handshake timed out (local host 4)".into()),
+    };
+    assert_eq!(
+        stopped_reason(&failed),
+        "stopped before the viewer connected: answered; the link to the viewer was not up; last status: gathering; the screen host said: link failed: the secure handshake timed out (local host 4)"
+    );
+    // The helper's answer to the stop itself adds nothing.
+    let stopped = Progress { helper_end: Some("failed: stopped by the host".into()), ..failed };
+    assert!(!stopped_reason(&stopped).contains("the screen host said"));
+}
+
+#[test]
 fn the_hubs_own_closes_end_the_session() {
     // The Session DO closes 4002 on revocation or sharing off, 1000 on /end or bye, 4000
     // when another socket took this role. Any code it may choose ends the media too.
@@ -130,4 +157,25 @@ fn the_helper_is_the_command_given_and_hears_the_setup_line() {
         // It ended at its end of input, well before the 3 s kill.
         assert!(started.elapsed() < Duration::from_secs(3));
     }
+}
+
+#[test]
+fn a_stopped_helpers_own_end_reason_is_kept() {
+    // A helper whose link already failed: its `ended` line is still unread when the stop
+    // comes, and stop() hands it back instead of dropping it.
+    let script =
+        r#"printf '{"ended":"link failed: the secure handshake timed out"}\n'; cat >/dev/null"#;
+    let command = ServeCommand {
+        program: "/bin/sh".into(),
+        args: vec!["-c".into(), script.into()],
+        disclaim: false,
+        log_prefix: "share-host".into(),
+        status_prefix: "share-host".into(),
+    };
+    let serve = Serve::start(&command).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(serve.stop().as_deref(), Some("link failed: the secure handshake timed out"));
+    // A helper that says nothing gives nothing back.
+    let quiet = ServeCommand { args: vec!["-c".into(), "cat >/dev/null".into()], ..command };
+    assert_eq!(Serve::start(&quiet).unwrap().stop(), None);
 }

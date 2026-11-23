@@ -46,6 +46,10 @@
 //! can't go out then either, so there is none for it to cut. A state that
 //! can't be parsed is replaced by a held, restart-pending one with a bind in
 //! flight, which lapses on its own, so a bad file never wedges a machine.
+//!
+//! Every rule above is one pure step in [`machine`] (`gate/machine.rs`, its table in
+//! `schemas/updater-gate/table.json`); this file is the shell around it: each method locks,
+//! reads, steps, writes when the step says so, and maps the step's verdict to its answer.
 
 use std::cell::Cell;
 use std::fmt;
@@ -53,9 +57,11 @@ use std::fs;
 use std::io;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
-
 use crate::config::Paths;
+
+pub mod machine;
+
+use machine::{Event, GateState, Refusal, Verdict};
 
 /// No flip or restart this long after the role starts (a boot, or a restart
 /// that is not the one an update's own flip queued: [`Gate::take_own_flip`]),
@@ -74,70 +80,6 @@ pub const BIND_IN_FLIGHT_FOR: Duration = Duration::from_secs(60);
 pub const GATE_LOCK: &str = "/var/lib/cmux/self-update/gate.lock";
 /// The gate's state.
 pub const GATE_FILE: &str = "/var/lib/cmux/self-update/gate.json";
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct GateState {
-    /// The end of every hold, whatever its kind (all a build from before the
-    /// kinds reads).
-    #[serde(default)]
-    held_until_ms: Option<u64>,
-    /// The end of the connect holds alone (0: none). Missing in a file from
-    /// before the kinds: then every hold in it is a connect hold.
-    #[serde(default)]
-    connect_until_ms: Option<u64>,
-    #[serde(default)]
-    restart_pending_until_ms: Option<u64>,
-    /// The last update flip's mark, until the next start takes it. A build
-    /// from before it drops it when it writes the file: a cold start then.
-    #[serde(default)]
-    own_flip: Option<OwnFlip>,
-    /// Until when a bind's request may still be in flight
-    /// ([`Gate::begin_bind`]).
-    #[serde(default)]
-    bind_in_flight_until_ms: Option<u64>,
-}
-
-/// An update's flip queued the service's restart at `at_ms`, with
-/// `realtime - boottime` at `offset_ns` (a reboot or a restore moves it).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct OwnFlip {
-    at_ms: u64,
-    offset_ns: i64,
-}
-
-impl GateState {
-    /// When the holds no flag skips end.
-    fn connect_until(&self) -> Option<u64> {
-        self.connect_until_ms.or(self.held_until_ms)
-    }
-
-    fn hold(&mut self, until: u64, kind: HoldKind) {
-        // Read before `held_until_ms` moves: an old file's hold is a connect hold.
-        let connect = self.connect_until().unwrap_or(0);
-        self.connect_until_ms =
-            Some(if kind == HoldKind::Connect { connect.max(until) } else { connect });
-        self.held_until_ms = Some(self.held_until_ms.map_or(until, |held| held.max(until)));
-    }
-
-    /// Whether a restart of the service is pending at `now_ms`.
-    fn pending(&self, now_ms: u64) -> bool {
-        self.restart_pending_until_ms.is_some_and(|pending| now_ms < pending)
-    }
-
-    /// What replaces a file that can't be parsed: what it said is lost, so a
-    /// connect hold, a pending restart and a bind in flight, each for a fresh
-    /// bound from `now_ms`, as if a bind had just started. It lapses on its own.
-    fn repaired(now_ms: u64) -> Self {
-        let held = now_ms.saturating_add(ms(CONNECT_HOLD));
-        GateState {
-            held_until_ms: Some(held),
-            connect_until_ms: Some(held),
-            restart_pending_until_ms: Some(now_ms.saturating_add(ms(RESTART_PENDING_FOR))),
-            own_flip: None,
-            bind_in_flight_until_ms: Some(now_ms.saturating_add(ms(BIND_IN_FLIGHT_FOR))),
-        }
-    }
-}
 
 /// What started a connect hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,10 +160,6 @@ impl fmt::Display for Refused {
     }
 }
 
-fn ms(d: Duration) -> u64 {
-    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
-}
-
 pub struct Gate {
     paths: Paths,
 }
@@ -250,13 +188,19 @@ impl Inside<'_> {
         self.gate.read(self.now_ms).unwrap_or_default()
     }
 
+    /// `event` on [`Inside::state`], written best effort.
+    fn mark(&self, now_ms: u64, event: Event) {
+        let step = machine::step(self.state(), now_ms, event);
+        if step.write {
+            let _ = self.gate.write(&step.state);
+        }
+    }
+
     /// Marks the service's restart pending: after the flip, before the restarts.
     /// [`Gate::run`] marked it before `act` already; this keeps it.
     pub fn restart_queued(&self, now_ms: u64) {
         self.queued.set(true);
-        let mut state = self.state();
-        state.restart_pending_until_ms = Some(now_ms.saturating_add(ms(RESTART_PENDING_FOR)));
-        let _ = self.gate.write(&state);
+        self.mark(now_ms, Event::RestartQueued);
     }
 
     /// [`Inside::restart_queued`] for an update's flip, which also marks the
@@ -265,11 +209,7 @@ impl Inside<'_> {
     /// mark that can't be written makes the restart a cold start.
     pub fn flip_restart_queued(&self, now_ms: u64, offset_ns: i128) {
         self.queued.set(true);
-        let mut state = self.state();
-        state.restart_pending_until_ms = Some(now_ms.saturating_add(ms(RESTART_PENDING_FOR)));
-        state.own_flip =
-            i64::try_from(offset_ns).ok().map(|offset_ns| OwnFlip { at_ms: now_ms, offset_ns });
-        let _ = self.gate.write(&state);
+        self.mark(now_ms, Event::FlipRestartQueued { offset_ns });
     }
 
     /// Starts or extends a connect hold under the flock already held (a new
@@ -284,9 +224,10 @@ impl Inside<'_> {
     /// before it can take seconds, and a pause during it minutes. An error
     /// when the hold could not be recorded (the caller keeps it itself).
     pub fn hold(&self, kind: HoldKind, now_ms: u64) -> io::Result<()> {
-        let mut state = self.gate.read(now_ms)?;
-        state.hold(now_ms.saturating_add(ms(CONNECT_HOLD)), kind);
-        self.gate.write(&state)
+        match self.gate.apply(now_ms, Event::InsideHold { kind })? {
+            Verdict::Done => Ok(()),
+            other => Err(unexpected(other)),
+        }
     }
 
     /// The hold this run went past ([`Honor::AllButResume`] with a resume
@@ -314,7 +255,7 @@ impl Gate {
     }
 
     /// The state under the lock. Missing is empty; unparsable is replaced by
-    /// [`GateState::repaired`] (written back), which lapses on its own.
+    /// [`Event::UnreadableFile`]'s state (written back), which lapses on its own.
     fn read(&self, now_ms: u64) -> io::Result<GateState> {
         let bytes = match fs::read(self.paths.at(GATE_FILE)) {
             Ok(bytes) => bytes,
@@ -324,9 +265,18 @@ impl Gate {
         if let Ok(state) = serde_json::from_slice(&bytes) {
             return Ok(state);
         }
-        let state = GateState::repaired(now_ms);
-        self.write(&state)?;
-        Ok(state)
+        let step = machine::step(GateState::default(), now_ms, Event::UnreadableFile);
+        self.write(&step.state)?;
+        Ok(step.state)
+    }
+
+    /// Reads, steps and writes when the step says so; the caller holds the lock.
+    fn apply(&self, now_ms: u64, event: Event) -> io::Result<Verdict> {
+        let step = machine::step(self.read(now_ms)?, now_ms, event);
+        if step.write {
+            self.write(&step.state)?;
+        }
+        Ok(step.verdict)
     }
 
     fn write(&self, state: &GateState) -> io::Result<()> {
@@ -352,10 +302,10 @@ impl Gate {
     /// takes the flock: never inside [`Gate::run`] (see [`hold_connects`]).
     pub fn hold(&self, now_ms: u64, hold: Duration, kind: HoldKind) -> io::Result<bool> {
         let _lock = self.lock()?;
-        let mut state = self.read(now_ms)?;
-        state.hold(now_ms.saturating_add(ms(hold)), kind);
-        self.write(&state)?;
-        Ok(!state.pending(now_ms))
+        match self.apply(now_ms, Event::Hold { kind, hold })? {
+            Verdict::HoldTaken { restart_pending } => Ok(!restart_pending),
+            other => Err(unexpected(other)),
+        }
     }
 
     /// A bind is about to go out: the connect hold and the bind's in-flight
@@ -364,29 +314,29 @@ impl Gate {
     /// of the service is pending. Pair a true with [`Gate::end_bind`].
     pub fn begin_bind(&self, now_ms: u64) -> io::Result<bool> {
         let _lock = self.lock()?;
-        let mut state = self.read(now_ms)?;
-        if state.pending(now_ms) {
-            return Ok(false);
+        match self.apply(now_ms, Event::BeginBind)? {
+            Verdict::BindBegun => Ok(true),
+            Verdict::Refused(Refusal::RestartPending) => Ok(false),
+            other => Err(unexpected(other)),
         }
-        state.hold(now_ms.saturating_add(ms(CONNECT_HOLD)), HoldKind::Connect);
-        state.bind_in_flight_until_ms = Some(now_ms.saturating_add(ms(BIND_IN_FLIGHT_FOR)));
-        self.write(&state)?;
-        Ok(true)
     }
 
     /// The bind is done: its mark goes, and the connect hold runs from now.
     pub fn end_bind(&self, now_ms: u64) -> io::Result<()> {
         let _lock = self.lock()?;
-        let mut state = self.read(now_ms)?;
-        state.bind_in_flight_until_ms = None;
-        state.hold(now_ms.saturating_add(ms(CONNECT_HOLD)), HoldKind::Connect);
-        self.write(&state)
+        match self.apply(now_ms, Event::EndBind)? {
+            Verdict::Done => Ok(()),
+            other => Err(unexpected(other)),
+        }
     }
 
     /// How much of the connect hold is left at `now_ms`, if any.
     pub fn held_left(&self, now_ms: u64) -> io::Result<Option<Duration>> {
         let _lock = self.lock()?;
-        Ok(left(self.read(now_ms)?.held_until_ms, now_ms))
+        match self.apply(now_ms, Event::HeldLeft)? {
+            Verdict::HeldLeft(left) => Ok(left),
+            other => Err(unexpected(other)),
+        }
     }
 
     /// Runs `act` (a flip and its restarts) inside the gate, unless a hold
@@ -428,43 +378,32 @@ impl Gate {
 
     fn run_locked(&self, now_ms: u64, honor: Honor) -> Result<(Locked, Option<HoldKind>), Refused> {
         let lock = self.lock().map_err(Refused::Gate)?;
-        let mut state = self.read(now_ms).map_err(Refused::Gate)?;
-        let mut skipped = None;
-        match honor {
-            Honor::All => {
-                if let Some(left) = left(state.held_until_ms, now_ms) {
-                    return Err(Refused::Held(left));
-                }
+        let state = self.read(now_ms).map_err(Refused::Gate)?;
+        let step = machine::step(state, now_ms, Event::Run { honor });
+        match step.verdict {
+            Verdict::Run { skipped } => {
+                self.write(&step.state).map_err(Refused::Gate)?;
+                Ok((lock, skipped))
             }
-            Honor::AllButResume => {
-                if let Some(left) = left(state.connect_until(), now_ms) {
-                    return Err(Refused::Held(left));
+            Verdict::Refused(Refusal::Held(left)) => Err(Refused::Held(left)),
+            Verdict::Refused(Refusal::BindInFlight(left)) => {
+                // No new bind starts before the rollback. Its write failing must
+                // not turn this into a gate failure, which a rollback runs through.
+                if step.write {
+                    let _ = self.write(&step.state);
                 }
-                if left(state.held_until_ms, now_ms).is_some() {
-                    skipped = Some(HoldKind::Resume);
-                }
+                Err(Refused::BindInFlight(left))
             }
-            Honor::Nothing => {}
+            other => Err(Refused::Gate(unexpected(other))),
         }
-        let in_flight = left(state.bind_in_flight_until_ms, now_ms);
-        state.restart_pending_until_ms = Some(now_ms.saturating_add(ms(RESTART_PENDING_FOR)));
-        if let Some(left) = in_flight {
-            // No new bind starts before the rollback. Its write failing must
-            // not turn this into a gate failure, which a rollback runs through.
-            if honor == Honor::Nothing {
-                let _ = self.write(&state);
-            }
-            return Err(Refused::BindInFlight(left));
-        }
-        self.write(&state).map_err(Refused::Gate)?;
-        Ok((lock, skipped))
     }
 
     /// Clears the pending mark; the caller holds the lock.
     fn clear_pending_locked(&self, now_ms: u64) -> io::Result<()> {
-        let mut state = self.read(now_ms)?;
-        state.restart_pending_until_ms = None;
-        self.write(&state)
+        match self.apply(now_ms, Event::RunFinished { queued: false })? {
+            Verdict::Done => Ok(()),
+            other => Err(unexpected(other)),
+        }
     }
 
     /// Takes the own-flip mark ([`Inside::flip_restart_queued`]), so only one
@@ -476,13 +415,13 @@ impl Gate {
     /// cold start.
     pub fn take_own_flip(&self, now_ms: u64, offset_ns: i128) -> bool {
         let Ok(_lock) = self.lock() else { return false };
-        let Ok(mut state) = self.read(now_ms) else { return false };
-        let Some(mark) = state.own_flip.take() else { return false };
-        if self.write(&state).is_err() {
+        let Ok(state) = self.read(now_ms) else { return false };
+        let step = machine::step(state, now_ms, Event::TakeOwnFlip);
+        let Verdict::OwnFlip { mark: Some(mark), fresh } = step.verdict else { return false };
+        if step.write && self.write(&step.state).is_err() {
             return false;
         }
-        let age = now_ms.checked_sub(mark.at_ms);
-        age.is_some_and(|age| age <= ms(RESTART_PENDING_FOR))
+        fresh
             // The restore test role's `restored_between` makes, read here
             // because the gate builds on every Unix and the role on Linux only.
             && crate::agent::clock_set_wake(i128::from(mark.offset_ns), offset_ns)
@@ -499,10 +438,10 @@ impl Gate {
     /// for is no such restart. An error when the gate failed: binds wait for it.
     pub fn service_started_at(&self, now_ms: u64) -> io::Result<bool> {
         let _lock = self.lock()?;
-        let mut state = self.read(now_ms)?;
-        let Some(until) = state.restart_pending_until_ms.take() else { return Ok(false) };
-        self.write(&state)?;
-        Ok(until > now_ms)
+        match self.apply(now_ms, Event::ServiceStarted)? {
+            Verdict::ServiceStarted { restart_was_pending } => Ok(restart_was_pending),
+            other => Err(unexpected(other)),
+        }
     }
 }
 
@@ -519,11 +458,9 @@ pub fn hold_connects(paths: &Paths, now_ms: u64, kind: HoldKind) -> io::Result<b
     Gate::new(paths).hold(now_ms, CONNECT_HOLD, kind)
 }
 
-fn left(until_ms: Option<u64>, now_ms: u64) -> Option<Duration> {
-    until_ms
-        .and_then(|until| until.checked_sub(now_ms))
-        .filter(|left| *left > 0)
-        .map(Duration::from_millis)
+/// A verdict [`machine::step`] does not give for the event asked: a bug, failed closed.
+fn unexpected(verdict: Verdict) -> io::Error {
+    io::Error::other(format!("the restart gate answered {}", verdict.name()))
 }
 
 #[cfg(test)]

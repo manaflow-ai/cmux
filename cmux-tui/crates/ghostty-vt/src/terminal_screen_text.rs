@@ -39,6 +39,51 @@ impl Terminal {
         Some(ScreenRowText { cells, wraps })
     }
 
+    /// The styled cells of one screen row (row 0 is the oldest retained
+    /// row), whether each cell carries an OSC 8 hyperlink, and the row's
+    /// soft-wrap flag; `None` past the last retained row. The projection
+    /// parity harness reads the Mac's grid with it.
+    pub fn styled_screen_row(&self, row: u64) -> Option<(Vec<crate::Cell>, Vec<bool>, bool)> {
+        let cols = self.cols();
+        let tag = sys::GHOSTTY_POINT_TAG_SCREEN;
+        let first = self.grid_ref(tag, 0, row)?;
+        let palette =
+            crate::render::terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)
+                .ok()?;
+        // One page-list walk for the row when both ends land on the same
+        // page row (see `styled_history_rows`).
+        let whole_row = cols == 1
+            || self.grid_ref(tag, cols - 1, row).is_some_and(|last| {
+                last.node == first.node && last.y == first.y && last.x == cols - 1
+            });
+        let mut grapheme_buf = Vec::new();
+        let mut cells = Vec::with_capacity(usize::from(cols));
+        let mut links = Vec::with_capacity(usize::from(cols));
+        for x in 0..cols {
+            let grid_ref = if whole_row {
+                sys::GhosttyGridRef { x, ..first }
+            } else {
+                self.grid_ref(tag, x, row)?
+            };
+            cells.push(
+                crate::render::read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf).ok()?,
+            );
+            let mut raw = sys::GhosttyCell::default();
+            check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
+            let mut link = false;
+            let read = unsafe {
+                sys::ghostty_cell_get(
+                    raw,
+                    sys::GHOSTTY_CELL_DATA_HAS_HYPERLINK,
+                    (&mut link as *mut bool).cast(),
+                )
+            };
+            links.push(read == sys::GHOSTTY_SUCCESS && link);
+        }
+        let wraps = self.row_flag(tag, row, sys::GHOSTTY_ROW_DATA_WRAP) == Some(true);
+        Some((cells, links, wraps))
+    }
+
     /// Plain text of the rectangle spanned by two absolute screen points
     /// (inclusive), one line per row with trailing blanks trimmed.
     pub fn block_selection_text_absolute(

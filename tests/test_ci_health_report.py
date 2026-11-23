@@ -65,6 +65,8 @@ def metrics_from(fixture: dict[str, Any], window: Any, partial: tuple[str, ...] 
 CURRENT_WINDOW, PREVIOUS_WINDOW = report.windows(NOW, 6)
 
 
+ONE_LINUX_LABEL = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}"
+
 class JobRowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fixture = load("window.json")
@@ -634,10 +636,9 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn('- cron: "37 2,8,14,20 * * *"', self.text)
         self.assertIn("workflow_dispatch:", self.text)
 
-    def test_the_runner_comes_from_a_repository_variable(self):
-        self.assertIn(
-            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}", self.text
-        )
+    def test_the_runner_is_the_one_linux_label(self):
+        # scripts/ci/one_linux_label.py: no size picked in the workflow; a fork pull request takes its own variable.
+        self.assertIn("runs-on: " + ONE_LINUX_LABEL, self.text)
 
     def test_it_can_read_runs_and_write_issue_comments_but_not_cancel(self):
         self.assertIn("\npermissions: {}\n", self.text)

@@ -16,6 +16,7 @@ fn claims(permission: RelayPermission, role: RelayRole) -> RelayTicketClaims {
         generation: None,
         issued_at_unix: 100,
         expires_at_unix: 200,
+        grant: None,
     }
 }
 

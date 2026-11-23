@@ -42,7 +42,7 @@ fn a_request_names_exactly_one_known_grant() {
 #[test]
 fn a_launch_services_open_is_recognized_only_inside_a_bundle() {
     use std::path::Path;
-    let helper = Path::new("/x/cmux Screen Sharing.app/Contents/MacOS/cmux-screen-sharing");
+    let helper = Path::new("/x/cmux Helper.app/Contents/MacOS/cmux-screen-sharing");
     let cli = Path::new("/usr/local/bin/cmux-rd");
     assert!(crate::is_launch_services_open(&[], helper));
     assert!(crate::is_launch_services_open(&["-psn_0_1234".into()], helper));

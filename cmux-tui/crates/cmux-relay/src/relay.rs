@@ -1406,6 +1406,7 @@ fn join_claims(
         generation: Some(generation),
         issued_at_unix: validity.0,
         expires_at_unix: validity.1,
+        grant: None,
     }
 }
 

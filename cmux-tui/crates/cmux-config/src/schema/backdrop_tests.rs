@@ -1,5 +1,81 @@
 use super::*;
 
+fn list(items: &[&str]) -> Vec<String> {
+    items.iter().map(|item| item.to_string()).collect()
+}
+
+#[test]
+fn record_recent_puts_the_previous_first_once() {
+    assert_eq!(record_recent(&[], "daily"), list(&["daily"]));
+    let recents = list(&["folder:/Walls", "desktop", "daily"]);
+    assert_eq!(record_recent(&recents, "daily"), list(&["daily", "folder:/Walls", "desktop"]));
+    assert_eq!(
+        record_recent(&recents, "file:/a.png"),
+        list(&["file:/a.png", "folder:/Walls", "desktop", "daily"])
+    );
+}
+
+#[test]
+fn record_recent_caps_and_refuses_junk() {
+    let many: Vec<String> = (0..12).map(|n| format!("file:/p{n}.png")).collect();
+    let next = record_recent(&many, "folder:/Walls");
+    assert_eq!(next.len(), RECENTS_CAP);
+    assert_eq!(next[0], "folder:/Walls");
+    assert_eq!(next[1], "file:/p0.png");
+    assert_eq!(record_recent(&list(&["daily"]), "not a background"), list(&["daily"]));
+    assert_eq!(
+        record_recent(&list(&["junk", "folder:/", "desktop"]), "none"),
+        list(&["none", "desktop"])
+    );
+    assert!(is_recents(&Value::Array(next.iter().cloned().map(Value::String).collect())));
+}
+
+#[test]
+fn previous_background_swaps_back_and_forth() {
+    // A rotating folder, then one picture: the swap goes to the folder, and back.
+    let mut current = "file:/Users/me/harbor.png".to_string();
+    let mut recents = list(&["folder:/Users/me/Walls"]);
+    for expected in
+        ["folder:/Users/me/Walls", "file:/Users/me/harbor.png", "folder:/Users/me/Walls"]
+    {
+        let previous = previous_background(&current, &recents).expect("a previous one");
+        assert_eq!(previous, expected);
+        recents = record_recent(&recents, &current);
+        current = previous;
+    }
+    assert_eq!(previous_background("daily", &list(&["daily"])), None);
+    assert_eq!(previous_background("daily", &[]), None);
+    assert_eq!(
+        previous_background("daily", &list(&["daily", "junk", "desktop"])),
+        Some("desktop".into())
+    );
+}
+
+#[test]
+fn recents_accepts_backgrounds_only() {
+    use serde_json::json;
+    assert!(is_recents(&json!([])));
+    assert!(is_recents(&json!([
+        "daily",
+        "folder:/Walls",
+        "desktop",
+        "none",
+        "file:/a.png",
+        "schedule"
+    ])));
+    for bad in [
+        json!("daily"),
+        json!(["daily", "daily"]),
+        json!(["folder:/"]),
+        json!(["file:relative.png"]),
+        json!([1]),
+        json!(["__not_a_backdrop__"]),
+        json!(["a", "b", "c", "d", "e", "f", "g", "h", "i"].map(|n| format!("file:/{n}.png"))),
+    ] {
+        assert!(!is_recents(&bad), "{bad}");
+    }
+}
+
 #[test]
 fn schedule_keys_follow_swift() {
     for good in ["07:00", "9:30", "23:59", "sunset", "sunset-30m", "sunrise+1h", "dusk+90m", "noon"]

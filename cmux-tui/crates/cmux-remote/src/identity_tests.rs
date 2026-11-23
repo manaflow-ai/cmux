@@ -142,8 +142,12 @@ async fn revoking_a_device_enrolled_by_a_bound_invitation_cuts_it_off() {
     let invitation = bound_invitation(&auth, &device, None).await;
     let grant = claim(&auth, invitation_request(&invitation.id, &device, "agent")).await.unwrap();
 
-    auth.revoke(&grant.device_id).await.unwrap();
+    let revoked = auth.revoke(&grant.device_id).await.unwrap();
 
+    // The reply names the device, so `enroll revoke` can say which one.
+    assert_eq!(revoked.id, grant.device_id);
+    assert_eq!(revoked.fingerprint, device.fingerprint());
+    assert!(revoked.revoked_at_unix.is_some());
     assert!(!auth.grant_is_current(&grant).await);
     assert!(!auth.device_is_active(&grant.device_id).await);
     let error =

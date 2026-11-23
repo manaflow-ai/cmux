@@ -9,6 +9,13 @@ fn a_frame_budget_is_one_frame_intervals_share_of_the_rate() {
 }
 
 #[test]
+fn the_ladders_budget_is_twice_the_rate_over_one_second() {
+    assert_eq!(loose_budget(8_000), (2_000_000, 1.0));
+    assert!(loose_budget(8_000).0 > frame_budget(8_000, 60).0 * 60, "looser than a frame's");
+    assert!(loose_budget(u32::MAX).0 > 0, "clamped, never negative");
+}
+
+#[test]
 fn ultra_holds_frame_rate_first_within_a_per_pixel_ceiling() {
     const P1080: usize = 1920 * 1080;
     // 150 Mbps at 120 fps: one frame interval's share, as standard.
@@ -21,6 +28,15 @@ fn ultra_holds_frame_rate_first_within_a_per_pixel_ceiling() {
     assert_eq!(ultra_frame_budget(150_000, 120, P1080, 4).0, 625_000);
     assert_eq!(ultra_frame_budget(400_000, 120, P1080, 4).0, 777_600);
     assert!(ultra_frame_budget(100, 120, 0, 1).0 > 0, "never zero");
+}
+
+#[test]
+fn a_qp_floor_never_passes_the_ladders_ceiling() {
+    // The guard's 51 on a 2 KB budget under the ladder's 40: 40, not a -12902 frame.
+    assert_eq!(floor_under_ceiling(51, Some(40)), 40);
+    assert_eq!(floor_under_ceiling(30, Some(40)), 30);
+    assert_eq!(floor_under_ceiling(0, Some(40)), 0, "no floor stays none");
+    assert_eq!(floor_under_ceiling(51, None), 51, "no ceiling, no clamp");
 }
 
 #[test]
