@@ -60,6 +60,15 @@ body {
   overscroll-behavior: none;
 }
 
+/* CORNER RULE (ui/cornerRule.experiment.ts): the generated tokens draw Instrument's corners (card 12,
+   composer 16, toast 12); the classic arm draws the corners from before the rule. */
+:root[data-corner-rule="classic"] {
+  --ds-radius-card: 14px;
+  --ds-radius-composer: 18px;
+  --surface-card-radius: 10px;
+  --surface-toast-radius: 9px;
+}
+
 /* The design scale (tokens.md, grid.md, glass.md): spacing, control heights, the icon scale, radii,
    the glass levels, the two elevations and the colour roles. The source is
    schemas/design-scale/design-scale.json; webviews/scripts/pages/gen-design-scale.mjs writes this block,
@@ -111,8 +120,8 @@ body {
   --ds-radius-2xl: 16px; /* code blocks (named exception) */
   --ds-radius-control: var(--cmux-button-radius, 8px); /* every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs) */
   --ds-radius-popup: 8px;
-  --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
-  --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
+  --ds-radius-card: 12px; /* a card: the container corner, control 8 + inset 4 (Instrument v0.1 corner rule; the corner-rule experiment's classic arm draws the earlier 14) */
+  --ds-radius-composer: 16px; /* the composer: control 8 + inset 8 (Instrument v0.1 corner rule; the corner-rule experiment's classic arm draws the earlier 18) */
   --ds-radius-menu: var(--cmux-menu-highlight-radius); /* AppKit's menu highlight (menu-metrics) */
   /* glass chrome (level): chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1) */
   --ds-glass-chrome-tint: 62%;
