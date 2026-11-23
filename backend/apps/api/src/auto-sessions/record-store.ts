@@ -34,9 +34,10 @@ type Row = {
   created_at: number
   updated_at: number
   lease_expires_at: number
+  owes_import: number
 }
 
-const TABLE = `CREATE TABLE IF NOT EXISTS session (k INTEGER PRIMARY KEY CHECK (k = 1), id TEXT NOT NULL, owner TEXT NOT NULL, team TEXT, title TEXT NOT NULL, harness TEXT NOT NULL, auto INTEGER NOT NULL, keep_in_cloud INTEGER NOT NULL, holder TEXT NOT NULL, epoch INTEGER NOT NULL, needs_run INTEGER NOT NULL, standby TEXT NOT NULL, blocked TEXT, assignment TEXT, machine TEXT, parked_from TEXT, resumed_epoch INTEGER NOT NULL DEFAULT 0, last_seq INTEGER NOT NULL, snapshot INTEGER NOT NULL, snapshot_seq INTEGER NOT NULL, inbox INTEGER NOT NULL, inbox_acked INTEGER NOT NULL, repo_remote TEXT, repo_branch TEXT, event_bytes INTEGER NOT NULL, version INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, lease_expires_at INTEGER NOT NULL, indexed_version INTEGER NOT NULL DEFAULT 0, index_retry_at INTEGER NOT NULL DEFAULT 0)`
+const TABLE = `CREATE TABLE IF NOT EXISTS session (k INTEGER PRIMARY KEY CHECK (k = 1), id TEXT NOT NULL, owner TEXT NOT NULL, team TEXT, title TEXT NOT NULL, harness TEXT NOT NULL, auto INTEGER NOT NULL, keep_in_cloud INTEGER NOT NULL, holder TEXT NOT NULL, epoch INTEGER NOT NULL, needs_run INTEGER NOT NULL, standby TEXT NOT NULL, blocked TEXT, assignment TEXT, machine TEXT, parked_from TEXT, resumed_epoch INTEGER NOT NULL DEFAULT 0, last_seq INTEGER NOT NULL, snapshot INTEGER NOT NULL, snapshot_seq INTEGER NOT NULL, inbox INTEGER NOT NULL, inbox_acked INTEGER NOT NULL, repo_remote TEXT, repo_branch TEXT, event_bytes INTEGER NOT NULL, version INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, lease_expires_at INTEGER NOT NULL, owes_import INTEGER NOT NULL DEFAULT 0, indexed_version INTEGER NOT NULL DEFAULT 0, index_retry_at INTEGER NOT NULL DEFAULT 0)`
 
 const standbyOf = (text: string): ReadonlyArray<Standby> => {
   const list = JSON.parse(text) as Array<[string, number]>
@@ -70,7 +71,8 @@ const recordOf = (r: Row): AutoRecord => ({
   version: r.version,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
-  leaseExpiresAt: r.lease_expires_at
+  leaseExpiresAt: r.lease_expires_at,
+  owesImport: r.owes_import === 1
 })
 
 /** The tables exist only once a chat was made, so a read of an unknown id writes nothing. */
@@ -82,7 +84,7 @@ export const loadRecord = (sql: SqlStorage): AutoRecord | undefined => {
 
 const values = (r: AutoRecord) => [
   r.team, r.title, r.harness, r.auto ? 1 : 0, r.keepInCloud ? 1 : 0, r.holder, r.epoch, r.needsRun ? 1 : 0, JSON.stringify(r.standby.map((s) => [s.holder, s.expiresAt])), r.blocked, r.assignment, r.machine, r.parkedFrom, r.resumedEpoch,
-  r.lastSeq, r.snapshot, r.snapshotSeq, r.inbox, r.inboxAcked, r.repo?.remote ?? null, r.repo?.branch ?? null, r.eventBytes, r.version, r.updatedAt, r.leaseExpiresAt
+  r.lastSeq, r.snapshot, r.snapshotSeq, r.inbox, r.inboxAcked, r.repo?.remote ?? null, r.repo?.branch ?? null, r.eventBytes, r.version, r.updatedAt, r.leaseExpiresAt, r.owesImport ? 1 : 0
 ]
 
 /** Makes the chat's tables (`also`: the events, chunks, snapshots and inbox tables) and its row. */
@@ -90,14 +92,14 @@ export const insertRecord = (sql: SqlStorage, r: AutoRecord, also: ReadonlyArray
   sql.exec(TABLE)
   for (const table of also) sql.exec(table)
   sql.exec(
-    `INSERT INTO session (k, id, owner, created_at, team, title, harness, auto, keep_in_cloud, holder, epoch, needs_run, standby, blocked, assignment, machine, parked_from, resumed_epoch, last_seq, snapshot, snapshot_seq, inbox, inbox_acked, repo_remote, repo_branch, event_bytes, version, updated_at, lease_expires_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO session (k, id, owner, created_at, team, title, harness, auto, keep_in_cloud, holder, epoch, needs_run, standby, blocked, assignment, machine, parked_from, resumed_epoch, last_seq, snapshot, snapshot_seq, inbox, inbox_acked, repo_remote, repo_branch, event_bytes, version, updated_at, lease_expires_at, owes_import) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     r.id, r.owner, r.createdAt, ...values(r)
   )
 }
 
 export const saveRecord = (sql: SqlStorage, r: AutoRecord): void => {
   sql.exec(
-    `UPDATE session SET team = ?, title = ?, harness = ?, auto = ?, keep_in_cloud = ?, holder = ?, epoch = ?, needs_run = ?, standby = ?, blocked = ?, assignment = ?, machine = ?, parked_from = ?, resumed_epoch = ?, last_seq = ?, snapshot = ?, snapshot_seq = ?, inbox = ?, inbox_acked = ?, repo_remote = ?, repo_branch = ?, event_bytes = ?, version = ?, updated_at = ?, lease_expires_at = ? WHERE k = 1`,
+    `UPDATE session SET team = ?, title = ?, harness = ?, auto = ?, keep_in_cloud = ?, holder = ?, epoch = ?, needs_run = ?, standby = ?, blocked = ?, assignment = ?, machine = ?, parked_from = ?, resumed_epoch = ?, last_seq = ?, snapshot = ?, snapshot_seq = ?, inbox = ?, inbox_acked = ?, repo_remote = ?, repo_branch = ?, event_bytes = ?, version = ?, updated_at = ?, lease_expires_at = ?, owes_import = ? WHERE k = 1`,
     ...values(r)
   )
 }

@@ -219,7 +219,11 @@ impl Store {
             }
             chat.manifest = Some(manifest.clone());
             let snapshot_seq = manifest.last_seq.min(chat.rec.last_seq);
-            Ok(Step::loud(snapshot, Record { snapshot, snapshot_seq, ..chat.rec.clone() }))
+            let owes_import = false;
+            Ok(Step::loud(
+                snapshot,
+                Record { snapshot, snapshot_seq, owes_import, ..chat.rec.clone() },
+            ))
         })?;
         Ok(snapshot)
     }

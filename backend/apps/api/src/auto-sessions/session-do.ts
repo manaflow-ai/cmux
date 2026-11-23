@@ -122,10 +122,15 @@ export class AutoSessionDO extends DurableObject<Env> {
   }
 
   override alarm(): Promise<void> {
-    return (this.alarmIdle = this.alarmIdle.then(() => this.due()))
+    // A run that threw must not end the queue: the next alarm still runs.
+    return (this.alarmIdle = this.alarmIdle.catch(() => undefined).then(() => this.due()))
   }
 
-  /** The alarm: a laptop's lease that ran out, standbys that lapsed, an index write to try again. Never throws: a failure looks again shortly. */
+  /**
+   * The alarm: a laptop's lease that ran out, standbys that lapsed, an index write to try again. A failure of the
+   * work looks again shortly. Only a failure to set the next alarm is thrown, so the runtime runs this alarm again:
+   * swallowed, it would leave a lease that never runs out.
+   */
   private async due(): Promise<void> {
     let notBefore = 0
     try {
@@ -146,7 +151,7 @@ export class AutoSessionDO extends DurableObject<Env> {
       console.warn(JSON.stringify({ msg: "auto_sessions.alarm_failed", error: String(e).slice(0, 200) }))
       notBefore = Date.now() + ALARM_RETRY_MS
     }
-    await this.schedule(notBefore).catch(() => undefined)
+    await this.schedule(notBefore)
   }
 
   private async create(rec: AutoRecord, also: () => void): Promise<AutoResult<AutoSessionView>> {
@@ -299,7 +304,8 @@ export class AutoSessionDO extends DurableObject<Env> {
    * `POST snapshot`: the manifest (its JSON text, and the `lastSeq` it names) becomes the chat's snapshot only when
    * every chunk it names is stored; the one before it and the chunks it does not name are dropped. It counts as
    * covering the chat only through the events that are stored: a manifest that names a later `lastSeq` than the
-   * chat's must not let a machine's hand-back skip events the machine stores after it.
+   * chat's must not let a machine's hand-back skip events the machine stores after it. A laptop that was given the
+   * chat shows with its first snapshot that it has the Cloud copy (`owesImport`).
    */
   async putSnapshot(by: AutoCaller, holder: string, epoch: number, manifest: string, lastSeq: number): Promise<AutoResult<{ readonly snapshot: number }>> {
     if (!this.admitted(by, true)) return NOT_FOUND
@@ -313,7 +319,7 @@ export class AutoSessionDO extends DurableObject<Env> {
       if (bytes > MAX_CHAT_BYTES) return TOO_LARGE
       const n = current.snapshot + 1
       acceptSnapshot(this.sql, n, manifest, names, now)
-      return { out: n, loud: true, rec: { ...current, snapshot: n, snapshotSeq: Math.min(lastSeq, current.lastSeq) } }
+      return { out: n, loud: true, rec: { ...current, snapshot: n, snapshotSeq: Math.min(lastSeq, current.lastSeq), owesImport: false } }
     })
     return r.ok ? ok({ snapshot: r.value.out }) : r
   }

@@ -156,7 +156,47 @@ fn a_chat_the_cloud_has_the_only_copy_of_cannot_be_closed() {
     assert_eq!(code(ready(owner.put(CHAT, &off()))), ErrorCode::HeldInCloud);
     assert!(chat(&owner).auto);
 
-    // A laptop takes the chat first, then turns Auto off.
+    // A laptop takes the chat first. Until it stored a copy of its own it has not shown it
+    // imported the Cloud's, so Auto off still waits; then it turns Auto off.
     assert_eq!(stand_by(&owner, &mac(), 2).role, Role::Holder);
+    assert_eq!(code(ready(owner.put(CHAT, &off()))), ErrorCode::HeldInCloud);
+    snapshot_as(&owner, &mac(), 4, b"imported", 0).expect("stored");
     assert_eq!(ready(owner.put(CHAT, &off())).map(|closed| closed.auto), Ok(false));
+}
+
+/// A laptop that was handed the chat and lets its lease run out before it imported it leaves
+/// the chat the Cloud's: it may not take it back as it is, and Auto off stays refused.
+#[test]
+fn a_laptop_that_never_imported_a_handed_back_chat_does_not_get_it_as_its_own() {
+    let (owner, machine) = taken_over();
+    assert_eq!(stand_by(&owner, &mac(), 1).role, Role::Standby);
+    // The machine is idle with its copy stored: its renewal hands the chat back.
+    snapshot_as(&machine, &vm(), 2, b"done", 0).expect("stored");
+    assert_eq!(renew(&machine, &vm(), 2, false).role, Role::Lost);
+    assert_eq!((chat(&owner).holder, chat(&owner).epoch), (mac(), 3));
+    assert_eq!(code(ready(owner.put(CHAT, &off()))), ErrorCode::HeldInCloud);
+
+    // The laptop goes away before its import: the chat is parked as the Cloud's.
+    owner.advance(LEASE_MS);
+    assert_eq!((chat(&owner).holder, chat(&owner).epoch), (Holder::Parked, 4));
+    assert_eq!(code(ready(owner.put(CHAT, &off()))), ErrorCode::HeldInCloud);
+    assert_eq!(renew(&owner, &mac(), 3, false).role, Role::Lost);
+    assert_eq!(stand_by(&owner, &mac(), 3).role, Role::Holder);
+    assert_eq!(code(ready(owner.put(CHAT, &off()))), ErrorCode::HeldInCloud);
+    snapshot_as(&owner, &mac(), 5, b"imported", 0).expect("stored");
+    assert_eq!(ready(owner.put(CHAT, &off())).map(|closed| closed.auto), Ok(false));
+}
+
+/// A registration sent again by the laptop that holds the chat is a renewal too: the lease
+/// runs from it, so a laptop that reads its answer as the lease's is not past the lease.
+#[test]
+fn a_put_from_the_holder_renews_its_lease() {
+    let (owner, _machine) = store();
+    owner.advance(LEASE_MS - 5_000);
+    let again = ready(owner.put(CHAT, &put_request("mac"))).expect("held");
+    assert_eq!((again.holder.clone(), again.epoch), (mac(), 1));
+    owner.advance(LEASE_MS - 5_000);
+    assert_eq!((chat(&owner).holder, chat(&owner).epoch), (mac(), 1));
+    owner.advance(5_000);
+    assert_eq!((chat(&owner).holder, chat(&owner).epoch), (Holder::Parked, 2));
 }

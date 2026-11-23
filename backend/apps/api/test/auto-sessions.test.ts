@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest"
+import { LEASE_MS } from "../src/auto-sessions/model.ts"
 import { AUTO_SESSIONS_PATH, handleAutoSessions } from "../src/auto-sessions/routes.ts"
-import { advance, as, call, chatStub, fakeClock, fakeCloud, get, indexStub, lapse, LAPTOP, lease, M, M2, open, person, post, putChunk, runIn, setMachine, sha256, starts, takenOver, testEnv, VM, vmBearer } from "./auto-sessions-support.ts"
+import { advance, as, call, chatStub, copied, fakeClock, fakeCloud, get, indexStub, lapse, LAPTOP, lease, M, M2, open, person, post, putChunk, runIn, setMachine, sha256, starts, takenOver, testEnv, VM, vmBearer } from "./auto-sessions-support.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /** Auto mode's store (src/auto-sessions): the lease and who holds a chat, the Auto machine's start, the owner's list. */
@@ -235,7 +236,36 @@ describe("auto sessions: the lease", { timeout: 60_000 }, () => {
     const only = await call("PUT", "/v1/auto-sessions/busy", as(a.session), { auto: false })
     expect([only.status, only.body.error.code, only.body.session.holder]).toEqual([409, "auto.held_in_cloud", "parked"])
     expect((await lease(a.session, "busy", LAPTOP, 1, { standby: true })).body).toMatchObject({ role: "holder", session: { holder: LAPTOP, epoch: 4 } })
+    // The laptop was given the chat; until it stores a copy of its own it has not shown it imported the Cloud's.
+    const coming = await call("PUT", "/v1/auto-sessions/busy", as(a.session), { auto: false })
+    expect([coming.status, coming.body.error.code, coming.body.session.holder]).toEqual([409, "auto.held_in_cloud", LAPTOP])
+    expect((await copied(a.session, "busy", LAPTOP, 4)).status).toBe(200)
     expect((await call("PUT", "/v1/auto-sessions/busy", as(a.session), { auto: false })).body.session).toMatchObject({ auto: false, epoch: 5 })
+  })
+
+  it("the lease alarm is armed no later than the lease's end, and a PUT from the holder is a renewal", async () => {
+    const a = await person("alarm")
+    const armed = () => runIn(chatStub(a.user, "armed"), async (_i, state) => state.storage.getAlarm())
+    const made = (await open(a.session, "armed")).body.session
+    const first = await armed()
+    expect(first).not.toBeNull()
+    expect(first!).toBeLessThanOrEqual(made.leaseExpiresAt)
+    advance(20_000)
+    const again = (await open(a.session, "armed")).body.session
+    expect([again.holder, again.epoch, again.version]).toEqual([LAPTOP, 1, made.version])
+    expect(again.leaseExpiresAt).toBeGreaterThanOrEqual(made.leaseExpiresAt + 20_000)
+    const renewed = (await lease(a.session, "armed", LAPTOP, 1)).body.session
+    const second = await armed()
+    expect(second).not.toBeNull()
+    expect(second!).toBeLessThanOrEqual(renewed.leaseExpiresAt)
+    // The first lease's end goes by: the chat is still the laptop's.
+    advance(30_000)
+    await fireAlarm(chatStub(a.user, "armed"))
+    expect((await call("GET", "/v1/auto-sessions/armed", as(a.session))).body.session).toMatchObject({ holder: LAPTOP, epoch: 1 })
+    expect(await armed()).not.toBeNull()
+    advance(LEASE_MS)
+    await fireAlarm(chatStub(a.user, "armed"))
+    expect((await call("GET", "/v1/auto-sessions/armed", as(a.session))).body.session).toMatchObject({ holder: "parked", epoch: 2 })
   })
 
   it("a chat given to a machine that never picks it up goes to the machine the owner sets next; a machine paused before it acked is started again", async () => {

@@ -99,6 +99,7 @@ fn park(r: &Record, from: Option<Holder>) -> Record {
         epoch: r.epoch.saturating_add(1),
         parked_from: from,
         resumed_epoch: 0,
+        owes_import: false,
         assignment: None,
         needs_run: false,
         lease_expires_at: 0,
@@ -118,6 +119,7 @@ fn assign(r: &Record, m: &MachineSetting, kind: AssignmentKind) -> Record {
         blocked: None,
         parked_from: None,
         resumed_epoch: 0,
+        owes_import: false,
         needs_run: true,
         lease_expires_at: 0,
         ..r.clone()
@@ -143,7 +145,9 @@ fn settle(r: Record, machine: Option<&MachineSetting>) -> Record {
     }
 }
 
-fn taken_by(r: &Record, holder: &Holder, needs_run: bool, now: u64) -> Record {
+/// A laptop takes the chat. `owes`: it did not hold the chat last, so it has to import the
+/// Cloud copy (`owes_import`).
+fn taken_by(r: &Record, holder: &Holder, needs_run: bool, now: u64, owes: bool) -> Record {
     Record {
         holder: holder.clone(),
         epoch: r.epoch.saturating_add(1),
@@ -152,6 +156,7 @@ fn taken_by(r: &Record, holder: &Holder, needs_run: bool, now: u64) -> Record {
         blocked: None,
         parked_from: None,
         resumed_epoch: 0,
+        owes_import: owes,
         lease_expires_at: now.saturating_add(LEASE_MS),
         standby: r.standby.iter().filter(|standby| standby.holder != *holder).cloned().collect(),
         ..r.clone()
@@ -205,6 +210,7 @@ pub(super) fn open_record(
         machine: None,
         parked_from: None,
         resumed_epoch: 0,
+        owes_import: false,
         last_seq: 0,
         snapshot: 0,
         snapshot_seq: 0,
@@ -252,6 +258,8 @@ pub(super) fn cloud_record(
 /// parked from, it also takes the chat back as it is (nobody ran it since): a registration
 /// whose first answer was lost, sent again after the lease ran out, still answers that laptop
 /// as the holder. Its renewal at the epoch it held is then that renewal (`resumed_epoch`).
+/// From the holder it is also a renewal: the laptop reads the answer as the lease's, so the
+/// lease runs from it.
 pub(super) fn edit(r: &Record, input: &PutRequest, now: u64) -> Decision<()> {
     let title = input.title.trim().to_owned();
     let harness = input.harness.clone();
@@ -259,7 +267,7 @@ pub(super) fn edit(r: &Record, input: &PutRequest, now: u64) -> Decision<()> {
     let me = Holder::device(input.device.clone());
     if !r.auto {
         let keep_in_cloud = input.keep_in_cloud.unwrap_or(false);
-        let opened = taken_by(r, &me, false, now);
+        let opened = taken_by(r, &me, false, now, false);
         return Ok(Step::loud(
             (),
             Record { title, harness, repo, auto: true, keep_in_cloud, ..opened },
@@ -267,7 +275,7 @@ pub(super) fn edit(r: &Record, input: &PutRequest, now: u64) -> Decision<()> {
     }
     let keep_in_cloud = input.keep_in_cloud.unwrap_or(r.keep_in_cloud);
     if r.holder.is_parked() && r.parked_from.as_ref() == Some(&me) {
-        let taken = taken_by(r, &me, false, now);
+        let taken = taken_by(r, &me, false, now, false);
         let resumed_epoch = r.epoch.saturating_sub(1);
         return Ok(Step::loud(
             (),
@@ -278,6 +286,12 @@ pub(super) fn edit(r: &Record, input: &PutRequest, now: u64) -> Decision<()> {
         && harness == r.harness
         && keep_in_cloud == r.keep_in_cloud
         && repo == r.repo;
+    // From the holder it is also a renewal: the laptop reads the answer as the lease's.
+    if r.holder == me {
+        let lease_expires_at = now.saturating_add(LEASE_MS);
+        let rec = Record { title, harness, keep_in_cloud, repo, lease_expires_at, ..r.clone() };
+        return Ok(if same { Step::quiet((), rec) } else { Step::loud((), rec) });
+    }
     if same {
         return Ok(Step::same(()));
     }
@@ -285,9 +299,10 @@ pub(super) fn edit(r: &Record, input: &PutRequest, now: u64) -> Decision<()> {
 }
 
 /// Auto off: the chat closes and its Cloud copy goes. Refused while the Cloud has something no
-/// laptop has: a machine holds the chat, a machine was the last to run a parked one, or a
-/// parked one has a message nobody read. A laptop takes the chat first (a standby's renewal),
-/// then turns Auto off.
+/// laptop has: a machine holds the chat, a machine was the last to run a parked one, a parked
+/// one has a message nobody read, or the laptop that holds it was given it and has not
+/// imported the Cloud copy yet (`owes_import`). A laptop takes the chat first (a standby's
+/// renewal), imports it, then turns Auto off.
 pub(super) fn close(r: &Record) -> Decision<()> {
     if !r.auto {
         return Ok(Step::same(()));
@@ -303,6 +318,12 @@ pub(super) fn close(r: &Record) -> Decision<()> {
             ErrorCode::HeldInCloud,
             "the Cloud has the only copy of this chat; \
              bring it back to a laptop before turning Auto off",
+        ));
+    }
+    if r.owes_import {
+        return Err(Refuse::new(
+            ErrorCode::HeldInCloud,
+            "the chat is still coming back from the Cloud; turn Auto off once it is here",
         ));
     }
     let parked = if r.holder.is_parked() { r.clone() } else { park(r, None) };
@@ -376,7 +397,7 @@ pub(super) fn renew(r: &Record, by: &Caller, input: &LeaseRequest, now: u64) -> 
         let home =
             if holder.is_vm() && idle_for_handback(&next) { handback_to(&next, now) } else { None };
         return Ok(match home {
-            Some(home) => Step::loud(Role::Lost, taken_by(&next, &home, false, now)),
+            Some(home) => Step::loud(Role::Lost, taken_by(&next, &home, false, now, true)),
             None => Step { out: Role::Holder, rec: Some(next), loud },
         });
     }
@@ -389,13 +410,13 @@ pub(super) fn renew(r: &Record, by: &Caller, input: &LeaseRequest, now: u64) -> 
         // Nobody ran the chat since this laptop's own lease ran out: it goes on as it is.
         let mine = r.parked_from.as_ref() == Some(holder);
         if !as_standby && mine && epoch.checked_add(1) == Some(r.epoch) {
-            let taken = taken_by(r, holder, needs_run, now);
+            let taken = taken_by(r, holder, needs_run, now, false);
             return Ok(Step::loud(Role::Holder, Record { resumed_epoch: epoch, ..taken }));
         }
         // A standby takes a parked chat too (it imports the Cloud copy first), unless the chat
         // is kept in the Cloud.
         if as_standby && !r.keep_in_cloud {
-            return Ok(Step::loud(Role::Holder, taken_by(r, holder, false, now)));
+            return Ok(Step::loud(Role::Holder, taken_by(r, holder, false, now, !mine)));
         }
     }
     if !as_standby {
@@ -407,7 +428,7 @@ pub(super) fn renew(r: &Record, by: &Caller, input: &LeaseRequest, now: u64) -> 
     // and awake hands the chat back at its own next renewal.
     let paused = r.lease_expires_at > 0 && r.lease_expires_at <= now;
     if r.holder.is_vm() && !r.keep_in_cloud && paused && idle_for_handback(r) {
-        return Ok(Step::loud(Role::Holder, taken_by(r, holder, false, now)));
+        return Ok(Step::loud(Role::Holder, taken_by(r, holder, false, now, true)));
     }
     let mut standby: Vec<Standby> = live_standby(r, now).cloned().collect();
     let live = standby.len();
@@ -441,7 +462,7 @@ pub(super) fn release(
     fence(r, by, holder, epoch)?;
     let home = if r.holder.is_vm() { handback_to(r, now) } else { None };
     if let Some(home) = home {
-        return Ok(Step::loud((), taken_by(r, &home, false, now)));
+        return Ok(Step::loud((), taken_by(r, &home, false, now, true)));
     }
     let unread = pending_inbox(r);
     if let (true, Some(m)) = (unread, machine)
@@ -540,7 +561,7 @@ pub(super) fn tick(r: &Record, machine: Option<&MachineSetting>, now: u64) -> Op
             Some(_) | None => Record {
                 needs_run: work,
                 blocked: work.then_some(Blocked::NoMachine),
-                ..park(r, Some(r.holder.clone()))
+                ..park(r, (!r.owes_import).then(|| r.holder.clone()))
             },
         }
     });

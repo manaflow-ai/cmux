@@ -49,6 +49,11 @@ pub(super) struct Record {
     /// The epoch a laptop named when it took its own parked chat back (0: none), so a repeat
     /// of that renewal after a lost answer is the same renewal.
     pub resumed_epoch: u64,
+    /// The holder is a laptop that was given the chat (a hand-back, or a parked chat another
+    /// holder ran last) and has stored no snapshot of its own since: what the last holder did
+    /// may be in the Cloud copy alone. Auto off is refused until it has, and its lease running
+    /// out parks the chat as the Cloud's, not as that laptop's.
+    pub owes_import: bool,
     pub last_seq: u64,
     /// The newest snapshot's number, and the `lastSeq` its manifest names (at most the
     /// chat's).

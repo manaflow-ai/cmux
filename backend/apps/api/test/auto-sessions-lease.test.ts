@@ -47,13 +47,15 @@ describe("auto sessions: the lease rules", () => {
       else if (!fence(r, r.holder === VM ? machine : owner, r.holder, r.epoch)) {
         // An event, and half the time the snapshot that covers it.
         const stored = rand(2) === 0
-        r = { ...r, lastSeq: r.lastSeq + 1, snapshotSeq: stored ? r.lastSeq + 1 : r.snapshotSeq, snapshot: stored ? r.snapshot + 1 : r.snapshot }
+        r = { ...r, lastSeq: r.lastSeq + 1, snapshotSeq: stored ? r.lastSeq + 1 : r.snapshotSeq, snapshot: stored ? r.snapshot + 1 : r.snapshot, owesImport: stored ? false : r.owesImport }
       }
       expect(r.epoch - before.epoch, `move ${move} at step ${i}: ${before.holder} -> ${r.holder}`).toBe(r.holder === before.holder ? 0 : 1)
       // Only a machine has something to pick up, and only a parked chat waits for a machine.
       if (r.assignment !== null) expect(isVm(r.holder)).toBe(true)
       if (r.blocked !== null) expect(r.holder).toBe(PARKED)
       if (r.holder === PARKED) expect(r.leaseExpiresAt).toBe(0)
+      // Only a laptop owes an import, and Auto off never closes a chat whose holder owes one.
+      if (r.owesImport) expect(r.auto && r.holder !== PARKED && !isVm(r.holder)).toBe(true)
       seen.add(`${r.holder === PARKED ? "parked" : isVm(r.holder) ? "vm" : "device"}:${stateOf(r, now)}`)
     }
     // The walk reached every kind of holder and every state a client can show.
@@ -99,6 +101,30 @@ describe("auto sessions: the lease rules", () => {
     expect(machineSet(busy, MACHINE)).toBeNull()
     expect(machineSet({ ...busy, assignment: null }, OTHER)).toBeNull()
     expect(machineSet({ ...busy, assignment: "deliver" }, OTHER)).toBeNull()
+  })
+
+  it("a laptop given the chat owes an import until its own snapshot; Auto off waits, and its lapsed lease parks the chat as the Cloud's", () => {
+    const held: AutoRecord = { ...fresh(), holder: VM, epoch: 2, machine: "vm_1", lastSeq: 5, snapshotSeq: 5, leaseExpiresAt: 50_000, standby: [{ holder: A, expiresAt: 60_000 }] }
+    const handed = renew(held, machine, { holder: VM, epoch: 2, needsRun: false, standby: false }, 1_000)
+    if ("fail" in handed || !handed.rec) throw new Error("the machine's idle renewal hands the chat back")
+    const home = handed.rec
+    expect(home).toMatchObject({ holder: A, epoch: 3, owesImport: true })
+    expect(close(home)).toMatchObject({ fail: "auto.held_in_cloud" })
+    expect(close({ ...home, owesImport: false })).toMatchObject({ rec: { auto: false } })
+    expect(release(held, machine, VM, 2, MACHINE, 1_000)).toMatchObject({ rec: { holder: A, epoch: 3, owesImport: true } })
+    // Its lease runs out before the import: parked as the Cloud's, so only a standby's renewal takes it, owing again.
+    const lapsed = tick(home, MACHINE, 1_000 + LEASE_MS)!
+    expect(lapsed).toMatchObject({ holder: PARKED, epoch: 4, parkedFrom: null, owesImport: false })
+    expect(close(lapsed)).toMatchObject({ fail: "auto.held_in_cloud" })
+    expect(renew(lapsed, owner, { holder: A, epoch: 3, needsRun: false, standby: false }, 60_000)).toMatchObject({ out: { role: "lost" } })
+    expect(renew(lapsed, owner, { holder: A, epoch: 3, needsRun: false, standby: true }, 60_000)).toMatchObject({ out: { role: "holder" }, rec: { holder: A, epoch: 5, owesImport: true } })
+    // A laptop that takes its own parked chat back as a standby has it already.
+    const own = tick(fresh(), MACHINE, LEASE_MS)!
+    expect(renew(own, owner, { holder: A, epoch: 1, needsRun: false, standby: true }, LEASE_MS + 1)).toMatchObject({ out: { role: "holder" }, rec: { holder: A, epoch: 3, owesImport: false } })
+    // A machine never owes one, and a PUT from the holder moves the lease and nothing a viewer sees.
+    expect(tick({ ...fresh(), needsRun: true }, MACHINE, LEASE_MS)).toMatchObject({ holder: VM, owesImport: false })
+    expect(edit(fresh(), { title: "t", harness: "claude", device: "a" }, 30_000)).toMatchObject({ loud: false, rec: { leaseExpiresAt: 30_000 + LEASE_MS, epoch: 1, version: 1 } })
+    expect(edit(fresh(), { title: "t", harness: "claude", device: "b" }, 30_000)).toEqual({ out: null })
   })
 
   it("Auto off is refused while the Cloud has what no laptop has", () => {
