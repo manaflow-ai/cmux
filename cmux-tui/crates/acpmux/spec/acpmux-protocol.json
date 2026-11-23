@@ -667,6 +667,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/status_line",
+      "params": {
+        "$ref": "#/types/StatusLineParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -7944,6 +7952,16 @@
         "cwd": true,
         "harness": true,
         "preset": true
+      },
+      "type": "object"
+    },
+    "StatusLineParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
       },
       "type": "object"
     },
