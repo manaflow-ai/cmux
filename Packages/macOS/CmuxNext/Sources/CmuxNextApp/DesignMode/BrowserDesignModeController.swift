@@ -140,15 +140,6 @@ final class BrowserDesignModeController {
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
     private func chatView(near key: String) -> AgentPaneView? {
         guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { return nil }
-        let store = services.daemon(for: pane).store
-        guard let workspace = store.workspace(containing: pane.handle) else { return nil }
-        let panes = workspace.screens.flatMap(\.panes).sorted { $0.focusedAt > $1.focusedAt }
-        for candidate in panes {
-            let selected = candidate.tabs.indices.contains(candidate.defaultTabIndex) ? [candidate.tabs[candidate.defaultTabIndex]] : []
-            for tab in selected + candidate.tabs {
-                if let view = services.agentTabs.existingView(tab.id), !services.agentTabs.isNewTabPage(tab.id) { return view }
-            }
-        }
-        return nil
+        return services.workspaceAgentChat(near: pane)?.view
     }
 }
