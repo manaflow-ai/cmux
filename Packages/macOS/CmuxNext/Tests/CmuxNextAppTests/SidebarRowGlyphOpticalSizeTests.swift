@@ -83,8 +83,13 @@ import Testing
             let glyphs = try Self.glyphs(list).filter { $0.name != "a pin" }
             // A glyph wider than tall (Home's house at the rows' glyph height) spills evenly past its column: measure its
             // gap from the column's end, its ink's end less that spill.
-            let side = SidebarStyle.rowGlyphOpticalSide
-            let gaps = glyphs.map { ($0.name, $0.titleX - ($0.ink.maxX - max(0, ($0.ink.width - side) / 2))) }
+            // A favicon fills its tab's larger side from the same leading edge (#49583), so it ends that much nearer its
+            // title: measure its gap from the end of the glyphs' square, as the others'.
+            let side = SidebarStyle.rowGlyphOpticalSide, faviconGrowth = SidebarStyle.rowFaviconOpticalSide - side
+            let gaps = glyphs.map { g -> (String, CGFloat) in
+                let own = g.name.contains("favicon") ? SidebarStyle.rowFaviconOpticalSide : side
+                return (g.name, g.titleX - (g.ink.maxX - max(0, (g.ink.width - own) / 2)) + (g.name.contains("favicon") ? faviconGrowth : 0))
+            }
             let first = try #require(gaps.first).1
             // Each glyph's frame snaps its origin and its size to whole pixels (`SidebarOpticalGlyph`, a crisp bitmap), up
             // to half a 1x pixel each, so two glyphs' gaps can differ by up to one pixel more than the contract's point.

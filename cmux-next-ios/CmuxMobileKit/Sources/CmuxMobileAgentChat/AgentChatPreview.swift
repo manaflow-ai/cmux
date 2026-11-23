@@ -83,6 +83,9 @@ public struct AgentChatPreview: View {
             .modifier(ChatTextSize(display: display))
             .clipped()
             .allowsHitTesting(false)
+            // Its rows draw their UIKit controls' stand-ins (`chatStill`): a tab card's picture
+            // is an `ImageRenderer` still of this view.
+            .environment(\.chatStill, true)
     }
 
     private var isEmpty: Bool { turns.map(\.isEmpty) ?? !store.hasTurns }
@@ -196,6 +199,16 @@ struct PreviewRowProbe: ViewModifier {
         content
         #endif
     }
+}
+
+extension EnvironmentValues {
+    /// The rows are drawn as a still (a tab card's picture, `AgentCardRasterizer`, or the live
+    /// preview that stands in until it is drawn). `ImageRenderer` draws only SwiftUI's own views:
+    /// a control UIKit draws (`Menu`, `ShareLink`, a text field) comes out as its yellow "can't
+    /// render" placeholder (Leo, 2026-11-17: "Weird placeholder for retries esp in preview", the
+    /// error card's Retry with another model). A row reads this and draws that control's label
+    /// as plain SwiftUI instead, at the same size, so the still looks like the live chat.
+    @Entry var chatStill = false
 }
 
 /// The card's rows: the transcript's rows (memoized per turn, an answer parsed by its

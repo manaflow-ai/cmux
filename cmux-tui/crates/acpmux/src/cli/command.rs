@@ -928,6 +928,16 @@ pub enum Command {
     DaemonEnroll { person_key_fd: i32 },
     #[command(hide = true)]
     DaemonRestart,
+    /// `daemon stats`: the busiest callers or methods over a recent window.
+    #[command(hide = true)]
+    DaemonStats {
+        #[arg(long, value_enum, default_value_t = crate::cli::daemon_stats::By::Caller)]
+        by: crate::cli::daemon_stats::By,
+        #[arg(long, default_value = "60s")]
+        since: String,
+        #[arg(long, default_value_t = 20)]
+        top: usize,
+    },
     /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
     #[command(hide = true)]
     DaemonPrune {
@@ -1667,6 +1677,21 @@ pub enum DaemonCmd {
         #[arg(long)]
         person_key_fd: i32,
     },
+    /// The busiest callers of the running daemon over a recent window (at most the last 10
+    /// minutes): requests, bytes in and out, and each caller's client name, origin, pid and
+    /// session, so a client that asks too often can be found. A daemon without per-caller stats
+    /// shows its list replies by client instead.
+    Stats {
+        /// One row per caller (with its busiest methods) or per method.
+        #[arg(long, value_enum, default_value_t = crate::cli::daemon_stats::By::Caller)]
+        by: crate::cli::daemon_stats::By,
+        /// The window, e.g. 60s, 5m or 10m (at most 10m).
+        #[arg(long, default_value = "60s")]
+        since: String,
+        /// How many rows.
+        #[arg(long, default_value_t = 20)]
+        top: usize,
+    },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
@@ -1869,6 +1894,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
