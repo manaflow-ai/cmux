@@ -70,11 +70,14 @@ export function bubbleLayout(
   const sentVideos = sentVideosOf(row);
   if (view === "strip")
     return {
-      parts: parts.filter((part) => !isStripMedia(part)),
+      parts: withoutRepeatedVideos(
+        parts.filter((part) => !isStripMedia(part)),
+        sentVideos,
+      ),
       band: withoutRepeatedVideos(parts.filter(isStripMedia), sentVideos),
     };
   return {
-    parts: inline,
+    parts: withoutRepeatedVideos(inline, sentVideos),
     band: withoutRepeatedVideos(
       parts.filter(isStripMedia).filter((part) => !inline.includes(part)),
       sentVideos,

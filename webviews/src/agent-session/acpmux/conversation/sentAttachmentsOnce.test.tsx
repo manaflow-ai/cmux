@@ -180,8 +180,13 @@ test("(b) one video, attached twice, is one tile and no file chip after a reload
   expect(videoTiles(container)).toBe(1);
   expect(chipText(container).some((text) => text.includes("MB") || text.includes(".mov"))).toBe(false);
   // The row's estimate measures the same band.
-  const band = bubbleLayout(row)!.band;
-  expect(band.filter((part) => part.kind === "file" && part.mimeType === "video/quicktime")).toHaveLength(1);
+  for (const view of ["strip", "inline"] as const) {
+    const layout = bubbleLayout(row, view)!;
+    const videos = [...layout.parts, ...layout.band].filter(
+      (part) => part.kind === "file" && part.mimeType === "video/quicktime",
+    );
+    expect(videos).toHaveLength(1);
+  }
 });
 
 test("(b) one video is one tile in the pane's own row before acpmux's echo", async () => {

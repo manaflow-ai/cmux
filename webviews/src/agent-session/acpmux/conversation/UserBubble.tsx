@@ -171,7 +171,7 @@ export function UserBubble({
   // estimate measures it (bubbleParts.ts `bubbleLayout`).
   const stripMedia = withoutRepeatedVideos(orderedParts?.filter(isStripMedia).filter(banded) ?? [], videos);
   // These are bubbleParts.ts `bubbleParts` in the pane's view, which Find and the row's estimate read.
-  const shownParts = orderedParts?.filter((part) => !banded(part));
+  const shownParts = withoutRepeatedVideos(orderedParts?.filter((part) => !banded(part)) ?? [], videos);
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const renderFile = useCallback(
     (part: Exclude<PromptContentPart, { kind: "text" | "image" }>) => {
@@ -229,7 +229,7 @@ export function UserBubble({
     ) : null;
   // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
   // bubble under them read as a lost message; Leo 2026-10-21).
-  const hasBubble = strip ? shownParts!.some(readsAsText) : hasInterleaved || Boolean(text.trim());
+  const hasBubble = strip ? shownParts.some(readsAsText) : hasInterleaved || Boolean(text.trim());
   const showsLegacyImages = legacyBands && (Boolean(row.images?.length) || videos.length > 0);
   const showsLegacyFiles = legacyBands && Boolean(files?.length);
   return (
@@ -281,7 +281,7 @@ export function UserBubble({
               <InlinePromptContent
                 rowId={row.id}
                 messageAt={row.at}
-                parts={shownParts!}
+                parts={shownParts}
                 show={show}
                 renderImage={renderImage}
                 renderFile={renderFile}
