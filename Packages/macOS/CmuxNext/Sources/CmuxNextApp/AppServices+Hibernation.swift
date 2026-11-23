@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextResources
 import CmuxNextSettings
+import Foundation
 
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
