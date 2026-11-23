@@ -59,6 +59,8 @@ import argparse, hashlib, json, os, platform, random, re, shlex, shutil, statist
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 GHOSTTY_VERSION = "1.4.0"
 GHOSTTY_DMG_SHA256 = "3a02075dbd24318d778426af41dee5507d53ecc4578ede96912ec9ce6d18d3e8"
@@ -214,14 +216,17 @@ def sample_summary(text, top=20):
 class Breakdown:
     """One burst's per-process and per-thread CPU over a window mid-burst, and a sample of each process."""
 
-    def __init__(self, match, out_dir, label, delay=0.5, seconds=1):
-        self.match, self.out_dir, self.label, self.delay, self.seconds = match, out_dir, label, delay, seconds
+    def __init__(self, match, out_dir, label, writer, seconds=1):
+        self.match, self.out_dir, self.label, self.writer, self.seconds = match, out_dir, label, writer, seconds
         self.window = None
         self.timer = __import__("threading").Thread(target=self._measure, daemon=True)
         self.timer.start()
 
     def _measure(self):
-        time.sleep(self.delay)  # test harness: the window starts once the burst is under way
+        # The window starts once the burst is under way: the writer process runs.
+        if not wait_until(lambda: terminal_processes(lambda c: self.writer in c), f"{self.label}'s writer to start",
+                          timeout=30, interval=0.05, raise_on_timeout=False):
+            safe_print(f"{self.label}: the writer never showed in ps within 30 s; measuring anyway", flush=True)
         before = terminal_processes(self.match)
         threads_before = {pid: threads_of(pid) for pid in before}
         started = time.monotonic()
@@ -437,14 +442,23 @@ def measure_next(opts, writer, payload, scratch, label="next", env=None):
     app = BenchApp(opts.app, out=os.path.join(opts.out, label), env=env)
     try:
         app.launch()
-        time.sleep(3)  # test harness: let the first window settle before the first burst
+        # The first window settles before the first burst: its panes and frames hold still.
+        def first_window():
+            surfaces = app.rpc("debug.surfaces") or {}
+            return json.dumps([(w.get("frame"), [(p.get("pane"), p.get("kind"), p.get("focused"), p.get("frame"))
+                                                 for p in w.get("panes") or []])
+                               for w in surfaces.get("windows") or [] if isinstance(w, dict)], sort_keys=True)
+        try:
+            wait_stable(first_window, "the first window", timeout=15, interval=0.1, reads=5)
+        except StateWaitTimeout as error:
+            print(f"{label}: {error}", flush=True)
         plan = [("warmup", opts.warmup_mb * MB)] + [(i, 0) for i in range(1, opts.runs + 1)]
         for i, limit in plan:
             result = os.path.join(scratch, f"{label}-{i}.json")
             cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", writer, payload, result, str(limit)])
             tracer = start_trace(opts, i, "next") if label == "next" else None
             probe = (Breakdown(lambda c: opts.app in c or "cmux-tui" in c or "acpmux" in c or writer in c, opts.out,
-                               f"{label}-{i}") if opts.breakdown and i != "warmup" and not tracer else None)
+                               f"{label}-{i}", writer) if opts.breakdown and i != "warmup" and not tracer else None)
             tab = f"throughput-{i}" if label == "next" else f"throughput-{label}-{i}"
             reply = app.rpc("action.run", {"action": "newTab", "args": {"name": tab, "focus": True, "command": cmd}})
             if isinstance(reply, dict) and reply.get("error"):
@@ -528,7 +542,7 @@ def measure_ghostty(opts, writer, payload, scratch, grid):
                 "--auto-update=off", f"--window-width={cols}", f"--window-height={rows}"]
         log = open(os.path.join(opts.out, f"ghostty-{i}.log"), "w")
         tracer = start_trace(opts, i, "ghostty")
-        probe = (Breakdown(lambda c: app in c or writer in c, opts.out, f"ghostty-{i}", delay=0.8)
+        probe = (Breakdown(lambda c: app in c or writer in c, opts.out, f"ghostty-{i}", writer)
                  if opts.breakdown and i != "warmup" and not tracer else None)
         proc = subprocess.Popen(argv, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
