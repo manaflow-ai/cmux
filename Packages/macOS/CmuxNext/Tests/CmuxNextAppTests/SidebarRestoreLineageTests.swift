@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
+import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
@@ -31,7 +32,7 @@ struct SidebarRestoreLineageTests {
         let (sidebar, window) = Self.sidebar(model, onScreen: true)
         defer { window.close() }
         try #require(window.screen != nil)
-        sidebar.list.pointerIsOverList = { _ in false }
+        sidebar.list.pointerIsOverList = { (_: SidebarListView) in false }
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
 
@@ -54,7 +55,7 @@ struct SidebarRestoreLineageTests {
         let (sidebar, window) = Self.sidebar(model, onScreen: true)
         defer { window.close() }
         try #require(window.screen != nil)
-        sidebar.list.pointerIsOverList = { _ in false }
+        sidebar.list.pointerIsOverList = { (_: SidebarListView) in false }
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
 
@@ -72,8 +73,8 @@ struct SidebarRestoreLineageTests {
 
     // MARK: Helpers
 
-    private static func sections(_ ids: [Int]) -> [SidebarSection] {
-        [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+    private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
+        [CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
                         nodes: ids.map { .workspace(SidebarWorkspace(id: WorkspaceID("\($0)"), title: "w\($0)")) })]
     }
 
