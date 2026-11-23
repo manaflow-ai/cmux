@@ -14,7 +14,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusMarkArt.swi
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteChromeControls.swift	weight	2
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemotePathBadgeView.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteUpstreamIndicator.swift	weight	1
-Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarCardTextButton.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarStyle.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceStatusView.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Demo/DemoContentView.swift	size	1

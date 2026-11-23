@@ -64,6 +64,7 @@
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
         "sidebar.settleFinished",
+        "sidebar.showAutomaticSessions",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -140,6 +141,13 @@
     },
     {
       "agent": "settable",
+      "why": "Cmd-Q's warning against an accidental quit; a quit keeps every session either way.",
+      "keys": [
+        "app.warnBeforeQuitShortcut"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "The language cmux's own text is in; ends no work.",
       "keys": [
         "app.language"
@@ -148,7 +156,8 @@
     {
       "agent": "settable",
       "keys": [
-        "tabs.overflow"
+        "tabs.overflow",
+        "tabs.shellIconTheme"
       ]
     },
     {
@@ -269,7 +278,9 @@
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
         "appearance.backgroundLocation",
-        "appearance.backgroundMemory"
+        "appearance.backgroundMemory",
+        "appearance.backgroundPlacement",
+        "appearance.backgroundRecents"
       ]
     },
     {
@@ -299,6 +310,7 @@
         "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.liquidGlass",
         "appearance.previousGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
@@ -495,6 +507,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Extension chat widgets draw installed extensions' cards in agent chat; only the person turns them on.",
+      "keys": [
+        "experiments.chatWidgets"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).",
       "keys": [
@@ -532,6 +551,14 @@
       "keys": [
         "agentPane.newChatsIn",
         "agentPane.sessionWorktrees"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The composer's look and where an empty chat's composer sits: layout choices a profile or the person's agent may set, like the chat's other looks.",
+      "keys": [
+        "agentPane.composerLook",
+        "agentPane.emptyChatComposerPosition"
       ]
     },
     {
@@ -790,6 +817,8 @@
         "agentPane.display.minimap",
         "agentPane.display.transcriptView",
         "agentPane.display.presentation",
+        "agentPane.display.transcriptLook",
+        "agentPane.display.transcriptTokens",
         "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
@@ -1016,6 +1045,14 @@
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.",
+      "keys": [
+        "worktrees.autoCleanup",
+        "worktrees.cleanBuildCaches"
       ]
     },
     {
@@ -1603,6 +1640,13 @@
       "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.",
       "keys": [
         "macScreen.systemShortcuts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "It decides whether an agent may start viewing the person's own screens without their click; an agent never loosens it.",
+      "keys": [
+        "macScreen.onlyPersonStartsViewing"
       ]
     },
     {
