@@ -163,6 +163,11 @@ path = "tests/test_defaults_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_desktop_visual_diff.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/desktop_visual_diff.py, the nightly visual gate's warn-only diff of desktop states against the previous nightly (unchanged, changed justified and unjustified, new, removed, no baseline, a fenced example); run python3 tests/test_desktop_visual_diff.py yourself after changing it or scripts/ci/ios_gate_screen_diff.py (under a second, no build, no network)."
+
+[[test]]
 path = "tests/test_devbox_bubblewrap.py"
 lane = "manual"
 reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; kept manual under the 2026-10-23 no-new-CI rule, since lifted."
@@ -550,10 +555,6 @@ reason = "Static check run by the author on the fleet; kept manual under the 202
 
 [[test]]
 path = "tests/test_poll_notary_submission.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_portable_jobs_bring_their_python.py"
 lane = "linux-guard"
 
 [[test]]

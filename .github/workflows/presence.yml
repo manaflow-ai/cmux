@@ -41,7 +41,7 @@ env:
 
 jobs:
   test:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     defaults:
       run:
@@ -70,7 +70,12 @@ jobs:
       - name: Validate managed relay catalog
         run: bun run relay-catalog:check
 
+      # The type check reports its red and keeps going, so the tests and builds after it still run on a
+      # tree with a type error; the last step fails the job on it (Leo, 2026-11-19: "the CI doesn't
+      # necessarily have to fail and like give up").
       - name: Typecheck
+        id: typecheck
+        continue-on-error: true
         run: bun run typecheck
 
       - name: Unit tests
@@ -79,11 +84,17 @@ jobs:
       - name: Wrangler dry-run build
         run: bunx wrangler deploy --dry-run --outdir dist
 
+      - name: Fail on the type check
+        if: ${{ !cancelled() && steps.typecheck.outcome == 'failure' }}
+        run: |
+          echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
+          exit 1
+
   deploy:
     environment: presence-deploy
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: test
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     concurrency:
       group: presence-deploy

@@ -779,7 +779,9 @@ public final class FeedStore {
     /// Shown on a permission card while its Allow is signed and sent to the Mac.
     public static let sendingAllow = "Sending…"
 
-    public func respond(_ id: String, option: ACPPermissionOption) {
+    /// `settled`: called once an Allow went out (true) or failed (false), for a haptic that
+    /// confirms the outcome rather than the tap; never called for a Deny.
+    public func respond(_ id: String, option: ACPPermissionOption, settled: (@MainActor (Bool) -> Void)? = nil) {
         if let actions, let item = item(id: id), case .permission(let request) = item.kind {
             guard item.pending == nil else { return }
             let attempt = item.attempt + 1
@@ -801,8 +803,10 @@ public final class FeedStore {
                         $0.resolution = Self.allowedText(option.name)
                         $0.isRead = true
                     }
+                    settled?(true)
                 } catch {
                     if actions.isAlreadyAnswered(error) { return settleAnsweredElsewhere(id, attempt: attempt) }
+                    if option.isAllow { settled?(false) }
                     mutate(id) {
                         guard $0.attempt == attempt else { return }
                         $0.pending = nil
@@ -822,10 +826,12 @@ public final class FeedStore {
                 try? await Task.sleep(for: delay)
                 mutate(id) { $0.pending = nil }
                 applyRespond(id, option: option)
+                settled?(true)
             }
             return
         }
         applyRespond(id, option: option)
+        if option.isAllow { settled?(true) }
     }
 
     /// The card's line after an Allow: the option's own words when they say more than
