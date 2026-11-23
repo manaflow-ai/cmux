@@ -870,6 +870,11 @@ fn short_id(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
 }
 
+// test-hook-allow: `GLOBAL` holds no test hook, so no test can race another through it. Its
+// `clock` is `wall_ms`, fixed at `Watch::new` on a private field with no setter and no interior
+// mutability; the `#[cfg(test)]` `Watch::with_clock` builds a test's own local `Watch`, never this
+// one. The static itself must stay process-wide: it is this daemon's single tally, handed out as
+// `&'static Watch` and read from every thread.
 static GLOBAL: Watch = Watch::new();
 
 /// This daemon's watch.
