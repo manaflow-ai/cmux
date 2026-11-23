@@ -257,7 +257,11 @@ struct EventInspectorScreen: View {
                             NavigationLink {
                                 EventInspectorDetail(event: event)
                             } label: {
-                                EventInspectorRow(event: event)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(event.title).font(.subheadline.monospaced()).lineLimit(2)
+                                    Text("\(event.dir) · \(event.kind) · \(event.at.formatted(.dateTime.hour().minute().second()))")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
                             }
                             .accessibilityIdentifier("chat.inspector.row")
                         }
@@ -315,19 +319,6 @@ struct EventInspectorScreen: View {
         if dropped > 0 { text += " · " + String(localized: "\(dropped) older dropped") }
         if filtering { text += " · " + String(localized: "mobile.agentChat.inspector.filtering", defaultValue: "Filtering…", bundle: .module) }
         return text
-    }
-}
-
-/// One record's row: plain values, so a redraw for other records skips it.
-private struct EventInspectorRow: View {
-    let event: AgentInspectorEvent
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(event.title).font(.subheadline.monospaced()).lineLimit(2)
-            Text("\(event.dir) · \(event.kind) · \(event.at.formatted(.dateTime.hour().minute().second()))")
-                .font(.caption).foregroundStyle(.secondary)
-        }
     }
 }
 

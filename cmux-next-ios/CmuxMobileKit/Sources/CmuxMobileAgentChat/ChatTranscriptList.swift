@@ -545,6 +545,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private var forced: Set<String> = []
     /// The first reload with a width lays out the newest rows on the spot (what opens on screen).
     private var primed = false
+    /// Whether the transcript opens on its newest rows (primed on the main thread then). A
+    /// transcript that opens at its top primes nothing: the rows on screen there lay themselves
+    /// out as their cells come, and the rest off the main thread.
+    var opensOnNewest: () -> Bool = { true }
+    /// Builds nothing until the list has a width (a host that lays it out at once): a build
+    /// without one weighs every row, and the first width weighs them all again.
+    private let waitsForWidth: Bool
+    /// Rows whose native layouts landed: weighed again on the next reload, the rest of their
+    /// turn kept as shown.
+    private var reweigh: Set<String> = []
+    private var reweighTurns: Set<String> = []
     /// Each turn's rows as last shown: its build generation, row ids and layout items.
     private var shownTurns: [String: ShownTurn] = [:]
 
@@ -580,9 +591,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var snapshotApplies = 0
     /// Native layouts made on the main thread (tests: none for a streaming row off screen).
     var layoutsMadeNow: Int { lookup.layouts.madeNow }
+    /// Native layouts made off the main thread.
+    var layoutsMadeOffMain: Int { lookup.layouts.madeOffMain }
 
     /// `source`: what it shows (the store's turns when nil).
-    init(store: AgentChatStore, surface: AgentChatSurface, source: ChatTranscriptSource? = nil) {
+    init(store: AgentChatStore, surface: AgentChatSurface, source: ChatTranscriptSource? = nil, waitsForWidth: Bool = false) {
+        self.waitsForWidth = waitsForWidth
         self.store = store
         self.surface = surface
         let source = source ?? .chat(store)
@@ -735,10 +749,16 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
 
     /// Native layouts landed: their turns' rows take the real heights.
     private func layoutsReady(_ ids: [String]) {
-        var turns = Set<String>()
-        for id in ids { if let row = rows[id] { turns.insert(row.turnID) } }
-        guard !turns.isEmpty else { return }
-        for turn in turns { shownTurns[turn] = nil }
+        // Only the landed rows are weighed again (a turn can hold thousands of rows: a subagent's
+        // transcript is one turn).
+        var landed = false
+        for id in ids {
+            guard let row = rows[id] else { continue }
+            reweigh.insert(id)
+            reweighTurns.insert(row.turnID)
+            landed = true
+        }
+        guard landed else { return }
         reload()
     }
 
@@ -852,6 +872,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private var runningShown: String?
 
     func reload() {
+        if waitsForWidth, lookup.layouts.environment == nil { return }
         let reloadStart = ContinuousClock.now
         defer { reloadTime += reloadStart.duration(to: .now) }
         // A turn that ended under a reader scrolled up keeps its work open: folding it under
@@ -944,12 +965,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var heldMissing: [String] = []
         if !primed, lookup.layouts.environment != nil {
             primed = true
-            for turn in built.reversed() where prime.count < 24 {
+            for turn in built.reversed() where prime.count < 24 && opensOnNewest() {
                 for row in turn.rows.reversed() where prime.count < 24 && lookup.eligible(row) { prime.insert(row.id) }
             }
         }
         for turn in built {
-            if let shown = shownTurns[turn.turnID], shown.generation == turn.generation, !shown.ids.contains(where: seen.contains) {
+            if !reweighTurns.contains(turn.turnID), let shown = shownTurns[turn.turnID], shown.generation == turn.generation,
+               !shown.ids.contains(where: seen.contains) {
                 seen.formUnion(shown.ids)
                 ids += shown.ids
                 items += shown.items
@@ -974,7 +996,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     seen.insert(row.id)
                 }
                 if let previous, position < previous.rows.count, previous.ids[position] == row.id, previous.rows[position] == row,
-                   rows[row.id] == row, !forced.contains(row.id), !prime.contains(row.id) {
+                   rows[row.id] == row, !forced.contains(row.id), !prime.contains(row.id), !reweigh.contains(row.id) {
                     turnIDs.append(row.id)
                     turnItems.append(previous.items[position])
                     turnRows.append(row)
@@ -1028,6 +1050,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             ids += turnIDs
             items += turnItems
         }
+        reweigh = []
+        reweighTurns = []
         layout.trailingGap = ChatTranscriptBuilder.trailingGap(after: built.last?.rows.last)
         if ids.count + heldRows.count < rows.count {
             let live = Set(ids).union(heldRows)

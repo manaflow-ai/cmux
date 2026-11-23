@@ -29,12 +29,15 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
         self.probe = probe
         // Its own surface: following and disclosures are this transcript's, not the chat's.
         let surface = AgentChatSurface()
-        list = ChatTranscriptList(store: store, surface: surface, source: source)
+        // Laid out at once by this host: nothing is built before the width comes.
+        list = ChatTranscriptList(store: store, surface: surface, source: source, waitsForWidth: true)
         list.foldsWork = false
         // Opens on the end of a running subagent (following it), on the top of a finished one.
         follow = SubagentFollow(follows: running())
         super.init(nibName: nil, bundle: nil)
         list.scrollDelegate = self
+        // A finished transcript opens at its top: its newest rows are not primed on the main thread.
+        list.opensOnNewest = { [weak self] in self?.follow.follows ?? true }
         // A row above the reader that changes height moves nothing they see, unless the end of a
         // running subagent is followed (then the end stays in place).
         list.layout.followsBottom = { [weak self] in
