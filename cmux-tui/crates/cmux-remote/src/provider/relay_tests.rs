@@ -61,7 +61,84 @@ async fn a_pause_longer_than_the_backoff_resets_the_counters_whichever_wakeup_fi
     }
 }
 
-async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
+/// The wall clock of [`a_pause_whose_clocks_all_kept_running_resets_the_counters`]: its own, so the test above
+/// moving its clock never makes this one pass.
+static STEADY_WALL_AHEAD_S: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn steady_test_wall() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH
+        + Duration::from_secs(1_800_000_000 + STEADY_WALL_AHEAD_S.load(AtomicOrdering::SeqCst))
+}
+
+/// A pause longer than the backoff on a VM provider that keeps every guest
+/// clock running: the wall clock moves exactly as far as the monotonic one, so
+/// it never steps past it. The wait still sees the pause (the monotonic clock
+/// moved past the relay's retirement between two looks a second apart), the
+/// counters start over and the next failure waits the first backoff.
+#[tokio::test(start_paused = true)]
+async fn a_pause_whose_clocks_all_kept_running_resets_the_counters() {
+    use super::liveness::{FIRST_CREDENTIAL_BACKOFF, MAX_CREDENTIAL_BACKOFF};
+    for round in 0..32 {
+        let mut retry = Retry::new();
+        let mut wait = Duration::ZERO;
+        while wait < MAX_CREDENTIAL_BACKOFF {
+            wait = retry.wait(Ended::Credential, 1.0);
+        }
+        let (_shutdown_tx, mut shutdown) = watch::channel(false);
+        let task = tokio::spawn(async move {
+            let waited = back_off(&mut retry, wait, &mut shutdown, steady_test_wall).await;
+            (waited, retry)
+        });
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        // Ten minutes paused: both clocks move ten minutes.
+        let paused = Duration::from_secs(600);
+        STEADY_WALL_AHEAD_S.fetch_add(paused.as_secs(), AtomicOrdering::SeqCst);
+        tokio::time::advance(paused).await;
+        let (waited, mut retry) = task.await.unwrap();
+        assert_eq!(waited, Waited::Resumed, "round {round}");
+        assert_eq!(
+            retry.wait(Ended::Credential, 1.0),
+            FIRST_CREDENTIAL_BACKOFF,
+            "round {round}: the next failure waits the first backoff"
+        );
+    }
+}
+
+/// The wall clock of [`a_wall_clock_step_alone_ends_the_wait_as_a_resume`]: its own, as above.
+static FROZEN_WALL_AHEAD_S: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn frozen_test_wall() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH
+        + Duration::from_secs(1_800_000_000 + FROZEN_WALL_AHEAD_S.load(AtomicOrdering::SeqCst))
+}
+
+/// The wall-clock path on its own: the monotonic clock moves 10 s (well
+/// inside the relay's 45 s and the 60 s backoff) while the wall clock moves
+/// ten minutes, so only the wall step can end the wait as a resume.
+#[tokio::test(start_paused = true)]
+async fn a_wall_clock_step_alone_ends_the_wait_as_a_resume() {
+    use super::liveness::MAX_CREDENTIAL_BACKOFF;
+    let mut retry = Retry::new();
+    let mut wait = Duration::ZERO;
+    while wait < MAX_CREDENTIAL_BACKOFF {
+        wait = retry.wait(Ended::Credential, 1.0);
+    }
+    let (_shutdown_tx, mut shutdown) = watch::channel(false);
+    let task =
+        tokio::spawn(
+            async move { back_off(&mut retry, wait, &mut shutdown, frozen_test_wall).await },
+        );
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    FROZEN_WALL_AHEAD_S.fetch_add(600, AtomicOrdering::SeqCst);
+    tokio::time::advance(Duration::from_secs(10)).await;
+    assert_eq!(task.await.unwrap(), Waited::Resumed);
+}
+
+pub async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
     let message = socket.next().await.unwrap().unwrap();
     let Message::Text(text) = message else {
         panic!("expected relay control text, got {message:?}");
@@ -69,12 +146,12 @@ async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayC
     serde_json::from_str(&text).unwrap()
 }
 
-async fn send_test_control(socket: &mut WebSocketStream<TcpStream>, control: &RelayControl) {
-    socket.send(Message::Text(serde_json::to_string(control).unwrap().into())).await.unwrap();
+pub async fn send_test_control(ws: &mut WebSocketStream<TcpStream>, control: &RelayControl) {
+    ws.send(Message::Text(serde_json::to_string(control).unwrap().into())).await.unwrap();
 }
 
 #[allow(clippy::result_large_err)] // Required by tungstenite's handshake callback signature.
-async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStream>, String) {
+pub async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStream>, String) {
     let authorization = Arc::new(StdMutex::new(None));
     let observed = authorization.clone();
     let socket = accept_hdr_async(stream, move |request: &Request, response| {
@@ -1297,6 +1374,100 @@ async fn a_parked_allocation_waits_until_the_allocation_deadline() {
     server.abort();
 }
 
+/// A relay that allocates a Connect at once and accepts its circuit's Join
+/// but never answers Ready: the daemon never joins (a fresh machine's daemon
+/// paired the moment it registered, as production saw).
+async fn allocate_but_never_join() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let RelayControl::Connect { lane, generation, .. } =
+            receive_test_control(&mut control).await
+        else {
+            panic!("expected client connect");
+        };
+        send_test_control(
+            &mut control,
+            &RelayControl::Allocated {
+                circuit: CircuitId("unjoined-circuit".into()),
+                lane,
+                generation,
+                join_ticket: "join-ticket".into(),
+            },
+        )
+        .await;
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut circuit_socket, _) = accept_with_authorization(stream).await;
+        assert!(matches!(
+            receive_test_control(&mut circuit_socket).await,
+            RelayControl::Join { .. }
+        ));
+        while circuit_socket.next().await.is_some() {}
+    });
+    (address, server)
+}
+
+/// A first connect's lane whose daemon never joins the allocated circuit is
+/// given up after the provider's peer join wait, not held to
+/// `control_timeout`, so the dial redials a new circuit in seconds. Without a
+/// wait, and for a resume (a later generation), `control_timeout` holds.
+#[tokio::test]
+async fn a_circuit_the_daemon_never_joins_is_given_up_after_the_peer_join_wait() {
+    let config = RelayClientConfig {
+        slot: "test-slot".into(),
+        ticket: "client-ticket".into(),
+        maximum_frame_bytes: 64,
+        control_timeout: Duration::from_secs(3),
+    };
+    let open = |generation: u64, wait: Option<Duration>| {
+        let config = config.clone();
+        async move {
+            let (address, server) = allocate_but_never_join().await;
+            let mut provider = RelayProvider::new(config).unwrap();
+            if let Some(wait) = wait {
+                provider = provider.with_peer_join_wait(wait);
+            }
+            let group = provider
+                .connect(ConnectRequest {
+                    endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+                    session: SessionId::ZERO,
+                    lane_policy: LanePolicy::Isolated,
+                    routing: BTreeMap::new(),
+                })
+                .await
+                .unwrap();
+            let started = Instant::now();
+            let error = group
+                .open(LinkRequest { lane: Lane::Interactive, generation })
+                .await
+                .err()
+                .expect("a circuit nobody joins never connects");
+            let waited = started.elapsed();
+            let _ = group.close().await;
+            server.abort();
+            (error.to_string(), waited)
+        }
+    };
+
+    let (error, waited) = open(0, Some(Duration::from_millis(300))).await;
+    eprintln!("first connect, 300 ms peer join wait: gave up after {waited:?}");
+    assert!(error.contains("join timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(250), "gave up after {waited:?}, before the wait");
+    assert!(waited < Duration::from_millis(2_000), "held {waited:?}, toward control_timeout");
+
+    let (error, waited) = open(0, None).await;
+    eprintln!("first connect, no peer join wait: gave up after {waited:?}");
+    assert!(error.contains("join timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(2_900), "no wait keeps control_timeout: {waited:?}");
+
+    let (error, waited) = open(1, Some(Duration::from_millis(300))).await;
+    eprintln!("resume, 300 ms peer join wait: gave up after {waited:?}");
+    assert!(error.contains("join timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(2_900), "a resume keeps control_timeout: {waited:?}");
+}
+
 /// A WebSocket sink that hands each message, with the (virtual) instant it was
 /// sent, to the test: the batched sender's socket with no host in the way.
 struct RecordingSink {
@@ -1503,4 +1674,71 @@ fn a_signed_ticket_renews_at_two_thirds_of_its_lifetime_and_an_opaque_one_never(
         let credential = RelayCredential::parse(opaque.to_owned()).unwrap();
         assert_eq!(renewal_time(&callback, &credential, now), None, "{opaque}");
     }
+}
+
+async fn connect_grant_for(credentials: RelayCredentialSource) -> Option<String> {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let RelayControl::Connect { grant, .. } = receive_test_control(&mut control).await else {
+            panic!("expected client connect");
+        };
+        send_test_control(
+            &mut control,
+            &RelayControl::Error {
+                code: "slot-offline".into(),
+                message: "test ends here".into(),
+                retryable: false,
+            },
+        )
+        .await;
+        grant
+    });
+    let provider = RelayProvider::with_credentials(
+        RelayClientConfig {
+            slot: "grant-slot".into(),
+            ticket: String::new(),
+            maximum_frame_bytes: 64,
+            control_timeout: Duration::from_secs(5),
+        },
+        credentials,
+    )
+    .unwrap();
+    let group = provider
+        .connect(ConnectRequest {
+            endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+            session: SessionId::ZERO,
+            lane_policy: LanePolicy::Isolated,
+            routing: BTreeMap::new(),
+        })
+        .await
+        .unwrap();
+    let _ = tokio::time::timeout(
+        Duration::from_secs(10),
+        group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }),
+    )
+    .await
+    .expect("open did not finish after the relay refused it");
+    let _ = group.close().await;
+    tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap()
+}
+
+#[tokio::test]
+async fn bound_credentials_carry_their_grant_on_connect() {
+    let credentials = RelayCredentialSource::bound_callback(|| async {
+        Ok::<_, ()>(BoundCredential {
+            ticket: Zeroizing::new("bound-ticket".into()),
+            grant: Some(Zeroizing::new("carrier-grant-jws".into())),
+        })
+    });
+    assert_eq!(connect_grant_for(credentials).await.as_deref(), Some("carrier-grant-jws"));
+}
+
+#[tokio::test]
+async fn plain_credentials_send_no_grant_on_connect() {
+    let credentials =
+        RelayCredentialSource::callback(|| async { Ok::<_, ()>("plain-ticket".to_owned()) });
+    assert_eq!(connect_grant_for(credentials).await, None);
 }

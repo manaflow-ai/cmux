@@ -24,9 +24,17 @@ pub(super) struct Transport {
     epoch: u64,
 }
 
+/// A request's bearer and extra headers (an `Idempotency-Key`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Sign<'a> {
+    pub bearer: Option<&'a str>,
+    pub headers: &'a [(&'a str, &'a str)],
+}
+
 impl Transport {
     pub(super) fn new(allow_http: bool, epoch: u64) -> Result<Self, String> {
         let client = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers().map_err(|error| error.to_string())?)
             .https_only(!allow_http)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
@@ -50,7 +58,7 @@ impl Transport {
         method: reqwest::Method,
         url: &str,
         body: Option<&Value>,
-        bearer: Option<&str>,
+        sign: Sign<'_>,
         deadline: &RequestDeadline,
         network: &mut watch::Receiver<u64>,
     ) -> Result<super::Response, String> {
@@ -63,7 +71,7 @@ impl Transport {
                 }
                 // The connection under this request may be dead: fail now rather than at the deadline.
                 Ok(()) = network.changed() => Err("Cloud request unavailable".to_owned()),
-                response = self.send_reconnecting(method, url, body, bearer, deadline) => response,
+                response = self.send_reconnecting(method, url, body, sign.bearer, sign.headers, deadline) => response,
             }
         })?;
         deadline.remaining().ok_or("Cloud response unavailable")?;
@@ -79,11 +87,12 @@ impl Transport {
         url: &str,
         body: Option<&Value>,
         bearer: Option<&str>,
+        headers: &[(&str, &str)],
         deadline: &RequestDeadline,
     ) -> Result<super::Response, String> {
         loop {
             let remaining = deadline.remaining().ok_or("Cloud request unavailable")?;
-            match self.send(method.clone(), url, body, bearer, remaining).await {
+            match self.send(method.clone(), url, body, bearer, headers, remaining).await {
                 Err(Failure::ConnectTimedOut) => continue,
                 Err(failure) => return Err(failure.message()),
                 Ok(response) => return Ok(response),
@@ -97,9 +106,13 @@ impl Transport {
         url: &str,
         body: Option<&Value>,
         bearer: Option<&str>,
+        headers: &[(&str, &str)],
         remaining: Duration,
     ) -> Result<super::Response, Failure> {
         let mut request = self.client.request(method, url).timeout(remaining);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
         if let Some(body) = body {
             request = request.json(body);
         }

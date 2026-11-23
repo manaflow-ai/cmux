@@ -80,7 +80,6 @@ LEGACY = {
     "required_status_checks.py": 1,
     "seed_derived_data.py": 1,
     "simple_pool_picker.py": 1,
-    "stable_next.py": 2,
     "stop_if_publish_doomed.py": 1,
     "submodule_forward_only.py": 1,
     "sync_labels.py": 1,
@@ -203,7 +202,7 @@ class Transport(unittest.TestCase):
         real = socket.getaddrinfo
 
         def lookup(*args, **kwargs):
-            time.sleep(seconds)
+            time.sleep(seconds)  # sleep-ok: a simulated slow name lookup, what the deadline is tested against
             return real(*args, **kwargs)
 
         socket.getaddrinfo = lookup
@@ -251,13 +250,19 @@ class Transport(unittest.TestCase):
         request = urllib.request.Request(server.url, data=b"{}", method="POST")
         with self.assertRaises(deadline_http.RequestTimeout):
             deadline_http.request(request, self.BOUND)
-        time.sleep(self.BOUND)
+        # Until the late lookup has returned: past it nothing is left that could send.
+        for thread in threading.enumerate():
+            if thread.name == "deadline-http-resolve":
+                thread.join(10)
+                self.assertFalse(thread.is_alive(), "the slow lookup never returned")
         self.assertEqual(server.requests, [])
 
     def test_one_deadline_shared_by_calls_counts_time_already_spent(self):
         server = self.serve(self.OK)
-        deadline = deadline_http.Deadline(self.BOUND)
-        time.sleep(self.BOUND * 1.1)
+        # A clock moved past the bound, as if earlier calls had spent it all.
+        now = [time.monotonic()]
+        deadline = deadline_http.Deadline(self.BOUND, clock=lambda: now[0])
+        now[0] += self.BOUND * 1.1
         with self.assertRaises(deadline_http.RequestTimeout):
             deadline_http.request(server.url, deadline=deadline)
         self.assertEqual(server.requests, [])
@@ -291,7 +296,7 @@ class Transport(unittest.TestCase):
 
         def start(thread):
             if thread.name == "deadline-http-resolve":
-                time.sleep(0.8 * self.BOUND)
+                time.sleep(0.8 * self.BOUND)  # sleep-ok: a simulated slow thread start, measured against the bound
             return real_start(thread)
 
         threading.Thread.start = start

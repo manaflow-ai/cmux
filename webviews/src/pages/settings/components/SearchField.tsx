@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { Input } from "../../../ui/Input";
+import { focusRoute } from "../../../ui/focusRoute";
 import { Icon } from "../icons";
 import { t } from "../strings";
 
@@ -39,10 +40,12 @@ export function SearchField({
             if (event.key === "Escape") {
               event.preventDefault();
               if (query) onQuery("");
-              else
-                event.currentTarget.ownerDocument
-                  .querySelector<HTMLElement>("[data-section-link][aria-current]")
-                  ?.focus();
+              else {
+                const current = event.currentTarget.ownerDocument.querySelector<HTMLElement>(
+                  ".section-list .section-link[aria-current]",
+                );
+                focusRoute(current, "person", "Escape from Settings search to the current sidebar link");
+              }
             } else if (event.key === "Enter") {
               event.preventDefault();
               onSubmit();

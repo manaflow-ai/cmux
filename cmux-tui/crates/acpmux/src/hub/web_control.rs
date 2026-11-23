@@ -281,16 +281,16 @@ impl Hub {
             if !was_web || t.device.as_deref() != device {
                 t.device = (!was_web).then(|| device.map(str::to_owned)).flatten();
             }
-            t.turn_id.clone()
+            (t.turn_id.clone(), t.device.clone())
         });
-        if let Some(turn_id) = raised {
-            session.floor.last_turn_web.store(true, Ordering::SeqCst);
+        if let Some((turn_id, device)) = raised {
+            session.floor.mark_last_turn(true, device.clone());
             // Read back when a host is adopted (`hosts.rs`).
             self.append(
                 session,
                 "mux",
                 "turn_control",
-                json!({"turnId": turn_id, "control": Control::Web.as_str()}),
+                json!({"turnId": turn_id, "control": Control::Web.as_str(), "device": device}),
             );
         }
         Ok(())
@@ -428,10 +428,16 @@ impl Hub {
             .with_data(json!({"reason": "remote.mode_left_asking_table", "mode": mode})));
         }
         if !self.session_asks_now(session, meta) {
+            // The owner's own phone is refused here only for its Full access switch: name it.
+            let switch = if device.is_some_and(|d| self.pairing.own_phone(d)) {
+                "; Full access is off for this phone: turn it on on the Mac in Settings > Mobile > Phones"
+            } else {
+                "; your own phone runs it with Full access on (Mac: Settings > Mobile > Phones)"
+            };
             return Err(RpcError::new(
                 -32000,
                 format!(
-                    "this session runs in mode {shown}, which does not ask before it acts; a paired device cannot prompt it or answer its permissions until the local user sets an asking mode"
+                    "this session runs in mode {shown}, which does not ask before it acts; a paired device cannot prompt it or answer its permissions until the local user sets an asking mode{switch}"
                 ),
             )
             .with_data(json!({
@@ -675,7 +681,7 @@ impl Control {
 }
 
 /// The rules a request that controls a session runs under.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Control {
     /// The unix socket or the local app: no mode rule.
     #[default]

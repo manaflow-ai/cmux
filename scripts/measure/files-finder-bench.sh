@@ -5,7 +5,10 @@
 # Finder's search field is a Spotlight query, so `mdfind -onlyin DIR -name Q` times the engine
 # under Finder's search without its UI (a lower bound for Finder). Finder's folder open is timed
 # through Apple Events (`count items`), which runs Finder's own enumeration; that needs a GUI
-# session with Automation allowed, else the row says n/a.
+# session with Automation allowed, so it runs only with CMUX_FILES_BENCH_FINDER_EVENTS=1, from a
+# session whose person answers the Automation ask. A fleet job never sends it: macOS asks
+# "wants access to control Finder" in the worker's name on a screen nobody answers
+# (cmux-austin-mini-0, 2026-11-19); the row says n/a.
 set -euo pipefail
 RUNS="${CMUX_FILES_BENCH_RUNS:-7}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -65,7 +68,11 @@ PY
 
 echo "== folder open"
 for f in flat10k flat100k; do
-  echo "finder count-items $f $(timeit osascript -e "tell application \"Finder\" to count items of folder (POSIX file \"$corpus/$f\" as alias)")"
+  if [[ "${CMUX_FILES_BENCH_FINDER_EVENTS:-0}" == 1 ]]; then
+    echo "finder count-items $f $(timeit osascript -e "tell application \"Finder\" to count items of folder (POSIX file \"$corpus/$f\" as alias)")"
+  else
+    echo "finder count-items $f n/a (CMUX_FILES_BENCH_FINDER_EVENTS=1 sends Finder the Apple event)"
+  fi
   "$work/files-finder-bench" "$RUNS" list "$corpus/$f"
 done
 

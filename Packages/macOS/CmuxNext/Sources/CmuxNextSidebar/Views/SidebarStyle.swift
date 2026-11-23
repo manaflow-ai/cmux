@@ -271,13 +271,28 @@ enum SidebarStyle {
         Typography.system(.default, size: titleFont.pointSize, weight: TypeScale.regular)
     }
     /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
-    /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.
+    /// so smaller than `name`, at the regular weight, in the tertiary ink (``TextInk``).
     static func groupHeaderCountFont(name: NSFont) -> NSFont {
         Typography.system(.default, size: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
     }
-    /// How much of the header's ink the member count takes: lighter than the name.
-    static let groupHeaderCountInkAlpha: CGFloat = 0.7
-    /// An archived row's ink, icon and group bar (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
+    /// The sidebar's text inks on its own background (Leo 2026-10-27, "5 different font colors in sidebar (opacity?)"):
+    /// three steps and no per-label opacity. `title` is a row's name (workspace, item, folder group), `secondary` a
+    /// header or a control's words, `tertiary` every detail, count and archived name. Text on a group's colored fill
+    /// takes that fill's readable ink instead (`GroupHeaderRowView.paintBand`). Call inside the view's theme scope.
+    enum TextInk: CaseIterable {
+        case title, secondary, tertiary
+
+        var color: NSColor {
+            switch self {
+            case .title: SidebarStyle.titleInk
+            case .secondary: Palette.textSecondary
+            case .tertiary: Palette.textTertiary
+            }
+        }
+    }
+    /// A name's ink: an archived one drops to the tertiary step instead of a dimmed copy of its own ink.
+    static func nameInk(_ ink: TextInk, archived: Bool) -> NSColor { (archived ? TextInk.tertiary : ink).color }
+    /// An archived row's icon and group bar (its text takes ``TextInk/tertiary``) (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
     static let archivedAlpha: CGFloat = 0.45
     /// The connected-shape prototype applies only to band headers; quiet looks keep their geometry.
     static var groupChromeShape: Bool { SidebarTunables.groupChromeShapeOn && SidebarGroupHeaderStyle.tunable.value == .band }
@@ -286,6 +301,15 @@ enum SidebarStyle {
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     /// One nesting step: a nested group's rows move in this far per level below the top.
     static var groupGutter: CGFloat { Metrics.densityToken("sidebarGroupIndent") ?? groupBarX + 2 * Metrics.space1 }
+    /// One nesting step in the plain-folder look (`SidebarGroupBackgroundStyle.indentsMembers`): an iconless member's
+    /// title starts on its folder name's column, as in a file list (Chief 2026-11-21, "align members under the name").
+    /// The folder's name starts on the text column after its glyph (`SidebarColumns.text`); an iconless workspace title
+    /// starts on the row's lead (`workspaceTitleX` less `labelInset`, which the title's frame adds back), so the step
+    /// is the icon column and its gap.
+    static var folderMemberStep: CGFloat {
+        let columns = columns(rowWidth: 0)
+        return columns.text - columns.lead
+    }
     /// How far a row at group level `depth` (`SidebarRow.depth`) moves in from the list's inset.
     /// A top-level group's header and members line up with ungrouped rows: same leading x, same
     /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON
@@ -308,6 +332,13 @@ enum SidebarStyle {
     /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
     /// header part left side"), while the header's name keeps the rows' text column.
     static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
+    /// How far right of its header bar's left edge an `edge` rail sits: half the gap between the rail and its members,
+    /// so the rail is centred in its lane, with the same room on each side (Lawrence 2026-11-17: "have slight padding
+    /// on left as well"). The other half stays between the rail and its members' fills. Only under the band, whose
+    /// header is a pane with its own left edge; the quieter looks keep the rail on their leading dot.
+    static var groupRailInset: CGFloat {
+        SidebarGroupHeaderStyle.tunable.value == .band ? (groupRailReach - groupBarWidth) / 2 : 0
+    }
     /// The least room a group header's bar and rail keep from the list's left edge (Lawrence 2026-10-25: "groups
     /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. The rows' inset less the rail and
     /// its gap (`groupRailReach`; 2 pt compact, 4 pt comfortable), so the padding never eats the rail's gap: at

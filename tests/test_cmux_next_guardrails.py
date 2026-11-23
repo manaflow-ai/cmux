@@ -4,8 +4,8 @@
 Each test commits into a throwaway repository and checks what the commit adds. The rule tests call
 `guardrails.check` directly; the hook tests install the real hooks and push through the real `git push`,
 so the installed trusted copy of the gate is what runs. Not on CI (Lawrence 2026-10-23: "not to add
-gates/tests in CI, but you have to run them yourself"): run it yourself after every change to guardrails.py,
-prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cmux_next_guardrails.py
+gates/tests in CI, but you have to run them yourself"; lifted 2026-11-18): run it yourself after every change
+to guardrails.py, prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cmux_next_guardrails.py
 """
 import contextlib
 import dataclasses
@@ -25,6 +25,9 @@ import time
 import types
 import unittest
 from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real_git import real_git  # noqa: E402
 
 
 def _load_git_fixture_env():
@@ -105,6 +108,8 @@ CASES = {
                     "    registry.bind(\"renamePane\", effect: { _ in daemon.intentEffect(\"rename-pane\", intent) { try await $0.rename() } })\n}\n"),
     "appkit-index": ("@objc func clicked() {\n    guard let item = browser.item(atRow: browser.clickedRow, inColumn: browser.clickedColumn) else { return }\n}\n",
                      "@objc func clicked() {\n    guard let item = browser.clickedItemIfValid else { return }\n}\n"),
+    "path-name-by-stat": ("func project(_ cwd: String) -> String {\n    URL(fileURLWithPath: cwd).lastPathComponent\n}\n",
+                          "func project(_ cwd: String) -> String {\n    (cwd as NSString).lastPathComponent\n}\n"),
     "plus-button": ("let add = SidebarIconButton(icon: .actionAdd, label: \"New\")\n"
                     "let more = TitlebarBandButton(symbol: \"plus\")\n",
                     "let add = SidebarIconButton(plus: \"New\")\n"
@@ -152,7 +157,7 @@ class Fixture(unittest.TestCase):
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, text=True, capture_output=True,
-                              check=check)
+                              check=check, timeout=120)
 
     def write(self, relative, text):
         path = self.repo / relative
@@ -534,6 +539,53 @@ class RuleTests(Fixture):
         self.assertEqual(self.refused(), [("bench-hooks-shipped", [
             "nightly.yml: - run: ./scripts/reload.sh --config bench",
             "Release.xcconfig: OTHER_SWIFT_FLAGS = $(inherited) -DCMUX_BENCH_HOOKS"])])
+
+    def test_a_silenced_plistbuddy_read_of_an_unchecked_file_is_refused(self):
+        # #45226: on a missing file Print writes "File Doesn't Exist, Will Create: FILE" to stdout, which
+        # `2>/dev/null || true` keeps as the value.
+        self.write("scripts/cmux-next/name.sh",
+                   'name="$(/usr/libexec/PlistBuddy -c \'Print :CFBundleName\' "$app/Info.plist" 2>/dev/null || true)"\n'
+                   '[[ -f "$app/Info.plist" ]] && id="$(/usr/libexec/PlistBuddy -c \'Print :CFBundleIdentifier\' '
+                   '"$app/Info.plist" 2>/dev/null || true)"\n'
+                   'get() {\n  [[ -f "$1" ]] || return 0\n  /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true\n}\n'
+                   'v="$(/usr/libexec/PlistBuddy -c \'Print :K\' /dev/stdin <<<"$xml" 2>/dev/null || true)"\n'
+                   '# plist-exists: codesign wrote it above\n'
+                   'e="$(/usr/libexec/PlistBuddy -c \'Print :K\' "$ents" 2>/dev/null || true)"\n'
+                   'x="$(/usr/libexec/PlistBuddy -c \'Print :K\' "$app/Info.plist")"\n')
+        self.write(".github/workflows/ios.yml", "jobs:\n  a:\n    steps:\n      - run: |\n"
+                   '          v="$(/usr/libexec/PlistBuddy -c "Print :K" "$P" 2>/dev/null || echo "")"\n')
+        # No check: one commented out, a `! -f`, one in the function above.
+        self.write("scripts/fake.sh",
+                   '# [[ -f "$a" ]] &&\na="$(/usr/libexec/PlistBuddy -c \'Print :A\' -c \'Print :B\' "$a" 2>/dev/null || true)"\n'
+                   '[[ ! -f "$b" ]] && b="$(/usr/libexec/PlistBuddy -c \'Print :B\' "$b" 2>/dev/null || true)"\n'
+                   'one() { [[ -f "$1" ]] || return 0; :; }\n'
+                   'two() {\n  /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true\n}\n')
+        self.commit("silenced plist reads, guarded and not")
+        self.assertEqual(self.refused(), [("plist-missing-file", [
+            "ios.yml: v=\"$(/usr/libexec/PlistBuddy -c \"Print :K\" \"$P\" 2>/dev/null || echo \"\")\"",
+            "name.sh: name=\"$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' \"$app/Info.plist\" 2>/dev/null || true)\"",
+            "fake.sh: a=\"$(/usr/libexec/PlistBuddy -c 'Print :A' -c 'Print :B' \"$a\" 2>/dev/null || true)\"",
+            "fake.sh: [[ ! -f \"$b\" ]] && b=\"$(/usr/libexec/PlistBuddy -c 'Print :B' \"$b\" 2>/dev/null || true)\"",
+            "fake.sh: /usr/libexec/PlistBuddy -c \"Print :$2\" \"$1\" 2>/dev/null || true"])])
+
+    def test_a_plistbuddy_read_split_across_lines_is_read_as_one_command(self):
+        self.write("scripts/split.sh",
+                   'a="$(/usr/libexec/PlistBuddy -c \'Print :A\' "$a" \\\n  2>/dev/null || true)"\n'
+                   'b="$(/usr/libexec/PlistBuddy -c \'Print :B\' \\\n  "$b" 2>/dev/null || true)"\n'
+                   '[[ -f "$c" ]] && c="$(/usr/libexec/PlistBuddy -c \'Print :C\' \\\n  "$c" 2>/dev/null || true)"\n'
+                   'd="$(/usr/libexec/PlistBuddy -c \'Print :D\' "$d")"\n')
+        self.commit("split silenced reads")
+        self.assertEqual(self.refused(), [("plist-missing-file", [
+            "split.sh: a=\"$(/usr/libexec/PlistBuddy -c 'Print :A' \"$a\" \\",
+            "split.sh: b=\"$(/usr/libexec/PlistBuddy -c 'Print :B' \\"])])
+
+    def test_deleting_the_file_check_makes_an_old_plistbuddy_read_new_debt(self):
+        self.rebase_on({"scripts/name.sh": '[[ -f "$p" ]] || exit 1\n'
+                        'n="$(/usr/libexec/PlistBuddy -c \'Print :N\' "$p" 2>/dev/null || true)"\n'})
+        self.write("scripts/name.sh", 'n="$(/usr/libexec/PlistBuddy -c \'Print :N\' "$p" 2>/dev/null || true)"\n')
+        self.commit("drop the check")
+        self.assertEqual(self.refused(), [("plist-missing-file", [
+            "name.sh: n=\"$(/usr/libexec/PlistBuddy -c 'Print :N' \"$p\" 2>/dev/null || true)\""])])
 
     def test_the_generic_class_rule_reads_test_targets_and_honors_nonisolated(self):
         tests = "Packages/macOS/CmuxNext/Tests/CmuxNextFooTests"
@@ -2316,7 +2368,7 @@ class BlobReadTests(Fixture):
 
     def fake_git(self, body):
         """Put a `git` first on PATH whose `cat-file` runs BODY (sh) and whose other commands are the real git."""
-        real = shutil.which("git")
+        real = real_git()  # the binary, never a wrapper on PATH that would exec this fake again
         folder = self.root / "fake-bin"
         folder.mkdir(exist_ok=True)
         script = folder / "git"
@@ -2709,7 +2761,7 @@ class HookTests(Fixture):
         # process the same way stands in for the daemon (the builtin one runs on macOS and Windows only).
         hooks = self.repo / ".git" / "cmux-git-hooks"
         pidfile = self.root / "detached.pid"
-        real = os.path.realpath(shutil.which("git", path=self.env.get("PATH")))
+        real = real_git()  # the binary, never a wrapper on PATH that would exec this stub again
         stub = self.root / "git-stub"
         stub.mkdir()
         (stub / "git").write_text(

@@ -49,7 +49,7 @@ done
 
 PLIST="$APP/Contents/Info.plist"
 ORIGINAL="$STATE/cmux-classic-original.app"
-pbf() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
+pbf() { [[ -f "$1" ]] || return 0; /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
 pb() { pbf "$PLIST" "$1"; }
 die() { echo "classic-handoff-rc: $*" >&2; exit 1; }
 is_running() { pgrep -f "^$APP/Contents/MacOS/" >/dev/null 2>&1; }

@@ -77,6 +77,28 @@ impl Supervisor {
             if self.config.host_binary.is_none() {
                 return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
             }
+            // A widget's context is built here from its spec and the layout (`widgets.rs`).
+            let widget_spec = (interface == super::widgets::INTERFACE).then(|| {
+                package
+                    .manifest
+                    .pointer("/implements")
+                    .and_then(|i| i.get(super::widgets::INTERFACE))
+                    .map(super::widgets::Spec::from_entry)
+            });
+            let (context, widget) = match widget_spec {
+                Some(spec) => {
+                    let spec = spec.ok_or_else(|| {
+                        ApiError::new("apps.interface", format!("{app} has no widget"))
+                    })?;
+                    let layout = self.widget_layout_locked(&mut inner);
+                    let (context, mut widget) =
+                        super::widgets::mount_context(app, &spec, &context, layout)?;
+                    inner.widgets.next_epoch = inner.widgets.next_epoch.wrapping_add(1);
+                    widget.epoch = inner.widgets.next_epoch;
+                    (context, Some(widget))
+                }
+                None => (context, None),
+            };
             let key = MountKey { client, mount_id: mount_id.to_string() };
             // A view mounted again under its id (Reload) keeps its old scene
             // on screen until this one: its first scene replaces it.
@@ -86,6 +108,15 @@ impl Supervisor {
             if !preview {
                 self.note_launch_mount_locked(&mut inner, app);
             }
+            let mut budget = super::budget::MountBudget::default();
+            if widget.is_some() {
+                budget.quiet_after(
+                    super::widgets::QUIET_INTERVAL,
+                    Instant::now(),
+                    super::widgets::SETTLE,
+                );
+            }
+            let ticks = widget.is_some();
             inner.mounts.insert(
                 key.clone(),
                 Mount {
@@ -94,9 +125,13 @@ impl Supervisor {
                     export: export.clone(),
                     context: context.clone(),
                     reset: replacing,
-                    budget: Default::default(),
+                    budget,
+                    widget,
                 },
             );
+            if ticks {
+                self.schedule_tick_locked(&mut inner, &key);
+            }
             outs.extend(self.revive_host_locked(&mut inner, &host_key, |process| {
                 process.send(&ToHost::Mount { mount: key.wire(), export, ctx: context });
             }));
@@ -148,6 +183,8 @@ impl Supervisor {
 
     pub(super) fn unmount_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
         let Some(mount) = inner.mounts.remove(key) else { return vec![] };
+        self.signals_mount_gone(key);
+        self.cancel_widget_timers(mount.widget.as_ref());
         if let Some(process) = inner.hosts.get(&mount.host).and_then(|h| h.process.clone()) {
             process.send(&ToHost::Unmount { mount: key.wire() });
         }
@@ -169,8 +206,12 @@ impl Supervisor {
         let key = MountKey { client, mount_id: mount_id.to_string() };
         let mount = inner
             .mounts
-            .get(&key)
+            .get_mut(&key)
             .ok_or_else(|| ApiError::new("apps.mount.unknown", "no such mount"))?;
+        // A tap on a widget redraws at frame rate for a moment (`widgets.rs` SETTLE).
+        if user && mount.widget.is_some() {
+            mount.budget.settle(Instant::now(), super::widgets::SETTLE);
+        }
         let host_key = mount.host.clone();
         if !payload.is_object() {
             payload = json!({});
@@ -264,6 +305,7 @@ impl Supervisor {
         let mut failed = Vec::new();
         for mount in gone {
             if let Some(record) = inner.mounts.remove(&mount) {
+                self.cancel_widget_timers(record.widget.as_ref());
                 let reason = format!(
                     "{} does not implement {} with a scene export",
                     key.app, record.interface
@@ -332,7 +374,9 @@ impl Supervisor {
         let failed: Vec<MountKey> =
             inner.mounts.iter().filter(|(_, m)| m.host == *key).map(|(k, _)| k.clone()).collect();
         for mount in failed {
-            inner.mounts.remove(&mount);
+            if let Some(gone) = inner.mounts.remove(&mount) {
+                self.cancel_widget_timers(gone.widget.as_ref());
+            }
             outs.push(Out::Client(
                 mount.client,
                 json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason }),
@@ -435,7 +479,9 @@ impl Supervisor {
             .map(|(k, _)| k.clone())
             .collect();
         for mount in doomed {
-            inner.mounts.remove(&mount);
+            if let Some(gone) = inner.mounts.remove(&mount) {
+                self.cancel_widget_timers(gone.widget.as_ref());
+            }
             outs.push(Out::Client(
                 mount.client,
                 json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason }),
@@ -516,7 +562,16 @@ impl Supervisor {
             }
             FromHost::Mounted { mount, error } => {
                 let Some(mount_key) = find_mount(inner, key, &mount) else { return vec![] };
-                let Some(reason) = error else { return self.good_mount_locked(inner, key) };
+                let Some(reason) = error else {
+                    let mut outs = self.widget_mount_good_locked(inner, &mount_key);
+                    outs.extend(self.good_mount_locked(inner, key));
+                    return outs;
+                };
+                // Let it crash: a widget whose render threw keeps its last good scene, marked
+                // stale, and mounts again after a bounded backoff (widgets.rs).
+                if inner.mounts.get(&mount_key).is_some_and(|m| m.widget.is_some()) {
+                    return self.widget_mount_failed_locked(inner, &mount_key, reason);
+                }
                 inner.mounts.remove(&mount_key);
                 let mut outs = vec![Out::Client(
                     mount_key.client,
@@ -534,6 +589,13 @@ impl Supervisor {
             }
             FromHost::Subscribe { sub, stream, .. } => {
                 self.subscribe_locked(inner, key, sub, stream)
+            }
+            FromHost::Watch { watch, name, params, mount, every_seconds } => {
+                self.watch_locked(inner, key, watch, &name, params, mount, every_seconds)
+            }
+            FromHost::Unwatch { watch, refresh } => {
+                self.unwatch_locked(inner, key, watch, refresh);
+                vec![]
             }
             FromHost::Unsubscribe { sub } => {
                 inner.hosts.get_mut(key).expect("host").subs.remove(&sub);
@@ -631,6 +693,7 @@ impl Supervisor {
                 return;
             };
             host.process = None;
+            self.signals_host_gone(key);
             if let Some(timer) = host.idle.take() {
                 self.timers.cancel(timer);
             }
@@ -764,6 +827,7 @@ impl Supervisor {
             return;
         }
         let inner = self.inner.lock().unwrap();
+        self.signals_pushed_locked(&inner, stream);
         Self::publish_stream_locked(&inner, stream, body);
     }
 }
@@ -789,7 +853,7 @@ pub(super) fn new_host() -> Host {
     }
 }
 
-fn find_mount(inner: &Inner, key: &HostKey, wire: &str) -> Option<MountKey> {
+pub(super) fn find_mount(inner: &Inner, key: &HostKey, wire: &str) -> Option<MountKey> {
     inner.mounts.iter().find(|(k, m)| m.host == *key && k.wire() == wire).map(|(k, _)| k.clone())
 }
 
@@ -798,5 +862,9 @@ fn mark_reset(inner: &mut Inner, key: &HostKey) {
         mount.reset = true;
         // Held ops of the old process would land on the new tree.
         mount.budget.clear_pending();
+        // A widget's fresh mount draws at frame rate, as any mount does.
+        if mount.widget.is_some() {
+            mount.budget.settle(Instant::now(), super::widgets::SETTLE);
+        }
     }
 }

@@ -52,19 +52,50 @@ public struct SessionTicket: Codable, Sendable, Equatable {
     public var peer: Peer
     public var role: Role
     public var scope: SessionScope
+    /// Whose devices the session joins, as the hub authenticated them (PROTOCOL.md): `user` is one account,
+    /// both devices signed in to it. Nil from a hub that does not say, which counts as not shown to be own.
+    public var ownerKind: String?
     /// Who serves a host ticket on this Mac, as the acpmux daemon's share host relays it
     /// (``servedByDaemon`` or `"app"`); nil from the hub itself or an older relay (the app serves).
     /// A string, so a value this build does not know never drops the ticket.
     public var servedBy: String?
+    /// A viewer ticket this device did not ask for: the hub pushed it (a share moved to this
+    /// device, or a host that pushed its screen here). False from a hub that does not say.
+    public var pushed: Bool
+    /// The session this one replaced (a share that moved), else nil.
+    public var movedFrom: String?
 
     /// `servedBy` of a ticket the acpmux daemon serves: the app neither serves nor ends it.
     public static let servedByDaemon = "daemon"
 
     public init(sessionId: String, ticket: String, signalURL: URL, ice: [DeviceHubICEServer], peer: Peer, role: Role, scope: SessionScope,
-                servedBy: String? = nil) {
+                ownerKind: String? = nil, servedBy: String? = nil, pushed: Bool = false, movedFrom: String? = nil) {
         self.sessionId = sessionId; self.ticket = ticket; self.signalURL = signalURL; self.ice = ice
-        self.peer = peer; self.role = role; self.scope = scope; self.servedBy = servedBy
+        self.peer = peer; self.role = role; self.scope = scope; self.ownerKind = ownerKind; self.servedBy = servedBy
+        self.pushed = pushed; self.movedFrom = movedFrom
     }
+
+    enum CodingKeys: String, CodingKey { case sessionId, ticket, signalURL, ice, peer, role, scope, ownerKind, servedBy, pushed, movedFrom }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        ticket = try c.decode(String.self, forKey: .ticket)
+        signalURL = try c.decode(URL.self, forKey: .signalURL)
+        ice = try c.decode([DeviceHubICEServer].self, forKey: .ice)
+        peer = try c.decode(Peer.self, forKey: .peer)
+        role = try c.decode(Role.self, forKey: .role)
+        scope = try c.decode(SessionScope.self, forKey: .scope)
+        ownerKind = try c.decodeIfPresent(String.self, forKey: .ownerKind)
+        servedBy = try c.decodeIfPresent(String.self, forKey: .servedBy)
+        // Newer hub fields: absent (an older hub) or malformed reads as an ordinary ticket.
+        pushed = c.flag(.pushed)
+        movedFrom = c.lenient(String.self, .movedFrom)
+    }
+
+    /// The hub says both devices are signed in to one account: the person reaching their own machine.
+    /// Read from the hub's own push, never from anything the viewer sends.
+    public var isOwnAccount: Bool { ownerKind == "user" }
 
     /// The acpmux daemon serves this ticket (the daemon decides who serves, once per ticket).
     public var isServedByDaemon: Bool { servedBy == Self.servedByDaemon }
@@ -83,6 +114,9 @@ public enum DeviceHubPush: Sendable, Equatable {
     case devicesChanged
     case permissionsChanged(hostID: String?)
     case relaysChanged
+    /// The account's settings changed (`GET /v1/settings` again): "My agents can turn screen
+    /// sharing and control on my machines".
+    case settingsChanged
     /// To the host: a viewer asks.
     case sessionRequest(SessionRequest)
     /// To both devices: the session is approved; signal with this.
@@ -91,7 +125,8 @@ public enum DeviceHubPush: Sendable, Equatable {
     case sessionDenied(sessionID: String)
     /// To both: end at once.
     case sessionRevoked(sessionID: String, reason: String?)
-    case sessionEnded(sessionID: String, reason: String?)
+    /// `movedTo`: with reason `moved`, the session that replaced this one (the share moved), else nil.
+    case sessionEnded(sessionID: String, reason: String?, movedTo: String? = nil)
     case pong
     /// A type this build does not know.
     case unknown(String)
@@ -104,6 +139,7 @@ public enum DeviceHubPush: Sendable, Equatable {
         case "devices.changed": self = .devicesChanged
         case "permissions.changed": self = .permissionsChanged(hostID: envelope.hostId)
         case "relays.changed": self = .relaysChanged
+        case "settings.changed": self = .settingsChanged
         case "session.request":
             guard let request = try? decoder.decode(RequestMessage.self, from: data) else { return nil }
             self = .sessionRequest(request.session)
@@ -118,7 +154,7 @@ public enum DeviceHubPush: Sendable, Equatable {
             self = .sessionRevoked(sessionID: id, reason: envelope.reason)
         case "session.ended":
             guard let id = envelope.sessionId else { return nil }
-            self = .sessionEnded(sessionID: id, reason: envelope.reason)
+            self = .sessionEnded(sessionID: id, reason: envelope.reason, movedTo: envelope.movedTo)
         case "pong": self = .pong
         default: self = .unknown(envelope.type)
         }
@@ -129,6 +165,7 @@ public enum DeviceHubPush: Sendable, Equatable {
         var hostId: String?
         var sessionId: String?
         var reason: String?
+        var movedTo: String?
     }
 
     struct RequestMessage: Decodable {

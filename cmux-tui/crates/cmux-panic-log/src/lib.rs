@@ -13,7 +13,12 @@
 //! Each line is a JSON object with these keys, plus every key in `fields`:
 //! `message`, `location` (`file:line:col`), `thread`, `at_ms`, `test`
 //! (true for a debug test panic, which the app never sends) and
-//! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]).
+//! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]). A release bundle's
+//! stripped `bin/cmux` names its frames through its side symbol map
+//! ([`backtrace::force_capture`]).
+
+pub mod backtrace;
+pub mod symbol_map;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -50,7 +55,7 @@ pub fn install_with_opener(
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "non-text panic payload".to_string());
         let location = info.location().map(ToString::to_string).unwrap_or_default();
-        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        let backtrace = backtrace::force_capture();
         let test = is_test_thread(&thread);
         append_opened(&opener, &record(&fields, &message, &location, &thread, test, backtrace));
         previous(info);

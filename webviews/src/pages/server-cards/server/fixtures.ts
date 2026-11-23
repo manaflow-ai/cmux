@@ -2,14 +2,7 @@
 // Canned servers for the gallery, the browser dev loop and tests: a paired Mac mini, a MacBook on
 // battery with low disk, a fresh Mac showing its pairing code, a paired Linux box without a display.
 // `status` builds the app's reply around one of them.
-import type {
-  PairingCandidate,
-  PairingOffer,
-  ServerApprover,
-  ServerRoleState,
-  ServerSnapshot,
-  ServerStatus,
-} from "./types";
+import type { PairingOffer, ServerRoleState, ServerSnapshot, ServerStatus } from "./types";
 
 type ServerRole = "session" | "link" | "apps" | "postgres" | "browser" | "automations" | "health" | "updater";
 
@@ -26,21 +19,6 @@ export const sampleQR =
 export function offer(now: number): PairingOffer {
   return { code: offerCode, expiresAt: now + 600_000, words: offerWords, qr: sampleQR };
 }
-
-/** The pending server the approver finds with `offerCode`. */
-export const candidate: PairingCandidate = {
-  code: offerCode,
-  name: "build-01",
-  os: "Ubuntu 24.04 arm64",
-  version: "cmux 0.42.1",
-  region: "DE",
-  words: offerWords,
-  teams: [
-    { id: "team_personal", name: "Personal" },
-    { id: "team_manaflow", name: "Manaflow" },
-  ],
-  isChiefBrain: false,
-};
 
 export type ServerScenario = "healthyMac" | "batteryLowDisk" | "unpaired" | "linuxHeadless";
 
@@ -258,23 +236,6 @@ export function scenario(name: ServerScenario, now = referenceDate): ServerSnaps
   }
 }
 
-export const idleApprover = (): ServerApprover => ({
-  session: 1,
-  step: "enterCode",
-  canApprove: false,
-  draft: { code: "", name: "", runChief: false },
-});
-
-/** A found server on the Add Server card. */
-export const reviewApprover = (overrides: Partial<ServerApprover> = {}): ServerApprover => ({
-  session: 1,
-  step: "review",
-  candidate,
-  canApprove: true,
-  draft: { code: "7KQ4-M2XD", name: candidate.name, team: candidate.teams[0]!.id, runChief: false },
-  ...overrides,
-});
-
 /** The app's status around a canned server. */
 export function status(name: ServerScenario | null, overrides: Partial<ServerStatus> = {}): ServerStatus {
   return {
@@ -283,7 +244,6 @@ export function status(name: ServerScenario | null, overrides: Partial<ServerSta
       : { state: "unavailable", reason: "This build does not include the server software yet." },
     snapshot: name ? scenario(name) : undefined,
     pending: { switching: false, pairing: false, fixing: [], revoking: [] },
-    approver: idleApprover(),
     ...overrides,
   };
 }

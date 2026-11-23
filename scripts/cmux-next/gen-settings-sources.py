@@ -9,7 +9,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   (Swift: SettingsSchema+RetiredKeys.generated.swift, `SettingsSchema.retiredKeys`).
 - schemas/settings/source/<section>.json: the rows of one settings section. Swift gets the
   descriptors AND the parser constants (paths, defaults, ranges, choice values and enums, legacy
-  aliases), so a value has one definition. schemas/settings/generator/<section>.json maps the file to
+  aliases), so a value has one definition. The daemon compiles the sources with aliases in
+  (cmux-config schema/aliases.rs).
+  schemas/settings/generator/<section>.json maps the file to
   its Swift schema type and each list's static var and owner type (one file per section).
   schemas/settings/settings-schema.json is still exported from Swift (SettingsSchemaExportTests);
   moving a section must not change it.
@@ -24,8 +26,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
 - schemas/settings/source/agent-policy.json: which keys an agent may change, and why not
   (Swift: SettingsSchema+AgentPolicy.generated.swift). Every row of a section source needs a group.
 - schemas/settings/source/row-facts.json: the keys Reset All keeps and cmux-browser shares, and each
-  row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift), with the app id
-  pattern of the app manifest schema (cmux-app.schema.json `properties.id.pattern`) for domain:app_id.
+  row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift), with its copy of the app id
+  pattern of the app manifest schema (cmux-app.schema.json `properties.id.pattern`) for domain:app_id;
+  --check compares the copy with that schema when the checkout has it.
 - schemas/settings/source/samples.json: the values per row kind and validation domain a validator
   must accept and refuse (Swift: SettingsSchema+Samples.generated.swift; the export's accepts/refuses).
 
@@ -91,11 +94,20 @@ The constants are `public` when the owner type is: an owner declared without `pu
 CmuxNextSettings (a section type, or a hand-written internal parser) gets internal constants, since
 a public constant on an internal type can name a type that is itself internal.
 
-A generated Swift file this script no longer writes (for example a choices file after a section
-lost its choice rows) counts as drift under --check and is deleted when writing.
+The Swift is not in git (RFD 0048): the package's SettingsSchemaPlugin build-tool plugin
+(Packages/macOS/CmuxNext/Plugins/SettingsSchemaPlugin) runs this script with --swift-out into its
+work directory on every build, so the `swift` paths above (in the Schema directory) only name the
+files. A generated Swift file this script no longer writes (for example a choices file after a
+section lost its choice rows) counts as drift under --check and is deleted when writing.
 
-    python3 scripts/cmux-next/gen-settings-sources.py           # write the copies
-    python3 scripts/cmux-next/gen-settings-sources.py --check   # exit 1 when a copy drifted
+    python3 scripts/cmux-next/gen-settings-sources.py --check   # exit 1 on a bad source or a stale export
+    python3 scripts/cmux-next/gen-settings-sources.py --swift-out DIR   # write the Swift into DIR
+
+--swift-out DIR writes (or with --check compares) the Swift files in DIR under the Schema file names
+and removes from DIR only the generated files it no longer writes; a file whose text is unchanged is
+not rewritten, so an incremental build does not recompile it. Without --check it skips the export
+key check below (a build step generates; the lints run --check). It never writes into the Schema
+directory: the plugin's copies would compile twice.
 """
 import json, os, re, sys
 
@@ -118,8 +130,9 @@ def load_retired():
     entries = data["retired"]
     seen = set()
     for entry in entries:
-        if set(entry) - {"key", "reason", "why", "replaced_by", "values"} or not {"key", "reason"} <= set(entry):
-            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values): %r" % (RETIRED_SOURCE, entry))
+        if set(entry) - {"key", "reason", "why", "replaced_by", "values", "since", "until"} or not {"key", "reason"} <= set(entry):
+            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values, since, until): %r" % (RETIRED_SOURCE, entry))
+        check_window(entry)
         key = entry["key"]
         parts = key.split(".")
         if not key or any(not part for part in parts):
@@ -136,10 +149,27 @@ def load_retired():
     return entries
 
 
+WINDOW_MARK = re.compile(r"^(\d{4}-\d{2}-\d{2}|\d+\.\d+\.\d+)$")
+
+
+def check_window(entry):
+    """`since` and `until` bound a key's deprecation window (cmux-config `migrations`): each a
+    date `YYYY-MM-DD` or a cmux version `X.Y.Z`; `until` needs `since`, and two dates are in order."""
+    key = entry["key"]
+    for field in ("since", "until"):
+        if field in entry and not (isinstance(entry[field], str) and WINDOW_MARK.match(entry[field])):
+            raise SystemExit("%s: %s of %r is YYYY-MM-DD or X.Y.Z: %r" % (RETIRED_SOURCE, field, key, entry[field]))
+    if "until" in entry and "since" not in entry:
+        raise SystemExit("%s: until without since for %r" % (RETIRED_SOURCE, key))
+    since, until = entry.get("since", ""), entry.get("until", "")
+    if "-" in since and "-" in until and until <= since:
+        raise SystemExit("%s: until is not after since for %r" % (RETIRED_SOURCE, key))
+
+
 def check_replacement(entry):
     """`replaced_by` names the row that took the key's place; `values` lists what the old key's
     values read as in that row ({"from", "to"} scalars). Any other old value reads as the row's
-    default."""
+    default. Without `values` it is a plain rename: every old value reads as is."""
     key = entry["key"]
     if "values" in entry and "replaced_by" not in entry:
         raise SystemExit("%s: values without replaced_by for %r" % (RETIRED_SOURCE, key))
@@ -173,9 +203,13 @@ def retired_swift(entries):
     for entry in entries:
         if "replaced_by" not in entry:
             continue
-        values = ", ".join("%s: %s" % (json_value_swift(pair["from"]), json_value_swift(pair["to"]))
-                           for pair in entry.get("values", []))
-        replaced.append("        %s: (old: %s, values: [%s])," % (path(entry["replaced_by"]), path(entry["key"]), values or ":"))
+        if "values" in entry:
+            pairs = ", ".join("%s: %s" % (json_value_swift(pair["from"]), json_value_swift(pair["to"]))
+                              for pair in entry["values"])
+            values = "[%s]" % (pairs or ":")
+        else:
+            values = "nil"
+        replaced.append("        %s: (old: %s, values: %s)," % (path(entry["replaced_by"]), path(entry["key"]), values))
     return """// {header}
 
 extension SettingsSchema {{
@@ -189,10 +223,11 @@ extension SettingsSchema {{
     ]
 
     /// Retired keys a row took the place of, by the row's path: the old key's path and what its
-    /// values read as in the row (any other value reads as the row's default). While the row is
-    /// unset Settings shows the old key's value, and every write or reset of the row removes the
-    /// old key (``RenamedSettingKeys``), as the daemon does (cmux-config `schema::retired`).
-    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue])] = [
+    /// values read as in the row (any other value reads as the row's default; `nil`: a plain
+    /// rename, every value reads as is). While the row is unset Settings shows the old key's
+    /// value, and every write or reset of the row removes the old key (``RenamedSettingKeys``), as
+    /// the daemon does (cmux-config `schema::retired`).
+    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue]?)] = [
 {replaced}
     ]
 }}
@@ -882,8 +917,10 @@ def load_page_layout(section_ids):
             fail(src, "section_actions.%s is a list of unique action ids" % section)
     category_ids, group_keys, claimed, legacy_ids = [], set(), set(), []
     for run in data["sidebar_sections"]:
-        if set(run) != {"id", "title", "categories"} or not IDENT.match(run["id"]) or not run["categories"]:
-            fail(src, "a sidebar section has id, title (or null) and a non-empty categories list: %r" % run.get("id"))
+        if not {"id", "title", "categories"} <= set(run) <= {"id", "title", "collapsed", "categories"} \
+                or not IDENT.match(run["id"]) or not run["categories"] or not isinstance(run.get("collapsed", False), bool):
+            fail(src, "a sidebar section has id, title (or null), an optional collapsed bool and a non-empty categories list: %r"
+                 % run.get("id"))
         check_text(src, run["id"] + ".title", run["title"], optional=True)
         for category in run["categories"]:
             cid = category.get("id", "")
@@ -1000,6 +1037,9 @@ public nonisolated struct SettingsPageLayout: Sendable {{
         public var title: SettingText?
         /// The categories of the run, in sidebar order.
         public var categories: [CategorySpec]
+        /// The page draws the run closed under its header (More) until a person opens it, and
+        /// opens it while one of its categories is shown: the sidebar's top level stays short.
+        public var collapsed = false
     }}
 
     /// A resolved group card: its rows in display order.
@@ -1054,8 +1094,9 @@ def page_categories_swift(data):
            "    /// The sidebar's sections: what a person looks for together sits together under one small header.",
            "    public static let sidebarSections: [SidebarSection] = ["]
     for run in data["sidebar_sections"]:
-        out.append("        SidebarSection(id: %s, title: %s, categories: %s)," % (
-            swift_string(run["id"]), title(run["title"]), swift_list(run["categories"], lambda c: c["id"] + "Category")))
+        out.append("        SidebarSection(id: %s, title: %s, categories: %s%s)," % (
+            swift_string(run["id"]), title(run["title"]), swift_list(run["categories"], lambda c: c["id"] + "Category"),
+            ", collapsed: true" if run.get("collapsed") else ""))
     out += ["    ]", "", "    private static func section(_ section: SettingsSection) -> SettingText {",
             "        SettingText(key: section.titleKey, text: section.title)", "    }"]
     for run in data["sidebar_sections"]:
@@ -1243,8 +1284,10 @@ extension SettingsSchema {{
 def load_row_facts():
     src = FACTS_SOURCE
     data = load_json(src)
-    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation", "former_defaults"}:
-        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation, former_defaults")
+    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation", "app_id_pattern", "former_defaults"}:
+        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation, app_id_pattern, former_defaults")
+    if not isinstance(data["app_id_pattern"], str) or not data["app_id_pattern"]:
+        fail(src, "app_id_pattern is the app manifest schema's properties.id.pattern")
     for field in ("kept_on_reset_all", "shared_with_browser"):
         if len(set(data[field])) != len(data[field]):
             fail(src, "%s lists a key twice" % field)
@@ -1270,11 +1313,18 @@ def load_row_facts():
     return data
 
 
-def app_id_pattern():
+def app_id_pattern_drift():
+    """The app id pattern row-facts.json copies, when it is not the app manifest schema's: the
+    generator reads only schemas/settings and scripts (a SwiftPM build has no cmux-tui), so --check
+    keeps the copy equal to the schema in a checkout that has it."""
+    if not os.path.exists(os.path.join(ROOT, APP_MANIFEST_SCHEMA)):
+        return []
     pattern = load_json(APP_MANIFEST_SCHEMA).get("properties", {}).get("id", {}).get("pattern")
     if not isinstance(pattern, str) or not pattern:
         fail(APP_MANIFEST_SCHEMA, "properties.id.pattern is the app id pattern")
-    return pattern
+    copy = load_json(FACTS_SOURCE)["app_id_pattern"]
+    return [] if copy == pattern else ["%s app_id_pattern %r is not %s properties.id.pattern %r"
+                                       % (FACTS_SOURCE, copy, APP_MANIFEST_SCHEMA, pattern)]
 
 
 def row_facts_swift(data):
@@ -1321,7 +1371,7 @@ extension SettingsSchema {{
            shared="\n".join(wrap([swift_string(k) for k in data["shared_with_browser"]], "        ")),
            kept="\n".join(wrap(kept, "        ")), by_key=table(data["validation"]["keys"]),
            by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]),
-           app_schema=APP_MANIFEST_SCHEMA, app_id_pattern=swift_string(app_id_pattern()),
+           app_schema=APP_MANIFEST_SCHEMA, app_id_pattern=swift_string(data["app_id_pattern"]),
            former="\n".join(wrap(["%s: [%s]" % (swift_string(k), ", ".join(json_value_swift(v) for v in values))
                                   for k, values in data["former_defaults"].items()], "        ")))
 
@@ -1439,8 +1489,41 @@ def export_key_drift(loaded):
     return problems
 
 
-def main():
-    check = "--check" in sys.argv[1:]
+def parse_args(argv):
+    """(check, swift_out): --check, and --swift-out DIR (an absolute or working-directory path)."""
+    check, swift_out, rest = False, None, list(argv)
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--check":
+            check = True
+        elif arg == "--swift-out" and rest:
+            swift_out = os.path.abspath(rest.pop(0))
+        elif arg.startswith("--swift-out="):
+            swift_out = os.path.abspath(arg.split("=", 1)[1])
+        else:
+            print("usage: gen-settings-sources.py [--check] [--swift-out DIR]", file=sys.stderr)
+            sys.exit(2)
+    return check, swift_out
+
+
+def main(argv=None):
+    check, swift_out = parse_args(sys.argv[1:] if argv is None else argv)
+    if swift_out is None and not check:
+        print("gen-settings-sources.py: the build generates the Swift (SettingsSchemaPlugin); "
+              "run --check, or --swift-out DIR to see it", file=sys.stderr)
+        return 2
+    if swift_out is not None and not check:
+        os.makedirs(swift_out, exist_ok=True)
+    out_dir = swift_out if swift_out is not None else os.path.join(ROOT, SCHEMA_DIR)
+
+    def target(path):
+        """Where the generated file `path` (repo-relative, in SCHEMA_DIR) is written."""
+        if swift_out is None:
+            return os.path.join(ROOT, path)
+        if not path.startswith(SCHEMA_DIR + "/") or "/" in path[len(SCHEMA_DIR) + 1:]:
+            fail(path, "a generated Swift file outside %s cannot be written with --swift-out" % SCHEMA_DIR)
+        return os.path.join(swift_out, path[len(SCHEMA_DIR) + 1:])
+
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
     seen_keys = {entry["key"] for entry in load_retired()}
     sections = load_sections()
@@ -1456,8 +1539,8 @@ def main():
     outputs[PAGE_CATEGORIES_SWIFT] = page_categories_swift(page)
     outputs.update(row_fact_outputs())
     drifted = []
-    for path, text in outputs.items():
-        full = os.path.join(ROOT, path)
+    for path, text in outputs.items() if swift_out is not None else ():
+        full = target(path)
         current = open(full, encoding="utf-8").read() if os.path.exists(full) else None
         if current == text:
             continue
@@ -1466,30 +1549,35 @@ def main():
         else:
             with open(full, "w", encoding="utf-8") as handle:
                 handle.write(text)
-            print("wrote " + path)
+            print("wrote " + (path if swift_out is None else full))
     # Generated files this script no longer writes.
     marker = "// GENERATED by scripts/cmux-next/gen-settings-sources.py"
-    for name in sorted(os.listdir(os.path.join(ROOT, SCHEMA_DIR))):
+    for name in sorted(os.listdir(out_dir)) if swift_out is not None and os.path.isdir(out_dir) else []:
         path = SCHEMA_DIR + "/" + name
         if not name.endswith(".generated.swift") or path in outputs:
             continue
-        with open(os.path.join(ROOT, path), encoding="utf-8") as handle:
+        with open(os.path.join(out_dir, name), encoding="utf-8") as handle:
             if not handle.read(len(marker)) == marker:
                 continue
         if check:
             drifted.append(path + " (no longer generated)")
         else:
-            os.remove(os.path.join(ROOT, path))
-            print("removed " + path)
-    stale_export = export_key_drift(loaded)
+            os.remove(os.path.join(out_dir, name))
+            print("removed " + (path if swift_out is None else os.path.join(out_dir, name)))
+    # A build step that writes the Swift elsewhere generates; it does not lint the committed export.
+    stale_export = export_key_drift(loaded) if swift_out is None or check else []
+    stale_pattern = app_id_pattern_drift() if swift_out is None or check else []
+    if stale_pattern:
+        print("\n".join(stale_pattern) + "\ncopy the schema's pattern into app_id_pattern", file=sys.stderr)
+        return 1
     if stale_export:
         print("%s is not the sources' export (an export from another base?):\n  %s\nregenerate it: "
               "scripts/cmux-next/regenerate-settings-exports.sh (a Mac or the PR's cmux-next-generated-patch artifact)"
               % (EXPORT, "\n  ".join(stale_export)), file=sys.stderr)
         return 1
     if drifted:
-        print("generated settings copies differ from schemas/settings:\n  %s\nrun: python3 scripts/cmux-next/gen-settings-sources.py"
-              % "\n  ".join(drifted), file=sys.stderr)
+        print("generated settings Swift in %s differs from schemas/settings:\n  %s\nrun: python3 scripts/cmux-next/gen-settings-sources.py --swift-out %s"
+              % (out_dir, "\n  ".join(drifted), out_dir), file=sys.stderr)
         return 1
     return 0
 

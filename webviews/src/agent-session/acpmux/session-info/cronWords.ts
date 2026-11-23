@@ -4,6 +4,7 @@
 // string '17 * * * *' instead of 'hourly at :17'". `nextCronFire` is when a schedule next runs,
 // for a one-shot job's end (session-info/scheduled.ts).
 import type { PaneLanguage, Translate } from "../i18n";
+import { intl } from "../../../ui/intl";
 
 type Fields = { minute: string; hour: string; day: string; month: string; weekday: string };
 
@@ -34,9 +35,9 @@ const pad = (value: number) => String(value).padStart(2, "0");
 /// `hour:minute` as the pane's language writes a time of day ("9:00 AM", "09:00").
 function timeOfDay(hour: number, minute: number, language: PaneLanguage): string {
   try {
-    return new Intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(
-      new Date(2026, 0, 5, hour, minute),
-    );
+    return intl
+      .DateTimeFormat(language, { hour: "numeric", minute: "2-digit" })
+      .format(new Date(2026, 0, 5, hour, minute));
   } catch {
     return `${hour}:${pad(minute)}`;
   }
@@ -47,7 +48,7 @@ function weekdayName(day: number, language: PaneLanguage): string {
   // 2026-01-04 is a Sunday.
   const date = new Date(2026, 0, 4 + (day % 7));
   try {
-    return new Intl.DateTimeFormat(language, { weekday: "long" }).format(date);
+    return intl.DateTimeFormat(language, { weekday: "long" }).format(date);
   } catch {
     return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day % 7]!;
   }
@@ -56,7 +57,7 @@ function weekdayName(day: number, language: PaneLanguage): string {
 function monthDay(month: number, day: number, language: PaneLanguage): string {
   const date = new Date(2026, month - 1, day);
   try {
-    return new Intl.DateTimeFormat(language, { month: "short", day: "numeric" }).format(date);
+    return intl.DateTimeFormat(language, { month: "short", day: "numeric" }).format(date);
   } catch {
     return `${month}/${day}`;
   }

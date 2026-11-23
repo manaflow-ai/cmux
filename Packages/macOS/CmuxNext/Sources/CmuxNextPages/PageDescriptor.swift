@@ -230,22 +230,30 @@ public extension PageDescriptor {
                   "server.addServer",
                   // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
                   "device.add",
+                  // Labs preview in Devices: reuse the remote host picker and workspace group.
+                  "remote.newGroup",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
+                  // Settings › Computer Use › Saved Approvals (the person's own forget / always / never).
+                  "computerUse.approval.forget", "computerUse.approval.set",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
                   "import.card", "importFromBrowser",
                   // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
                   "customize.open"])
             .union(settingsSectionActions),
+        gestureActions: ["remote.newGroup"],
         dynamicPrefixes: ["backdrop", "museum", "icon", "symbol", "symbol-bold"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
-    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
-    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
+    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13); the Customize cmux… card runs
+    /// `openSettings` on Settings > Customize (`setting: card.customizeChecklist`).
+    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``). A click on Open is the
+    /// person's own `app.open` (`gestureActions`): it opens the app as their Cmd-T would, where a page
+    /// script's run gets no view change (a real build: the Clock's Open opened nothing).
     static let apps = PageDescriptor(
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
+        actions: ["app.open", "openSettings"], gestureActions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;

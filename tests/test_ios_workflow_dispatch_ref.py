@@ -182,6 +182,8 @@ def job_admitted(jobs, name, results, outputs, inputs, *, cancelled=False):
     success = all(results.get(ancestor) == "success" for ancestor in ancestors(name))
     expression = jobs[name].get("if", "${{ success() }}").strip()
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
+    # The draft-tier term (scripts/ci/head_tier.py) is true off pull_request events.
+    expression = re.sub(r"\(github\.event_name != 'pull_request' \|\| .*?CI_DRAFT_CHEAP_TIER \|\| '1'\) == '0'\)", "True", expression)
     has_status_function = re.search(r"\b(?:success|failure|cancelled|always)\s*\(", expression)
     if not has_status_function and (cancelled or not success):
         return False

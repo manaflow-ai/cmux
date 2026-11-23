@@ -7,7 +7,7 @@ import Testing
 
 /// Lawrence msg 19627: "the three vertical dots, there are 2 of them, and they are different sizes".
 /// A browser pane shows the tab bar's ⋮ (`PaneToolbarView`) above the toolbar's ⋮
-/// (`BrowserToolbarButtonsView`, More). Both draw the app's one more glyph at one size, and their
+/// (`BrowserToolbarButtonsView`, More). Both draw the pane's one ⋮ (`OverflowButton.paneGlyph`) at one size, and their
 /// glyphs share one column: the same distance from the pane's trailing edge.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PaneMoreButtonColumnTests {
     /// The browser toolbar's More: its center inset from the pane's trailing edge.
@@ -21,9 +21,10 @@ import Testing
         let pane = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: Metrics.tabStripHeight))
         pane.show(more: true, lit: false)
         let (more, _) = try toolbarMore()
-        #expect(more.iconName == OverflowButton.glyph, "the toolbar's More draws \(more.iconName), the tab bar's ⋮ \(OverflowButton.glyph)")
-        let tabBar = try #require(pane.moreButton.image?.size)
-        let toolbar = try #require(more.image?.size)
+        #expect(pane.moreButton.drawsPaneGlyph, "the tab bar's ⋮ draws the pane's glyph")
+        #expect(more.iconName == OverflowButton.paneGlyph, "the toolbar's More draws \(more.iconName), the tab bar's ⋮ \(OverflowButton.paneGlyph)")
+        let tabBar = try #require(pane.moreButton.drawnGlyph?.size)
+        let toolbar = try #require(more.drawnGlyph?.size)
         #expect(tabBar == toolbar, "tab bar ⋮ \(tabBar), toolbar ⋮ \(toolbar)")
     }
 

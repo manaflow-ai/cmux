@@ -197,6 +197,25 @@ fn a_refusal_keeps_a_github_configure_page_and_drops_any_other_url() {
 }
 
 #[test]
+fn a_refusal_keeps_a_known_deny_reason_and_drops_any_other() {
+    let a = ask(json!({ "contents": "read" }));
+    let refused = |reason: &str| {
+        let body =
+            json!({ "error": { "code": "policy.denied", "message": "m", "reason": reason } });
+        reply_for(&a, &Answer::Http { status: 403, body })["error"].clone()
+    };
+    for reason in super::github::DENY_REASONS {
+        assert_eq!(
+            refused(reason),
+            json!({ "code": "policy.denied", "message": "m", "reason": reason })
+        );
+    }
+    for other in ["", "something_new", "repo_not_granted\nx", "<script>"] {
+        assert_eq!(refused(other), json!({ "code": "policy.denied", "message": "m" }), "{other:?}");
+    }
+}
+
+#[test]
 fn asks_are_checked_before_they_reach_the_api() {
     let bad = |v: Value| TokenAsk::from_json(&v).is_err();
     assert!(bad(json!({ "repo": "manaflow-ai", "permissions": { "contents": "read" } })));

@@ -23,9 +23,14 @@ pub enum ScreenRoute {
 #[serde(rename_all = "kebab-case")]
 pub enum NoScreen {
     Offline,
-    /// A headless Linux server or VM: it has no desktop to share.
+    /// A headless Linux server or VM with no cmux screen host set up: it has no desktop to share.
     NoDesktop,
     Phone,
+    /// A machine reached only through the mesh hub that the device hub lists no screen host for:
+    /// none signed in there, so there is nothing to view.
+    NoScreenHost,
+    /// A Linux machine whose screen host the device hub lists with sharing turned off.
+    SharingOff,
     Unknown,
 }
 
@@ -41,7 +46,8 @@ pub enum Screen {
 ///
 /// - a Mac or a Linux desktop: View through the device hub while it is connected, else offline;
 /// - a Cloud machine: View its desktop (opening it resumes a paused machine);
-/// - a headless Linux server or VM: it has no desktop to share;
+/// - a headless Linux server or VM: it has no desktop to share (one with a screen host set up
+///   reports itself a Linux desktop, `LinuxFacts::screen_host`);
 /// - an iPhone or iPad: it cannot share its screen;
 /// - a kind nothing tells: a Mac or a Windows PC by its OS as above; anything else (a Linux one may be a desktop
 ///   or a server) is listed as unknown, so no row gets a button that may be dead.

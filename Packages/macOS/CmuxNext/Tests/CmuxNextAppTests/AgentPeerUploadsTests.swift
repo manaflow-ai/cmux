@@ -137,7 +137,7 @@ import Testing
         try await Self.withPeerStager(host: host) { stager, session in
             let reply = await stager(.begin(name: "slow.bin", size: 1, batchToken: nil, batch: nil), session)
             let token = try #require((reply["value"] as? [String: Any])?["token"] as? String)
-            _ = await stager(.chunk(token: token, offset: 0, data: Data([1])), session)
+            _ = await stager(.chunk(token: token, offset: 0, data: AgentPaneUploadChunk(Data([1]))), session)
             let finishing = Task { @MainActor in _ = await stager(.finish(token: token), session) }
             let staged = await host.waitForFile()
             #expect(FileManager.default.fileExists(atPath: staged.path))

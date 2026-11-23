@@ -43,7 +43,7 @@ fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<Value,
         return Err(RpcError::invalid_params("a chat reaches only its own goal"));
     }
     match m {
-        method::MUX_GOAL_SET => hub.goal_set(&session, &request(params)?),
+        method::MUX_GOAL_SET => hub.goal_set_named(&session, &request(params)?),
         method::MUX_GOAL_UPDATE => {
             let status =
                 str_param(params, "status").and_then(Reported::parse).ok_or_else(|| {

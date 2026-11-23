@@ -1,5 +1,6 @@
 public import CmuxNextWakeups
 public import Foundation
+import os
 
 /// One open text WebSocket.
 public protocol DeviceHubSocketConnection: Sendable {
@@ -29,7 +30,33 @@ public struct URLSessionDeviceHubConnector: DeviceHubSocketConnector {
         let task = session.webSocketTask(with: handshake.request)
         task.maximumMessageSize = 1 << 20
         task.resume()
+        // Connected means upgraded: the first pong comes only once the hub accepted the socket. A
+        // refused upgrade (a stale signature, a 401) throws here with its status, so it is a
+        // failed connect that backs off and says why, not a "connected" that drops at once.
+        do { try await Self.firstPong(task) } catch {
+            let status = (task.response as? HTTPURLResponse)?.statusCode
+            task.cancel(with: .goingAway, reason: nil)
+            if let status, status != 101 { throw DeviceHubError.http(status: status) }
+            throw error
+        }
         return URLSessionSocketConnection(task: task)
+    }
+
+    private static func firstPong(_ task: URLSessionWebSocketTask) async throws {
+        // URLSession may call a ping's handler twice during teardown: the continuation resumes once.
+        // lint:allow lock -- the URLSession callback is synchronous; it claims the one resume without an async hop.
+        let resumed = OSAllocatedUnfairLock(initialState: false)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, any Error>) in
+                task.sendPing { error in
+                    guard resumed.withLock({ let first = !$0; $0 = true; return first }) else { return }
+                    if let error { done.resume(throwing: error) } else { done.resume() }
+                }
+            }
+        } onCancel: {
+            // Cancelling the task fails the ping, which resumes the wait.
+            task.cancel(with: .goingAway, reason: nil)
+        }
     }
 }
 

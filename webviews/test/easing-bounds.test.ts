@@ -108,15 +108,15 @@ describe("the easing scan", () => {
 
   test("a curve that passes its end, or dips under its start, is out of bounds", () => {
     // A control point over 1: the curve goes past its end and comes back.
-    expect(outOfBounds(".a { transition: transform 180ms cubic-bezier(0.3, 1.2, 0.6, 1); }").length).toBe(1);
+    expect(outOfBounds(".a { transition: transform 180ms cubic-bezier(0.3, 1.2, 0.6, 1); }").length).toBe(1); // motion-allow: scanner fixture, a raw literal
     // A control point under 0: it backs up before it leaves.
-    expect(outOfBounds(".a { transition: transform 180ms cubic-bezier(0.3, -0.2, 0.6, 1); }").length).toBe(1);
+    expect(outOfBounds(".a { transition: transform 180ms cubic-bezier(0.3, -0.2, 0.6, 1); }").length).toBe(1); // motion-allow: scanner fixture, a raw literal
     // A linear() easing with a stop over 1, however little, and one under 0.
     expect(outOfBounds(":root { --ease: linear(0, 0.9 40%, 1.001 60%, 1); }").length).toBe(1);
     expect(outOfBounds(":root { --ease: linear(0, -0.02 10%, 0.9 60%, 1); }").length).toBe(1);
     // Two layers of one declaration: both are read, the one that bounces is found.
     const layers = easingFunctions(
-      ".a {\n  transition:\n    opacity 80ms cubic-bezier(0, 0, 0.58, 1),\n    scale 80ms cubic-bezier(0.34, 1.56, 0.64, 1);\n}",
+      ".a {\n  transition:\n    opacity 80ms cubic-bezier(0, 0, 0.58, 1),\n    scale 80ms cubic-bezier(0.34, 1.56, 0.64, 1);\n}", // motion-allow: scanner fixture, a raw literal
     );
     expect(layers.map((easing) => [easing.line, withinBounds(easing.samples)])).toEqual([
       [3, true],
@@ -125,7 +125,7 @@ describe("the easing scan", () => {
   });
 
   test("curves that only rise are in bounds, and what is no easing is not read", () => {
-    expect(outOfBounds(".a { transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1); }")).toEqual([]);
+    expect(outOfBounds(".a { transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1); }")).toEqual([]); // motion-allow: scanner fixture, a raw literal
     expect(outOfBounds(":root { --ease: linear(0, 0.5 20%, 0.9 50%, 0.99 80%, 1); }")).toEqual([]);
     // Even stops with no percentages, as CSS spaces them.
     expect(easingFunctions(":root { --ease: linear(0, 0.25, 1); }")[0]!.samples.at(SAMPLES / 2)).toBeCloseTo(0.25, 6);
@@ -134,9 +134,11 @@ describe("the easing scan", () => {
     expect(easingFunctions("0.2126 * linear(r) + 0.7152 * linear(g)")).toEqual([]);
     expect(easingFunctions("cubic-bezier(x1, y1, x2, y2)")).toEqual([]);
     // In CSS, an easing function that cannot be sampled is reported, with its line.
+    // motion-allow: scanner fixture, a raw literal
     expect(unreadEasingFunctions(".a {\n  transition: scale 80ms cubic-bezier(0.3, var(--pop), 0.6, 1);\n}")).toEqual([
       "2 cubic-bezier(0.3, var(--pop), 0.6, 1);",
     ]);
+    // motion-allow: scanner fixture, a raw literal
     expect(unreadEasingFunctions(".a { transition: scale 80ms cubic-bezier(0.3, 1, 0.6, 1), top 1s linear; }")).toEqual(
       [],
     );
@@ -148,7 +150,7 @@ describe("the easing scan", () => {
       [
         'export const POP = "cubic-bezier(0.34, 1.4, 0.64, 1)";',
         "export const STEP_CURVE = [0.3, 1.3, 0, 1] as const;",
-        "glide(node, `transform 120ms linear(0, 1.02 50%, 1)`);",
+        "glide(node, `transform 120ms linear(0, 1.02 50%, 1)`);", // motion-allow: scanner fixture, a raw literal
         "animateScrollBy(node, 10, 120, [0.2, -0.1, 0.4, 1]);",
         "const released = [0.5, 3, 0.5, 4];",
         "// cubic-bezier(0.34, 1.9, 0.64, 1) in a comment is no easing",
