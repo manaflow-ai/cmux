@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 673,
+  "count": 674,
   "sections": [
     {
       "id": "general",
@@ -7164,6 +7164,14 @@
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"
+        },
+        {
+          "key": "macScreen.onlyPersonStartsViewing",
+          "title": "Only Your Click Starts Viewing a Screen",
+          "help": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Screen Sharing"
         },
         {
           "key": "phone.cloudDesktop",

@@ -9,6 +9,8 @@ mod claim_check;
 mod control_asks;
 
 mod activity;
+// Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
+mod usage_share;
 // A foreground shell still running after a minute goes to the background (Claude Code).
 mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
