@@ -75,6 +75,7 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudMachineChatAccess
             | Op::CloudMachineShareChat
             | Op::CloudMachineChiefStart
+            | Op::CloudMachineChiefResize
     )
 }
 pub(super) fn handle(
