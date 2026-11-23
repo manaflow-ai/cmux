@@ -62,6 +62,9 @@ or the command palette), or run `cmux accounts github-connect` on your Mac";
 #[cfg(unix)]
 pub mod github_cli_identity;
 pub mod github_link;
+/// `cmux github` on a joined (non-Cloud) machine: the hub's machine token route.
+#[cfg(unix)]
+pub mod github_cli_joined;
 #[cfg(unix)]
 pub mod github_wiring;
 #[cfg(unix)]
