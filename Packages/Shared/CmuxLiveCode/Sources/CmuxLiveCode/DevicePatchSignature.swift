@@ -181,7 +181,8 @@ enum DevicePatchSignature {
 /// Where Swift live code may run on an iPhone: only in a DEBUG build (the only one that compiles
 /// this), only in cmux Dev or a tagged dev build (`dev.cmux.mobile.*`), and only when the launch
 /// asked for it (`CMUX_LIVE_CODE_LINK=1`, which scripts/live-code/ios-device.sh run passes).
-public enum LiveCodeDeviceGate {
+public struct LiveCodeDeviceGate {
+    public init() {}
     /// The dev bundle ids' prefix (cmux Dev is `dev.cmux.mobile.dev`).
     public static let bundlePrefix = "dev.cmux.mobile."
     /// The launch variable that turns it on.
