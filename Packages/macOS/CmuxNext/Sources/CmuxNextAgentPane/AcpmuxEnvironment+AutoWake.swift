@@ -17,8 +17,17 @@ nonisolated extension AcpmuxEnvironment {
     }
 
     /// The wake notice for the acpmux this app runs (``resolvedApp(build:mock:)``), off the caller's
-    /// actor. The caller's task owns it: the Cloud service's wake observer (CloudService.swift).
+    /// actor.
     @concurrent public static func relaySystemWake(build: BuildIdentity?) async {
         await resolvedApp(build: build, mock: false)?.autoSessionWake()
+    }
+
+    /// The wake notice, sent while the caller's own wake work runs, so neither waits for the other.
+    /// The caller's task owns both and this returns when both ended: the Cloud service's wake
+    /// observer (CloudService.swift).
+    public static func relaySystemWake(build: BuildIdentity?, alongside work: () async -> Void) async {
+        async let told: Void = relaySystemWake(build: build)
+        await work()
+        await told
     }
 }

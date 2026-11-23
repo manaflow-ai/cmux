@@ -329,11 +329,11 @@ final class CloudService {
                 await self.refresh()
             }
         })
-        // After sleep the list is stale (the idle auto-pause may have parked machines while the lid was closed), and acpmux is told of the wake for its Auto chats.
+        // After sleep the list is stale even with cmux in front: the idle auto-pause may have parked
+        // machines while the lid was closed. acpmux is told of the wake too, for its Auto chats.
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
-                async let told: Void = AcpmuxEnvironment.relaySystemWake(build: LaunchIdentity.current().build)
-                _ = await (self?.refresh(ifOlderThan: .seconds(30)), told)
+                await AcpmuxEnvironment.relaySystemWake(build: LaunchIdentity.current().build) { await self?.refresh(ifOlderThan: .seconds(30)) }
             }
         })
         // A sign-out or a team switch (the user signed in may stay) ends start-session asks and
