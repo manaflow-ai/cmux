@@ -899,6 +899,11 @@ def workspaces():
 SENTENCE = "the chief reads your note and starts on the work in a new workspace "
 
 
+# The app stamps its key events on CLOCK_UPTIME_RAW; off macOS that name does not exist, and a unit test of this
+# module's own functions must still run on the Linux test host (2026-11-23, test_typing_frame_verdict on huge-blue).
+UPTIME_CLOCK = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+
+
 def type_keys(count, params, column):
     keys = SENTENCE if opts.words else "abcdefghijklmnopqrstuvwxyz"
     rows_before = len(probe_rows())
@@ -911,7 +916,7 @@ def type_keys(count, params, column):
     for index in range(count):
         t0 = time.perf_counter()
         key = keys[index % len(keys)]
-        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
+        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(UPTIME_CLOCK)),
                     timeout=10)
         trips.append((time.perf_counter() - t0) * 1000)
         if isinstance(reply, dict):
