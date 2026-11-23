@@ -32,6 +32,14 @@ export interface PolicyState {
   readonly policy_history?: ReadonlyArray<PolicyVersion>
 }
 
+/**
+ * The policy a team starts with (Leo, new teams: cloud.idlePause on, "if this is the whole point of the product").
+ * Written once, when the team's state is first created (team.ensure_personal, team.stack_mirror). A team that already
+ * has a state keeps its policy, so an existing team without the key stays off. Still version 0, so a first policy.set
+ * keeps expected_version 0; an admin turns it off like any other value.
+ */
+export const newTeamPolicy = (): Policy => ({ ...initialPolicy(), values: { "cloud.idlePause": { value: true, mode: "default" } } })
+
 /** Objects written before team policy existed have no policy field. */
 export const currentPolicy = (state: PolicyState): Policy => state.policy ?? initialPolicy()
 

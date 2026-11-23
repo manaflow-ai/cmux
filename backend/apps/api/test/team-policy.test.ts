@@ -5,7 +5,7 @@ import { policyKeys } from "@cmux/protocol"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
-import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT } from "../src/domains/team-policy.ts"
+import { cloudPolicyOf, currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT } from "../src/domains/team-policy.ts"
 import { integrationSyncPending, sliceHash } from "../src/domains/team-integration-sync.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
@@ -36,6 +36,32 @@ const ctx = (user = OWNER, extra: Partial<ReduceContext["principal"]> = {}): Red
 const run = (state: TeamState, op: string, params: unknown, c = ctx()) => teamDomain.reduce(state, op, params, c)
 
 const set = (key: string, value: unknown, mode: "enforced" | "default" = "enforced") => ({ key, value: { value, mode } })
+
+describe("cloud.idlePause for new teams only (Leo: new teams get idle pause on)", () => {
+  const user = "user_00000000000000000009"
+  const stackParams = { team: "team_00000000000000000077", stack_team: "stack_77", display_name: "New" }
+  const sys = (): ReduceContext => ({ ...ctx(), principal: { identity: "system:team", kind: "system" } as ReduceContext["principal"] })
+
+  it("a Stack team created now resolves idle_pause on, and a first policy.set still takes expected_version 0", () => {
+    const r = run({} as TeamState, "team.stack_mirror", stackParams, sys())
+    expect(r).toMatchObject({ ok: true })
+    if (!r.ok) return
+    const state = r.state as TeamState
+    expect(cloudPolicyOf(state).idle_pause).toBe(true)
+    expect(currentPolicy(state).version).toBe(0)
+    const off = run({ ...state, members: { [OWNER]: { user: OWNER, role: "owner", display_name: "o" } } }, "team.policy.update", { changes: [set("cloud.idlePause", false)], expected_version: 0 })
+    expect(off).toMatchObject({ ok: true })
+    if (off.ok) expect(cloudPolicyOf(off.state as TeamState).idle_pause).toBe(false)
+  })
+
+  it("a team that already has a state and no key keeps idle pause off, also when the team is mirrored again", () => {
+    expect(cloudPolicyOf(baseState()).idle_pause).toBe(false)
+    const existing: TeamState = { team: { id: stackParams.team, kind: "stack", display_name: "Old", stack_team: "stack_77" } }
+    const r = run(existing, "team.stack_mirror", { ...stackParams, display_name: "Renamed" }, sys())
+    expect(r).toMatchObject({ ok: true })
+    if (r.ok) expect(cloudPolicyOf(r.state as TeamState).idle_pause).toBe(false)
+  })
+})
 
 describe("team policy reducer (TeamDO single writer)", () => {
 
@@ -173,6 +199,7 @@ describe("team policy over the API (workerd)", () => {
 
     const read = await call("/v1/read", session, { op: "team.policy.get", params: {} })
     expect(read.json.value.policy.values).toEqual({
+      "cloud.idlePause": { value: true, mode: "default" }, // a new team starts with idle pause on
       "computerUse.allowed": { value: false, mode: "enforced" },
       "telemetry.level": { value: "crash_only", mode: "default" }
     })
