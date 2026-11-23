@@ -350,7 +350,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 switch entry.node {
                 case let .workspace(ws):
                     var content = o.rowContent(ws, machine: machineLabel)
-                    (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold, tree.rollUp)
+                    // A parent of subagents only keeps the chevron `rowContent` gave it.
+                    (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold ?? content.treeFold, tree.rollUp)
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,

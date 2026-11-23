@@ -87,6 +87,60 @@ impl Held {
     pub fn must_reach_this_session(&self) -> bool {
         matches!(self.class.as_str(), "block" | "question")
     }
+
+    /// Whether this message needs the person, not only this chat's agent ([`needs_person`]).
+    pub fn needs_person(&self, owner: &str) -> bool {
+        needs_person(&self.class, &self.text, owner)
+    }
+}
+
+/// Words that address the person (`owner` is the host user's name too).
+const PERSON_WORDS: &[&str] =
+    &["@person", "the person", "the owner", "the user", "the human", "a human", "@owner"];
+
+/// Asks only the person can answer: a permission, an approval or a secret.
+const PERSON_ASKS: &[&str] = &[
+    "permission",
+    "approve",
+    "approval",
+    "consent",
+    "sign in",
+    "sign-in",
+    "log in",
+    "login",
+    "password",
+    "credential",
+    "api key",
+    "2fa",
+    "one-time code",
+    "your call",
+    "your ok",
+    "your decision",
+    "your go-ahead",
+    "sign off",
+    "sign-off",
+];
+
+/// Whether a held message needs the person ("12 need you" counts only these; Leo, 2026-11-23:
+/// "not only do thees probably not need me"). A message needs the person when both hold:
+/// - its class is `block` or `question`: status, results and FYIs never do;
+/// - it addresses the person (the owner's name as a word, "the person", "the user", "@person",
+///   ...) or asks for what only the person gives: a permission, an approval or sign-off,
+///   consent, a sign-in, a password, credential, API key or 2FA code, "your call".
+///
+/// An agent's question to this chat's agent ("which branch?") is the agent's to answer, so it
+/// stays out of the count.
+pub fn needs_person(class: &str, text: &str, owner: &str) -> bool {
+    if !matches!(class, "block" | "question") {
+        return false;
+    }
+    let text = text.to_lowercase();
+    let owner = owner.trim().to_lowercase();
+    let named = owner.chars().count() >= 2
+        && text
+            .split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+            .any(|w| w.trim_start_matches('@') == owner);
+    named || PERSON_WORDS.iter().chain(PERSON_ASKS).any(|w| text.contains(w))
 }
 
 /// The `inbox` record `msg` the surge holder wrote, if it is a held one with an id and thread.
