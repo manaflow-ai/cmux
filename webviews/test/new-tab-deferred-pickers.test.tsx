@@ -270,8 +270,7 @@ async function mountNewTab({
   const columns = () => doc.querySelector<HTMLElement>(".acpmux-cols");
   // A click on the chip toggles the menu (usePopoverTrigger's keyboard click).
   const clickChip = async () => act(async () => host.querySelector<HTMLElement>("[data-menu=Model]")!.click());
-  // A pick closes the columns menu; one that left it open (a rail tab, Fast) closes on the chip, as a
-  // person's second press does.
+  // A pick leaves the columns menu open; the chip closes it, as a person's second press does.
   const closeMenu = async () => {
     if (columns()) await clickChip();
     expect(columns()).toBeNull();
@@ -324,8 +323,7 @@ async function mountNewTab({
     });
   // The model's level in the menu. The columns menu, by keys: the model's row and then its level are
   // highlighted, and Return lands both as one pick, as the list menu's "Model · Level" item did. By
-  // clicks: the row lands the model and closes the menu, and the level, picked in the menu opened
-  // again, lands its effort. A menu with no rail (a
+  // clicks: the row lands the model at once, the level then lands its effort. A menu with no rail (a
   // started chat's) is the list menu, whose effort is a dropdown beside the row.
   const pickLevel = async (model: string, level: string, via: "keys" | "clicks" = "keys") => {
     if (!columns()) {
@@ -340,8 +338,6 @@ async function mountNewTab({
       );
       expect(row).not.toBeUndefined();
       await act(async () => row!.click());
-      expect(columns()).toBeNull();
-      await clickChip();
       const radio = [...columns()!.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"]')].find(
         (candidate) => candidate.querySelector(".acpmux-cols-name")?.textContent === level,
       );
@@ -611,8 +607,8 @@ test("a New Tab replaces held Sonnet High with Medium after switching to Codex a
   ]);
 });
 
-// The columns menu's mouse path: a click on the row lands the model and closes the menu; reopened,
-// a click on its level lands the effort. On a New Tab both are held for the first turn.
+// The columns menu's mouse path: a click on the row lands the model at once and the menu stays
+// open, so a click on its level then lands the effort. On a New Tab both are held for the first turn.
 test("a New Tab click on Sonnet's row, then on its High level, starts the first turn with both", async () => {
   const { wire, pickLevel, clickChip, send } = await mountNewTab({
     model: "claude-fable-5-1",

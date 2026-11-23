@@ -41,6 +41,10 @@ const MAX_SUBSCRIPTIONS: usize = 256;
 /// One-shot timers fire no sooner than this, so a self-rearming timer cannot
 /// spin the host.
 const MIN_TIMER: Duration = Duration::from_millis(50);
+/// Repeating timers, and a one-shot armed while a timer fires (a chain of one-shots, the
+/// `after` loop), fire no sooner than this: no timer path runs faster than once a second
+/// (extensions DESIGN.md section 5, "Timers").
+const SLOW_TIMER: Duration = Duration::from_secs(1);
 
 /// Per-VM limits (plans/cmux-next/app-platform.md section 13.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +135,8 @@ struct Shared {
     next_sub: u64,
     next_timer: u64,
     timers: BTreeMap<u64, Timer>,
+    /// A timer entry is running: a one-shot armed now is a chained one and gets [`SLOW_TIMER`].
+    in_timer: bool,
     pending_calls: BTreeSet<u64>,
     /// Calls refused by the pending-call cap; answered after the entry.
     overflow: Vec<u64>,
@@ -569,9 +575,12 @@ impl AppVm {
             ids
         };
         for id in due {
-            self.entry_unit("timer", move |ctx| {
+            self.shared.borrow_mut().in_timer = true;
+            let fired = self.entry_unit("timer", move |ctx| {
                 call_global::<_, ()>(ctx, "__cmuxAppTimer", (id as f64,))
-            })?;
+            });
+            self.shared.borrow_mut().in_timer = false;
+            fired?;
         }
         Ok(())
     }
@@ -936,8 +945,8 @@ fn install_native<'js>(
             }
             let every =
                 Duration::from_millis(if ms.is_finite() && ms > 0.0 { ms as u64 } else { 0 });
-            let every =
-                if repeat { every.max(Duration::from_millis(1000)) } else { every.max(MIN_TIMER) };
+            let floor = if repeat || shared.in_timer { SLOW_TIMER } else { MIN_TIMER };
+            let every = every.max(floor);
             shared
                 .timers
                 .insert(id, Timer { due: Instant::now() + every, repeat: repeat.then_some(every) });
