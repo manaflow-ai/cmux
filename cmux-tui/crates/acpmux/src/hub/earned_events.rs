@@ -198,6 +198,7 @@ pub(crate) trait RecordSource {
 
 /// The Cloud service at `base_url` (a platform origin), through the shared ops client. `http`
 /// carries the person's or the install's credential.
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) struct CloudRecords {
     pub http: reqwest::Client,
     pub base_url: String,
@@ -419,7 +420,7 @@ mod tests {
     fn the_op_reads_the_services_answer_and_its_refusal() {
         let body = json!({
             "op": "cloud.agent.record.read", "stream": "team:t", "revision": "7",
-            "value": {"events": [{"kind": "landed", "at": 9, "pr_url": "u",
+            "value": {"events": [{"kind": "landed", "at": 9, "pr_url": "https://github.com/o/r/pull/9",
                                   "trailer_agent_id": AGENT, "checks_green": true}],
                       "next_cursor": null}
         });
