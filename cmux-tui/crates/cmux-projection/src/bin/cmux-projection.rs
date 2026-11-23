@@ -206,45 +206,97 @@ mod linux {
         Ok(missing.len())
     }
 
-    /// The cone-mode sparse-checkout folders in `text` (`git sparse-checkout set` folders one a
-    /// line, or the pattern file git writes for them: only its positive folder lines count).
-    fn sparse_folders(text: &str) -> Vec<String> {
+    /// One line of a sparse-checkout file (`git sparse-checkout set --no-cone`; cone mode writes
+    /// the same syntax): `!` negates, a trailing `/` matches folders only, a `/` before the end
+    /// anchors it at the top, `*` and `?` match within one path segment.
+    struct SparseRule {
+        negated: bool,
+        folder_only: bool,
+        anchored: bool,
+        glob: String,
+    }
+
+    /// The rules in a sparse-checkout file's `text`, in order (the last that matches decides).
+    fn sparse_rules(text: &str) -> Vec<SparseRule> {
         text.lines()
             .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.starts_with(['#', '!']) && !line.contains('*'))
-            .map(|line| line.trim_matches('/').to_owned())
-            .filter(|line| !line.is_empty())
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .filter_map(|line| {
+                let (negated, line) =
+                    line.strip_prefix('!').map_or((false, line), |rest| (true, rest));
+                let folder_only = line.ends_with('/');
+                let line = line.trim_end_matches('/');
+                let anchored = line.contains('/');
+                let glob = line.trim_start_matches('/').to_owned();
+                (!glob.is_empty()).then_some(SparseRule { negated, folder_only, anchored, glob })
+            })
             .collect()
     }
 
-    /// Whether cone mode checks `path` out for `folders`: every file at the top, every file in a
-    /// folder above one of `folders`, everything inside one.
-    fn in_cone(path: &str, folders: &[String]) -> bool {
-        let parent = path.rsplit_once('/').map_or("", |(parent, _)| parent);
-        parent.is_empty()
-            || folders.iter().any(|folder| {
-                path.strip_prefix(folder.as_str()).is_some_and(|rest| rest.starts_with('/'))
-                    || folder.strip_prefix(parent).is_some_and(|rest| rest.starts_with('/'))
-            })
+    /// `text` matches `glob`, where `*` and `?` never match a `/`.
+    fn glob_matches(glob: &[u8], text: &[u8]) -> bool {
+        match (glob.first(), text.first()) {
+            (None, None) => true,
+            (Some(b'*'), _) => {
+                glob_matches(&glob[1..], text)
+                    || (text.first().is_some_and(|&c| c != b'/') && glob_matches(glob, &text[1..]))
+            }
+            (Some(b'?'), Some(&c)) => c != b'/' && glob_matches(&glob[1..], &text[1..]),
+            (Some(g), Some(c)) => g == c && glob_matches(&glob[1..], &text[1..]),
+            _ => false,
+        }
+    }
+
+    /// Whether git checks out `path` (a file) under `rules`, as non-cone sparse checkout decides
+    /// it: the deepest of the path and its folders that some rule matches decides, by the last
+    /// rule that matches it; a path nothing matches is left out.
+    fn sparse_keeps(path: &str, rules: &[SparseRule]) -> bool {
+        let mut subject = path;
+        let mut folder = false;
+        loop {
+            let name = subject.rsplit_once('/').map_or(subject, |(_, name)| name);
+            let decided = rules.iter().rev().find(|rule| {
+                (folder || !rule.folder_only)
+                    && if rule.anchored {
+                        glob_matches(rule.glob.as_bytes(), subject.as_bytes())
+                    } else {
+                        glob_matches(rule.glob.as_bytes(), name.as_bytes())
+                    }
+            });
+            if let Some(rule) = decided {
+                return !rule.negated;
+            }
+            match subject.rsplit_once('/') {
+                Some((parent, _)) => (subject, folder) = (parent, true),
+                None => return false,
+            }
+        }
     }
 
     #[cfg(test)]
     #[test]
-    fn cone_mode_keeps_the_top_the_folders_above_and_everything_inside() {
-        let folders = sparse_folders("/*\n!/*/\n/cmux-tui/\n!/cmux-tui/*/\n/cmux-tui/crates/x/\n");
-        assert_eq!(folders, ["cmux-tui", "cmux-tui/crates/x"]);
-        let folders = sparse_folders("cmux-tui/crates/x\n");
-        for (path, kept) in [
-            ("README.md", true),
-            ("cmux-tui/Cargo.toml", true),
-            ("cmux-tui/crates/Cargo.toml", true),
-            ("cmux-tui/crates/x/src/lib.rs", true),
-            ("cmux-tui/crates/y/src/lib.rs", false),
-            ("cmux-tui/crates/xy/lib.rs", false),
-            ("web/index.ts", false),
+    fn sparse_rules_decide_as_git_does() {
+        let cone = sparse_rules("/*\n!/*/\n/cmux-tui/\n!/cmux-tui/*/\n/cmux-tui/crates/x/\n");
+        // wt's own patterns: everything but some folders, one file put back.
+        let wt = sparse_rules("/*\n!/cmux-next-ios/verify/\n!/web/\n/web/package.json\n");
+        for (path, in_cone, in_wt) in [
+            ("README.md", true, true),
+            ("cmux-tui/Cargo.toml", true, true),
+            ("cmux-tui/crates/Cargo.toml", false, true),
+            ("cmux-tui/crates/x/src/lib.rs", true, true),
+            ("cmux-tui/crates/y/src/lib.rs", false, true),
+            ("cmux-tui/crates/xy/lib.rs", false, true),
+            ("cmux-next-ios/verify/a.swift", false, false),
+            ("cmux-next-ios/App.swift", false, true),
+            ("web/index.ts", false, false),
+            ("web/package.json", false, true),
         ] {
-            assert_eq!(in_cone(path, &folders), kept, "{path}");
+            assert_eq!(sparse_keeps(path, &cone), in_cone, "cone {path}");
+            assert_eq!(sparse_keeps(path, &wt), in_wt, "wt {path}");
         }
+        let names = sparse_rules("*.md\n");
+        assert!(sparse_keeps("docs/a.md", &names));
+        assert!(!sparse_keeps("docs/a.rs", &names));
     }
 
     /// `git-lower`: commit REV's tree, read only, at PATH, and its index at FILE.
@@ -281,8 +333,8 @@ mod linux {
         let phase = Instant::now();
         let mut items = git::ls_tree_cached(&git_dir, &commit, &listing)?;
         if let Some(sparse) = &args.sparse {
-            let folders = sparse_folders(&std::fs::read_to_string(sparse)?);
-            items.retain(|item| in_cone(&item.path, &folders));
+            let rules = sparse_rules(&std::fs::read_to_string(sparse)?);
+            items.retain(|item| sparse_keeps(&item.path, &rules));
         }
         let links = git::link_texts(&git_dir, &items)?;
         let ls_tree_ms = ms(phase);
