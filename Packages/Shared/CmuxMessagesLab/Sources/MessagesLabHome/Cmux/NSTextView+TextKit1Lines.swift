@@ -64,6 +64,20 @@ extension NSTextView {
         return lm.boundingRect(forGlyphRange: glyphs, in: tc)
     }
 
+    /// The lines TextKit 1 lays `text` out in, when the view shows exactly `text` in a container
+    /// `width` pt wide; nil otherwise (TextKit 2, other text such as marked IME text, another width).
+    /// A trailing newline's empty line counts, as the field shows the caret on it.
+    func textKit1LineCount(showing text: String, width: CGFloat) -> Int? {
+        guard textLayoutManager == nil, let lm = layoutManager, let tc = textContainer, let storage = textStorage,
+              abs(tc.size.width - width) < 0.01, (storage.string as NSString).isEqual(to: text) else { return nil }
+        // Contiguous layout: a key at the end already laid out to it; this lays out what follows.
+        lm.ensureLayout(for: tc)
+        var count = 0
+        lm.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: lm.numberOfGlyphs)) { _, _, _, _, _ in count += 1 }
+        if lm.extraLineFragmentTextContainer != nil { count += 1 }
+        return max(count, 1)
+    }
+
     /// Lays out the whole text (TextKit 1): after a new container width, so the document's height
     /// and the caret's line are the new ones. A view with a text layout manager is left alone.
     func textKit1LayOutAll() {

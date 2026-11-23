@@ -401,7 +401,7 @@ export const nextDocPages: NextDocPage[] = [
       ] },
       { h2: "Manage it" },
       { code: "cmux server status\ncmux server logs --follow\ncmux server down\ncmux server up\ncmux server uninstall\ncmux server uninstall ssh://alice@build.example.com", lang: "bash" },
-      { p: "logs shows the service's log (the last 100 lines; --lines N for more, --follow to keep reading). down stops the service and keeps it stopped across reboots; up starts it again. uninstall removes the service and keeps cmux and your settings, and says how to remove the rest: the cmux binary, and lingering, which stays on. Every command takes --json." },
+      { p: "logs shows the service's log (the last 100 lines; --lines N or -n N for more, --follow or -f to keep reading). down stops the service and keeps it stopped across reboots; up starts it again. uninstall removes the service and keeps cmux and your settings, and says how to remove the rest: the cmux binary, and lingering, which stays on. cmux daemon stop --if-idle stops the running server only when nothing uses it (no terminal is starting, being reattached or running, and no other client is connected); otherwise it keeps running, says what uses it and exits 1. Every command takes --json." },
       { p: "cmux server install prints each file it writes and each command it runs. It does not touch a cmux-server.service or com.cmux.server plist that cmux did not write, or that was changed after cmux wrote it, or that systemd loads from another place (a package, /etc, a transient unit): install stops with an error and uninstall leaves it as it is. When it cannot ask systemd where the unit comes from, it changes nothing. On macOS the service log folder and file are readable only by you. It also stops when ~/.local/bin or the service folder can be written by other accounts." },
       { h2: "Options" },
       { ul: [
@@ -481,11 +481,11 @@ export const nextDocPages: NextDocPage[] = [
     body: [
       { p: "cmux mcp serve gives an MCP client the same control of cmux that the CLI has. It talks JSON-RPC on stdin and stdout; nothing listens on the network." },
       { h2: "Turn it on" },
-      { p: "Agents you start in cmux get it once you turn on cmux Tools for Agents in cmux in Settings > Agents: Claude Code and Codex in cmux's terminals and its agent chats. cmux gives it to them when it starts them and never changes their own settings. Or run:" },
+      { p: "Agents you start in cmux get it by default: Claude Code and Codex in cmux's terminals and its agent chats. cmux gives it to them when it starts them and never changes their own settings. To turn it off, set cmux Tools for Agents in cmux to Off in Settings > Agents. To turn it back on, choose On there, or run:" },
       { code: "cmux settings set agents.cmuxMcp on --confirm\ncmux setup mcp", lang: "bash" },
       { p: "A chat cmux starts on another machine (a linked Mac, a Cloud VM, a headless cmux) follows the answer of the Mac that started it. That machine's own setting applies only to chats started there. A chat started from your phone or the web gets none of cmux's tools, and a cmux server in that agent's own settings answers as if the setting were off." },
       { p: "When cmux cannot be sure which cmux server a Codex launch will load, it gives that launch none and leaves Codex's settings as they are, so Codex starts as it would outside cmux, without cmux's tools. That happens when your own cmux entry is an HTTP server, when a project folder's Codex settings define cmux and Codex has not trusted that folder yet (you may trust it at Codex's prompt), when you resume or fork a session, and when you start Codex with --trust, --worktree, --ignore-user-config or --remote." },
-      { p: "This setting is your consent for the agents cmux starts, not a security boundary: a program that runs as you can still run the cmux CLI itself." },
+      { p: "This setting chooses what the agents cmux starts get. It is not a security boundary: a program that runs as you can still run the cmux CLI itself." },
       { h2: "Outside cmux (manual)" },
       { p: "To use it in an agent you start somewhere else, add it to that agent's own settings yourself. cmux never does this for you; cmux setup mcp prints these lines with the path of your cmux." },
       { code: "claude mcp add --scope user cmux -- cmux mcp serve\ncodex mcp add cmux -- cmux mcp serve", lang: "bash" },

@@ -91,7 +91,7 @@ struct CloudStartChat {
             services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
             // A failure a retry can help gets the card's Retry; a plan refusal keeps its code and the teams (CloudStartView).
             let plan = CloudMachineCreation.proRefusal(error) != nil
-            return AgentPaneReply.failure(code: plan ? "cloud_plan_required" : (error as? CloudMove.Failure)?.code ?? "cloud_start_failed", message: message, details: plan ? AgentPaneCloudMachines.Plan.requiredDetails(services.cloud.auth.planRefusalTeams) : nil, retryable: (error as? CloudMove.Failure)?.retry != nil, origin: "native")
+            return AgentPaneReply.failure(code: plan ? "cloud_plan_required" : (error as? CloudMove.Failure)?.code ?? "cloud_start_failed", message: message, details: plan ? AgentPaneCloudMachines.Plan.requiredDetails(services.cloud.auth.planRefusalTeams) : nil, retryable: (error as? CloudMove.Failure).map { $0.retry != nil || $0.sendAgain } ?? false, origin: "native")
         }
     }
 
@@ -321,7 +321,7 @@ extension CloudStartChat {
             let rows = keys.currentAgents.compactMap { row in row["agent"]?.stringValue.map { (agent: $0, set: row["set"]?.boolValue == true) } }
             return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
         }
-        services.cloud.setup.gateway = { [weak services] in guard let services, !services.accounts.agentKeys.scopeIsSignedOut, let binary = services.cloud.move.cli else { return nil }; return await CloudMoveCLI(binary: binary).inferenceGatewayServes() } // a team in inference gateway mode, its gateway online, serves a chat with no connection of the person's own (hq#15762)
+        services.cloud.setup.gateway = { [weak services] in guard let services, !services.accounts.agentKeys.scopeIsSignedOut, let binary = services.cloud.move.cli, let team = await services.cloud.installIdentity.installTeam() else { return nil }; return await CloudMoveCLI(binary: binary).inferenceGatewayServes(team: team) } // a team in inference gateway mode, its gateway online, serves a chat with no connection of the person's own (hq#15762): the team the start's machine is made in (the install token's), whose gateway serves it, never the active team's
         services.cloud.setup.run = { [weak services] action in try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow)) }
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }
@@ -330,7 +330,7 @@ extension CloudStartChat {
     @MainActor static func warmSpare(_ services: AppServices) {
         let cloud = services.cloud
         guard !services.registry.disabledFeatures.contains(.cloud), cloud.mayCallCloud, let binary = cloud.move.cli, let platform = cloud.configuration.artifactsAPIBaseURL() else { return }
-        CloudSpareWarm(auth: cloud.auth, cli: CloudMoveCLI(binary: binary), platform: platform, installIdentity: cloud.installIdentity).start { [weak cloud, account = cloud.account] machine, team in if let cloud, cloud.account == account { cloud.spareReadiness.prime(machine, team: team) } } // the spare's team as the platform names it; the reserve and the wire read the install token's (the same team), so one link is held and the claim's record takes it
+        CloudSpareWarm(auth: cloud.auth, cli: CloudMoveCLI(binary: binary), platform: platform, installIdentity: cloud.installIdentity).start { [weak cloud, account = cloud.account] machine, team in if let cloud, cloud.account == account { cloud.spareReadiness.prime(machine, team: team, dials: true) } } // the spare's team as the platform names it; the reserve and the wire read the install token's (the same team), so one link is held and dialed, and the claim's record takes it
     }
 
     /// ``CloudSpareReadiness``'s App side: the start's own keyed restart, only on a daemon that says it is idle (no agent runs) and with `keepBusy` off, so a daemon not up yet marks nothing busy for the start's own check; the carrier the session would make.
@@ -343,7 +343,7 @@ extension CloudStartChat {
         }, keyedInstance: { AcpmuxRemotePersonKeys.shared.instance(machine: $0) }, link: { [weak cloud] machine, team in
             guard let cloud, let connector = CloudCarrierDial.Connector(machine: machine, service: .mux, cli: cloud.binary, auth: cloud.auth, platform: cloud.configuration.relayAPIBaseURL(), team: team, stateDirectory: cloud.tuiState, streams: cloud.desktopStreams) else { return nil }
             return .init(spare: connector, paths: cloud.paths)
-        }, team: { [weak cloud] in await (try? cloud?.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }) // the team the create bills (appServerCreate) and the claimed record names; never carrierTeam, the App's active team
+        }, team: { [weak cloud] in await (try? cloud?.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, route: { [weak cloud] machine in guard let cloud else { return nil }; return await CloudMachineRoute(api: cloud.machineAPI, machineID: machine).report() }) // the route check's report, read with no start of the machine; before it: the team the create bills (appServerCreate) and the claimed record names; never carrierTeam, the App's active team
     }
 }
 

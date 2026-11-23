@@ -217,6 +217,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/perf",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/callers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true
@@ -277,6 +289,16 @@
       },
       "result": {
         "$ref": "#/types/SessionsResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/usage",
+      "params": {
+        "$ref": "#/types/UsageParams"
+      },
+      "result": {
+        "$ref": "#/types/UsageResult"
       }
     },
     {
@@ -847,6 +869,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github/pr_state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github/pr_wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/worktree/report",
       "params": true,
       "result": true
@@ -886,6 +920,18 @@
       "params": {
         "$ref": "#/types/KillParams"
       },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pause",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/wake",
+      "params": true,
       "result": true
     },
     {
@@ -979,6 +1025,14 @@
       "name": "_acpmux/attachment",
       "params": {
         "$ref": "#/types/AttachmentParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/turn_shots",
+      "params": {
+        "$ref": "#/types/TurnShotsParams"
       },
       "result": true
     },
@@ -1428,6 +1482,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/inbox_subscription_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_subscription_remove",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_subscriptions",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_enroll",
       "params": true,
       "result": true
@@ -1495,6 +1567,18 @@
     {
       "kind": "request",
       "name": "_acpmux/workspace_roots_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/browser_workspace_source_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/browser_workspaces",
       "params": true,
       "result": true
     },
@@ -1969,6 +2053,60 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/account/sign_in",
+      "params": {
+        "$ref": "#/types/AccountSignInParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/sign_in.finish",
+      "params": {
+        "$ref": "#/types/AccountSignInFinishParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/sign_in.cancel",
+      "params": {
+        "$ref": "#/types/AccountSignInCancelParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/switch",
+      "params": {
+        "$ref": "#/types/AccountIdParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/remove",
+      "params": {
+        "$ref": "#/types/AccountIdParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/sign_out",
+      "params": {
+        "$ref": "#/types/AccountIdParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/readiness",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections",
       "params": true,
       "result": true
@@ -2018,6 +2156,12 @@
     {
       "kind": "request",
       "name": "_acpmux/connections/chatgpt.token",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.import",
       "params": true,
       "result": true
     },
@@ -2201,6 +2345,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/owner_phone_changed",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_consent_set",
       "params": true,
       "result": true
@@ -2243,6 +2393,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_join_ssh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_candidates",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_leave_if_auto",
       "params": true,
       "result": true
@@ -2250,6 +2412,30 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_signed_in",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/device_hello",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/device_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/browser_sign_in_start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/browser_sign_in_complete",
       "params": true,
       "result": true
     },
@@ -2391,12 +2577,60 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/machine_join_progress",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true
     }
   ],
   "types": {
+    "AccountIdParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "account": true
+      },
+      "type": "object"
+    },
+    "AccountSignInCancelParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "loginId": true
+      },
+      "type": "object"
+    },
+    "AccountSignInFinishParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "code": true,
+        "loginId": true
+      },
+      "type": "object"
+    },
+    "AccountSignInParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "account": true,
+        "family": true,
+        "name": true
+      },
+      "type": "object"
+    },
     "AcpmuxRequestMeta": {
       "additionalProperties": false,
       "properties": {
@@ -2433,6 +2667,7 @@
         "harness": true,
         "harnessFrom": true,
         "host": true,
+        "ifNameTaken": true,
         "inlineParts": true,
         "interrupt": true,
         "localAppToken": true,
@@ -2462,6 +2697,7 @@
         "requestId": true,
         "requireFullAccess": true,
         "resend": true,
+        "restricted": true,
         "route": true,
         "senderHarness": true,
         "senderHarnessChecked": true,
@@ -3355,7 +3591,7 @@
           ]
         },
         "promptIndex": {
-          "description": "Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,\nin one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.",
+          "description": "The prompts before `beforeSeq`, newest page first and oldest first within a page, each cut\nto its id and the start of its text (`Hub::prompt_index`). `limit` and `maxBytes` bound the\npage; `hasMore` says an older page remains, whose `beforeSeq` is the first event's seq.",
           "type": [
             "boolean",
             "null"
@@ -5221,7 +5457,9 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "calls": true,
         "cursor": true,
+        "endedWithin": true,
         "limit": true,
         "recent": true,
         "sessionId": true
@@ -6198,6 +6436,13 @@
             "null"
           ]
         },
+        "forksAnyTurn": {
+          "description": "Whether the chat forks, and edits, through any completed turn, not only its latest: its\nharness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever\nfamily name its profile carries. Absent when unknown (the configuration was being written\nas the summary was built) and from a peer on an older acpmux: a client then falls back to\nthe family, never reads absence as false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "formerNames": {
           "description": "The names it had before its renames, oldest first: each still names it where no session\nhas it as its current name. Absent when it was never renamed, and from an older acpmux.",
           "items": {
@@ -6362,6 +6607,7 @@
           "type": "string"
         },
         "nameGiven": {
+          "default": false,
           "description": "Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`\ndefault. Absent otherwise, from a session named before it was kept, and from a peer on an\nolder acpmux.",
           "type": "boolean"
         },
@@ -6970,6 +7216,13 @@
             "null"
           ]
         },
+        "forksAnyTurn": {
+          "description": "Whether the chat forks, and edits, through any completed turn, not only its latest: its\nharness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever\nfamily name its profile carries. Absent when unknown (the configuration was being written\nas the summary was built) and from a peer on an older acpmux: a client then falls back to\nthe family, never reads absence as false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "formerNames": {
           "description": "The names it had before its renames, oldest first: each still names it where no session\nhas it as its current name. Absent when it was never renamed, and from an older acpmux.",
           "items": {
@@ -7130,6 +7383,7 @@
           "type": "string"
         },
         "nameGiven": {
+          "default": false,
           "description": "Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`\ndefault. Absent otherwise, from a session named before it was kept, and from a peer on an\nolder acpmux.",
           "type": "boolean"
         },
@@ -8053,6 +8307,17 @@
       },
       "type": "object"
     },
+    "TurnShotsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true,
+        "turnId": true
+      },
+      "type": "object"
+    },
     "TurnSummary": {
       "description": "The running turn.",
       "properties": {
@@ -8139,6 +8404,49 @@
       "required": [
         "sessionId",
         "on"
+      ],
+      "type": "object"
+    },
+    "UsageParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/usage` (capability `session-usage-v1`): what Session Info's Usage reads.",
+      "properties": {
+        "known": {
+          "description": "The `digest` of the last reply the client holds: while the stats read the same, the reply\nis `{digest, unchanged: true}` and carries none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "UsageResult": {
+      "properties": {
+        "digest": {
+          "description": "Names what `usage` holds: equal digests, equal stats (within one daemon run).",
+          "type": "string"
+        },
+        "unchanged": {
+          "description": "`known` is `digest`: the client's stats stand.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "usage": {
+          "additionalProperties": {
+            "$ref": "#/types/UsageStats"
+          },
+          "description": "Every listed chat that reports usage, its `usageStats` by the `sessionId` its row lists it\nunder (this daemon's chats and the peers' rows). Absent with `unchanged`.",
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "digest"
       ],
       "type": "object"
     },

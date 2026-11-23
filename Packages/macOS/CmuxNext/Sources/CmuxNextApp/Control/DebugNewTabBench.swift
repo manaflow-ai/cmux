@@ -43,7 +43,7 @@ enum DebugNewTabBench {
         }
         if case .object(var fields) = result {
             let opening = services.newTabSpares.openings.count > before ? services.newTabSpares.openings.last : nil
-            fields["opening"] = opening.map { .object(["spare": .bool($0.spare), "refit": .bool($0.refit), "ms": .number($0.milliseconds)]) } ?? .null
+            fields["opening"] = opening.map { .object(["spare": .bool($0.spare), "idle": .bool($0.idle), "refit": .bool($0.refit), "ms": .number($0.milliseconds)]) } ?? .null
             result = .object(fields)
         }
         return result

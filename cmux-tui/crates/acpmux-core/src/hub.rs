@@ -374,7 +374,7 @@ impl ListReceiver {
         let bytes = {
             let history = self.history.lock().ok()?;
             let first = history.first_seq();
-            let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
+            let last = history.recorded_through(self.published.load().seq());
             if cursor >= last {
                 return None;
             }
@@ -471,7 +471,7 @@ impl ListReceiver {
             }
         } else {
             let history = self.history.lock().ok()?;
-            let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
+            let last = history.recorded_through(self.published.load().seq());
             // A live pump consumes exactly one operation. A replay captures
             // its target once and may consume several bounded spans.
             let target = through.unwrap_or(cursor.saturating_add(1)).min(last);
@@ -1089,7 +1089,7 @@ impl Hub {
 
     pub fn resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
         let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
-        let target = history.last_seq().unwrap_or_else(|| self.published.load().seq());
+        let target = history.recorded_through(self.published.load().seq());
         if cursor > target
             || history.first_seq().is_some_and(|first| cursor.saturating_add(1) < first)
             || (history.first_seq().is_none() && cursor != target)
@@ -1998,6 +1998,7 @@ impl HubWriter {
         );
         let summary = Arc::new(record.summary.clone());
         let event = SummaryEvent { seq: record.seq, summary };
+        self.hold_history(current.seq(), record.seq);
         self.publish_folder_index(next, &folder_ops);
         self.record_history(ListItem::Summary(event.clone()));
         self.publish(event.clone());
@@ -2071,6 +2072,7 @@ impl HubWriter {
             return Ok(false);
         };
         let folder_ops = next.folder_changes(&current, current.get_row(key).as_deref(), None);
+        self.hold_history(current.seq(), seq);
         self.publish_folder_index(next, &folder_ops);
         self.record_history(ListItem::Gone {
             seq,
@@ -2098,6 +2100,14 @@ impl HubWriter {
             if seq > state.cursor && !state.ended {
                 subscriber.notify.notify_one();
             }
+        }
+    }
+
+    /// Called before publishing an index whose ops `(committed, through]` are appended
+    /// next: a list reader between the two waits for them and is not told it lagged.
+    pub(super) fn hold_history(&self, committed: u64, through: u64) {
+        if let Ok(mut history) = self.history.lock() {
+            history.hold(committed, through);
         }
     }
 

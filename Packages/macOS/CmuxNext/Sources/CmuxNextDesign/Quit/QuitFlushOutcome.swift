@@ -29,7 +29,7 @@ public nonisolated struct QuitFlushOutcome: Equatable, Sendable {
 }
 
 nonisolated enum QuitFlushStrings {
-    static var conflict: String { String(localized: "quitFlush.conflict", defaultValue: "%@ changed on disk", bundle: .module) }
-    static var readOnly: String { String(localized: "quitFlush.readOnly", defaultValue: "%@ is read-only", bundle: .module) }
-    static var timedOut: String { String(localized: "quitFlush.timedOut", defaultValue: "Saving did not finish in time", bundle: .module) }
+    static var conflict: String { String(localized: "quitFlush.conflict", defaultValue: "%@ changed on disk", bundle: .localizedModule) }
+    static var readOnly: String { String(localized: "quitFlush.readOnly", defaultValue: "%@ is read-only", bundle: .localizedModule) }
+    static var timedOut: String { String(localized: "quitFlush.timedOut", defaultValue: "Saving did not finish in time", bundle: .localizedModule) }
 }
