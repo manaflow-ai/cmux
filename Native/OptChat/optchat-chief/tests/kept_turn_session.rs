@@ -114,6 +114,43 @@ fn consecutive_turns_reuse_one_claude_code_session_and_send_only_the_new_message
 }
 
 #[test]
+fn a_rebuilt_view_with_only_tail_growth_reuses_the_kept_session() {
+    let mut h = harness();
+    fill(&h.chat, 120);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    // Force the next frozen view to rebuild past the delta threshold while
+    // leaving the first turn's parts as its stable prefix.
+    fill(&h.chat, 180);
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompt_sessions, vec!["s1", "s1"]);
+    assert!(!inner.ended.contains(&"s1".to_owned()));
+}
+
+#[test]
+fn a_changed_view_prefix_retires_the_kept_session() {
+    let mut h = harness();
+    fill(&h.chat, 120);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    // The first user message is in the frozen view. Editing it changes a
+    // previously kept part, so the next turn cannot reuse the session.
+    let target = h.chat.status().messages;
+    h.chat
+        .append(Kind::Note, &optchat_core::edit_of(target, "changed"))
+        .unwrap();
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompt_sessions, vec!["s1", "s2"]);
+    assert!(inner.ended.contains(&"s1".to_owned()));
+}
+
+#[test]
 fn a_failed_turn_ends_its_session_and_the_next_turn_starts_fresh_with_the_view() {
     let mut h = harness();
     fill(&h.chat, 120);
