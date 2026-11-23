@@ -38,9 +38,10 @@ pub(super) fn workspace_create(
         // Run from a cmux terminal: the new workspace goes below the one
         // the script runs in, not next to the person's selection
         // (ask-48544d7525). A place hint only; an older daemon gets the
-        // request without it (wire/workspace_created_by.rs).
+        // request without it (wire/created_by_stamp.rs).
         params.insert("created_by".into(), creator(key, std::env::var("ACPMUX_SESSION_ID").ok()));
     }
+    insert_purpose(&mut params, flags);
     // The daemon refuses these with --empty: there is no terminal to launch.
     if let Some(cwd) = flags.take("cwd") {
         params.insert("cwd".into(), Value::String(cwd));
@@ -70,22 +71,5 @@ fn creator(key: String, session: Option<String>) -> Value {
 }
 
 #[cfg(test)]
-mod creator_tests {
-    use serde_json::json;
-
-    #[test]
-    fn an_acpmux_session_creates_as_an_agent_naming_its_session() {
-        assert_eq!(
-            super::creator("ws_a".into(), Some("b5a59c5f".into())),
-            json!({"kind": "agent", "workspace": "ws_a", "session": "b5a59c5f"})
-        );
-        assert_eq!(
-            super::creator("ws_a".into(), None),
-            json!({"kind": "script", "workspace": "ws_a"})
-        );
-        assert_eq!(
-            super::creator("ws_a".into(), Some(String::new())),
-            json!({"kind": "script", "workspace": "ws_a"})
-        );
-    }
-}
+#[path = "workspace_creator_tests.rs"]
+mod creator_tests;

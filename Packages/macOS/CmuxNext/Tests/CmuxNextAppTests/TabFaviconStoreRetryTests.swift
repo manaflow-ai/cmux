@@ -71,6 +71,46 @@ import Testing
         #expect(loader.calls == 1, "no second fetch: the page's own icon is used")
     }
 
+    /// 500 pages with no icon (500 hibernated tabs) kept one timer each, so the idle app woke 8 times a second and
+    /// each wake mapped every row again: 31.7% of a core on the infinite-tabs bench. Their failures end together.
+    @Test func manyFailedIconsEndTheirMemoryInOneWake() async throws {
+        let loader = FlakyLoader()
+        let clock = ManualClock()
+        let store = TabFaviconStore(loader: loader, clock: clock)
+        let addresses = (0..<300).map { "https://site\($0).example/favicon.ico" }
+        for address in addresses { _ = store.image(for: address, profile: .default) }
+        await loader.until { loader.calls == addresses.count && !addresses.contains { store.isFetching($0, profile: .default) } }
+        try? await clock.waitForSleeper()
+        #expect(clock.sleeperCount == 1, "one timer for every failure of a backoff step")
+
+        let maps = MapsAgain()
+        withObservationTracking {
+            for address in addresses { _ = store.image(for: address, profile: .default) }
+        } onChange: {
+            maps.fire()
+        }
+        #expect(loader.calls == addresses.count, "no failure is fetched again inside its memory")
+        // The first failure started the timer, so the rest (failed while it ran) end one memory after it.
+        clock.advance(by: TabFaviconStore.failureMemory)
+        await loader.until { maps.fired }
+        _ = store.image(for: addresses[0], profile: .default)
+        _ = store.image(for: addresses[1], profile: .default)
+        await loader.until { loader.calls == addresses.count + 1 && !store.isFetching(addresses[0], profile: .default) }
+        #expect(loader.calls == addresses.count + 1, "only the failure whose memory ended is fetched again")
+        let mapsOnceMore = MapsAgain()
+        withObservationTracking {
+            _ = store.image(for: addresses[1], profile: .default)
+        } onChange: {
+            mapsOnceMore.fire()
+        }
+        try? await clock.waitForSleeper()
+        clock.advance(by: TabFaviconStore.failureMemory)
+        await loader.until { mapsOnceMore.fired }
+        for address in addresses { _ = store.image(for: address, profile: .default) }
+        await loader.until { loader.calls == addresses.count * 2 }
+        #expect(loader.calls == addresses.count * 2, "the rest end together, one memory later")
+    }
+
     /// A URL that keeps failing (a site with no icon) is held off longer each time, not fetched every minute.
     @Test func aURLThatKeepsFailingIsHeldOffLongerEachTime() {
         #expect(TabFaviconStore.failureMemory(after: 1) == TabFaviconStore.failureMemory)
