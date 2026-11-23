@@ -3,7 +3,8 @@ import Foundation
 
 /// Why a chat's own VM could not start, read from the error the machine create answered with. The wording's choice (`signIn`,
 /// `planLimit`, `capacity`, `offline`, or none) is Rust's (`cloud_move_place_vm_failure`); the app localizes it.
-public enum CloudPlaceVMFailure {
+public struct CloudPlaceVMFailure {
+    public init() {}
     /// `signedOut` / `planRequired`: what the app knows of its own errors (a sign-in refusal, an upgrade refusal).
     public static func cause(of error: any Error, signedOut: Bool = false, planRequired: Bool = false) -> String? {
         struct Facts: Encodable { var signedOut: Bool, planRequired: Bool, status: Int?, code: String? }

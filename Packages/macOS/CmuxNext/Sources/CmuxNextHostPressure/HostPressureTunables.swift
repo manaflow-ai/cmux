@@ -36,7 +36,8 @@ public nonisolated enum HostPressureIndicatorStyle: String, Sendable, CaseIterab
 
 /// Debug Settings of the host pressure indicator (DEV and NIGHTLY; Release and RC never activate
 /// the store, so they keep the defaults). English developer text, as every Debug Settings section.
-public nonisolated enum HostPressureTunables {
+public nonisolated struct HostPressureTunables {
+    public nonisolated init() {}
     public static let section = TunableSection(id: "hostPressure", title: "Host Pressure", symbol: "gauge.with.dots.needle.67percent", order: 50)
 
     /// Off (the default; Lawrence 2026-11-02: "get rid of host-pressure warning by default, can be enabled
