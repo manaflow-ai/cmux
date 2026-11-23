@@ -160,6 +160,12 @@ starts on a thread before the scanners, so a push pays what is left of it at the
 Swift files it reads and analyzes; --timings prints the wait). Its one escape is a dated exception in
 arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
 
+No new committed generated files (GENERATED_CHECK, every run, CI's fast gates too): a file the push adds that a
+generator in scripts/ci/generated-files.json writes, or that is named or headed as generated, and that no
+"committed" generator covers, refuses the push (generated_files_guard.py added: git objects only, under a second;
+2026-11-22, #49757 committed a settings-sources output the SwiftPM build plugin makes, and the package stopped
+compiling). CI's full guard (cmux-next-guards.yml) still judges hand edits, rule changes and the baseline.
+
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
 
@@ -437,6 +443,9 @@ NEW_VERSIONS_HINT = ("A changed Cargo.lock uses a crate version that no Cargo.lo
                      "(`cargo update -p NAME --precise VERSION`).")
 # A settings export keeps every key the base's export had and the sources declare, and gains none they do not
 # (2026-11-15: #43022 and #43027 carried exports from an older tree without tabs.newTabApp).
+GENERATED_CHECK = "No new committed generated files (scripts/ci/generated_files_guard.py added)"
+GENERATED_SCRIPT = "scripts/ci/generated_files_guard.py"
+GENERATED_HELPER = "scripts/ci/ci_process_tree.py"  # the guard imports it from beside itself
 SETTINGS_KEYS_CHECK = "Settings exports keep their keys (scripts/cmux-next/settings-export-key-drift.py)"
 SETTINGS_KEYS_SCRIPT = SCRIPTS + "/settings-export-key-drift.py"
 SETTINGS_KEYS_PATHS = ("schemas/settings/", "web/data/next-docs/settings-reference.generated.json", "docs/mdm/")
@@ -2409,6 +2418,37 @@ def settings_export_keys(repo: Path, base: str, head: str, trusted_scripts: Path
     return found
 
 
+def new_generated_files(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<file>: a new committed generated file (...)` per file the range adds that a generator writes, or that is
+    named or headed as generated, and that no "committed" generator covers (GENERATED_CHECK). Git objects only, and
+    only when the range adds a file; the rules are the base's.
+
+    2026-11-22: #49757 committed SettingsSchema+Appearance5.generated.swift after #50929 moved the settings sources
+    into a SwiftPM build plugin (settings-sources, status "build"), and the package stopped compiling. CI's full
+    guard (cmux-next-guards.yml) judges a feat-cmux-next pull request only with full-ci and a push once per
+    30-minute window, so the merge landed unjudged."""
+    added = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=A", "-z", base, head)
+    if not added.strip(b"\0"):
+        return []
+    script = check_script(repo, head, GENERATED_SCRIPT, trusted_scripts, base)
+    helper = check_script(repo, head, GENERATED_HELPER, trusted_scripts, base)
+    if script is None or helper is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-generated-") as tmp:
+        work = absolute(Path(tmp))
+        check = work / "generated_files_guard.py"
+        check.write_bytes(script)
+        (work / "ci_process_tree.py").write_bytes(helper)
+        code, out = run(["python3", "-I", str(check), "added", "--repo", str(repo.resolve()), "--base", base,
+                         "--head", head], work, timeout=120)
+    found = [line.removeprefix("error: ") for line in out.splitlines() if line.startswith("error: ")]
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no file" if code == 1 and not found else None)
+    if stopped:
+        return [NoVerdict(f"{GENERATED_SCRIPT} {stopped} instead of judging the added files, so the push is refused: "
+                          f"{out_tail(out.splitlines())}", outside_cause(stopped))]
+    return found
+
+
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     """`file:line` of each conflict marker the push adds, in any file of the repository.
 
@@ -3164,6 +3204,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
+    # Every run, CI's too: git objects only, under a second, and only when the range adds a file.
+    if (only is None or "generated-files" in only) and want(GENERATED_CHECK):
+        generated = new_generated_files(repo, base, head, trusted_scripts)
+        if generated:
+            reserved.append((GENERATED_CHECK, generated))
     # Local only, like the highlights (the 2026-10-23 no-new-CI rule, since lifted): CI's "Lint every workflow" step (actionlint, on
     # every pull request and every feat-cmux-next and main push) is the backstop. Here it meets a direct commit first.
     if (highlights_layer if only is None else "workflows" in only) and want(WORKFLOW_CHECK):
@@ -4020,7 +4065,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys,main-twin,job-bounds")
+                                       "settings-export-keys,main-twin,job-bounds,generated-files")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--defer-ci-layers", action="store_true",
                         help="the hook on a loaded host: leave the checks the PR's fast-gates job runs (scanners, "

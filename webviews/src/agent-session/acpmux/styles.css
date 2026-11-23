@@ -272,6 +272,15 @@
 .acpmux-emoji-menu.is-strip .acpmux-emoji-glyph{width:auto;font-size:var(--text-heading)}
 .acpmux-emoji-strip-code{height:var(--ds-control-compact);padding:0 var(--ds-space-2);display:flex;align-items:center;color:var(--acpmux-composer-dim);font-size:var(--text-caption);white-space:nowrap}
 .acpmux-slash-empty{padding:0 var(--ui-row-padding-inline);height:var(--ui-row-height);display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:var(--ui-row-radius)}
+.acpmux-help-sheet{--popup-scroll-cap:calc(12 * var(--ui-row-height,28px) + 2 * var(--ui-popup-padding,4px));display:flex;flex-direction:column;overflow:hidden}
+.acpmux-help-search{flex:none;height:var(--ui-row-height);margin:0 0 var(--ui-popup-padding);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;outline:none}
+.acpmux-help-search::placeholder{color:var(--acpmux-composer-dim)}
+.acpmux-help-list{flex:1 1 auto;min-height:0;overflow:auto}
+.acpmux-help-row:has(.acpmux-help-label){flex-wrap:wrap;height:auto;min-height:var(--ui-row-height)}
+.acpmux-help-label{flex:0 0 100%;padding-top:var(--grid-step);padding-bottom:var(--grid-half-step);font-size:var(--text-caption);color:var(--acpmux-composer-dim);pointer-events:none}
+.acpmux-help-row[data-help-kind="key"] .acpmux-slash-name{flex:1 1 0}
+.acpmux-help-keys{flex:none;display:flex;gap:var(--grid-half-step)}
+.acpmux-help-keys kbd{/* concentric-allow: a keycap, not a container of buttons */font:var(--text-caption)/1 var(--font-ui);padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft)}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
@@ -1072,7 +1081,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-keycap{display:inline-flex;align-items:center;justify-content:center;min-width:var(--ds-control-icon);height:var(--ds-control-icon);margin:0;padding:0 4px;border-radius:calc(var(--ds-radius-control, 8px) - var(--ds-space-1, 4px));background:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 35%,transparent);color:color-mix(in srgb,currentColor 75%,transparent);font-family:var(--font-ui);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* The answer's letter, then its other keys: a faint slash between them reads as "or", never as a chord. */
-.acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 45%,transparent);font:var(--text-caption)/1 var(--font-ui)}
+.acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 75%,transparent);font:var(--text-caption)/1 var(--font-ui)}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-permission-action-shortcut{margin:0}
 /* The key hint (KeyHint): smaller and fainter than the label, on its baseline, a fixed step after it;
    the modifiers fainter still so the digit leads. No box: a keycap crowds a 24px button. */
