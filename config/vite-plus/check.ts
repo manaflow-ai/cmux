@@ -21,6 +21,8 @@ const TRANSCRIPT_SCROLL_FILES = [
   `${TRANSCRIPT}/threadMinimap/*.tsx`,
   `${TRANSCRIPT}/chatMinimap/*.ts`,
   `${TRANSCRIPT}/chatMinimap/*.tsx`,
+  `${TRANSCRIPT}/transcript/*.ts`,
+  `${TRANSCRIPT}/transcript/*.tsx`,
 ];
 
 type LintPlugin = "eslint" | "typescript" | "unicorn" | "oxc" | "react" | "jsx-a11y" | "import";

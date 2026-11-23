@@ -221,12 +221,12 @@ final class SuggestionRowView: NSView {
             icon.contentTintColor = OmnibarStyle.resultsIcon
             let text = NSMutableAttributedString(string: title, attributes: [
                 .font: OmnibarStyle.font,
-                .foregroundColor: OmnibarStyle.textPrimary,
+                .foregroundColor: Palette.textPrimary,
             ])
             if !detail.isEmpty {
                 text.append(NSAttributedString(string: " – " + detail, attributes: [
                     .font: OmnibarStyle.rowDetailFont,
-                    .foregroundColor: OmnibarStyle.textSecondary,
+                    .foregroundColor: Palette.textSecondary,
                 ]))
             }
             label.attributedStringValue = text

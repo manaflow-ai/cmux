@@ -354,6 +354,7 @@ def run(args: argparse.Namespace) -> int:
     repo = Path(args.root).resolve() if args.root else git_root(cwd)
     enabled = os.environ.get("FIXIT_COMPILE", "1") != "0"
     red_at = now_iso()
+    messages = log = json_argv = None
     if args.kind == "cargo":
         json_argv = cargo_json_argv(argv) if enabled else None
         if json_argv is None:
@@ -363,7 +364,18 @@ def run(args: argparse.Namespace) -> int:
         status, log = run_plain(argv, cwd)
     if status == 0 or not enabled:
         return status
+    # The check's own exit status is the verdict, whatever fixit does after it: a crash in planning or applying a fix
+    # is reported and the red stands as it is, never a traceback the check's findings would carry.
+    try:
+        return _after_red(args, argv, cwd, repo, status, red_at, messages, log, json_argv)
+    except Exception as exc:  # noqa: BLE001 - fixit is best effort by design
+        say(f"fixit failed ({type(exc).__name__}: {exc}); the red stands as it is")
+        return status
 
+
+def _after_red(args: argparse.Namespace, argv: list[str], cwd: Path, repo: Path, status: int, red_at: str,
+               messages, log, json_argv) -> int:
+    """The fix after a red compile: plan every error's one safe fix, apply them, compile again, write the patch."""
     roots = [cwd, *[p for p in cwd.parents if p.is_relative_to(repo)]]
     if args.kind == "cargo":
         plan = cargo_plan(messages, roots, repo)
