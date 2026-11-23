@@ -662,6 +662,7 @@ impl Hub {
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
+            effort_request: parent_meta.effort_request.clone(),
             cwd,
             // A fork sees what its parent saw, but never its own folder twice.
             additional_directories: fork_dirs,
@@ -843,6 +844,7 @@ impl Hub {
             meta.family = Some(t.family.clone());
             meta.preset = None;
             meta.model_request = if t.spawn_model { t.model.clone() } else { None };
+            meta.effort_request = None;
             meta.agent_info = None;
             meta.agent_capabilities = None;
             meta.mode_set_by_cmux = None;
