@@ -282,6 +282,28 @@ fn viewer_silent_too_long(silent_us: u64) -> bool {
 
 /// Whether the session sends the cursor as metadata: the viewer draws it (cap `cursor`) and
 /// this OS's desktop can report it.
+/// Whether this host offers cap `h264.baseline`: an H.264 encoder that can switch to
+/// Constrained Baseline for one session (every H.264 encoder here; VP9 and AV1 have no
+/// H.264 profile).
+pub fn offers_h264_baseline(codec: &str) -> bool {
+    !matches!(codec, "vp9" | "av1")
+}
+
+/// The session's settings with the viewer's caps applied: a viewer that negotiated
+/// `h264.baseline` (OpenH264, which shows a High-profile stream as wrong pictures with no
+/// error, cmux#50591) gets Constrained Baseline whatever `--profile` says.
+fn session_cfg<'a>(
+    cfg: &'a SessionCfg,
+    negotiated_caps: &[String],
+) -> std::borrow::Cow<'a, SessionCfg> {
+    let baseline = negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::H264_BASELINE);
+    if baseline && cfg.profile != "baseline" {
+        std::borrow::Cow::Owned(SessionCfg { profile: "baseline".into(), ..cfg.clone() })
+    } else {
+        std::borrow::Cow::Borrowed(cfg)
+    }
+}
+
 fn wants_cursor(negotiated_caps: &[String]) -> bool {
     crate::desktop::reports_cursor()
         && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
@@ -323,6 +345,7 @@ impl MediaSession {
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
         let open_us = now_us();
+        let cfg = &*session_cfg(cfg, negotiated_caps);
         let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
         let ready_us = now_us();
         let mut session =
