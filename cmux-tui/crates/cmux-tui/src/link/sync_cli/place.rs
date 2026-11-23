@@ -424,6 +424,75 @@ impl Chain {
 }
 
 impl Dir {
+    /// Writes `bytes` at `name` with `mode`, replacing the regular file
+    /// there (or taking the name while it is missing): to a hidden name
+    /// first, then `renameat` in this folder. A symlink, folder or special
+    /// file at `name` is refused and left as it is (`InvalidInput`).
+    pub(super) fn replace_file(&self, name: &str, bytes: &[u8], mode: u32) -> io::Result<()> {
+        use std::io::Write as _;
+        if !matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{name} is not a file"),
+            ));
+        }
+        let (part, mut file) = {
+            let mut tries = 0u32;
+            loop {
+                let part = format!(".{name}.{}-{tries}.cmux-sync-part", std::process::id());
+                match self.create_file(&part, mode) {
+                    Ok(file) => break (part, file),
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists && tries < 64 => {
+                        tries += 1;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        };
+        let written = file.write_all(bytes).and_then(|()| file.sync_all());
+        drop(file);
+        // Checked again at the last moment: a link swapped in since is
+        // refused, never replaced (a rename would only replace the link
+        // itself, but the carried file must land where the plan saw a file).
+        let placed = written.and_then(|()| {
+            if matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
+                self.rename(&part, self, name)
+            } else {
+                Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{name} is not a file")))
+            }
+        });
+        if placed.is_err() {
+            let _ = self.unlink(&part, false);
+        }
+        placed
+    }
+
+    /// Removes the regular file `name`; a missing one is fine, anything
+    /// else there (a symlink, a folder) is refused and left (`InvalidInput`).
+    pub(super) fn remove_file(&self, name: &str) -> io::Result<()> {
+        match self.entry(name)? {
+            Entry::Missing => Ok(()),
+            Entry::File { .. } => match self.unlink(name, false) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                other => other,
+            },
+            _ => Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{name} is not a file"))),
+        }
+    }
+
+    /// The folder `name` here, made when missing; a symlink or file there
+    /// is an error.
+    pub(super) fn child_or_make(&self, name: &str) -> io::Result<Self> {
+        if let Some(dir) = self.child(name)? {
+            return Ok(dir);
+        }
+        match self.mkdir(name) {
+            Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
+            _ => {}
+        }
+        self.child(name)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
+    }
+
     fn dup(&self) -> io::Result<Self> {
         Ok(Self(self.0.try_clone()?))
     }
