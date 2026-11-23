@@ -4,6 +4,7 @@ import Observation
 import os
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// Behavior at the sign-in service boundary: the production Stack client,
 /// the real file token store, and a real HTTP server on 127.0.0.1.
@@ -139,10 +140,9 @@ struct StackRateLimitBoundaryTests {
         await harness.tokenStore.seed(accessToken: harness.accessToken, refreshToken: "refresh-1")
 
         let started = ContinuousClock.now
-        await harness.coordinator.checkExistingSession()
+        await harness.coordinator.restore("launch")
         #expect(harness.coordinator.isAuthenticated)
         #expect(harness.coordinator.availableTeams.isEmpty)
-        #expect(harness.coordinator.teamScopeRateLimit != nil)
         #expect(harness.coordinator.hasPendingTeamScopeRecovery)
         let userFetches = server.requestCount("GET", "/api/v1/users/me")
 
@@ -156,7 +156,7 @@ struct StackRateLimitBoundaryTests {
         await harness.waitFor { !harness.coordinator.availableTeams.isEmpty }
         #expect(ContinuousClock.now - started >= .seconds(2))
         #expect(harness.coordinator.availableTeams.map(\.id) == ["team-1"])
-        #expect(harness.coordinator.teamScopeRateLimit == nil)
+        #expect(!harness.coordinator.hasPendingTeamScopeRecovery)
         #expect(server.responseCount("GET", "/api/v1/teams", status: 429) == 1)
         #expect(harness.coordinator.isAuthenticated)
         let records = harness.telemetry.events
@@ -233,7 +233,8 @@ private struct RealStackSignInHarness {
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            rateLimitTelemetry: telemetry.source
+            rateLimitTelemetry: telemetry.source,
+            reducer: AuthReducerFFI.factory
         )
         let factory = FakeBrowserAuthSessionFactory()
         flow = HostBrowserSignInFlow(

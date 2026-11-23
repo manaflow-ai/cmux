@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 @MainActor
 @Suite struct AuthCoordinatorCancellationTests {
@@ -14,7 +15,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
     }
 

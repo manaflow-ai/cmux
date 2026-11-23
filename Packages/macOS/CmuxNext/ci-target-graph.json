@@ -18,7 +18,8 @@
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
     "CmuxUpdater": "Packages/macOS/CmuxUpdater",
-    "CmuxVNC": "Packages/Shared/CmuxVNC"
+    "CmuxVNC": "Packages/Shared/CmuxVNC",
+    "stack-auth-swift-sdk-prerelease": "vendor/stack-auth-swift-sdk-prerelease"
   },
   "targets": {
     "CCmuxAppFFI": {
@@ -617,6 +618,19 @@
       "reads": [
         "samples/apps/"
       ]
+    },
+    "CmuxNextAuthTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAuthTests",
+      "targets": [
+        "CmuxNextCloud"
+      ],
+      "packages": [
+        "CMUXAuthCore",
+        "CmuxAuthRuntime",
+        "stack-auth-swift-sdk-prerelease"
+      ],
+      "reads": []
     },
     "CmuxNextBookmarks": {
       "kind": "regular",

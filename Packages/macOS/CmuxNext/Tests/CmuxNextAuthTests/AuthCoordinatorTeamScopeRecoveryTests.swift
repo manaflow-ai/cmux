@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// A signed-in session whose team list never loaded has no team scope, and
 /// every scope-gated service (the iOS pairing host, Cloud) stays down. macOS
@@ -9,6 +10,12 @@ import Testing
 /// the team list loads instead of waiting for an app restart.
 @MainActor
 @Suite struct AuthCoordinatorTeamScopeRecoveryTests {
+    /// The reducer's backoff, `team_scope_recovery_delay` in
+    /// `cmux-tui/crates/cmux-auth-coordinator/src/phase.rs`: 2 s doubling, 60 s cap.
+    private static func recoveryDelay(afterAttempt attempt: Int) -> Duration {
+        .seconds(min(2 << min(attempt, 5), 60))
+    }
+
     private static let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
     private static let team = CMUXAuthTeam(id: "team-1", displayName: "Team")
     /// Phase deadlines far past any backoff, so the backoff sleep is the only
@@ -41,7 +48,8 @@ import Testing
             config: .test,
             launch: .plain(),
             timeouts: Self.longPhaseTimeouts,
-            clock: clock
+            clock: clock,
+            reducer: AuthReducerFFI.factory
         )
     }
 
@@ -68,7 +76,7 @@ import Testing
 
         await client.setThrowOnListTeams(nil)
         await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
-        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 0))
+        clock.advance(by: Self.recoveryDelay(afterAttempt: 0))
 
         let scope = await awaitTeamScope(coordinator)
         #expect(scope?.teamID == Self.team.id)
@@ -90,7 +98,7 @@ import Testing
 
         await client.setThrowOnCurrentUser(nil)
         await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
-        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 0))
+        clock.advance(by: Self.recoveryDelay(afterAttempt: 0))
 
         let scope = await awaitTeamScope(coordinator)
         #expect(scope?.teamID == Self.team.id)
@@ -108,13 +116,13 @@ import Testing
         coordinator.start()
         await coordinator.awaitBootstrapped()
         await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
-        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 0))
+        clock.advance(by: Self.recoveryDelay(afterAttempt: 0))
 
         // The first retry also fails; the loop must schedule the next one.
         await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
         #expect(coordinator.authenticatedTeamScope == nil)
         await client.setThrowOnListTeams(nil)
-        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 1))
+        clock.advance(by: Self.recoveryDelay(afterAttempt: 1))
 
         let scope = await awaitTeamScope(coordinator)
         #expect(scope?.teamID == Self.team.id)
@@ -154,7 +162,7 @@ import Testing
 
         await client.setThrowOnCurrentUser(nil)
         await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
-        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 0))
+        clock.advance(by: Self.recoveryDelay(afterAttempt: 0))
 
         let scope = await awaitTeamScope(coordinator)
         #expect(scope?.teamID == Self.team.id)
@@ -178,7 +186,7 @@ import Testing
 
         await client.setThrowOnListTeams(nil)
         await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
-        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 0))
+        clock.advance(by: Self.recoveryDelay(afterAttempt: 0))
 
         let scope = await awaitTeamScope(coordinator)
         #expect(scope?.teamID == Self.team.id)
@@ -249,14 +257,14 @@ import Testing
         // Leave the old session parked at the maximum 60-second delay.
         for attempt in 0..<5 {
             await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
-            clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: attempt))
+            clock.advance(by: Self.recoveryDelay(afterAttempt: attempt))
         }
         await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
         try await coordinator.signInWithGitHub()
         #expect(coordinator.authenticatedTeamScope == nil)
         await client.setThrowOnListTeams(nil)
         await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
-        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 0))
+        clock.advance(by: Self.recoveryDelay(afterAttempt: 0))
 
         let scope = await awaitTeamScope(coordinator)
         #expect(scope?.teamID == Self.team.id)

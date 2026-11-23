@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 @MainActor
 @Suite struct AuthCoordinatorTokenTouchingPhaseCancellationTests {
@@ -24,7 +25,8 @@ import Testing
             config: .test,
             launch: .plain(),
             timeouts: Self.testTimeouts,
-            clock: clock
+            clock: clock,
+            reducer: AuthReducerFFI.factory
         )
     }
 
@@ -56,7 +58,7 @@ import Testing
         let entered = TestPhaseSignal()
         let release = TestPhaseSignal()
         let phase = Task {
-            try await coordinator.runTokenTouchingPhase(
+            try await coordinator.runPhase(
                 .accessToken,
                 timeout: .seconds(2),
                 deadline: deadline
@@ -83,7 +85,7 @@ import Testing
         let coordinator = makeCoordinator(client: FakeAuthClient(), clock: clock)
         let entered = TestPhaseSignal()
         let phase = Task {
-            try await coordinator.runTokenTouchingPhase(
+            try await coordinator.runPhase(
                 .accessToken,
                 timeout: .seconds(2),
                 deadline: deadline
@@ -97,18 +99,18 @@ import Testing
         #expect(await entered.didStart == false)
     }
 
+    /// Lets the cancelled call's park reach the reducer. The parked state
+    /// lives in Rust (`cmux-auth-coordinator` `phase_runs.rs` covers it), so
+    /// the shell has nothing to poll; the yields only let the main actor drain.
     private func waitUntilTokenTouchingPhaseGated(_ coordinator: AuthCoordinator, phase: AuthPhase) async {
         for _ in 0..<100 {
-            if coordinator.timedOutTokenTouchingPhaseStates[phase] != nil {
-                return
-            }
             await Task.yield()
         }
     }
 
     private func waitUntilTokenTouchingCleanupFinished(_ coordinator: AuthCoordinator) async {
         for _ in 0..<100 {
-            if coordinator.activeTokenTouchingPhases.isEmpty {
+            if coordinator.phaseWork.isEmpty {
                 return
             }
             await Task.yield()

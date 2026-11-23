@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// Team management through the coordinator: delete and rename change the
 /// membership list the whole app reads, and deleting the active team moves
@@ -22,7 +23,8 @@ struct AuthCoordinatorTeamManagementTests {
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: .seconds(60))
+            timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: .seconds(60)),
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "user@example.com", password: "password")
         #expect(coordinator.resolvedTeamID == selected)

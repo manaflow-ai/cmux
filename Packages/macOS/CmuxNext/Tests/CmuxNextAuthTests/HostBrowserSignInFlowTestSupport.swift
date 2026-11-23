@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Observation
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 @MainActor
 final class OpenedURLRecorder {
@@ -56,7 +57,8 @@ struct HostBrowserSignInFlowHarness {
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
         let factory = FakeBrowserAuthSessionFactory()
         self.flow = HostBrowserSignInFlow(

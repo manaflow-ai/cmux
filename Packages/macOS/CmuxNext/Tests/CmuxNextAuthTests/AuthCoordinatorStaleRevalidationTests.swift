@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// Local-first sign-out clears local state up front and no longer ends with a
 /// final `clearAuthState()`, so auth work that was already in flight when the
@@ -24,7 +25,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
         coordinator.latestSignInRefreshToken = "old-refresh"
         coordinator.isAuthenticated = true
@@ -58,7 +60,8 @@ import Testing
             config: .test,
             launch: .plain(),
             timeouts: AuthTimeouts(interactiveFlow: .seconds(5), network: .seconds(2)),
-            clock: clock
+            clock: clock,
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(coordinator.isAuthenticated)
@@ -102,7 +105,8 @@ import Testing
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            onSignedIn: { await hookRuns.increment() }
+            onSignedIn: { await hookRuns.increment() },
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(coordinator.isAuthenticated)
@@ -146,7 +150,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
 
         await client.armCredentialGate()
@@ -185,7 +190,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(await client.refreshToken() == "refresh-1")
@@ -246,7 +252,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
 
         await client.armCredentialGate()
@@ -288,7 +295,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
 
         await client.armCredentialGate()
@@ -341,7 +349,8 @@ import Testing
             config: .test,
             launch: .plain(),
             timeouts: AuthTimeouts(interactiveFlow: .seconds(5), network: .seconds(2)),
-            clock: testClock
+            clock: testClock,
+            reducer: AuthReducerFFI.factory
         )
 
         await client.armCredentialGate()
@@ -350,7 +359,7 @@ import Testing
 
         await coordinator.signOut()
         #expect(coordinator.isAuthenticated == false)
-        #expect(coordinator.activeSignInExchanges.count == 1)
+        #expect(coordinator.phaseWork.count == 1)
 
         let blockedSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
         await testClock.waitUntilSleepers(count: 2)
@@ -400,7 +409,8 @@ import Testing
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            isOnline: { await online.value }
+            isOnline: { await online.value },
+            reducer: AuthReducerFFI.factory
         )
 
         await client.armCredentialGate()

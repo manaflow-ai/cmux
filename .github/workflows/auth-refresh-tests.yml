@@ -34,7 +34,10 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
       - name: Exercise shared refresh transport and deadlines without credentials
         run: swift test --package-path vendor/stack-auth-swift-sdk-prerelease --filter 'RefreshLifecycleTests|RefreshRejectionTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh'
-      - name: Exercise coordinator cancellation, sessions, and recovery
-        run: swift test --package-path Packages/Shared/CmuxAuthRuntime --filter 'AuthCoordinator|AuthError|HostBrowserSignInFlow|StackRateLimitBoundaryTests|StackTokenRefreshBoundaryTests'
+      # The coordinator, sign-in flow and rate-limit tests need the Rust reducer (CCmuxAppFFI), so they
+      # are CmuxNext's CmuxNextAuthTests and run in its swift test job; the reducer's own tests are
+      # cmux-tui/crates/cmux-auth-coordinator/tests.
+      - name: Exercise auth errors and token refresh boundaries
+        run: swift test --package-path Packages/Shared/CmuxAuthRuntime --filter 'AuthError|StackTokenRefreshBoundaryTests'
       - name: Verify retired session watcher completion over loopback
         run: swift test --package-path Packages/Shared/CmuxIrxTransport --filter 'IrxLiveQUICTests.keepaliveAndAutoRedial'

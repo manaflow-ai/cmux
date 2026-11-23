@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 @MainActor
 @Suite struct AuthCoordinatorCloudTokenTests {
@@ -135,7 +136,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "team"),
             anchor: FakeAnchor(), config: .test, launch: launch,
             timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: timeout), clock: clock,
-            isTokenStorageAvailable: isTokenStorageAvailable
+            isTokenStorageAvailable: isTokenStorageAvailable,
+            reducer: AuthReducerFFI.factory
         )
     }
 }

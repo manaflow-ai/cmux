@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 @MainActor
 @Suite struct AuthCoordinatorSignInPreflightTests {
@@ -154,14 +155,14 @@ import Testing
             config: .test,
             launch: .plain(),
             timeouts: Self.testTimeouts,
-            clock: clock
+            clock: clock,
+            reducer: AuthReducerFFI.factory
         )
     }
 
     private func waitUntilTokenWorkFinished(_ coordinator: AuthCoordinator) async {
         for _ in 0..<100 {
-            if coordinator.activeSessionValidations.isEmpty,
-               coordinator.activeTokenTouchingPhases.isEmpty {
+            if coordinator.phaseWork.isEmpty {
                 return
             }
             await Task.yield()

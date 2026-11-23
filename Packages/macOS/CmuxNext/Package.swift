@@ -2058,6 +2058,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings
         ),
+        // CmuxAuthRuntime's coordinator tests, run against the real Rust reducer
+        // (AuthReducerFFI, CCmuxAppFFI). They live here because the FFI pin's one
+        // binaryTarget is this package's (scripts/ci/app_ffi_pin.py).
+        .testTarget(
+            name: "CmuxNextAuthTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCloud",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+                .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "CmuxNextCloudUI",
             // Pages: the Cloud progress page's provider (CloudProgressPageProvider).
@@ -2942,6 +2955,8 @@ let package = Package(
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
+        // StackAuthError for CmuxNextAuthTests (CmuxAuthRuntime already resolves it).
+        .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
         .package(path: "../../Shared/CmuxTheme"),
         // App Attest and DeviceCheck: the free tier's device proof (cx-ds09i).
         .package(path: "../../Shared/CmuxAppAttest"),

@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 @MainActor
 @Suite struct AuthCoordinatorTimeoutTests {
@@ -34,7 +35,8 @@ import Testing
             launch: .plain(),
             timeouts: Self.testTimeouts,
             clock: clock,
-            onSignedIn: onSignedIn
+            onSignedIn: onSignedIn,
+            reducer: AuthReducerFFI.factory
         )
     }
 
@@ -122,14 +124,14 @@ import Testing
 
         await #expect(throws: AuthError.timedOut) { try await signIn.value }
         #expect(coordinator.isLoading == false)
-        #expect(coordinator.activeSignInExchanges.count == 1)
+        #expect(coordinator.phaseWork.count == 1)
 
         let retry = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
         await clock.waitUntilSleepers()
         clock.advance(by: Self.testTimeouts.network)
         await #expect(throws: AuthError.timedOut) { try await retry.value }
         #expect(await client.credentialStartCount == 1)
-        #expect(coordinator.activeSignInExchanges.count == 1)
+        #expect(coordinator.phaseWork.count == 1)
 
         await client.releaseParkedCredential()
         await waitUntilSignInExchangeCleanupFinished(coordinator)
@@ -279,32 +281,6 @@ import Testing
         await coordinator.supersedeTimedOutAuthPhases()
         await client.releaseHangingAccessTokenProbe()
         await waitUntilTokenTouchingCleanupFinished(coordinator)
-        await #expect(throws: AuthError.networkError) {
-            try await coordinator.accessToken()
-        }
-        #expect(await client.accessStartCount == 2)
-    }
-
-    @Test func timedOutAccessTokenPhaseRetriesAfterBoundedReset() async throws {
-        let clock = ManualTestClock()
-        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let client = HangingLaunchTokenProbeAuthClient(user: user)
-        let coordinator = makeCoordinator(client: client, clock: clock)
-        coordinator.tokenTouchingTimedOutResetNanoseconds = 0
-
-        let first = Task { try await coordinator.accessToken() }
-        await client.accessTokenDidStart()
-        await clock.waitUntilSleepers()
-        clock.advance(by: Self.testTimeouts.network)
-        await #expect(throws: AuthError.timedOut) { try await first.value }
-
-        let second = Task { try await coordinator.accessToken() }
-        await #expect(throws: AuthError.timedOut) { try await second.value }
-        #expect(await client.accessStartCount == 1)
-
-        await client.releaseHangingAccessTokenProbe()
-        await waitUntilTokenTouchingCleanupFinished(coordinator)
-
         await #expect(throws: AuthError.networkError) {
             try await coordinator.accessToken()
         }
@@ -501,7 +477,7 @@ import Testing
 
     private func waitUntilValidationCleanupFinished(_ coordinator: AuthCoordinator) async {
         for _ in 0..<100 {
-            if coordinator.activeSessionValidations.isEmpty {
+            if coordinator.phaseWork.isEmpty {
                 return
             }
             await Task.yield()
@@ -510,7 +486,7 @@ import Testing
 
     private func waitUntilSignInExchangeCleanupFinished(_ coordinator: AuthCoordinator) async {
         for _ in 0..<100 {
-            if coordinator.activeSignInExchanges.isEmpty {
+            if coordinator.phaseWork.isEmpty {
                 return
             }
             await Task.yield()
@@ -519,7 +495,7 @@ import Testing
 
     private func waitUntilTokenTouchingCleanupFinished(_ coordinator: AuthCoordinator) async {
         for _ in 0..<100 {
-            if coordinator.activeTokenTouchingPhases.isEmpty {
+            if coordinator.phaseWork.isEmpty {
                 return
             }
             await Task.yield()

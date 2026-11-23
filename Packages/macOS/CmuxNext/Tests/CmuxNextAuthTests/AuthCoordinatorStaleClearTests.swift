@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// Stale validation clears and stale-attempt cancellation must never damage a
 /// FRESH sign-in: a parked clear, validation failure, or auto-login
@@ -27,7 +28,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(coordinator.isAuthenticated)
@@ -68,7 +70,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(coordinator.isAuthenticated)
@@ -115,7 +118,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(coordinator.isAuthenticated)
@@ -163,7 +167,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
 
         await client.armCredentialGate()
@@ -212,7 +217,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(coordinator.isAuthenticated)
@@ -235,7 +241,7 @@ import Testing
         #expect(store.bool(forKey: "has_tokens"))
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
-        #expect(coordinator.activeSignInFlows.isEmpty)
+        #expect(!coordinator.hasActiveSignInFlows)
     }
 
     @Test func staleAutoLoginCancellationDoesNotWipeANewerSession() async throws {
@@ -265,7 +271,8 @@ import Testing
                     "CMUX_UITEST_STACK_PASSWORD": "pw",
                 ],
                 includesDevAuth: false
-            )
+            ),
+            reducer: AuthReducerFFI.factory
         )
 
         // The auto-login parks inside its credential exchange.
@@ -316,7 +323,8 @@ import Testing
                     "CMUX_UITEST_STACK_PASSWORD": "pw",
                 ],
                 includesDevAuth: false
-            )
+            ),
+            reducer: AuthReducerFFI.factory
         )
 
         await client.armCredentialGate()
@@ -335,7 +343,7 @@ import Testing
         #expect(store.bool(forKey: "has_tokens"))
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
-        #expect(coordinator.activeSignInFlows.isEmpty)
+        #expect(!coordinator.hasActiveSignInFlows)
     }
 
     @Test func tokenReadsDuringManualSignInDoNotCancelTheSessionTransition() async throws {
@@ -352,7 +360,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
 
         await client.armCredentialGate()
@@ -376,7 +385,7 @@ import Testing
         #expect(store.bool(forKey: "has_tokens"))
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
-        #expect(coordinator.activeSignInFlows.isEmpty)
+        #expect(!coordinator.hasActiveSignInFlows)
     }
 
     @Test func signOutInvalidatesParkedSignInOwnershipForTokenReads() async throws {
@@ -394,7 +403,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
 
         await client.armCredentialGate()
@@ -417,6 +427,6 @@ import Testing
         #expect(!coordinator.isAuthenticated)
         #expect(coordinator.currentUser == nil)
         #expect(!store.bool(forKey: "has_tokens"))
-        #expect(coordinator.activeSignInFlows.isEmpty)
+        #expect(!coordinator.hasActiveSignInFlows)
     }
 }

@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// The auth-environment-switch clear (``AuthLaunchOptions/clearStaleAuthOnLaunch``):
 /// an install whose resolved Stack project changed since its last launch (an
@@ -31,7 +32,8 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: launch
+            launch: launch,
+            reducer: AuthReducerFFI.factory
         )
         return (coordinator, store)
     }

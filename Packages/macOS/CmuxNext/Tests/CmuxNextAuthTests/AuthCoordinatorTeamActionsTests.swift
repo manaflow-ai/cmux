@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 @MainActor
 @Suite("Auth coordinator team actions")
@@ -22,7 +23,8 @@ struct AuthCoordinatorTeamActionsTests {
             config: .test,
             launch: launch,
             timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: timeout),
-            clock: clock
+            clock: clock,
+            reducer: AuthReducerFFI.factory
         )
     }
 
@@ -279,7 +281,7 @@ struct AuthCoordinatorTeamActionsTests {
             environment: ["CMUX_UITEST_AUTH_FIXTURE_TEAMS": "[]"]
         )
 
-        await coordinator.checkExistingSession()
+        await coordinator.restore("launch")
 
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.availableTeams.map(\.id) == ["team-a", "team-b"])
@@ -294,7 +296,7 @@ struct AuthCoordinatorTeamActionsTests {
         await client.setTeams([CMUXAuthTeam(id: "team-a", displayName: "Alpha")])
         let coordinator = makeFixtureCoordinator(client: client, environment: [:])
 
-        await coordinator.checkExistingSession()
+        await coordinator.restore("launch")
 
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.availableTeams.isEmpty)
