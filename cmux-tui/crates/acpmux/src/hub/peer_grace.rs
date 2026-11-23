@@ -56,7 +56,16 @@ impl Hub {
             .peer(peer)
             .filter(|p| p.generation == generation)
             .is_some_and(|p| p.link().next_retry_at.is_some());
-        if outage_starts || parked {
+        if (outage_starts || parked) && self.shutting_down() {
+            // The shutdown stopped every peer at once (`begin_shutdown`), so each link drops
+            // here together. One durable write per drop held a NIGHTLY handover's dark socket
+            // for its whole agents budget with forty peers ("agents did not stop within 1s").
+            // Marked dirty instead: the loop's last flush writes them all at once, and the
+            // shutdown waits for that flush.
+            if let Some(p) = self.peer(peer).filter(|p| p.generation == generation) {
+                p.cache_dirty_seq.fetch_add(1, Ordering::SeqCst);
+            }
+        } else if outage_starts || parked {
             self.save_peer_cache(peer, generation, true);
         }
     }
@@ -196,8 +205,26 @@ impl Hub {
             .filter(|p| p.cache_is_dirty())
             .map(|p| (p.name.clone(), p.generation))
             .collect();
-        for (peer, generation) in dirty {
-            self.save_peer_cache(&peer, generation, true);
+        // Each peer's last save on its own blocking thread, all at once: every save is a few
+        // durable commits, and one after another on this task they cost the shutdown one commit
+        // round per peer. Each peer's writer lock still orders its own saves.
+        let started = std::time::Instant::now();
+        let count = dirty.len();
+        let saves: Vec<_> = dirty
+            .into_iter()
+            .map(|(peer, generation)| {
+                let hub = self.clone();
+                tokio::task::spawn_blocking(move || hub.save_peer_cache(&peer, generation, true))
+            })
+            .collect();
+        for save in saves {
+            let _ = save.await;
+        }
+        if count > 0 {
+            tracing::info!(
+                "saved the last-known sessions of {count} peers in {:?}",
+                started.elapsed()
+            );
         }
         self.peer_notices_finished.store(true, Ordering::Release);
         self.peer_notices_done.notify_waiters();

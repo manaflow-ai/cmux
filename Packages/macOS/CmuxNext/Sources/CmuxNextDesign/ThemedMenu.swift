@@ -14,9 +14,12 @@ extension NSMenu {
     /// AppKit's checkmark column shows only in a menu with a checked or mixed row
     /// (``fitStateColumn()``). Call it last, once the menu is built.
     ///
+    /// AppKit adds none of its own rows (Services, Writing Tools, "Ask Siri"): ``withoutSystemItems()``.
+    ///
     /// `runsInPlace` is kept for callers: a native row always runs as the menu closes.
     @discardableResult
     public func themeRows(in scope: ThemeScope, runsInPlace: @escaping @MainActor (NSMenuItem) -> Bool = { _ in false }) -> NSMenu {
+        withoutSystemItems()
         appearance = scope.appearance
         fitStateColumn()
         for item in items where !item.isSeparatorItem {
