@@ -34,6 +34,8 @@ mod router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod app_orphan;
+#[cfg(unix)]
+pub(crate) use app_orphan::is_app_acpmux;
 // Decided on every platform so its tests run everywhere; used on macOS only.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) mod login_placement;
