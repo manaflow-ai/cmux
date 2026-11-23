@@ -3,7 +3,7 @@
 //! the chat's session JSON on stdin, whose first line of stdout the composer shows under the prompt.
 //! The page never names the command: acpmux reads it from the settings file at each ask
 //! (`user_settings`), so only what the person wrote there runs. Bounded: [`TIMEOUT`] to answer,
-//! [`MAX_READ`] bytes read, the first line only, cut to [`MAX_CHARS`], escapes and control
+//! [`MAX_READ`] bytes read, the first line with text only, cut to [`MAX_CHARS`], escapes and control
 //! characters dropped. Empty (the default) runs nothing and shows nothing.
 
 use crate::user_settings::{self, Settings};
@@ -29,12 +29,24 @@ pub fn command(settings: &Settings) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
-/// The line to show from the command's stdout: its first line, with terminal escapes (CSI, OSC)
-/// and other control characters dropped, trimmed, cut to [`MAX_CHARS`]. Empty when it printed
-/// nothing to show.
+/// The line to show from the command's stdout: its first line with something to show, with
+/// terminal escapes (CSI, OSC) and other control characters dropped, trimmed, cut to
+/// [`MAX_CHARS`]. Empty when it printed nothing to show.
 pub fn first_line(out: &[u8]) -> String {
     let text = String::from_utf8_lossy(out);
-    let line = text.split(['\n', '\r']).next().unwrap_or("");
+    let shown =
+        text.split(['\n', '\r']).map(clean).find(|line| !line.is_empty()).unwrap_or_default();
+    if shown.chars().count() <= MAX_CHARS {
+        return shown;
+    }
+    let mut cut: String = shown.chars().take(MAX_CHARS - 1).collect();
+    cut.truncate(cut.trim_end().len());
+    cut.push('…');
+    cut
+}
+
+/// One line without its terminal escapes and control characters, trimmed.
+fn clean(line: &str) -> String {
     let mut shown = String::new();
     let mut chars = line.chars().peekable();
     while let Some(c) = chars.next() {
@@ -74,77 +86,99 @@ pub fn first_line(out: &[u8]) -> String {
             shown.push(c);
         }
     }
-    let shown = shown.trim();
-    if shown.chars().count() <= MAX_CHARS {
-        return shown.to_owned();
-    }
-    let mut cut: String = shown.chars().take(MAX_CHARS - 1).collect();
-    cut.truncate(cut.trim_end().len());
-    cut.push('…');
-    cut
+    shown.trim().to_owned()
 }
 
 /// Runs `command` with `sh -c` in `cwd` (when it is a folder), `input` as JSON on its stdin, and
 /// answers [`first_line`] of what it printed by its first newline, its end or [`TIMEOUT`],
-/// whichever comes first. Its process group is killed then, so nothing it started outlives the
-/// ask. Err says why nothing came (it could not start, it printed nothing in time).
+/// whichever comes first. It runs in a process group of its own, ended with all it started when
+/// the answer is in (`cmux_process::Child`'s drop), so nothing outlives the ask. Off the async
+/// threads. Err says why nothing came (it could not start, it printed nothing in time).
 #[cfg(unix)]
 pub async fn run(command: &str, cwd: &Path, input: &Value) -> Result<String, String> {
-    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-    let mut cmd = tokio::process::Command::new("/bin/sh");
+    let (command, cwd) = (command.to_owned(), cwd.to_owned());
+    let mut body = serde_json::to_vec(input).unwrap_or_default();
+    if body.len() > MAX_INPUT {
+        // Written before the first read, it must fit the pipe: drop the bulky part.
+        let mut slim = input.clone();
+        if let Some(map) = slim.as_object_mut() {
+            map.remove("usage");
+        }
+        body = serde_json::to_vec(&slim).unwrap_or_default();
+        body.truncate(MAX_INPUT);
+    }
+    tokio::task::spawn_blocking(move || run_blocking(&command, &cwd, &body))
+        .await
+        .map_err(|e| format!("the status line command did not run: {e}"))?
+}
+
+/// The most of the session JSON written to the command's stdin: under a pipe's buffer, so the
+/// write never waits on a command that does not read it.
+#[cfg(unix)]
+const MAX_INPUT: usize = 32 * 1024;
+
+#[cfg(unix)]
+fn run_blocking(command: &str, cwd: &Path, body: &[u8]) -> Result<String, String> {
+    use std::io::{Read as _, Write as _};
+    use std::os::fd::AsRawFd as _;
+    let started = std::time::Instant::now();
+    let mut cmd = cmux_process::Command::new("/bin/sh");
     cmd.arg("-c")
         .arg(command)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .process_group(0)
-        .kill_on_drop(true);
+        .stdin(cmux_process::Stdio::piped())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
+        .process_group(0);
     if cwd.is_dir() {
         cmd.current_dir(cwd);
     }
+    // Dropped at the end of this function, it ends the command's group (`cmux_process::Child`).
     let mut child =
         cmd.spawn().map_err(|e| format!("could not start the status line command: {e}"))?;
-    let group = child.id();
-    let mut stdin = child.stdin.take();
-    let mut stdout = child.stdout.take().ok_or("the status line command has no stdout")?;
-    let body = serde_json::to_vec(input).unwrap_or_default();
-    let read = async move {
-        // A command that never reads its stdin must not hold the read up: the write runs beside it.
-        let write = async move {
-            if let Some(mut stdin) = stdin.take() {
-                let _ = stdin.write_all(&body).await;
-                let _ = stdin.shutdown().await;
-            }
-        };
-        let mut out = Vec::new();
-        let read = async {
-            let mut buf = [0u8; 4096];
-            while out.len() < MAX_READ {
-                let n = stdout.read(&mut buf).await.unwrap_or(0);
-                if n == 0 {
-                    break;
-                }
-                out.extend_from_slice(&buf[..n.min(MAX_READ - out.len())]);
-                // The first line is all that shows: stop at its end, unless it is still blank.
-                if let Some(at) = out.iter().position(|b| *b == b'\n')
-                    && !String::from_utf8_lossy(&out[..at]).trim().is_empty()
-                {
-                    break;
-                }
-            }
-        };
-        tokio::join!(write, read);
-        out
-    };
-    let out = tokio::time::timeout(TIMEOUT, read).await;
-    if let Some(group) = group {
-        // SAFETY: killpg signals only the group this function started (process_group(0)).
-        unsafe { libc::killpg(group as i32, libc::SIGKILL) };
+    if let Some(mut stdin) = child.stdin.take() {
+        // A command that exits without reading closes the pipe: that is no failure.
+        let _ = stdin.write_all(body);
     }
-    let _ = child.wait().await;
-    let out = out.map_err(|_| {
-        format!("the status line command printed no line in {} s", TIMEOUT.as_secs())
-    })?;
+    let mut stdout = child.stdout.take().ok_or("the status line command has no stdout")?;
+    let mut out = Vec::new();
+    let mut buf = [0u8; 4096];
+    while out.len() < MAX_READ {
+        let left = TIMEOUT.saturating_sub(started.elapsed());
+        if left.is_zero() {
+            return Err(format!(
+                "the status line command printed no line in {} s",
+                TIMEOUT.as_secs()
+            ));
+        }
+        let mut fd = libc::pollfd { fd: stdout.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one pollfd for a descriptor this function owns, for at most `left`.
+        let ready =
+            unsafe { libc::poll(&mut fd, 1, left.as_millis().clamp(1, i32::MAX as u128) as i32) };
+        if ready < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            break;
+        }
+        if ready == 0 {
+            continue;
+        }
+        let n = match stdout.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => 0,
+        };
+        if n == 0 {
+            break;
+        }
+        out.extend_from_slice(&buf[..n.min(MAX_READ - out.len())]);
+        // The first line with text is all that shows: stop once a whole one is in.
+        if let Some(at) = out.iter().rposition(|b| *b == b'\n')
+            && !first_line(&out[..at]).is_empty()
+        {
+            break;
+        }
+    }
     Ok(first_line(&out))
 }
 
@@ -182,6 +216,7 @@ mod tests {
         );
         assert_eq!(first_line(b""), "");
         assert_eq!(first_line(b"   \n"), "");
+        assert_eq!(first_line(b"\n\x1b[0m\nlater\n"), "later");
         let long = "x".repeat(MAX_CHARS + 50);
         let cut = first_line(long.as_bytes());
         assert_eq!(cut.chars().count(), MAX_CHARS);
