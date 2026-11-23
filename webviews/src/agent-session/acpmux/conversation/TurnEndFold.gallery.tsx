@@ -19,6 +19,8 @@
 // looks like a gash collapsing. you need to figure out more and more variations to deal with things."):
 // `crossfade`, `morph`, `cascade`, `glide`, `spring`, `wait` and `dissolve` (turnEndFold.ts `TurnEndLook`),
 // each short and `-long`; the motion-path looks `sheet`, `capped`, `viscous`, `water`, `edge` and `anchored` the same way. The dev setting `turn-end-fold-look` picks one in the running pane;
+// The no-band looks (Leo: "clearly there's still improper folds and stuff"): `pin`, `compress`, `fold-under`
+// and `steer-block`, each short and `-long`.
 // scripts/fold-variants-record.ts records and measures each in the big Claude turn.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
@@ -309,5 +311,13 @@ export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLea
     "wipe-long": { props: { variant: "wipe", long: true }, play: runToFold },
     snapshot: { props: { variant: "snapshot" }, play: runToFold },
     "snapshot-long": { props: { variant: "snapshot", long: true }, play: runToFold },
+    pin: { props: { variant: "pin" }, play: runToFold },
+    "pin-long": { props: { variant: "pin", long: true }, play: runToFold },
+    compress: { props: { variant: "compress" }, play: runToFold },
+    "compress-long": { props: { variant: "compress", long: true }, play: runToFold },
+    "fold-under": { props: { variant: "fold-under" }, play: runToFold },
+    "fold-under-long": { props: { variant: "fold-under", long: true }, play: runToFold },
+    "steer-block": { props: { variant: "steer-block" }, play: runToFold },
+    "steer-block-long": { props: { variant: "steer-block", long: true }, play: runToFold },
   },
 });

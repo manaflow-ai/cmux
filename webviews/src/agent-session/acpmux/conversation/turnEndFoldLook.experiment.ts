@@ -94,6 +94,25 @@ export const turnEndFoldLook = defineExperiment({
       label: "Defer, then wipe",
       description: `The old frame stays until you scroll, type or click (at most ${MOTION_MS.large * 4} ms), then wipes.`,
     },
+    pin: {
+      label: "Pin",
+      description:
+        "Nothing travels: the fold lands at once, the row you were reading stays put, and only the Worked for line fades in.",
+    },
+    compress: {
+      label: "Compress",
+      description:
+        "The folded work squashes into the Worked for line as one surface, its edges riding the rows that close over it.",
+    },
+    "fold-under": {
+      label: "Fold under",
+      description: "The work holds still at full ink while the rows around it close over it like a lid.",
+    },
+    "steer-block": {
+      label: "Steer block",
+      description:
+        "Fade, but in a steered turn the work above the newest steer closes at once and the steer and all above it move as one block.",
+    },
   },
   defaultArm: "fade",
 });

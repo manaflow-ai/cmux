@@ -88,6 +88,22 @@ import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEn
 ///   seems to grow out of the first folded row down through the work;
 /// - `defer`: the old frame stays drawn until the reader scrolls, types or points (or the large step
 ///   four times over passes), then wipes: nothing changes under an eye that is reading.
+///
+/// The no-band family (Leo, 2026-11-22: "clearly there's still improper folds and stuff"): each attacks the
+/// gash at its cause, the band the work leaves before the rows around it close, without sliding or fading
+/// the work's text out first:
+/// - `pin`: zero travel. Nothing slides and no copy is drawn: the swap is placed at once, the view scrolled
+///   so the kept row the reader was on stays where it was drawn (above the view: anchor, never animate),
+///   and only the Worked for line's text fades in (`playPin`);
+/// - `compress`: the folded work squashes into the Worked for line as one surface: each copy is mapped,
+///   by one translate and one vertical scale on the rows' own clock, onto the band between the rows that
+///   close over it, so its top edge rides the line and its bottom edge the answer: never a blank band.
+///   Its ink holds until the band is nearly closed (`compressCopy`);
+/// - `fold-under`: the work holds still at full ink while the rows around it slide over it, cropped at
+///   their edges like a lid closing over it; its last sliver fades as the rows meet;
+/// - `steer-block`: `fade`, but in a steered turn (cmuxterm-hq docs/design/transcript-steer-and-fold-order.md,
+///   section C's follow-up) the work above the newest steer closes in the first frame and the steer and
+///   everything above it move as one block on the steer's own move: no motion crosses the person's message.
 export type TurnEndLook =
   | "fade"
   | "tuck"
@@ -108,7 +124,11 @@ export type TurnEndLook =
   | "snapshot"
   | "wipe"
   | "sprout"
-  | "defer";
+  | "defer"
+  | "pin"
+  | "compress"
+  | "fold-under"
+  | "steer-block";
 export const TURN_END_LOOKS: readonly TurnEndLook[] = [
   "fade",
   "tuck",
@@ -130,6 +150,10 @@ export const TURN_END_LOOKS: readonly TurnEndLook[] = [
   "wipe",
   "sprout",
   "defer",
+  "pin",
+  "compress",
+  "fold-under",
+  "steer-block",
 ];
 /// The looks that replace in place (`playReplace`) rather than slide.
 const REPLACE_LOOKS: ReadonlySet<TurnEndLook> = new Set(["snapshot", "wipe", "sprout", "defer"]);
@@ -438,6 +462,16 @@ function cappedMs(px: number): number {
 }
 /// The motion-path looks whose copies ride with the row under them (`sheet`, `water`).
 const ridesSheet = (look: TurnEndLook) => look === "sheet" || look === "water";
+/// The no-band looks whose copies keep their ink while the rows close (`compress`, `fold-under`): no lead.
+const holdsInk = (look: TurnEndLook) => look === "compress" || look === "fold-under";
+/// `fold-under`: how far into the move the copies keep full ink, before their last sliver fades.
+const FOLD_UNDER_INK = 0.7;
+/// `compress`: how far into the move the squashed copies keep full ink.
+const COMPRESS_INK = 0.6;
+/// `compress`: the least a copy is squashed to (a scale of 0 has no inverse to read back).
+const COMPRESS_MIN_SCALE = 0.01;
+/// A person's message row (the prompt, a steer).
+const isPersonNode = (node: Element) => node.classList.contains("acpmux-user");
 
 /// The look's clock: `glide`, `spring`, `capped` and `water` play their own; the rest the house settle.
 function lookTiming(look: TurnEndLook, settled: { ms: number; easing: string }): { ms: number; easing: string } {
@@ -981,6 +1015,92 @@ function playReplace(
   return fold;
 }
 
+/// Plays `pin`: zero travel. The swap is drawn where it lands at once and no copy is drawn; each placement
+/// pass scrolls the view so the kept row the reader was on (drawn nearest the view's center) stays where it
+/// was drawn (at the bottom the view can scroll no lower, and the bottom wins). Only the Worked for line,
+/// and a row the swap added in view at its first pass, fade in on the settle. Nothing slides, so nothing
+/// above the view animates and no motion crosses a person's message.
+function playPin(thread: HTMLElement, capture: TurnEndCapture, scroller?: HTMLElement | null): TurnEndFold | undefined {
+  const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
+  const View = thread.ownerDocument.defaultView;
+  const { ms } = settle(thread);
+  const was = new Map(capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]));
+  const anchor = scroller
+    ? (() => {
+        const view = scroller.getBoundingClientRect();
+        const center = view.top + scroller.clientHeight / 2;
+        const away = (row: Drawn) => {
+          const bottom = row.top + (row.height ?? 0);
+          return row.top <= center && center <= bottom
+            ? 0
+            : Math.min(Math.abs(row.top - center), Math.abs(bottom - center));
+        };
+        return [...was.values()].sort((a, b) => away(a) - away(b))[0];
+      })()
+    : undefined;
+  const faded = new WeakSet<HTMLElement>();
+  let first = true;
+  const pass = () => {
+    let nodes = [...mounted(thread)];
+    if (anchor && scroller) {
+      const node = nodes.find((n) => n.dataset.rowId === anchor.id);
+      const moved = node ? node.getBoundingClientRect().top - anchor.top : 0;
+      if (Math.abs(moved) > 0.5) {
+        scroller.scrollTop += moved;
+        nodes = [...mounted(thread)];
+      }
+    }
+    const view = scroller?.getBoundingClientRect();
+    for (const node of nodes) {
+      if (faded.has(node)) continue;
+      const before = was.get(node.dataset.rowId!);
+      const header = before?.replacesHeader === true;
+      const added = !before && first && !node.matches(".acpmux-row--enter, .acpmux-row--message-enter");
+      if (!header && !added) continue;
+      if (!header && view) {
+        const box = node.getBoundingClientRect();
+        if (box.bottom < view.top || box.top > view.bottom) continue;
+      }
+      faded.add(node);
+      const animation = node.animate([{ opacity: 0 }, { opacity: 1 }], {
+        duration: ms,
+        easing: MOTION_EASE_OUT,
+        fill: "backwards",
+      });
+      fold.animations.add(animation);
+    }
+    first = false;
+  };
+  pass();
+  if (fold.animations.size === 0) {
+    settleTurnEnd(thread, fold);
+    return undefined;
+  }
+  thread.setAttribute(TURN_END_ATTR, "pin");
+  const observer = View?.MutationObserver
+    ? new View.MutationObserver((records) => {
+        const placed = (record: MutationRecord) =>
+          record.type === "childList"
+            ? record.target === thread
+            : record.target.parentNode === thread && (record.target as Element).hasAttribute("data-row-id");
+        if (records.some(placed)) pass();
+      })
+    : undefined;
+  observer?.observe(thread, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["style", "aria-posinset"],
+  });
+  const unscroll = endOnReaderScroll(thread, scroller, fold);
+  fold.stop = () => {
+    observer?.disconnect();
+    unscroll();
+  };
+  fold.timer = setTimeout(() => settleTurnEnd(thread, fold), ms + 50);
+  return fold;
+}
+
 /// Plays the fold the swap after `capture` makes, from the pass that placed the new rows. Each row
 /// drawn then and drawn now slides from where it was to its place, a copy of each row the swap took
 /// away goes where it was drawn, and a row the swap added fades in. The rows are placed again while
@@ -999,6 +1119,7 @@ export function playTurnEnd(
   if (capture.silent || capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
   const look = turnEndLook(thread);
   if (REPLACE_LOOKS.has(look)) return playReplace(thread, capture, look, scroller);
+  if (look === "pin") return playPin(thread, capture, scroller);
   const recapLook = turnEndRecap(thread);
   const subagentLook = turnEndSubagent(thread);
   const { ms: settleMs, easing: settleEasing } = lookTiming(look, settle(thread));
@@ -1029,7 +1150,7 @@ export function playTurnEnd(
     ? 0
     : look === "wait"
       ? WAIT_HOLD_MS
-      : look === "crossfade" || look === "cascade" || ridesSheet(look)
+      : look === "crossfade" || look === "cascade" || ridesSheet(look) || holdsInk(look)
         ? 0
         : exitLeadMs(ms, 1, thread);
   /// The first painted frame (the exit's clock), and when the move's clock starts.
@@ -1073,11 +1194,21 @@ export function playTurnEnd(
   /// clock started again (`starts` has its drawn ink) goes on from that ink over the exit left.
   // With no lead (the gallery's `none` arm, the look before) the copy fades on the move's own clock,
   // gone by 60% of it, as #41078 had it.
-  const exitMs = look === "crossfade" || look === "cascade" || ridesSheet(look) ? ms : lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
+  const exitMs =
+    look === "crossfade" || look === "cascade" || ridesSheet(look) || holdsInk(look) ? ms : lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
   /// `wait`: the copies keep their ink through the hold, and fade over the house exit lead at its end.
   /// `sheet` and `water`: the copies keep their ink over the move's first half, riding in under the line.
+  /// `fold-under`: the copies keep their ink until the rows closing over them have all but met.
   const exitFrom =
-    look === "wait" ? Math.max(0, lead - exitLeadMs(settleMs, 1, thread)) : ridesSheet(look) ? ms / 2 : 0;
+    look === "wait"
+      ? Math.max(0, lead - exitLeadMs(settleMs, 1, thread))
+      : ridesSheet(look)
+        ? ms / 2
+        : look === "fold-under"
+          ? ms * FOLD_UNDER_INK
+          : look === "compress"
+            ? ms * COMPRESS_INK
+            : 0;
   /// `morph`'s card, behind the rows, and the geometry it plays (to play it again only when that changes).
   let card: { element: HTMLElement; key: string; animations: Animation[] } | undefined;
   const exit = (copy: HTMLElement, offset: number) => {
@@ -1127,6 +1258,47 @@ export function playTurnEnd(
   /// The subagent block's snapshots (`swap`), by the row each pictures; in before the rows, as the copies.
   const snapshots = new Map<string, HTMLElement>();
   let snapshotsIn = subagentLook !== "swap";
+  /// `steer-block`: the rows that start on the newest steer's own move, once found.
+  let steered = false;
+  /// `steer-block`: in a steered turn (a person's message kept with folded rows above it), the copies of the
+  /// work above the newest steer go in this frame, and the steer and every kept row above it start from the
+  /// steer's own drawn offset, so they move as one block and no motion crosses the person's message.
+  const steerBlock = (nodes: HTMLElement[], tops: number[]) => {
+    if (steered) return;
+    steered = true;
+    const firstGone = capture.rows.findIndex((row) => row.copy);
+    if (firstGone < 0) return;
+    let steerAt = -1;
+    let steerIndex = -1;
+    for (let at = capture.rows.length - 1; at > firstGone && steerAt < 0; at -= 1) {
+      const row = capture.rows[at]!;
+      if (row.copy) continue;
+      const index = nodes.findIndex((node) => node.dataset.rowId === row.id);
+      if (index >= 0 && isPersonNode(nodes[index]!)) {
+        steerAt = at;
+        steerIndex = index;
+      }
+    }
+    if (steerAt < 0) return;
+    for (const row of capture.rows.slice(0, steerAt))
+      if (row.copy && fold.copies.has(row.copy)) {
+        for (const animation of copyMoves.get(row.copy)?.animations ?? []) {
+          animation.cancel();
+          fold.animations.delete(animation);
+        }
+        copyMoves.delete(row.copy);
+        fold.copies.delete(row.copy);
+        dropped.add(row.copy);
+        row.copy.remove();
+      }
+    const steer = capture.rows[steerAt]!;
+    const delta = (starts.get(nodes[steerIndex]!)?.top ?? steer.top) - tops[steerIndex]!;
+    for (let index = 0; index <= steerIndex; index += 1) {
+      const node = nodes[index]!;
+      if (!was.has(node.dataset.rowId!)) continue;
+      starts.set(node, { ...starts.get(node), top: tops[index]! + delta });
+    }
+  };
   const pass = () => {
     let nodes = [...mounted(thread)];
     // Scrolled before any place is read, so the pass plays every row from where it was to where it is
@@ -1198,6 +1370,7 @@ export function playTurnEnd(
           dropped.add(row.copy!);
           row.copy!.remove();
         }
+    if (look === "steer-block") steerBlock(nodes, tops);
     const copies = gone.map((row) => row.copy!).filter((copy) => fold.copies.has(copy));
     const copyTops = layoutTops(copies);
     // Each box's height and paddings, read with the places (only while a copy shows): where each row's
@@ -1530,7 +1703,43 @@ export function playTurnEnd(
         }
       }
     }
+    /// `compress`: the copy mapped, by one translate and one vertical scale from its top, from the band the
+    /// rows around it leave at the start onto the band they leave at the end. Every copy between the same two
+    /// rows takes the same map, so the work squashes as one surface whose edges ride those rows.
+    const compressCopy = (copy: HTMLElement, order: number) => {
+      const from = copyStarts[order]!;
+      const { above, below } = boundaries.get(copy) ?? {};
+      const groupTop = Math.min(...copyStarts);
+      const groupBottom = Math.max(...copyStarts.map((top, index) => top + copyHeights[index]!));
+      const bandFrom = above
+        ? startTop(above.node, above.row.top) + (above.row.height ?? heights[above.index]!)
+        : groupTop;
+      const bandTo = above ? tops[above.index]! + heights[above.index]! : (line ?? groupTop);
+      const floorFrom = below ? startTop(below.node, below.row.top) : groupBottom;
+      const floorTo = below ? tops[below.index]! : bandTo;
+      const scale = Math.max(COMPRESS_MIN_SCALE, Math.min(1, (floorTo - bandTo) / Math.max(1, floorFrom - bandFrom)));
+      const at = from - copyTops[order]!;
+      const end = bandTo + (from - bandFrom) * scale - copyTops[order]!;
+      const key = `${Math.round(at)} ${Math.round(end)} ${scale.toFixed(3)}`;
+      const last = copyMoves.get(copy);
+      if (!grew && last?.crop === key) return;
+      for (const animation of last?.animations ?? []) {
+        animation.cancel();
+        fold.animations.delete(animation);
+      }
+      const faded = exit(copy, exitFrom);
+      const motion = play(
+        copy,
+        [
+          { translate: `0 ${at}px`, scale: "1 1", transformOrigin: "50% 0" },
+          { translate: `0 ${end}px`, scale: `1 ${scale}`, transformOrigin: "50% 0" },
+        ],
+        { fill: "both" },
+      );
+      copyMoves.set(copy, { delta: at, fades: true, animations: [faded, motion], end, crop: key });
+    };
     copies.forEach((copy, order) => {
+      if (look === "compress") return compressCopy(copy, order);
       const from = copyStarts[order]!;
       const at = from - copyTops[order]!;
       let end = (look === "tuck" || look === "cascade") && line !== undefined ? line - copyTops[order]! : at;
@@ -1545,7 +1754,9 @@ export function playTurnEnd(
       // opening on the same clock, the row's drawn bottom never passes the copy's drawn top. The move
       // is linear in the fold's progress on both, so where it holds at the first and last frame it
       // holds on every frame between.
-      for (const cover of covers) if (cover.top < from) end = Math.max(end, cover.bottom - copyTops[order]!);
+      // `fold-under`: the copy holds still; the rows over it crop it instead (below).
+      if (look !== "fold-under")
+        for (const cover of covers) if (cover.top < from) end = Math.max(end, cover.bottom - copyTops[order]!);
       // The work fades only between the surviving rows that surrounded it. Those rows can
       // move over its former place, so crop the copy on their shared clock rather than drawing
       // its text through the header or the final answer.
