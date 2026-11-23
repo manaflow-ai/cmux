@@ -396,6 +396,7 @@ import { artifactVersions, finishedReplyDocuments } from "./conversation/artifac
 import { artifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
 import { ShortcutsContext, type ShortcutLabels } from "./shortcuts";
+import { revealedAsk, runRevealedAsk } from "./needsYou/askReveal";
 import { notifyRevealRowsChanged, revealedMessage, revealMessageWhenShown, revealTurnWhenShown } from "./links";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
 import type { ChatImage } from "./conversation/chatImages";
@@ -1454,7 +1455,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const showTimelineTurn = useRef<(turnId: string) => void>(() => undefined);
   /// ``showMessage`` for a message the chats page found by its words (a `said:` reveal).
   const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
+  /// Starts this chat's Ask about this side chat (Needs you's `sideSession`), set where Needs you is.
+  const askAboutChat = useRef<(sessionId: string, question: string) => Promise<unknown>>(async () => {
+    throw new Error("not ready");
+  });
   const reveal = (value: string) => {
+    // Another pane's Needs you asked about one of this chat's asks (needsYou/askReveal.ts): this
+    // pane, which the relay lets start a side chat for its chat, scrolls to the asking turn and
+    // starts it once it shows that chat; a refusal shows as the composer's own does.
+    const asked = revealedAsk(value);
+    if (asked !== undefined) {
+      if (asked.turnId) void revealTurnWhenShown(asked.turnId);
+      void runRevealedAsk(asked, {
+        ready: (sessionId) => directClient.current?.selectedSession === sessionId,
+        sideSession: (sessionId, question) => askAboutChat.current(sessionId, question),
+      }).catch((error: unknown) =>
+        setBtwFailure({ sessionId: asked.sessionId, reason: knownRefusalText(error) ?? "" }),
+      );
+      return;
+    }
     // The command palette's chats page opens a chat at the message it found by what was said:
     // the newest row of that kind holding the words, brought in as a `message=<id>` link's is.
     const said = revealedSaid(value);
@@ -7633,15 +7652,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         .catch(() => undefined);
   }, [quick]);
   // Needs you (needsYou/): the header's badge and list, and the transcript's Needs your input pill.
-  const needsYou = useNeedsYou({
-    snapshot,
-    callNative,
-    sideSession: async (sessionId, question) => {
-      const client = directClient.current;
-      if (!client) throw new Error(translate("needsYou.askFailed"));
-      await postNative("chat.sideChat", { sessionId: await client.btw(question, sessionId) });
-    },
-  });
+  const sideSession = async (sessionId: string, question: string) => {
+    const client = directClient.current;
+    if (!client) throw new Error(translate("needsYou.askFailed"));
+    await postNative("chat.sideChat", { sessionId: await client.btw(question, sessionId) });
+  };
+  askAboutChat.current = sideSession;
+  const needsYou = useNeedsYou({ snapshot, callNative, sideSession });
   // Steer queue (steerQueue/): ⌘⇧J or the chat menu opens it over the chat. Each step opens the chat
   // it acts on first, so the step goes through the same send, Stop and fork the chat's own composer
   // and menu use, and the person sees it land in the chat under the queue.
