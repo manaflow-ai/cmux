@@ -420,7 +420,18 @@ extension CMUXCLI {
         process.standardInput = FileHandle.standardInput
         process.standardOutput = outputPipe
         process.standardError = FileHandle.standardError
-        let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
+        var originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
+        // Started with `&`, this process has no terminal to give `script`,
+        // which would then sit stopped with nothing to continue it. Stop here
+        // instead, like any background job that wants the terminal, so `fg`
+        // continues from this point with the terminal in hand.
+        if originalForegroundProcessGroup > 0, originalForegroundProcessGroup != getpgrp() {
+            _ = Darwin.kill(0, SIGTTIN)
+            originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
+            guard originalForegroundProcessGroup == getpgrp() else {
+                throw CLIError(message: "`claude setup-token` needs the terminal. Run this command in the foreground, or pass the token with --stdin.")
+            }
+        }
         do {
             try process.run()
         } catch {
