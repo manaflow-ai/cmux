@@ -235,6 +235,32 @@
           ]
         },
         {
+          "key": "agentPane.vimMode",
+          "note": "Vim editing in every agent chat composer (agentPane.vimMode; composerVim.ts), as Claude Code's /vim: Esc enters Normal mode, i a I A o go back to Insert, and a NORMAL or INSERT tag shows the mode. Enter still sends in Insert mode.",
+          "title": {
+            "key": "settings.agentPane.vimMode",
+            "text": "Vim Mode in Message Box"
+          },
+          "help": {
+            "key": "settings.agentPane.vimMode.help",
+            "text": "Esc enters Normal mode for vim motions and edits; i returns to typing."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "vim",
+            "vi",
+            "modal",
+            "normal mode",
+            "insert mode",
+            "keyboard",
+            "hjkl",
+            "composer",
+            "message box",
+            "agent"
+          ]
+        },
+        {
           "key": "agentPane.attachmentView",
           "note": "How the composer and sent messages show attachments (agentPane.attachmentView). Only the look: a draft's text, its attachments and their order are the same in all.",
           "title": {
