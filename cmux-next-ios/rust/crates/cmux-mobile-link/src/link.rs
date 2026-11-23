@@ -37,8 +37,12 @@ pub const DATA_CHUNK: usize = 16 * 1024;
 /// flood sooner) and keeps the memory of a fast producer bounded.
 const CHANNEL_QUEUE_BYTES: usize = 256 * 1024;
 /// The writer flushes after this many bytes, so the transport sees frames
-/// in priority order rather than one large batch.
-const FLUSH_BYTES: usize = 64 * 1024;
+/// in priority order rather than one large batch. One data chunk: small
+/// frames still go out together, and a transport that holds writes while
+/// its unsent bytes are at a low-water mark (cmux-wg's streams) holds at
+/// most one chunk the scheduler has already committed, so a frame queued
+/// meanwhile still goes next by priority.
+const FLUSH_BYTES: usize = DATA_CHUNK;
 /// How long an attached lane may stay silent before it is given up.
 const LANE_CONFIRM: Duration = Duration::from_secs(10);
 /// How long opening an input-lane channel waits for a negotiated lane that
@@ -1361,13 +1365,18 @@ where
                 return;
             }
         };
+        let mut frame = frame;
         let mut pending = frame.payload.len();
+        // Frames whose sender asked when they reach the transport (send_marked).
+        let mut marks: Vec<crate::frame::FlushMark> = Vec::new();
+        marks.extend(frame.flushed.take());
         let mut traffic = !matches!(frame.kind, FrameType::Ping | FrameType::Pong);
         let mut result = sink.feed(frame).await;
         while result.is_ok() && pending < FLUSH_BYTES {
             match outbox.pop() {
-                Some(Next::Frame(frame)) => {
+                Some(Next::Frame(mut frame)) => {
                     pending += frame.payload.len();
+                    marks.extend(frame.flushed.take());
                     traffic |= !matches!(frame.kind, FrameType::Ping | FrameType::Pong);
                     result = sink.feed(frame).await;
                 }
@@ -1382,6 +1391,12 @@ where
         if let Err(error) = result.and(sink.flush().await) {
             inner.shut(&format!("write failed: {error}"));
             return;
+        }
+        if !marks.is_empty() {
+            let now = crate::frame::epoch_us();
+            for mark in marks.drain(..) {
+                mark.set(now);
+            }
         }
         if traffic {
             inner.sent_traffic();
@@ -1534,8 +1549,10 @@ async fn foreground_probe(link: Link) {
                 probe = ForegroundProbe::default();
                 continue;
             }
-            if probe.confirming() {
-                // A confirm is out: its verdict comes first.
+            if probe != ForegroundProbe::Idle {
+                // The last probe's resend or confirm is still out (a long
+                // round trip stretches them past the beat): its verdict
+                // comes first, or a slow path would never reach a miss.
                 continue;
             }
             let nonce = inner.next_nonce.fetch_add(1, Ordering::Relaxed);
@@ -1578,10 +1595,6 @@ enum ProbeStep {
 impl ForegroundProbe {
     fn sent(at: Instant, nonce: u64) -> Self {
         ForegroundProbe::Sent { at, nonce }
-    }
-
-    fn confirming(&self) -> bool {
-        matches!(self, ForegroundProbe::Confirming { .. })
     }
 
     /// When the next step is due; `wait` is the resend wait now.
@@ -1868,17 +1881,31 @@ impl ChannelSender {
     /// Send bytes; writes are split into [`DATA_CHUNK`] frames, and a
     /// channel with [`CHANNEL_QUEUE_BYTES`] already queued waits for room.
     pub async fn send(&self, data: Bytes) -> Result<(), LinkError> {
+        self.send_marked(data, None).await
+    }
+
+    /// [`send`](Self::send), and `mark` is set when the last byte of `data`
+    /// was handed to the transport (the writer's flush after its frame).
+    pub async fn send_marked(
+        &self,
+        data: Bytes,
+        mark: Option<crate::frame::FlushMark>,
+    ) -> Result<(), LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
         }
         let mut rest = data;
+        let mut mark = mark;
         while !rest.is_empty() {
             let chunk = rest.split_to(rest.len().min(DATA_CHUNK));
             if self.inner.closed_reason().is_some() {
                 return Err(self.inner.closed_error());
             }
             let size = chunk.len();
-            let frame = Frame::new(self.id, FrameType::Data, chunk);
+            let mut frame = Frame::new(self.id, FrameType::Data, chunk);
+            if rest.is_empty() {
+                frame.flushed = mark.take();
+            }
             match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
                 Pushed::Queued => {
                     if let Some(meter) = &self.meter {
@@ -2024,6 +2051,34 @@ mod tests {
             Link::new(a, Role::Phone, LinkConfig::default(), None),
             Link::new(b, Role::Mac, LinkConfig::default(), None),
         )
+    }
+
+    #[tokio::test]
+    async fn a_marked_send_is_stamped_when_its_last_byte_is_flushed() {
+        let (phone, mac) = pair();
+        let server = tokio::spawn(async move {
+            let incoming = mac.accept().await.expect("incoming");
+            let (sender, _receiver) = incoming.channel.split();
+            let mark = crate::frame::FlushMark::new();
+            assert_eq!(mark.flushed_us(), None);
+            let before = crate::frame::epoch_us();
+            // Two chunks: the mark rides the last.
+            sender.send_marked(Bytes::from(vec![1u8; DATA_CHUNK + 5]), Some(mark.clone())).await.unwrap();
+            (mac, sender, mark, before)
+        });
+        let mut channel = phone.open("marked", serde_json::json!({})).await.unwrap();
+        let mut got = 0;
+        while got < DATA_CHUNK + 5 {
+            match channel.recv().await.unwrap() {
+                ChannelEvent::Data(bytes) => got += bytes.len(),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        let (_mac, _sender, mark, before) = server.await.unwrap();
+        let flushed = mark.flushed_us().expect("stamped once the phone has the bytes");
+        assert!(flushed >= before);
+        mark.set(flushed + 1_000_000);
+        assert_eq!(mark.flushed_us(), Some(flushed), "the first flush wins");
     }
 
     #[tokio::test]
@@ -2998,7 +3053,7 @@ mod tests {
         let mut probe = ForegroundProbe::sent(start, 7);
         assert_eq!(probe.step(before, due, wait), ProbeStep::Resend(7));
         assert_eq!(probe.step(before, resend_due, wait), ProbeStep::Confirm);
-        assert!(probe.confirming());
+        assert!(matches!(probe, ForegroundProbe::Confirming { .. }));
         let confirm_due = probe.due(wait).unwrap();
         assert_eq!(confirm_due, resend_due + wait.max(FOREGROUND_CONFIRM));
         assert_eq!(probe.step(before, confirm_due, wait), ProbeStep::Suspect(start));

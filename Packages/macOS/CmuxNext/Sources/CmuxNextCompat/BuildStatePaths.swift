@@ -88,6 +88,8 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     public var customizeDirectory: URL { configDirectory.appendingPathComponent("customize", isDirectory: true) }
     /// The person's own agent skills (acpmux `user_skills_dir`).
     public var agentSkillsDirectory: URL { configDirectory.appendingPathComponent("skills", isDirectory: true) }
+    /// The person's own saved prompts, cmux's custom slash commands (cmux-agent-customize `cmux_commands_dir`).
+    public var agentCommandsDirectory: URL { configDirectory.appendingPathComponent("commands", isDirectory: true) }
     /// The Keychain service of the Cloud secrets `cmux cloud secret set` stores (`CloudMachineSecrets`): a DEV
     /// build's values never overwrite or read nightly's.
     /// Under a state root it also ends in the root's ``NextSupport/runSegment(stateRoot:)``.
@@ -138,6 +140,13 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// The shell mode's completion dump folder (`AgentPaneShellCompletion`).
     public var shellCompletionCache: URL { ownCaches ?? caches.appendingPathComponent("cmux-next", isDirectory: true) }
 
+    /// Browser tabs' thumbnails and favicons for the phones' tab overview (`PhoneTabPictures`), which hostd reads:
+    /// `<Caches>/<bundle id>/phone-tab-pictures`, in a DEV build's own caches folder in a DEV build.
+    public var phoneTabPicturesCache: URL {
+        (ownCaches ?? caches.appendingPathComponent(build.bundleID ?? "cmux-next", isDirectory: true))
+            .appendingPathComponent("phone-tab-pictures", isDirectory: true)
+    }
+
     /// The `cmux vm` config a DEV build's CLI reads instead of the person's `~/.config/cmux/vm.json` (cmux-vm
     /// `CMUX_VM_DEFAULT_CONFIG`): `<config>/vm.json`; nil for every other build (cmux-vm's own default).
     public var vmConfigFile: URL? {
@@ -178,6 +187,8 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     public static let customizeDirectoryKey = "CMUX_CUSTOMIZE_DIR"
     /// The agent skills folder (acpmux `USER_SKILLS_DIR_ENV`).
     public static let agentSkillsDirectoryKey = "CMUX_AGENT_SKILLS_DIR"
+    /// The saved prompts folder (cmux-agent-customize `paths::cmux_commands_dir`).
+    public static let agentCommandsDirectoryKey = "CMUX_COMMANDS_DIR"
     /// The Cloud secrets Keychain service (cmux-tui `cli/cloud_secret.rs`).
     public static let cloudSecretsServiceKey = "CMUX_NEXT_CLOUD_SECRETS_SERVICE"
     /// The `cmux vm` config (cmux-vm `config::default_config_path`).
@@ -195,7 +206,7 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// Every variable ``environment`` may set: the daemon's and acpmux's allow-listed environments pass these on.
     public static let environmentKeys = [settingsFileKey, cloudSecretsFileKey, cloudSecretsServiceKey, keysAuditFileKey,
                                          hostBudgetFileKey, automationsDirectoryKey, customizeDirectoryKey, agentSkillsDirectoryKey,
-                                         vmConfigFileKey, mcpUpstreamsCacheKey, muxPluginsDirectoryKey, classicImportDirectoryKey]
+                                         agentCommandsDirectoryKey, vmConfigFileKey, mcpUpstreamsCacheKey, muxPluginsDirectoryKey, classicImportDirectoryKey]
 
     /// What an allow-listed child (the daemon, acpmux) gets from the app's environment: ``environmentKeys``, the
     /// build's settings defaults and the launch's state root (the daemon's Cloud selection and sign-in are the run's).
@@ -208,7 +219,8 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
         var environment = [Self.settingsFileKey: settingsFile.path, Self.cloudSecretsFileKey: cloudSecretsIndex.path,
                            Self.cloudSecretsServiceKey: cloudSecretsService, Self.keysAuditFileKey: keysAuditFile.path,
                            Self.hostBudgetFileKey: hostBudgetFile.path, Self.automationsDirectoryKey: automationsDirectory.path,
-                           Self.customizeDirectoryKey: customizeDirectory.path, Self.agentSkillsDirectoryKey: agentSkillsDirectory.path]
+                           Self.customizeDirectoryKey: customizeDirectory.path, Self.agentSkillsDirectoryKey: agentSkillsDirectory.path,
+                           Self.agentCommandsDirectoryKey: agentCommandsDirectory.path]
         environment[Self.vmConfigFileKey] = vmConfigFile?.path
         environment[Self.mcpUpstreamsCacheKey] = mcpUpstreamsCache?.path
         environment[Self.muxPluginsDirectoryKey] = muxPluginsDirectory?.path
@@ -251,7 +263,7 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     public var all: [(name: String, url: URL)] {
         [("configDirectory", configDirectory), ("settingsFile", settingsFile), ("cloudSecretsIndex", cloudSecretsIndex),
          ("hostBudgetFile", hostBudgetFile), ("keysAuditFile", keysAuditFile), ("automationsDirectory", automationsDirectory),
-         ("customizeDirectory", customizeDirectory), ("agentSkillsDirectory", agentSkillsDirectory), ("githubWorktrees", githubWorktrees), ("recoveryDrafts", recoveryDrafts),
+         ("customizeDirectory", customizeDirectory), ("agentSkillsDirectory", agentSkillsDirectory), ("agentCommandsDirectory", agentCommandsDirectory), ("githubWorktrees", githubWorktrees), ("recoveryDrafts", recoveryDrafts),
          ("agentHome", agentHome), ("chatUploads", chatUploads), ("projectAvatarsCache", projectAvatarsCache),
          ("shellCompletionCache", shellCompletionCache), ("homeCachesRoot", homeCachesRoot)]
     }

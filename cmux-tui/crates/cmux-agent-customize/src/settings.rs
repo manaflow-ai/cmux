@@ -322,8 +322,22 @@ pub fn report(ctx: &Context, agent: Agent) -> Value {
             })
         })
         .collect();
+    // The session variables, each once with its winning scope; values stay masked.
+    let env_prefix = format!("{}.", env_table(agent));
+    let env: Vec<Value> = entries
+        .iter()
+        .filter(|e| e.get("inactive").is_none())
+        .filter_map(|e| {
+            let name = e["key"].as_str()?.strip_prefix(&env_prefix)?;
+            valid_env_name(name).then(
+                || json!({"name": name, "value": MASK, "scope": e["scope"], "path": e["path"]}),
+            )
+        })
+        .collect();
     let mut answer = json!({
         "agent": agent.id(),
+        "envTable": env_table(agent),
+        "env": env,
         "files": files,
         "entries": entries,
         "curated": curated_rows,
@@ -463,6 +477,14 @@ fn json_leaves(value: &Value, parts: &mut Vec<String>, out: &mut Vec<Leaf>) {
     } else {
         match value {
             Value::String(s) => short(s),
+            // Permission rules are what a person reads the list for: show them, not a count.
+            Value::Array(items)
+                if merged_list(parts)
+                    && !items.is_empty()
+                    && items.iter().all(Value::is_string) =>
+            {
+                short(&items.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
+            }
             Value::Array(items) => count(items.len()),
             Value::Object(_) => "{}".to_owned(),
             other => other.to_string(),
@@ -859,6 +881,183 @@ pub fn apply(
     })
 }
 
+/// The permission rule lists `rule` edits, as Claude Code names them.
+pub const RULE_LISTS: [&str; 3] = ["allow", "deny", "ask"];
+
+/// Adds (`add`) or removes one Claude Code permission rule (`Bash(npm run test:*)`, `Read(./.env)`,
+/// `WebFetch`, `mcp__server__tool`) in `permissions.<list>` of one scope's file (default `user`).
+/// The lists merge across scopes in Claude Code, so each scope's file holds only its own rules;
+/// adding a rule already there, or removing one that is not, writes nothing. The rest of the file,
+/// comments and order included, stays as it was.
+pub fn rule(
+    ctx: &Context,
+    list: &str,
+    rule: &str,
+    add: bool,
+    scope: Option<&str>,
+) -> Result<Written, SettingsError> {
+    if !RULE_LISTS.contains(&list) {
+        return Err(SettingsError::new(
+            "agent_config.unknown_key",
+            format!("permission lists are {}", RULE_LISTS.join(", ")),
+        ));
+    }
+    let rule = rule.trim();
+    if add {
+        valid_rule(rule)?;
+    }
+    let scope = scope.unwrap_or("user");
+    let path = scope_path(ctx, Agent::Claude, scope)?;
+    let store = ctx.homes.edits.clone();
+    let _lock = store.lock(&path).map_err(|e| io_error(&path, e))?;
+    let backup_target = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+    let existed = path.exists();
+    let source = read_existing(&path)?;
+    let source = if source.trim().is_empty() { "{}\n".to_owned() } else { source };
+    let doc = match serde_json::from_str::<Value>(&source) {
+        Ok(doc @ Value::Object(_)) => doc,
+        _ if matches!(cmux_config::jsonc::parse(&source), Ok(Value::Object(_))) => {
+            return Err(SettingsError::new(
+                "agent_config.parse",
+                format!("{}: {IGNORED_JSONC}; remove it in the file first", path.display()),
+            ));
+        }
+        _ => {
+            return Err(SettingsError::new(
+                "agent_config.parse",
+                format!("{} is not a JSON object; fix it in the file first", path.display()),
+            ));
+        }
+    };
+    let key = format!("permissions.{list}");
+    let mut rules: Vec<Value> = match doc.pointer(&format!("/permissions/{list}")) {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => items.clone(),
+        Some(_) => {
+            return Err(SettingsError::new(
+                "agent_config.parse",
+                format!("{key} in {} is not a list; fix it in the file first", path.display()),
+            ));
+        }
+    };
+    let present = rules.iter().any(|r| r.as_str() == Some(rule));
+    let written = Written {
+        agent: Agent::Claude,
+        key,
+        scope: scope.to_owned(),
+        path: path.clone(),
+        backup: None,
+    };
+    if present == add {
+        return Ok(written);
+    }
+    if add {
+        rules.push(Value::String(rule.to_owned()));
+    } else {
+        rules.retain(|r| r.as_str() != Some(rule));
+    }
+    let parts = ["permissions".to_owned(), list.to_owned()];
+    let fail = |error: cmux_config::jsonc::JsoncError| {
+        SettingsError::new("agent_config.parse", format!("cannot edit {}: {error}", path.display()))
+    };
+    let text = if rules.is_empty() {
+        cmux_config::jsonc::remove(&source, &parts).map_err(fail)?
+    } else {
+        cmux_config::jsonc::set(&source, &parts, &Value::Array(rules)).map_err(fail)?
+    };
+    store.replace(&path, &text).map_err(|e| io_error(&path, e))?;
+    Ok(Written { backup: existed.then(|| store.backup_path(&backup_target)), ..written })
+}
+
+/// A rule is a tool name (`Bash`, `mcp__github`), optionally with one `(specifier)`.
+fn valid_rule(rule: &str) -> Result<(), SettingsError> {
+    let bad = |why: &str| {
+        Err(SettingsError::new("agent_config.invalid_value", format!("{rule:?}: {why}")))
+    };
+    if rule.is_empty() || rule.chars().count() > 1000 || rule.chars().any(char::is_control) {
+        return bad("a rule is one line of at most 1000 characters");
+    }
+    let (tool, rest) = rule.split_once('(').unwrap_or((rule, ""));
+    if tool.is_empty() || !tool.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return bad("a rule starts with a tool name (Bash, Read, WebFetch, mcp__server__tool)");
+    }
+    if rule.contains('(') && (!rest.ends_with(')') || rest.len() < 2) {
+        return bad("a specifier is one (…) after the tool name, as in Bash(npm run test:*)");
+    }
+    Ok(())
+}
+
+/// Where an agent keeps the variables every session it starts gets: Claude Code's `env` object,
+/// Codex's `[shell_environment_policy.set]` table (the variables its shell tool's commands get).
+pub fn env_table(agent: Agent) -> &'static str {
+    match agent {
+        Agent::Claude => "env",
+        Agent::Codex => "shell_environment_policy.set",
+    }
+}
+
+/// A variable name both agents take: a letter or `_`, then letters, digits and `_`.
+pub fn valid_env_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && name.len() <= 128
+}
+
+/// Sets (`Some`) or removes (`None`) one session variable in one scope's file (default `user`):
+/// `env.NAME` for Claude Code, `shell_environment_policy.set.NAME` for Codex. The value is never
+/// echoed back; `settings get` shows it masked like every env value.
+pub fn apply_env(
+    ctx: &Context,
+    agent: Agent,
+    name: &str,
+    value: Option<&str>,
+    scope: Option<&str>,
+) -> Result<Written, SettingsError> {
+    if !valid_env_name(name) {
+        return Err(SettingsError::new(
+            "agent_config.invalid_name",
+            format!(
+                "{name:?} is not a variable name; use letters, digits and _, not starting with a digit"
+            ),
+        ));
+    }
+    if let Some(value) = value
+        && (value.contains(['\0', '\n', '\r']) || value.len() > 32 * 1024)
+    {
+        return Err(SettingsError::new(
+            "agent_config.invalid_value",
+            format!("{name} is one line of at most 32 KiB with no NUL"),
+        ));
+    }
+    let scope = scope.unwrap_or("user");
+    let key = format!("{}.{name}", env_table(agent));
+    let path = scope_path(ctx, agent, scope)?;
+    let store = ctx.homes.edits.clone();
+    let _lock = store.lock(&path).map_err(|e| io_error(&path, e))?;
+    let backup_target = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+    let existed = path.exists();
+    match agent {
+        Agent::Claude => write_json(&store, &path, &key, value)?,
+        Agent::Codex => {
+            let lock_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+            let _codex_lock = (lock_dir == ctx.homes.codex).then(|| {
+                cmux_tui_platform::codex_config_lock::lock(
+                    &lock_dir.join(cmux_tui_platform::codex_config_lock::LOCK_FILE),
+                )
+            });
+            write_codex_env(&store, &path, name, value)?;
+        }
+    }
+    Ok(Written {
+        agent,
+        key,
+        scope: scope.to_owned(),
+        path,
+        backup: existed.then(|| store.backup_path(&backup_target)),
+    })
+}
+
 fn validate(row: &Curated, value: &str) -> Result<(), SettingsError> {
     if !row.choices.is_empty() {
         if row.choices.contains(&value) {
@@ -997,6 +1196,15 @@ fn write_json(
     } else {
         edit(&source, &parts, value.map(|v| Value::String(v.to_owned()))).map_err(fail)?
     };
+    if value.is_none()
+        && matches!(parts.as_slice(), [table, _] if table == "env")
+        && serde_json::from_str::<Value>(&text).is_ok_and(|v| {
+            v.get("env").is_some_and(|env| env.as_object().is_some_and(|o| o.is_empty()))
+        })
+    {
+        // The last variable out takes its empty `env` with it.
+        text = edit(&text, &["env".to_owned()], None).map_err(fail)?;
+    }
     if key == "statusLine.command" && value.is_some() {
         text = edit(&text, &["statusLine".to_owned(), "type".to_owned()], Some(json!("command")))
             .map_err(fail)?;
@@ -1041,6 +1249,86 @@ fn write_toml(
         None => {
             if doc.remove(key).is_none() {
                 return Ok(());
+            }
+        }
+    }
+    let text = doc.to_string();
+    if text == source {
+        return Ok(());
+    }
+    store.replace(path, &text).map_err(|e| io_error(path, e))
+}
+
+/// Codex's `[shell_environment_policy.set]`: a table or an inline table, edited in place.
+fn write_codex_env(
+    store: &write::Store,
+    path: &Path,
+    name: &str,
+    value: Option<&str>,
+) -> Result<(), SettingsError> {
+    let source = read_existing(path)?;
+    let mut doc = source.parse::<toml_edit::DocumentMut>().map_err(|error| {
+        SettingsError::new(
+            "agent_config.parse",
+            format!(
+                "{} is not valid TOML ({}); fix it in the file first",
+                path.display(),
+                error.message()
+            ),
+        )
+    })?;
+    let not_table = |what: &str| {
+        SettingsError::new(
+            "agent_config.parse",
+            format!("{} has {what} that is not a table; fix it in the file first", path.display()),
+        )
+    };
+    match value {
+        Some(value) => {
+            let policy = doc.entry("shell_environment_policy").or_insert_with(|| {
+                let mut table = toml_edit::Table::new();
+                table.set_implicit(true);
+                toml_edit::Item::Table(table)
+            });
+            let policy =
+                policy.as_table_like_mut().ok_or_else(|| not_table("shell_environment_policy"))?;
+            if policy.get("set").is_none() {
+                // A table inside a table policy (`[shell_environment_policy.set]`); inside an
+                // inline policy it becomes an inline table.
+                policy.insert("set", toml_edit::Item::Table(toml_edit::Table::new()));
+            }
+            let set = policy
+                .get_mut("set")
+                .and_then(toml_edit::Item::as_table_like_mut)
+                .ok_or_else(|| not_table("shell_environment_policy.set"))?;
+            match set.get_mut(name) {
+                Some(toml_edit::Item::Value(existing)) => {
+                    let decor = existing.decor().clone();
+                    *existing = toml_edit::Value::from(value);
+                    *existing.decor_mut() = decor;
+                }
+                _ => {
+                    set.insert(name, toml_edit::value(value));
+                }
+            }
+        }
+        None => {
+            let Some(policy) = doc
+                .get_mut("shell_environment_policy")
+                .and_then(toml_edit::Item::as_table_like_mut)
+            else {
+                return Ok(());
+            };
+            let Some(set) = policy.get_mut("set").and_then(toml_edit::Item::as_table_like_mut)
+            else {
+                return Ok(());
+            };
+            if set.remove(name).is_none() {
+                return Ok(());
+            }
+            // The last variable out takes its empty `set` table with it.
+            if set.is_empty() {
+                policy.remove("set");
             }
         }
     }
