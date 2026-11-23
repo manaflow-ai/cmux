@@ -118,6 +118,26 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         # The fast group's steps are independent, which is what makes it fast.
         self.assertFalse(run_ci_guards.is_stateful(by_group["ci"]))
 
+    def test_quiet_tree_steps_run_after_the_parallel_steps(self) -> None:
+        # The canonical profile refuses untracked files; run among its siblings
+        # it read their scratch files (main's fast guards, 2026-11-22/23).
+        ci = next(u for u in self.units if u.group == "ci")
+        tasks = [(ci, [step]) for step in ci.steps]
+        parallel, quiet = run_ci_guards.split_quiet_tasks(tasks)
+        quiet_names = {steps[0].name for _, steps in quiet}
+        self.assertEqual(quiet_names, run_ci_guards.QUIET_TREE_STEPS)
+        self.assertFalse(any(steps[0].name in run_ci_guards.QUIET_TREE_STEPS for _, steps in parallel))
+        self.assertEqual(len(parallel) + len(quiet), len(tasks))
+
+    def test_a_quiet_step_inside_a_stateful_group_keeps_its_place(self) -> None:
+        name = next(iter(run_ci_guards.QUIET_TREE_STEPS))
+        step = run_ci_guards.Step(name=name, run="true", env={}, working_directory=None)
+        other = run_ci_guards.Step(name="other", run="true", env={}, working_directory=None)
+        unit = run_ci_guards.Unit(job="workflow-guard-tests", group="x", steps=[other, step])
+        parallel, quiet = run_ci_guards.split_quiet_tasks([(unit, [other, step])])
+        self.assertEqual(quiet, [])
+        self.assertEqual(parallel, [(unit, [other, step])])
+
 
 class PlanRefusesWhatItCannotRun(unittest.TestCase):
     def workflow(self, step: dict) -> dict:
