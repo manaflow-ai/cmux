@@ -998,7 +998,7 @@ impl Store for JournalStore {
         hint: Option<LinePos>,
         visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
     ) -> Result<()> {
-        self.inner.fenced(|| Store::scan_heads_from(&self.inner.local, id, from, hint, visit))
+        self.inner.fenced(id, || Store::scan_heads_from(&self.inner.local, id, from, hint, visit))
     }
     fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
         Store::adoption_checkpoint(&self.inner.local, id)
