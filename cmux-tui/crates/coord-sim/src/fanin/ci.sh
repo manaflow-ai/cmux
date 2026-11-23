@@ -7,6 +7,14 @@
 # (ROUNDS 0, or FANIN_FANOUT_ROUNDS=0, measures fan-in with no fan-out bursts). A 5th argument
 # `perf` builds acpmux with frame pointers and profiles the largest ramp's controller (perf.self.txt, perf.children.txt, perf.stacks.gz, and offcpu.stacks.gz where sudo -n works).
 set -uo pipefail
+# `perf` is accepted in any position (`ci.sh perf`, `ci.sh 2000 perf`): it is pulled out and the
+# remaining arguments keep their order, so a misplaced flag still profiles instead of being read as RAMPS.
+ARGS=(); PROFILE_ARG=
+for a in "$@"; do if [ "$a" = perf ]; then PROFILE_ARG=perf; else ARGS+=("$a"); fi; done
+if [ -n "$PROFILE_ARG" ]; then
+  [ "$#" -ne 5 ] && echo "FANIN: \`perf\` read as the profile flag; ramp arguments: ${ARGS[*]:-(defaults)}"
+  set -- "${ARGS[@]}" "" "" "" "" ""; set -- "${@:1:4}" perf
+fi
 RAMPS=${1:-50,200,2000}
 WINDOW=${2:-300}
 HOSTS=${3:-10}
