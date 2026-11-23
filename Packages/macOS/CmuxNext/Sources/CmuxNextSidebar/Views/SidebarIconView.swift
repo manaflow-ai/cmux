@@ -193,7 +193,9 @@ final class SidebarIconView: NSView {
     private func leadingImageFrame(side: CGFloat) -> CGRect? {
         guard let image = imageView.image, image.size.width > 0, image.size.height > 0,
               let ink = SidebarGlyphInk.shared.box(of: image, glyph: inkKey) else { return nil }
-        return SidebarStyle.rowGlyphOptics.frame(imageSize: image.size, ink: ink, leading: 0, centerY: bounds.midY,
+        // A favicon takes its tab's size; a symbol, an emoji's glyph and the pack's icons the glyphs' (#49583).
+        let optics = shownFavicon != nil ? SidebarStyle.rowFaviconOptics : SidebarStyle.rowGlyphOptics
+        return optics.frame(imageSize: image.size, ink: ink, leading: 0, centerY: bounds.midY,
                                                  flipped: isFlipped, scale: window?.backingScaleFactor ?? 2)
     }
 
@@ -209,7 +211,7 @@ final class SidebarIconView: NSView {
     /// The favicon's bitmap side: the tab's icon box the row draws it at (`SidebarStyle.rowGlyphOptics`), so it renders
     /// at its drawn size and stays sharp.
     private var faviconSide: CGFloat {
-        max(1 / backingScale, snap(SidebarStyle.rowGlyphOptics.box ?? SidebarStyle.rowGlyphOpticalSide * 4 / 3))
+        max(1 / backingScale, snap(SidebarStyle.rowFaviconOptics.box ?? SidebarStyle.rowFaviconOpticalSide * 4 / 3))
     }
     /// The pixel side the favicon's bitmap is made at now (`SidebarFaviconRenditions.drawing`).
     private var faviconPixels: Int { max(1, Int((faviconSide * max(2, backingScale)).rounded())) }
@@ -241,8 +243,8 @@ final class SidebarIconView: NSView {
     /// The original treatment keeps the frame it always had.
     private func layoutFavicon(content: CGRect) {
         guard let drawing = faviconDrawing, drawing.treatment != .original else { return }
-        let side = SidebarStyle.rowGlyphOpticalSide
-        // Leading with ink, `leadingImageFrame` already sized it to the optical size.
+        let side = SidebarStyle.rowFaviconOpticalSide
+        // Leading with ink, `leadingImageFrame` already sized it to the favicon's size.
         if !leadsWithInk {
             imageView.frame = CGRect(x: snap(content.midX - side / 2), y: snap(content.midY - side / 2), width: side, height: side)
         }

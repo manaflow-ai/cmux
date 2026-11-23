@@ -12,6 +12,16 @@
 # .build/DerivedData/cmux-measure-at, which a fleet worker keeps between steps, so a second commit near the first
 # builds incrementally. Returns non-zero when the commit cannot be fetched or its build prints no app.
 
+#   measure_remove_scratch DIR
+# removes a measure script's scratch folder DIR in its EXIT trap (`trap 'measure_remove_scratch "$out"' EXIT`). A build
+# at a commit leaves Go's module cache under DIR, which Go writes read-only: a plain rm -rf failed on it, and as the
+# trap's last command its status became the step's (every --build-at bench ended exit 1, 2026-11-18). Never changes the
+# status of a step whose body failed.
+measure_remove_scratch() {
+  chmod -R u+w "$1" 2>/dev/null || true
+  rm -rf -- "$1"
+}
+
 measure_app_at_commit() {
   local sha="$1" tag="$2" tree="$3" root full status=0 app
   shift 3
@@ -27,6 +37,11 @@ measure_app_at_commit() {
   # A worktree an earlier step left registered (its folder gone with that step's scratch folder) is dropped first.
   git -C "$root" worktree prune
   git -C "$root" worktree add -q --detach "$tree" "$full" || return 1
+  # git worktree add copies a sparse checkout's patterns into the new worktree, so a sparse harness checkout (an agent's
+  # wt checkout) built a partial tree: no webviews/, and the build failed at its web bundles (air-blue, 2026-11-21).
+  if [[ "$(git -C "$tree" config --bool core.sparseCheckout 2>/dev/null)" == true ]]; then
+    git -C "$tree" sparse-checkout disable >&2 || return 1
+  fi
   echo "app-at-commit: building $full ($(git -C "$root" log -1 --format=%s "$full" | cut -c1-80))" >&2
   # As the callers do for their own checkout: a step has empty submodules, and the build needs Ghostty's headers,
   # the ghostty-next tree and GhosttyKit.xcframework (a prebuilt download).

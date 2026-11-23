@@ -279,8 +279,6 @@ impl SegmentHeads {
 #[derive(Default)]
 struct Map {
     map: HashMap<(String, u32), (Arc<SegmentHeads>, u64)>,
-    /// Each chat's segments as last listed, and its folders then ([`Listing`]).
-    listings: HashMap<String, Listing>,
     tick: u64,
     bytes: usize,
 }
@@ -298,22 +296,10 @@ pub(super) struct Folders {
     copies: Option<DirStamp>,
 }
 
-/// A chat's segment list as read when its folders were `folders`. Kept only once both folders
-/// were last changed [`SETTLED`] before they were stamped, as git trusts an index entry only when
-/// the file's time is older than the index ("racy git"): a change in the same clock tick as the
-/// stamp could leave the folder's times as they were.
-struct Listing {
-    folders: Folders,
-    segments: Vec<(u32, PathBuf)>,
-}
-
 /// How long before its stamp a folder must have last changed for the stamp to be trusted: well
 /// past any file system's time granularity (ext4's coarse clock ticks in milliseconds, FAT's in
 /// two seconds).
 const SETTLED: std::time::Duration = std::time::Duration::from_secs(3);
-
-/// The most chats whose listings are kept.
-const LISTINGS: usize = 16_384;
 
 /// The heads of a store's segments a keyed scan read.
 #[derive(Default)]
@@ -382,22 +368,6 @@ impl KindHeads {
     }
 
     /// Chat `id`'s segments as listed under `folders`, if they were.
-    fn listing(&self, id: &str, folders: Folders) -> Option<Vec<(u32, PathBuf)>> {
-        let map = self.lock();
-        let listing = map.listings.get(id).filter(|l| l.folders == folders)?;
-        Some(listing.segments.clone())
-    }
-
-    fn keep_listing(&self, id: &str, folders: Folders, segments: &[(u32, PathBuf)]) {
-        let listing = Listing { folders, segments: segments.to_vec() };
-        let mut map = self.lock();
-        // A few hundred bytes a chat; a store asked about more chats than this lists again.
-        if map.listings.len() >= LISTINGS && !map.listings.contains_key(id) {
-            map.listings.clear();
-        }
-        map.listings.insert(id.to_owned(), listing);
-    }
-
     fn forget_segment(&self, id: &str, index: u32) {
         let mut map = self.lock();
         if let Some((gone, _)) = map.map.remove(&(id.to_owned(), index)) {
@@ -411,7 +381,6 @@ impl KindHeads {
         let gone: usize =
             map.map.iter().filter(|((chat, _), _)| chat == id).map(|(_, (h, _))| h.bytes).sum();
         map.map.retain(|(chat, _), _| chat != id);
-        map.listings.remove(id);
         map.bytes = map.bytes.saturating_sub(gone);
     }
 }
@@ -474,21 +443,11 @@ impl LocalStore {
     /// a listing, an open and two stats of every segment each time held the daemon at a core
     /// (cmux NEXT nightly 1.0.0-nightly.4424316677601: `scan_kinds_keyed` 2,078 of 5 s of
     /// samples, 1,419 of them in `open` and `lstat`).
-    fn keyed_listing(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, Option<Folders>)> {
+    fn keyed_listing(&self, id: &str) -> Result<(SegmentList, Option<Folders>)> {
         let folders = self.settled_folders(id);
-        if let Some(folders) = folders
-            && let Some(segments) = self.kind_heads.listing(id, folders)
-        {
-            return Ok((segments, Some(folders)));
-        }
-        // Stamped before the listing: a change after the stamp moves the folder's times past it,
-        // so the next scan lists again.
+        // The common segment table shares this listing with every other reader. Folder
+        // stamps still validate sealed kind heads separately.
         let segments = self.segments(id)?;
-        if let Some(folders) = folders
-            && !segments.is_empty()
-        {
-            self.kind_heads.keep_listing(id, folders, &segments);
-        }
         Ok((segments, folders))
     }
 
@@ -538,7 +497,7 @@ impl LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
         sealed: Option<Folders>,
     ) -> Result<bool> {
-        let scan = kind_index::Scan { kinds, copied: true, strict: false };
+        let scan = kind_index::Scan { kinds, copied: true, strict: false, heads: false };
         if let Some(folders) = sealed
             && let Some(heads) = self.kind_heads.whole(id, index, folders)
         {
@@ -689,7 +648,10 @@ impl LocalStore {
 
 /// The [`DirStamp`] of the folder at `path`, None while it changed within [`SETTLED`] of `now`
 /// (or off Unix).
-fn dir_stamp(path: &Path, now: std::time::SystemTime) -> std::io::Result<Option<DirStamp>> {
+pub(super) fn dir_stamp(
+    path: &Path,
+    now: std::time::SystemTime,
+) -> std::io::Result<Option<DirStamp>> {
     let meta = crate::home_fs::symlink_metadata(path)?;
     if !meta.is_dir() {
         return Ok(None);

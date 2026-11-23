@@ -35,6 +35,9 @@ export function setEditedFilesSettings(value: unknown) {
   for (const listener of listeners) listener();
 }
 
+/// The host's value now, outside React: the edited-files card's estimate (model.ts) reads it.
+export const editedFilesSettings = (): EditedFilesSettings => current;
+
 export function useEditedFilesSettings(): EditedFilesSettings {
   return useSyncExternalStore(
     (listener) => {

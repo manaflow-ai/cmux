@@ -36,6 +36,8 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     private(set) var liveScrolling = false
     /// Counts for the bench (clip-to-model and model-to-clip syncs).
     static var clipSyncs = 0, modelSyncs = 0
+    /// cmux: the clip origin the model last set or took from a move: a bounds notice at this origin is no move.
+    private var knownOrigin: CGFloat?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -162,7 +164,12 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         if PacingLog.shared.isOn { logClip() }
         pinContent()
         guard applyingModel == 0, let demo, let cv = collection else { return }
-        let y = clip.bounds.origin.y - shift
+        // cmux: the clip where the model left it is no move, even when the model's offset is past the document's
+        // end (AppKit stopped the clip there in a resize, before the window view laid out at the new size).
+        let origin = clip.bounds.origin.y
+        guard origin != knownOrigin else { return }
+        knownOrigin = origin
+        let y = origin - shift
         guard y != cv.contentOffset.y else { return }
         TranscriptScrollView.clipSyncs += 1
         applyingClip = true
@@ -308,15 +315,27 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         if document.frame != f { document.frame = f }
         applyingModel -= 1
         pushOffset()
+        knownOrigin = clip.bounds.origin.y // cmux
     }
+
+    /// cmux: the offset the model last pushed and where AppKit left the clip for it, with the document and clip
+    /// heights that decide that place. A push of the same offset into the same geometry, the clip still there, is no
+    /// move: pinned to the bottom, the offset is past the document's end and AppKit stops the clip short of it, and
+    /// each key set the origin again, marking the window's tracking areas dirty (a walk of every view in the next
+    /// display; HomeKeyTranscriptSyncTests).
+    private var pushed: (target: CGFloat, origin: CGFloat, document: CGFloat, clip: CGFloat)?
 
     private func pushOffset() {
         guard let cv = collection else { return }
         let y = cv.contentOffset.y + shift
         guard clip.bounds.origin.y != y else { return }
+        if let p = pushed, p.target == y, p.origin == clip.bounds.origin.y, p.document == document.frame.height,
+           p.clip == clip.bounds.height { return }
         TranscriptScrollView.modelSyncs += 1
         applyingModel += 1
         clip.setBoundsOrigin(NSPoint(x: 0, y: y))
+        knownOrigin = clip.bounds.origin.y // cmux: AppKit can stop it short of `y`
+        pushed = (y, clip.bounds.origin.y, document.frame.height, clip.bounds.height)
         reflectScrolledClipView(clip)
         pinContent()
         applyingModel -= 1
@@ -512,6 +531,18 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         if !tiling { tiling = true; syncFromModel(); tiling = false }
     }
 
+    /// cmux: runs `change`, a geometry change of the host (Home's zoom: its bounds scale), as the model's. AppKit
+    /// realigns the clip view to the new pixel grid inside it, and a realignment is not the reader's scroll: in a
+    /// window shrunk on screen it met a clip held 13.5 pt short of the bottom by the document's old end, and
+    /// clipMoved unpinned the chat, so no send or reply followed again (first-run audit row 8, cmux-shots/first-run
+    /// at 4:49). The model's offset is placed again after it, as after layout() and tile().
+    func placing(_ change: () -> Void) {
+        applyingModel += 1
+        change()
+        applyingModel -= 1
+        syncFromModel()
+    }
+
     override func tile() {
         // AppKit keeps the visible content in place when the automatic inset
         // changes (it moves the clip view); the shared model's offset (pinned
@@ -570,7 +601,7 @@ final class TranscriptDocumentView: NSView {
     }
     override func mouseDragged(with event: NSEvent) { controller?.mouseDragged(at: hostPoint(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: hostPoint(event), event) }
-    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: hostPoint(event)) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: hostPoint(event))) }
 }
 
 /// The overlay scroller over a paged history: knob position and length come
