@@ -84,6 +84,10 @@ impl NoticeOutbox {
     /// Hand `item` to the hub in this link's order. Returns at once unless the backlog is full of
     /// notices that cannot be merged; `Err` once the hub stopped taking notices.
     pub(crate) async fn send(&self, item: Item) -> Result<(), Closed> {
+        // BEFORE-PROBE: the old behavior, awaiting the hub's queue in the link's loop.
+        if std::env::var_os("ACPMUX_OLD_NOTICE_SEND").is_some() {
+            return self.inner.hub.send(item).await.map_err(|_| Closed);
+        }
         let mut item = Some(item);
         loop {
             let room = self.inner.room.notified();
