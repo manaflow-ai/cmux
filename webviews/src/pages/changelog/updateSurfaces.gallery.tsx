@@ -494,7 +494,11 @@ function UpdateSurfacesGallery({
       style={{
         width: width ?? (surface === "card" ? 260 : surface === "notes" ? 360 : 360),
         padding: 10,
-        ...(photo ? { backgroundImage: `url(${photoSrc[photo]})`, backgroundSize: "cover", backgroundPosition: "center" } : onWallpaper ? { backgroundImage: wallpaper } : {}),
+        ...(photo
+          ? { backgroundImage: `url(${photoSrc[photo]})`, backgroundSize: "cover", backgroundPosition: "center" }
+          : onWallpaper
+            ? { backgroundImage: wallpaper }
+            : {}),
         ...(theme ? themeStyle(theme) : {}),
         ...(composerCorner ? { "--grid-card-radius": "var(--grid-composer-radius)" } : {}),
         ...(overRows ? { position: "relative" as const, height: 420, display: "flex", alignItems: "flex-end" } : {}),
