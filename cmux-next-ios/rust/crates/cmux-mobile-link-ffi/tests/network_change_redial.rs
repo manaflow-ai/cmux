@@ -316,10 +316,10 @@ async fn network_change_to_redial() {
                 opens.push(open);
             }
             roams_alone.push(alone);
-            // The roam inside the call: the slowest session's last roam mark, when it has one.
+            // The roam inside the call: when `roam()` returned (`roam_gathered`) on the slowest session.
             if let Some(roam) = marks
                 .iter()
-                .filter(|mark| !mark.name.starts_with("signaling:"))
+                .filter(|mark| mark.name == "roam_gathered")
                 .map(|mark| mark.millis)
                 .reduce(f64::max)
             {
@@ -344,7 +344,7 @@ async fn network_change_to_redial() {
             "REDIAL_SUMMARY profile={name} n={} setup_failed={failed} settle_ms={SETTLE_MS} | rust_call p50={call50:.0} p95={call95:.0} | {} | {} | {} | total(settle+call) p50={:.0} p95={:.0} | send=assumed<1ms | udp delivered={delivered} dropped={dropped}",
             calls.len(),
             line("signaling_open", &opens),
-            line("roam_in_call(last roam mark)", &roams),
+            line("roam_in_call(roam_gathered, slowest session)", &roams),
             line("roam_alone", &roams_alone),
             call50 + SETTLE_MS,
             call95 + SETTLE_MS,
