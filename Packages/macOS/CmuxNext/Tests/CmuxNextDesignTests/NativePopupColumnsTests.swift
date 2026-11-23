@@ -30,6 +30,9 @@ import Testing
         bad.search = nil
         #expect(!bad.isValid, "the accessory sits in the search row")
         bad = model
+        (bad.columns, bad.columnsHeight) = (nil, nil)
+        #expect(!bad.isValid, "only the columns layout draws the accessory")
+        bad = model
         bad.columns?[0].id = "models"
         #expect(!bad.isValid, "column ids are unique")
         #expect(model.allRows.map(\.id) == ["account", "auth", "starred", "claude", "codex", "opus", "sonnet", "haiku",
