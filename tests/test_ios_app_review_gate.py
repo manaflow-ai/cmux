@@ -113,8 +113,23 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(self.screenshot_findings("1"), {"no iphone screenshots"})
 
     def test_the_real_app_is_iphone_only(self) -> None:
-        # Every target in the real project.yml is TARGETED_DEVICE_FAMILY "1".
+        # Every shipping build in the real project.yml is TARGETED_DEVICE_FAMILY "1";
+        # only Debug also runs on an iPad mini simulator.
         self.assertEqual(gate.app_device_families(ROOT), frozenset({"1"}))
+
+    def test_a_debug_only_ipad_family_ships_iphone_only(self) -> None:
+        project = self.root / "cmux-next-ios/project.yml"
+        project.write_text(project.read_text().replace(
+            "        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n",
+            "        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n        TARGETED_DEVICE_FAMILY: \"1\"\n"
+            "      configs:\n        Debug:\n          TARGETED_DEVICE_FAMILY: \"1,2\"\n"))
+        self.assertEqual(gate.app_device_families(self.root), frozenset({"1"}))
+
+    def test_families_prints_the_shipped_families(self) -> None:
+        # ios-review-gate.yml skips a pull request's iPad leg when this prints exactly "1".
+        out = subprocess.run([sys.executable, "-I", str(ROOT / "cmux-next-ios/scripts/app_review_gate.py"), "families",
+                              "--source-root", str(ROOT)], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(out.strip(), "1")
 
     def test_missing_account_deletion_blocks(self) -> None:
         write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/SettingsPages.swift", 'Text("Account")\n')
