@@ -33,9 +33,7 @@ fn handover_sigterm_before_and_after() {
     let statuses: Vec<_> = (0..N).map(|_| ended("kill -TERM $$")).collect();
     let before = statuses.iter().filter(|s| !s.success()).count();
     let after = statuses.iter().filter(|s| restart_outcome("systemctl", **s).is_err()).count();
-    eprintln!(
-        "handover-bench: {N} handovers, 'did not take over' before={before} after={after}"
-    );
+    eprintln!("handover-bench: {N} handovers, 'did not take over' before={before} after={after}");
     assert_eq!((before, after), (N, 0));
 }
 
@@ -71,8 +69,5 @@ fn the_successor_gets_this_daemons_flags_but_not_its_fds() {
     ]
     .map(String::from)
     .to_vec();
-    assert_eq!(
-        handover_args(&args),
-        ["acp", "daemon", "run", "--take-over", "--memory", "--dev"]
-    );
+    assert_eq!(handover_args(&args), ["acp", "daemon", "run", "--take-over", "--memory", "--dev"]);
 }

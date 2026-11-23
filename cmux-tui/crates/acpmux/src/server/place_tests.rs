@@ -27,9 +27,8 @@ fn a_sub_session_is_placed_here_unless_its_role_forbids_the_work() {
     let v = crate::placement::place(&here(health(40, 2)), Some(&reg), Work::Build);
     let e = placed_here(&v).unwrap_err();
     assert!(
-        e.message.contains(
-            "not placed on box: no builds here (lanes.build is false) (40 GB RAM free"
-        ),
+        e.message
+            .contains("not placed on box: no builds here (lanes.build is false) (40 GB RAM free"),
         "{}",
         e.message
     );
@@ -47,11 +46,8 @@ fn a_sub_session_is_placed_here_unless_its_role_forbids_the_work() {
         );
     }
     // Not a lane host.
-    let v = crate::placement::place(
-        &here(health(40, 0)),
-        Some(&json!({"machines": {}})),
-        Work::Agent,
-    );
+    let v =
+        crate::placement::place(&here(health(40, 0)), Some(&json!({"machines": {}})), Work::Agent);
     let e = placed_here(&v).unwrap_err();
     assert!(e.message.contains("not a lane host"), "{}", e.message);
 }
@@ -91,10 +87,7 @@ fn a_move_ranks_a_peer_whose_only_fault_is_its_build_with_its_refresh_command() 
     let (peers, down, outdated) = split_peers_with(rows.clone(), true);
     assert_eq!(peers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["up", "old-disk"]);
     assert_eq!(outdated, ["old-disk"]);
-    assert_eq!(
-        down,
-        [("old-gone".to_owned(), "outdated peer build (stale disk copy)".to_owned())]
-    );
+    assert_eq!(down, [("old-gone".to_owned(), "outdated peer build (stale disk copy)".to_owned())]);
     // Every other caller is unchanged: an outdated peer takes no placed work.
     let (peers, _, outdated) = split_peers_with(rows, false);
     assert_eq!(peers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["up"]);
@@ -126,17 +119,12 @@ fn a_machine_only_the_hub_reaches_is_never_picked() {
     assert!(down[0].1.contains("`acpmux machine add swarm-01`"), "{down:?}");
 
     let full = here(health(40, 6));
-    let verdict = crate::placement::with_down(
-        crate::placement::place(&full, Some(&reg), Work::Agent),
-        &down,
-    );
+    let verdict =
+        crate::placement::with_down(crate::placement::place(&full, Some(&reg), Work::Agent), &down);
     assert_ne!(verdict["pick"], json!("swarm-01"), "{verdict:#}");
     let listed = verdict["hosts"].as_array().unwrap();
     let hub = listed.iter().find(|h| h["name"] == "swarm-01").expect("listed");
-    assert!(
-        hub["refused"].as_str().unwrap().starts_with("only the mesh hub reaches it"),
-        "{hub}"
-    );
+    assert!(hub["refused"].as_str().unwrap().starts_with("only the mesh hub reaches it"), "{hub}");
 
     // Before: the same row as a candidate was the pick.
     let mut was = full.to_vec();
