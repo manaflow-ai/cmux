@@ -82,12 +82,6 @@ def job() -> dict:
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["compile-status"]
 
 
-def without_state(output: str) -> str:
-    """The step's outputs but `state=` (the read verdict, `none` when the service never answered usably, which a
-    hand-off asserts below): these tests name the hand-off the step wrote."""
-    return "\n".join(line for line in output.splitlines() if not line.startswith("state="))
-
-
 def step_script() -> str:
     return next(step["run"] for step in job()["steps"] if "run" in step)
 
@@ -384,15 +378,14 @@ class StatusMapping(unittest.TestCase):
         self.assertEqual((code, reads), (0, []))
         self.assertEqual([p["state"] for p in posts], ["pending", "pending"])
         self.assertIn("the Mac Release compile decides this head", posts[-1]["description"])
-        self.assertIn("state=none\n", self.output)
-        self.assertEqual(without_state(self.output).strip(), "handoff=HTTP 530")
+        self.assertEqual(self.output.strip(), "handoff=HTTP 530")
         code, posts, _ = self.run_step(self.reply("pass"), PROBE_CODE="530", FALLBACK="false")
         self.assertEqual(code, 1)
         self.assertEqual([p["state"] for p in posts], ["pending", "error"])
         self.assertIn("re-run this job", posts[-1]["description"])
         self.assertTrue(posts[-1]["description"].startswith("[no-verdict] "))
         self.assertRegex(self.stdout, NO_VERDICT_LINE)
-        self.assertEqual(without_state(self.output), "")
+        self.assertEqual(self.output, "")
 
     def test_a_service_that_answers_nothing_usable_is_down_after_the_bound(self):
         # Probes see a 404 (the service up), then every read is a 503 or a 530: handed off after BAD_BOUND.
@@ -403,12 +396,12 @@ class StatusMapping(unittest.TestCase):
                                                    WAIT_SECONDS="2400")
                 self.assertLess(time.monotonic() - started, 20)
                 self.assertEqual(code, 0)
-                self.assertTrue(without_state(self.output).startswith(f"handoff=HTTP {bad} for "), self.output)
+                self.assertTrue(self.output.startswith(f"handoff=HTTP {bad} for "), self.output)
                 self.assertGreaterEqual(len(reads), 1)
         # A deadline shorter than the bound still hands a bad last answer off, never "no compile result".
         code, posts, _ = self.run_step(None, CODES="530", WAIT_SECONDS="3", READ_GAP="1", FALLBACK="true")
         self.assertEqual((code, [p["state"] for p in posts]), (0, ["pending", "pending"]))
-        self.assertTrue(without_state(self.output).startswith("handoff=HTTP 530 for "), self.output)
+        self.assertTrue(self.output.startswith("handoff=HTTP 530 for "), self.output)
         # A 404 (no result yet) is the service up: read again, and the pass that follows is the verdict.
         code, posts, reads = self.run_step(self.reply("pass"), CODES="404 404 200")
         self.assertEqual((code, len(reads), posts[-1]["state"]), (0, 3, "success"))
@@ -607,11 +600,11 @@ class ResultsServiceDown(unittest.TestCase):
         code, _, output = self.compile_status(FALLBACK="true", PR="40600")
         self.assertLess(time.monotonic() - started, 15)  # two probes 1 s apart, not 40 minutes
         self.assertEqual(code, 0)
-        self.assertEqual(without_state(output).strip(), "handoff=HTTP 530")
+        self.assertEqual(output.strip(), "handoff=HTTP 530")
         self.assertEqual(len(self.server.reads), 2)
         self.assertTrue(all(read.endswith("&pr=40600&wait=1") for read in self.server.reads), self.server.reads)
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
-        down = without_state(output).strip().split("=", 1)[1]
+        down = output.strip().split("=", 1)[1]
         # A fallback's red is a red (exit 1); with no fallback run it is the needs_verdict rule's no verdict (exit 3),
         # never the PR's own red.
         for fast, mac, state, exit_code in (("skipped/", "success", "success", 0),
@@ -636,7 +629,7 @@ class ResultsServiceDown(unittest.TestCase):
         """2026-11-10 19:51Z: this failed the job on every pull request while the controller was down. The overflow
         compile posts the head's verdict; until then cmux-next/compile is pending (never a pass) and the job is green."""
         code, stdout, output = self.compile_status(FALLBACK="false", PR="40742")
-        self.assertEqual((code, without_state(output)), (0, ""))
+        self.assertEqual((code, output), (0, ""))
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
         said = self.server.posts[-1]["description"]
         self.assertTrue(said.startswith("[overflow] Results service down (HTTP 530); "), said)
@@ -647,7 +640,7 @@ class ResultsServiceDown(unittest.TestCase):
     def test_a_push_with_no_fallback_says_no_verdict(self):
         """The overflow compile takes only pull request heads: a superseded push still says no verdict."""
         code, stdout, output = self.compile_status(FALLBACK="false")
-        self.assertEqual((code, without_state(output)), (1, ""))
+        self.assertEqual((code, output), (1, ""))
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "error"])
         self.assertIn("no fallback compile runs here, re-run this job", self.server.posts[-1]["description"])
         self.assertRegex(stdout, NO_VERDICT_LINE)
@@ -662,7 +655,7 @@ class ResultsServiceDown(unittest.TestCase):
         code, _, output = self.compile_status(FALLBACK="true", BAD_BOUND="4")
         self.assertLess(time.monotonic() - started, 15)
         self.assertEqual(code, 0)
-        self.assertRegex(without_state(output).strip(), r"^handoff=HTTP 000 for [3-9] s$")
+        self.assertRegex(output.strip(), r"^handoff=HTTP 000 for [3-9] s$")
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
         step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
