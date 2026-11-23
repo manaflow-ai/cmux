@@ -216,13 +216,14 @@ pub(crate) fn handed_off(key: &str, queued: &Value, status: &Value) -> Result<Ha
     // delivered, so this send fails loudly with the daemon's why (the live process, the
     // transcript, the step that ends it), instead of a plain `queued` read as sent. The delivery
     // stays queued and is tried again, so the caller must not send it again.
-    if let Some(why) = unreached_chat(state, &status) {
+    if let Some(why) = unreached_chat(state, status) {
+        let id = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default();
         let program = crate::cli::entry::program();
         let message = format!(
             "{key}: NOT delivered: {why}. It stays queued as {id} and goes in once the chat is reachable; do not send it again (`{program} send --status {id}`)"
         );
         return Err(errors::AppError::new(errors::Code::Runtime, "not_delivered", message)
-            .with_session(&key)
+            .with_session(key)
             .with_data(json!({
                 "reason": "not_delivered", "deliveryId": id, "status": state,
                 "error": why, "queued": true,
