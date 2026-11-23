@@ -30,6 +30,13 @@ enum DaemonLaunchRules {
         return environment as? [String: String]
     }
 
+    /// The runtime scope of an app whose HOME is `home` (`runtime_scope`): nil on the account's own HOME, else the
+    /// word the owner's socket directory carries, so an app on another HOME never reaches another app's owner.
+    static func runtimeScope(home: String?) -> String? {
+        guard let home, !home.isEmpty else { return nil }
+        return call("runtime_scope", ["home": home]) as? String
+    }
+
     private static func reply(_ body: (UnsafeMutablePointer<CmuxDaemonLaunchBytes>) -> Int32) -> Any? {
         var out = CmuxDaemonLaunchBytes(ptr: nil, len: 0)
         let code = body(&out)
