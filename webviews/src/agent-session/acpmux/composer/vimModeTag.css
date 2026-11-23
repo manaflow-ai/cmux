@@ -1,0 +1,15 @@
+/* The composer's vim mode tag (composer/VimModeTag.tsx): a quiet monospace label before Send, in
+   the accent while Normal mode takes the keys, so a key that does not type reads as vim's. */
+.acpmux-vim-mode {
+  align-self: center;
+  flex: none;
+  margin-inline-end: var(--ds-space-2);
+  font-family: var(--cv-mono, var(--cmux-diff-code-font-family, ui-monospace, monospace));
+  font-size: var(--text-caption);
+  color: var(--agent-muted);
+  user-select: none;
+  white-space: nowrap;
+}
+.acpmux-vim-mode[data-vim-mode="normal"] {
+  color: var(--cmux-accent, var(--agent-accent));
+}
