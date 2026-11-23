@@ -213,6 +213,26 @@ default_limit="$(sed -n 's/^attempt_timeout="${CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT:-\
 
 # Workflows fetch through the action, which skips the download when the
 # packages are on the machine or in the cache store, and runs this script.
+# The seed runs before every attempt, not only the first: under mirror only Zig
+# cannot reach an upstream host, so an archive the first seed missed failed all
+# 4 attempts alike (cmux_next_ daemon tests job 137478621868, 2026-11-23).
+# A copy of the script beside a fake seed that counts its runs.
+mkdir -p "$TMP/seeded"
+cp "$SCRIPT" "$TMP/seeded/fetch-ghostty-zig-packages.sh"
+cat > "$TMP/seeded/seed-zig-package-archives.sh" <<'STUB'
+#!/usr/bin/env bash
+echo x >> "${FAKE_SEED_COUNT:?}"
+STUB
+chmod +x "$TMP/seeded/seed-zig-package-archives.sh"
+rm -rf "$TMP/count" "$TMP/seed-count" "$TMP/src/zig-pkg" "$TMP/cache/p"/*; : > "$TMP/children"
+status=0
+env -u ZIG_GLOBAL_CACHE_DIR -u CMUX_ZIG -u CMUX_ZIG_SEED PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_FAILURES=2 \
+  FAKE_SEED_COUNT="$TMP/seed-count" FAKE_ZIG_CHILDREN="$TMP/children" FAKE_ZIG_DIR="$(cd "$TMP/src" && pwd -P)" FAKE_CACHE="$TMP/cache" \
+  CMUX_ZIG_FETCH_ATTEMPTS=3 CMUX_ZIG_FETCH_STALL_TIMEOUT=60 CMUX_ZIG_FETCH_SAMPLE=1 CMUX_ZIG_FETCH_RETRY_DELAY=0 \
+  "$TMP/seeded/fetch-ghostty-zig-packages.sh" "$TMP/src" >"$TMP/out" 2>&1 || status=$?
+[ "$status" = 0 ] || fail "two failed fetches then a success did not pass with the seed on"
+[ "$(wc -l < "$TMP/seed-count")" = 3 ] || fail "expected the seed before each of 3 attempts, got $(wc -l < "$TMP/seed-count") runs"
+
 direct="$(grep -ln 'fetch-ghostty-zig-packages\.sh' "$ROOT"/.github/workflows/*.yml || true)"
 [ -z "$direct" ] || { echo "FAIL: these workflows run the fetch script directly instead of .github/actions/ghostty-zig-packages: $direct" >&2; exit 1; }
 grep -q 'scripts/ci/fetch-ghostty-zig-packages.sh' "$ROOT/.github/actions/ghostty-zig-packages/action.yml" \

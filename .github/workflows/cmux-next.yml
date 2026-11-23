@@ -1533,6 +1533,7 @@ jobs:
             [script-tests]
             bash scripts/cmux-next/tests/pin-cmux-tui-run-fetch.test.sh
             bash scripts/cmux-next/tests/nightly-tree-at-install.test.sh
+            python3 tests/test_nightly_fallback_covers.py
             bash scripts/cmux-next/tests/fake-clock.test.sh
             bash scripts/cmux-next/tests/preview.test.sh
             python3 tests/test_intent_familiar_warning.py
@@ -1619,6 +1620,7 @@ jobs:
             bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
             bash scripts/cmux-next/tests/check-fleet-only.test.sh
             node --test scripts/lib/reload-shim.test.mjs
+            node --test cmux-tui/crates/acpmux/skills/cmux-rich-output/tests/deck.test.mjs
             # Version skew: the capability-text lint.
             bash scripts/cmux-next/tests/capability-text.test.sh
             bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
@@ -1635,6 +1637,7 @@ jobs:
             bash scripts/cmux-next/tests/check-concentric-containers.test.sh
             bash scripts/cmux-next/tests/check-pressed-state.test.sh
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
+            bash scripts/cmux-next/tests/web-overlay-abi-preflight.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
             bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-react-pages.test.sh
@@ -1653,6 +1656,8 @@ jobs:
             python3 -I scripts/cmux-next/tests/test_bundle_size_pr.py
             # GUI benches read the console user as the hq worker that grants gui-session-v1 does (step 8c947a3b).
             python3 -I scripts/cmux-next/tests/test_bench_launch_console.py
+            # A launch-time A/B key writes the build's own override file and proves its switches once per launch.
+            python3 -I scripts/cmux-next/tests/test_typing_bench_launch_arm.py
             python3 -I scripts/cmux-next/tests/test_fetch_nightly_dmg.py
             python3 -I scripts/cmux-next/tests/test_cef_pak_drop.py
             bash scripts/cmux-next/tests/bundle-ublock-locales.test.sh
@@ -2056,7 +2061,7 @@ jobs:
         id: ghostty-resources-bundle
         continue-on-error: true
         run: |
-          git submodule update --init --depth 1 --filter=blob:none ghostty-next
+          bash scripts/ci/init-submodule.sh ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
           # Ghostty's themes survive the Resources phase in either order (Xcode, the fleet builder).
           bash scripts/cmux-next/tests/bundle-resources-layout.test.sh
@@ -3317,7 +3322,7 @@ jobs:
       actions: read
       contents: read
     # Why: docs/ci/cmux-next-workflow-notes.md#note-39
-    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 60 }}
+    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 120 }}
     env:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-197
       CMUX_FAST_TIER_FLEET: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 'report' || '' }}
@@ -3473,6 +3478,8 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-552
+          CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
           path: ${{ format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace) }}
@@ -3496,6 +3503,8 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-552
+          CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
           path: ${{ format('{0}/Packages/Shared/CmuxHomeRender/.build', steps.spm-root.outputs.root || github.workspace) }}
@@ -4042,6 +4051,8 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-552
+          CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
           path: Packages/macOS/CmuxNext/.build
@@ -4601,6 +4612,8 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-552
+          CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
           path: Packages/macOS/CmuxNext/.build
@@ -5053,6 +5066,8 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-552
+          CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
           path: ${{ format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace) }}
@@ -7103,7 +7118,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           fetch-depth: 200
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-347
@@ -7287,17 +7302,25 @@ jobs:
           state="" down="" last="" reads=0
           # Why: docs/ci/cmux-next-workflow-notes.md#note-82 (compile-status: the results service down)
           ok_at=$SECONDS  # the last usable answer (200 or 404): one start time, before the first read
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (the controller posts the status itself)
+          controller="" poster_unknown="${PR:+1}"
+          controller_posts() {  # the reply in $1 is a non-terminal receipt of this head the controller posts
+            [[ -n "${PR:-}" ]] && jq -e --arg sha "$SHA" --arg repo "$REPO" '.sha == $sha and .repo == $repo and
+              .recipe_version == 2 and .configuration == "release-onone" and .status_poster == "controller" and
+              (.state == "queued" or .state == "running")' "$1" >/dev/null 2>&1
+          }
           for probe in 1 2; do
             code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 "$url&wait=1" 2>/dev/null)" || true
             [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || { [[ "$code" =~ ^(200|404)$ ]] && ok_at=$SECONDS; break; }
             (( probe == 2 )) && down="HTTP $code" || sleep "${PROBE_GAP:-30}"
           done
-          while [[ -z "$down" ]]; do
+          while [[ -z "$down" && -z "$controller" ]]; do
             # Why: docs/ci/cmux-next-workflow-notes.md#note-520
             end=$(( deadline < ok_at + ${BAD_BOUND:-300} ? deadline : ok_at + ${BAD_BOUND:-300} ))
             left=$((end - SECONDS))
             (( left > 1 )) || break
             wait=$(( left > 60 ? left - 30 : left / 2 )); wait=$(( wait < 1800 ? wait : 1800 ))
+            [[ -z "$poster_unknown" ]] || wait=1
             code="$(timeout "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
               --max-time "$left" "$url&wait=$wait")" || true
             case "${code:=000}" in
@@ -7306,7 +7329,9 @@ jobs:
                   if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
                   then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
                 echo "read $reads: $state"
-                case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac ;;
+                case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac
+                controller_posts "$reply" && { controller=1; break; }
+                poster_unknown="" ;;
               404) ok_at=$SECONDS last="" ;;  # no result yet
               *) last="HTTP $code"; echo "::warning title=Compile check::the results service answered HTTP $code for $SHA" ;;
             esac
@@ -7316,6 +7341,10 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-521
           [[ -z "$down" && -n "$last" ]] && down="$last for $((SECONDS - ok_at)) s"
           echo "state=${state:-none}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$controller" ]]; then
+            echo "::notice title=Compile check::$SHA: the controller posts cmux-next/compile itself"
+            exit 0
+          fi
           if [[ -n "$down" ]]; then
             # Why: docs/ci/cmux-next-workflow-notes.md#note-83 (compile-status-handoff)
             if [[ "$FALLBACK" == true ]]; then

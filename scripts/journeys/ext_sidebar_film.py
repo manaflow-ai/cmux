@@ -65,6 +65,35 @@ def workspace_ids(j):
     return [w.get("id") for w in j.topology().get("workspaces") or [] if w.get("id")]
 
 
+def rows_settled(j, settle, what):
+    """Until the first window's row list (keys, frames, views, opacity) reads the same for 0.5 s, at most
+    max(10, 3 * SETTLE) s; a list still moving then fails the step naming WHAT."""
+    def shape():
+        return [(r["key"], r["y"], r["h"], r["view"], r["alpha"]) for r in row_list(j)]
+    limit = now() + max(10.0, 3 * settle)
+    last, since = shape(), now()
+    while now() < limit:
+        time.sleep(0.1)
+        current = shape()
+        if current != last:
+            last, since = current, now()
+        elif now() - since >= 0.5:
+            return round(now() - since, 2)
+    raise D.StepError(f"{what}: the sidebar rows were still moving {max(10.0, 3 * settle):g} s on")
+
+
+def busy_showing(j, terms, settle):
+    """Until every terminal in TERMS shows the busy loop's output, at most max(10, 3 * SETTLE) s."""
+    limit, left = now() + max(10.0, 3 * settle), list(terms)
+    while left:
+        left = [t for t in left if "stress output line" not in str(j.screen(t).get("text", ""))]
+        if not left:
+            return
+        if now() >= limit:
+            raise D.StepError(f"film_busy: {len(left)} terminals never showed the busy output: {left[:3]}")
+        time.sleep(0.1)
+
+
 def step_film_grow(j, step):
     count = int(step.get("count", 50))
     start = len(workspace_ids(j))
@@ -75,7 +104,7 @@ def step_film_grow(j, step):
     have = len(workspace_ids(j))
     if have < count:
         raise D.StepError(f"film_grow: {have} workspaces, want {count}")
-    time.sleep(float(step.get("settle", 2.0)))
+    rows_settled(j, float(step.get("settle", 2.0)), "film_grow")
     return {"workspaces": have, "made": made, "seconds": round(now() - t, 1)}
 
 
@@ -90,7 +119,7 @@ def step_film_busy(j, step):
             except D.StepError:
                 pass
         j.film_busy = []
-        time.sleep(float(step.get("settle", 1.0)))
+        rows_settled(j, float(step.get("settle", 1.0)), "film_busy off")
         return {"stopped": stopped}
     count = int(step.get("count", 10))
     topo = j.topology()
@@ -114,7 +143,7 @@ def step_film_busy(j, step):
     j.film_busy += started
     if len(started) < count:
         raise D.StepError(f"film_busy: {len(started)} busy terminals, want {count}")
-    time.sleep(float(step.get("settle", 2.0)))
+    busy_showing(j, started, float(step.get("settle", 2.0)))
     return {"busy": started}
 
 
@@ -137,11 +166,11 @@ def row_list(j):
 def film_one(j, key, modifiers, record):
     """One press under a film: motion start, 0.15 s of still frames, the key, RECORD seconds, motion stop."""
     j.app.rpc("debug.sidebar_rows", {"motion": "start"})
-    time.sleep(0.15)  # still frames before the press
+    time.sleep(0.15)  # sleep-ok: the film's 0.15 s of still frames recorded before the press
     sent = now()
     reply = j.key(key, modifiers)
     returned = now()
-    time.sleep(record)
+    time.sleep(record)  # sleep-ok: the recording window, RECORD seconds of frames after the press
     stopped = j.app.rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}
     return {"key": key, "modifiers": modifiers, "sent": sent, "returned": returned,
             "reply": reply if isinstance(reply, dict) else {"value": reply}, "scale": stopped.get("scale"),
