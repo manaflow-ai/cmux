@@ -218,17 +218,19 @@ pub(super) fn refuse_line(
         return None;
     }
     let text = format!(
-        "{}: agents in cmux may read the app but not change it (Settings > Agents > Agents Can Change cmux)",
-        ask.name()
+        "{}: agents in cmux may read the app but not change it (Settings > Agents > Agents Can Change cmux, {})",
+        ask.name(),
+        crate::mux::settings::AGENTS_APP_CONTROL_SETTING
     );
     if let Ask::Resource(_) = ask {
         let error = ResourceError::new(
             crate::request_origin::ORIGIN_FORBIDDEN,
             text,
+            // OriginForbiddenDetails takes no other member: the setting is
+            // named in the message.
             json!({
+                "derived": super::origin_gate::derived_origin(mux, client).wire_name(),
                 "reason": REASON,
-                "setting": crate::mux::settings::AGENTS_APP_CONTROL_SETTING,
-                "actor": actor.wire(),
             }),
             false,
         );

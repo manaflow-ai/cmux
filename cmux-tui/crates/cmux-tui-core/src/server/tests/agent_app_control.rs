@@ -136,7 +136,10 @@ fn agent_app_control_read_refuses_an_agents_change_and_allows_its_reads() {
     assert_eq!(response["ok"], false, "{response}");
     assert_eq!(response["error"]["code"], "origin.forbidden", "{response}");
     assert_eq!(response["error"]["details"]["reason"], REASON, "{response}");
-    assert_eq!(response["error"]["details"]["setting"], "agents.appControl", "{response}");
+    assert!(
+        response["error"]["message"].as_str().unwrap().contains("agents.appControl"),
+        "{response}"
+    );
 
     for read in [legacy("list-workspaces"), legacy("identify"), v2("workspace.list")] {
         assert!(refuse_line(&rig.mux, client, &read, &writer).is_none(), "{read} is a read");
