@@ -190,7 +190,7 @@ extension Metrics {
     }
 
     /// The share of ``mainPaneChromeShadeBase(isDark:)`` the chrome draws. On the default flush corner's frame
-    /// (``CornerFlush``) `appearance.titleAreaTone` decides it: 0 under One Color (the default, Lawrence's single
+    /// (``CornerFlush``) `appearance.titleAreaTone` decides it (Subtle Tone under gooey tabs, ``DesignSettings/effectiveTitleAreaTone``): 0 under One Color (the default, Lawrence's single
     /// colour), ``TitleAreaTone/subtleShare`` × `appearance.titleAreaContrast` under Subtle Tone. Every other
     /// chrome style (floating, blocks, card and the explicit two-tone style) keeps its own shade, scaled by the
     /// contrast alone, so the default tone never flattens a look the user picked. Leo, 2026-11-12: "since lawrence
@@ -199,7 +199,7 @@ extension Metrics {
     public static var titleAreaShadeScale: CGFloat {
         let design = DesignSettings.shared
         guard CornerFlush.current.isOn else { return design.titleAreaContrast }
-        return design.titleAreaTone == .oneColor ? 0 : TitleAreaTone.subtleShare * design.titleAreaContrast
+        return design.effectiveTitleAreaTone == .oneColor ? 0 : TitleAreaTone.subtleShare * design.titleAreaContrast
     }
 
     /// The chrome's shade before `appearance.titleAreaContrast`: the shade of the

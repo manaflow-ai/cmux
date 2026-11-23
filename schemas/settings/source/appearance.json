@@ -2465,6 +2465,65 @@
             "module": "CmuxNextDesign"
           },
           "swift_owner": "CornerFlushSetting"
+        },
+        {
+          "key": "appearance.gooeyTabs",
+          "note": "How gooey the tab strip is (GooeyTabs, CmuxNextDesign; plans/cmux-next/gooey-tabs.md). off (the default) changes nothing: appearance.cornerFlush and appearance.titleAreaTone apply as set. subtle and full draw the selected tab as flush-goo (CornerFlush.current, unless compact density keeps the pill) over Subtle Tone (DesignSettings.effectiveTitleAreaTone), as effective values that never write those two settings, and run the goo springs (GooTunables). Leo 2026-11-23: \"presumably a less intense version should have a better case to be the default. so you guys need to try that. like. subtle goo.\"",
+          "title": {
+            "key": "settings.appearance.gooeyTabs",
+            "text": "Gooey Tabs"
+          },
+          "help": {
+            "key": "settings.appearance.gooeyTabs.help",
+            "text": "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more."
+          },
+          "summary": {
+            "key": "settings.appearance.gooeyTabs.summary",
+            "text": "Off, subtle or full goo for the tab strip"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.gooeyTabs.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.gooeyTabs.subtle",
+                "text": "Subtle"
+              }
+            },
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.choice.gooeyTabs.full",
+                "text": "Full"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "goo",
+            "gooey",
+            "liquid",
+            "spring",
+            "springy",
+            "wobble",
+            "stretch",
+            "tab animation",
+            "selected tab",
+            "tab shape"
+          ],
+          "swift_enum": {
+            "name": "GooeyTabs",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "GooeyTabsSetting"
         }
       ]
     },
