@@ -104,12 +104,7 @@ function LookPage({ look = "cards" }: { look?: Look }) {
         template="minimal"
         above={
           look === "no-slot" ? undefined : (
-            <NewTabAppSlot
-              app={`local/${look}-look`}
-              cwd={CWD}
-              client={client}
-              onUnavailable={() => undefined}
-            />
+            <NewTabAppSlot app={`local/${look}-look`} cwd={CWD} client={client} onUnavailable={() => undefined} />
           )
         }
       />
@@ -131,10 +126,7 @@ export default componentEntry<{ look?: Look }>({
   area: "New Tab",
   height: 560,
   pane: true,
-  covers: [
-    "agent-session/acpmux/newtab/NewTabAppSlot.tsx",
-    "apps/scene/SceneSymbol.tsx#SceneSymbol",
-  ],
+  covers: ["agent-session/acpmux/newtab/NewTabAppSlot.tsx", "apps/scene/SceneSymbol.tsx#SceneSymbol"],
   load: async () => LookPage,
   styles: () =>
     Promise.all([
