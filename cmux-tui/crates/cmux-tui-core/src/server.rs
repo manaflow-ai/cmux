@@ -480,6 +480,10 @@ pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-native-hosting-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
+/// `process-census`: the terminal hosts and state this daemon and its
+/// siblings keep, from their records (`mux/process_census.rs`). Trusted local
+/// connections only.
+pub const PROCESS_CENSUS_CAPABILITY: &str = "process-census-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// A client that sends this in `set-client-info` gets `restart` on the
@@ -993,6 +997,12 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
+    /// The terminal hosts this daemon holds and every record root it can
+    /// read, each host classified from records, leases and session guards,
+    /// never from argv (`mux/process_census.rs`; `cmux ps`). Trusted local
+    /// connections only; read-only: it saves nothing (`cmux gc` saves the
+    /// unowned-host sightings).
+    ProcessCensus,
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),

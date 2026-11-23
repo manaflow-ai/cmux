@@ -19339,6 +19339,25 @@
     "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers); unknown names are ignored."
    ]
   },
+  "process-census": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "process-census-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only; read-only, never journaled.",
+    "Hosts are classified from records, leases and session guards, never from process arguments. See spec/commands.md."
+   ]
+  },
   "paste-image": {
    "authority": "control",
    "since": 12,
