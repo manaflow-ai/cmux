@@ -29,7 +29,11 @@ struct PointerMenuTrimTests {
             "agent.share", "agent.share.invite", "agentChat.copyIdentifier", "agentChat.subagentLimit",
             "browser.editSource", "browser.openInChromium", "browserProfile.duplicateTab", "browserProfile.moveTab",
             "closeOtherTabsInPane", "closeTab", "closeTabsToLeft",
-            "closeTabsToRight", "disconnectRemoteTab", "duplicateTab", "file.openAsPage",
+            "closeTabsToRight",
+            // customize.open: Customize…, the row #43407 put on each big part's right-click menu (Leo: "you should
+            // maybe be even able to right click customize on anything").
+            "customize.open",
+            "disconnectRemoteTab", "duplicateTab", "file.openAsPage",
             "home.messageAbout",
             // macScreen.open, macScreen.stopViewing: the Screen Sharing rows that #42789 put into the tab menu.
             "macScreen.open", "macScreen.stopViewing",
@@ -53,7 +57,8 @@ struct PointerMenuTrimTests {
         // library can be older than that change, so the test expects the id exactly when the catalog has it. When
         // the pinned library has the row, a change puts the id into `retained` and takes these 2 lines out.
         let pinned: Set<ActionID> = ActionCatalog.all.contains { $0.id == "cloud.team.copyLink" } ? ["cloud.team.copyLink"] : []
-        #expect(shown == retained.union(pinned))
+        // Point at Element (ask-5077a4ec48) is on the tab menu once the pinned catalog carries it.
+        #expect(shown.subtracting(["agentPane.togglePointerInspector"]) == retained.union(pinned))
         for id in Self.tabTrimmed {
             let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
             #expect(!descriptor.surfacePlan.contextMenus.contains { $0.context == .tab })
@@ -83,9 +88,13 @@ struct PointerMenuTrimTests {
             "remote.openRemote",
             // macScreen.open: Open Screen Sharing, the row that #42789 put into the pane menu.
             "macScreen.open",
+            // customize.open: Customize…, the row #43407 put on each big part's right-click menu.
+            "customize.open",
         ]
         // New ▸ Kind ▸ place: the four kind submenus and their forty places (NewPlacementActionCatalog).
-        #expect(shown == retained.union(ActionID.newPlacementSubmenus).union(ActionID.newPlacementActions))
+        // Point at Element (ask-5077a4ec48) is on the pane menu once the pinned catalog carries it.
+        #expect(shown.subtracting(["agentPane.togglePointerInspector"])
+            == retained.union(ActionID.newPlacementSubmenus).union(ActionID.newPlacementActions))
         for id in Self.paneTrimmed {
             let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
             #expect(descriptor.isPaletteVisible, "\(id)")

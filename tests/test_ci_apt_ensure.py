@@ -27,6 +27,7 @@ TREE_WORKFLOWS = (
     "cmux-tui-artifacts.yml",
     "cmux-tui-build-package.yml",
     "cmux-tui-tree-request.yml",
+    "cmux-tui-spec.yml",
 )
 
 
@@ -85,6 +86,21 @@ class AptEnsureTest(unittest.TestCase):
             text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
             with self.subTest(workflow=name):
                 self.assertIsNone(re.search(r"sudo\s+(-\S+\s+)*apt(-get)?\s", text))
+
+    def test_a_replayed_commit_runs_the_kept_helper(self) -> None:
+        # cmux#47809 review: a commit replayed from before 2026-11-18 has no scripts/ci/apt-ensure.sh, so a
+        # step after "Check out the replayed commit" runs the copy kept in RUNNER_TEMP before the checkout.
+        text = (ROOT / ".github" / "workflows" / "cmux-tui-spec.yml").read_text(encoding="utf-8")
+        for match in re.finditer(r"- name: Check out the replayed commit\n", text):
+            before, after = text[:match.start()], text[match.end():]
+            job_end = re.search(r"\n  [A-Za-z0-9_-]+:\n", after)
+            after = after[:job_end.start()] if job_end else after
+            keep_at = before.rfind("- name: Keep this run's check scripts")
+            self.assertNotEqual(keep_at, -1)
+            keep_step = before[keep_at:].split("\n      - name:")[0]
+            self.assertIn("scripts/ci/apt-ensure.sh", keep_step)
+            self.assertNotRegex(after, r"bash scripts/ci/apt-ensure\.sh")
+            self.assertIn('bash "$RUNNER_TEMP/apt-ensure.sh"', after)
 
 
 if __name__ == "__main__":

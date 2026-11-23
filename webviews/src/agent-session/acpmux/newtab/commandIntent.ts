@@ -316,11 +316,13 @@ export function commandLikeness(
     if (shaped) return "command";
     return prose || words.length > 5 ? "maybe" : "command";
   }
+  // Alone, such a word is as much a prompt or a search as a program ("test", "history", "date"): a
+  // person trying the composer types "test" (David Beyer 2026-11-20: a word he typed ran as a shell
+  // command). It gets the Run row second, Return asks; one the host lists as recent still leads.
   if (AMBIGUOUS.has(first)) {
     if (shaped) return "command";
     if (prose) return "prose";
-    if (words.length === 1) return "command";
-    return words.length === 2 ? "maybe" : "prose";
+    return words.length <= 2 ? "maybe" : "prose";
   }
   // An unknown program with shell syntax (`mytool --verbose`, `mytool | head`): maybe.
   return (operator || flag) && !prose && words.length <= 6 ? "maybe" : "prose";
