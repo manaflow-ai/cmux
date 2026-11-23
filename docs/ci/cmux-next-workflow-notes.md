@@ -4787,12 +4787,6 @@ Above `if [ -z "$route" ] && [[ "$SIDE_LABEL" == glaeda-side-* ]] && [ "$GITHUB_
 
 The rescue's re-run writes no owned route (side_lane_placement.rerun_main()).
 
-## note-532
-
-Above `if [ ! -f scripts/ci/portable_job_placement.py ]; then` in `.github/workflows/cmux-next.yml`.
-
-A base branch that predates the script places nothing: every job keeps its Blacksmith route.
-
 ## note-533
 
 Above `if ! command -v timeout >/dev/null; then` in `.github/workflows/cmux-next.yml`.
