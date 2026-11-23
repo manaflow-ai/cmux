@@ -31,7 +31,9 @@ pub fn hosts(agent: Agent) -> &'static [&'static str] {
     match agent {
         Agent::Cursor => CURSOR_HOSTS,
         Agent::Github => GITHUB_HOSTS,
-        Agent::Claude | Agent::Codex | Agent::Gemini | Agent::Grok | Agent::OpenCode => ALLOWED_HOSTS,
+        Agent::Claude | Agent::Codex | Agent::Gemini | Agent::Grok | Agent::OpenCode => {
+            ALLOWED_HOSTS
+        }
     }
 }
 

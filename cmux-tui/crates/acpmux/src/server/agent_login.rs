@@ -124,12 +124,22 @@ pub(super) fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfil
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
-        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::Github | Agent::OpenCode => None,
+        Agent::Claude
+        | Agent::Gemini
+        | Agent::Grok
+        | Agent::Cursor
+        | Agent::Github
+        | Agent::OpenCode => None,
     }
     .unwrap_or_else(|| command.clone());
     let globals = match agent {
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
-        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::Github | Agent::OpenCode => Vec::new(),
+        Agent::Claude
+        | Agent::Gemini
+        | Agent::Grok
+        | Agent::Cursor
+        | Agent::Github
+        | Agent::OpenCode => Vec::new(),
     };
     Some(Cli { program, globals, env })
 }

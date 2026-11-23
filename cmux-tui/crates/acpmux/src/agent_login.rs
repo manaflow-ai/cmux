@@ -1129,7 +1129,12 @@ pub async fn start_in(
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
-        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::Github | Agent::OpenCode => None,
+        Agent::Codex
+        | Agent::Gemini
+        | Agent::Grok
+        | Agent::Cursor
+        | Agent::Github
+        | Agent::OpenCode => None,
     };
     let id = uuid::Uuid::now_v7().to_string();
     let expires_at_ms = now_ms() + EXPIRY.as_millis() as u64;
@@ -1214,7 +1219,12 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
             }
         },
         // Device flows finish by themselves.
-        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::Github | Agent::OpenCode => None,
+        Agent::Codex
+        | Agent::Gemini
+        | Agent::Grok
+        | Agent::Cursor
+        | Agent::Github
+        | Agent::OpenCode => None,
     };
     if let Some(line) = &code {
         let Ok(mut slot) = stdin.try_lock() else {
