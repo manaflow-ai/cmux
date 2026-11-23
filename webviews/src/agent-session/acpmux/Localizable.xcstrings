@@ -82911,127 +82911,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not sent, too many messages waiting: {text}"
+            "value": "Too many messages waiting: {text}"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nicht gesendet, zu viele Nachrichten warten: {text}"
+            "state": "needs_review",
+            "value": "Zu viele Nachrichten warten: {text}"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Non envoyé, trop de messages en attente : {text}"
+            "state": "needs_review",
+            "value": "Trop de messages en attente : {text}"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "لم تُرسل، رسائل كثيرة جدًا قيد الانتظار: {text}"
+            "state": "needs_review",
+            "value": "رسائل كثيرة جدًا قيد الانتظار: {text}"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No enviado, demasiados mensajes en espera: {text}"
+            "state": "needs_review",
+            "value": "Demasiados mensajes en espera: {text}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "未傳送，等待中的訊息太多：{text}"
+            "state": "needs_review",
+            "value": "等待中的訊息太多：{text}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "未发送，等待中的消息太多：{text}"
+            "state": "needs_review",
+            "value": "等待中的消息太多：{text}"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "보내지 못함, 대기 중인 메시지가 너무 많음: {text}"
+            "state": "needs_review",
+            "value": "대기 중인 메시지가 너무 많음: {text}"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "未送信、待機中のメッセージが多すぎます：{text}"
+            "state": "needs_review",
+            "value": "待機中のメッセージが多すぎます：{text}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije poslano, previše poruka čeka: {text}"
+            "value": "Previše poruka čeka: {text}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke sendt, for mange beskeder venter: {text}"
+            "value": "For mange beskeder venter: {text}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non inviato, troppi messaggi in attesa: {text}"
+            "value": "Troppi messaggi in attesa: {text}"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនបានផ្ញើ សាររង់ចាំច្រើនពេក៖ {text}"
+            "value": "សាររង់ចាំច្រើនពេក៖ {text}"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke sendt, for mange meldinger venter: {text}"
+            "value": "For mange meldinger venter: {text}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie wysłano, zbyt wiele wiadomości czeka: {text}"
+            "value": "Zbyt wiele wiadomości czeka: {text}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não enviada, mensagens demais aguardando: {text}"
+            "value": "Mensagens demais aguardando: {text}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не отправлено, слишком много ожидающих сообщений: {text}"
+            "value": "Слишком много ожидающих сообщений: {text}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้ส่ง มีข้อความรออยู่มากเกินไป: {text}"
+            "value": "มีข้อความรออยู่มากเกินไป: {text}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gönderilmedi, bekleyen çok fazla mesaj var: {text}"
+            "value": "Bekleyen çok fazla mesaj var: {text}"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не надіслано, забагато повідомлень очікує: {text}"
+            "value": "Забагато повідомлень очікує: {text}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa gửi, có quá nhiều tin nhắn đang chờ: {text}"
+            "value": "Có quá nhiều tin nhắn đang chờ: {text}"
           }
         }
       }
@@ -84356,6 +84356,16 @@
         }
       }
     },
+    "guest.ended.left": {"comment":"Guest page: the ended page's title when this guest already left the chat (the room answered share.left)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لقد غادرت هذه الدردشة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Napustili ste ovaj razgovor."}},"da":{"stringUnit":{"state":"needs_review","value":"Du forlod denne chat."}},"de":{"stringUnit":{"state":"needs_review","value":"Du hast diesen Chat verlassen."}},"en":{"stringUnit":{"state":"translated","value":"You left this chat."}},"es":{"stringUnit":{"state":"needs_review","value":"Saliste de este chat."}},"fr":{"stringUnit":{"state":"needs_review","value":"Vous avez quitté cette discussion."}},"it":{"stringUnit":{"state":"needs_review","value":"Hai lasciato questa chat."}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットから退出しました。"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នកបានចាកចេញពីការជជែកនេះ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅에서 나갔습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Du forlot denne chatten."}},"pl":{"stringUnit":{"state":"needs_review","value":"Opuszczono ten czat."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Você saiu deste chat."}},"ru":{"stringUnit":{"state":"needs_review","value":"Вы покинули этот чат."}},"th":{"stringUnit":{"state":"needs_review","value":"คุณออกจากแชตนี้แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbetten ayrıldınız."}},"uk":{"stringUnit":{"state":"needs_review","value":"Ви покинули цей чат."}},"vi":{"stringUnit":{"state":"needs_review","value":"Bạn đã rời cuộc trò chuyện này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你已离开此对话。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你已離開此對話。"}}}},
+    "guest.ended.inviteExpired": {"comment":"Guest page: the ended page's title when an account invite (not a link) has expired","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت صلاحية هذه الدعوة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ova pozivnica je istekla"}},"da":{"stringUnit":{"state":"needs_review","value":"Denne invitation er udløbet"}},"de":{"stringUnit":{"state":"needs_review","value":"Diese Einladung ist abgelaufen"}},"en":{"stringUnit":{"state":"translated","value":"This invite has expired"}},"es":{"stringUnit":{"state":"needs_review","value":"Esta invitación ha caducado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Cette invitation a expiré"}},"it":{"stringUnit":{"state":"needs_review","value":"Questo invito è scaduto"}},"ja":{"stringUnit":{"state":"needs_review","value":"この招待は期限切れです"}},"km":{"stringUnit":{"state":"needs_review","value":"ការអញ្ជើញនេះបានផុតកំណត់"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 초대가 만료되었습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne invitasjonen har utløpt"}},"pl":{"stringUnit":{"state":"needs_review","value":"To zaproszenie wygasło"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este convite expirou"}},"ru":{"stringUnit":{"state":"needs_review","value":"Срок действия приглашения истёк"}},"th":{"stringUnit":{"state":"needs_review","value":"คำเชิญนี้หมดอายุแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu davetin süresi doldu"}},"uk":{"stringUnit":{"state":"needs_review","value":"Термін дії цього запрошення минув"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lời mời này đã hết hạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此邀请已过期"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此邀請已過期"}}}},
+    "guest.ended.askNewLink": {"comment":"Guest page: muted next step under the ended page's title when the link expired or was already used","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اطلب من المالك رابطًا جديدًا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Zatražite novi link od vlasnika."}},"da":{"stringUnit":{"state":"needs_review","value":"Bed ejeren om et nyt link."}},"de":{"stringUnit":{"state":"needs_review","value":"Bitte den Besitzer um einen neuen Link."}},"en":{"stringUnit":{"state":"translated","value":"Ask the owner for a new link."}},"es":{"stringUnit":{"state":"needs_review","value":"Pide al propietario un enlace nuevo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Demandez un nouveau lien au propriétaire."}},"it":{"stringUnit":{"state":"needs_review","value":"Chiedi al proprietario un nuovo link."}},"ja":{"stringUnit":{"state":"needs_review","value":"オーナーに新しいリンクを依頼してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"សុំតំណថ្មីពីម្ចាស់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"소유자에게 새 링크를 요청하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Be eieren om en ny lenke."}},"pl":{"stringUnit":{"state":"needs_review","value":"Poproś właściciela o nowy link."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Peça um novo link ao proprietário."}},"ru":{"stringUnit":{"state":"needs_review","value":"Попросите у владельца новую ссылку."}},"th":{"stringUnit":{"state":"needs_review","value":"ขอลิงก์ใหม่จากเจ้าของ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sahibinden yeni bir bağlantı isteyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Попросіть у власника нове посилання."}},"vi":{"stringUnit":{"state":"needs_review","value":"Hãy xin chủ sở hữu một liên kết mới."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请向所有者索取新链接。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請向擁有者索取新連結。"}}}},
+    "guest.ended.askNewInvite": {"comment":"Guest page: muted next step under the ended page's title when an account invite expired","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اطلب من المالك دعوتك مرة أخرى."}},"bs":{"stringUnit":{"state":"needs_review","value":"Zamolite vlasnika da vas ponovo pozove."}},"da":{"stringUnit":{"state":"needs_review","value":"Bed ejeren om at invitere dig igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Bitte den Besitzer, dich erneut einzuladen."}},"en":{"stringUnit":{"state":"translated","value":"Ask the owner to invite you again."}},"es":{"stringUnit":{"state":"needs_review","value":"Pide al propietario que te invite de nuevo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Demandez au propriétaire de vous inviter à nouveau."}},"it":{"stringUnit":{"state":"needs_review","value":"Chiedi al proprietario di invitarti di nuovo."}},"ja":{"stringUnit":{"state":"needs_review","value":"オーナーにもう一度招待してもらってください。"}},"km":{"stringUnit":{"state":"needs_review","value":"សុំឱ្យម្ចាស់អញ្ជើញអ្នកម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"소유자에게 다시 초대해 달라고 요청하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Be eieren om å invitere deg på nytt."}},"pl":{"stringUnit":{"state":"needs_review","value":"Poproś właściciela o ponowne zaproszenie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Peça ao proprietário para convidar você de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Попросите владельца пригласить вас снова."}},"th":{"stringUnit":{"state":"needs_review","value":"ขอให้เจ้าของเชิญคุณอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sahibinden sizi yeniden davet etmesini isteyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Попросіть власника запросити вас знову."}},"vi":{"stringUnit":{"state":"needs_review","value":"Hãy nhờ chủ sở hữu mời bạn lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请让所有者重新邀请你。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請讓擁有者重新邀請你。"}}}},
+    "guest.join.asDetailTalk": {"comment":"Guest page: line under the title on a link's join for a signed-in cmux account when the link lets it send messages","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انضم بحساب cmux الخاص بك. يوافق المالك على كل رسالة ترسلها."}},"bs":{"stringUnit":{"state":"needs_review","value":"Pridružite se svojim cmux računom. Vlasnik odobrava svaku poruku koju pošaljete."}},"da":{"stringUnit":{"state":"needs_review","value":"Deltag med din cmux-konto. Ejeren godkender hver besked, du sender."}},"de":{"stringUnit":{"state":"needs_review","value":"Tritt mit deinem cmux-Konto bei. Der Besitzer genehmigt jede Nachricht, die du sendest."}},"en":{"stringUnit":{"state":"translated","value":"Join with your cmux account. The owner approves each message you send."}},"es":{"stringUnit":{"state":"needs_review","value":"Únete con tu cuenta de cmux. El propietario aprueba cada mensaje que envíes."}},"fr":{"stringUnit":{"state":"needs_review","value":"Rejoignez avec votre compte cmux. Le propriétaire approuve chaque message que vous envoyez."}},"it":{"stringUnit":{"state":"needs_review","value":"Partecipa con il tuo account cmux. Il proprietario approva ogni messaggio che invii."}},"ja":{"stringUnit":{"state":"needs_review","value":"cmux アカウントで参加します。送信する各メッセージはオーナーが承認します。"}},"km":{"stringUnit":{"state":"needs_review","value":"ចូលរួមដោយប្រើគណនី cmux របស់អ្នក។ ម្ចាស់អនុម័តសារនីមួយៗដែលអ្នកផ្ញើ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"cmux 계정으로 참여합니다. 보내는 메시지는 소유자가 하나씩 승인합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Bli med med cmux-kontoen din. Eieren godkjenner hver melding du sender."}},"pl":{"stringUnit":{"state":"needs_review","value":"Dołącz kontem cmux. Właściciel zatwierdza każdą wysłaną wiadomość."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Entre com sua conta cmux. O proprietário aprova cada mensagem que você enviar."}},"ru":{"stringUnit":{"state":"needs_review","value":"Присоединяйтесь с аккаунтом cmux. Владелец одобряет каждое ваше сообщение."}},"th":{"stringUnit":{"state":"needs_review","value":"เข้าร่วมด้วยบัญชี cmux ของคุณ เจ้าของจะอนุมัติทุกข้อความที่คุณส่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"cmux hesabınızla katılın. Gönderdiğiniz her mesajı sahibi onaylar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Приєднуйтеся з обліковим записом cmux. Власник схвалює кожне ваше повідомлення."}},"vi":{"stringUnit":{"state":"needs_review","value":"Tham gia bằng tài khoản cmux của bạn. Chủ sở hữu duyệt từng tin nhắn bạn gửi."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"使用你的 cmux 账号加入。你发送的每条消息都需所有者批准。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"使用你的 cmux 帳號加入。你傳送的每則訊息都需擁有者核准。"}}}},
+    "guest.join.asDetailView": {"comment":"Guest page: line under the title on a link's join for a signed-in cmux account when the link only lets it watch","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ستشاهد هذه الدردشة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Gledat ćete ovaj razgovor."}},"da":{"stringUnit":{"state":"needs_review","value":"Du kan følge denne chat."}},"de":{"stringUnit":{"state":"needs_review","value":"Du siehst diesem Chat zu."}},"en":{"stringUnit":{"state":"translated","value":"You'll watch this chat."}},"es":{"stringUnit":{"state":"needs_review","value":"Verás este chat."}},"fr":{"stringUnit":{"state":"needs_review","value":"Vous suivrez cette discussion."}},"it":{"stringUnit":{"state":"needs_review","value":"Guarderai questa chat."}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットを閲覧します。"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នកនឹងមើលការជជែកនេះ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅을 보게 됩니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Du ser på denne chatten."}},"pl":{"stringUnit":{"state":"needs_review","value":"Będziesz oglądać ten czat."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Você vai acompanhar este chat."}},"ru":{"stringUnit":{"state":"needs_review","value":"Вы будете смотреть этот чат."}},"th":{"stringUnit":{"state":"needs_review","value":"คุณจะดูแชตนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbeti izleyeceksiniz."}},"uk":{"stringUnit":{"state":"needs_review","value":"Ви переглядатимете цей чат."}},"vi":{"stringUnit":{"state":"needs_review","value":"Bạn sẽ xem cuộc trò chuyện này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你将观看此对话。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你將觀看此對話。"}}}},
+    "guest.join.signInExpired": {"comment":"Guest page: a signed-in link join refused because the cmux sign-in lapsed; followed by a sign-in link","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت صلاحية تسجيل دخولك."}},"bs":{"stringUnit":{"state":"needs_review","value":"Vaša prijava je istekla."}},"da":{"stringUnit":{"state":"needs_review","value":"Dit login er udløbet."}},"de":{"stringUnit":{"state":"needs_review","value":"Deine Anmeldung ist abgelaufen."}},"en":{"stringUnit":{"state":"translated","value":"Your sign-in expired."}},"es":{"stringUnit":{"state":"needs_review","value":"Tu sesión ha caducado."}},"fr":{"stringUnit":{"state":"needs_review","value":"Votre connexion a expiré."}},"it":{"stringUnit":{"state":"needs_review","value":"Il tuo accesso è scaduto."}},"ja":{"stringUnit":{"state":"needs_review","value":"サインインの有効期限が切れました。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការចូលគណនីរបស់អ្នកបានផុតកំណត់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"로그인이 만료되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Påloggingen din har utløpt."}},"pl":{"stringUnit":{"state":"needs_review","value":"Twoje logowanie wygasło."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Seu login expirou."}},"ru":{"stringUnit":{"state":"needs_review","value":"Срок входа истёк."}},"th":{"stringUnit":{"state":"needs_review","value":"การลงชื่อเข้าใช้ของคุณหมดอายุแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Oturumunuzun süresi doldu."}},"uk":{"stringUnit":{"state":"needs_review","value":"Термін входу минув."}},"vi":{"stringUnit":{"state":"needs_review","value":"Phiên đăng nhập của bạn đã hết hạn."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你的登录已过期。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你的登入已過期。"}}}},
+    "guest.join.signInAgain": {"comment":"Guest page: the link after 'Your sign-in expired.' that signs in again","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سجّل الدخول مرة أخرى."}},"bs":{"stringUnit":{"state":"needs_review","value":"Prijavite se ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Log ind igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Melde dich erneut an."}},"en":{"stringUnit":{"state":"translated","value":"Sign in again."}},"es":{"stringUnit":{"state":"needs_review","value":"Inicia sesión de nuevo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Reconnectez-vous."}},"it":{"stringUnit":{"state":"needs_review","value":"Accedi di nuovo."}},"ja":{"stringUnit":{"state":"needs_review","value":"もう一度サインインしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ចូលម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"다시 로그인하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Logg på igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Zaloguj się ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Entre novamente."}},"ru":{"stringUnit":{"state":"needs_review","value":"Войдите снова."}},"th":{"stringUnit":{"state":"needs_review","value":"ลงชื่อเข้าใช้อีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeniden oturum açın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Увійдіть знову."}},"vi":{"stringUnit":{"state":"needs_review","value":"Đăng nhập lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请重新登录。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請重新登入。"}}}},
+    "guest.invite.otherAccount": {"comment":"Guest page: link after 'This cmux account isn't invited to this chat.' to sign in with a different cmux account","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سجّل الدخول بحساب آخر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prijavite se drugim računom"}},"da":{"stringUnit":{"state":"needs_review","value":"Log ind med en anden konto"}},"de":{"stringUnit":{"state":"needs_review","value":"Mit einem anderen Konto anmelden"}},"en":{"stringUnit":{"state":"translated","value":"Sign in with another account"}},"es":{"stringUnit":{"state":"needs_review","value":"Iniciar sesión con otra cuenta"}},"fr":{"stringUnit":{"state":"needs_review","value":"Se connecter avec un autre compte"}},"it":{"stringUnit":{"state":"needs_review","value":"Accedi con un altro account"}},"ja":{"stringUnit":{"state":"needs_review","value":"別のアカウントでサインイン"}},"km":{"stringUnit":{"state":"needs_review","value":"ចូលដោយប្រើគណនីផ្សេង"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 계정으로 로그인"}},"nb":{"stringUnit":{"state":"needs_review","value":"Logg på med en annen konto"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zaloguj się na inne konto"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Entrar com outra conta"}},"ru":{"stringUnit":{"state":"needs_review","value":"Войти с другим аккаунтом"}},"th":{"stringUnit":{"state":"needs_review","value":"ลงชื่อเข้าใช้ด้วยบัญชีอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başka bir hesapla oturum açın"}},"uk":{"stringUnit":{"state":"needs_review","value":"Увійти з іншим обліковим записом"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đăng nhập bằng tài khoản khác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"使用其他账号登录"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"使用其他帳號登入"}}}},
+    "guest.prompt.tryAgain": {"comment":"Guest page: quiet button at the end of a 'Not sent' line that sends the guest's refused message again","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"حاول مرة أخرى"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokušaj ponovo"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøv igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Erneut versuchen"}},"en":{"stringUnit":{"state":"translated","value":"Try again"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réessayer"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprova"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行"}},"km":{"stringUnit":{"state":"needs_review","value":"ព្យាយាមម្តងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"다시 시도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøv igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Spróbuj ponownie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторить"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tekrar dene"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thử lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重試"}}}},
     "guest.ended.expired": {
       "comment": "Guest page: the share link's time ran out; no retry",
       "extractionState": "manual",
@@ -84495,127 +84505,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The owner ended sharing"
+            "value": "The owner stopped sharing this chat"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Der Besitzer hat die Freigabe beendet"
+            "state": "needs_review",
+            "value": "Der Besitzer teilt diesen Chat nicht mehr"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Le propriétaire a arrêté le partage"
+            "state": "needs_review",
+            "value": "Le propriétaire a cessé de partager cette discussion"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "أنهى المالك المشاركة"
+            "state": "needs_review",
+            "value": "توقف المالك عن مشاركة هذه الدردشة"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "El propietario dejó de compartir"
+            "state": "needs_review",
+            "value": "El propietario dejó de compartir este chat"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "擁有者已結束分享"
+            "state": "needs_review",
+            "value": "擁有者已停止分享此對話"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "所有者已停止共享"
+            "state": "needs_review",
+            "value": "所有者已停止共享此对话"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "소유자가 공유를 종료했습니다"
+            "state": "needs_review",
+            "value": "소유자가 이 채팅 공유를 중단했습니다"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "オーナーが共有を終了しました"
+            "state": "needs_review",
+            "value": "オーナーがこのチャットの共有を停止しました"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vlasnik je prekinuo dijeljenje"
+            "value": "Vlasnik je prestao dijeliti ovaj razgovor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ejeren har afsluttet delingen"
+            "value": "Ejeren holdt op med at dele denne chat"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il proprietario ha interrotto la condivisione"
+            "value": "Il proprietario ha smesso di condividere questa chat"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម្ចាស់បានបញ្ចប់ការចែករំលែក"
+            "value": "ម្ចាស់បានឈប់ចែករំលែកការជជែកនេះ"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eieren har avsluttet delingen"
+            "value": "Eieren sluttet å dele denne chatten"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Właściciel zakończył udostępnianie"
+            "value": "Właściciel przestał udostępniać ten czat"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O dono encerrou o compartilhamento"
+            "value": "O proprietário parou de compartilhar este chat"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Владелец прекратил общий доступ"
+            "value": "Владелец перестал делиться этим чатом"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เจ้าของหยุดการแชร์แล้ว"
+            "value": "เจ้าของหยุดแชร์แชตนี้แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sahibi paylaşımı sonlandırdı"
+            "value": "Sahibi bu sohbeti paylaşmayı durdurdu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Власник припинив спільний доступ"
+            "value": "Власник припинив ділитися цим чатом"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chủ sở hữu đã dừng chia sẻ"
+            "value": "Chủ sở hữu đã ngừng chia sẻ cuộc trò chuyện này"
           }
         }
       }
@@ -84627,127 +84637,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You were removed"
+            "value": "The owner removed you from this chat"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Du wurdest entfernt"
+            "state": "needs_review",
+            "value": "Der Besitzer hat dich aus diesem Chat entfernt"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vous avez été retiré"
+            "state": "needs_review",
+            "value": "Le propriétaire vous a retiré de cette discussion"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تمت إزالتك"
+            "state": "needs_review",
+            "value": "أزالك المالك من هذه الدردشة"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Se te ha quitado"
+            "state": "needs_review",
+            "value": "El propietario te quitó de este chat"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "你已被移除"
+            "state": "needs_review",
+            "value": "擁有者已將你移出此對話"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "你已被移除"
+            "state": "needs_review",
+            "value": "所有者已将你移出此对话"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "내보내졌습니다"
+            "state": "needs_review",
+            "value": "소유자가 이 채팅에서 회원님을 내보냈습니다"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "削除されました"
+            "state": "needs_review",
+            "value": "オーナーがあなたをこのチャットから削除しました"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uklonjen si"
+            "value": "Vlasnik vas je uklonio iz ovog razgovora"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Du blev fjernet"
+            "value": "Ejeren fjernede dig fra denne chat"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sei stato rimosso"
+            "value": "Il proprietario ti ha rimosso da questa chat"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អ្នកត្រូវបានដកចេញ"
+            "value": "ម្ចាស់បានដកអ្នកចេញពីការជជែកនេះ"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Du ble fjernet"
+            "value": "Eieren fjernet deg fra denne chatten"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usunięto cię"
+            "value": "Właściciel usunął cię z tego czatu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Você foi removido"
+            "value": "O proprietário removeu você deste chat"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вас удалили"
+            "value": "Владелец удалил вас из этого чата"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คุณถูกนำออกแล้ว"
+            "value": "เจ้าของนำคุณออกจากแชตนี้แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çıkarıldın"
+            "value": "Sahibi sizi bu sohbetten çıkardı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вас вилучено"
+            "value": "Власник видалив вас із цього чату"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bạn đã bị xóa"
+            "value": "Chủ sở hữu đã xóa bạn khỏi cuộc trò chuyện này"
           }
         }
       }
@@ -85551,127 +85561,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't load the chat. Check your connection."
+            "value": "Couldn't load the chat."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Der Chat konnte nicht geladen werden. Prüfe deine Verbindung."
+            "state": "needs_review",
+            "value": "Der Chat konnte nicht geladen werden."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de charger la discussion. Vérifiez votre connexion."
+            "state": "needs_review",
+            "value": "Impossible de charger la discussion."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تحميل الدردشة. تحقّق من اتصالك."
+            "state": "needs_review",
+            "value": "تعذّر تحميل الدردشة."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo cargar el chat. Comprueba tu conexión."
+            "state": "needs_review",
+            "value": "No se pudo cargar el chat."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "無法載入聊天。請檢查你的網路連線。"
+            "state": "needs_review",
+            "value": "無法載入對話。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "无法加载聊天。请检查你的网络连接。"
+            "state": "needs_review",
+            "value": "无法加载对话。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "채팅을 불러오지 못했습니다. 연결을 확인하세요."
+            "state": "needs_review",
+            "value": "채팅을 불러오지 못했습니다."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "チャットを読み込めませんでした。接続を確認してください。"
+            "state": "needs_review",
+            "value": "チャットを読み込めませんでした。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chat se nije mogao učitati. Provjerite vezu."
+            "value": "Nije moguće učitati razgovor."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chatten kunne ikke indlæses. Tjek din forbindelse."
+            "value": "Kunne ikke indlæse chatten."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Impossibile caricare la chat. Controlla la connessione."
+            "value": "Impossibile caricare la chat."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនអាចផ្ទុកការជជែកបានទេ។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក។"
+            "value": "មិនអាចផ្ទុកការជជែកបានទេ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kunne ikke laste inn chatten. Sjekk tilkoblingen."
+            "value": "Kunne ikke laste inn chatten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie udało się wczytać czatu. Sprawdź połączenie."
+            "value": "Nie udało się wczytać czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não foi possível carregar o chat. Verifique sua conexão."
+            "value": "Não foi possível carregar o chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не удалось загрузить чат. Проверьте подключение."
+            "value": "Не удалось загрузить чат."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "โหลดแชทไม่ได้ ตรวจสอบการเชื่อมต่อของคุณ"
+            "value": "โหลดแชตไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sohbet yüklenemedi. Bağlantınızı kontrol edin."
+            "value": "Sohbet yüklenemedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не вдалося завантажити чат. Перевірте з’єднання."
+            "value": "Не вдалося завантажити чат."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không thể tải cuộc trò chuyện. Hãy kiểm tra kết nối."
+            "value": "Không thể tải cuộc trò chuyện."
           }
         }
       }
