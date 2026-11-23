@@ -195,14 +195,15 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_fence_joined", "tracker", "fence_joined"), ("trk_fence_ms", "tracker", "fence_join_ms"),
               # A page that drew ahead for a commit with no fence (CEFCommitPageWait): how its wait ended.
               ("trk_commit_answered", "tracker", "commit_answered"), ("trk_commit_bound", "tracker", "commit_at_bound"),
-              ("trk_commit_left", "tracker", "commit_left")]
+              ("trk_commit_left", "tracker", "commit_left"), ("trk_answer_late", "tracker", "commit_answer_late"),
+              ("trk_answer_failed", "tracker", "commit_answer_failed"), ("trk_answer_ms", "tracker", "commit_answer_ms")]
 # --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
 # window reorders); None on builds without them.
 LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
 BROWSER_KEYS = ([key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
                 + ["gap_frames", "gap_delay_frames", "gap_layout_lag"])
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
-                 "fencej", "fencems", "answ", "bound", "left", "rAF", "catch", "reord", "post/f", "gap", "delay", "lag"]
+                 "fencej", "fencems", "answ", "bound", "left", "late", "fail", "ansms", "rAF", "catch", "reord", "post/f", "gap", "delay", "lag"]
 # --browser: the layout actions whose page gap is measured (`page_gap`): a split, a close, a zoom or unzoom of the panes.
 GAP_ACTIONS = ("split", "close", "split-down", "close-down", "column", "column-close", "zoom", "unzoom")
 
@@ -705,7 +706,8 @@ def measure(label, name):
                  f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
                  f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}  "
                  f"gap {result['gap_frames']} frames (delay {result['gap_delay_frames']}, lag {result['gap_layout_lag']})  "
-                 f"commit wait answered {result['trk_commit_answered']} at bound {result['trk_commit_bound']} left {result['trk_commit_left']}")
+                 f"commit wait answered {result['trk_commit_answered']} at bound {result['trk_commit_bound']} left {result['trk_commit_left']}"
+                 f" (answers late {result['trk_answer_late']} failed {result['trk_answer_failed']} {result['trk_answer_ms']} ms)")
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "

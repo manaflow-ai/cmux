@@ -4,7 +4,7 @@
 // owner is unreachable, and shows refusals as the one toast stack's toast (FeedView).
 import { useSyncExternalStore } from "react";
 import { NoticeStack } from "../../ui/NoticeStack";
-import { useLasting } from "../../ui/lasting";
+import { useConnectionQuiet } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import type { FeedReject, FeedStore } from "./store";
 import { closedStatus } from "./model";
@@ -30,11 +30,11 @@ export function rejectText(reject: FeedReject, strings: Pick<Strings, "t" | "for
 export function FeedPage({ store, strings }: { store: FeedStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
-  // A lost page link says so only once it lasts (a launch, a daemon restart re-read on their own);
+  // A lost page link says so only once it lasts (the shared 10 s bound), as a corner mark that takes no room (a launch, a daemon restart re-read on their own);
   // so does the owner's own disconnected state, in its words (its link drops on the same restarts).
-  const linkDown = useLasting(snap.link === "disconnected");
+  const linkDown = useConnectionQuiet(snap.link === "disconnected");
   const owner = snap.view?.connection;
-  const ownerDown = useLasting(owner?.state === "disconnected");
+  const ownerDown = useConnectionQuiet(owner?.state === "disconnected");
   const banner = linkDown ? t("owner.disconnected") : ownerDown ? owner?.reason || t("owner.disconnected") : undefined;
   const props = { store, snap, strings };
   const view = snap.route.view;
