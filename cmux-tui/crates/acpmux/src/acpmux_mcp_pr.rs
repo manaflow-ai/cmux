@@ -1,11 +1,22 @@
 //! The `acpmux` MCP server's `pr_state` tool: one pull request's state in one call, condensed.
 //! Its first line is the outcome (`#1609 open at 4db9066b: mergeable, 1 failing check
 //! (ws-check), SHIP at head`), the lines after it the detail: head and base, mergeability,
-//! failing checks by name and how many are pending, the newest review receipt (a comment line
+//! failing checks by name, how many are pending and how many gave no verdict, the newest review receipt (a comment line
 //! `Review (...): SHIP at <sha>` or `BLOCK at <sha>`) and whether it is at the head, and holds
 //! (a `HOLD:` body line or a hold label). `structuredContent` carries the same with `summary`
 //! (the first line) and `status`: `ok` (open with nothing failing or pending, merged, or
 //! closed), `failed` (a failing check, or a BLOCK at the head) or `running` (checks pending).
+//!
+//! Checks answer in three ways, not two. One ran and said yes; one ran and said no; and one gave no
+//! verdict at all, which is an absence, not a negative. `skipped` decided it had nothing to do, so
+//! nothing it would have judged was judged -- there is nothing to re-run and no result to compare.
+//! `cancelled` stopped before it judged -- it has to run again, or the attempt that replaced it has
+//! to be read. Counting either as green hid that a change went unjudged (a cmux PR can carry over a
+//! hundred skipped checks and still read "checks green"); counting either as a failing check was a
+//! false red that sent agents hunting a lint that was never emitted (cmux#51140, cmux#51251). So
+//! each absence is counted apart, named, and carries its own next step, never inside the failing
+//! tally. `failingChecks`, `status` and so which PRs a lander merges are unchanged by this: a
+//! cancelled check is still in `failingChecks`, and `noVerdictChecks` is additive.
 //!
 //! Like every condensed tool it takes an optional `description`, a few words the transcript
 //! titles the row with. The data is one `gh pr view` run by this server, which the chat's agent
@@ -27,13 +38,13 @@ const FIELDS: &str = "number,url,state,headRefOid,baseRefName,mergeable,mergedAt
 labels,body,comments,statusCheckRollup";
 /// How long gh may take: under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
 const GH_TIMEOUT: Duration = Duration::from_secs(45);
-/// Failing check names the first line lists before `+N more`.
+/// Check names a bounded list shows before `+N more`.
 const NAMES_SHOWN: usize = 3;
 
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "One pull request's state in one call, instead of several gh commands in a shell. The first line is the outcome (\"#1609 open at 4db9066b: mergeable, 1 failing check (ws-check), SHIP at head\" or \"#1557 merged as f0175fe0\"); then head and base, mergeability, failing checks by name and the pending count, the newest review receipt (a `Review (...): SHIP at <sha>` or `BLOCK at <sha>` comment line) and whether it is at the head, and HOLD lines or hold labels. structuredContent.status is ok, failed (a failing check, or BLOCK at head) or running (checks pending).",
+        "description": "One pull request's state in one call, instead of several gh commands in a shell. The first line is the outcome (\"#1609 open at 4db9066b: mergeable, 1 failing check (ws-check), SHIP at head\" or \"#1557 merged as f0175fe0\"); then head and base, mergeability, failing checks by name, the pending count and the no-verdict count, the newest review receipt (a `Review (...): SHIP at <sha>` or `BLOCK at <sha>` comment line) and whether it is at the head, and HOLD lines or hold labels. structuredContent.status is ok, failed (a failing check, or BLOCK at head) or running (checks pending). A check that gave no verdict is neither green nor red and is never inside the failing tally: a skipped one (nothing to re-run, no result to compare) and a cancelled one (re-run it, or read the newer attempt) are each counted and named apart, and both are in noVerdictChecks, so a reader never hunts a lint that was never emitted. failingChecks still carries cancelled checks, so routing is unchanged.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -221,22 +232,48 @@ fn newest_receipt(comments: &[Value]) -> Option<(Receipt, String)> {
 }
 
 /// A `statusCheckRollup` split by what each check says.
+///
+/// Three kinds of answer, not two: a check that judged, a check that judged and said no, and a check
+/// that gave no verdict at all. `judged_no` holds the second; `skipped` and `cancelled` hold the third,
+/// and each names its own next step, because they are not the same absence (see [`pr_state`]).
 #[derive(Default)]
 struct Rollup {
-    /// Names of checks that failed: the PR's own red.
-    failing: Vec<String>,
+    /// Names of checks that ran and said no: the PR's own red, the only thing to go and fix.
+    judged_no: Vec<String>,
+    /// Names of checks stopped before they judged (`CANCELLED`). No verdict exists, so there is
+    /// nothing to compare: the step is to re-run it, or to read the attempt that replaced it.
+    cancelled: Vec<String>,
+    /// Names of checks that decided they had nothing to do (`SKIPPED`): nothing they would have
+    /// judged was judged. There is nothing to re-run and no result to compare -- it is not a result.
+    skipped: Vec<String>,
     /// Checks still running or not reported yet.
     pending: usize,
     /// Checks that ran and passed (`SUCCESS`, `NEUTRAL`).
     passed: usize,
-    /// Names of checks that gave no verdict: `SKIPPED` (the check decided it had nothing to do,
-    /// so nothing it would have judged was judged) and `CANCELLED` (stopped before it judged).
-    /// A skipped check is neither a pass nor a failure, so it is counted here and nowhere else;
-    /// a cancelled one is also in `failing`, which is what decides `status` (see [`pr_state`]).
-    no_verdict: Vec<String>,
 }
 
-/// Split a `statusCheckRollup` into failing, pending, passed and no-verdict checks.
+impl Rollup {
+    /// What `status` and `failingChecks` count as red. A cancelled check is in here, as it was before
+    /// this split, so which PRs merge is unchanged; the rendered tally counts it apart (`judged_no`).
+    fn failing(&self) -> Vec<String> {
+        let mut names = self.judged_no.clone();
+        names.extend(self.cancelled.iter().cloned());
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    /// Every check with no verdict: skipped and cancelled together, for `noVerdictChecks`.
+    fn no_verdict(&self) -> Vec<String> {
+        let mut names = self.skipped.clone();
+        names.extend(self.cancelled.iter().cloned());
+        names.sort();
+        names.dedup();
+        names
+    }
+}
+
+/// Split a `statusCheckRollup` by what each check says.
 fn checks(rollup: &[Value]) -> Rollup {
     let mut out = Rollup::default();
     for c in rollup {
@@ -245,7 +282,7 @@ fn checks(rollup: &[Value]) -> Rollup {
         if text(c, "__typename") == Some("StatusContext") || c.get("context").is_some() {
             // A commit status has no skipped state: error, failure, pending or success.
             match up("state").as_str() {
-                "FAILURE" | "ERROR" => out.failing.push(name),
+                "FAILURE" | "ERROR" => out.judged_no.push(name),
                 "PENDING" | "EXPECTED" | "" => out.pending = out.pending.saturating_add(1),
                 _ => out.passed = out.passed.saturating_add(1),
             }
@@ -256,18 +293,15 @@ fn checks(rollup: &[Value]) -> Rollup {
             continue;
         }
         match up("conclusion").as_str() {
-            "SKIPPED" => out.no_verdict.push(name),
-            "CANCELLED" => {
-                out.no_verdict.push(name.clone());
-                out.failing.push(name);
-            }
+            "SKIPPED" => out.skipped.push(name),
+            "CANCELLED" => out.cancelled.push(name),
             "FAILURE" | "TIMED_OUT" | "STARTUP_FAILURE" | "ACTION_REQUIRED" => {
-                out.failing.push(name)
+                out.judged_no.push(name)
             }
             _ => out.passed = out.passed.saturating_add(1),
         }
     }
-    for names in [&mut out.failing, &mut out.no_verdict] {
+    for names in [&mut out.judged_no, &mut out.cancelled, &mut out.skipped] {
         names.sort();
         names.dedup();
     }
@@ -296,6 +330,16 @@ fn plural(n: usize, one: &str) -> String {
     if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
 }
 
+/// Up to [`NAMES_SHOWN`] names, then `+N more`: a list that stays one bounded line however many
+/// checks a rollup holds (a cmux PR can carry over a hundred skipped ones).
+fn cut(names: &[String]) -> String {
+    let mut shown = names.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
+    if names.len() > NAMES_SHOWN {
+        shown.push(format!("+{} more", names.len().saturating_sub(NAMES_SHOWN)));
+    }
+    shown.join(", ")
+}
+
 /// The result of `pr_state` for `gh pr view --json` output: the text (outcome line first) and
 /// the `structuredContent`.
 pub(super) fn pr_state(pr: &Value) -> (String, Value) {
@@ -305,7 +349,11 @@ pub(super) fn pr_state(pr: &Value) -> (String, Value) {
     let state = s("state").to_ascii_uppercase();
     let repo = parse_url(s("url")).map(|(r, _)| r);
     let rollup = field(pr, "statusCheckRollup").as_array().map(Vec::as_slice).unwrap_or_default();
-    let (failing, pending, passed) = checks(rollup);
+    let split = checks(rollup);
+    let Rollup { judged_no, cancelled, skipped, pending, passed } = &split;
+    // What routes: a cancelled check is red here exactly as it was before (`Rollup::failing`).
+    let failing = split.failing();
+    let no_verdict = split.no_verdict();
     let comments = field(pr, "comments").as_array().map(Vec::as_slice).unwrap_or_default();
     let review = newest_receipt(comments);
     let at_head = |r: &Receipt| !head.is_empty() && head.starts_with(&r.sha);
@@ -326,16 +374,22 @@ pub(super) fn pr_state(pr: &Value) -> (String, Value) {
         "MERGED" => (format!("#{number} merged as {}", short(merge_commit)), "ok"),
         "CLOSED" => (format!("#{number} closed unmerged at {}", short(&head)), "ok"),
         _ => {
-            let checks_part = if !failing.is_empty() {
-                let mut names = failing.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
-                if failing.len() > NAMES_SHOWN {
-                    names.push(format!("+{} more", failing.len().saturating_sub(NAMES_SHOWN)));
-                }
-                format!("{} ({})", plural(failing.len(), "failing check"), names.join(", "))
-            } else if pending > 0 {
-                format!("{} pending", plural(pending, "check"))
-            } else if passed > 0 {
+            // A failing check is the one thing to go and fix, so it leads. An absence never reads as a
+            // failing check: a rollup whose only red is a cancelled check says "no verdict", not "1
+            // failing check" (cmux#51251 read exactly that on a PR that was landable).
+            let checks_part = if !judged_no.is_empty() {
+                format!("{} ({})", plural(judged_no.len(), "failing check"), cut(judged_no))
+            } else if !cancelled.is_empty() {
+                format!("{} cancelled, no verdict ({})", cancelled.len(), cut(cancelled))
+            } else if *pending > 0 {
+                format!("{} pending", plural(*pending, "check"))
+            } else if *passed > 0 && skipped.is_empty() {
                 "checks green".to_owned()
+            } else if *passed > 0 {
+                // Skipped checks are not green: say how many judged nothing.
+                format!("checks green, {} gave no verdict", skipped.len())
+            } else if !skipped.is_empty() {
+                format!("no check gave a verdict ({})", cut(skipped))
             } else {
                 "no checks".to_owned()
             };
@@ -346,7 +400,7 @@ pub(super) fn pr_state(pr: &Value) -> (String, Value) {
             let blocked = review.as_ref().is_some_and(|(r, _)| at_head(r) && r.verdict == "BLOCK");
             let status = if !failing.is_empty() || blocked {
                 "failed"
-            } else if pending > 0 {
+            } else if *pending > 0 {
                 "running"
             } else {
                 "ok"
@@ -362,11 +416,27 @@ pub(super) fn pr_state(pr: &Value) -> (String, Value) {
     } else {
         lines.push(format!("mergeable: {mergeable}"));
     }
-    let mut check_line = format!("checks: {passed} passed, {} failing", failing.len());
-    if !failing.is_empty() {
-        check_line.push_str(&format!(" ({})", failing.join(", ")));
+    // Counted the way the four conclusions differ: passed ran and said yes, failing ran and said no, and
+    // cancelled and skipped gave no verdict, each counted apart and never inside `failing`.
+    let mut check_line = format!("checks: {passed} passed, {} failing", judged_no.len());
+    if !judged_no.is_empty() {
+        check_line.push_str(&format!(" ({})", judged_no.join(", ")));
     }
     check_line.push_str(&format!(", {pending} pending"));
+    if !cancelled.is_empty() {
+        check_line.push_str(&format!(
+            ", {} cancelled, no verdict ({}): re-run it, or read the newer attempt that replaced it",
+            cancelled.len(),
+            cut(cancelled)
+        ));
+    }
+    if !skipped.is_empty() {
+        check_line.push_str(&format!(
+            ", {} skipped, no verdict ({}): nothing to re-run and no result to compare",
+            skipped.len(),
+            cut(skipped)
+        ));
+    }
     lines.push(check_line);
     lines.push(match &review {
         None => "review: none".to_owned(),
@@ -393,6 +463,7 @@ pub(super) fn pr_state(pr: &Value) -> (String, Value) {
         "failingChecks": failing,
         "pendingChecks": pending,
         "passedChecks": passed,
+        "noVerdictChecks": no_verdict,
         "review": review.as_ref().map(|(r, by)| json!({
             "verdict": r.verdict, "sha": r.sha, "atHead": at_head(r), "line": r.line, "author": by,
         })),
