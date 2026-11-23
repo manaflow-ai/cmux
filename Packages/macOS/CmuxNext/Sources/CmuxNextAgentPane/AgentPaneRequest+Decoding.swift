@@ -13,6 +13,12 @@ extension AgentPaneRequest {
             && id.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-") }
     }
 
+    /// An editor id of cmux-window-rules' table (`vscode`, `rustrover`): 1 to 32 lowercase ASCII letters, digits or
+    /// dashes, so it names a table row and carries nothing itself. The App opens only an installed table editor.
+    static func isEditorID(_ id: String) -> Bool {
+        (1...32).contains(id.utf8.count) && id.utf8.allSatisfy { (0x61...0x7A).contains($0) || (0x30...0x39).contains($0) || $0 == 0x2D }
+    }
+
     /// A page's one-time hand-off token (webviews commandPlace.ts: a UUID): 16 to 64 ASCII letters,
     /// digits and dashes, so it names a stored entry and carries nothing itself.
     static func isHandoffToken(_ token: String) -> Bool {
@@ -563,7 +569,7 @@ extension AgentPaneRequest {
             if let pinch = AgentPaneSessionInfoPinch.decode(params) { self = .sessionInfoPinch(pinch) }
             else { self = .unsupported(method) }
         case "pane.toastAvoidance":
-            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first) }
             else { self = .unsupported(method) }
         case "pane.toast":
             if let message = params?["message"] as? String, !message.isEmpty {
@@ -654,11 +660,15 @@ extension AgentPaneRequest {
             let environment = params?["environment"].map { $0 as? String }
             // A `handoff` is New Cloud Chat's only, and a token; any other is refused, never dropped.
             let handoff = params?["handoff"].map { $0 as? String }
+            // An `app` is the editor id of a folder action that opens one (Open in Editor, Open In ▸); any other
+            // is refused, never dropped (which would open the default editor instead).
+            let app = params?["app"].map { $0 as? String }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
                environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
-               handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true {
-                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil)
+               handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true,
+               app.map({ $0.map { AgentPaneModel.editorActions.contains(id) && AgentPaneRequest.isEditorID($0) } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, app: app ?? nil)
             } else {
                 self = .unsupported(method)
             }
@@ -684,6 +694,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "editors.list": self = .editorsList
         case "quick.dismiss": self = .quickDismiss
         case "quick.openInWindow":
             let id = params?["sessionId"] as? String
