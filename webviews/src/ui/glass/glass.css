@@ -486,13 +486,28 @@
   syntax: "*";
   inherits: false;
 }
+/* TEXT ON GLASS KEEPS ITS FLOOR (Leo, 2026-11-20: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID
+   F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"; the composer's Model menu let the chat read through
+   its list, hq#15378). A popup, tooltip or hover card carries text over whatever is under it, so where
+   nothing blurs that content (no in-place blur and no App glass: over the composer, or before the App
+   draws) its underlay is never less than --surface-text-min (desktop.css), whatever the
+   chromium-glass-underlay arm. A surface the page blurs under (data-glass-over, below) or the App
+   draws (HOST GLASS, below) needs no floor: the blur hides what is under it. In-page glass
+   (.ui-glass-floats: the composer, Session Info) keeps the arm's underlay, so the input box stays as
+   glassy as the arm makes it. */
+:root {
+  --glass-text-floor: 0%;
+}
+:is(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-card).ui-glass {
+  --glass-text-floor: var(--surface-text-min, 92%);
+}
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
     :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"])
       :is(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-card, .ui-glass-floats).ui-glass {
       background:
         linear-gradient(var(--glass-tint), var(--glass-tint)),
-        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+        color-mix(in srgb, var(--glass-surface) max(var(--glass-underlay), var(--glass-text-floor)), transparent);
     }
     /* THE PAGE BLURS ITSELF UNDER THE GLASS (Leo 2026-10-30, on the Summary popover: "I don't like
        the non-glassness"). A surface that uses seeThroughBlur.ts (data-glass-over) makes what it
@@ -505,6 +520,7 @@
     }
     :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"]) .ui-glass[data-glass-over] {
       --glass-underlay: 0%;
+      --glass-text-floor: 0%;
     }
     /* HOST GLASS (hostGlass.ts; Leo 2026-11-06: "why the f*** is this not glass? Like the way the
        native menus are"). A surface marked data-host-glass has the App's own glass under the page:
@@ -591,6 +607,14 @@
   /* glass-opaque-allow: Reduce Transparency's fill only (the rules below apply it under that setting) */
   --glass-opaque: var(--surface-popup);
   border-color: transparent;
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+}
+/* A hover card that is not a tooltip popup (the header icons' preview, the thread minimap's card) is
+   the same glass: desktop.css's solid .ui-card fill never wins over it, whichever sheet loads last. */
+.ui-card.ui-glass {
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
