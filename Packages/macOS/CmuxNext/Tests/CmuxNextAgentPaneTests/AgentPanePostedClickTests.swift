@@ -57,6 +57,48 @@ struct AgentPanePostedClickTests {
         #expect(gestures.consume(), "the person's click did not count as a gesture")
     }
 
+    /// A tab the pane stopped showing stays in it, pane-sized (PaneContentView+Parking): hidden, or under
+    /// the tab shown. A click in the shown tab is its gesture only: the parked view records none, so a
+    /// delayed request from its page (Set Up Computer Use's `action.run`) cannot spend that click.
+    @Test func aClickInTheShownTabGrantsNoGestureToAParkedViewInThePane() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "parked-click-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body><button>Ask</button></body></html>".utf8).write(to: file)
+        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let shown = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let parked = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { shown.close(); parked.close(); window.close() }
+        let pane = NSView(frame: frame)
+        window.contentView = pane
+        for view in [shown, parked] {
+            view.frame = frame
+            pane.addSubview(view)
+            view.layoutSubtreeIfNeeded()
+        }
+        let click = { try Self.click(in: window, source: 0) }
+        try #require(parked.webView.bounds.contains(parked.webView.convert(try click().locationInWindow, from: nil)),
+                     "setup: the click misses the parked page; the checks below would prove nothing")
+
+        // Hidden, and above the shown tab in the pane's subviews (a switch moves no view).
+        parked.isHidden = true
+        parked.judge(try click(), eventWindow: window)
+        #expect(!parked.model.transport.gestures.isAvailable, "a hidden parked view recorded the shown tab's click")
+        shown.judge(try click(), eventWindow: window)
+        #expect(shown.model.transport.gestures.consume(), "the shown tab's own click did not count")
+
+        // Not hidden but under the tab shown: the click lands in the shown tab, not in it.
+        parked.isHidden = false
+        pane.addSubview(shown, positioned: .above, relativeTo: parked)
+        parked.judge(try click(), eventWindow: window)
+        #expect(!parked.model.transport.gestures.isAvailable, "a covered view recorded the click on the view over it")
+        shown.judge(try click(), eventWindow: window)
+        #expect(shown.model.transport.gestures.consume(), "the shown tab's own click did not count")
+    }
+
     /// A screenshot/file interaction can leave Chromium's child window temporarily not key while
     /// the pane still receives the person's Return. The send must keep its person proof in that
     /// transition; otherwise an attached prompt is refused as “Not sent”.

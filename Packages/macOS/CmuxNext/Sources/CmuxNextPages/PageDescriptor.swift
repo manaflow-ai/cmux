@@ -241,7 +241,9 @@ public extension PageDescriptor {
                   // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
                   "customize.open"])
             .union(settingsSectionActions),
-        gestureActions: ["remote.newGroup"],
+        // Grant Access on the Computer Use card is the person's own click: only that starts the grant's
+        // Allow in the guided window (OnboardingService.showComputerUse, `byPerson`); script alone opens it only.
+        gestureActions: ["remote.newGroup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"],
         dynamicPrefixes: ["backdrop", "museum", "icon", "symbol", "symbol-bold"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass

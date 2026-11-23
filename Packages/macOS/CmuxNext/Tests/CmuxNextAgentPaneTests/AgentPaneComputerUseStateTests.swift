@@ -1,3 +1,5 @@
+import AppKit
+import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -40,6 +42,34 @@ struct AgentPaneComputerUseStateTests {
         #expect(follower.state == .needsSetup)
         follower.set(.ready)
         #expect(follower.state == .ready)
+    }
+
+    /// The pane's own WebKit host (dev-server panes, the bundled WebKit fallback) has no page host
+    /// replay: its page gets the state at each handshake (AgentPaneBridge `ready`) and every later
+    /// change, as a script, never nothing (the page sends while it knows no state).
+    @Test func thePanesOwnWebKitHostGetsTheStateAtItsHandshakeAndOnEveryChange() async throws {
+        _ = NSApplication.shared
+        let model = AgentPaneModel(host: NoHost())
+        let follower = AgentPaneComputerUse(read: nil)
+        model.computerUse = follower
+        let view = try #require(AgentPaneView(model: model, source: .bundled(URL(filePath: "/dev/null"))))
+        try #require(view.pageEvents == nil, "setup: not the pane's own WebKit host")
+        var scripts: [String] = []
+        view.evaluateScript = { scripts.append($0) }
+        let pushes = { scripts.filter { $0.hasPrefix("window.cmuxAcpmuxComputerUseState?.(") } }
+        follower.set(.needsSetup)
+        #expect(pushes().isEmpty, "a page that never shook hands was told")
+
+        _ = await AgentPaneBridge(view: view).reply(to: .ready)
+        #expect(pushes() == [AgentPaneComputerUse.script(.computerUseState(.needsSetup))])
+        #expect(pushes().last == "window.cmuxAcpmuxComputerUseState?.(\"needs_setup\");")
+
+        follower.set(.ready)
+        #expect(pushes().last == "window.cmuxAcpmuxComputerUseState?.(\"ready\");", "a change missed the page")
+        // A reloaded document shakes hands again and gets the state as it is now.
+        _ = await AgentPaneBridge(view: view).reply(to: .ready)
+        #expect(pushes().count == 3 && pushes().last == AgentPaneComputerUse.script(.computerUseState(.ready)))
+        view.close()
     }
 
     @Test func thePaneNoLongerAnswersAStateQuery() {

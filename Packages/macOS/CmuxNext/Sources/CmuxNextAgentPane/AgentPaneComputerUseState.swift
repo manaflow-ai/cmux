@@ -81,8 +81,22 @@ public final class AgentPaneComputerUse {
         return .computerUseState(state)
     }
 
+    /// Pushes the state, read now, to `view`'s page on either host (the pane's own WebKit host
+    /// replays it on each handshake, AgentPaneBridge); `view` then also gets every change.
+    func push(to view: AgentPaneView) {
+        views.add(view)
+        send(to: view)
+    }
+
     private func send(to view: AgentPaneView) {
-        view.deliver([.computerUseState(state)], scripts: [])
+        let event = AgentPageEvent.computerUseState(state)
+        view.deliver([event], scripts: [Self.script(event)])
+    }
+
+    /// The pane's own WebKit host's push (dev-server panes, the bundled WebKit fallback): the page's
+    /// `window.cmuxAcpmuxComputerUseState` hook takes the same value as the event.
+    static func script(_ event: AgentPageEvent) -> String {
+        "window.cmuxAcpmuxComputerUseState?.(\(event.value.compactText));"
     }
 }
 

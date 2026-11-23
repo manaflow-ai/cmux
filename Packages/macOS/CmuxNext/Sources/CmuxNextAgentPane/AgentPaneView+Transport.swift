@@ -187,11 +187,12 @@ extension AgentPaneView {
         guard let window, eventWindow === window else { return }
         switch event.type {
         case .keyDown:
-            guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
+            guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true, showsForInput else { return }
         default:
-            guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
+            guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)), showsForInput,
+                  ownsClick(at: event.locationInWindow, in: window) else { return }
         }
-        if !model.hostTouch.marked, !isHiddenOrHasHiddenAncestor { model.hostTouch.mark(by: event) } // the mark's own check first: a marked page asks no hidden state at a key. A parked page has the pane's frame too, and gets no input
+        if !model.hostTouch.marked { model.hostTouch.mark(by: event) } // `showsForInput` above: a parked page has the pane's frame too, and gets no input
         // Repeats belong to the original press, whose DOM proof may still be redeeming.
         // A new page event revokes it, even when posted input cannot grant a fresh witness.
         model.transport.gestures.recordQuestionReturn(false)
@@ -215,11 +216,25 @@ extension AgentPaneView {
         default:
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
-        if !model.hostTouch.marked, !isHiddenOrHasHiddenAncestor { model.hostTouch.mark(by: event) }
+        guard showsForInput else { return }
+        if !model.hostTouch.marked { model.hostTouch.mark(by: event) }
         model.transport.gestures.recordQuestionReturn(false)
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
         model.transport.gestures.record(click: event.type != .keyDown)
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
+    }
+
+    /// Whether this pane shows, so input can be its own: not hidden (a parked tab's view stays in its pane, pane-sized)
+    /// and not waiting drawn off screen (``AgentPageDrawnParking``).
+    private var showsForInput: Bool { !isHiddenOrHasHiddenAncestor && AgentPageDrawnParking.holding(self) == nil }
+
+    /// Whether a click at `point` (window coordinates) lands in this pane: the window's hit test, as AppKit
+    /// dispatches it, ends in this view and in no other agent pane over it (a view parked under the tab shown).
+    private func ownsClick(at point: CGPoint, in window: NSWindow) -> Bool {
+        guard let content = window.contentView else { return false }
+        var view = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+        while let current = view, !(current is AgentPaneView) { view = current.superview }
+        return view === self
     }
 
     /// A key press or click another process posted: a credit for Send, Retry and Approve only while
