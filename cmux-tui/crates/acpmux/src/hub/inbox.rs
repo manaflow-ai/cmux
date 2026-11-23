@@ -200,6 +200,9 @@ pub(super) struct Item {
     /// A report of work this chat gave (a lane's report, a task's result): it wakes the chat
     /// as its parent's action does.
     pub(super) report: bool,
+    /// It waited for this machine to come back (`prompt_provenance::waited`): it wakes the chat
+    /// rather than sit to a flush a parked machine never reaches.
+    pub(super) waited: bool,
     pub(super) at: u64,
     pub(super) text: String,
     /// Machine-readable report context; kept out of the visible words.
@@ -239,6 +242,7 @@ impl Item {
             sender: crate::prompt_provenance::sender_record(None, None, None),
             class: PromptClass::Result,
             report: false,
+            waited: false,
             at: now_ms(),
             text: text.to_owned(),
             details: None,
@@ -283,6 +287,9 @@ pub struct Inbox {
     /// The messages [`trim`] let go of (read, noticed and answered): a resend of one answers from
     /// the log (`logged_inbox`), never puts it back.
     pub(super) trimmed: std::collections::HashSet<String>,
+    /// The threads whose surge-held messages [`trim`] let go of. Those stay whole in the log
+    /// (`persist_surge_event`), so a thread read (`inbox_thread_whole`) reads them from there.
+    pub(super) held_evicted: std::collections::HashSet<String>,
     /// Woken when a notice is written or ends, or the chat closes: a withdraw waits on it for
     /// a notice that carries its message and is not written yet (`inbox_settled`).
     pub(super) settled: Arc<tokio::sync::Notify>,
@@ -933,7 +940,8 @@ fn body(text: &str) -> &str {
 
 /// Whether `item` may wake the idle chat of `meta`.
 fn wakes(meta: &SessionMeta, item: &Item) -> bool {
-    item.fire || wakes_as(meta, item.class, item.report, item.from_session.as_deref())
+    item.fire
+        || wakes_as(meta, item.class, item.report || item.waited, item.from_session.as_deref())
 }
 
 fn fire_notice(notice: Option<&Value>) -> bool {
@@ -944,7 +952,9 @@ fn ordinary_fyi(item: &Item) -> bool {
     item.class == PromptClass::Fyi && !item.fire
 }
 
-/// [`wakes`] for a message of `class` from session `from` (a report or not) not in the inbox yet.
+/// [`wakes`] for a message of `class` from session `from` not in the inbox yet; `report` is a
+/// report of work this chat gave, or a message that waited for this machine
+/// (`prompt_provenance::waited`).
 fn wakes_as(meta: &SessionMeta, class: PromptClass, report: bool, from: Option<&str>) -> bool {
     match class {
         PromptClass::Block | PromptClass::Question => true,
@@ -1289,9 +1299,15 @@ impl Hub {
         let sender_session = sender_session(provenance);
         // Read before the inbox's lock, as `inbox_review` reads them.
         let meta_now = session.meta();
+        let waited = crate::prompt_provenance::waited(provenance);
         let surge_on = self.surge_inbox_on();
         let wakes_now = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
-            || wakes_as(&meta_now, class, is_report(provenance), sender_session.as_deref());
+            || wakes_as(
+                &meta_now,
+                class,
+                is_report(provenance) || waited,
+                sender_session.as_deref(),
+            );
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).
@@ -1385,6 +1401,7 @@ impl Hub {
                             sender: sender_identity.clone(),
                             class,
                             report: is_report(provenance),
+                            waited,
                             at: now_ms(),
                             text: text.clone(),
                             details: provenance.and_then(|p| p.get("details")).cloned(),
@@ -1434,6 +1451,9 @@ impl Hub {
             }
             if is_report(provenance) {
                 msg.set("report", json!(true));
+            }
+            if waited {
+                msg.set(crate::prompt_provenance::WAITED, json!(true));
             }
             let msg = crate::prompt_provenance::marked(msg, provenance);
             self.append(session, "mux", "inbox", msg);
@@ -1509,6 +1529,7 @@ impl Hub {
                     sender: sender_identity.clone(),
                     class: PromptClass::Result,
                     report: true,
+                    waited: false,
                     at,
                     text: text.to_owned(),
                     details: provenance.get("details").cloned(),
@@ -2191,6 +2212,8 @@ impl Hub {
                         sender,
                         class,
                         report: e.msg.get("report") == Some(&Value::Bool(true)),
+                        waited: e.msg.get(crate::prompt_provenance::WAITED)
+                            == Some(&Value::Bool(true)),
                         at: e.at,
                         text: field("text").to_owned(),
                         details: provenance.as_ref().and_then(|p| p.get("details").cloned()),
@@ -2590,7 +2613,9 @@ fn trim(inbox: &mut Inbox) {
             Some(i) => {
                 let item = inbox.items.remove(i);
                 // The archive reader and resend ledger still resolve an evicted held post.
-                if !item.surge_held {
+                if item.surge_held {
+                    inbox.held_evicted.insert(item.thread);
+                } else {
                     inbox.trimmed.insert(item.prompt_id);
                 }
             }
