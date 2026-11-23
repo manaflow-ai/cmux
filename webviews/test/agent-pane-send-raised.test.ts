@@ -1,25 +1,24 @@
 // l10n-allow-file: browser fixture prompts and diagnostics, not shipped UI.
 // cmux-web-test-timeout: 240
-// Leo, 2026-11-11 (ask-e237b0d178): "when there's a composer thing raised then it gets sent ... if we
-// can get it fast, MAYBE ... but if you look at the tnimation for when things get sent: it's not
-// good". A six-line draft (the composer raised to its tallest) sent from the latest row: the thread
-// rises into the sent prompt on the send motion's clock, as a one-line prompt does, instead of the
-// arrival step's 320 ms; the copy of the words that flies to the bubble has the card's glass under it
-// from the first frame, never bare words over the transcript; and the emptied composer draws no
-// placeholder under the flying words.
+// Leo, 2026-11-11 (ask-e237b0d178): "when there's a composer thing raised then it gets sent ... ok
+// the fact that shit is animated up... do we even want stuff to push up vs just simple... covering
+// stuff? ... if we can get it fast, MAYBE ... but if you look at the tnimation for when things get
+// sent: it's not good". A send lands at once (#42669: MOTION_SEND_MS is 0): a six-line draft (the
+// composer raised to its tallest) sent from the latest row draws its bubble at its resting place in
+// the first frame it is drawn, as a one-line prompt does, and no row moves after it. On base the room
+// the send keeps under its prompt was read as the composer's lift for one frame, and every row drew
+// 12 px low before it jumped up (VirtualTranscript `lift`).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/agent-pane-send-raised.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { MOTION_SEND_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-/// One frame from the send: the sent bubble's top, and while the copies fly, the glass copy's and the
-/// words copy's opacity and whether the composer's placeholder is drawn.
-type Frame = { at: number; top?: number; glass?: number; words?: number; placeholder: boolean };
+/// One frame from the send: the sent bubble's top and the thread's (the rows' drawn offset).
+type Frame = { at: number; top?: number; thread?: number };
 
 await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -37,7 +36,12 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
   beforeAll(async () => {
     pane = await createServer({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      server: { port: 0, host: "127.0.0.1", strictPort: false, watch: { ignored: () => true } },
+      server: {
+        port: 0,
+        host: "127.0.0.1",
+        strictPort: false,
+        watch: { ignored: () => true },
+      },
       logLevel: "error",
     });
     await pane.listen();
@@ -54,8 +58,20 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
   const openChat = async (page: Page) => {
     await page.addInitScript(() => {
       Object.assign(window, {
-        webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
-        cmuxAcpmuxActions: { ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true }) },
+        webkit: {
+          messageHandlers: {
+            agentSession: {
+              postMessage: async () => ({ ok: true, value: null }),
+            },
+          },
+        },
+        cmuxAcpmuxActions: {
+          ready: async () => ({
+            protocolVersion: 1,
+            transport: "mock",
+            newSession: true,
+          }),
+        },
       });
     });
     const port = (pane!.httpServer!.address() as { port: number }).port;
@@ -70,7 +86,10 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
     }
     // The agent answers late, as a real one does: the send's own motion plays alone.
     await page.evaluate(() =>
-      Object.assign(window, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 2000 }),
+      Object.assign(window, {
+        cmuxAcpmuxMockSlowMethod: "session/prompt",
+        cmuxAcpmuxMockSlowMs: 2000,
+      }),
     );
   };
 
@@ -85,21 +104,11 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
           const bubble = [...document.querySelectorAll<HTMLElement>(".cv-user__bubble")].find((node) =>
             node.textContent?.includes(sent),
           );
-          const ghost = (kind: string) => {
-            const node = document.querySelector<HTMLElement>(`[data-send-morph-ghost="${kind}"]`);
-            return node ? Number(getComputedStyle(node).opacity) : undefined;
-          };
-          const placeholder = document.querySelector<HTMLElement>(".acpmux-composer .acpmux-md-placeholder");
+          const thread = document.querySelector<HTMLElement>(".acpmux-thread");
           frames.push({
             at: performance.now() - start,
             top: bubble ? bubble.getBoundingClientRect().top : undefined,
-            glass: ghost("bubble"),
-            words: ghost("text"),
-            placeholder:
-              !!placeholder &&
-              !placeholder.hidden &&
-              getComputedStyle(placeholder).visibility !== "hidden" &&
-              placeholder.getClientRects().length > 0,
+            thread: thread ? thread.offsetTop : undefined,
           });
           // raf-read: every frame of the send (below).
           if (performance.now() - start < ms) requestAnimationFrame(tick);
@@ -111,8 +120,10 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
       { sent, ms },
     );
 
-  test("a six-line draft sent from the latest row rises on the send's clock, its copy on its card", async () => {
-    const page = await browser!.newPage({ viewport: { width: 720, height: 640 } });
+  test("a six-line draft sent from the latest row lands in place in its first frame, and nothing moves after", async () => {
+    const page = await browser!.newPage({
+      viewport: { width: 720, height: 640 },
+    });
     try {
       await openChat(page);
       await page.locator(field).click();
@@ -132,23 +143,14 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
       const placed = frames.filter((frame) => frame.top !== undefined);
       expect(placed.length).toBeGreaterThan(10);
       const rest = placed.at(-1)!.top!;
-      // The bubble moves only up, and rests within the send's clock (and a few dropped frames on a loaded runner) of the
-      // frame it first drew in. On the arrival step it rose for 320 ms.
-      const first = placed[0]!.at;
-      const settled = placed.find((frame, index) =>
-        placed.slice(index).every((later) => Math.abs(later.top! - rest) < 1),
-      );
-      const report = placed.map((frame) => `${Math.round(frame.at - first)}:${Math.round(frame.top!)}`).join(" ");
-      expect(settled, report).toBeDefined();
-      expect(settled!.at - first, report).toBeLessThanOrEqual(MOTION_SEND_MS + 60);
-      for (let index = 1; index < placed.length; index += 1)
-        expect(placed[index]!.top!, report).toBeLessThanOrEqual(placed[index - 1]!.top! + 0.5);
-      // While the words' copy is drawn, so is the card's glass under it, from the first frame.
-      const flying = frames.filter((frame) => (frame.words ?? 0) > 0.05);
-      expect(flying.length).toBeGreaterThan(0);
-      for (const frame of flying) expect(frame.glass ?? 0, `${Math.round(frame.at)} ms`).toBeGreaterThan(0.95);
-      // The emptied composer draws no placeholder under the flying words.
-      for (const frame of flying) expect(frame.placeholder, `${Math.round(frame.at)} ms`).toBe(false);
+      const report = placed
+        .slice(0, 12)
+        .map((frame) => `${Math.round(frame.at)}:${Math.round(frame.top!)}/${frame.thread}`)
+        .join(" ");
+      // The bubble is drawn where it rests from its first frame: no jump a frame later.
+      for (const frame of placed) expect(Math.abs(frame.top! - rest), report).toBeLessThan(1);
+      // The rows are never drawn down from their places (a lift only draws them up, for a raised card).
+      for (const frame of placed) expect(frame.thread ?? 0, report).toBeLessThanOrEqual(0);
     } finally {
       await page.close();
     }

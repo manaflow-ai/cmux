@@ -983,7 +983,10 @@ function TranscriptView({
   /// frame and node, which read refs, are given as the transcript mounts (`connect`, below): until then
   /// they did nothing (`transcriptMounted`).
   const guardRead = useRef<() => void>(() => {});
-  const frameGuard = useRef<{ seen: number | undefined; handled: number | undefined }>({
+  const frameGuard = useRef<{
+    seen: number | undefined;
+    handled: number | undefined;
+  }>({
     seen: undefined,
     handled: undefined,
   });
@@ -1037,7 +1040,9 @@ function TranscriptView({
     jumpBack.current = undefined;
     setJumpBackHeld(false);
   }, [setJumpBackHeld]);
-  const [promptScan] = useState<{ current: PromptScan }>(() => ({ current: { length: 0 } }));
+  const [promptScan] = useState<{ current: PromptScan }>(() => ({
+    current: { length: 0 },
+  }));
   const [jumpUpHint] = useState(() => ({ current: -1 }));
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
   const placedTop = useRef<number | undefined>(undefined);
@@ -2858,7 +2863,10 @@ function TranscriptView({
   /// Only then is there room they came back to: a layout pass that lets go and takes it again (the queue
   /// closing at the latest row) leaves none (agent-pane-queue-scroll-bottom).
   /// One ref for both, which the placement pass reads once (`roomUnderRows`).
-  const heldRoom = useRef<{ room: number; reader: ReaderRoom }>({ room: dockRoom, reader: { followed: false } });
+  const heldRoom = useRef<{ room: number; reader: ReaderRoom }>({
+    room: dockRoom,
+    reader: { followed: false },
+  });
   /// The composer card's height the room under the last row was last made for (`grown` below).
   const cardRest = useRef(0);
   /// The overlay dock (composer/dockMotion.experiment.ts): the composer card's height the room under
@@ -3712,8 +3720,15 @@ function TranscriptView({
     };
   });
   // Where the rows draw against where they lay out: the followed offset of this layout against the
-  // one the unlifted layout would hold. Negative draws them up, positive down.
-  const lift = lifted ? Math.round(Math.max(0, layout.totalHeight - height) - Math.max(0, atDock - height)) : 0;
+  // one the unlifted layout would hold. Negative draws them up, positive down. A lift only ever moves
+  // the rows with the card's change (up for a card that grew, down for one that shrank): any other
+  // height in this layout, as the room a send keeps under its prompt (`sendTopEnd`), is not the
+  // card's. The send from a raised composer (a six-line draft) read that room as lift in the commit
+  // before the card's emptied height was measured, and drew every row 12 px low for one frame before
+  // they jumped up (Leo, 2026-11-11: "when there's a composer thing raised then it gets sent ... if
+  // you look at the tnimation for when things get sent: it's not good"; agent-pane-send-raised).
+  const offsetLift = lifted ? Math.round(Math.max(0, layout.totalHeight - height) - Math.max(0, atDock - height)) : 0;
+  const lift = lifted > 0 ? Math.min(0, offsetLift) : Math.max(0, offsetLift);
   const liftRef = useRef(lift);
   liftRef.current = lift;
   const reportedLayout = useRef<typeof measured | null>(null);
