@@ -39,6 +39,7 @@ pub mod notify_redact;
 mod notify_secfix_tests;
 pub mod notify_terminal;
 mod notify_waiting;
+pub mod paint_latency;
 pub mod pair_requests;
 pub mod pairing;
 pub mod path_probe;

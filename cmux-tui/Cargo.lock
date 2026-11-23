@@ -61,6 +61,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-share-approval",
  "cmux-signed-bundle",
  "cmux-source-scan",
  "cmux-stack-auth",
@@ -82,6 +83,7 @@ dependencies = [
  "futures",
  "futures-util",
  "getrandom 0.3.4",
+ "glob",
  "hpke",
  "imbl",
  "inotify",
@@ -2311,7 +2313,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2510,6 +2512,14 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "time",
+]
+
+[[package]]
+name = "cmux-share-approval"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

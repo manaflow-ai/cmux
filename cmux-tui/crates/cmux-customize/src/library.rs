@@ -42,14 +42,14 @@ use serde_json::Value;
 
 use crate::profile::{Profile, shareable_settings, valid_name};
 use crate::redact::find_secret;
-use crate::store::LibraryMark;
-use crate::store::{Draft, Generation, Kind};
+use crate::store::{Draft, Generation, Kind, LibraryMark};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
 pub mod applies;
 pub mod code;
 mod collection;
+pub mod doctor;
 pub mod expire;
 pub mod keys;
 pub mod overlay;
