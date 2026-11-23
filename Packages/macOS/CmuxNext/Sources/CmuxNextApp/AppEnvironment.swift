@@ -123,12 +123,19 @@ struct AppEnvironment: Sendable {
             authCaptureFixture: authCaptureFixture,
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
-            launchDisplay: LaunchDisplay.parse(environment[LaunchDisplay.environmentKey], isDevBuild: launch.tag != nil),
+            launchDisplay: launchDisplay(environment, build: launch.build),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
             cloudConfiguration: nil,
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )
+    }
+
+    /// `CMUX_NEXT_LAUNCH_DISPLAY` for `build`: a tagged DEV build defaults to the built-in display (#51115).
+    /// NIGHTLY (also cmux NEXT's `.cmux-next`, whose bundle id carries a tag too), RC, staging and
+    /// release keep the usual placement unless the variable asks.
+    nonisolated static func launchDisplay(_ environment: [String: String], build: BuildIdentity) -> LaunchDisplay? {
+        LaunchDisplay.parse(environment[LaunchDisplay.environmentKey], isDevBuild: build.kind == .dev && build.tag != nil)
     }
 
     /// The per-terminal `env` provider every local spawn path uses (daemon
