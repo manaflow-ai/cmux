@@ -954,7 +954,12 @@ fn wakes(meta: &SessionMeta, item: &Item) -> bool {
         Some(verdict) => verdict == page_rule::Verdict::Page,
         None => {
             item.fire
-                || wakes_as(meta, item.class, item.report || item.waited, item.from_session.as_deref())
+                || wakes_as(
+                    meta,
+                    item.class,
+                    item.report || item.waited,
+                    item.from_session.as_deref(),
+                )
         }
     }
 }
