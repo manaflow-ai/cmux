@@ -94,6 +94,15 @@ impl Schema {
                 "additionalProperties": false,
             }),
         );
+        root.insert(
+            "fonts".into(),
+            json!({
+                "type": "array",
+                "description": "Font files the app registers for itself while the file applies (a theme pack's own faces), as absolute file: paths; the look names their families (terminal.fontFamily).",
+                "items": { "type": "string", "pattern": "^file:/" },
+                "maxItems": 32,
+            }),
+        );
         for row in self.rows.iter().filter(|row| is_look(row)) {
             root.insert(row.key.clone(), leaf(row));
             if row.path.len() > 1 {
@@ -153,7 +162,9 @@ fn kind_schema(row: &Row) -> Value {
             // `system:<absolute path>` (a macOS wallpaper), `file:<absolute path>`
             // or `folder:<absolute path>` (not `/` alone), or a `youtube:` video.
             let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
-            return json!({ "anyOf": [choice(choices), path, youtube(), shader()] });
+            // `live:<id>` or `live:<extension>/<id>` (a live wallpaper).
+            let live = json!({ "type": "string", "pattern": super::backdrop::LIVE_PATTERN });
+            return json!({ "anyOf": [choice(choices), path, live, youtube(), shader()] });
         }
         Validation::Domain(DomainKind::BackdropPicture) => return picture(),
         Validation::Domain(DomainKind::BackdropSchedule) => {

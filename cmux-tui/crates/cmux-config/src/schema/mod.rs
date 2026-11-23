@@ -3,6 +3,7 @@
 //! bundled daemon and its app always agree.
 
 mod accepts;
+pub(crate) mod aliases;
 mod app_id;
 mod backdrop;
 mod build_defaults;
@@ -18,14 +19,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
+pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color};
+pub use aliases::{choice_alias, choice_aliases};
 pub use backdrop::normalize_backdrop;
 pub use backdrop::{
     RECENTS_CAP, is_selection as is_background, previous_background, recents_of, record_recent,
 };
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
-pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
+pub use retired::{
+    Replaced, Retired, replaced_by_row, replaced_keys, retired_entries, retired_keys,
+    retired_reason,
+};
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
