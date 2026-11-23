@@ -869,6 +869,7 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             scripts/ci/cmux-tui-tree-claim.sh
+            scripts/ci/cmux_tui_owner_feed.py
             scripts/ci/cmux_tui_publisher_testing.py
             scripts/ci/nightly_tree_source.py
           sparse-checkout-cone-mode: false
@@ -908,6 +909,23 @@ jobs:
         run: |
           set -euo pipefail
           takeover=true
+          # A run's state from the build controller's run feed (webhooks, no GitHub read), else
+          # one Actions read with the routing App token. The feed lists active runs only, so it
+          # answers for an owner still building, the usual case: in job 137333436826
+          # (2026-11-22) the owner was in progress and the job spent 3 Actions reads on it.
+          reads="$RUNNER_TEMP/cmux-tui-owner-reads"
+          : > "$reads"
+          run_read() {
+            if [[ -f scripts/ci/cmux_tui_owner_feed.py ]] && python3 scripts/ci/cmux_tui_owner_feed.py run "$1" 2>/dev/null; then
+              echo feed >> "$reads"
+              return 0
+            fi
+            echo api >> "$reads"
+            curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              -u "x-access-token:$GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "$API_URL/repos/$REPOSITORY/actions/runs/$1" 2>/dev/null
+          }
           # A run still active past the lease since its (latest attempt's)
           # start is stuck: it no longer holds its key.
           past_lease() {
@@ -971,10 +989,7 @@ jobs:
             # Taking over from a live owner builds the key twice; it is done
             # only for a feat-cmux-next push whose owner is a branch run (below).
             poll=$((poll + 1))
-            owner_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
-              -u "x-access-token:$GH_TOKEN" \
-              -H 'Accept: application/vnd.github+json' \
-              "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" 2>/dev/null || true)"
+            owner_json="$(run_read "$OWNER_RUN_ID" || true)"
             owner_state="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("status", "unknown"), d.get("conclusion") or "")' "$owner_json" 2>/dev/null || echo unknown)"
             # A feat-cmux-next push never waits for a branch (or pull request)
             # run that owns its key (cx-a1q4d, hq-a3 2026-10-14): such an
@@ -1009,6 +1024,7 @@ jobs:
                { [[ "$nightly_next_run" == true ]] &&
                  { [[ "$owner_stuck" == true ]] ||
                    python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and d.get("head_branch") != "nightly-next" else 1)' "$owner_json" 2>/dev/null; }; }; then
+              echo api >> "$reads"
               if builders="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
                   -u "x-access-token:$GH_TOKEN" \
                   -H 'Accept: application/vnd.github+json' \
@@ -1016,10 +1032,7 @@ jobs:
                   builder_ids="$(python3 -c 'import json,sys; [print(a["workflow_run"]["id"]) for a in json.loads(sys.argv[1]).get("artifacts", []) if not a.get("expired") and str(a["workflow_run"]["id"]) != sys.argv[2]]' "$builders" "$GITHUB_RUN_ID" 2>/dev/null)"; then
                 branch_owner_takeover=true
                 for builder in $builder_ids; do
-                  builder_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
-                    -u "x-access-token:$GH_TOKEN" \
-                    -H 'Accept: application/vnd.github+json' \
-                    "$API_URL/repos/$REPOSITORY/actions/runs/$builder" 2>/dev/null \
+                  builder_json="$(run_read "$builder" \
                     | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({k: d.get(k) for k in ("status", "event", "head_branch", "run_started_at", "created_at")}))' 2>/dev/null || echo '{}')"
                   builder_state="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status") or "unknown")' "$builder_json" 2>/dev/null || echo unknown)"
                   if [[ "$builder_state" == completed ]]; then
@@ -1064,6 +1077,7 @@ jobs:
               if ! curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
                   "$base/daemon-tests.json?owner-wait=$GITHUB_RUN_ID-marker" 2>/dev/null; then
                 if python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next" else 1)' "$owner_json" 2>/dev/null &&
+                    { echo api >> "$reads"; true; } &&
                     python3 scripts/ci/cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "${DAEMON_POOL:-}"; then
                   echo "Tree $KEY has no daemon-tests marker yet; feat-cmux-next push run $OWNER_RUN_ID is still active and tests it and requests the promotion."
                 else
@@ -1134,6 +1148,7 @@ jobs:
             echo "takeover=$takeover"
             echo "unmarked=$unmarked"
           } >> "$GITHUB_OUTPUT"
+          echo "Actions reads in this step: $(grep -c '^api$' "$reads" || true) (runs read from the controller's run feed instead: $(grep -c '^feed$' "$reads" || true))"
 
       # The marker a later feat-cmux-next push of this key reads, so only
       # one feat-cmux-next run builds a key a branch run owns (cx-a1q4d).
@@ -1200,8 +1215,29 @@ jobs:
             curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" -H 'Accept: application/vnd.github+json' "$API_URL/repos/$REPOSITORY/$1" 2>/dev/null
           }
+          # The controller's run feed first (no GitHub read; cmux_tui_owner_feed.py), then the API.
+          reads="$RUNNER_TEMP/cmux-tui-recheck-reads"
+          : > "$reads"
           owner_state() {
+            local view
+            if view="$(python3 scripts/ci/cmux_tui_owner_feed.py run "$OWNER_RUN_ID" 2>/dev/null)"; then
+              echo feed >> "$reads"
+              python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status", "unknown"))' "$view" 2>/dev/null || echo unknown
+              return
+            fi
+            echo api >> "$reads"
             api "actions/runs/$OWNER_RUN_ID" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", "unknown"))' 2>/dev/null || echo unknown
+          }
+          # Has the owner's hand-off job started? The feed answers 0 (yes), 1 (no), 3 (cannot tell).
+          handing_off() {
+            local verdict=0
+            python3 scripts/ci/cmux_tui_owner_feed.py handoff "$OWNER_RUN_ID" 2>/dev/null || verdict=$?
+            if [[ "$verdict" == 0 || "$verdict" == 1 ]]; then
+              echo feed >> "$reads"
+              return "$verdict"
+            fi
+            echo api >> "$reads"
+            api "actions/runs/$OWNER_RUN_ID/jobs?per_page=100" | python3 -c 'import json,sys; sys.exit(0 if any(j.get("name") == "report an unpublished cmux-tui tree to cmux-next" and j.get("status") in ("in_progress", "completed") for j in json.load(sys.stdin).get("jobs", [])) else 1)' 2>/dev/null
           }
           published() {
             curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
@@ -1214,8 +1250,7 @@ jobs:
           if ! published; then
             state="$(owner_state)"
           fi
-          if [[ "$state" != completed && "$state" != unread ]] &&
-              api "actions/runs/$OWNER_RUN_ID/jobs?per_page=100" | python3 -c 'import json,sys; sys.exit(0 if any(j.get("name") == "report an unpublished cmux-tui tree to cmux-next" and j.get("status") in ("in_progress", "completed") for j in json.load(sys.stdin).get("jobs", [])) else 1)' 2>/dev/null; then
+          if [[ "$state" != completed && "$state" != unread ]] && handing_off; then
             # The hand-off job lists the markers, re-runs one run and ends;
             # the run ends with it. Same 3-minute bound as before, a third of
             # the owner reads, and none once the CDN shows the tree.
@@ -1249,6 +1284,7 @@ jobs:
             echo "Owner run $OWNER_RUN_ID ended without publishing tree $KEY, and the claim authority could not be asked; taking over."
           fi
           echo "takeover=$takeover" >> "$GITHUB_OUTPUT"
+          echo "Actions reads in this step: $(grep -c '^api$' "$reads" || true) (reads from the controller's run feed instead: $(grep -c '^feed$' "$reads" || true))"
 
       # Observation only: an unavailable marker must never hold up a build.
       - name: Record tree owner observation
@@ -1833,6 +1869,8 @@ jobs:
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: ${{ runner.os == 'macOS' && 'cmux-tui-macos' || 'cmux-tui-linux' }}
@@ -4988,6 +5026,9 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          # The dedicated Linux release key (linux-signed-packages.md section 3): signs the Linux release
+          # files beside SIGNING_KEY once web-update-keys.json lists it; unset, they carry SIGNING_KEY's alone.
+          LINUX_RELEASE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_RELEASE_SIGNING_KEY }}
           GH_TOKEN: ${{ github.token }}  # gh run download, for the Linux release file
           VERIFY_PUBLISH: ${{ needs.verify-publish.result }}
         run: |

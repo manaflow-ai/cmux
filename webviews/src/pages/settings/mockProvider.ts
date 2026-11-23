@@ -25,7 +25,6 @@ import {
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
-  type AccountsRunReply,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -36,8 +35,6 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -59,8 +56,12 @@ import {
   type SnapshotResult,
   type ThemeOverride,
   type WorkspaceBackground,
+  type LibraryListing,
+  type LibraryRun,
   type CustomizeTryOn,
   type KeysState,
+  type AllotmentSet,
+  type AllotmentView,
   type ModelsRun,
   type ModelsState,
   type ComputerUseApproval,
@@ -68,7 +69,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type AgentSkillRow,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
@@ -78,8 +78,8 @@ import {
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
-  type AllotmentSet,
-  type AllotmentView,
+  type AccountsRunReply,
+  type AgentSkillRow,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -1445,6 +1445,9 @@ export class MockSettingsProvider {
       case "setSharing":
         if (state.sharing) this.setDevices({ ...state, sharing: { ...state.sharing, on: run.on } });
         return result;
+      case "setAgentsMayShare":
+        if (state.sharing) this.setDevices({ ...state, sharing: { ...state.sharing, agentsMayShare: run.on } });
+        return result;
       case "saveRelay": {
         const draft = run.relay;
         if (draft.urls.length === 0) return { error: "Add at least one relay URL." };
@@ -2545,6 +2548,8 @@ export function mockDevicesState(): DevicesState {
       sharingSection: "Mac Screen on This Mac",
       sharingToggle: "Allow Mac Screen on this Mac",
       sharingDetail: "Your devices can see or control this Mac.",
+      agentsToggle: "My agents can turn screen sharing and control on my machines",
+      agentsDetail: "Your agents share without asking, with a notice each time.",
       openSettings: "Open System Settings",
       allowed: "Allowed",
       relaysSection: "Relays",
@@ -2636,6 +2641,7 @@ export function mockDevicesState(): DevicesState {
     sharing: {
       on: true,
       busy: false,
+      agentsMayShare: false,
       permissions: [
         {
           id: "screenRecording",
