@@ -219,6 +219,19 @@
   gap: var(--ds-space-3);
 }
 
+/* A provider signing in (logins done right): the row grows and the device card sits under its name. */
+.onb-agent-list[data-look] .onb-agent[data-signing] {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: var(--onb-agent-row);
+  padding-block: var(--ds-space-2);
+}
+.onb-agent-signin {
+  flex: 1 0 100%;
+  min-width: 0;
+  padding-inline-start: calc(var(--onb-agent-icon) + var(--ds-space-3));
+}
+
 /* A: a rounded card per agent (the Swift step's look). */
 .onb-agent-list[data-look="cards"] {
   display: flex;
@@ -585,8 +598,10 @@
 
 /* Grouped: the browsers in one card, hairlines between, and the kinds in a second card, two to a
    line (Settings' lists; the agents step's list look). */
-/* The cards are frosted glass of their own: the surface color at the chrome glass level over its blur, so a busy wallpaper
-   behind the window's glass never fights the rows' text (the plain look's 5% tint did). Never opaque. */
+/* The cards take the surface color at the chrome glass level, so a busy wallpaper behind the window's glass never
+   fights the rows' text (the plain look's 5% tint did). Never opaque. No blur of their own: the window's glass
+   already frosts the wallpaper, and a second backdrop-filter over it was a second frost (Leo 2026-11-22: "doubled
+   up glass/wack looking glass all over the place"). */
 .onb-import {
   --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) var(--ds-glass-chrome-tint), transparent);
 }
@@ -595,8 +610,6 @@
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
   background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-chrome-blur);
-  backdrop-filter: var(--ds-glass-chrome-blur);
 }
 .onb-import .onb-import-list {
   gap: 0;
@@ -892,8 +905,6 @@
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
   background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-chrome-blur);
-  backdrop-filter: var(--ds-glass-chrome-blur);
   text-align: start;
 }
 .onb-express-ask-icon {
@@ -919,14 +930,10 @@
   visibility: hidden;
 }
 
-/* Reduce Transparency: the import cards turn solid and drop their blur (the one place glass may). */
+/* Reduce Transparency: the import cards turn solid. */
 @media (prefers-reduced-transparency: reduce) {
   .onb-import {
     --onb-card-glass: var(--ds-color-surface);
-  }
-  .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
   }
 }
 /* Liquid Glass off (appearance.liquidGlass): the same solid cards. */

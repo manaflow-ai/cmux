@@ -11,7 +11,7 @@
       },
       "gallery-health.yml": {
         "workflow": "gallery health",
-        "after_merge": "push to feat-cmux-next, same paths",
+        "after_merge": "the post-merge batch runs suite gallery-health, same paths",
         "why": "renders gallery states; a display check no ruleset requires, base reds already warn"
       },
       "cmux-next-media.yml": {
@@ -174,10 +174,6 @@
     "fresh-chief-eval.yml": {
       "kind": "publish",
       "why": "a scheduled eval of the live Chief, a score and not a verdict on a change"
-    },
-    "gallery-health.yml": {
-      "kind": "check",
-      "why": "renders gallery states per merge; a display check no ruleset requires (#48553)"
     },
     "gateway-e2e.yml": {
       "kind": "check",
