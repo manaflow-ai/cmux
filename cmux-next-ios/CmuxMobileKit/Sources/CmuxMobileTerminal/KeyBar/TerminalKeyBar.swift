@@ -311,9 +311,12 @@ struct PasteKeyCap: UIViewRepresentable {
     func updateUIView(_ control: UIPasteControl, context: Context) {
         if control.target == nil { control.target = model.controller?.surface }
         // The Mac's theme can change while the key row is up (read here, so SwiftUI updates it).
+        // Writes only on a change: a configuration write re-lays the control out, and this runs inside
+        // the terminal's layout pass on first load.
         _ = CmuxMobileMacTheme.shared.palette
-        control.configuration.baseBackgroundColor = KeyRowGlass.pasteBackground
-        control.configuration.baseForegroundColor = KeyRowGlass.pasteForeground
+        let background = KeyRowGlass.pasteBackground, foreground = KeyRowGlass.pasteForeground
+        if control.configuration.baseBackgroundColor != background { control.configuration.baseBackgroundColor = background }
+        if control.configuration.baseForegroundColor != foreground { control.configuration.baseForegroundColor = foreground }
     }
 }
 #endif
