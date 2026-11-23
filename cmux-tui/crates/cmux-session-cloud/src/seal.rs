@@ -123,7 +123,7 @@ mod tests {
         assert!(sealed.len() < plain.len() / 4, "ndjson compresses");
         assert_eq!(open(&key, &sealed, plain.len()).unwrap(), plain);
         assert!(open(&Key::generate().unwrap(), &sealed, plain.len()).is_err());
-        let mut flipped = sealed.clone();
+        let mut flipped = sealed;
         *flipped.last_mut().unwrap() ^= 1;
         assert!(open(&key, &flipped, plain.len()).is_err());
     }
