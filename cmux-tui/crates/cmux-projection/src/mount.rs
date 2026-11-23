@@ -29,7 +29,8 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fuser::consts::{
-    FOPEN_CACHE_DIR, FOPEN_KEEP_CACHE, FUSE_ATOMIC_O_TRUNC, FUSE_AUTO_INVAL_DATA, FUSE_DO_READDIRPLUS,
+    FOPEN_CACHE_DIR, FOPEN_KEEP_CACHE, FUSE_ATOMIC_O_TRUNC, FUSE_AUTO_INVAL_DATA,
+    FUSE_DO_READDIRPLUS,
 };
 use fuser::{
     BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, Notifier,
