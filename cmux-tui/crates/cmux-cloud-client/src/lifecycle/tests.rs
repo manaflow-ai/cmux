@@ -63,7 +63,7 @@ fn relay_bad_revision_retains_the_consumed_unknown_request() {
         else {
             panic!()
         };
-        let (request, _) = vm
+        let (request, _) = *vm
             .prepare_pause("original")
             .complete(json!({"machine":record("pausing", revision)}), revision.into())
             .unwrap_err();
