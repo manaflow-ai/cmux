@@ -249,7 +249,7 @@ export default componentEntry({
       note: "After the one Sign in to Claude click: the login runs on the machine and Claude's page is open; the card asks for the code the page shows, with Open sign-in page to open it again.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .signin-paste-field"));
       },
     },
     "claude-approve": {
@@ -277,7 +277,7 @@ export default componentEntry({
       note: "Codex on an own machine: one click runs codex login --device-auth there, opens its page and shows the device code, already copied.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .signin-code"));
       },
     },
     "cursor-sign-in": {
@@ -297,7 +297,7 @@ export default componentEntry({
       note: "The same one click for Codex: its page open and its device code, large and already copied, while the card waits for the approval.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .signin-code"));
       },
     },
     "gemini-sign-in": {
@@ -337,9 +337,9 @@ export default componentEntry({
       note: "Opening the code form and cancelling resize the card over the shared micro duration; the final card is the original sign-in state.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
-        await ctx.click({ selector: ".cv-turn-signin__row .cv-turn-auth-action:nth-child(2)" });
-        await ctx.waitFor(() => !ctx.document.querySelector(".cv-turn-signin__input"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .signin-paste-field"));
+        await ctx.click({ selector: ".cv-turn-signin [data-sign-in-action=cancel]" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-turn-signin .signin-paste-field"));
       },
     },
   },
