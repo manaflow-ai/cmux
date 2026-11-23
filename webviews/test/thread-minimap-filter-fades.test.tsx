@@ -175,7 +175,11 @@ test("Next Turn from above every kept prompt lands on the first one the filter k
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const scrolled = async () => void scroller.dispatchEvent(new dom.window.Event("scroll"));
     await pick("Show Only Agent Messages");
+    // A wheel up first, as a reader's scroll comes: a scroll with no reader input is layout, which
+    // never lets go of the latest row (#26088), so the transcript's follow put the step's landing
+    // back at the chat's end.
     await act(async () => {
+      scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -1000, bubbles: true }));
       scroller.scrollTop = 0;
       await scrolled();
     });
