@@ -202,7 +202,7 @@ export function drawRowFrames(
       inputs.older = older?.has(row.id) ? older : undefined;
       inputs.repository = view.githubRepository ?? view.rowRepositories?.(absoluteIndex);
       inputs.scope = view.scopeAt(absoluteIndex);
-      // An open Worked-for row names every row under it (`disclosureControls`): drawn each time.
+      // An open Worked-for row names every row under it (`disclosureControls`), cached by rows.
       const opensDisclosure = row.kind === WORKED && isExpanded;
       // Kept by frame id: the session's `frameKey` is in what every frame shares (`begin`).
       const keptFrame = opensDisclosure ? undefined : cache.take(frameId, rows);
