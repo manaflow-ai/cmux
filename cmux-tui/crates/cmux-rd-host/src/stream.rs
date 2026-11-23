@@ -282,7 +282,29 @@ fn viewer_silent_too_long(silent_us: u64) -> bool {
 
 /// Whether the session sends the cursor as metadata: the viewer draws it (cap `cursor`) and
 /// this OS's desktop can report it.
-fn wants_cursor(negotiated_caps: &[String]) -> bool {
+/// Whether this host offers cap `h264.baseline`: an H.264 encoder that can switch to
+/// Constrained Baseline for one session (every H.264 encoder here; VP9 and AV1 have no
+/// H.264 profile).
+pub fn offers_h264_baseline(codec: &str) -> bool {
+    !matches!(codec, "vp9" | "av1")
+}
+
+/// The session's settings with the viewer's caps applied: a viewer that negotiated
+/// `h264.baseline` (OpenH264, which shows a High-profile stream as wrong pictures with no
+/// error, cmux#50591) gets Constrained Baseline whatever `--profile` says.
+fn session_cfg<'a>(
+    cfg: &'a SessionCfg,
+    negotiated_caps: &[String],
+) -> std::borrow::Cow<'a, SessionCfg> {
+    let baseline = negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::H264_BASELINE);
+    if baseline && cfg.profile != "baseline" {
+        std::borrow::Cow::Owned(SessionCfg { profile: "baseline".into(), ..cfg.clone() })
+    } else {
+        std::borrow::Cow::Borrowed(cfg)
+    }
+}
+
+pub(crate) fn wants_cursor(negotiated_caps: &[String]) -> bool {
     crate::desktop::reports_cursor()
         && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
 }
@@ -315,6 +337,36 @@ fn process_cpu_s() -> f64 {
     tv(ru.ru_utime) + tv(ru.ru_stime)
 }
 
+/// A desktop and its frame source (capture and encoder) opened ahead of the session: `cmux-rd
+/// serve` opens them while its answer crosses the hub and the link shakes hands, so the first
+/// frame is captured by the time the viewer starts. `cursor` is the cursor choice it opened for,
+/// asked at `open_us` and ready at `ready_us`.
+pub struct OpenedDesktop {
+    desktop: Box<dyn Desktop>,
+    frames: Box<dyn FrameSource>,
+    cursor: bool,
+    /// The H.264 profile it was opened for (a `h264.baseline` viewer needs Constrained Baseline).
+    profile: String,
+    open_us: u64,
+    ready_us: u64,
+}
+
+impl OpenedDesktop {
+    /// Opens this OS's desktop; `cursor`: the viewer draws the cursor (cap `cursor`).
+    pub fn open(cfg: &SessionCfg, cursor: bool) -> Res<Self> {
+        let open_us = now_us();
+        let (desktop, frames) = crate::desktop::open(cfg, cursor)?;
+        Ok(Self {
+            desktop,
+            frames,
+            cursor,
+            profile: cfg.profile.clone(),
+            open_us,
+            ready_us: now_us(),
+        })
+    }
+}
+
 impl MediaSession {
     pub fn open(
         cfg: &SessionCfg,
@@ -322,9 +374,37 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
-        let open_us = now_us();
-        let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
-        let ready_us = now_us();
+        let session = &*session_cfg(cfg, negotiated_caps);
+        Self::on_desktop(
+            OpenedDesktop::open(session, wants_cursor(negotiated_caps))?,
+            cfg,
+            max_datagram,
+            negotiated_caps,
+            sink,
+        )
+    }
+
+    /// A session on a desktop opened earlier (`cmux-rd serve` opens it during the handshake).
+    /// One opened for the other cursor choice or H.264 profile than the viewer negotiated is
+    /// closed and opened again. `cfg.start_kbps` still sets the first frame's bitrate: the
+    /// encoder takes the engine's target before every frame.
+    pub fn on_desktop(
+        opened: OpenedDesktop,
+        cfg: &SessionCfg,
+        max_datagram: usize,
+        negotiated_caps: &[String],
+        sink: Box<dyn UpstreamSink>,
+    ) -> Res<Self> {
+        let cfg = &*session_cfg(cfg, negotiated_caps);
+        let cursor = wants_cursor(negotiated_caps);
+        let opened = if opened.cursor == cursor && opened.profile == cfg.profile {
+            opened
+        } else {
+            // The capture closes before it opens again.
+            drop(opened);
+            OpenedDesktop::open(cfg, cursor)?
+        };
+        let OpenedDesktop { desktop, frames, open_us, ready_us, .. } = opened;
         let mut session =
             Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;
         if let Some(timing) = session.timing.as_mut() {
@@ -360,6 +440,9 @@ impl MediaSession {
                 ..EngineConfig::default()
             },
             now_us(),
+        );
+        engine.set_fec_blocks(
+            negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::FEC_BLOCKS),
         );
         engine.set_profile(cfg.encode_profile);
         let pacer = pacing_enabled().then(|| new_pacer(cfg.encode_profile, engine.pacing_bps()));
