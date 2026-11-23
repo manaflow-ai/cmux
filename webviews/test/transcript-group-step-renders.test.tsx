@@ -79,7 +79,7 @@ test("a streaming call draws again alone; its 12 siblings and the thoughts stay 
   // A leading thought, 13 commands, and two consecutive thoughts in the middle (merged into a new
   // object on every update, thoughts.ts mergeThoughts).
   const items: AcpmuxActivity[] = [
-    thought("Check the retry loop, then its callers."),
+    thought("Check the retry loop.\nThen its callers."),
     ...Array.from({ length: 6 }, (_, n) => command(n)),
     thought("The loop has no status check."),
     thought("So the fix belongs in the loop."),

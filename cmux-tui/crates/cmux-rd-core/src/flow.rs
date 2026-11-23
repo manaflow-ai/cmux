@@ -98,7 +98,7 @@ impl FrameGate {
         }
     }
 
-    /// Changes the frame rate cap (quality ladder).
+    /// Changes the frame rate cap (resolution ladder).
     pub fn set_max_fps(&mut self, max_fps: u32) {
         self.min_interval_us = 1_000_000 / u64::from(max_fps.max(1));
     }
@@ -106,6 +106,11 @@ impl FrameGate {
     /// Changes the maximum number of frames that may be unacknowledged.
     pub fn set_max_in_flight(&mut self, max_in_flight: u32) {
         self.max_in_flight = max_in_flight.max(1);
+    }
+
+    /// Damage waits for the next frame.
+    pub fn has_pending(&self) -> bool {
+        self.pending.is_some()
     }
 
     /// Frames sent and not yet acknowledged.

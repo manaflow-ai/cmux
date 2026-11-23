@@ -1,9 +1,11 @@
 //! Priming from launch inputs and restoring a saved session.
 
 use super::Coordinator;
+use super::state::{Backoff, DebugCredentials, Restore, Session, Teams, TokenCache};
 use crate::event::{
     AfterTeams, AuthFailure, AutoLoginSource, Effect, RestoreTicket, RestoreTrigger,
 };
+use crate::machine::Refusal;
 use crate::model::{AuthState, AuthUser, PrimeInputs, should_start_auto_login};
 use crate::phase::FAILED_TOKEN_READ_RETRY_DELAYS;
 
@@ -14,7 +16,7 @@ impl Coordinator {
         if self.launch.clear_auth_requested {
             self.clear_auth_state("launch asked to clear auth", false, false, fx);
             if self.launch.includes_dev_auth {
-                self.has_debug_credentials = false;
+                self.debug_credentials = DebugCredentials::None;
                 fx.push(Effect::ForgetDebugCredentials);
             }
             fx.push(Effect::ClearLocalSession);
@@ -32,7 +34,7 @@ impl Coordinator {
         let state = AuthState::primed(&PrimeInputs {
             clear_auth_requested: false,
             mock_data_enabled: mock,
-            has_tokens: fixture.is_some() || self.has_tokens,
+            has_tokens: fixture.is_some() || self.token_cache == TokenCache::Stored,
             cached_user: if fixture.is_some() { fixture.clone() } else { self.cached_user.clone() },
             fixture_user: fixture,
             has_auto_login_credentials: auto_login,
@@ -43,42 +45,63 @@ impl Coordinator {
 
     // MARK: - Restore
 
-    pub(super) fn on_restore(&mut self, trigger: RestoreTrigger, fx: &mut Vec<Effect>) {
+    pub(super) fn on_restore(
+        &mut self,
+        trigger: RestoreTrigger,
+        fx: &mut Vec<Effect>,
+    ) -> Result<(), Refusal> {
         match trigger {
             RestoreTrigger::Launch => {
                 if self.launch.should_clear_stored_session_before_priming() {
                     fx.push(Effect::ClearLocalSession);
+                    // The clear runs even when the restore does not.
+                    let _ = self.check_existing_session(fx);
+                    return Ok(());
                 }
             }
             RestoreTrigger::Foreground => {
-                if !(self.is_authenticated || self.is_restoring_session || self.has_tokens) {
-                    return;
+                if !(self.is_authenticated()
+                    || self.is_restoring_session()
+                    || self.token_cache == TokenCache::Stored)
+                {
+                    return Err(Refusal::NothingToRestore);
                 }
             }
             RestoreTrigger::TeamScopeSignal => {
-                if !self.needs_team_scope_recovery() || self.team_scope_rate_limit.is_some() {
-                    return;
+                if !self.needs_team_scope_recovery() {
+                    return Err(Refusal::TeamScopeNotNeeded);
+                }
+                match self.backoff {
+                    Backoff::Clear => {}
+                    Backoff::RateLimited { .. } => return Err(Refusal::RateLimited),
                 }
             }
         }
-        self.check_existing_session(fx);
+        self.check_existing_session(fx)
     }
 
-    pub(super) fn check_existing_session(&mut self, fx: &mut Vec<Effect>) {
+    pub(super) fn check_existing_session(&mut self, fx: &mut Vec<Effect>) -> Result<(), Refusal> {
         if self.launch.clear_auth_requested {
-            return;
+            return Err(Refusal::AuthClearRequested);
         }
-        if self.is_revalidating_session {
-            fx.push(Effect::JoinRestore);
-            return;
+        match self.restore {
+            Restore::Running { .. } => {
+                fx.push(Effect::JoinRestore);
+                return Ok(());
+            }
+            Restore::Idle => {}
         }
-        self.is_revalidating_session = true;
+        self.generations.restore = self.generations.restore.wrapping_add(1);
+        let id = self.generations.restore;
+        self.restore = Restore::Running { id };
         fx.push(Effect::ProbeStoredTokens(RestoreTicket {
-            generation: self.session_generation,
-            store_write_high_water: self.token_store_write_high_water,
+            id,
+            generation: self.generations.session,
+            store_write_high_water: self.generations.store_write_high_water,
             retry_on_storage_available: true,
             failed_read_retries: 0,
         }));
+        Ok(())
     }
 
     pub(super) fn on_tokens_probed(
@@ -89,7 +112,7 @@ impl Coordinator {
         read_failed: bool,
         fx: &mut Vec<Effect>,
     ) {
-        let stale = ticket.generation != self.session_generation;
+        let stale = ticket.generation != self.generations.session;
         let has_stored_tokens = match probe {
             Err(_) => {
                 if !stale {
@@ -106,11 +129,11 @@ impl Coordinator {
         if let Some(fixture) = self.launch.fixture().cloned() {
             self.save_cached_user(fixture.clone(), fx);
             self.set_has_tokens(fx);
-            self.current_user = Some(fixture);
-            self.is_authenticated = true;
-            self.publish_session_identity(fx);
+            let restoring = self.is_restoring_session();
+            self.set_session(Session::from_parts(Some(fixture), true, restoring), fx);
             if self.launch.fixture_teams_requested {
-                return self.begin_team_refresh(ticket.generation, false, AfterTeams::Restore, fx);
+                let after = AfterTeams::Restore { id: ticket.id };
+                return self.begin_team_refresh(ticket.generation, false, after, fx);
             }
             return self.finish_restore(fx);
         }
@@ -125,8 +148,15 @@ impl Coordinator {
         let cached_user = self.cached_user.clone();
         if has_stored_tokens {
             self.set_has_tokens(fx);
-            if self.current_user.is_none() && cached_user.is_some() {
-                self.current_user = cached_user;
+            // Show the cached user while the stored tokens validate.
+            if self.session.user().is_none()
+                && let Some(cached) = cached_user
+            {
+                self.session = Session::from_parts(
+                    Some(cached),
+                    self.is_authenticated(),
+                    self.is_restoring_session(),
+                );
             }
             fx.push(Effect::ValidateCachedSession(ticket));
             return;
@@ -139,7 +169,7 @@ impl Coordinator {
             }
             return self.finish_restore(fx);
         }
-        let has_cached_session = cached_user.is_some() || self.has_tokens;
+        let has_cached_session = cached_user.is_some() || self.token_cache == TokenCache::Stored;
         if has_cached_session && read_failed {
             if let Some(delay) = FAILED_TOKEN_READ_RETRY_DELAYS.get(ticket.failed_read_retries) {
                 fx.push(Effect::RetryProbeAfter { ticket, delay: *delay });
@@ -148,7 +178,7 @@ impl Coordinator {
             self.preserve_cached_session(fx);
             return self.finish_restore(fx);
         }
-        if self.launch.includes_dev_auth && self.has_debug_credentials {
+        if self.launch.includes_dev_auth && self.debug_credentials == DebugCredentials::Remembered {
             fx.push(Effect::AutoLogin { ticket, source: AutoLoginSource::DebugCredentials });
             return;
         }
@@ -167,11 +197,14 @@ impl Coordinator {
         result: Result<Option<AuthUser>, AuthFailure>,
         fx: &mut Vec<Effect>,
     ) {
-        if ticket.generation != self.session_generation {
+        if ticket.generation != self.generations.session {
             return self.finish_restore(fx);
         }
         match result {
-            Ok(Some(user)) => self.apply_signed_in_user(user, false, AfterTeams::Restore, fx),
+            Ok(Some(user)) => {
+                let after = AfterTeams::Restore { id: ticket.id };
+                self.apply_signed_in_user(user, false, after, fx);
+            }
             Ok(None) => fx.push(Effect::ReadSurvivingRefreshToken { ticket, after_error: None }),
             Err(AuthFailure::Cancelled) => self.finish_restore(fx),
             Err(AuthFailure::TimedOut) => {
@@ -203,7 +236,7 @@ impl Coordinator {
             }
             (Ok(survives), _) => survives,
         };
-        if ticket.generation != self.session_generation {
+        if ticket.generation != self.generations.session {
             return self.finish_restore(fx);
         }
         if !survives && read_failed {
@@ -253,7 +286,7 @@ impl Coordinator {
         reason: &str,
         fx: &mut Vec<Effect>,
     ) {
-        if self.token_store_write_high_water != ticket.store_write_high_water {
+        if self.generations.store_write_high_water != ticket.store_write_high_water {
             return self.finish_restore(fx);
         }
         fx.push(Effect::ClearStaleSession {
@@ -264,20 +297,22 @@ impl Coordinator {
     }
 
     pub(super) fn finish_restore(&mut self, fx: &mut Vec<Effect>) {
-        if self.authenticated_teams_session_generation == Some(self.session_generation) {
-            self.cancel_team_scope_recovery(fx);
+        match self.teams {
+            Teams::Loaded { .. } => self.cancel_team_scope_recovery(fx),
+            Teams::Unloaded => {}
         }
-        self.is_revalidating_session = false;
+        self.restore = Restore::Idle;
         fx.push(Effect::RestoreFinished);
     }
 
     pub(super) fn preserve_cached_session(&mut self, fx: &mut Vec<Effect>) {
         self.set_has_tokens(fx);
-        let user = self.current_user.clone().or_else(|| self.cached_user.clone());
-        self.is_authenticated = user.is_some();
-        self.current_user = user;
-        self.is_restoring_session = false;
-        self.publish_session_identity(fx);
+        let user = self.session.user().cloned().or_else(|| self.cached_user.clone());
+        let session = match user {
+            Some(user) => Session::SignedIn { user },
+            None => Session::SignedOut { shown: None },
+        };
+        self.set_session(session, fx);
         self.schedule_team_scope_recovery(fx);
     }
 }
