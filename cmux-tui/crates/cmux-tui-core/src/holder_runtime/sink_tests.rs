@@ -78,6 +78,38 @@ fn a_parsed_burst_leaves_no_queue_capacity_behind() {
     assert!(state.runs.capacity() <= IDLE_QUEUE_RUNS, "{}", state.runs.capacity());
 }
 
+/// The reader thread waits for output before it takes its read buffer
+/// (CMUX-571: every idle terminal held a 64 KiB one through its blocked
+/// read). The wait is the read's start: what the parser parsed is
+/// acknowledged before it blocks, and the read after it takes the bytes.
+#[test]
+fn a_wait_for_output_acknowledges_first_and_the_read_after_it_takes_the_bytes() {
+    let acks = Arc::new(Mutex::new(Vec::new()));
+    let sink = HolderSink::new(0);
+    let chunk = vec![b'a'; ACK_EVERY as usize];
+    sink.data(0, &chunk);
+    let recorded = acks.clone();
+    sink.set_acker(Box::new(move |offset| recorded.lock().unwrap().push(offset)));
+    let mut reader = SinkReader(sink.clone());
+    let mut buf = vec![0u8; chunk.len()];
+    assert_eq!(reader.read(&mut buf).unwrap(), chunk.len());
+    sink.confirm_parsed();
+    let waiting = std::thread::spawn({
+        let sink = sink.clone();
+        move || sink.wait_readable()
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while acks.lock().unwrap().last() != Some(&(chunk.len() as u64)) {
+        assert!(std::time::Instant::now() < deadline, "no acknowledgement before the wait");
+        std::thread::yield_now();
+    }
+    assert!(!waiting.is_finished(), "nothing to read yet");
+    sink.data(chunk.len() as u64, b"prompt$ ");
+    waiting.join().unwrap();
+    assert_eq!(reader.read(&mut buf).unwrap(), 8);
+    assert_eq!(buf.get(..8), Some(&b"prompt$ "[..]));
+}
+
 #[test]
 fn missing_bytes_are_cancelled_not_spliced() {
     let sink = HolderSink::new(0);
