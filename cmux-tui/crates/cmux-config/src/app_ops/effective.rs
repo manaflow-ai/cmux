@@ -431,7 +431,7 @@ fn refusal(
     }
     let mut parts = split(path);
     let mut resolved: Vec<String> = Vec::new();
-    let mut count = 0;
+    let mut count: usize = 0;
     while !parts.is_empty() {
         let part = parts.remove(0);
         if part == "." {
@@ -446,7 +446,7 @@ fn refusal(
             return Ok(Some(reason));
         }
         if let Some(target) = link(links, &candidate)? {
-            count += 1;
+            count = count.saturating_add(1);
             if count > MAX_LINKS {
                 return Ok(Some("symlink"));
             }
@@ -468,7 +468,7 @@ fn refusal(
 fn resolve_home(home: &str, links: &Map<String, Value>) -> Result<String, String> {
     let mut parts = split(home);
     let mut resolved: Vec<String> = Vec::new();
-    let mut count = 0;
+    let mut count: usize = 0;
     while !parts.is_empty() {
         let part = parts.remove(0);
         if part == "." {
@@ -480,7 +480,7 @@ fn resolve_home(home: &str, links: &Map<String, Value>) -> Result<String, String
         }
         let candidate = joined(&resolved, Some(&part));
         if let Some(target) = link(links, &candidate)? {
-            count += 1;
+            count = count.saturating_add(1);
             if count > MAX_LINKS {
                 return Ok(home.to_owned());
             }

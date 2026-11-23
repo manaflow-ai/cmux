@@ -39,8 +39,8 @@ pub fn position_of(request: &Value) -> Result<Value, OpError> {
     }
     let Some(offset) = jsonc::member_start(source, &path) else { return Ok(json!({})) };
     let Some(before) = source.get(..offset) else { return Ok(json!({})) };
-    let line = before.matches('\n').count() + 1;
-    let column = before.rsplit('\n').next().unwrap_or("").encode_utf16().count() + 1;
+    let line = before.matches('\n').count().saturating_add(1);
+    let column = before.rsplit('\n').next().unwrap_or("").encode_utf16().count().saturating_add(1);
     Ok(json!({ "line": line, "column": column }))
 }
 
@@ -67,13 +67,13 @@ pub fn problem(error: &JsoncError, source: &str) -> String {
 /// "line L, column C" (both from 1) of UTF-8 byte `offset` in `source`;
 /// a column counts characters.
 pub fn position(offset: usize, source: &str) -> String {
-    let (mut line, mut column) = (1, 1);
+    let (mut line, mut column): (usize, usize) = (1, 1);
     for byte in source.as_bytes().iter().take(offset) {
         if *byte == b'\n' {
-            line += 1;
+            line = line.saturating_add(1);
             column = 1;
         } else if byte & 0xC0 != 0x80 {
-            column += 1;
+            column = column.saturating_add(1);
         }
     }
     format!("line {line}, column {column}")
