@@ -210,7 +210,7 @@ fn densities_unique_id(request: &Value) -> Result<Value, OpError> {
     let base: String = slug.chars().take(40).collect::<String>();
     let base = if base.is_empty() { "custom".to_owned() } else { base };
     let id = if !taken.contains(&base) {
-        base.clone()
+        base
     } else {
         (2..).map(|index| format!("{base}-{index}")).find(|id| !taken.contains(id)).unwrap_or(base)
     };
@@ -409,7 +409,7 @@ fn managed_guard_set(request: &Value) -> Result<Value, OpError> {
         if path.starts_with(&managed_path) {
             return Some((key.as_str(), source));
         }
-        let Some(value) = request.get("value") else { return None };
+        let value = request.get("value")?;
         if managed_path.starts_with(&path) {
             let rest = &managed_path[path.len()..];
             if crate::value::value_at(value, rest).is_some() {

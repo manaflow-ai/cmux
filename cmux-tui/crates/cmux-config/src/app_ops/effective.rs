@@ -701,13 +701,13 @@ mod tests {
         let path = dir.join("x.woff2");
         std::fs::write(&path, WOFF2).unwrap();
         let value = format!("file:{}", path.display());
-        let first = loaded(json!({ " Lora :italic": value.clone() }));
+        let first = loaded(json!({ " Lora :italic": value }));
         assert_eq!(first, json!({ "Lora:italic": font_faces::data_url("woff2", WOFF2) }));
-        assert_eq!(loaded(json!({ "Lora:italic": value.clone() })), first);
+        assert_eq!(loaded(json!({ "Lora:italic": value })), first);
         let changed = [WOFF2, b"more".as_slice()].concat();
         std::fs::write(&path, &changed).unwrap();
         assert_eq!(
-            loaded(json!({ "A": value.clone() }))["A"],
+            loaded(json!({ "A": value }))["A"],
             json!(font_faces::data_url("woff2", &changed))
         );
         std::fs::remove_file(&path).unwrap();
@@ -763,7 +763,7 @@ mod tests {
             match reply["need"].as_str() {
                 Some(need) => {
                     assert!(!links.contains_key(need), "asked twice for {need}");
-                    resolve(&mut links, need)
+                    resolve(&mut links, need);
                 }
                 None => return reply["refusal"].as_str().map(str::to_owned),
             }
@@ -853,14 +853,12 @@ mod tests {
             ] })
         );
         let root = json!({ "sidebar": { "look": "x", "showColors": true } });
-        let filled =
-            op("sidebar_look.fill", json!({ "root": root.clone(), "name": "x", "text": text }));
+        let filled = op("sidebar_look.fill", json!({ "root": root, "name": "x", "text": text }));
         assert_eq!(
             filled,
             json!({ "root": { "sidebar": { "look": "x", "showColors": true, "groupBy": "folder" } } })
         );
-        let broken =
-            op("sidebar_look.fill", json!({ "root": root.clone(), "name": "x", "text": "{" }));
+        let broken = op("sidebar_look.fill", json!({ "root": root, "name": "x", "text": "{" }));
         assert_eq!(broken, json!({ "root": root }));
     }
 
