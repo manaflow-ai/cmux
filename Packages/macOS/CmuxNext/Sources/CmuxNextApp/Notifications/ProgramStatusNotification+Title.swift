@@ -3,13 +3,13 @@ import CmuxNextCompat
 import Foundation
 
 extension ProgramStatusNotification {
-    /// The banner title in `localizations` (cx-6so.36.8): built from the matched record like the
+    /// The banner title in `localizations` (nil: the app language; cx-6so.36.8): built from the matched record like the
     /// daemon's English "<title, else app, else A program> <verb>" (program_status.rs
     /// `raise_alert`), which stays the title of a notification with no record.
-    func title(localizations: [String]) -> String {
+    func title(localizations: [String]?) -> String {
         func text(_ key: String, _ english: String) -> String {
             Bundle.module.localizedString(forKey: "notifications.programAlert.\(key)", value: english, table: "NotificationsPanel",
-                                          preferredLocalizations: localizations)
+                                          preferredLocalizations: localizations ?? Bundle.module.inAppLanguageLocalizations)
         }
         let name = record.title ?? record.app ?? text("aProgram", "A program")
         let format = switch reason {

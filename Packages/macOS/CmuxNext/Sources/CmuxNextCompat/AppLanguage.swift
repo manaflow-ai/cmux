@@ -89,4 +89,13 @@ extension Bundle {
     public var inAppLanguage: Bundle {
         (objc_getAssociatedObject(self, AppLanguage.key) as? AppLanguage)?.localizedBundle(for: self) ?? self
     }
+
+    /// This bundle's localizations with the app's language first, for the lookups that take a list
+    /// (`localizedString(forKey:value:table:preferredLocalizations:)`, a `Locale`): the chosen
+    /// `.lproj`'s name ahead of ``preferredLocalizations``, or those alone for System.
+    public var inAppLanguageLocalizations: [String] {
+        let localized = inAppLanguage
+        guard localized !== self else { return preferredLocalizations }
+        return [localized.bundleURL.deletingPathExtension().lastPathComponent] + preferredLocalizations
+    }
 }

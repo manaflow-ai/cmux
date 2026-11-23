@@ -121,8 +121,8 @@ final class NotificationCenterService {
     @ObservationIgnored var screenLocked: () -> Bool = { NotificationPreviews.screenIsLocked }
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
-    /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
-    @ObservationIgnored var localizations: [String] = Bundle.module.preferredLocalizations
+    /// Banner titles' languages (OSC 7501 alerts, cx-6so.36.8); nil: the app language, read per banner.
+    @ObservationIgnored var localizations: [String]?
     /// Ghostty's `desktop-notifications`: off reads terminal notifications
     /// at once, as Ghostty then posts none (read per arrival, so a config
     /// reload applies).

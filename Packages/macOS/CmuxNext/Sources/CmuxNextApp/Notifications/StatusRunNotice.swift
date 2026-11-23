@@ -20,13 +20,13 @@ struct StatusRunNotice: Hashable {
         self.surface = surface
     }
 
-    /// The notice for `run`, worded in `localizations` (the first is the duration's locale).
-    init(_ run: FinishedStatusRun, surface: SurfaceID?, localizations: [String]) {
+    /// The notice for `run`, worded in `localizations` (nil: the app language; the first is the duration's locale).
+    init(_ run: FinishedStatusRun, surface: SurfaceID?, localizations: [String]?) {
         func text(_ key: String, _ english: String) -> String {
             Bundle.module.localizedString(forKey: key, value: english, table: "NotificationsPanel",
-                                          preferredLocalizations: localizations)
+                                          preferredLocalizations: localizations ?? Bundle.module.inAppLanguageLocalizations)
         }
-        let locale = Locale(identifier: localizations.first ?? "en")
+        let locale = Locale(identifier: (localizations ?? Bundle.module.inAppLanguageLocalizations).first ?? "en")
         let took = Duration.milliseconds(Int64(clamping: run.durationMs ?? 0))
             .formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated).locale(locale))
         // The OSC 7501 alert wording ("make is done", "make failed"), so both kinds of finish read alike.

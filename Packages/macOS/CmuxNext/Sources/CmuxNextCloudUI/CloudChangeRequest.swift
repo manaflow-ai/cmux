@@ -35,7 +35,7 @@ public struct CloudChangeRequest {
     public func notice(_ title: String) -> String {
         let name = title.hasSuffix("…") ? String(title.dropLast()) : title
         let details = (machine.map { [$0] } ?? []) + asked.keys.sorted().map { "\($0): \(asked[$0] ?? "")" }
-        return String(format: String(localized: "cloud.changeRequest.notice", defaultValue: "%1$@ by an agent or a script: %2$@", table: "Cloud", bundle: .module),
+        return String(format: String(localized: "cloud.changeRequest.notice", defaultValue: "%1$@ by an agent or a script: %2$@", table: "Cloud", bundle: .localizedModule),
                       name, details.joined(separator: ", "))
     }
 
