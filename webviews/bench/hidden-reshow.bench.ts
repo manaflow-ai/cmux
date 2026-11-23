@@ -1562,6 +1562,10 @@ try {
       simStream.armed = true;
       const showEpoch = Date.now();
       await cdp.send("Page.setWebLifecycleState", { state: "active" });
+      // The kept page attached before it was hidden and sends no attach now: the chat streams from its
+      // show, as it does from a reopened page's attach. Waiting for the other pages' attach started it
+      // seconds into the window under duress, so the kept page saw no turn end the spare did.
+      streamSim();
       const start = await page.evaluate(
         ({ epoch, recordMs }) => {
           const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
