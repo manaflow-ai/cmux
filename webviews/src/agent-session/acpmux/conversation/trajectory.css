@@ -1,0 +1,53 @@
+/* The trajectory view's looks (trajectory.ts): set only by a trajectory setting, so a chat without
+   one draws as it ships. */
+
+/* Density (`agentPane.display.trajectory.density`): one step row's pitch. The row estimator reads
+   the same values (trajectory.ts TRAJECTORY_ROW_HEIGHT). */
+:root[data-trajectory-density="compact"] {
+  --cv-tool-row-height: 20px;
+}
+:root[data-trajectory-density="relaxed"] {
+  --cv-tool-row-height: 26px;
+}
+
+/* Timeline (`agentPane.display.trajectory.layout: rail`): a step and the step right under it are
+   joined by a short line between their glyphs, down the icon column, as a task timeline hangs its
+   steps. The line runs
+   from under one glyph's box to over the next one's (the glyph's own inset keeps it off the ink), in
+   the glyph's tone, faded. It draws only between two step rows in a row: an opened step's output or
+   an aside ends it. A failed call's cause line is out of the flow and unseen (conversation.css), so
+   the line runs past it. It takes no room: no row moves, so the estimator's heights hold. */
+:root[data-trajectory-layout="rail"]
+  .cv-tools
+  > .cv-tool:is(:has(+ .cv-tool), :has(+ .cv-tool-error + .cv-tool))
+  > .cv-tool__icon {
+  position: relative;
+}
+:root[data-trajectory-layout="rail"]
+  .cv-tools
+  > .cv-tool:is(:has(+ .cv-tool), :has(+ .cv-tool-error + .cv-tool))
+  > .cv-tool__icon::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  inset-inline: 0;
+  margin-inline: auto;
+  width: 1px;
+  /* The rest of this row under the glyph, the stack's gap, and the next row's room over its glyph. */
+  height: calc(var(--cv-tool-row-height) - var(--cv-glyph-line) + var(--grid-base));
+  background: currentColor;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* Gallery arms only (Trajectory.gallery.ts `data-trajectory-arm`), not offered by the setting:
+   `cards` puts each step in a hairline card, as a detailed tool call density; `bare` drops
+   the glyphs, as Claude Code draws a step. */
+:root[data-trajectory-arm="cards"] .cv-tools > .cv-tool {
+  padding-inline: var(--grid-base);
+  border: 1px solid var(--cv-rule);
+  border-radius: 6px;
+}
+:root[data-trajectory-arm="bare"] .cv-tools > .cv-tool > .cv-tool__icon {
+  display: none;
+}

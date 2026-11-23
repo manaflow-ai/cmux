@@ -1903,9 +1903,10 @@ const LIVE_STEP_EDGE = "+step";
 /// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
-/// Read once per layout pass, with the scale (layoutConversation).
+/// Read once per layout pass, with the scale (layoutConversation). The trajectory's density
+/// (conversation/trajectory.ts) sets the pitch; the default is the transcript's line row.
 let lineRowPt = TRANSCRIPT_LINE_ROW;
-const toolRowHeight = () => lineRowPt * chromeScale;
+const toolRowHeight = () => trajectoryRowHeight(lineRowPt) * chromeScale;
 /// A later part of a running turn's long run keeps the room the run's flex gap gave its first entry
 /// (conversation/runParts.ts; conversation.css `.acpmux-row--run-part`).
 const runPartTop = (row: AcpmuxRow) => (isRunPart(row) ? gridLength("base") * chromeScale : 0);
@@ -2723,24 +2724,31 @@ function fallbackRowHeight(
       const open = settings.show !== "collapsed" || cardOpen(row.id);
       return finish(EDITED_CARD_BELOW + editedCardHeight(files.size, plain.length, open, settings.maxRows));
     }
+    // The trajectory view (trajectory.ts), as ToolRows draws it: a row whose steps are all hidden
+    // draws nothing, a hidden step takes no room, and `separate` folds no run.
+    const view = trajectory();
+    const shaped = view === DEFAULT_TRAJECTORY ? undefined : toolGroups(items, view);
+    if (shaped && !shaped.length) return 0;
+    const shown = shaped ? shaped.flatMap((group) => ("items" in group ? group.items : [group.item])) : items;
     // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
     if (row.foldRun && items.length) {
-      const groups = toolGroups(items);
+      const groups = shaped ?? toolGroups(items);
       // A run line open from the start (`runOpen`) draws each stretch's line over its steps; one the
-      // reader opened draws them too.
-      if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items))
+      // reader opened draws them too. `separate` (trajectory.ts) folds no run.
+      if (row.runOpen || groups.some(staysInSight) || (view.grouping !== "separate" && isFoldedRun(shown)))
         return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
-    if (!items.length) return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + toolRowHeight());
+    if (!shown.length) return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + toolRowHeight());
     // Any other row draws its entries as ToolRows does (TurnRows.tsx): one node per group, so a run of
     // commands is one "Ran N commands" group, open by default in its scroll box (`openRunBody`), not a
     // line per call (Leo, 2026-11-17: a gap under the row, and rows shifting when it was measured).
+    // The trajectory's groups (`shaped`) when a trajectory setting is on.
     return finish(
       runPartTop(row) +
         TOOL_RUN_TOP +
         TOOL_RUN_BOTTOM +
-        foldedRunSteps(row, toolGroups(items), width, sessionId, row.live === true),
+        foldedRunSteps(row, shaped ?? toolGroups(items), width, sessionId, row.live === true),
     );
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
@@ -3965,7 +3973,7 @@ export function layoutConversation(
           height = custom
             ? customHeight
             : edge === LIVE_STEP_EDGE
-              ? liveStepHeight() * chromeScale
+              ? trajectoryRowHeight(liveStepHeight()) * chromeScale
               : measuredRowHeight(
                   row,
                   width,
@@ -4407,6 +4415,7 @@ import {
 } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import { DEFAULT_TRAJECTORY, trajectory, trajectoryRowHeight } from "./conversation/trajectory";
 import {
   callDisclosureKey,
   callDisclosureKeys,

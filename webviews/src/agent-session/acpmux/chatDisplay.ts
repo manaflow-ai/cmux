@@ -50,6 +50,7 @@ import {
 import { configureStatusVerbs } from "./statusVerbs";
 import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
+import { configureTrajectory } from "./conversation/trajectory";
 import {
   DEFAULT_RESOLVED_TRANSCRIPT_LOOK,
   gapScaleOf,
@@ -575,6 +576,9 @@ export function setChatDisplay(value: unknown): void {
   configureStatusVerbs(raw);
   configureThinkingLook(raw);
   configureSenderIconLook(raw);
+  // The trajectory view's keys (conversation/trajectory.ts): a change is a new look, so the
+  // transcript shapes and measures its rows again (VirtualTranscript.tsx `measuredLook`).
+  const trajectoryChanged = configureTrajectory(raw);
   const readingValues = readingLookValues(raw, experimentArm(readingLook));
   const nextHighContrastArm = experimentArm(highContrastLook);
   const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
@@ -594,7 +598,7 @@ export function setChatDisplay(value: unknown): void {
   const tips = raw[FEATURE_TIPS_KEY] === true;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
-  const same = JSON.stringify(next) === JSON.stringify(current);
+  const same = JSON.stringify(next) === JSON.stringify(current) && !trajectoryChanged;
   const sameLook = nextHighContrastArm === highContrastArm;
   // A font pack's faces (chatFontFaces.ts): a new map replaces the declared faces, and once they
   // have loaded the estimate measures them (the measure stacks change), under a new look that has

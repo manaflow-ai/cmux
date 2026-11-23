@@ -475,6 +475,7 @@ import {
   useUnreadBannerMode,
 } from "./chatDisplay";
 import { usePresentation } from "./conversation/presentation";
+import { DEFAULT_TRAJECTORY, useTrajectory, type Trajectory } from "./conversation/trajectory";
 import { PresentationContext } from "./conversation/presentationContextModel";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
 import { useStatusVerbConfig } from "./statusVerbs";
@@ -2125,6 +2126,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Thinking and Verbose also open each finished turn's "Worked for" (conversation/viewFolds.ts).
   // One object per view, set or toggle change, so the turns are not reshaped per event.
   const chatPresentation = usePresentation(shownSessionId);
+  // The trajectory view (conversation/trajectory.ts): which steps show and how they group.
+  const trajectoryView = useTrajectory();
   // Leo's alternate -ing verbs stay behind the explicit Rotate setting. The normal path leaves
   // this context empty so the live line remains the bare translated Thinking label.
   const statusVerbConfig = useStatusVerbConfig();
@@ -2438,6 +2441,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastTurns = useRef<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>(
     undefined,
   );
+  /// The trajectory view `lastTurns` was shaped under.
+  const shapedTrajectory = useRef<Trajectory>(DEFAULT_TRAJECTORY);
   const supersededReplyIds = useMemo(
     () => (snapshot.supersededRows?.length ? new Set(snapshot.supersededRows) : undefined),
     [snapshot.supersededRows],
@@ -2479,6 +2484,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         folds,
         heldFolds,
         chatShellRuns,
+        trajectoryView,
+        shapedTrajectory,
       }),
     [
       chatPresentation,
@@ -2501,6 +2508,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       workflowLabsEnabled,
       shownSessionId,
       callRelease,
+      trajectoryView,
     ],
   );
   // The questions the agent asked the person that still wait on them once another turn came after

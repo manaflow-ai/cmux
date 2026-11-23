@@ -15,6 +15,7 @@ import type { MessageBranch } from "../conversation/branches";
 import { chatAfterRewind, type ChatMarks } from "../conversation/cloudTurnCheckpoints";
 import { projectInboxRows } from "../conversation/laneNoticeBatches";
 import { messagesRows } from "../conversation/messagesRows";
+import type { Trajectory } from "../conversation/trajectory";
 import { takeBackSteer, takesSteersBack } from "../conversation/pendingSteerModel";
 import type { QueuedMessageActionsValue } from "../conversation/QueuedMessageCard";
 import type { RetryModel } from "../conversation/retryModelSections";
@@ -93,6 +94,9 @@ export interface TurnRowsShownDeps {
   folds: Folds;
   heldFolds: RefObject<Held>;
   chatShellRuns: ShellRun[];
+  /// The trajectory view (conversation/trajectory.ts) and the one `lastTurns` was shaped under.
+  trajectoryView: Trajectory;
+  shapedTrajectory: RefObject<Trajectory>;
 }
 
 /// What `turnActionsFrom` reads of AcpmuxPane: the values its `turnActions` memo closes over.
@@ -174,6 +178,8 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     folds,
     heldFolds,
     chatShellRuns,
+    trajectoryView,
+    shapedTrajectory,
   } = deps;
   if (chatPresentation === "messages") return messagesRows(childRows ?? sourceRows);
   if (childRows) {
@@ -185,7 +191,11 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
   // The tray takes the running groups out of the rows, so the live line's wait is counted first.
   const trayAgents = subagentTray ? trayWaitAgents(startedRows) : 0;
   return acpmuxPerf.timed("app.rows", () => {
-    const last = lastTurns.current?.sessionId === shownSessionId ? lastTurns.current : undefined;
+    // A new trajectory view (conversation/trajectory.ts) shapes every turn again, as a new chat does.
+    const last =
+      lastTurns.current?.sessionId === shownSessionId && shapedTrajectory.current === trajectoryView
+        ? lastTurns.current
+        : undefined;
     if (heldCalls.current.session !== shownSessionId) heldCalls.current = { session: shownSessionId, keys: new Set() };
     // Null while the view follows the latest row: what was held out goes back in there. The view
     // following again with calls held (`callRelease`) shapes the rows again for that.
@@ -295,6 +305,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
     const subagents = subagentRowsFrom(displayRows, folds, last?.subagents);
     lastTurns.current = { sessionId: shownSessionId, turns, subagents };
+    shapedTrajectory.current = trajectoryView;
     // After the turns: a live turn's status reads its last row, the call's included.
     return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
   });
