@@ -2630,6 +2630,17 @@ pub(crate) fn prune_unchanged_resource_changes(
     Ok(ResourcePatch { changes })
 }
 
+/// True when `change` (a `SetWorkspaceOrder`) names the stored live workspaces in their stored order.
+/// The projection cross-check reads it: the prune keeps an unchanged order whenever a workspace
+/// upsert is kept, and a scoped walk that knows nothing moved leaves the order out.
+pub(crate) fn workspace_order_is_stored(
+    transaction: &Transaction<'_>,
+    change: &ResourceChange,
+) -> anyhow::Result<bool> {
+    let mut workspace_rows = None;
+    resource_change_is_stored(transaction, &mut workspace_rows, change)
+}
+
 fn content_tab_panes(
     transaction: &Transaction<'_>,
     content_id: &str,
