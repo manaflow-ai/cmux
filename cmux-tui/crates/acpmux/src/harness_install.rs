@@ -88,7 +88,7 @@ fn claude_path() -> Option<PathBuf> {
     })
 }
 
-fn which_on_path(program: &str) -> Option<PathBuf> {
+pub(crate) fn which_on_path(program: &str) -> Option<PathBuf> {
     std::env::var_os("PATH")
         .into_iter()
         .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
