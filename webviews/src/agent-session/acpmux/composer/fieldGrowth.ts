@@ -384,6 +384,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
           // Keep the synchronous path for engines without ResizeObserver; the observer is the
           // signal that makes the deferred path safe on supported engines.
           const immediate =
+            (globalThis as { __growImmediate?: boolean }).__growImmediate === true ||
             newTile ||
             external() ||
             moving.has(scroller!) ||
