@@ -47,7 +47,9 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use cmux_agent_cli_render::adapter::{Adapter, FullScreenScan};
 use cmux_agent_cli_render::lean::LeanEncoder;
-use cmux_agent_cli_render::stream::{Frame, FramePacer, HybridStream};
+use cmux_agent_cli_render::stream::{
+    FRAME_INTERVAL, FRAME_SETTLE, Frame, FramePacer, HybridStream,
+};
 use cmux_agent_cli_render::vt;
 use cmux_agent_cli_render::{Cell, Color, Grid, Style, UNDERLINE};
 use serde_json::{Value, json};
@@ -64,6 +66,20 @@ pub const AGENT_CLI_HYBRID_LEAN_CAPABILITY: &str = "agent-cli-hybrid-v2";
 /// With both: every other terminal (a shell or any program) goes as lean frames too, PTY bytes
 /// only while a full-screen program runs.
 pub const TERMINAL_SHELL_LINES_CAPABILITY: &str = "terminal-shell-lines-v1";
+
+/// With the three above: a full-screen program (a pager, `top`, vim) goes on as lean frames
+/// too, as an agent CLI on the alternate screen does, instead of its PTY bytes. A program that
+/// repaints its whole screen for each change (a line appended, a wheel step) then costs the
+/// link the cells that changed, not the screen: a pager streaming 20 lines a second under a
+/// one-finger pan sent about 111 KB a second down as PTY bytes. Its viewer follows the
+/// alternate screen and the input modes (mouse tracking among them) as `output` bytes, a
+/// switch of screens followed by a keyframe, and its frames are paced at one display frame
+/// ([`DISPLAY_FRAME`]) so a pan stays as smooth as the PTY bytes drew it. Opt-in: a
+/// connection that does not declare it gets the shell lines' PTY bytes, as before.
+pub const TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY: &str = "terminal-full-screen-frames-v1";
+
+/// The frame pace of a [`TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY`] viewer: one frame at 60 Hz.
+const DISPLAY_FRAME: Duration = Duration::from_micros(16_667);
 
 /// How long a stream whose viewer left can still be resumed.
 pub(super) const PARKED_FOR: Duration = Duration::from_secs(600);
@@ -189,6 +205,9 @@ pub(super) struct HybridViewer {
     /// An agent CLI's viewer: the modes its terminal was told, as `output` bytes (the alternate
     /// screen and [`AGENT_INPUT_MODES`]); each write that changes them tells it the change.
     told: Option<ScreenModes>,
+    /// The pacer's interval: [`FRAME_INTERVAL`], or [`DISPLAY_FRAME`] for a viewer that asked
+    /// for full-screen frames.
+    pace: Duration,
 }
 
 /// What a viewer declared: the lean frames (`agent-cli-hybrid-v2`), the shell adapter for
@@ -198,6 +217,8 @@ pub(super) struct Wants {
     pub(super) lean: bool,
     pub(super) shell: bool,
     pub(super) lines: bool,
+    /// [`TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY`]: frames at [`DISPLAY_FRAME`].
+    pub(super) display_frames: bool,
 }
 
 impl HybridViewer {
@@ -213,7 +234,8 @@ impl HybridViewer {
         resume: Option<(String, u64)>,
         wants: Wants,
     ) -> anyhow::Result<(HybridViewer, Option<Value>)> {
-        let Wants { lean, shell, lines } = wants;
+        let Wants { lean, shell, lines, display_frames } = wants;
+        let pace = if display_frames { DISPLAY_FRAME } else { FRAME_INTERVAL };
         let term = shadow(cols, rows, replay)?;
         let render = ghostty_vt::RenderState::new()?;
         // An agent CLI's viewer follows the modes of its screen, which frames do not carry.
@@ -243,12 +265,13 @@ impl HybridViewer {
             term,
             render,
             stream,
-            pacer: FramePacer::default(),
+            pacer: FramePacer::new(pace, FRAME_SETTLE),
             started: Instant::now(),
             lean: lean.then(LeanEncoder::new),
             shell: shell.then_some(Shell { pty: false }),
             scan: (lines || shell).then(FullScreenScan::new),
             told: None,
+            pace,
         };
         if let Some(shell) = viewer.shell.as_mut()
             && full_screen(&viewer.term)
@@ -374,7 +397,7 @@ impl HybridViewer {
             let at_ms =
                 u64::try_from(now.duration_since(self.started).as_millis()).unwrap_or(u64::MAX);
             self.stream.update(&real, at_ms);
-            self.pacer = FramePacer::default();
+            self.pacer = FramePacer::new(self.pace, FRAME_SETTLE);
             let frame = self.stream.keyframe(at_ms);
             out.push(HybridOut::Event(self.event(&frame, cursor)));
         }
@@ -388,7 +411,7 @@ impl HybridViewer {
         }
         let (cols, rows) = self.stream.size();
         self.stream.resize(cols, rows);
-        self.pacer = FramePacer::default();
+        self.pacer = FramePacer::new(self.pace, FRAME_SETTLE);
     }
 
     /// A shell's full-screen program ended: frames go on from the screen the viewer shows (it
@@ -467,7 +490,7 @@ impl HybridViewer {
     pub(super) fn resized(&mut self, cols: u16, rows: u16, replay: &[u8]) -> anyhow::Result<Value> {
         self.term = shadow(cols, rows, replay)?;
         self.stream.resize(cols, rows);
-        self.pacer = FramePacer::default();
+        self.pacer = FramePacer::new(self.pace, FRAME_SETTLE);
         let (real, cursor) = self.screen()?;
         let at_ms = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
         self.stream.update(&real, at_ms);
