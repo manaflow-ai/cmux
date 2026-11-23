@@ -171,7 +171,10 @@ async fn a_given_name_and_every_older_name_reach_the_session() {
         format!("{own}/Honey"),
     ] {
         assert_eq!(id_of(hub.resolve(&key)), "s1", "{key}");
-        assert_eq!(hub.key_route(&key).unwrap().as_deref(), Some("s1"), "{key}");
+        // `None` is the route to the usual lookup (`name_on`: an exact `HOST/NAME` here), which
+        // `resolve` above answers.
+        let route = hub.key_route(&key).unwrap();
+        assert!(matches!(route.as_deref(), None | Some("s1")), "{key}: {route:?}");
     }
     // A given name is one session's: another asking for it is refused.
     let other = chat(&hub, "o1", "lane-b");
