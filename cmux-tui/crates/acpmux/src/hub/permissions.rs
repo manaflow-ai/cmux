@@ -294,6 +294,17 @@ impl Hub {
                 // `initialize` holds the spawn lock that check takes (review 1 of #26059), unless a
                 // reattach replaced the link since (review 2).
                 Inbound::LinkBroken { agent } => {
+                    let child =
+                        session.child.lock().await.clone().filter(|c| c.generation == agent);
+                    if let Some(child) = child.filter(|c| c.is_broken()) {
+                        // An entry from its host could not be stored: every request open on it is
+                        // answered now, with the store's refusal (`disk.full` on a full disk) or
+                        // the link's own error, never left to the client's limit. The next request
+                        // reattaches; the host keeps the entry for it.
+                        let full = self.store.durability().and_then(|d| (d.full)());
+                        let why = full.as_deref().unwrap_or(crate::agent::LINK_UNLOGGED);
+                        child.fail_pending_if_unheard_with(why).await;
+                    }
                     if self.full_access_managed_off() {
                         let child = session.child.lock().await.clone();
                         if let Some(child) = child.filter(|c| c.generation == agent) {
@@ -795,6 +806,8 @@ impl Hub {
         turn_id: Option<String>,
     ) -> Result<Value, RpcError> {
         let mut path = Self::fs_path(session, &params)?;
+        // A conflict from the last flush of a paused machine answers this call (`paused_fs.rs`).
+        self.journal_notices(session)?;
         // The remote floor: never through a symlink, the question names the
         // resolved path, and only that file is written (`write_approved`).
         let web_turn = Self::web_turn(session);
@@ -830,6 +843,10 @@ impl Hub {
                 -32000,
                 format!("write to {shown} rejected by the acpmux permission policy"),
             ));
+        }
+        // A paused machine's write goes to its journal, applied when it resumes (`paused_fs.rs`).
+        if self.journal_write(session, &path, &content).await? {
+            return Ok(Value::Null);
         }
         // Keep the read lease through the write; a new seed cannot begin in
         // between readiness and mutation. A Stop during the wait cancels it.
@@ -913,18 +930,25 @@ impl Hub {
                 format!("read of {} rejected by the acpmux permission policy", path.display()),
             ));
         }
-        let text = self
-            .read_with_external_access(session, &path, epoch, turn_id, || match &target {
-                Some(Some(t)) => {
-                    use std::io::Read;
-                    let mut text = String::new();
-                    super::remote_floor::open_read_target(t)?.read_to_string(&mut text)?;
-                    Ok(text)
-                }
-                Some(None) => Err(std::io::Error::other("the path cannot be resolved")),
-                None => std::fs::read_to_string(&path),
-            })
-            .await?;
+        // A paused machine's read is answered from its journal and replica (`paused_fs.rs`).
+        self.journal_notices(session)?;
+        let journaled = self.journal_read(session, &path).await?;
+        let text = match journaled {
+            Some(text) => text,
+            None => {
+                self.read_with_external_access(session, &path, epoch, turn_id, || match &target {
+                    Some(Some(t)) => {
+                        use std::io::Read;
+                        let mut text = String::new();
+                        super::remote_floor::open_read_target(t)?.read_to_string(&mut text)?;
+                        Ok(text)
+                    }
+                    Some(None) => Err(std::io::Error::other("the path cannot be resolved")),
+                    None => std::fs::read_to_string(&path),
+                })
+                .await?
+            }
+        };
         let line = params.get("line").and_then(Value::as_u64).map(|l| l.max(1) as usize);
         let limit = params.get("limit").and_then(Value::as_u64).map(|l| l as usize);
         let content = match (line, limit) {
