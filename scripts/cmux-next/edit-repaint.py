@@ -6,6 +6,8 @@ customize folder, never the account's; or, with `--attach-socket`, an app alread
 instance of an installed NIGHTLY: scripts/measure/ext-reload-nightly.sh):
 - `theme`: cmux-next.json `appearance.themeFile` flips between two shipped theme files (phosphor, charcoal).
 - `sidebar`: cmux-next.json `sidebar.density` flips between compact and expanded (four workspaces listed).
+- `apptheme`: cmux-next.json `appearance.theme` (terminals, and cmux unless App Theme is set) flips between two
+  Ghostty themes, a dark and a light one.
 - `twotone`: cmux-next.json `appearance.twoTone` flips between off and auto (the intro walk's Two-Tone Studio pick).
 - `twotone-pairing`: `appearance.twoTone` flips between off and the `inkSakura` pairing, a change of every surface.
 - `extension`: the customize folder's `main.js` (local/customize) is saved with a new headline in its
@@ -70,7 +72,8 @@ CUSTOMIZE_CASES = ("extension", "rows", "pane")
 READBACK_CASES = ("command", "shortcut")  # nothing changes on screen for these until a person acts
 INTERFACES = {"extension": "cmux.section/1", "rows": "cmux.sidebar.rows/1", "pane": "cmux.pane/1"}
 TWOTONE_CASES = {"twotone": ["auto", "off"], "twotone-pairing": ["inkSakura", "off"]}
-ALL_CASES = ("theme", "sidebar") + tuple(TWOTONE_CASES) + CUSTOMIZE_CASES + READBACK_CASES
+APP_THEMES = ["Catppuccin Latte", "Catppuccin Mocha"]
+ALL_CASES = ("theme", "apptheme", "sidebar") + tuple(TWOTONE_CASES) + CUSTOMIZE_CASES + READBACK_CASES
 
 MANIFEST = {
     "manifestVersion": 2, "id": APP_ID, "name": "Edit repaint", "version": "1.0.0",
@@ -443,6 +446,8 @@ def main():
                 if case == "theme":
                     name = ["phosphor", "charcoal"][i % 2]
                     write = save_config(lambda c, n=name: c.setdefault("appearance", {}).__setitem__("themeFile", n))
+                elif case == "apptheme":
+                    write = save_config(lambda c, n=APP_THEMES[i % 2]: c.setdefault("appearance", {}).__setitem__("theme", n))
                 elif case in TWOTONE_CASES:
                     tone = TWOTONE_CASES[case][i % 2]
                     write = save_config(lambda c, t=tone: c.setdefault("appearance", {}).__setitem__("twoTone", t))
@@ -490,8 +495,9 @@ def main():
             if case == "theme":  # the next cases run on the default look
                 save_config(lambda c: c.get("appearance", {}).pop("themeFile", None))()
                 time.sleep(2)
-            if case in TWOTONE_CASES:
-                save_config(lambda c: c.get("appearance", {}).pop("twoTone", None))()
+            if case in TWOTONE_CASES or case == "apptheme":
+                key = "theme" if case == "apptheme" else "twoTone"
+                save_config(lambda c, k=key: c.get("appearance", {}).pop(k, None))()
                 time.sleep(2)
             if case == "command":
                 save_config(lambda c: c.get("actions", {}).pop(COMMAND_ACTION, None))()
