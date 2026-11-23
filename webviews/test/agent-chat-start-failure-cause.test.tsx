@@ -178,14 +178,25 @@ test("a refused open of the started chat logs the chat's session id", async () =
   }
 });
 
-test("a start with no connection to acpmux says the agent service is unreachable and what to do", async () => {
+// Leo, 2026-11-12: "if we do the recovery needs to be a lot better and it shouldn't talk so much
+// bullshit", and on a Try again line: "try what? no, it should just automatically do stuff". A start
+// with no connection to acpmux drew "cmux lost its connection to the agent service while starting
+// Claude Code. Try again, and if it keeps happening, quit and reopen cmux to reconnect." with Retry.
+test("a start with no connection to acpmux draws no card, keeps starting, and logs its cause", async () => {
   const { client, harnessSwitch } = await startPath();
   client.close();
-  captureLog();
-  const card = await failedCard(harnessSwitch);
-  expect(card.sentence).toBe(
-    "cmux lost its connection to the agent service while starting Claude Code. Try again, and if it keeps happening, quit and reopen cmux to reconnect.",
-  );
-  expect(card.details).toContain("code native.not_connected");
+  const causeLogged = new Promise<void>((resolve) => {
+    console.error = (...args: unknown[]) => {
+      const line = args.map(String).join(" ");
+      logged.push(line);
+      if (line.includes("native.not_connected")) resolve();
+    };
+  });
+  void harnessSwitch.switchTo("claude", "/tmp/project");
+  await causeLogged;
+  const intent = harnessSwitch.view().intent;
+  expect(intent?.phase).toBe("starting");
+  expect(intent?.error).toBeUndefined();
   expect(logged.some((entry) => entry.includes("code native.not_connected"))).toBe(true);
+  harnessSwitch.disconnect();
 });
