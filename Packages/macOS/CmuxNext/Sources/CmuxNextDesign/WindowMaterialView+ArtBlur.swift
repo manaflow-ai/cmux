@@ -9,7 +9,8 @@ import CoreImage
 nonisolated enum ArtBlur {
     /// A blurred copy and what it was made from.
     struct Copy {
-        var source: ObjectIdentifier
+        /// The picture it blurs, held so an identity never matches a later picture at its address.
+        var source: NSImage
         var pixelRadius: Int
         var image: CGImage
     }
@@ -45,18 +46,17 @@ extension WindowMaterialView {
             return image
         }
         let pixelRadius = ArtBlur.pixelRadius(artBlurRadius, width: source.width, height: source.height, in: bounds.size)
-        let key = ObjectIdentifier(image)
-        if let copy = blurredArt, copy.source == key, copy.pixelRadius == pixelRadius { return copy.image }
+        if let copy = blurredArt, copy.source === image, copy.pixelRadius == pixelRadius { return copy.image }
         artBlurJob?.cancel()
         artBlurJob = Task { [weak self] in
             guard let blurred = await ArtBlur.blurred(source, pixelRadius: pixelRadius), !Task.isCancelled,
                   let self, self.artImage === image, self.artBlurRadius > 0 else { return }
-            self.blurredArt = ArtBlur.Copy(source: key, pixelRadius: pixelRadius, image: blurred)
+            self.blurredArt = ArtBlur.Copy(source: image, pixelRadius: pixelRadius, image: blurred)
             self.artView.layer?.contents = blurred
             self.noteGlassSourceChange()
         }
         // A blurred copy of the same picture showing now stays until the new one is ready.
-        if let copy = blurredArt, copy.source == key { return copy.image }
+        if let copy = blurredArt, copy.source === image { return copy.image }
         return image
     }
 }
