@@ -2061,7 +2061,7 @@ jobs:
         id: ghostty-resources-bundle
         continue-on-error: true
         run: |
-          git submodule update --init --depth 1 --filter=blob:none ghostty-next
+          bash scripts/ci/init-submodule.sh ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
           # Ghostty's themes survive the Resources phase in either order (Xcode, the fleet builder).
           bash scripts/cmux-next/tests/bundle-resources-layout.test.sh
