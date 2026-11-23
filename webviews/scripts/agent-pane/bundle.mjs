@@ -20,6 +20,7 @@ import { artifactRuntimePlugin } from "./artifactRuntimePlugin.mjs";
 // esbuild bundles and minifies as before. Components the compiler skips or bails out on are
 // listed on stderr, and as JSON with --report, so a bailout is visible in review.
 import { build } from "esbuild";
+import { productionDefine } from "../productionDefine.mjs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,8 +73,6 @@ const reactCompiler = reactCompilerPlugin({
   onDiagnostic: (diagnostic) => bailouts.push(diagnostic),
 });
 
-/** Vite's `import.meta.env` as a production page sees it. */
-const PRODUCTION_ENV = JSON.stringify({ DEV: false, PROD: true, MODE: "production", SSR: false });
 
 const result = await build({
   entryPoints: [entry],
@@ -83,8 +82,9 @@ const result = await build({
   target: "es2022",
   // `import.meta.env` is Vite's: a browser has none, so a bare `import.meta.env.DEV` left in a shipped
   // page throws. #50616 put one in the pane's connect path and every NIGHTLY pane sat on
-  // "Reconnecting…" (#51194). Defined here, any read of it is a production build's constant.
-  define: { "process.env.NODE_ENV": '"production"', "import.meta.env": PRODUCTION_ENV },
+  // "Reconnecting…" (#51194). Defined (productionDefine.mjs, shared by every production esbuild
+  // bundle), any read of it is a production build's constant.
+  define: productionDefine,
   minify: !cssInputsOnly,
   write: !cssInputsOnly,
   legalComments: "none",
