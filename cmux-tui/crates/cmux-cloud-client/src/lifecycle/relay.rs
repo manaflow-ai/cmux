@@ -67,6 +67,7 @@ impl Request {
     }
 
     /// Accepted and completed operations remain distinct observed states.
+    #[allow(clippy::result_large_err)] // The subject comes back with the error: it is not lost.
     pub fn complete(
         self,
         value: Value,

@@ -240,7 +240,10 @@ impl Customize {
             .and_then(|_| self.library_write_back(target.library.as_ref().map(String::as_bytes)))
             .and_then(|()| self.put_layers(&layers_now, &target.layers))
             .and_then(|()| {
-                self.write_setup_receipts(&ReceiptsFile { setups: target.receipts.clone() })
+                self.write_setup_receipts(&ReceiptsFile {
+                    format: super::RECEIPTS_FORMAT,
+                    setups: target.receipts.clone(),
+                })
             });
         if let Err(error) = moved {
             // All or nothing: the library, layers and receipts as they were.
