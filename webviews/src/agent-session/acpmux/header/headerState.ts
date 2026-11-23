@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { readHeaderControls, type HeaderControls } from "./headerTrio";
 import { headerMotionOf, type HeaderMotionStyle } from "./headerMotion";
+import { readHeaderIconsStyle, type HeaderIconsStyle } from "./headerRelevance";
 
 /// What the chat header shows from the chat's tab (CmuxNextAgentPane AgentPaneHeaderState): the pin the
 /// "..." menu's labels read, whether the panes beside the chat show ([+] New tab reads Hide tabs), and
@@ -52,6 +53,13 @@ export interface HeaderMoveTarget {
   readonly reason?: string;
 }
 
+export interface HeaderWorkspace {
+  /// The workspace's shown name (its title, else its name).
+  readonly title: string;
+  /// The agent chat tabs in it, this chat included.
+  readonly chats: number;
+}
+
 export interface HeaderState {
   readonly pinned: boolean;
   readonly sideTabs: boolean;
@@ -67,8 +75,15 @@ export interface HeaderState {
   /// How the top-right icons move (Debug Settings `agentChat.headerMotion`, headerMotion.ts): `still`
   /// unless the App picked another style.
   readonly headerMotion: HeaderMotionStyle;
+  /// Which top-right icons show (Debug Settings `agentChat.headerIcons.contextual`, headerRelevance.ts):
+  /// `standard` (today's), `contextual` or `contextualPeek`.
+  readonly headerIcons: HeaderIconsStyle;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
   readonly pullRequest?: HeaderPullRequest;
+  /// The chat's workspace (CmuxNextAgentPane AgentPaneHeaderWorkspace) and how many agent chats it
+  /// holds, for the glass toolbar's title (`experiments.glassToolbarGroups`). A push without the key
+  /// keeps it; the App's `null` (the store does not list the chat) clears it.
+  readonly workspace?: HeaderWorkspace;
   /// The Cloud moves the chat's right-click menu offers now (`cloudMove`, `cloudBringBack`): the
   /// composer's picker offers the same. Only a `pane.tabState` reply carries it; a push keeps it.
   readonly moves: readonly string[];
@@ -78,6 +93,9 @@ export interface HeaderState {
   /// Where the chat can move (Move to… in the composer's picker and the title menu): Cloud machines,
   /// and this Mac for a chat a move took from it. The host validates ids again on dispatch.
   readonly moveTargets: readonly HeaderMoveTarget[];
+  /// The chat is half of a terminal and chat pair (a terminal runs its session): "..." offers Switch to terminal, the
+  /// App's Toggle Terminal and Chat. Only a `pane.tabState` reply carries it (read as the menu opens); a push keeps it.
+  readonly terminalSwitch: boolean;
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
   readonly version: number;
 }
@@ -97,9 +115,11 @@ const INITIAL: HeaderState = {
   sessionInfo: false,
   headerControls: "standard",
   headerMotion: "still",
+  headerIcons: "standard",
   moves: [],
   moveReasons: {},
   moveTargets: [],
+  terminalSwitch: false,
   version: 0,
 };
 let current: HeaderState = INITIAL;
@@ -132,10 +152,13 @@ export function setHeaderState(value: unknown): void {
     inspector?: unknown;
     headerControls?: unknown;
     headerMotion?: unknown;
+    headerIcons?: unknown;
     pullRequest?: unknown;
+    workspace?: unknown;
     moves?: unknown;
     moveReasons?: unknown;
     moveTargets?: unknown;
+    terminalSwitch?: unknown;
     version?: unknown;
   };
   const version = typeof raw.version === "number" ? raw.version : current.version;
@@ -149,7 +172,9 @@ export function setHeaderState(value: unknown): void {
     sessionInfo: typeof raw.inspector === "boolean" ? raw.inspector : current.sessionInfo,
     headerControls: readHeaderControls(raw.headerControls) ?? current.headerControls,
     headerMotion: "headerMotion" in raw ? headerMotionOf(raw.headerMotion) : current.headerMotion,
+    headerIcons: readHeaderIconsStyle(raw.headerIcons) ?? current.headerIcons,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
+    workspace: "workspace" in raw ? workspaceOf(raw.workspace) : current.workspace,
     moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,
     // Read with `moves`: a reply that names the moves and no reasons offers them all.
     moveReasons: Array.isArray(raw.moves) ? moveReasonsOf(raw.moveReasons) : current.moveReasons,
@@ -171,6 +196,7 @@ export function setHeaderState(value: unknown): void {
           ];
         })
       : current.moveTargets,
+    terminalSwitch: typeof raw.terminalSwitch === "boolean" ? raw.terminalSwitch : current.terminalSwitch,
     version,
   };
   if (JSON.stringify(next) === JSON.stringify(current)) return;
@@ -178,6 +204,15 @@ export function setHeaderState(value: unknown): void {
   if (pr && stateSince.get(pr.url)?.state !== pr.state) stateSince.set(pr.url, { state: pr.state, at: Date.now() });
   current = next;
   for (const listener of listeners) listener();
+}
+
+/// The App's workspace, if it has a string title; a count that is not a whole number of chats reads 0.
+function workspaceOf(value: unknown): HeaderWorkspace | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as { title?: unknown; chats?: unknown };
+  if (typeof raw.title !== "string") return undefined;
+  const chats = typeof raw.chats === "number" && Number.isInteger(raw.chats) && raw.chats > 0 ? raw.chats : 0;
+  return { title: raw.title, chats };
 }
 
 /// The App's pull request, if it has the fields the chip reads and an https link.

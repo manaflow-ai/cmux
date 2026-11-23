@@ -16,7 +16,21 @@ result, settled or clean, that no longer parses or names a key twice is written
 back as the plain line merge and left conflicted, so a missing comma or a
 doubled key never merges silently.
 
-Usage (git): merge-insertions.py %O %A %B %P %L; writes the result to %A and
+A .plist or .mobileconfig result must still be well-formed XML the same way.
+
+Generated files merge through this too (scripts/cmux-next/generated_merge.py says which):
+
+  cmux-export-v1     a file only a Mac's export rewrites (the settings schema, docs/mdm, the action
+                     exports): this merge as is, so both sides' rows stay and a real conflict stops
+                     the merge naming the file. It used to keep this branch's copy, which dropped
+                     every row the base added (cmux#45928, cmux#47525).
+  cmux-generated-v1  a file `generated_merge.py regenerate` rebuilds on any host (--generated):
+                     this merge when it is clean, so the base's rows stay even when no rebuild runs
+                     (a merge stopped on a hand-written file never runs the post-merge hook); when
+                     it is not, this branch's copy, said on stderr with the file and the command
+                     that rebuilds it, and the merge goes on.
+
+Usage (git): merge-insertions.py [--generated] %O %A %B %P %L; writes the result to %A and
 exits 1 when a conflict remains.
 """
 from __future__ import annotations
@@ -26,6 +40,7 @@ import os
 import re
 import subprocess
 import sys
+import xml.parsers.expat
 
 
 def plain_merge(ours: str, base: str, theirs: str, size: int) -> tuple[bytes, int]:
@@ -91,18 +106,22 @@ def toml_union(ours: list[bytes], theirs: list[bytes]) -> list[bytes] | None:
 
 # Two insertions that share this much of their substantive lines are one change made twice
 # (a file or function both branches got from one commit, then edited): kept both, the file
-# would hold it twice, so that stays a conflict.
+# would hold it twice, so that stays a conflict. A line the base already has is not counted:
+# it is the file's row shape (a plist's `<true/>`, a schema's `"type": "boolean"`), which every
+# new row repeats, so two different settings rows added at one place are not one change
+# (cmux#47525's settings exports).
 SAME_CHANGE_SHARE = 0.3
 
 
-def same_change(ours: list[bytes], theirs: list[bytes]) -> bool:
+def same_change(ours: list[bytes], theirs: list[bytes], common: frozenset[bytes] = frozenset()) -> bool:
     def substantive(block):
-        return {line.strip() for line in block if len(line.strip()) > 3}
+        return {line.strip() for line in block if len(line.strip()) > 3} - common
     a, b = substantive(ours), substantive(theirs)
     return bool(a and b) and len(a & b) >= SAME_CHANGE_SHARE * min(len(a), len(b))
 
 
-def settle(text: bytes, size: int, marker: int, toml: bool = False) -> tuple[bytes, int, int]:
+def settle(text: bytes, size: int, marker: int, toml: bool = False,
+           common: frozenset[bytes] = frozenset()) -> tuple[bytes, int, int]:
     """Resolve both-sides-inserted hunks in merge-file output written with `marker`-long
     markers; return the text (remaining conflicts rewritten with `size` markers), how many
     conflicts remain, and how many hunks were read."""
@@ -153,7 +172,7 @@ def settle(text: bytes, size: int, marker: int, toml: bool = False) -> tuple[byt
             for block in (sections["ours"], sections["theirs"]):
                 if block and not block[-1].endswith(b"\n"):
                     block[-1] += b"\n"
-            if same_change(sections["ours"], sections["theirs"]):
+            if same_change(sections["ours"], sections["theirs"], common):
                 joined = None
             else:
                 joined = (toml_union(sections["ours"], sections["theirs"]) if toml
@@ -187,7 +206,11 @@ def parses(path: str, text: bytes) -> bool:
         elif path.endswith(".toml"):
             import tomllib  # Python 3.11+; an older python3 cannot check, so the merge stays a conflict
             tomllib.loads(text.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError, ImportError):
+        elif path.endswith((".plist", ".mobileconfig")):
+            # Well-formed XML, not plistlib: the Intune plist is a fragment (key and value elements, no root).
+            whole = text.lstrip().startswith((b"<?xml", b"<!DOCTYPE"))
+            xml.parsers.expat.ParserCreate().Parse(text if whole else b"<fragment>" + text + b"</fragment>", True)
+    except (ValueError, UnicodeDecodeError, ImportError, xml.parsers.expat.ExpatError):
         return False
     return True
 
@@ -408,7 +431,9 @@ def merge_lines(ours: str, base: str, theirs: str, path: str, size: int) -> tupl
     merged, status = merge_file(ours, base, theirs, path, marker)
     if status == 0:
         return merged, 0
-    result, remaining, hunks = settle(merged, size, marker, toml=path.endswith(".toml"))
+    with open(base, "rb") as handle:
+        common = frozenset(line.strip() for line in handle.read().splitlines())
+    result, remaining, hunks = settle(merged, size, marker, toml=path.endswith(".toml"), common=common)
     # git's exit status is its conflict count: a parse that read a different number
     # of hunks keeps git's own conflict instead.
     if hunks != status:
@@ -417,8 +442,11 @@ def merge_lines(ours: str, base: str, theirs: str, path: str, size: int) -> tupl
 
 
 def main(argv: list[str]) -> int:
+    generated = len(argv) > 1 and argv[1] == "--generated"
+    if generated:
+        argv = argv[:1] + argv[2:]
     if len(argv) not in (5, 6):
-        print("usage: merge-insertions.py %O %A %B %P [%L]", file=sys.stderr)
+        print("usage: merge-insertions.py [--generated] %O %A %B %P [%L]", file=sys.stderr)
         return 2
     base, ours, theirs, path = argv[1:5]
     size = int(argv[5]) if len(argv) == 6 else 7
@@ -435,6 +463,12 @@ def main(argv: list[str]) -> int:
     # author, even when a side was already malformed.
     if remaining == 0 and not parses(path, result):
         result, remaining = plain_merge(ours, base, theirs, size)[0], 1
+    if remaining and generated:
+        # %A already holds this branch's copy: leave it, and say so.
+        print(f"cmux merge: {path}: both sides rebuilt this generated file and their copies do not merge; kept "
+              "this branch's copy. Rebuild it from the merged sources before committing: "
+              "python3 scripts/cmux-next/generated_merge.py regenerate --merge --stage", file=sys.stderr)
+        return 0
     with open(ours, "wb") as handle:
         handle.write(result)
     return 1 if remaining else 0

@@ -276,12 +276,18 @@ pub const TURN_DENIED_TOOLS: [&str; 24] = [
 /// Folded `acpmux_*` tools reach coordinator sessions. They are not in
 /// `approval::turn_allowed_tools`: an ask turn still refuses them.
 /// Background tasks stay out because a turn session is temporary.
+/// The `cloud_*` tools reach the user's Cloud machines through the app: list
+/// them, start and follow agent chats there, and use the attached computer's
+/// desktop (`cloud_computer`, refused while the person has taken over). Like
+/// the `acpmux_*` tools they are not in `approval::turn_allowed_tools`, so an
+/// ask turn refuses them.
+///
 /// The `workspace_*` and `workspace_group_*` tools are the Direct lifetime
 /// (action_lifetime.rs, Leo 2026-11-10: "when I tell it to organize my
 /// workspace versus groups, you don't need to make a workspace for that"):
 /// the Chief lists, renames, moves and groups the person's workspaces in its
 /// own turn instead of spawning a helper.
-pub const CHIEF_CMUX_TOOLS: [&str; 30] = [
+pub const CHIEF_CMUX_TOOLS: [&str; 36] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -305,6 +311,12 @@ pub const CHIEF_CMUX_TOOLS: [&str; 30] = [
     "acpmux_info",
     "acpmux_inbox_read",
     "acpmux_inbox_reply",
+    "cloud_machines",
+    "cloud_chat_start",
+    "cloud_chat_send",
+    "cloud_chat_status",
+    "cloud_computer",
+    "cloud_computer_control",
     "workspace_list",
     "workspace_rename",
     "workspace_move",
@@ -329,6 +341,11 @@ pub const TURN_TOOL_SERVERS: (&str, &str) =
 /// The turn presets' env that limits acpmux's `cmux` MCP server to
 /// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).
 pub const TURN_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
+
+/// The turn presets' env that names the Chief's engine.json to acpmux's
+/// `cmux` MCP server (acpmux `agent_tools::CHIEF_ENGINE_ENV`): its `computer`
+/// is `cloud_computer`'s default machine.
+pub const CHIEF_ENGINE_ENV: &str = "CMUX_CHIEF_ENGINE";
 
 /// The code-mode tools of `cmux mcp serve`: a script reaches every cmux
 /// tool, so a turn always denies them, even when the server did not get
@@ -657,6 +674,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
+    own_claude_md(&paths.session, matches!(setup.tools, Tools::Cli(_)))?;
     // The Mac host never runs the Cloud mode; it would take Claude's files.
     match setup.tools {
         Tools::Mcp | Tools::Cloud(_) => {
@@ -831,10 +849,29 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
         &dir.join(".claude").join("settings.local.json"),
         settings.as_bytes(),
     )?;
+    own_claude_md(dir, matches!(setup.tools, Tools::Cli(_)))?;
     match setup.tools {
         Tools::Mcp | Tools::Cloud(_) => remove_if_present(&dir.join("AGENTS.md")),
         Tools::Cli(_) => write_if_changed(&dir.join("AGENTS.md"), text.as_bytes()),
     }
+}
+
+/// The one line in a Chief or subagent folder's `.claude/CLAUDE.md`.
+const OWN_CLAUDE_MD: &str = "Your instructions are your system prompt. This folder's AGENTS.md holds the same text for other harnesses: do not read it.\n";
+
+/// With `on` (the layout whose system prompt is the preset's, AGENTS.md kept
+/// for other harnesses), writes `dir/.claude/CLAUDE.md`, Claude's own
+/// instruction file there, so acpmux's cross-harness fallback
+/// (folder_instructions.rs) sends no copy of the folder's AGENTS.md
+/// (tests/folder_context.rs: 33 KB a Chief turn, 15 KB a subagent's first
+/// prompt); else removes it.
+fn own_claude_md(dir: &Path, on: bool) -> io::Result<()> {
+    let path = dir.join(".claude").join("CLAUDE.md");
+    if !on {
+        return remove_if_present(&path);
+    }
+    std::fs::create_dir_all(dir.join(".claude"))?;
+    write_if_changed(&path, OWN_CLAUDE_MD.as_bytes())
 }
 
 /// The subagent directory's AGENTS.md for a codex subagent beside a Claude

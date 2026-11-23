@@ -95,7 +95,7 @@ macro_rules! framework {
             /// `available()` before the first call; the stand-ins only keep a missed check from
             /// calling through a NULL address.
             mod fallback {
-                // Unused when the framework binds only data (no functions to stand in for).
+                // Unused in a module that binds only statics (no stand-in functions).
                 #[allow(unused_imports)]
                 use super::*;
                 $(

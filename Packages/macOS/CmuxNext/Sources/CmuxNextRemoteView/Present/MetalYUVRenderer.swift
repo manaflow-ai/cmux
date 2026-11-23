@@ -58,6 +58,14 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
         guard let drawable = layer.nextDrawable(),
               let commands = commandQueue.makeCommandBuffer(),
               encodeDraw(buffer, into: drawable.texture, commands: commands) else { return false }
+        if let onPresented = frame.onPresented {
+            // The viewer's Present stage: when the picture reached the glass (host time in
+            // seconds, the `DispatchTime` uptime base); 0 when the drawable was never shown.
+            drawable.addPresentedHandler { shown in
+                let at = shown.presentedTime
+                if at > 0 { onPresented(UInt64(at * 1_000_000)) }
+            }
+        }
         commands.present(drawable)
         commands.commit()
         return true

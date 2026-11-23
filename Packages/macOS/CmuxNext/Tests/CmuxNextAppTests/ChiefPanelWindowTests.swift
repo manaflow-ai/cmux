@@ -229,7 +229,8 @@ struct ChiefPanelWindowTests {
     /// Pane focus moves (Cmd-Ctrl-H/J/K/L, Cmd-Option-arrows: the focusLeft/Right/Up/Down actions) go into the
     /// docked Chief off the stage's edge and back out of it, as between any panes; the floating Chief takes a move
     /// toward its side.
-    @Test func paneFocusMovesGoIntoAndOutOfTheChief() async throws {
+    @Test(.enabled("needs a display: the floating Chief takes the keys only as a key window on a screen") { await MainActor.run { !NSScreen.screens.isEmpty } })
+    func paneFocusMovesGoIntoAndOutOfTheChief() async throws {
         let (chief, _) = Self.chiefView()
         let f = try await Self.fixture(chief)
         defer { f.close() }
@@ -271,7 +272,8 @@ struct ChiefPanelWindowTests {
 
     /// Esc hides the floating Chief while it has the keys; dragged and resized, it keeps its place across a hide, a
     /// dock and the window record (a relaunch, which brings it back closed).
-    @Test func escHidesTheFloatingChiefAndItRemembersItsPlace() async throws {
+    @Test(.enabled("needs a display: the floating Chief's place is kept on its screen's visible frame") { await MainActor.run { !NSScreen.screens.isEmpty } })
+    func escHidesTheFloatingChiefAndItRemembersItsPlace() async throws {
         let (chief, state) = Self.chiefView()
         let f = try await Self.fixture(chief)
         defer { f.close() }

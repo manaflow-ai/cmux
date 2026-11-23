@@ -351,8 +351,16 @@ impl Hub {
                     )
                 })
             };
+            // The answer's modes and option definitions: a new chat's choices before any chat of
+            // the harness reports them (`reported_options`). Only for the profile it probed.
+            let choices = remembered.is_some().then(|| {
+                let field = |key: &str| res.get(key).filter(|v| !v.is_null()).cloned();
+                let choices = (field("modes"), field("configOptions"));
+                let mut kept = self.probed_choices.lock().unwrap_or_else(PoisonError::into_inner);
+                kept.insert(name.to_owned(), choices.clone()) != Some(choices)
+            });
             if let Some(changed) = remembered {
-                self.keep_probed_models(name, profile, changed).await;
+                self.keep_probed_models(name, profile, changed || choices == Some(true)).await;
             }
             Ok(self.known_models.lock().unwrap().get(name).map(|l| l.len()).unwrap_or(0))
         });

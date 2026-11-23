@@ -28,6 +28,9 @@ With --pid it also reports the app's CPU share over 15 s windows: no row working
 """
 import argparse, json, os, socket, subprocess, sys, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--pid", type=int, help="the app's pid: report its CPU share per scenario")
@@ -218,7 +221,7 @@ def cpu(label, seconds=15):
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from bench_idle import usage  # noqa: E402
     before, t0 = usage(opts.pid), time.monotonic()
-    time.sleep(seconds)  # test script: the measurement window itself
+    time.sleep(seconds)  # sleep-ok: the CPU measurement window itself
     after, wall = usage(opts.pid), time.monotonic() - t0
     if before and after:
         print(f"cpu {label}: {100.0 * (after[0] - before[0]) / (wall * 1e9):.3f}% over {wall:.1f} s, "
@@ -276,7 +279,7 @@ def main():
     window = glyph.get("window") if glyph else None
     # The third spinner starts part of a turn later; synced, it shows the others' phase.
     glyphs("working", "glyph-working-2")
-    time.sleep(0.37)  # test script: a start offset that is not a whole number of turns
+    time.sleep(0.37)  # sleep-ok: a start offset that is not a whole number of turns (the sync check needs it)
     written = report(working[2] or "", "working", "; sleep 120")
     check(written.returncode == 0, f"working late: the program reports it ({written.stderr.strip()[-120:]})")
     glyphs("working", "glyph-working-late")
@@ -289,7 +292,8 @@ def main():
     known = [p for p in phases.values() if p is not None]
     spread = max(min(abs(a - b), 1 - abs(a - b)) for a in known for b in known) if len(known) == 3 else None
     check(spread is not None and spread <= 0.05, f"synced: three spinners, one started later, share one phase (spread {spread})")
-    time.sleep(3)  # test script: htop has run at least this long before its check
+    # sleep-ok: the no-glyph check's observation window (htop runs at least 3 s more; a glyph that never comes has no event)
+    time.sleep(3)
     htop_glyphs = find_glyphs("glyph-htop")
     check(not htop_glyphs, f"htop: its row shows no status glyph ({json.dumps(htop_glyphs)[:200]})")
     spinning("glyph-working")
@@ -298,7 +302,11 @@ def main():
     cpu("three rows working, window shown")
     shown = find_glyphs("glyph-working")
     print(f"after the shown window: animation {(shown[0] if shown else {}).get('animation')}", flush=True)
-    time.sleep(3)  # test script: a showMainWindow still in flight would restore the window after the minimize
+    # A showMainWindow still in flight would restore the window after the minimize: wait until the main windows'
+    # visibility stops changing (the late restore is also caught by the second minimize below).
+    wait_stable(lambda: json.dumps([(w.get("id"), w.get("visible")) for w in (rpc("debug.window_list") or {}).get("windows") or []
+                                    if w.get("kind") == "main"]),
+                "the main windows' visibility before the minimize", timeout=10, interval=0.25, reads=6, raise_on_timeout=False)
     action("minimizeWindow")
     stopped = animation_on("glyph-working", window, None)
     if stopped not in (None, "no glyph"):

@@ -14,6 +14,18 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
     /// A Home Chief session is in a turn. Chief sessions are never counted
     /// above (and never ended by a quit).
     public var chiefInTurn: Bool
+    /// Sessions whose composer holds unsent text (acpmux's `hasDraft`), the Chief's included: Update
+    /// When Idle waits for them.
+    public var drafts = 0
+    /// Sessions with no turn open whose background work runs (acpmux's `workingBelow`): a background subagent,
+    /// a harness background process or a sub-session at work. Update When Idle counts them as working.
+    public var workingBelow = 0
+    /// The daemon lists `session-idle-facts-v1`, so a summary without `hasDraft` or `workingBelow` means
+    /// false. Without it (an older acpmux, or a census that did not ask) ``drafts`` and ``workingBelow``
+    /// are unknown, and Update When Idle holds.
+    public var idleFactsKnown = false
+    /// acpmux's `capabilities.rs` `SESSION_IDLE_FACTS`.
+    public static let idleFactsCapability = "session-idle-facts-v1"
 
     /// The tag key on every Home Chief turn and compactor session (value:
     /// the home id), agreed with the chief lane. Untagged Chief sessions are
@@ -37,6 +49,9 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
             let status = summary["status"] as? String ?? ""
             let live = ["ready", "running", "waiting"].contains(status)
             let working = status == "running" || status == "waiting"
+            if summary["hasDraft"] as? Bool == true { census.drafts += 1 }
+            // Background subagents, background processes or sub-sessions at work with no turn open.
+            if summary["workingBelow"] as? Bool == true, !working { census.workingBelow += 1 }
             if isChief(summary) {
                 if working { census.chiefInTurn = true }
                 continue
@@ -79,13 +94,16 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
 /// ending its agents for Quit Everything.
 public nonisolated struct AcpmuxQuit {
     public nonisolated init() {}
-    @concurrent private static func activeSessions(socketPath: String, deadline: Duration) async throws -> sending [[String: Any]] {
+    @concurrent private static func activeSessions(socketPath: String, deadline: Duration,
+                                                   requiredCapability: String? = nil) async throws -> sending [[String: Any]] {
         // Negotiate on the list connection: status also samples host pressure
-        // and disk, so it must not consume the quit census deadline.
+        // and disk, so it must not consume the quit census deadline. An acpmux that lists
+        // `requiredCapability` (the idle facts) serves the census filters too: they are older.
         let rows = try await AcpmuxStatusClient.sessionPages(
             socketPath: socketPath,
             params: AcpmuxSessionListGate.localLiveCensus,
-            requiredCapability: AcpmuxSessionListGate.requiredCapability(fields: AcpmuxSessionListGate.localLiveCensus.keys),
+            requiredCapability: requiredCapability
+                ?? AcpmuxSessionListGate.requiredCapability(fields: AcpmuxSessionListGate.localLiveCensus.keys),
             deadline: deadline
         )
         return rows.filter {
@@ -98,16 +116,40 @@ public nonisolated struct AcpmuxQuit {
     /// Nil when acpmux did not answer within `deadline`, or when it is
     /// shutting down (no usable socket, daemon.lock held): unknown, not
     /// zero. With no daemon, the agent hosts that still hold their lock.
-    @concurrent public static func census(_ environment: AcpmuxEnvironment?, deadline: Duration = .seconds(1)) async -> AcpmuxSessionCensus? {
-        guard let environment else { return AcpmuxSessionCensus() }
+    /// `idleFacts`: ask for the drafts and background work too (Update When Idle); the census says
+    /// ``AcpmuxSessionCensus/idleFactsKnown`` only when the daemon serves them.
+    @concurrent public static func census(_ environment: AcpmuxEnvironment?, deadline: Duration = .seconds(1),
+                                          idleFacts: Bool = false) async -> AcpmuxSessionCensus? {
+        guard let environment else {
+            // No acpmux: no agent works and no chat keeps a draft there.
+            var none = AcpmuxSessionCensus()
+            none.idleFactsKnown = true
+            return none
+        }
         let socket = environment.socketPath
         let socketPresent = FileManager.default.fileExists(atPath: socket)
         AcpmuxQuitProof.recordCensus(home: environment.home, socketPresent: socketPresent)
         guard socketPresent else { return await censusWithoutSocket(environment.home) }
         do {
-            let sessions = result(try await activeSessions(socketPath: socket, deadline: deadline))
+            var factsKnown = false
+            var rows: [[String: Any]]
+            if idleFacts {
+                do {
+                    rows = try await activeSessions(socketPath: socket, deadline: deadline,
+                                                    requiredCapability: AcpmuxSessionCensus.idleFactsCapability)
+                    factsKnown = true
+                } catch AcpmuxStatusClient.Failure.unsupportedFeature {
+                    // An older acpmux: its turns still count, its drafts and background work are unknown.
+                    rows = try await activeSessions(socketPath: socket, deadline: deadline)
+                }
+            } else {
+                rows = try await activeSessions(socketPath: socket, deadline: deadline)
+            }
+            let sessions = result(rows)
             AcpmuxQuitProof.remember(chief: Set(AcpmuxSessionCensus.chiefSessionIDs(sessions)), home: environment.home)
-            return AcpmuxSessionCensus.parse(sessions)
+            var census = AcpmuxSessionCensus.parse(sessions)
+            census.idleFactsKnown = factsKnown
+            return census
         } catch AcpmuxStatusClient.Failure.unreachable {
             return await censusWithoutSocket(environment.home)
         } catch {

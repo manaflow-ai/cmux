@@ -87,6 +87,13 @@ pub(super) fn handle(
     // page that stops short of the log (older records, or one more page to read) holds only to its
     // own last record.
     let through = if before.is_none() && !page.has_more { last } else { newest_seq(&page.events) };
+    // Background peer read-ahead needs the same prompt context as attach. Opt in so
+    // ordinary history/index reads keep their current cost (and cannot recurse here).
+    let opener = if params.get("turnOpener").and_then(Value::as_bool) == Some(true) {
+        turn_opener::turn_opener(hub, &s.id, &page)
+    } else {
+        None
+    };
     hub.lane_report_events_read(caller, &s.id, &page.events);
     // Kept only when the log neither grew nor changed while the page was read.
     let keep = kept.filter(|(_, stamp)| {
@@ -94,7 +101,7 @@ pub(super) fn handle(
             && s.meta().last_seq == last
             && hub.page_log_stamp(&s.id) == Some(*stamp)
     });
-    let reply = json!({
+    let mut reply = json!({
         "events": values(&s.id, page.events),
         "hasMore": page.has_more,
         "lastSeq": last,
@@ -102,6 +109,11 @@ pub(super) fn handle(
         // The session the page is of: a copy never joins another journal of the same id.
         "createdAt": created,
     });
+    if params.get("turnOpener").and_then(Value::as_bool) == Some(true)
+        && let Some(object) = reply.as_object_mut()
+    {
+        object.insert("turnOpener".to_owned(), json!(opener));
+    }
     if let Some((key, stamp)) = keep {
         hub.page_replies.put(&s.id, key, last, stamp, reply.clone());
     }

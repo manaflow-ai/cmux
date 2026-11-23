@@ -185,6 +185,8 @@ pub struct OpenH264 {
     /// The instance codes with screen usage now (else camera usage).
     screen: bool,
     motion: MotionGuard,
+    /// Why the last frame was an IDR nobody asked for (see [`H264Encoder::idr_cause`]).
+    idr_cause: Option<&'static str>,
 }
 
 /// Screen usage turns OpenH264's scene-change detection on whatever the settings say
@@ -387,6 +389,7 @@ impl OpenH264 {
             opts: opts.clone(),
             screen: cfg.screen_content && opts.usage != Usage::Camera,
             motion: MotionGuard::default(),
+            idr_cause: None,
         };
         this.rebuild(this.screen)?;
         Ok(this)
@@ -540,10 +543,11 @@ unsafe fn init(
     p.bEnableDenoise = false;
     p.bEnableBackgroundDetection = opts.background_detection;
     p.bEnableAdaptiveQuant = opts.adaptive_quant;
-    if let Some(q) = opts.min_qp {
+    let (min_qp, max_qp) = qp_range(opts, screen);
+    if let Some(q) = min_qp {
         p.iMinQp = c_int::from(q);
     }
-    if let Some(q) = opts.max_qp {
+    if let Some(q) = max_qp {
         p.iMaxQp = c_int::from(q);
     }
     p.bEnableSceneChangeDetect = false;
@@ -594,6 +598,27 @@ unsafe fn init(
     Ok(())
 }
 
+/// Camera usage's quantizer range: OpenH264's own low end, and H.264's coarsest step at the top.
+pub const CAMERA_MIN_QP: u8 = 12;
+pub const CAMERA_MAX_QP: u8 = 51;
+
+/// The quantizer range an instance is initialized with (`None`: OpenH264's choice).
+///
+/// Screen usage keeps OpenH264's 26-35, so text stays sharp. Camera usage (full-screen motion,
+/// [`MOTION_CHANGE`]) gets [`CAMERA_MIN_QP`]-[`CAMERA_MAX_QP`] instead of OpenH264's 12-42:
+/// it applies 12-42 whenever either bound is unset. At 42 a 1080p frame of full-screen motion
+/// still costs ~150 KB, so at a 50 Mbit/s target the rate controller could only hold its rate by
+/// skipping every third frame: 43 fps, and a key press whose frame was skipped waited a frame
+/// longer (screen stream eval, lan 0 %: 37.5 fps and 38 ms p50 against 60 fps and 13 ms for an
+/// H.264 relay). Up to 51 it codes each frame coarser instead and keeps the frame rate. The
+/// bench's `minqp=`/`maxqp=` options win over both.
+fn qp_range(opts: &OpenH264Options, screen: bool) -> (Option<u8>, Option<u8>) {
+    if screen {
+        return (opts.min_qp, opts.max_qp);
+    }
+    (Some(opts.min_qp.unwrap_or(CAMERA_MIN_QP)), Some(opts.max_qp.unwrap_or(CAMERA_MAX_QP)))
+}
+
 /// A new instance's first frame (the share's start keyframe, or the one after a usage move)
 /// codes with frame skipping off, so its bits never enter the skip buffer. OpenH264 v2.6.0
 /// codes a new instance's first IDR at one QP from a bits-per-pixel table (RcCalculateIdrQp),
@@ -607,6 +632,16 @@ unsafe fn init(
 /// instead of none, and the rate holds as before (tests/start_keyframe.rs). A keyframe forced
 /// on a running instance (the viewer's recovery after loss) keeps skipping as before: it
 /// comes on a lossy link, where frames skipped after it are bits the link can't carry.
+/// Why a coded frame is an IDR the caller did not force: a new instance's first frame (a
+/// usage move rebuilt the encoder), else the encoder's own scene-change decision.
+fn unasked_idr_cause(idr: bool, force_idr: bool, fresh: bool) -> Option<&'static str> {
+    match (idr && !force_idr, fresh) {
+        (false, _) => None,
+        (true, true) => Some("usage_switch"),
+        (true, false) => Some("scene_change"),
+    }
+}
+
 fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
     opts.frame_skip && fresh
 }
@@ -614,6 +649,8 @@ fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
 impl H264Encoder for OpenH264 {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         out.clear();
+        // A skipped or failed frame keeps no earlier frame's cause.
+        self.idr_cause = None;
         self.pick_usage(pic);
         let vt = self.vtbl();
         let force = vt.ForceIntraFrame.ok_or("no ForceIntraFrame")?;
@@ -665,6 +702,7 @@ impl H264Encoder for OpenH264 {
         let idr = info.eFrameType == videoFrameTypeIDR;
         // A new instance's first IDR is the move's, not a scene change's.
         self.motion.self_idr = self.screen && idr && !force_idr && !self.motion.fresh;
+        self.idr_cause = unasked_idr_cause(idr, force_idr, self.motion.fresh);
         self.motion.fresh = false;
         Ok(idr)
     }
@@ -726,6 +764,10 @@ impl H264Encoder for OpenH264 {
 
     fn name(&self) -> String {
         self.name.clone()
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        self.idr_cause
     }
 }
 
@@ -842,6 +884,9 @@ pub struct OpenH264Decoder {
     dec: *mut ISVCDecoder,
     /// The conversion the last SPS's VUI asks for (untagged until the first SPS).
     color: crate::color::Yuv,
+    /// Refuses a High-profile stream, which OpenH264 decodes to wrong pictures with no error
+    /// (cmux#50591).
+    gate: crate::h264_profile::ProfileGate,
 }
 
 // SAFETY: the decoder instance is used from one thread at a time (owned by the viewer's loop).
@@ -855,7 +900,7 @@ impl OpenH264Decoder {
         if dec.is_null() {
             return Err("openh264 WelsCreateDecoder returned no decoder".into());
         }
-        let this = Self { api, dec, color: crate::color::UNTAGGED.yuv() };
+        let this = Self { api, dec, color: crate::color::UNTAGGED.yuv(), gate: Default::default() };
         // SAFETY: a zeroed SDecodingParam is the library's "defaults" (its own tests do the same).
         let mut param: SDecodingParam = unsafe { std::mem::zeroed() };
         param.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_AVC;
@@ -904,6 +949,7 @@ impl crate::VideoDecoder for OpenH264Decoder {
         if let Some(vui) = crate::color::sps_vui(au) {
             self.color = vui.yuv();
         }
+        self.gate.check(au)?;
         let decode =
             self.vtbl()?.DecodeFrameNoDelay.ok_or("openh264 decoder has no DecodeFrameNoDelay")?;
         let mut planes = [std::ptr::null_mut::<u8>(); 3];

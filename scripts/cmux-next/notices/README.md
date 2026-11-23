@@ -31,9 +31,11 @@ Rust and Zig standard libraries: `cmux-tui/build-support/notices/toolchains/`
 (shared with cmux-browser) stores rustc's `COPYRIGHT-library.html` per Rust
 release and Zig's `LICENSE`, with sha256 and source in `toolchains.json`. The
 Xcode "Bundle CLI resources" phase installs them under
-`Contents/Resources/toolchain-licenses/`. The bundle-map requirement `rust-std`
-reads each `/rustc/<commit>/` path inside a Mach-O and needs that rustc's
-reviewed text; `zig-std` needs the Zig text. `toolchain_notices.py check-repo`
+`Contents/Resources/toolchain-licenses/`, each Rust text gzip-compressed
+(`rust-<version>/COPYRIGHT-library.html.gz`, 2.6 MB of HTML down to 85 KB; the
+checks compare the decompressed bytes with the reviewed sha256). The bundle-map
+requirement `rust-std` reads each `/rustc/<commit>/` path inside a Mach-O and
+needs that rustc's reviewed text; `zig-std` needs the Zig text. `toolchain_notices.py check-repo`
 (notices CI and `verify-app-bundle-licenses.sh`) fails when a
 `rust-toolchain.toml` channel or a Ghostty `minimum_zig_version` no longer
 matches, so a toolchain bump stops until its text is reviewed.
@@ -73,7 +75,9 @@ only while bundle-map.json maps it, like the browser host. The npm platform pack
 for macOS and Linux carry the same binary as `bin/cmux-agent-screen-detection`; their
 notice (package_notices.py) has its crates and the herdr Apache-2.0 text.
 
-CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
+CEF binaries need Chromium's `CREDITS.html`, shipped gzip-compressed as
+`CREDITS.html.gz` (`install-cef-credits.sh`; 5.6 MB down to 0.6 MB, every byte
+kept; nothing reads it at runtime, CEF serves chrome://credits from its pak), and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 
 Remote browser host: `Contents/Helpers/cmux-remote-browser-host.app` holds a pinned prebuilt

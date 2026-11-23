@@ -65,6 +65,7 @@ public final class ChiefConversationOwner {
     @concurrent nonisolated static func ownerEnvironment(home: ChiefHome, process: [String: String],
                                                          resources: URL?) async -> [String: String] {
         var environment = process
+        recordBuildSpace(home: home, environment: process)
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
         environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, resources: resources)
         return environment
@@ -146,6 +147,9 @@ public final class ChiefConversationOwner {
             if let replaced = await Self.restartIfReplaced(launcher: launcher, connection: connection,
                                                            identity: identity, logger: logger) {
                 restart = replaced
+            } else if let otherSpace = await Self.restartIfOtherSpace(home: self.home, environment: environment, launcher: launcher,
+                                                                      connection: connection, identity: identity, logger: logger) {
+                restart = otherSpace
             } else {
                 restart = await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
                                                          identity: identity, logger: logger)

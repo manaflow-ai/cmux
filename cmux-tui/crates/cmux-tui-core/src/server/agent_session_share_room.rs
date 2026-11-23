@@ -358,6 +358,7 @@ pub(super) async fn call(
     timeout: Duration,
 ) -> Option<(u16, Value)> {
     let client = reqwest::Client::builder()
+        .default_headers(cmux_build_space::headers().ok()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeout)
         .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
@@ -819,6 +820,7 @@ async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> R
     let mut request = socket.into_client_request().map_err(|_| Refused::ForGood)?;
     let bearer = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| Refused::ForGood)?;
     request.headers_mut().insert("authorization", bearer);
+    cmux_build_space::insert(request.headers_mut()).map_err(|_| Refused::ForGood)?;
     // `cmux.share/1` frames are at most 512 KiB: a larger one ends the socket unparsed.
     let config = tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(MAX_HOST_FRAME_BYTES))

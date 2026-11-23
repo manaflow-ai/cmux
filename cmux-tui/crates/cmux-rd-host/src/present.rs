@@ -7,6 +7,10 @@
 //! tags (`cmux_encode::color`; untagged means BT.601 video range) in a MIT-SHM segment and put with `ShmPutImage`; a round trip then waits until the X
 //! server has copied it, so the frame is on the display when `show` returns and the segment can be
 //! reused.
+//!
+//! Like a viewer app, the window takes the keyboard focus and hands every key press and release on
+//! it back to the bench (`take_keys`), which sends them to the host, so a key typed on the viewer
+//! display reaches the host's screen the way a person's does in the app.
 
 use crate::shm::{ServerAccess, ShmSeg};
 use crate::Res;
@@ -14,10 +18,12 @@ use cmux_encode::color::Yuv;
 use openh264::formats::YUVSource;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
-    ConnectionExt as _, CreateGCAux, CreateWindowAux, Window, WindowClass,
+    ConnectionExt as _, CreateGCAux, CreateWindowAux, EventMask, InputFocus, Window, WindowClass,
 };
+use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
+use x11rb::CURRENT_TIME;
 
 pub struct Presenter {
     conn: RustConnection,
@@ -68,9 +74,15 @@ impl Presenter {
             0,
             WindowClass::INPUT_OUTPUT,
             self.root_visual,
-            &CreateWindowAux::new().override_redirect(1u32).background_pixel(0),
+            &CreateWindowAux::new()
+                .override_redirect(1u32)
+                .background_pixel(0)
+                .event_mask(EventMask::KEY_PRESS | EventMask::KEY_RELEASE),
         )?;
         self.conn.map_window(win)?;
+        // Override-redirect: no window manager gives it the focus, so it takes it, as an app's
+        // focused viewer window has it.
+        self.conn.set_input_focus(InputFocus::PARENT, win, CURRENT_TIME)?;
         let gc = self.conn.generate_id()?;
         self.conn.create_gc(gc, win, &CreateGCAux::new())?;
         // Kept before the segment: a failed segment must not make every later frame make a new window.
@@ -79,6 +91,25 @@ impl Presenter {
         self.shm = Some(ShmSeg::new(&self.conn, w * h * 4, ServerAccess::Read)?);
         self.conn.sync()?;
         Ok(())
+    }
+
+    /// The X connection's socket, readable when a key event may be waiting.
+    pub fn fd(&self) -> std::os::fd::RawFd {
+        use std::os::fd::AsRawFd;
+        self.conn.stream().as_raw_fd()
+    }
+
+    /// Key presses and releases on the window since the last call: (X keycode, down), in order.
+    pub fn take_keys(&mut self) -> Res<Vec<(u8, bool)>> {
+        let mut keys = Vec::new();
+        while let Some(event) = self.conn.poll_for_event()? {
+            match event {
+                Event::KeyPress(e) => keys.push((e.detail, true)),
+                Event::KeyRelease(e) => keys.push((e.detail, false)),
+                _ => {}
+            }
+        }
+        Ok(keys)
     }
 
     /// Shows one decoded picture and returns once the X server has it.

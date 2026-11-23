@@ -370,6 +370,76 @@ fn the_apps_asking_copy_projects_too() {
     stop(&state, &start.folder);
 }
 
+/// `cmux link seed push` (with `since_last`, `--since-last`) of `local` to `remote`: its answer
+/// line and its stderr.
+fn seed_push(
+    state: &Path,
+    socket: &Path,
+    local: &Path,
+    remote: &Path,
+    since_last: bool,
+) -> (Value, String) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+    command
+        .env("CMUX_TUI_STATE_DIR", state)
+        .env("CMUX_PROJECTED_FOLDERS", "1")
+        .env("CMUX_PROJECTED_MOVES", "1")
+        .args(["link", "seed", "push", "--socket"])
+        .arg(socket)
+        .arg(local)
+        .arg(remote);
+    if since_last {
+        command.arg("--since-last");
+    }
+    let output = command.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let answer = stdout
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<Value>(line).ok())
+        .unwrap_or(Value::Null);
+    (answer, String::from_utf8_lossy(&output.stderr).into_owned())
+}
+
+/// Move to Cloud (Leo, 2026-11-21: "improve the cmux moving/teleporting then. we have projection
+/// fs"): its push projects the chat's folder as a new Cloud chat's does, whole and at once, and
+/// the push once the chat is frozen (`--since-last`) projects it again, so what the chat changed
+/// here up to the freeze (an edit, a new file) is what the machine reads.
+#[test]
+fn a_moved_chats_folder_is_projected_and_projected_again_once_frozen() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let w = world(20);
+    let state = w.home.parent().unwrap().join("state");
+    let remote = w.home.join("work/Projects");
+    let (answer, stderr) = seed_push(&state, &w.socket, &w.local, &remote, false);
+    if answer["mode"] != "projected" && stderr.contains("mount failed") {
+        eprintln!("skipping: this host may not mount FUSE: {stderr}");
+        return;
+    }
+    assert_eq!(answer["ok"], true, "{answer} {stderr}");
+    assert_eq!(answer["mode"], "projected", "{answer} {stderr}");
+    let image = std::fs::metadata(remote.join("Downloads/disk.img")).unwrap();
+    assert_eq!(image.len(), 21 * 1024 * 1024 * 1024);
+    assert_eq!(std::fs::read_to_string(remote.join("cmux-matrix-word.txt")).unwrap(), "pelican\n");
+
+    // The chat goes on here until the move freezes it: it edits a file and makes one.
+    write(&w.local.join("cmux-matrix-word.txt"), "a great blue heron\n");
+    write(&w.local.join("cmux/src/new.rs"), "fn new() {}\n");
+    let (again, stderr) = seed_push(&state, &w.socket, &w.local, &remote, true);
+    assert_eq!(again["ok"], true, "{again} {stderr}");
+    assert_eq!(again["mode"], "projected", "{again} {stderr}");
+    assert_eq!(
+        std::fs::read_to_string(remote.join("cmux-matrix-word.txt")).unwrap(),
+        "a great blue heron\n"
+    );
+    assert_eq!(std::fs::read_to_string(remote.join("cmux/src/new.rs")).unwrap(), "fn new() {}\n");
+    assert_eq!(git(&remote.join("cmux"), &["log", "--oneline"]).lines().count(), 1);
+    stop(&state, &remote);
+}
+
 #[test]
 #[ignore = "a bench: CMUX_PROJECT_BENCH_FILES=200000 cargo test --test link_project -- --ignored --nocapture"]
 fn a_bench_of_the_first_turn() {
