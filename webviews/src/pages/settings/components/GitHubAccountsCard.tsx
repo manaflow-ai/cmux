@@ -78,15 +78,28 @@ export function GitHubAccountsCard() {
                     </Button>
                   </>
                 ) : (
-                  <Button
-                    danger
-                    className="button danger"
-                    data-github-action="disconnect"
-                    disabled={github.busy || !connection.canDisconnect}
-                    onClick={() => setConfirming(connection.id)}
-                  >
-                    {github.disconnect}
-                  </Button>
+                  <>
+                    {github.reconfigure && connection.canReconfigure && (
+                      // The installation's own page on GitHub: which repositories, and the account or org access.
+                      <Button
+                        className="button"
+                        data-github-action="reconfigure"
+                        disabled={github.busy}
+                        onClick={() => void store.runAccounts({ action: "githubReconfigure", account: connection.id })}
+                      >
+                        {github.reconfigure}
+                      </Button>
+                    )}
+                    <Button
+                      danger
+                      className="button danger"
+                      data-github-action="disconnect"
+                      disabled={github.busy || !connection.canDisconnect}
+                      onClick={() => setConfirming(connection.id)}
+                    >
+                      {github.disconnect}
+                    </Button>
+                  </>
                 )}
               </div>
             </div>

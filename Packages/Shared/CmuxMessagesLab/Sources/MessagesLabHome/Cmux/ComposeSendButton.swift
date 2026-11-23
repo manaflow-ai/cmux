@@ -53,7 +53,7 @@ final class ComposeSendButton: NSView {
         setAccessibilityIdentifier("cmux.home.composer.send")
         setAccessibilityLabel(CmuxStrings.send)
         setAccessibilityRole(.button)
-        toolTip = CmuxStrings.send
+        setHomeToolTip(CmuxStrings.send)
         applyColors()
     }
     required init?(coder: NSCoder) { fatalError() }

@@ -47,6 +47,9 @@ public final class DaemonService {
     public let recovery = DaemonRecovery()
     /// The person's reads of this daemon's tabs, sent until answered (DaemonService+TabReads).
     public let reads = TabReads()
+    /// The person's language downloaded on first use, asked of this daemon when it is the home one
+    /// (the app starts it for `machines.local`; CMUX-570).
+    @ObservationIgnored public private(set) lazy var languagePacks = LanguagePackService(daemon: self)
     public private(set) var connection: DaemonConnection?
     public private(set) var windowState: WindowStateStore?
     /// The colors this app paints the daemon's terminals with, sent at every
@@ -87,6 +90,9 @@ public final class DaemonService {
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
     @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
+    /// The registry id (session) of the tree the launch snapshot drew, kept past the live tree that replaces the
+    /// store's: the launch compares it with the daemon's (`LaunchSnapshotStaleness`). Nil without a snapshot.
+    @ObservationIgnored public var launchSnapshotRegistryID: String?
     /// The sidebar document the launch snapshot saved (`LaunchSnapshot.sidebarDoc`), shown before the handshake.
     @ObservationIgnored public var launchSnapshotSidebarDoc: Data?
     /// Takes the launch snapshot's sidebar document when the snapshot is applied after the sidebar document
@@ -627,7 +633,7 @@ public final class DaemonService {
     func runReportingTimeout(_ label: String, _ body: DaemonCommandBody) async -> CommandOutcome {
         let ticket = openTicket(label)
         guard let connection else {
-            logger.error("\(label, privacy: .public): not connected")
+            logCommandFailure(label, error: DaemonError.notConnected)
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
             return .failed(code: nil)
         }
@@ -636,11 +642,11 @@ public final class DaemonService {
             await closeTicket(ticket, label: label, error: nil, replying: connection)
             return .succeeded
         } catch DaemonError.timedOut(let what) {
-            logger.info("\(label, privacy: .public) outcome unknown: \(what, privacy: .public)")
+            logger.info("\(CommandFailureDiagnostic(label: label, error: DaemonError.timedOut(what)).message, privacy: .public)")
             await closeTicket(ticket, label: label, error: DaemonError.timedOut(what))
             return .unknown
         } catch {
-            logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            logCommandFailure(label, error: error)
             await closeTicket(ticket, label: label, error: error)
             if case DaemonError.command(_, _, let code, _, _) = error { return .failed(code: code) }
             return .failed(code: nil)
@@ -679,7 +685,7 @@ public final class DaemonService {
     func failure(_ label: String, ticket: CommandTicket?,
                          _ body: DaemonCommandBody) async -> ActionWorkFailure? {
         guard let connection else {
-            logger.error("\(label, privacy: .public): not connected")
+            logCommandFailure(label, error: DaemonError.notConnected)
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
             var failure = ActionWorkFailure("\(label): \(notConnectedReason ?? DaemonError.notConnected.description)")
             failure.cause = .connection
@@ -690,7 +696,7 @@ public final class DaemonService {
             await closeTicket(ticket, label: label, error: nil, replying: connection)
             return nil
         } catch {
-            logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            logCommandFailure(label, error: error)
             await closeTicket(ticket, label: label, error: error)
             return workFailure(label, error)
         }
@@ -717,7 +723,7 @@ public final class DaemonService {
         return { notReady in batcher.scheduleFrame { show(notReady) } }
     }
 
-    private func showPaneNotReady(_ notReady: PaneNotReady) {
+    func showPaneNotReady(_ notReady: PaneNotReady) {
         #if DEBUG || CMUX_BENCH_HOOKS
         paneNotReadyCauses = Array((paneNotReadyCauses + [notReady.description]).suffix(100)) // as RefusalHUD.history
         #endif

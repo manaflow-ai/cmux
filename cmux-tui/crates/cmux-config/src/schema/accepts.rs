@@ -66,7 +66,29 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
     }
     let accepted = if is_backdrop_selection(row) {
         Accepted::Shape(
-            "none, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>",
+            "none, a listed painting, system:<absolute path>, file:<absolute path>, youtube:<video id> (or a YouTube video address) or folder:<absolute path>",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropPicture) {
+        Accepted::Shape(
+            "a listed painting, desktop, system:<absolute path>, file:<absolute path> or youtube:<video id> (or a YouTube video address)",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropSchedule) {
+        Accepted::Shape(
+            "an object of HH:MM or dawn, sunrise, noon, sunset, dusk (with +Nm, -Nm, +Nh or -Nh) to fixed backgrounds",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropLocation) {
+        Accepted::Shape("\"LAT,LON\" in degrees, such as \"37.77,-122.42\"")
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropMemory) {
+        Accepted::Shape(
+            "an object of rotate (daily or folder:<absolute path>), folder (folder:<absolute path>) and off (none or a fixed background)",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropPlacement) {
+        Accepted::Shape(
+            "an object of picture ids to fill, fit, center or stretch, then optionally X Y (0 to 1) and a zoom (1 to 4), such as \"fill 0.3 0.7 1.5\"",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropRecents) {
+        Accepted::Shape(
+            "an array of at most 8 different backgrounds (none, daily, a listed painting, desktop, system:, file: or folder:<absolute path>, youtube:<video id>), newest first",
         )
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
@@ -80,6 +102,12 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an array of preset names and rule objects, each with a label and a program or match",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::TranscriptTokens) {
+        Accepted::Shape(
+            "an object of transcript look tokens, each in its range (docs/cmux-next/transcript-customization.md)",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
+        Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
     } else {
         accepted(&row.kind, domains)
     };
@@ -92,18 +120,58 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 }
 
 /// The stored value when valid, else the default (what the app applies).
+/// An unset row that replaced a retired key reads that key through the
+/// retired-keys table (`super::retired`), as the app does, and an old choice
+/// value reads as its replacement (`super::aliases`).
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
-    match crate::value::value_at(root, &row.path) {
-        Some(stored) if row_accepts(row, stored, domains) => Some(stored.clone()),
+    let stored = crate::value::value_at(root, &row.path).or_else(|| {
+        let replaced = super::replaced_by_row(&row.path)?;
+        replaced.read(crate::value::value_at(root, &replaced.old)?)
+    });
+    let stored = stored.map(|stored| aliased(row, stored));
+    match stored {
+        Some(stored) if row_accepts(row, &stored, domains) => Some(stored),
         _ => row.default.clone(),
     }
+}
+
+/// `value` as the row reads it: an old choice value as its replacement.
+pub fn aliased(row: &Row, value: &Value) -> Value {
+    value
+        .as_str()
+        .and_then(|old| super::choice_alias(&row.key, old))
+        .map_or_else(|| value.clone(), |new| Value::String(new.to_owned()))
 }
 
 fn is_backdrop_selection(row: &Row) -> bool {
     row.validation == super::Validation::Domain(DomainKind::BackdropSelection)
 }
 
+/// Values written by older cmux-next builds for the hand-written Swift
+/// `WorkspaceColorIndicatorStyle` enum. Swift reads each as its canonical
+/// replacement without a diagnostic, so the shared Rust validator must do the
+/// same or customization would reject an otherwise valid user config.
+fn accepts_legacy_workspace_color_indicator(row: &Row, value: &Value) -> bool {
+    row.key == "workspaceColors.indicatorStyle"
+        && value.as_str().is_some_and(|text| {
+            matches!(
+                text,
+                "solidFill"
+                    | "rail"
+                    | "border"
+                    | "wash"
+                    | "lift"
+                    | "typography"
+                    | "washRail"
+                    | "blueWashColorRail"
+            )
+        })
+}
+
 fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
+    if accepts_legacy_workspace_color_indicator(row, value) {
+        return true;
+    }
     match row.validation {
         super::Validation::Domain(DomainKind::ChatRoots) => {
             let home = std::env::var("HOME").unwrap_or_default();
@@ -116,27 +184,50 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         super::Validation::Domain(DomainKind::SearchTemplate) => {
             return value.as_str().is_some_and(is_search_template);
         }
+        super::Validation::Domain(DomainKind::BackdropPicture) => {
+            return value.as_str().is_some_and(super::backdrop::is_picture);
+        }
+        super::Validation::Domain(DomainKind::BackdropSchedule) => {
+            return super::backdrop::is_schedule(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropLocation) => {
+            return value.as_str().is_some_and(super::backdrop::is_location);
+        }
+        super::Validation::Domain(DomainKind::BackdropMemory) => {
+            return super::backdrop::is_memory(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropPlacement) => {
+            return crate::backdrop_placement::is_placement_map(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropRecents) => {
+            return super::backdrop::is_recents(value);
+        }
         super::Validation::Domain(DomainKind::CustomDensities) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_custom_density));
         }
         super::Validation::Domain(DomainKind::CommandLabels) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_command_label));
         }
+        super::Validation::Domain(DomainKind::AppId) => {
+            return value.as_str().is_some_and(super::app_id::is_valid_app_id);
+        }
+        super::Validation::Domain(DomainKind::TranscriptTokens) => {
+            return crate::transcript_look::accepts_tokens(value);
+        }
         _ => {}
     }
     if is_backdrop_selection(row) {
         let Some(text) = value.as_str() else { return false };
         // `system:<absolute path>` (a macOS wallpaper), `file:<absolute
-        // path>` (the person's own image) or `folder:<absolute path>` (the
-        // pictures of a folder shuffled, never `/` alone), as Swift
-        // `BackdropSelectionSetting`.
-        let path = ["system:", "file:"]
-            .iter()
-            .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
+        // path>` (the person's own image or video), a canonical `youtube:`
+        // video or `folder:<absolute path>` (the pictures of a folder
+        // shuffled, never `/` alone), as Swift `BackdropSelectionSetting`.
+        let path = super::backdrop::is_path_or_video(text);
         let folder = text
             .strip_prefix("folder:")
             .is_some_and(|path| path.starts_with('/') && path.len() > 1);
-        return path || folder || is_accepted(&row.kind, value, domains);
+        let live = super::backdrop::is_live(text);
+        return path || folder || live || is_accepted(&row.kind, value, domains);
     }
     is_accepted(&row.kind, value, domains)
 }
@@ -371,9 +462,48 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::FontFamily => "font_family",
         DomainKind::Sound => "sound",
         DomainKind::BackdropSelection => "backdrop_selection",
+        DomainKind::BackdropPicture => "backdrop_picture",
+        DomainKind::BackdropSchedule => "backdrop_schedule",
+        DomainKind::BackdropLocation => "backdrop_location",
+        DomainKind::BackdropMemory => "backdrop_memory",
+        DomainKind::BackdropPlacement => "backdrop_placement",
+        DomainKind::BackdropRecents => "backdrop_recents",
         DomainKind::ChatRoots => "chat_roots",
         DomainKind::SearchTemplate => "search_template",
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
+        DomainKind::AppId => "app_id",
+        DomainKind::TranscriptTokens => "transcript_tokens",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_color_indicator_accepts_swift_legacy_values() {
+        let row = super::super::Schema::embedded()
+            .row("workspaceColors.indicatorStyle")
+            .expect("workspace color indicator row");
+        for value in [
+            "solidFill",
+            "rail",
+            "border",
+            "wash",
+            "lift",
+            "typography",
+            "washRail",
+            "blueWashColorRail",
+        ] {
+            assert!(
+                accepts(row, &Value::String(value.to_owned()), &Default::default()).is_ok(),
+                "{value}"
+            );
+        }
+        assert!(
+            accepts(row, &Value::String("__not_a_choice__".to_owned()), &Default::default())
+                .is_err()
+        );
     }
 }

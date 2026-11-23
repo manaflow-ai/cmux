@@ -52,8 +52,7 @@ final class MachineBadgeView: NSView {
 
     func show(text: String, help: String) {
         label.stringValue = text
-        themedToolTip = help
-        setAccessibilityLabel(help)
+        setAccessibilityLabel(help) // it shows its words: no tooltip (a1315's cut 2)
         updateLayer()
     }
 
@@ -62,7 +61,14 @@ final class MachineBadgeView: NSView {
     override func updateLayer() {
         performWithTheme {
             layer?.backgroundColor = Palette.hoverFill.cgColor
-            label.textColor = Palette.textSecondary
+            // The bar's ink on the plate (`OmnibarInk`; issue 50986).
+            label.textColor = OmnibarStyle.ink.iconColor(on: [Palette.hoverFill], bare: false)
         }
+    }
+
+    /// A theme repaint skips a badge outside a window: entering one redraws it in the shown theme's ink.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { needsDisplay = true }
     }
 }

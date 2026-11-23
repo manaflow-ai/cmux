@@ -27,7 +27,12 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="${RUNNER_TEMP:-$(mktemp -d)}/cloud-journey"
 summary="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 verdict() { # result
-  [ "${JOURNEY_PHASE:-}" = baseline ] || echo "::notice title=Cloud journey verdict::target=$TARGET result=$1"
+  [ "${JOURNEY_PHASE:-}" = baseline ] && return 0
+  echo "::notice title=Cloud journey verdict::target=$TARGET result=$1"
+  # The same verdict as step outputs, for cmux-vm.yml's journey-proof-<env> jobs (cloud-journey-proof-record.sh).
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    { echo "verdict=$1"; echo "verdict_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; } >> "$GITHUB_OUTPUT"
+  fi
 }
 if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
   echo "::error title=Cloud journey cannot run::this job's environment holds no agent test account: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD are empty (a missing or misnamed secret, or an environment that does not hold the pair)"
@@ -54,7 +59,7 @@ run() { # label, extra args...
     { printf '### %s%s (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
     echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label failed once; running it again (first run's steps in the job summary)"
     rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
-    sleep "${JOURNEY_RETRY_DELAY_S:-15}"
+    sleep "${JOURNEY_RETRY_DELAY_S:-15}"  # sleep-ok: backoff before the one retry
     if bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; fi
   fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"

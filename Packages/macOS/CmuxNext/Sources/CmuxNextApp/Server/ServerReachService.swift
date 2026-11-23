@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHostedChief
 import CmuxNextRemote
+import CmuxNextServer
 import Foundation
 import Observation
 import os
@@ -57,6 +58,8 @@ final class ServerReachService {
     private(set) var lastPlan: ServerReachPlan?
     /// Set while an administrator turned remote hosts off: no server connects.
     private(set) var policyDisabled = false
+    /// Joined Macs opened on their acpmux route (``openSignedIn(_:joined:)``), kept across reads.
+    let signedIn = SignedInMachineRoutes()
 
     init(machines: MachineRegistry, mainWork: MainWorkScheduler, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
          binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil },
@@ -199,7 +202,7 @@ final class ServerReachService {
 
     /// Adds the servers that should show and removes (and forgets) the rest.
     func apply(_ desired: [ServerReach]) async {
-        let change = ServerReachPlan.diff(shown: machines.servers.map(\.reach), desired: desired)
+        let change = ServerReachPlan.diff(shown: machines.servers.map(\.reach), desired: desired + signedIn.kept(beyond: desired))
         for reach in change.add {
             removed.remove(reach.hostID)
             add(reach, connect: true)
@@ -234,6 +237,20 @@ final class ServerReachService {
             watcher.start()
             return watcher
         }
+    }
+
+    /// A joined Mac whose person allowed this account's other Macs, on its acpmux route
+    /// (``SignedInMachineDial``): shown and connected now, kept until the account changes; false signed out.
+    func openSignedIn(_ reach: ServerReach, joined: String) -> Bool {
+        guard signedInUser() != nil else { return false }
+        signedIn.record(reach, joined: joined)
+        removed.remove(reach.hostID)
+        guard let shown = machines.server(reach.machineID) else {
+            add(reach, connect: true)
+            return true
+        }
+        if shown.reach != reach { reroute(reach) } else if !policyDisabled { shown.connect() }
+        return true
     }
 
     /// Restores servers the registry holds that this run has not seen.
@@ -293,6 +310,7 @@ final class ServerReachService {
     /// Sign-out: the servers belong to the account; their records stay for
     /// the next sign-in's read to keep or forget.
     private func closeAll() {
+        signedIn.clear()
         for session in machines.servers {
             session.close()
             _ = machines.removeServer(session.machineID)

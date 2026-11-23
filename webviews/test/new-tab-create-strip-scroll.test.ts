@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -31,7 +30,7 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
   });
 
   for (const key of ["ArrowDown", "Tab"]) {
-    test(`${key} keeps each selected create action inside the suggestion viewport`, async () => {
+    test(`${key} keeps selected suggestions inside the list`, async () => {
       const { port } = vite!.httpServer!.address() as { port: number };
       const page = await browser!.newPage({ viewport: { width: 900, height: 360 }, reducedMotion: "reduce" });
       try {
@@ -42,10 +41,10 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
         await page.locator(".nt-field").waitFor();
         await page.evaluate(() => document.getElementById("root")!.classList.add("acpmux-shell"));
         await page.locator(".nt-field .ProseMirror").fill("project");
-        await page.locator(".nt-create-strip").waitFor();
+        await page.locator(".nt-rows").waitFor();
         const ordinary = await page.locator(".nt-rows > .nt-row").count();
         expect(ordinary).toBeGreaterThan(3);
-        expect(await page.locator(".nt-create-strip-item").count()).toBe(3);
+        expect(await page.locator(".nt-rows [data-type=create]").count()).toBe(0);
         const initial = await page.evaluate(() => {
           const list = document.querySelector<HTMLElement>(".nt-rows")!;
           return {
@@ -54,19 +53,21 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
           };
         });
         expect(initial.overflow).toBeGreaterThan(24);
-        for (let index = 0; index < ordinary - 1; index++) await page.keyboard.press(key);
-        // Down reaches the strip as one line, at its first action; → steps along it. Tab steps each.
-        for (let index = 0; index < 3; index++) {
-          await page.keyboard.press(index === 0 || key === "Tab" ? key : "ArrowRight");
+        // Typing may light no row (New Tab's Return sends the prompt): the first key lights the first.
+        const lit = await page.evaluate(() =>
+          [...document.querySelectorAll(".nt-rows > .nt-row")].indexOf(document.querySelector(".nt-row.is-selected")!),
+        );
+        for (let index = lit + 1; index < ordinary; index++) {
+          await page.keyboard.press(key);
           await page.waitForFunction(
             (selectedIndex) =>
-              document.querySelector(".nt-create-strip-item.is-selected") ===
-              document.querySelectorAll(".nt-create-strip-item")[selectedIndex],
+              document.querySelector(".nt-row.is-selected") ===
+              document.querySelectorAll(".nt-rows > .nt-row")[selectedIndex],
             index,
           );
           const geometry = await page.evaluate(() => {
             const list = document.querySelector(".nt-rows")!.getBoundingClientRect();
-            const selected = document.querySelector(".nt-create-strip-item.is-selected")!.getBoundingClientRect();
+            const selected = document.querySelector(".nt-row.is-selected")!.getBoundingClientRect();
             return {
               top: selected.top - list.top,
               bottom: list.bottom - selected.bottom,
@@ -74,11 +75,6 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
               pageScroll: document.querySelector(".nt-screen")!.scrollTop,
             };
           });
-          console.log("create-strip-scroll", key, index, JSON.stringify(geometry));
-          if (index === 0 && key === "ArrowDown" && process.env.CMUX_CAPTURE_STRIP_DIR) {
-            mkdirSync(process.env.CMUX_CAPTURE_STRIP_DIR, { recursive: true });
-            await page.screenshot({ path: path.join(process.env.CMUX_CAPTURE_STRIP_DIR, "new-tab-strip.png") });
-          }
           expect(geometry.focused).toBe(true);
           expect(geometry.pageScroll).toBe(initial.pageScroll);
           expect(geometry.top).toBeGreaterThanOrEqual(-1);

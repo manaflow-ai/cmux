@@ -18,6 +18,7 @@
 //! | `mount` | `mount`, `export`, `ctx` | `__cmuxAppMount`; the first `scene` batches, then `mounted {mount, error?}` |
 //! | `unmount` | `mount` | `__cmuxAppUnmount` |
 //! | `dispatch` | `mount`, `node`, `event`, `payload` | `__cmuxAppDispatch`; the supervisor puts the gesture token in `payload.gesture` |
+//! | `tick` | `mount`, `now_ms` | `__cmuxAppTick`: a widget mount's host-owned clock (`cmux.widget/1`) |
 //! | `resolve` | `cb`, `ok`, `body` | answers a `call` (`__cmuxAppResolve`) |
 //! | `event` | `sub`, `body` | delivers to a subscription (`__cmuxAppEvent`) |
 //! | `settings` | `values` | `__cmuxAppSetSettings` |
@@ -45,6 +46,8 @@
 //! fd 3 blocks until the next timer is due, never longer, never shorter.
 //! Exit codes: [`host_loop::exit`].
 
+#[cfg(feature = "engine")]
+pub mod entry;
 #[cfg(feature = "engine")]
 pub mod host_loop;
 pub mod protocol;

@@ -34,6 +34,12 @@
     "browser.tab.set_profile",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "browser_import.read",
+    "chat.list",
+    "chat.mark_read",
+    "chat.pin",
+    "chief.automation.list",
+    "chief.automation.update",
     "chief.continue",
     "chief.engine.get",
     "chief.engine.set",
@@ -62,12 +68,15 @@
     "closed.list",
     "closed.reopen",
     "cloud.machine.chat_access",
+    "cloud.machine.chief_start",
     "cloud.machine.io",
     "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
     "cloud.owner.github_app",
+    "cloud.owner.github_connect",
+    "cloud.owner.github_repos",
     "cloud.owner.handoff_begin_turn",
     "cloud.owner.handoff_open",
     "cloud.owner.handoff_wait",
@@ -131,12 +140,14 @@
     "git.diff",
     "git.files.list",
     "git.files.search",
+    "git.fingerprint",
     "git.push",
     "git.status",
     "git.worktree.apply",
     "git.worktree.create",
     "git.worktree.remove",
     "git.worktree.setup",
+    "git.worktree.setup.run",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
@@ -153,6 +164,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "language_packs.ensure",
     "layout.bulk",
     "machine.get",
     "machine.list",
@@ -329,6 +341,9 @@
     "terminal.viewport.scroll",
     "terminal.wait",
     "terminal.wait_exit",
+    "theme.scheme.convert",
+    "theme.scheme.export",
+    "theme.scheme.from_image",
     "window_record.delete",
     "window_record.list",
     "window_record.put",
@@ -414,6 +429,7 @@
       "export-layout",
       "feed-local-list",
       "feed-local-read",
+      "float-pane",
       "focus-direction",
       "focus-pane",
       "forget-session",
@@ -481,6 +497,7 @@
       "put-blob",
       "put-frontend-projection",
       "put-session",
+      "quick-terminal",
       "read-screen",
       "read-scrollback",
       "reattach-view",
@@ -540,6 +557,7 @@
       "shell-stop",
       "split",
       "swap-pane",
+      "terminal-command-context",
       "terminal-events",
       "terminal-history",
       "terminal-last-command",
@@ -618,6 +636,8 @@
       "conversation-thread",
       "conversation-link-resolve",
       "conversation-inbox-op",
+      "conversation-scheduled-list",
+      "conversation-scheduled-op",
       "home-inbox",
       "conversation-search",
       "history-search",
@@ -676,7 +696,11 @@
       "remote-host-status",
       "remote-host-call",
       "remote-host-config",
-      "remote-host-app"
+      "remote-host-app",
+      "computer-use-endpoint",
+      "computer-use-config",
+      "computer-use-approvals",
+      "device-setup"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -689,6 +713,18 @@
       "name": "agent-changed",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "agent-cli-frame",
+      "streams": [
+        "attach-byte"
+      ]
+    },
+    {
+      "name": "agent-cli-lean",
+      "streams": [
+        "attach-byte"
       ]
     },
     {
@@ -831,6 +867,12 @@
       ]
     },
     {
+      "name": "conversation-scheduled-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "daemon-shutdown",
       "streams": [
         "control"
@@ -946,6 +988,12 @@
       ]
     },
     {
+      "name": "agent-session-share-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "personal-changed",
       "streams": [
         "subscribe"
@@ -991,6 +1039,12 @@
       "name": "screen-changed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "screen-device-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {
@@ -1114,6 +1168,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "device-setup-step",
       "streams": [
         "control"
       ]

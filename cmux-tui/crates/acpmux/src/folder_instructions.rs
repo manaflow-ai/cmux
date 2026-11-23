@@ -565,7 +565,7 @@ pub(crate) fn read_whole_beneath(
 
 /// The start of `rel` beneath `cwd` (at most the cap and a few bytes) and its full size;
 /// `None` when it is not there as a regular file or holds only whitespace.
-fn readable(cwd: &Path, rel: &str) -> Option<(String, u64)> {
+pub(crate) fn readable(cwd: &Path, rel: &str) -> Option<(String, u64)> {
     let file = open_beneath(cwd, rel)?;
     let size = file.metadata().ok()?.len();
     // Never more than the cap and a little: a huge file must not fill memory.
@@ -597,7 +597,7 @@ pub fn moved(parts: Vec<ContextPart>, family: &str, cwd: &Path, from: &Path) -> 
         Some(part) => {
             let text = format!("{note}\n\n{}", part.text.as_deref().unwrap_or_default());
             part.tokens = estimated_tokens(&text);
-            part.text = Some(text);
+            part.text = Some(text.into());
         }
         None => parts.push(ContextPart {
             id: format!("{SOURCE}-moved"),
@@ -609,7 +609,7 @@ pub fn moved(parts: Vec<ContextPart>, family: &str, cwd: &Path, from: &Path) -> 
             measurement: "estimated".into(),
             source_bytes: None,
             channel: Some("user-context".into()),
-            text: Some(note),
+            text: Some(note.into()),
         }),
     }
     parts
@@ -652,7 +652,7 @@ pub fn part(family: &str, cwd: &Path) -> Option<ContextPart> {
         measurement: "estimated".into(),
         source_bytes: Some(bytes),
         channel: Some("user-context".into()),
-        text: Some(text),
+        text: Some(text.into()),
     })
 }
 

@@ -21,7 +21,7 @@ use tokio::sync::{Semaphore, oneshot, watch};
 use tokio::task::JoinSet;
 
 use crate::daemon::RemoteDaemon;
-use crate::identity::{EnrollmentRelayAccess, IdentityError};
+use crate::identity::{BoundDevice, EnrollmentRelayAccess, IdentityError};
 use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup, UnixSocketError};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
@@ -32,6 +32,7 @@ mod link;
 mod mux_binding;
 pub use link::{
     LINK_AWAIT_LIMIT, LinkStatus, link_admin_socket, serve_link_admin, serve_link_cell_admin,
+    serve_link_cell_admin_with_ports,
 };
 pub use mux_binding::{MuxBinding, verify_mux_binding};
 
@@ -94,6 +95,14 @@ pub enum AdminRequest {
         route_hints: Vec<String>,
         #[serde(default)]
         relay_access: Vec<EnrollmentRelayAccess>,
+        /// Bind the invitation to this device public key (as `cmux remote
+        /// device-key` prints it): only that key can claim it, and it enrolls
+        /// with no approval step. Absent from older admin clients.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device_public_key: Option<String>,
+        /// The bound device's name in the device list; only with a key.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device_name: Option<String>,
     },
     Pending,
     Approve {
@@ -121,6 +130,25 @@ pub enum AdminRequest {
     /// with the reason past the deadline. Served only by a link's own socket.
     AwaitReady {
         within_ms: u64,
+    },
+    /// Forward the machine's loopback `host:port` (host default 127.0.0.1) to 127.0.0.1 and a
+    /// port this computer picks ([`crate::link_ports::LinkPorts`]). Served only by a link's own
+    /// socket; the answer is a [`crate::link_ports::LinkForward`].
+    PortForward {
+        port: u16,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        host: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workspace_root: Option<String>,
+    },
+    /// The link's forwards ([`crate::link_ports::LinkForwards`]). Served only by a link's socket.
+    PortList,
+    /// Stop forwarding the machine's `host:port` ([`crate::link_ports::LinkForwardClosed`]).
+    /// Served only by a link's own socket.
+    PortClose {
+        port: u16,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        host: Option<String>,
     },
 }
 
@@ -736,15 +764,38 @@ async fn dispatch(
             connected_clients: daemon.connections().await.len(),
         })
         .map_err(IdentityError::Json),
-        AdminRequest::CreateInvitation { ttl_seconds, route_hints, relay_access } => auth
-            .create_invitation_with_relay_access(
-                Duration::from_secs(ttl_seconds),
-                if route_hints.is_empty() { default_route_hints.to_vec() } else { route_hints },
-                relay_access,
-            )
-            .await
-            .and_then(|invitation| invitation.to_uri())
-            .map(|uri| serde_json::json!({ "uri": uri })),
+        AdminRequest::CreateInvitation {
+            ttl_seconds,
+            route_hints,
+            relay_access,
+            device_public_key,
+            device_name,
+        } => {
+            let bound_device = match (device_public_key, device_name) {
+                (Some(key), name) => BoundDevice::parse(&key, name).map(Some),
+                (None, Some(_)) => Err(IdentityError::Invalid(
+                    "a device name needs the device public key it names".into(),
+                )),
+                (None, None) => Ok(None),
+            };
+            match bound_device {
+                Ok(bound_device) => auth
+                    .create_invitation_for_device(
+                        Duration::from_secs(ttl_seconds),
+                        if route_hints.is_empty() {
+                            default_route_hints.to_vec()
+                        } else {
+                            route_hints
+                        },
+                        relay_access,
+                        bound_device,
+                    )
+                    .await
+                    .and_then(|invitation| invitation.to_uri())
+                    .map(|uri| serde_json::json!({ "uri": uri })),
+                Err(error) => Err(error),
+            }
+        }
         AdminRequest::Pending => {
             serde_json::to_value(auth.pending_enrollments().await).map_err(IdentityError::Json)
         }
@@ -762,7 +813,11 @@ async fn dispatch(
             serde_json::to_value(daemon.connection_snapshots().await).map_err(IdentityError::Json)
         }
         AdminRequest::Revoke { device_id } => {
-            auth.revoke(&device_id).await.map(|()| serde_json::json!({}))
+            // The revoked device's record (name, fingerprint, revoked_at_unix):
+            // an older client printed the reply as is, and `{}` said nothing.
+            auth.revoke(&device_id)
+                .await
+                .and_then(|record| serde_json::to_value(record).map_err(IdentityError::Json))
         }
         AdminRequest::Disconnect { device_id, session_id } => {
             match SessionId::from_hex(&session_id) {
@@ -782,7 +837,11 @@ async fn dispatch(
         AdminRequest::ShutdownLifecycle { lifecycle_id: requested_lifecycle_id } => {
             request_shutdown(lifecycle_id, Some(&requested_lifecycle_id), owner_shutdown)
         }
-        AdminRequest::LinkState | AdminRequest::AwaitReady { .. } => {
+        AdminRequest::LinkState
+        | AdminRequest::AwaitReady { .. }
+        | AdminRequest::PortForward { .. }
+        | AdminRequest::PortList
+        | AdminRequest::PortClose { .. } => {
             Err(IdentityError::Invalid("link requests are served by a link's own socket".into()))
         }
     };
@@ -843,7 +902,18 @@ pub enum AdminError {
 impl fmt::Display for AdminError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(error) => write!(formatter, "admin socket failed: {error}"),
+            Self::Io(error) => {
+                write!(formatter, "admin socket failed: {error}")?;
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                ) {
+                    formatter.write_str(
+                        "; no remote daemon answers there. Start one with `cmux daemon start --remote-ws 127.0.0.1:PORT`, or name the one that runs with `--session NAME` or `--state-dir PATH`",
+                    )?;
+                }
+                Ok(())
+            }
             Self::Json(error) => write!(formatter, "admin JSON failed: {error}"),
             Self::Protocol(message) => write!(formatter, "admin protocol failed: {message}"),
             Self::MessageTooLarge(size) => write!(formatter, "admin message is too large: {size}"),
@@ -877,6 +947,16 @@ impl From<UnixPeerAuthError> for AdminError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_missing_admin_socket_names_the_next_command() {
+        let gone = AdminError::Io(io::Error::from(io::ErrorKind::NotFound)).to_string();
+        assert!(gone.starts_with("admin socket failed: "), "{gone}");
+        assert!(gone.contains("cmux daemon start --remote-ws"), "{gone}");
+        assert!(gone.contains("--session NAME"), "{gone}");
+        let denied = AdminError::Io(io::Error::from(io::ErrorKind::PermissionDenied)).to_string();
+        assert!(!denied.contains("cmux daemon start"), "{denied}");
+    }
+
     use tempfile::tempdir;
     use tokio::io::AsyncWriteExt;
     use tokio::net::UnixListener;
@@ -937,12 +1017,71 @@ mod tests {
                 ttl_seconds: 60,
                 route_hints: vec![],
                 relay_access: vec![],
+                device_public_key: None,
+                device_name: None,
             },
         )
         .await
         .unwrap();
         assert!(invitation.ok);
         assert!(invitation.result.unwrap()["uri"].as_str().unwrap().starts_with("cmux://enroll/"));
+        server.shutdown().await.unwrap();
+    }
+
+    #[test]
+    fn an_older_admin_client_create_request_has_no_device_binding() {
+        let request: AdminRequest =
+            serde_json::from_str(r#"{"method":"create-invitation","ttl_seconds":60}"#).unwrap();
+        assert!(matches!(
+            request,
+            AdminRequest::CreateInvitation { device_public_key: None, device_name: None, .. }
+        ));
+        let unbound = AdminRequest::CreateInvitation {
+            ttl_seconds: 60,
+            route_hints: vec![],
+            relay_access: vec![],
+            device_public_key: None,
+            device_name: None,
+        };
+        let encoded = serde_json::to_value(&unbound).unwrap();
+        assert!(encoded.get("device_public_key").is_none(), "{encoded}");
+    }
+
+    #[tokio::test]
+    async fn owner_can_create_an_invitation_bound_to_one_device() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path().join("state"), "test", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("admin.sock");
+        let server =
+            serve_admin(daemon, &socket, vec!["ws://127.0.0.1:1/v1/link".into()]).await.unwrap();
+        let device = crate::crypto::StaticIdentity::generate().unwrap();
+        let device_key = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            device.public_key(),
+        );
+        let create = |device_public_key: Option<String>, device_name: Option<String>| {
+            AdminRequest::CreateInvitation {
+                ttl_seconds: 60,
+                route_hints: vec![],
+                relay_access: vec![],
+                device_public_key,
+                device_name,
+            }
+        };
+
+        let bound =
+            call_admin(&socket, &create(Some(device_key), Some("agent-vm".into()))).await.unwrap();
+        assert!(bound.ok, "{:?}", bound.error);
+        let uri = bound.result.unwrap()["uri"].as_str().unwrap().to_owned();
+        assert!(!crate::identity::EnrollmentInvitation::from_uri(&uri).unwrap().approval_required);
+
+        let unnamed_key =
+            call_admin(&socket, &create(None, Some("agent-vm".into()))).await.unwrap();
+        assert!(!unnamed_key.ok);
+        let bad_key = call_admin(&socket, &create(Some("short".into()), None)).await.unwrap();
+        assert!(!bad_key.ok);
         server.shutdown().await.unwrap();
     }
 

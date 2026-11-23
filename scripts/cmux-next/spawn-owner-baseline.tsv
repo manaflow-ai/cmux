@@ -9,7 +9,6 @@ cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs	1
 cmux-tui/crates/acpmux/src/bg_run.rs	5
 cmux-tui/crates/acpmux/src/cli/bounded_child.rs	2
 cmux-tui/crates/acpmux/src/cli/cli_agent.rs	8
-cmux-tui/crates/acpmux/src/cli/codex_auth_broker.rs	1
 cmux-tui/crates/acpmux/src/cli/daemon_service.rs	2
 cmux-tui/crates/acpmux/src/cli/gh_shim.rs	3
 cmux-tui/crates/acpmux/src/cli/harness.rs	2
@@ -201,12 +200,6 @@ cmux-tui/crates/cmux-automations/src/watch.rs	3
 cmux-tui/crates/cmux-browser-host/src/bin/cmux-browser-host.rs	1
 cmux-tui/crates/cmux-browser-host/src/cdp/pipe.rs	1
 cmux-tui/crates/cmux-build-identity/build.rs	1
-cmux-tui/crates/cmux-cloud-codex-holder/src/adapter.rs	4
-cmux-tui/crates/cmux-cloud-codex-holder/src/broker.rs	1
-cmux-tui/crates/cmux-cloud-codex-holder/src/broker_renewal.rs	1
-cmux-tui/crates/cmux-cloud-codex-holder/src/cx.rs	1
-cmux-tui/crates/cmux-cloud-codex-holder/src/serve.rs	3
-cmux-tui/crates/cmux-cloud-codex-holder/src/session.rs	4
 cmux-tui/crates/cmux-coderouter/src/free_tier.rs	2
 cmux-tui/crates/cmux-coderouter/src/lib.rs	3
 cmux-tui/crates/cmux-git/src/run.rs	3
@@ -242,11 +235,10 @@ cmux-tui/crates/cmux-remote/src/client.rs	2
 cmux-tui/crates/cmux-remote/src/connection.rs	4
 cmux-tui/crates/cmux-remote/src/daemon.rs	8
 cmux-tui/crates/cmux-remote/src/http.rs	1
-cmux-tui/crates/cmux-remote/src/identity.rs	2
+cmux-tui/crates/cmux-remote/src/identity/auth_database.rs	2
 cmux-tui/crates/cmux-remote/src/link.rs	3
-cmux-tui/crates/cmux-remote/src/network_watch.rs	1
 cmux-tui/crates/cmux-remote/src/provider/iroh.rs	1
-cmux-tui/crates/cmux-remote/src/provider/relay.rs	5
+cmux-tui/crates/cmux-remote/src/provider/relay.rs	4
 cmux-tui/crates/cmux-remote/src/provider/ssh.rs	2
 cmux-tui/crates/cmux-remote/src/service.rs	3
 cmux-tui/crates/cmux-remote/src/session.rs	2
@@ -310,7 +302,6 @@ cmux-tui/crates/cmux-tui/src/link/mod.rs	1
 cmux-tui/crates/cmux-tui/src/link/sync_cli/local.rs	1
 cmux-tui/crates/cmux-tui/src/link/sync_cli/pull.rs	2
 cmux-tui/crates/cmux-tui/src/local_owner.rs	1
-cmux-tui/crates/cmux-tui/src/machine_agent/transport.rs	1
 cmux-tui/crates/cmux-tui/src/machine_provider_transport.rs	1
 cmux-tui/crates/cmux-tui/src/main.rs	1
 cmux-tui/crates/cmux-tui/src/plugin_manager.rs	1

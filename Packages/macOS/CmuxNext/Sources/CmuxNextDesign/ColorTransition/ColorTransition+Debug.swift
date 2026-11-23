@@ -7,7 +7,8 @@ extension ColorTransition {
     /// over a material) as `#RRGGBBAA` in sRGB, empty when not painted; `glassTint` (Liquid
     /// Glass's own tint), `glassOverlay` and `glassOverlayOpacity` (the old tint fading out over
     /// it during a blend, empty otherwise); `blending` is "true" while any of them runs a color
-    /// transition; `seconds` is the transition in effect now.
+    /// transition; `seconds` is the transition in effect now; `picture` is the id of the picture
+    /// the art shows (``WindowMaterialView/shownPictureID``).
     @MainActor
     public static func presentedBackdrop(of window: NSWindow) -> [String: String] {
         guard let material = window.contentView.flatMap(materialView(in:)) else { return [:] }
@@ -33,7 +34,7 @@ extension ColorTransition {
         let overlayColor = pending ? rgb(overlay?.backgroundColor).map(hex) ?? "" : shown(overlay)
         return ["sheet": shown(sheet), "tint": shown(tint), "glassTint": glass, "glassOverlay": overlayColor,
                 "glassOverlayOpacity": overlayOpacity, "blending": blending ? "true" : "false",
-                "seconds": String(current.seconds)]
+                "seconds": String(current.seconds), "picture": material.shownPictureID]
     }
 
     @MainActor

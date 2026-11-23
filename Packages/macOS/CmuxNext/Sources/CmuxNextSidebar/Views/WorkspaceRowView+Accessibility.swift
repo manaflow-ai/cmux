@@ -111,7 +111,8 @@ extension WorkspaceRowView {
         let detail = content.now.map(Strings.rowNow) ?? content.detail
         if let detail { parts.append(detail) }
         // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.
-        if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) }) ?? content.trailingStatus { parts.append(s) }
+        if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) })
+            ?? content.tasks.map({ Strings.taskProgress(done: $0.done, total: $0.total) }) ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
         if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
@@ -132,6 +133,7 @@ extension WorkspaceRowView {
         // line"), and the detail now holds only the facts the person turned on, so it is said on its own,
         // never matched against them: a branch named like the machine is no proof the machine was said
         // (review of #28510 at 4acab8c2).
+        if content.runsInCloud { parts.append(Strings.hoverCloud) }
         if let spoken = content.machineLabel ?? content.machine?.name { parts.append(spoken) }
         parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")

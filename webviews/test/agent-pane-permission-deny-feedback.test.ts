@@ -269,10 +269,10 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
   test("Cancel goes back to the options without answering", async () => {
     const page = await open(CODEX);
     await page.getByRole("button", { name: "Deny" }).click();
-    await page.getByRole("textbox", { name: "Tell the agent what to do instead" }).fill("Never mind");
+    await page.getByRole("textbox", { name: "What should it do instead?" }).fill("Never mind");
     await page.getByRole("button", { name: "Cancel" }).click();
     await page.getByRole("button", { name: "Allow once" }).waitFor({ timeout: 5_000 });
-    expect(await page.getByRole("textbox", { name: "Tell the agent what to do instead" }).count()).toBe(0);
+    expect(await page.getByRole("textbox", { name: "What should it do instead?" }).count()).toBe(0);
     // The keyboard goes back to Deny, which opened the field.
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Deny");
     // Cancel sent nothing: the next answer the card gives is the first acpmux hears.

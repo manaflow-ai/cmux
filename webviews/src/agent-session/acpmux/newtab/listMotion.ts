@@ -14,6 +14,7 @@ import { entranceAllowed } from "../../shared/pageReveal";
 type Places = Map<string, { x: number; y: number }>;
 
 /// How long the list's size holds still before its rows' places are read again after a resize.
+// motion-allow: a resize settle delay, not a motion
 const RESIZE_SETTLE_MS = 120;
 
 function seconds(value: string): number {

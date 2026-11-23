@@ -16,7 +16,7 @@ import CmuxNextDesign
 
     var spec: CmuxDialogSpec {
         let deny = prompt.kind == .permissions ? Strings.extensionDeny : Strings.extensionCancel
-        return CmuxDialogSpec(title: Self.title(for: prompt), lines: [Self.body(for: prompt)],
+        return CmuxDialogSpec(usesTransientMaterial: true, title: Self.title(for: prompt), lines: [Self.body(for: prompt)],
                               buttons: [CmuxDialogButton(id: "cancel", title: deny, role: .cancel),
                                         CmuxDialogButton(id: "accept", title: Self.acceptTitle(for: prompt.kind), role: .default)],
                               icon: prompt.icon, identifier: "browser.extensionPrompt.\(prompt.id)")

@@ -3,6 +3,7 @@ import CmuxAgentQuestion
 import CmuxConversationCore
 import CmuxMobileAgentChat
 import CmuxMobileChief
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
@@ -126,7 +127,9 @@ extension LiveCoordinator {
             guard let data = attachment.data, let mime = attachment.imageMIMEType, let size = UIImage(data: data)?.size else { return nil }
             return ConversationComposeImage(data: data, width: Int(size.width), height: Int(size.height), mimeType: mime)
         }
-        chief.send(ConversationComposeMessage(text: text, images: images))
+        guard chief.send(ConversationComposeMessage(text: text, images: images)) else {
+            throw PushReplyFailure(reason: .unreachable)
+        }
     }
 
     /// Send Message… to the Chief about a workspace or a tab of `macID`: Chief runs on the
@@ -138,8 +141,7 @@ extension LiveCoordinator {
         if focusedMacID != macID { select(macID: macID) }
         let chief = ChiefSession.shared
         guard await waitUntil(within: budget, { [weak self] in self?.chiefMacID == macID && chief.isConnected }) else { return false }
-        chief.send(text: text)
-        return true
+        return chief.send(text: text)
     }
 
     /// Text into the terminal that posted the notification, over the Mac's
@@ -215,7 +217,8 @@ extension LiveCoordinator {
                 let sign = try pairing.keys.approvalSigner()
                 approval = Self.pushJSON(payload.meta(signature: try sign(payload.message)))
             } catch {
-                throw PushReplyFailure(reason: .refused((error as? PhoneKeys.Failure)?.message ?? String(describing: error)))
+                throw PushReplyFailure(reason: .refused((error as? PhoneKeys.Failure)?.message
+                    ?? UserFacingError.message(error, fallback: "This reply couldn't be signed. Open the chat to answer.")))
             }
         }
         guard let lifetime = Self.mailboxLifetime(reply, now: now) else {

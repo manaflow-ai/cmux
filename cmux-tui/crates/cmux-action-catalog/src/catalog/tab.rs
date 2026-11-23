@@ -187,11 +187,19 @@ pub static ACTIONS: &[Action] = &[
         id: "macScreen.open",
         group: GROUP,
         title: t("ActionCatalog", "action.macScreen.open", "Screen Sharing"),
-        keywords: &["mac", "screen", "remote", "control", "screen sharing", "vnc", "pair", "share this mac"],
+        keywords: &["mac", "screen", "remote", "control", "screen sharing", "screen share", "share screen", "remote desktop", "vnc", "rdp", "view", "watch", "device", "machine", "computer", "other mac", "pair", "share this mac"],
+        // Cmd-Shift-S, S for Screen: no other default, menu key, Ghostty default, macOS shortcut
+        // or first-party app key holds it (tests/default_keymap_conflicts.rs).
+        default_shortcut: Some(Shortcut { key: "s", modifiers: SHIFT | CMD }),
         category: "tab",
         symbol: "display",
         surfaces: PALETTE | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("newTab", "create", 3)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("newTab", "create", 3), Placement::at("pane", "create", 10), Placement::at("tab", "create", 7)], ..SurfacePlan::DEFAULT },
+        // `scope` (view | full, default view): what an agent's or the CLI's open of the person's own
+        // device asks for at once; a person's open asks for View Only, as before (MacScreenActions).
+        // `autoconnect` (default off): an automation open starts viewing at once on any device, unless the
+        // person turned on Only Your Click Starts Viewing a Screen.
+        arguments: &[args::DEVICE.optional(), args::SCREEN_SCOPE.optional(), args::AUTOCONNECT.optional()],
         targets: &["pane"],
         cli_name: "tab new-mac-screen",
         main_menu: Some("file"),
@@ -201,19 +209,34 @@ pub static ACTIONS: &[Action] = &[
         id: "macScreen.stopSharing",
         group: GROUP,
         title: t("ActionCatalog", "action.macScreen.stopSharing", "Stop Sharing This Mac"),
-        keywords: &["mac", "screen", "sharing", "stop", "end", "disconnect", "viewer", "control"],
-        category: "tab",
+        keywords: &["mac", "screen", "sharing", "screen share", "share screen", "remote desktop", "vnc", "stop", "end", "disconnect", "viewer", "control", "session", "end session", "cmux remote"],
+        default_shortcut: Some(Shortcut { key: "s", modifiers: OPT | SHIFT | CMD }),
+        category: "remote",
         symbol: "display",
+        surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action mac-screen-stop-sharing",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "macScreen.stopViewing",
+        group: GROUP,
+        title: t("ActionCatalog", "action.macScreen.stopViewing", "Stop Viewing Shared Screen"),
+        keywords: &["mac", "screen", "sharing", "screen share", "share screen", "remote desktop", "vnc", "stop", "end", "disconnect", "viewer", "leave", "close"],
+        category: "tab",
+        symbol: "rectangle.badge.xmark",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "close", 600)], ..SurfacePlan::DEFAULT },
+        targets: &["tab"],
+        cli_name: "tab stop-mac-screen-viewing",
         ..Action::DEFAULT
     },
     Action {
         id: "macScreen.revokeViewer",
         group: GROUP,
         title: t("ActionCatalog", "action.macScreen.revokeViewer", "Revoke This Device"),
-        keywords: &["mac", "screen", "sharing", "revoke", "device", "permission", "viewer", "block"],
-        category: "tab",
+        keywords: &["mac", "screen", "sharing", "screen share", "share screen", "vnc", "revoke", "kick", "remove", "device", "permission", "viewer", "block"],
+        category: "remote",
         symbol: "person.badge.minus",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action mac-screen-revoke-viewer",

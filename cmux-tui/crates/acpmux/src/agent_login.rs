@@ -81,6 +81,7 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
+pub mod github;
 mod hot;
 pub mod parse;
 #[cfg(test)]
@@ -106,6 +107,9 @@ umask 077
 dir=$(dirname "$0")
 printf '%s\n' "$@" > "$dir/.auto-url.$$" && mv -f "$dir/.auto-url.$$" "$dir/auto-url"
 "#;
+/// `gh auth login`'s arguments: github.com only, https (no SSH key step), the device flow.
+pub const GITHUB_LOGIN_ARGS: [&str; 7] =
+    ["auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web"];
 /// How much of the CLI's output is kept.
 pub const OUTPUT_CAP: usize = 64 * 1024;
 /// How long a sign-in lives (Codex's device code expires in 15 minutes).
@@ -132,6 +136,11 @@ pub const MODEL_PLANE_ENV: &[&str] = &[
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "XAI_API_KEY",
+    // The gateway's endpoints for Gemini and Grok (`provider_cloud_auth.rs`, hq#11225).
+    "GOOGLE_GEMINI_BASE_URL",
+    "GROK_MODELS_BASE_URL",
+    "GROK_MODELS_LIST_URL",
+    "GROK_XAI_API_BASE_URL",
 ];
 
 /// The account-home variables pinned on the CLI's command (`Cli::command`), so it
@@ -153,6 +162,10 @@ pub mod reason {
     pub const EXPIRED: &str = "expired";
     pub const FAILED: &str = "failed";
     pub const UNKNOWN_LOGIN: &str = "unknown_login";
+    /// GitHub's `gh` is not on this machine (the agents' own CLIs answer [`CLI_MISSING`]).
+    pub const NOT_INSTALLED: &str = "not_installed";
+    /// `_acpmux/account/*` named an account this machine does not list.
+    pub const UNKNOWN_ACCOUNT: &str = "unknown_account";
     /// A `sessionId` that names no chat here or on a peer.
     pub const UNKNOWN_SESSION: &str = "unknown_session";
     /// `start {agent: "<agent>@gateway"}` on a machine whose team cmux's gateway does not
@@ -223,6 +236,10 @@ pub enum Agent {
     Grok,
     /// `cursor-agent`: its browser sign-in only.
     Cursor,
+    /// The GitHub CLI (`gh auth login --web`, its device flow). Not in [`Agent::ALL`]: the
+    /// `_acpmux/agent_login/*` wire still refuses it; `_acpmux/account/sign_in` runs it
+    /// (`server/account_sign_in.rs`).
+    Github,
 }
 
 impl Agent {
@@ -240,6 +257,7 @@ impl Agent {
             Agent::Gemini => "gemini",
             Agent::Grok => "grok",
             Agent::Cursor => "cursor",
+            Agent::Github => "github",
         }
     }
 
@@ -250,7 +268,20 @@ impl Agent {
 
     /// `api_key` saves a key for it.
     pub fn takes_api_key(self) -> bool {
-        !matches!(self, Agent::Grok | Agent::Cursor)
+        !matches!(self, Agent::Grok | Agent::Cursor | Agent::Github)
+    }
+
+    /// The variable that moves its store to another folder, for [`start_in`]'s account home:
+    /// `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, `GH_CONFIG_DIR`. Gemini and Cursor have
+    /// none that names the store itself.
+    pub fn home_var(self) -> Option<&'static str> {
+        match self {
+            Agent::Claude => Some("CLAUDE_CONFIG_DIR"),
+            Agent::Codex => Some("CODEX_HOME"),
+            Agent::Grok => Some("GROK_HOME"),
+            Agent::Github => Some("GH_CONFIG_DIR"),
+            Agent::Gemini | Agent::Cursor => None,
+        }
     }
 
     /// Its store under a home with no override: `.claude`, `.codex`, `.gemini`, `.grok`,
@@ -262,6 +293,7 @@ impl Agent {
             Agent::Gemini => ".gemini",
             Agent::Grok => ".grok",
             Agent::Cursor => ".config/cursor",
+            Agent::Github => ".config/gh",
         }
     }
 
@@ -269,6 +301,7 @@ impl Agent {
     pub fn program(self) -> &'static str {
         match self {
             Agent::Cursor => "cursor-agent",
+            Agent::Github => "gh",
             agent => agent.name(),
         }
     }
@@ -330,6 +363,14 @@ impl Cli {
                     .unwrap_or_else(|| self.home().join(".config"))
                     .join("cursor"),
             ),
+            // gh's config folder: `GH_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gh`, else `~/.config/gh`.
+            Agent::Github => own("GH_CONFIG_DIR").or_else(|| {
+                Some(
+                    own("XDG_CONFIG_HOME")
+                        .unwrap_or_else(|| self.home().join(".config"))
+                        .join("gh"),
+                )
+            }),
         }
         .unwrap_or_else(|| self.home().join(agent.home_dir_name()))
     }
@@ -344,9 +385,6 @@ impl Cli {
             if k.to_string_lossy().starts_with("ACPMUX_") {
                 cmd.env_remove(&k);
             }
-        }
-        for key in crate::cua_socket::AGENT_SCRUBBED_ENV {
-            cmd.env_remove(key);
         }
         cmd.env_remove("CODEX_THREAD_ID")
             .env_remove("OMPCODE")
@@ -684,6 +722,9 @@ pub fn signed_in_at(agent: Agent, store: &Path) -> bool {
             v.as_object()
                 .is_some_and(|o| o.values().any(|f| f.as_str().is_some_and(|s| !s.is_empty())))
         }),
+        // gh's `hosts.yml` holds its tokens: never read. gh's own exit says it (`finish`), and
+        // `github::accounts` asks gh which accounts it has.
+        Agent::Github => false,
     }
 }
 
@@ -807,13 +848,17 @@ struct Entry {
     running: Arc<tokio::sync::Mutex<Running>>,
 }
 
-/// The sign-ins in progress: at most one per agent.
-fn table() -> &'static StdMutex<HashMap<Agent, Entry>> {
-    static TABLE: OnceLock<StdMutex<HashMap<Agent, Entry>>> = OnceLock::new();
+/// A sign-in's place in the table: the agent and the store it signs in to.
+type Slot = (Agent, PathBuf);
+
+/// The sign-ins in progress: at most one per agent and account home, so two accounts of one
+/// agent sign in side by side.
+fn table() -> &'static StdMutex<HashMap<Slot, Entry>> {
+    static TABLE: OnceLock<StdMutex<HashMap<Slot, Entry>>> = OnceLock::new();
     TABLE.get_or_init(Default::default)
 }
 
-fn lock_table() -> std::sync::MutexGuard<'static, HashMap<Agent, Entry>> {
+fn lock_table() -> std::sync::MutexGuard<'static, HashMap<Slot, Entry>> {
     table().lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -834,8 +879,8 @@ fn kill_group(_group: Option<u32>) {}
 fn end(id: &str) -> bool {
     let entry = {
         let mut table = lock_table();
-        let agent = table.iter().find(|(_, e)| e.id == id).map(|(a, _)| *a);
-        agent.and_then(|a| table.remove(&a))
+        let slot = table.iter().find(|(_, e)| e.id == id).map(|(s, _)| s.clone());
+        slot.and_then(|s| table.remove(&s))
     };
     match entry {
         Some(e) => {
@@ -871,8 +916,42 @@ async fn pump<R: AsyncRead + Unpin>(
     notify.notify_one();
 }
 
+/// Whether sign-in `login_id` is still in the table (not finished, cancelled or expired).
+pub fn running(login_id: &str) -> bool {
+    lock_table().values().any(|e| e.id == login_id)
+}
+
 /// Starts `agent`'s own sign-in with `cli` on `machine` (module docs).
 pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started, LoginError> {
+    start_in(machine, cli, agent, None).await
+}
+
+/// [`start`] in the account home `home` when given: the CLI gets `agent`'s
+/// [`Agent::home_var`] set to it, and `finish` reads the sign-in there. A sign-in runs per
+/// agent and home, so one in another home leaves this one be. `home` is the daemon's own
+/// (an account route's), never a caller's.
+pub async fn start_in(
+    machine: &Machine,
+    cli: &Cli,
+    agent: Agent,
+    home: Option<&Path>,
+) -> Result<Started, LoginError> {
+    let homed;
+    let cli = match home {
+        None => cli,
+        Some(home) => {
+            let Some(var) = agent.home_var() else {
+                return Err(LoginError::new(
+                    reason::UNSUPPORTED,
+                    format!("{} does not sign in to an account home of its own", agent.name()),
+                ));
+            };
+            let mut own = cli.clone();
+            own.env.insert(var.to_owned(), home.display().to_string());
+            homed = own;
+            &homed
+        }
+    };
     if !agent.signs_in_by_link() {
         return Err(LoginError::new(
             reason::UNSUPPORTED,
@@ -882,9 +961,11 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
     machine.refuse_shared()?;
     // One sign-in per agent: the previous one stops, unless its finish is
     // running (it may be writing the sign-in now).
+    let store = cli.store(agent);
+    let slot: Slot = (agent, store.clone());
     let previous = {
         let table = lock_table();
-        table.get(&agent).map(|e| (e.id.clone(), e.running.clone(), e.code_sent.clone()))
+        table.get(&slot).map(|e| (e.id.clone(), e.running.clone(), e.code_sent.clone()))
     };
     if let Some((id, running, code_sent)) = previous {
         // Held across the stop, so no finish takes it in between. A finish
@@ -905,8 +986,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
             }
         }
     }
-    let store = cli.store(agent);
-    if agent != Agent::Claude {
+    if !matches!(agent, Agent::Claude | Agent::Github) {
         // `codex login` needs its home to exist; Grok's and Cursor's are made private first.
         private_dir(&store).map_err(|e| {
             LoginError::new(reason::FAILED, format!("make {}: {e}", store.display()))
@@ -918,6 +998,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         Agent::Claude => &["auth", "login", "--claudeai"],
         Agent::Codex | Agent::Grok => &["login", "--device-auth"],
         Agent::Cursor => &["login"],
+        Agent::Github => &GITHUB_LOGIN_ARGS,
         // Refused above (`signs_in_by_link`).
         Agent::Gemini => &[],
     };
@@ -928,10 +1009,21 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         })?;
         cmd.env("BROWSER", shim);
     }
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    if agent == Agent::Github {
+        github::shape(&mut cmd);
+        // gh writes the sign-in exactly where `store` resolved.
+        cmd.env("GH_CONFIG_DIR", &store);
+    }
+    // gh takes no input here (no tty: it prints its code and link and polls by itself).
+    let stdin = if agent == Agent::Github { Stdio::null() } else { Stdio::piped() };
+    cmd.stdin(stdin).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     cmd.process_group(0);
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound if agent == Agent::Github => LoginError::new(
+            reason::NOT_INSTALLED,
+            "gh (GitHub CLI) is not installed on this machine",
+        ),
         std::io::ErrorKind::NotFound => LoginError::new(
             reason::CLI_MISSING,
             format!("{} is not installed on this machine", agent.name()),
@@ -986,7 +1078,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
-        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
+        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::Github => None,
     };
     let id = uuid::Uuid::now_v7().to_string();
     let expires_at_ms = now_ms() + EXPIRY.as_millis() as u64;
@@ -1006,7 +1098,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
             _folder: folder,
         })),
     };
-    if let Some(old) = lock_table().insert(agent, entry) {
+    if let Some(old) = lock_table().insert(slot, entry) {
         // A start that raced this one: the later one wins.
         kill_group(old.group);
     }
@@ -1071,7 +1163,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
             }
         },
         // Device flows finish by themselves.
-        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
+        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::Github => None,
     };
     if let Some(line) = &code {
         let Ok(mut slot) = stdin.try_lock() else {
@@ -1156,14 +1248,66 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
     }
     // macOS: Claude Code keeps its sign-in in the login keychain, which acpmux
     // never reads (`claude_auth.rs`); its exit says it.
-    let signed_in =
-        signed_in_at(agent, &store) || (cfg!(target_os = "macos") && agent == Agent::Claude);
+    // gh: its exit 0 is the sign-in (its store holds tokens, never read here).
+    let signed_in = agent == Agent::Github
+        || signed_in_at(agent, &store)
+        || (cfg!(target_os = "macos") && agent == Agent::Claude);
     Ok(Finished { agent, signed_in, store, fresh })
 }
 
 /// Stops sign-in `login_id`; nothing when none runs.
 pub fn cancel(login_id: &str) -> bool {
     end(login_id)
+}
+
+/// The CLI's own logout (the Mac's Settings `signOutLine`): `codex logout`, `claude auth
+/// logout`. None for an agent this does not sign out.
+pub fn logout_args(agent: Agent) -> Option<&'static [&'static str]> {
+    match agent {
+        Agent::Codex => Some(&["logout"]),
+        Agent::Claude => Some(&["auth", "logout"]),
+        _ => None,
+    }
+}
+
+/// How long a CLI's logout has.
+pub const LOGOUT_WAIT: Duration = Duration::from_secs(30);
+
+/// Signs `agent` out with its CLI's own logout, in `home` (its home variable set) or where the
+/// CLI keeps its login. A sign-in of `agent` running in that store stops first.
+pub async fn sign_out_in(cli: &Cli, agent: Agent, home: Option<&Path>) -> Result<(), LoginError> {
+    let Some(args) = logout_args(agent) else {
+        return Err(LoginError::new(
+            reason::UNSUPPORTED,
+            format!("{} has no sign-out here", agent.name()),
+        ));
+    };
+    let mut cli = cli.clone();
+    if let Some(home) = home {
+        let Some(var) = agent.home_var() else {
+            return Err(LoginError::new(
+                reason::UNSUPPORTED,
+                format!("{} does not sign in to an account home of its own", agent.name()),
+            ));
+        };
+        cli.env.insert(var.to_owned(), home.display().to_string());
+    }
+    let slot: Slot = (agent, cli.store(agent));
+    let running = lock_table().get(&slot).map(|e| e.id.clone());
+    if let Some(id) = running {
+        end(&id);
+    }
+    let cmd = cli.command(args, &std::env::temp_dir());
+    match crate::complete::run::run(cmd, None, LOGOUT_WAIT).await {
+        Ok(out) if out.success => Ok(()),
+        Ok(_) => Err(LoginError::new(reason::FAILED, format!("{} logout failed", agent.name()))),
+        Err(crate::complete::run::RunError::Timeout) => {
+            Err(LoginError::new(reason::FAILED, format!("{} logout did not finish", agent.name())))
+        }
+        Err(crate::complete::run::RunError::Spawn(e)) => {
+            Err(LoginError::new(reason::CLI_MISSING, format!("start {}: {e}", agent.name())))
+        }
+    }
 }
 
 /// Saves `key` as `agent`'s own sign-in (module docs).
@@ -1204,7 +1348,7 @@ pub async fn save_api_key(
                 .map_err(|e| LoginError::new(reason::FAILED, e))
         }
         // Refused above (`takes_api_key`).
-        Agent::Grok | Agent::Cursor => Err(LoginError::new(
+        Agent::Grok | Agent::Cursor | Agent::Github => Err(LoginError::new(
             reason::UNSUPPORTED,
             format!("{} takes no saved key here", agent.name()),
         )),

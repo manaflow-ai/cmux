@@ -86,7 +86,7 @@ export async function runResume(
     return undefined;
   } catch (error) {
     const note = refusalNote(error);
-    return note === "ask" || note === "unknown-method" ? "retry.failed" : note;
+    return note === "unsupported" ? "retry.failed" : note;
   }
 }
 

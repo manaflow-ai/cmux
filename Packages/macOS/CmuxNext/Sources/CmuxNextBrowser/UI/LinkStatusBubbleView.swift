@@ -25,7 +25,7 @@ final class LinkStatusBubbleView: NSView {
         // Glass over the live page with the neutral veil, as the notice pill (overlays are never solid).
         let content = OverlayBackingView()
         content.addSubview(label)
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius, interactive: false)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius, interactive: false, tone: .neutralGlass(.transient))
         addSubview(glass)
         let maxWidth = widthAnchor.constraint(lessThanOrEqualToConstant: 480)
         self.maxWidth = maxWidth

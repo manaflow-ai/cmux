@@ -83,8 +83,12 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
+            *self.installed_sources(),
+            *self.copy_input_files(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -94,6 +98,29 @@ class InstallGitHooksTests(unittest.TestCase):
                 shutil.copytree(source, target)
             else:
                 shutil.copyfile(source, target)
+
+    @staticmethod
+    def installed_sources():
+        """Every scripts/ file the installer copies with `install`, so a new copy line never leaves the fixture behind.
+
+        #48396 added scripts/ci/workflow_job_bounds.py to the installer and every fixture install failed with
+        "cannot stat" until this list named it; reading the installer keeps the two in step.
+        """
+        text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
+        return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
+
+    @staticmethod
+    def copy_input_files():
+        """Every single-file entry of scripts/git-hooks/checks-copy-inputs, so a new entry never leaves the fixture behind.
+
+        The base added scripts/ci/generated_files_guard.py and scripts/ci/ci_process_tree.py to that list (prepush gate:
+        refuse a push that commits a generated file) and the stamp test failed reading them from the fixture until it
+        named them; reading the list keeps the two in step, like installed_sources() does for the installer.
+        """
+        lines = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8").splitlines()
+        sources = (line.strip().split(" -> ")[0].strip() for line in lines
+                   if line.strip() and not line.strip().startswith("#"))
+        return sorted({source for source in sources if not source.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
@@ -151,9 +178,11 @@ class InstallGitHooksTests(unittest.TestCase):
         ):
             command = self.git("config", "--get", key).stdout.strip()
             words = shlex.split(command)
-            self.assertTrue(Path(words[0]).is_absolute())
-            self.assertFalse(Path(words[0]).resolve().is_relative_to(self.repo.resolve()))
-            self.assertEqual(words[1], "-I")
+            # The interpreter is picked on this host each merge (scripts/git-hooks/merge_python.sh), never one
+            # recorded path; the wrapper is the reviewed copy in the clone's hook folder.
+            self.assertEqual(words[0], "/bin/bash")
+            self.assertEqual(Path(words[1]).resolve(),
+                             (self.common_dir() / "cmux-git-hooks" / "merge_python.sh").resolve())
             self.assertEqual(Path(words[2]).resolve(), (installed / name).resolve())
             self.assertEqual(words[3:], expected_args)
             self.assertNotIn(f"scripts/{name}", command)
@@ -1058,7 +1087,10 @@ mkdir -p node_modules/.bin
         self.git("config", "user.email", "t@example.com")
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.git("config", "--get", "merge.cmux-generated-v1.driver").stdout.strip(), "true")
+        driver = shlex.split(self.git("config", "--get", "merge.cmux-generated-v1.driver").stdout.strip())
+        self.assertEqual([Path(driver[2]).name, *driver[3:]], ["merge-insertions.py", "--generated", "%O", "%A", "%B",
+                                                               "%P", "%L"])
+        self.assertNotEqual(Path(driver[2]).resolve(), (self.repo / "scripts/merge-insertions.py").resolve())
 
         pane = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"
         chunk = self.repo / "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs"
@@ -1111,15 +1143,8 @@ mkdir -p node_modules/.bin
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
-            # Other checked exports: lanes committed "regenerate after the tip
-            # merge" for these every day.
-            "plans/cmux-next/actions.md",
-            "plans/cmux-next/action-surfaces.json",
-            "schemas/settings/settings-schema.json",
             # The docs reference that follows the schema: 13 conflicts in a week.
             "web/data/next-docs/settings-reference.generated.json",
-            "docs/mdm/com.manaflow.cmux.plist",
-            "Packages/macOS/CmuxNext/ci-target-graph.json",
             "cmux-tui/bindings/go/raw/generated_types.go",
             "cmux-tui/bindings/rust/src/generated/types.rs",
         )]
@@ -1142,6 +1167,95 @@ mkdir -p node_modules/.bin
         for path in outputs:
             self.assertEqual(path.read_text(encoding="utf-8"), "lane build\n", path)
 
+    def test_mac_only_exports_never_keep_one_side(self):
+        """The exports only a Mac rebuilds (settings schema, docs/mdm, the action exports, the CI target graph)
+        kept this branch's copy until 2026-11-22, which dropped base's settings rows on cmux#45928 and cmux#47525
+        with no conflict. Now both sides' rows merge, and two rebuilds of one line stop the merge on that file."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        exports = [self.repo / path for path in (
+            "plans/cmux-next/actions.md",
+            "schemas/settings/settings-schema.json",
+            "docs/mdm/com.manaflow.cmux.json",
+            "docs/mdm/com.manaflow.cmux.plist",
+            "docs/mdm/managed-preferences.md",
+            "Packages/macOS/CmuxNext/ci-target-graph.json",
+        )]
+        for path in exports:
+            self.assertEqual(self.git("check-attr", "merge", "--", str(path.relative_to(self.repo))).stdout.split()[-1],
+                             "cmux-export-v1", path)
+
+        def rows(*keys):
+            for path in exports:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if path.suffix == ".json":
+                    body = ",\n".join(f'  "{key}" : 1' for key in keys)
+                    path.write_text("{\n" + body + "\n}\n", encoding="utf-8")
+                elif path.suffix == ".plist":
+                    path.write_text("<dict>\n" + "".join(f"<key>{key}</key><true/>\n" for key in keys) + "</dict>\n",
+                                    encoding="utf-8")
+                else:
+                    path.write_text("# rows\n\n" + "".join(f"- {key}\n" for key in keys) + "\nend\n",
+                                    encoding="utf-8")
+
+        rows("a", "z")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        rows("a", "lane", "z")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        rows("a", "base", "z")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        for path in exports:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("lane", text, path)
+            self.assertIn("base", text, path)  # base's row, which the old driver dropped
+
+        # A real disagreement (both sides rewrote one line) is a conflict on that file, never one side.
+        target = exports[0]
+        target.write_text("lane rewrite\n", encoding="utf-8")
+        self.commit_all("lane rewrite")
+        self.git("checkout", "--quiet", "main")
+        target.write_text("main rewrite\n", encoding="utf-8")
+        self.commit_all("main rewrite")
+        self.git("checkout", "--quiet", "lane")
+        conflicted = self.git("merge", "--no-edit", "main", check=False)
+        self.assertNotEqual(conflicted.returncode, 0)
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").stdout.split(), ["plans/cmux-next/actions.md"])
+
+    def test_generated_files_keep_both_sides_rows_when_they_merge(self):
+        """A file regenerate rebuilds still merges three-way when that is clean: a merge that stops on a
+        hand-written file never runs the post-merge rebuild, and cmux#47525 committed the kept copies of the
+        settings Swift without base's rows that way (AgentPolicy, PageLayoutCategories)."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        swift = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentPolicy.generated.swift"
+        swift.parent.mkdir(parents=True, exist_ok=True)
+
+        def rows(*keys):
+            swift.write_text("let keys = [\n" + "".join(f'    "{key}",\n' for key in keys) + "]\n", encoding="utf-8")
+
+        rows("a", "z")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        rows("a", "lane", "z")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        rows("a", "base", "z")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(swift.read_text(encoding="utf-8"), 'let keys = [\n    "a",\n    "lane",\n    "base",\n    "z",\n]\n')
+
     def test_kept_generated_files_are_ones_the_ci_merger_rebuilds(self):
         """A kept copy is only safe where a rebuild replaces it: next_batch.py's
         merger rebuilds the web, Swift and SDK classes and blocks any other path
@@ -1161,14 +1275,45 @@ mkdir -p node_modules/.bin
         kept = [path for path, _, value in zip(attributes[0::3], attributes[1::3], attributes[2::3])
                 if value == "cmux-generated-v1"]
         self.assertTrue(kept)
-        self.assertEqual([path for path in kept if next_batch.classify(path) not in {"web", "swift", "sdk"}], [])
+        self.assertEqual([path for path in kept
+                          if next_batch.classify(path) not in {"web", "swift", "sdk", "generated"}], [])
 
     def test_hand_written_sdk_files_still_merge_normally(self):
         shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
         self.assertEqual(self.install().returncode, 0)
-        for path in ("cmux-tui/bindings/go/raw/client.go", "cmux-tui/bindings/java/src/com/cmux/raw/Client.java"):
+        for path in ("cmux-tui/bindings/go/raw/client.go", "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java"):
             attribute = self.git("check-attr", "merge", "--", path).stdout.strip()
             self.assertTrue(attribute.endswith(": unspecified"), attribute)
+
+    def test_the_merge_driver_section_runs_alone(self):
+        """leo-workspace's wt installs merge drivers into every worktree mirror by running only this
+        section, from its MERGE_DRIVER_DIR= line through its last `git config merge.` or "merge driver
+        installed" line, with GIT_COMMON_DIR and PYTHON3_BIN set and nothing else of the installer. It
+        stopped at an unset TRUSTED_HOOK_DIR (2026-11-16), so those clones merged generated files by line."""
+        lines = (SOURCE / INSTALLER).read_text(encoding="utf-8").splitlines()
+        start = next(i for i, line in enumerate(lines) if line.startswith("MERGE_DRIVER_DIR="))
+        end = max(i for i, line in enumerate(lines) if i >= start and re.match(
+            r'^\s*(git config merge\.|echo "==> .*merge driver installed)', line))
+        section = "\n".join(lines[start:end + 1])
+        mirror = self.root / "mirror.git"
+        git_fixture_env.init_repo(mirror, "--bare", env=self.env)
+        python3 = os.path.realpath(sys.executable)
+        script = f"set -euo pipefail\nGIT_COMMON_DIR={shlex.quote(str(mirror))}\nPYTHON3_BIN={shlex.quote(python3)}\n{section}"
+        env = {key: value for key, value in self.env.items() if key not in ("TRUSTED_HOOK_DIR",)}
+        ran = subprocess.run(["bash", "-c", script], cwd=SOURCE, env={**env, "GIT_DIR": str(mirror)},
+                             text=True, capture_output=True)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        configured = subprocess.run(["git", "--git-dir", str(mirror), "config", "--get-regexp", r"^merge\..*\.driver$"],
+                                    env=self.env, text=True, capture_output=True, check=True).stdout
+        drivers = dict(line.split(" ", 1) for line in configured.splitlines())
+        attributes = (SOURCE / ".gitattributes").read_text(encoding="utf-8")
+        names = set(re.findall(r"(?:^|\s)merge=([A-Za-z0-9._-]+)", "\n".join(
+            line for line in attributes.splitlines() if not line.lstrip().startswith("#"))))
+        for name in names:
+            self.assertIn(f"merge.{name}.driver", drivers, name)
+            for word in shlex.split(drivers[f"merge.{name}.driver"]):
+                if word.startswith(str(mirror)):
+                    self.assertTrue(Path(word).is_file(), f"merge.{name}.driver runs {word}, which the section did not install")
 
     def test_ratchet_baselines_merge_entry_by_entry(self):
         """Two lanes that each change different baseline entries merge cleanly,
@@ -2505,9 +2650,16 @@ ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\[[^]]*\])?\+?=(.*)", re.S)
 RESOLVED = re.compile(r'"\$\(resolve_tool [^()`|;&]+?(?: \|\| true)?\)"')
 COPY = re.compile(r'"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"')
 VARIABLE_WORD = re.compile(r'"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?')
-# The resolver's own interpreter: the absolute path the installer wrote beside the
-# hook, read once, then checked by the resolver's boot step.
+# The resolver's own interpreter: the one hook_python_pick (scripts/git-hooks/hook_python.sh, the reviewed copy
+# beside the hook) picked on this host, then checked by the resolver's boot step. The picker never runs a candidate
+# that resolves into the checkout or the git dir (tests/test_hook_python.py).
 RESOLVER_INTERPRETER = "PYTHON3_BIN"
+PICKED_INTERPRETER = '"$HOOK_PYTHON"'
+# The one file the hook may source: the installed picker beside it. Its own commands are held to PICKER_COMMANDS.
+PICKER_SOURCE = '"$HOOK_DIR/hook_python.sh"'
+PICKER = SOURCE / "scripts/git-hooks/hook_python.sh"
+# What the picker runs besides builtins: two system tools by absolute path, and the candidate it probes.
+PICKER_COMMANDS = frozenset(("/bin/realpath", "/usr/bin/xcode-select", '"$real"'))
 # Commands that run their argument as a program; env's comes after its options.
 EXEC_WRAPPERS = {"TOOL_ENV"}
 # Unresolved commands the detector lets through. Keep it empty.
@@ -2765,8 +2917,11 @@ class BashCommands:
     def violations(self):
         """Every command that is neither a builtin, a function here, nor a resolved tool."""
         resolved = self.resolved_variables()
-        if self.assignments.get(RESOLVER_INTERPRETER) == ["<read>"]:
-            resolved.add(RESOLVER_INTERPRETER)
+        functions = set(self.functions)
+        if self.sources_picker():
+            functions |= BashCommands(PICKER.read_text(encoding="utf-8")).functions
+            if self.assignments.get(RESOLVER_INTERPRETER) == [PICKED_INTERPRETER] and "hook_python_pick" in functions:
+                resolved.add(RESOLVER_INTERPRETER)
 
         def is_resolved(variable):
             # TOOL_* variables are written only by the resolver's boot loader:
@@ -2780,8 +2935,10 @@ class BashCommands:
             if not any(c in word for c in "$\"'`\\"):
                 if word in ("command", "builtin") and len(words) > 1 and words[1] not in ("-v", "-V"):
                     check(line, words[1:])
-                elif word in SHELL_BUILTINS or word in self.functions:
+                elif word in SHELL_BUILTINS or word in functions:
                     pass
+                elif words == ["source", PICKER_SOURCE]:
+                    pass  # the reviewed picker beside the hook; its commands: test_the_picker_runs_only_...
                 elif word not in UNRESOLVED_ALLOWLIST:
                     found.append((line, word))
                 return
@@ -2800,6 +2957,9 @@ class BashCommands:
             check(line, words)
         return found
 
+    def sources_picker(self):
+        return any(words == ["source", PICKER_SOURCE] for _, words in self.commands)
+
 
 class PreCommitToolResolutionDetectorTests(unittest.TestCase):
     HOOK = SOURCE / "scripts/git-hooks/pre-commit"
@@ -2815,8 +2975,33 @@ class PreCommitToolResolutionDetectorTests(unittest.TestCase):
         hook = BashCommands(source)
         self.assertEqual(hook.dynamic_assignments, [["printf", "-v", '"$name"', "'%s'", '"$value"']])
         self.assertIn("tool) [[ \"$name\" =~ ^TOOL_[A-Z0-9_]+$ ]] && printf -v", source)
-        self.assertEqual(hook.assignments.get(RESOLVER_INTERPRETER), ["<read>"])
-        self.assertIn('IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE"', source)
+        # The interpreter is the picker's choice, assigned once, never read from the recorded path directly.
+        self.assertEqual(hook.assignments.get(RESOLVER_INTERPRETER), [PICKED_INTERPRETER])
+        self.assertTrue(hook.sources_picker())
+        self.assertIn('hook_python_pick 0 "$RECORDED_PYTHON" "$(pwd -P)" "${HOOK_DIR%/*}"', source)
+        self.assertNotIn("read -r PYTHON3_BIN", source)
+
+    def test_the_picker_runs_only_builtins_two_system_tools_and_the_candidate_it_probes(self):
+        # The hook sources it before any tool is resolved, so it may look nothing up on PATH.
+        picker = BashCommands(PICKER.read_text(encoding="utf-8"))
+        unlisted = [(line, words[0]) for line, words in picker.commands
+                    if words[0] not in SHELL_BUILTINS and words[0] not in picker.functions
+                    and words[0] not in PICKER_COMMANDS]
+        self.assertEqual(unlisted, [])
+        self.assertEqual(picker.functions, {"hook_python_pick"})
+
+    def test_the_detector_refuses_an_interpreter_that_is_not_the_picks(self):
+        # Without the picker sourced, or with PYTHON3_BIN from anywhere else, the interpreter is unresolved.
+        cases = (
+            'PYTHON3_BIN="$HOOK_PYTHON"\n"$PYTHON3_BIN" -I x.py\n',
+            f'source {PICKER_SOURCE}\nhook_python_pick 0 ""\nPYTHON3_BIN=/tmp/python3\n"$PYTHON3_BIN" -I x.py\n',
+            'source ./hook_python.sh\nPYTHON3_BIN="$HOOK_PYTHON"\n"$PYTHON3_BIN" -I x.py\n',
+        )
+        for script in cases:
+            with self.subTest(script=script):
+                self.assertIn('"$PYTHON3_BIN"', self.violations(script))
+        self.assertEqual(self.violations(f'source {PICKER_SOURCE}\nhook_python_pick 0 ""\n'
+                                         'PYTHON3_BIN="$HOOK_PYTHON"\n"$PYTHON3_BIN" -I x.py\n'), [])
 
     # The hook defines resolve_tool; a fixture script gets a stand-in.
     def violations(self, script):

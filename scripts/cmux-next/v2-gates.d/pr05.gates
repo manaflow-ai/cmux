@@ -1,0 +1,2 @@
+# The gates whose tests write the design doc's row 5 (`v2.pr05.*`). A line is GROUP FILTER; see run-v2-gates.sh.
+core list_window_gate_measures_running_subscriptions_at_both_sizes

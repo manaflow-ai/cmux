@@ -56,12 +56,55 @@ impl<'de> Deserialize<'de> for LayoutRow {
     }
 }
 
-/// A pinned column's edge and presentation (catalog `LayoutColumnDock`).
+/// What a docked column holds (catalog `LayoutColumnDock.role`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColumnRole {
+    /// The agent chat dock of the workspace.
+    AgentChat,
+}
+
+impl ColumnRole {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AgentChat => "agent_chat",
+        }
+    }
+}
+
+/// A docked column's edge, presentation, role and flags (catalog
+/// `LayoutColumnDock`). The type names each member of the catalog type: the
+/// layout of a screen is in each session snapshot, and a document that is
+/// read and then sent to `workspace.layout.apply` keeps each member.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LayoutColumnDock {
     pub edge: ColumnEdge,
     pub mode: ColumnMode,
+    /// What the column holds; `None` for a plain dock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<ColumnRole>,
+    /// The dock cannot be undocked or closed. Omitted when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub permanent: bool,
+    /// The column is a pinned column (`pinned-dock-v1`). Omitted when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
+    /// A pinned column takes more tabs (`pinned-dock-v1`). Omitted when
+    /// false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub allow_tabs: bool,
+}
+
+impl LayoutColumnDock {
+    /// A plain dock: no role and no flag.
+    pub const fn new(edge: ColumnEdge, mode: ColumnMode) -> Self {
+        Self { edge, mode, role: None, permanent: false, pinned: false, allow_tabs: false }
+    }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl<'de> Deserialize<'de> for LayoutColumn {

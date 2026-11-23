@@ -16,6 +16,13 @@ name: gallery visual evidence (advisory)
 # (the team feed) and previews.json (HQ's preview tool) are other shapes of it. The PR status comment's `gallery` section
 # names the states and the download command, and says stale when the head moves.
 #
+# A `Visual-change: <state id or *>: <why>` line in the PR body (one or more) says
+# a difference is wanted. The section gives each changed, new or removed state a
+# verdict, "justified: <why>" or "unjustified", under one summary line ("N of M
+# differing states have no Visual-change line: is each wanted?"), so a review sees
+# which differences nobody explained (Leo, ask-6d611b71a0: "be warning against
+# things that differ from expectation without justification"). It warns only.
+#
 # A direct push to feat-cmux-next skips every pull request check, so it gets the
 # same receipt right after it lands: before is the tip the push replaced
 # (`github.event.before`), after is the pushed tip, and each changed, removed or
@@ -25,6 +32,8 @@ name: gallery visual evidence (advisory)
 # post reads it, and a capture that breaks on a push never reddens the base. A pull
 # request's squash merge (GitHub's `web-flow` commit with a `(#N)`) had its receipt
 # on the PR, and bot pushes change no UI, so neither runs.
+# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, 'Do not add this check to branch protection'; ~2.4k runner-min a day).
+# The receipt after a direct push to feat-cmux-next stays.
 on:
   push:
     branches: [feat-cmux-next]
@@ -35,29 +44,20 @@ on:
       - "scripts/ci/gallery_select.py"
       - "bun.lock"
       - ".github/workflows/gallery-advisory.yml"
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited, ready_for_review]
-    paths:
-      - "webviews/**"
-      - "scripts/gallery-matrix/**"
-      - "scripts/cmux-next/build-agent-pane-web.sh"
-      - "scripts/ci/gallery_select.py"
-      - "bun.lock"
-      - ".github/workflows/gallery-advisory.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-# A body edit that does not touch a `Gallery:` line gets its own group, so it
+# A body edit that does not touch a `Gallery:` or `Visual-change:` line gets its own group, so it
 # never cancels a capture in flight; every job then skips.
 concurrency:
-  group: gallery-advisory-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) && format('-noop-{0}', github.run_id) || '' }}
+  group: gallery-advisory-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:'))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   # Drafts skip until they are marked ready, and CI_QUOTA_HOLD=1 pauses the
@@ -69,8 +69,8 @@ jobs:
     # Same events as capture: a body edit that mentions `Gallery:` shares the
     # concurrency group and can cancel a synchronize run, so it must mark stale
     # too. stale() writes nothing when the section already shows this head.
-    if: ${{ vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:'))) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     continue-on-error: true
     timeout-minutes: 5
     permissions:
@@ -106,11 +106,11 @@ jobs:
           PY
 
   capture:
-    if: ${{ vars.CI_QUOTA_HOLD != '1' && (github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && !endsWith(github.actor, '[bot]') && !(github.event.head_commit.committer.username == 'web-flow' && contains(github.event.head_commit.message, '(#')) && github.event.before != '0000000000000000000000000000000000000000' || github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:')))) }}
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && (github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && !endsWith(github.actor, '[bot]') && !(github.event.head_commit.committer.username == 'web-flow' && contains(github.event.head_commit.message, '(#')) && github.event.before != '0000000000000000000000000000000000000000' || github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:')))) }}
     # The capture step may fail (a browser or gallery build unavailable); the
     # frame check after it decides the job's result, and the artifact step
     # always runs.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
       - name: Initialize evidence directory
@@ -137,11 +137,15 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+            /examples/gallery/
+            /examples/looks/
             /scripts/
             /.github/
             /config/vite-plus/
             /schemas/
             /design/icons/neko-candidates/
+            /first-party-apps/*/preview/**
             /Resources/ghostty/themes/
             /Resources/cmux-themes/
             /Resources/markdown-viewer/
@@ -157,6 +161,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -232,7 +237,7 @@ jobs:
           base_build() {
             # Only what a gallery build reads, as the checkout above: the whole tree was ~47,000
             # files to write for one build.
-            git worktree add -q --no-checkout --detach "$RUNNER_TEMP/base" "$base_sha"
+            git worktree add -f -f -q --no-checkout --detach "$RUNNER_TEMP/base" "$base_sha"
             git sparse-checkout list | git -C "$RUNNER_TEMP/base" sparse-checkout set --no-cone --stdin
             git -C "$RUNNER_TEMP/base" checkout -q --detach "$base_sha"
             if [ -f "$RUNNER_TEMP/base/webviews/vite.config.gallery.ts" ] && [ -f "$RUNNER_TEMP/base/webviews/scripts/gallery/manifest.ts" ]; then
@@ -240,7 +245,8 @@ jobs:
               bun install --frozen-lockfile
               bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
                 --frame component --out "$RUNNER_TEMP/base-all.json"
-              CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
+              # A translation the base lacked (a later push added it) must not fail the base build.
+              CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
             else
               echo '[]' > "$RUNNER_TEMP/base-all.json"
             fi
@@ -412,7 +418,7 @@ jobs:
           name: gallery-advisory-${{ github.event.pull_request.number || 0 }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/gallery-advisory
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3
 
   # The PR status comment's `gallery` section, from the artifact's data only:
   # base-branch scripts, no pull request code, plain ids (gallery_select.py).
@@ -421,7 +427,7 @@ jobs:
     # Not on a cancelled run: a newer push cancelled it, and its mark-stale
     # line must stand until the newer capture lands.
     if: ${{ !cancelled() && needs.capture.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     continue-on-error: true
     timeout-minutes: 5
     permissions:
@@ -449,6 +455,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Its `Visual-change:` lines give each differing state its verdict (read as data, never run).
+          PR_BODY: ${{ github.event.pull_request.body }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail

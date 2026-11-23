@@ -121,7 +121,7 @@ final class BrowserDownloadsPopup {
 
     private func makeContent() -> FirstMouseHostingView<BrowserDownloadsPopupView> {
         let content = FirstMouseHostingView(rootView: BrowserDownloadsPopupView(model: model))
-        let card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        let card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
         self.content = content
         return content
@@ -200,7 +200,7 @@ final class BrowserDownloadsPopupModel {
     }
 }
 
-/// The popup's colors from the toolbar's theme scope (as `BookmarkPageColors`).
+/// The popup's colors from the toolbar's theme scope (as `BookmarkPageColors`), inks fit to its glass (`GlassMenuMaterial.ink`).
 struct BrowserDownloadsPopupColors: Equatable {
     var primary = ThemeTokens.unresolved.textPrimary.swiftUIColor
     var secondary = ThemeTokens.unresolved.textSecondary.swiftUIColor
@@ -210,14 +210,13 @@ struct BrowserDownloadsPopupColors: Equatable {
 
     /// Call inside `performWithTheme`. theme-scoped
     static func resolve() -> BrowserDownloadsPopupColors {
-        BrowserDownloadsPopupColors(primary: fixed(Palette.textPrimary), secondary: fixed(Palette.textSecondary),
+        BrowserDownloadsPopupColors(primary: glass(\.textPrimary), secondary: glass(\.textSecondary),
                                     hover: fixed(Palette.hoverFill), separator: fixed(Palette.separator),
                                     danger: fixed(Palette.danger))
     }
 
-    private static func fixed(_ color: NSColor) -> Color {
-        Color(nsColor: color.usingColorSpace(.sRGB) ?? color)
-    }
+    private static func fixed(_ color: NSColor) -> Color { Color(nsColor: color.usingColorSpace(.sRGB) ?? color) }
+    private static func glass(_ ink: KeyPath<ThemeTokens, ThemeRGB>) -> Color { GlassMenuMaterial.ink(ink).swiftUIColor }
 }
 
 struct BrowserDownloadsPopupView: View {
@@ -326,7 +325,7 @@ private struct BrowserDownloadPopupRow: View {
                             .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .themedHelp(BrowserHitStrings.downloadShowInFinder)
                     .accessibilityLabel(BrowserHitStrings.downloadShowInFinder)
                 }
@@ -341,8 +340,6 @@ private struct BrowserDownloadPopupRow: View {
             overRow = inside
             if inside { model.pointerEntered() }
         }
-        // The name truncates in the middle, so hovering the row shows it whole.
-        .themedHelp(download.filename)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser.downloads.row")
     }
@@ -376,7 +373,7 @@ private struct BrowserDownloadsFooterRow: View {
             .contentShape(Rectangle())
             .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(hovered ? colors.hover : Color.clear))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .padding(.horizontal, 4)
         .onHover { hovered = $0 }
     }

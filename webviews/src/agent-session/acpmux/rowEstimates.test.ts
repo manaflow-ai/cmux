@@ -13,6 +13,7 @@
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
 import {
+  ATTACHMENT_BAND_BELOW,
   codeCardHeight,
   hasReplyActions,
   INLINE_ATTACHMENT_MARGIN,
@@ -25,6 +26,7 @@ import {
   type AcpmuxActivity,
 } from "./model";
 import { turnView } from "./conversation/turns";
+import { SENT_IMAGE_HEIGHT } from "./conversation/userBubbleModel";
 import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
@@ -44,11 +46,11 @@ const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "Ne
 const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720).heights];
 
 // An attachment-only prompt has no bubble; its action row is laid in the turn gap as a bubble's is
-// (conversation.css, model.ts userMetaHeight), so its height is its 128px thumbnail row.
+// (conversation.css, model.ts userMetaHeight), so its height is its thumbnail row.
 test("an attachment-only prompt reserves its attachment strip", () => {
   const row = { id: "image", version: 1, at: 0, kind: "user", images: [{ id: "i", mimeType: "image/png" }] };
   const [height] = heightsOf([row]);
-  expect(height).toBeGreaterThanOrEqual(128);
+  expect(height).toBeGreaterThanOrEqual(SENT_IMAGE_HEIGHT + ATTACHMENT_BAND_BELOW);
 });
 
 test("an inline attachment-only prompt reserves its attachment strip", () => {
@@ -60,7 +62,7 @@ test("an inline attachment-only prompt reserves its attachment strip", () => {
     inlineParts: [{ kind: "image", id: "i", mimeType: "image/png" }],
   };
   const [height] = heightsOf([row]);
-  expect(height).toBeGreaterThanOrEqual(128);
+  expect(height).toBeGreaterThanOrEqual(SENT_IMAGE_HEIGHT + ATTACHMENT_BAND_BELOW);
 });
 
 // Blank text after its image still reads as nothing (bubbleParts.ts attachmentOnly): UserBubble.tsx
@@ -83,7 +85,7 @@ test("an attachment-only prompt with blank recorded text reserves only its attac
   setComposerSettings({ attachmentView: "inline" });
 });
 
-// Two wide screenshots draw 320px each and wrap to two rows in a 720px pane's 504px column.
+// Two wide screenshots draw 480px each and wrap to two rows in a 720px pane's 504px column.
 test("two wide images in an attachment-only prompt reserve two thumbnail rows", () => {
   const images = [
     { id: "a", mimeType: "image/png" },
@@ -91,16 +93,16 @@ test("two wide images in an attachment-only prompt reserve two thumbnail rows", 
   ];
   const [one] = heightsOf([{ id: "one", version: 1, at: 0, kind: "user", images: images.slice(0, 1) }]);
   const [two] = heightsOf([{ id: "two", version: 1, at: 0, kind: "user", images }]);
-  expect(two! - one!).toBe(128);
+  expect(two! - one!).toBe(SENT_IMAGE_HEIGHT + 8);
 });
 
-// A video sent with its frames draws a 120px tile in the thumbnail row, not a 36px file chip.
+// A video sent with its frames draws a SENT_IMAGE_HEIGHT tile in the thumbnail row, not a 36px file chip.
 test("a video-only prompt reserves its tile's thumbnail row", () => {
   const poster = "data:image/jpeg;base64,AA==";
   const video = { width: 1920, height: 1080, durationMs: 4_000, poster, frames: ["f"] };
   const chip = { id: "v", kind: "link", name: "clip.mp4", path: "/c.mp4", mimeType: "video/mp4", size: 1, video };
   const [height] = heightsOf([{ id: "video", version: 1, at: 0, kind: "user", retryAttachments: [chip] }]);
-  expect(height).toBeGreaterThanOrEqual(128);
+  expect(height).toBeGreaterThanOrEqual(SENT_IMAGE_HEIGHT + ATTACHMENT_BAND_BELOW);
 });
 
 // Its clock sits beside the attachment band (UserBubble.tsx), so the row keeps its height when it lands.
@@ -844,21 +846,23 @@ test("a placed paste is estimated as the one body its bubble draws", () => {
 
 // An attachment in a placed prompt's text is an inline block on the text's line, as the bubble's CSS
 // flows it (`.cv-user__inline-content`, `pre-wrap`): a line is as tall as its tallest thumbnail, an
-// image is its own sent size (UserBubble.tsx `sentImageSize`, up to 320px wide), and an image's
-// retained original, which the bubble does not draw, takes no room. At ac67fede each image was a
-// 128px-wide row of its own under the text, and a companion file a chip row too.
+// image is its own sent size (UserBubble.tsx `sentImageSize`, up to 480px wide and 160px tall), and
+// an image's retained original, which the bubble does not draw, takes no room. At ac67fede each image
+// was a 128px-wide row of its own under the text, and a companion file a chip row too.
 test("a placed image is estimated at its own size, on its text's line", () => {
   const padding = 5 * gridLength("base");
   const { y } = INLINE_ATTACHMENT_MARGIN;
   const row = (parts: unknown[]) => ({ id: "u", version: 1, at: 0, kind: "user", text: "look", inlineParts: parts });
-  // A 1600x400 screenshot draws 320x80, whole.
+  // A 1600x400 screenshot draws 480x120, whole; in a 720px pane's bubble it scales to the line.
   const wide = { kind: "image", id: "wide", mimeType: "image/png", width: 1600, height: 400, placed: true };
-  expect(heightsOf([row([{ kind: "text", text: "look " }, wide])])[0]).toBeCloseTo(padding + 80 + 2 * y, 5);
-  // A square one with no known size draws 120x120; the words after it share its line.
+  const [wideHeight] = heightsOf([row([wide])]);
+  expect(wideHeight).toBeGreaterThan(padding);
+  expect(wideHeight).toBeLessThanOrEqual(padding + 120 + 2 * y + 0.0001);
+  // A square one with no known size draws SENT_IMAGE_HEIGHT square; the words after it share its line.
   const square = { kind: "image", id: "sq", mimeType: "image/png", blockIndex: 0 };
   const companion = { kind: "file", name: "shot.heic", uri: "file:///tmp/shot.heic", companionOf: 0 };
   const [withOriginal] = heightsOf([row([square, companion, { kind: "text", text: " then words" }])]);
-  expect(withOriginal).toBeCloseTo(padding + 120 + 2 * y, 5);
+  expect(withOriginal).toBeCloseTo(padding + SENT_IMAGE_HEIGHT + 2 * y, 5);
   expect(heightsOf([row([square, { kind: "text", text: " then words" }])])[0]).toBe(withOriginal!);
 });
 
@@ -874,11 +878,11 @@ test("placed attachments wrap to a new line only when the line is full", () => {
     text: "four",
     inlineParts: [{ kind: "text", text: "four " }, ...Array.from({ length: count }, (_, index) => image(`i${index}`))],
   });
-  // Each 120px image is 128px with its margins; at 720px the bubble's text is about 480px wide, so
-  // three fit beside the word and a fourth starts the next line.
-  const tile = 120 + 2 * y;
-  expect(heightsOf([row(3)])[0]).toBeCloseTo(padding + tile, 5);
-  expect(heightsOf([row(4)])[0]).toBeCloseTo(padding + 2 * tile, 5);
+  // Each SENT_IMAGE_HEIGHT square is 8px wider with its margins; at 720px the bubble's text is about
+  // 480px wide, so two fit beside the word and a third starts the next line.
+  const tile = SENT_IMAGE_HEIGHT + 2 * y;
+  expect(heightsOf([row(2)])[0]).toBeCloseTo(padding + tile, 5);
+  expect(heightsOf([row(3)])[0]).toBeCloseTo(padding + 2 * tile, 5);
 });
 
 // The strip attachment view (composerSettings.ts `attachmentView`) draws a placed prompt's
@@ -888,7 +892,8 @@ test("placed attachments wrap to a new line only when the line is full", () => {
 // such prompt was estimated as if each attachment sat on its text's line.
 test("a strip prompt is estimated as its attachment row over a bubble of its text", () => {
   const { y } = INLINE_ATTACHMENT_MARGIN;
-  const tile = 120 + 2 * y;
+  // The row's tile with its 2px margins, and the gap to the bubble under it (its own 2px margin in it).
+  const tile = SENT_IMAGE_HEIGHT + 2 * y + ATTACHMENT_BAND_BELOW - y;
   const image = (id: string, placed = true) => ({
     kind: "image",
     id,
@@ -954,4 +959,26 @@ test("a turn the agent ran on its own opens with the turn gap, its rows and foot
   expect(gapOver(4)).toBe(gridLength("gap-footer"));
   // The subagent's line is its one row: nothing of the agent's replies is counted in it.
   expect(layout.heights[2]).toBe(layoutConversation([done] as never, 720).heights[0]);
+});
+
+// Leo, 2026-11-14: "the spacing after the subagent starting is inconsistent? it grows too big". The
+// agent's reply under a subagent's start line is the agent's own words by the line's own sentence
+// ("… started working"), so it never takes the turn gap that keeps a reply off a subagent's done line
+// (above): it stands the run gap from the line, as any reply under a status line does
+// (transcriptSpacing.ts step-to-prose), whether or not it came in a turn the agent ran on its own.
+test("a reply under a subagent's start line stands the run gap from it, a turn of its own or not", () => {
+  const started = {
+    id: "subagentStarted:fixer",
+    version: 1,
+    at: 0,
+    kind: "subagentStarted",
+    subagents: [{ id: "fixer", parent: null, name: "fixer", state: "running", startedAt: 0 }],
+  };
+  const under = (text: string, inBackground?: string) => {
+    const rows = [reply("a", "Starting a subagent."), footer("f"), started, { ...reply("b", text), inBackground }];
+    const layout = layoutConversation(rows as never, 720);
+    return layout.tops[3]! - layout.tops[2]! - layout.heights[2]!;
+  };
+  expect(under("Here is the plan while it works.")).toBe(gridLength("gap-run"));
+  expect(under("Here is the plan while it works.", "bg-1")).toBe(gridLength("gap-run"));
 });

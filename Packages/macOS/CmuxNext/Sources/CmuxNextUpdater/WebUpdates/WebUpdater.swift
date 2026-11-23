@@ -89,10 +89,18 @@ public final class WebUpdater {
     /// reloaded at their safe points (``pruneUnused()``).
     @ObservationIgnored public var served: () -> [URL] = { [] }
     /// Whether cmux is in the front: checks come every ``interval`` there and every
-    /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in).
+    /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in). Both are
+    /// a minute today; the split stays so a later cost reading can widen the background one alone.
     @ObservationIgnored public var foreground = true
+    /// A check ended, whatever it took: the app reads the channel's switch file of web pieces
+    /// then (cmux-tui/crates/cmux-web-pieces), with the state the check left.
+    @ObservationIgnored public var onChecked: () -> Void = {}
+    /// Whether the channel's switch file of web pieces refuses an update, asked before a new one
+    /// is downloaded and made active (the app asks `cmux app web-pieces refused`; the decision is
+    /// Rust's). A refused update is never served. Default: none is.
+    @ObservationIgnored public var refuses: @MainActor (WebUpdatePointer) async -> Bool = { _ in false }
 
-    let store: WebUpdateStore
+    public let store: WebUpdateStore
     public let app: App
     let keys: WebUpdateKeys
     let base: URL
@@ -102,18 +110,24 @@ public final class WebUpdater {
     /// read with its ETag (a 304 while unchanged), the archive is fetched only for a new update.
     let interval: Duration
     /// Between scheduled checks while cmux is behind other apps. A swap there runs once cmux has
-    /// been behind for ``WebSwapGate/grace``, so this bounds how stale a backgrounded app gets:
-    /// at 600 s a merge reached a NIGHTLY behind another app 10.8 minutes later (2026-10-25),
-    /// past the five minutes Leo asked for. Each check is a small pointer read (a 304 while
-    /// unchanged), so every two minutes stays quiet.
+    /// been behind for ``WebSwapGate/grace``, so this bounds how stale a backgrounded app gets: at
+    /// 600 s a merge reached a NIGHTLY behind another app 10.8 minutes later (2026-10-25); at 120 s
+    /// the read alone could add two minutes to merge-to-visible, and cmux sits behind other apps
+    /// most of the day (Leo, 2026-11-22: "this should've been fast"). Each check is one conditional
+    /// GET of an 844-byte pointer (a header-only 304 while unchanged, never the archive), so a
+    /// minute in both states is 60 small reads an hour per running app: a constant cost that does
+    /// not grow with pages, merges or uptime.
     let backgroundInterval: Duration
-    public nonisolated static let defaultBackgroundInterval: Duration = .seconds(120)
+    public nonisolated static let defaultBackgroundInterval: Duration = .seconds(60)
     /// The next scheduled check.
     @ObservationIgnored private let nextCheck: DemandTimer
     @ObservationIgnored private var etag: String?
     /// The launch check of the kept update; every check and channel change waits for it, so none
     /// sees the empty state before `state.json` is read.
     @ObservationIgnored private var launch: Task<URL?, Never>?
+    /// The launch check's removal of the trees it no longer serves, started after its answer;
+    /// every check and channel change waits for it too, so none unpacks or prunes beside it.
+    @ObservationIgnored private var launchPrune: Task<Void, Never>?
     /// The last state write queued (a check keeping its update, a roll back, a channel's return to
     /// the bundled web): each waits for the one before, so none saves over another.
     @ObservationIgnored private var writing: Task<Void, Never>?
@@ -152,13 +166,28 @@ public final class WebUpdater {
             let (tree, state) = await Self.launchCheck(store: store, app: app, channel: channel)
             self?.state = state
             self?.launchVersion = tree == nil ? nil : state.active
+            if tree == nil {
+                // Every page's first request waits for this answer, not for the removal: after an
+                // app update that shipped newer web it is the kept trees, about 900 files each.
+                // task-owner: the launch prune, kept so checks and channel changes await it
+                self?.launchPrune = Task { await Self.prune(store, keeping: state.keptKeys) }
+            }
             return tree
         }
         launch = task
         return await task.value
     }
 
-    /// `channel` is the followed `updates.web` (nil before it is read: any kept update).
+    /// The launch check and the removal it started: a check or a channel change waits for both
+    /// before it unpacks, saves or prunes.
+    func launchSettled() async {
+        _ = await launchTree()
+        await launchPrune?.value
+    }
+
+    /// `channel` is the followed `updates.web` (nil before it is read: any kept update). Forgets the
+    /// kept update it does not serve but leaves its trees on disk: ``launchTree()`` removes them
+    /// after the answer.
     @concurrent nonisolated static func launchCheck(store: WebUpdateStore, app: App, channel: Channel? = nil) async -> (URL?, WebUpdateState) {
         var state = store.readState()
         guard let active = state.active else { return (nil, state) }
@@ -171,7 +200,6 @@ public final class WebUpdater {
         state.active = nil
         state.previous = nil
         try? store.write(state)
-        store.prune(keeping: [])
         return (nil, state)
     }
 
@@ -186,7 +214,7 @@ public final class WebUpdater {
         nextCheck.cancel()
         // The launch check, then at most one state write, after the writes queued before it.
         _ = enqueue { [weak self] in
-            _ = await self?.launchTree()
+            await self?.launchSettled()
             guard let self, self.channel == channel, let active = state.active,
                   channel == .off || active.channel != channel.rawValue else { return }
             try await serve(nil, refusingActive: false)
@@ -210,7 +238,7 @@ public final class WebUpdater {
         Task { await check() }
     }
 
-    /// cmux went behind other apps: the check booked a minute out moves to ``backgroundInterval``
+    /// cmux went behind other apps: the check booked ``interval`` out moves to ``backgroundInterval``
     /// after the last one.
     public func noteBackground() {
         foreground = false
@@ -229,7 +257,7 @@ public final class WebUpdater {
         await writing?.value
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         phase = .checking
-        _ = await launchTree()
+        await launchSettled()
         let channel = channel, follows = follows
         lastCheck = Date()
         // Each check books the next one, so a check started by hand pushes the schedule back; a
@@ -239,6 +267,7 @@ public final class WebUpdater {
                 let next = foreground ? interval : backgroundInterval
                 nextCheck.schedule(after: self.follows == follows ? next : .zero) { @MainActor [weak self] in await self?.check() }
             }
+            onChecked()
         }
         do {
             guard let fresh = try await newPointer() else {
@@ -252,6 +281,12 @@ public final class WebUpdater {
                 // A lasting refusal: read the pointer again only when it changes.
                 if self.channel == channel { etag = tag }
                 throw error
+            }
+            // Refused by the switch file: never downloaded or made active, so no page loads it
+            // before the pieces read would roll it back. Asked again when the pointer changes.
+            if await refuses(pointer) {
+                if self.channel == channel { etag = tag }
+                throw WebUpdateRefusal.refusedBySwitchFile
             }
             phase = .downloading
             var request = URLRequest(url: pointer.archiveURL(base: base))
@@ -301,7 +336,8 @@ public final class WebUpdater {
             }.value
         } catch let refusal as WebUpdateRefusal {
             lastRefusal = refusal
-            phase = refusal == .notNewer || Self.isAppTooOld(refusal) ? .idle : .failed(String(describing: refusal))
+            phase = refusal == .notNewer || refusal == .refusedBySwitchFile || Self.isAppTooOld(refusal)
+                ? .idle : .failed(String(describing: refusal))
         } catch {
             phase = .failed(error.localizedDescription)
         }

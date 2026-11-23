@@ -94,6 +94,15 @@ pub(in crate::cli) fn harness_of(launcher: &str) -> Option<String> {
     })
 }
 
+/// The program that runs `harness` when nothing names a launcher: its own
+/// name, except Antigravity, whose CLI is `agy`.
+pub(in crate::cli) fn default_program(harness: &str) -> &str {
+    match harness {
+        "antigravity" => "agy",
+        other => other,
+    }
+}
+
 /// The arguments that resume harness session `id`, in the harness's own
 /// grammar; `None` for a harness `resume` does not know.
 pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>> {

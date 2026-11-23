@@ -149,6 +149,46 @@ fn free_port() -> u16 {
 }
 
 #[tokio::test]
+async fn history_search_finds_an_already_closed_peer_session_by_its_reply() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({
+        "cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "finished"}}
+    })).await.unwrap();
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({
+            "sessionId": s["sessionId"], "prompt": [{"type":"text","text":"fold\nthis word"}]
+        }),
+    )
+    .await
+    .unwrap();
+    cb.call(method::SESSION_CLOSE, json!({"sessionId":s["sessionId"]})).await.unwrap();
+    let (port, token) = listen_with_peer_token(b, "history-search").await;
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("other", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a).await;
+    let result = ca
+        .call(
+            method::MUX_SESSION_SEARCH,
+            json!({
+                "allSessions":true, "query":"echo fold"
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["incomplete"], json!([]), "{result}");
+    assert_eq!(result["hits"].as_array().unwrap().len(), 1, "{result}");
+    let hit = &result["hits"][0];
+    assert_eq!(hit["host"], "other");
+    assert_eq!(hit["session"], "finished");
+    assert_eq!(hit["role"], "assistant");
+    assert_eq!(hit["preview"], "echo: fold this word");
+}
+
+#[tokio::test]
 async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     // B: serves WebSocket with a token, owns the agent.
     let b = hub(config(PermissionPolicy::Ask)).await;
@@ -3925,6 +3965,58 @@ async fn an_opaque_agent_link_resolves_to_its_session_where_the_key_is() {
     // An id no session here or on a peer hashes to.
     let e = ca.call("_acpmux/resolve", json!({"query": link(unknown)})).await.unwrap_err();
     assert!(e.contains("no session") && e.contains("peers (b)"), "{e}");
+    let _ = std::fs::remove_file(&key_file);
+}
+
+/// A PR footer written inside a profile's chat (`claude-sr2`, a router's Claude Code) names the
+/// harness it runs, `claude`, not the profile's family: agent-identity reads it from inside the
+/// session (CLAUDE_CODE_SESSION_ID). The id still opens the chat. Before, only the family was
+/// hashed, so every footer from such a chat named nothing and cmux.com's page was a dead end.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_opaque_agent_link_minted_under_the_base_harness_resolves_a_profile_chat() {
+    let mut cfg = config(PermissionPolicy::Ask);
+    let mut profile = cfg.harnesses["fake"].clone();
+    profile.family = Some("fake-sr2".into());
+    cfg.harnesses.insert("fake-sr2".into(), profile);
+    cfg.default_harness = Some("fake-sr2".into());
+    let a = hub(cfg).await;
+    let mut ca = client(a.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "profile-opaque"}}});
+    let chat =
+        ca.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let info = ca.call(method::MUX_INFO, json!({"session": chat})).await.unwrap();
+    let agent = info["agentSessionId"].as_str().expect("an agent session id").to_owned();
+    let family = info["family"].as_str().or(info["harness"].as_str()).unwrap().to_owned();
+    assert_eq!(family, "fake-sr2", "{info}");
+
+    let home = acpmux::config::home();
+    let scratch = std::path::PathBuf::from(std::env::var_os("HOME").expect("the hermetic HOME"));
+    assert!(
+        std::env::var_os("ACPMUX_TEST_HERMETIC").is_some() && home.starts_with(&scratch),
+        "not a hermetic acpmux home: {}",
+        home.display()
+    );
+    let key_file = home.join(acpmux::opaque_agent_id::KEY_FILE);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(&key_file, "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let key = acpmux::opaque_agent_id::Key::load(&home).expect("the key just written");
+    let here = acpmux::pairing::machine_name();
+
+    for harness in ["fake", "fake-sr2"] {
+        let id = key.id(&here, harness, &agent);
+        // The bare id: what the app hands acpmux for `cmux://agent?id=aid-...`.
+        let r = ca.call("_acpmux/resolve", json!({"query": id})).await.unwrap();
+        assert_eq!(r["session"]["sessionId"], chat, "minted as {harness}: {r}");
+    }
+    // Another harness's id for the same session id names nothing.
+    let id = key.id(&here, "codex", &agent);
+    let e = ca.call("_acpmux/resolve", json!({"query": id})).await.unwrap_err();
+    assert!(e.contains("no session"), "{e}");
     let _ = std::fs::remove_file(&key_file);
 }
 

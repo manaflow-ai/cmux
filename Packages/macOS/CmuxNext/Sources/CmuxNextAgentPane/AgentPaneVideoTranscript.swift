@@ -304,13 +304,13 @@ private nonisolated enum RecognizerEngine {
 
 extension AgentPaneModel {
     /// `video.transcript {src}`: the speech in an attached video (``AgentPaneVideoTranscript``),
-    /// read from its private copy (``videoSnapshot(_:)``, the same checks as `video.info`), which
-    /// is then removed. A video with no speech, or none that may be heard without asking, answers
-    /// `{segments: []}`, which the page treats as no transcript.
+    /// read from its shared private copy (``sharedVideoCopy(_:)``, the same checks as `video.info`).
+    /// A video with no speech, or none that may be heard without asking, answers `{segments: []}`,
+    /// which the page treats as no transcript.
     func videoTranscript(_ src: String) async -> [String: Any] {
-        guard let copy = await videoSnapshot(src) else { return Self.replyFailure(.mediaRefused) }
-        let transcript = await AgentPaneVideoTranscript.read(copy)
-        await AgentPaneVideoInfo.discard(copy)
+        guard let shared = await sharedVideoCopy(src) else { return Self.replyFailure(.mediaRefused) }
+        let transcript = await AgentPaneVideoTranscript.read(shared.copy)
+        replyLinks.videoCopies.release(shared.file)
         guard !chatIsElsewhere else { return Self.replyFailure(.mediaRefused) }
         return AgentPaneReply.success(transcript?.reply ?? ["segments": [Any]()])
     }

@@ -109,6 +109,27 @@ struct NativeNewTabViewTests {
         #expect(abs(titleBaseline - detailBaseline) < 0.5, "the detail sits on the title's baseline")
     }
 
+    /// User 34731 (CleanShot 8.07.33 PM): the web page cut a long row title at 60% of the row. The native
+    /// row's title runs to its trailing hint (or the row's inset) before it truncates, narrow and wide.
+    @Test func aLongTitleRunsToTheRowsEndBeforeItTruncates() throws {
+        let (host, _, _, window) = Self.make()
+        defer { window.close() }
+        let long = "i have been trying to make new workspaces spawn at the top, but it always lands at the bottom "
+            + "of the list below every pinned row and then i have to drag it up again every single time"
+        for width in [520.0, 1400.0] {
+            window.setContentSize(NSSize(width: width, height: 640))
+            host.frame = window.contentLayoutRect
+            try Self.enter(long, into: host)
+            host.layoutSubtreeIfNeeded()
+            let row = try #require(host.page.rows.first { !$0.isHidden && ($0.content?.title.count ?? 0) > 100 })
+            let title = row.titleField
+            #expect(title.frame.width < ceil(title.attributedStringValue.size().width), "the title is cut at \(width) pt")
+            let hint = row.subviews.compactMap { $0 as? NSTextField }.first { $0 !== title && $0 !== row.detailField }
+            let end = (hint?.isHidden == false) ? (hint?.frame.minX ?? row.bounds.maxX) : row.bounds.maxX
+            #expect(end - title.frame.maxX <= 24, "\(end - title.frame.maxX) pt left after the title at \(width) pt")
+        }
+    }
+
     @Test func downUpAndReturnRunTheHighlightedRow() throws {
         let (host, model, box, window) = Self.make()
         defer { window.close() }

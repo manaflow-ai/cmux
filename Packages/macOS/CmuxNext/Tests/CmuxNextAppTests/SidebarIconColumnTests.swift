@@ -82,7 +82,7 @@ import Testing
         return CGPoint(x: CGFloat(minX + maxX + 1) / 2 - half, y: CGFloat(minY + maxY + 1) / 2 - half)
     }
 
-    /// Home's glyph starts its ink on the icon column's leading edge and the narrow pin centers under it (#42431), where a workspace row's icon
+    /// Home's glyph centers its height-fitted ink on the optical column and the narrow pin centers under it (#42431), where a workspace row's icon
     /// column starts too (https://github.com/manaflow-ai/cmux/issues/38061 lined them up by center; Lawrence 2026-11-09,
     /// "home/pin icons not left aligned with 'Fix…'", by their left edge, the titles' edge).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
@@ -93,12 +93,16 @@ import Testing
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
-            let homeX = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home).minX
+            let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
             let homeMid = list.convert(try #require(home.glyphInkFrame), from: home).midX
             let pinMid = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).midX
             let columnX = list.convert(home.leadingColumnFrame, from: home).minX
             let iconColumnX = list.convert(iconRow.icon.frame, from: iconRow).minX
-            #expect(abs(homeX - columnX) <= Self.tolerance, "\(c.testDescription): Home's glyph starts at \(homeX), its column at \(columnX)")
+            let target = SidebarStyle.rowGlyphOpticalSide
+            #expect(abs(homeInk.midX - (columnX + target / 2)) <= Self.tolerance,
+                    "\(c.testDescription): Home's ink centers in its optical column")
+            #expect(abs(SidebarOpticalGlyph.fittedExtent(homeInk.size) - target) <= Self.tolerance,
+                    "\(c.testDescription): Home's ink keeps the shared optical size")
             #expect(abs(pinMid - homeMid) <= Self.tolerance, "\(c.testDescription): the pin centers at \(pinMid), Home's glyph at \(homeMid)")
             #expect(abs(iconColumnX - columnX) <= Self.tolerance, "\(c.testDescription): a row icon's column at \(iconColumnX), Home's at \(columnX)")
         }
@@ -137,13 +141,18 @@ import Testing
                 ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, try Self.capitalsMidY(list, of: pin)),
                 ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, iconTitle),
             ]
+            // Beside a bare glyph (Home's house, a pin) the title drops 0.04 em on the pixel grid, so a mostly lowercase
+            // word sits level with a glyph whose mass is low (Lucas 2026-11-13; SidebarItemRowView's `opticalDrop`).
+            let drop = (SidebarStyle.titleFont.pointSize * 0.04 * 2).rounded() / 2
             for (name, glyph, text) in pairs {
-                #expect(abs(glyph - text) <= Self.tolerance, "\(c.testDescription): \(name) glyph centers at y \(glyph), its title at \(text)")
+                let allowed = name == "icon" ? Self.tolerance : Self.tolerance + drop
+                #expect(abs(glyph - text) <= allowed, "\(c.testDescription): \(name) glyph centers at y \(glyph), its title at \(text)")
             }
         }
     }
 
-    /// The unread dot, an error mark and Home's dot share one trailing center x, each on its row's center line.
+    /// Workspace marks share Home's trailing column (no workspace row has a screen button, ask-035c65b611);
+    /// every mark stays on its row's center line.
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func trailingMarksShareOneCenterX(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
@@ -155,7 +164,11 @@ import Testing
             let dot = try Self.markCenter(list, unreadRow.rowBadge), error = try Self.markCenter(list, errorRow.rowBadge)
             let homeDot = try Self.markCenter(list, home.rowBadge)
             #expect(abs(dot.x - error.x) <= Self.tolerance, "\(c.testDescription): the unread dot centers at \(dot.x), the error at \(error.x)")
-            #expect(abs(homeDot.x - error.x) <= Self.tolerance, "\(c.testDescription): Home's dot centers at \(homeDot.x), the error at \(error.x)")
+            for (mark, row) in [(dot, unreadRow), (error, errorRow)] {
+                let column = list.convert(CGPoint(x: SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width), y: 0), from: row).x
+                #expect(abs(mark.x - column) <= Self.tolerance, "\(c.testDescription): the status mark sits on the full row's trailing column")
+                #expect(abs(mark.x - homeDot.x) <= Self.tolerance, "\(c.testDescription): the status mark shares Home's trailing column")
+            }
             let rows: [(String, CGPoint, NSView)] = [("unread", dot, unreadRow), ("error", error, errorRow), ("Home", homeDot, home)]
             for (name, mark, row) in rows {
                 let rowMidY = Self.center(list, row.bounds, in: row).y

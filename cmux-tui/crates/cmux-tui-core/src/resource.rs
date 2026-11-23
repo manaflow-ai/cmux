@@ -128,6 +128,10 @@ pub enum ResourceOperation {
     ChiefEngineSet,
     #[serde(rename = "chief.stop")]
     ChiefStop,
+    #[serde(rename = "chief.automation.list")]
+    ChiefAutomationList,
+    #[serde(rename = "chief.automation.update")]
+    ChiefAutomationUpdate,
     #[serde(rename = "chief.continue")]
     ChiefContinue,
     #[serde(rename = "chief.retry")]
@@ -194,6 +198,8 @@ pub enum ResourceOperation {
     GitDiff,
     #[serde(rename = "git.files.list")]
     GitFilesList,
+    #[serde(rename = "git.fingerprint")]
+    GitFingerprint,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
     #[serde(rename = "git.push")]
@@ -208,6 +214,8 @@ pub enum ResourceOperation {
     GitWorktreeRemove,
     #[serde(rename = "git.worktree.setup")]
     GitWorktreeSetup,
+    #[serde(rename = "git.worktree.setup.run")]
+    GitWorktreeSetupRun,
     #[serde(rename = "history.entries.list")]
     HistoryEntriesList,
     #[serde(rename = "history.entries.remove")]
@@ -416,6 +424,12 @@ pub enum ResourceOperation {
     AgentMessageRelease,
     #[serde(rename = "agent.message.unsend")]
     AgentMessageUnsend,
+    #[serde(rename = "chat.list")]
+    ChatList,
+    #[serde(rename = "chat.mark_read")]
+    ChatMarkRead,
+    #[serde(rename = "chat.pin")]
+    ChatPin,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -462,6 +476,8 @@ pub enum ResourceOperation {
     KeybindingsRemove,
     #[serde(rename = "keybindings.reset")]
     KeybindingsReset,
+    #[serde(rename = "language_packs.ensure")]
+    LanguagePacksEnsure,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]
@@ -552,6 +568,12 @@ pub enum ResourceOperation {
     PaletteUsageForget,
     #[serde(rename = "palette.rank")]
     PaletteRank,
+    #[serde(rename = "theme.scheme.convert")]
+    ThemeSchemeConvert,
+    #[serde(rename = "theme.scheme.export")]
+    ThemeSchemeExport,
+    #[serde(rename = "theme.scheme.from_image")]
+    ThemeSchemeFromImage,
     #[serde(rename = "stash.create")]
     StashCreate,
     #[serde(rename = "stash.list")]
@@ -570,6 +592,8 @@ pub enum ResourceOperation {
     ConductorImportPlan,
     #[serde(rename = "conductor_import.record")]
     ConductorImportRecord,
+    #[serde(rename = "browser_import.read")]
+    BrowserImportRead,
     #[serde(rename = "cloud.vm.scp_endpoint")]
     CloudVmScpEndpoint,
     #[serde(rename = "cloud.vm.tunnel_enroll")]
@@ -630,6 +654,10 @@ pub enum ResourceOperation {
     CloudOwnerHarnessLoginCopy,
     #[serde(rename = "cloud.owner.github_app")]
     CloudOwnerGithubApp,
+    #[serde(rename = "cloud.owner.github_repos")]
+    CloudOwnerGithubRepos,
+    #[serde(rename = "cloud.owner.github_connect")]
+    CloudOwnerGithubConnect,
     #[serde(rename = "cloud.owner.turn_checkpoint")]
     CloudOwnerTurnCheckpoint,
     #[serde(rename = "cloud.owner.turn_rewind")]
@@ -648,6 +676,8 @@ pub enum ResourceOperation {
     CloudMachineChatAccess,
     #[serde(rename = "cloud.machine.share_chat")]
     CloudMachineShareChat,
+    #[serde(rename = "cloud.machine.chief_start")]
+    CloudMachineChiefStart,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

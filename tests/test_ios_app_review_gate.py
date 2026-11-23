@@ -3,9 +3,16 @@ NEXT iOS app (cmux-next-ios), and the real history names detectors that exist.""
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
+import os
 import plistlib
+import re
+import shlex
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -79,6 +86,51 @@ class AppReviewGateTests(unittest.TestCase):
               json.dumps({"description": "cmux for iPhone"}))
         self.assertIn("metadata.support-url", self.rules(self.run_lint()))
 
+    def screenshot_findings(self, families: str | None) -> set[str]:
+        """The screenshot blockers with only an iphone folder, for an app
+        target built for `families` (None: project.yml never sets it)."""
+        shutil.rmtree(self.root / "cmux-next-ios/AppStoreReview/screenshots/en-US/ipad")
+        project = self.root / "cmux-next-ios/project.yml"
+        if families is not None:
+            project.write_text(project.read_text().replace(
+                "        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n",
+                f"        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n        TARGETED_DEVICE_FAMILY: \"{families}\"\n"))
+        return {f.message for f in self.run_lint().findings if f.rule == "metadata.screenshots"}
+
+    def test_an_iphone_only_app_needs_no_ipad_screenshots(self) -> None:
+        # App Store Connect: iPad screenshots are "Required if app runs on iPad".
+        self.assertEqual(self.screenshot_findings("1"), set())
+
+    def test_an_app_that_runs_on_ipad_needs_ipad_screenshots(self) -> None:
+        self.assertEqual(self.screenshot_findings("1,2"), {"no ipad screenshots"})
+
+    def test_an_app_with_no_device_family_runs_on_ipad_too(self) -> None:
+        # xcodegen's and Xcode's iOS default is "1,2".
+        self.assertEqual(self.screenshot_findings(None), {"no ipad screenshots"})
+
+    def test_an_iphone_only_app_still_needs_iphone_screenshots(self) -> None:
+        shutil.rmtree(self.root / "cmux-next-ios/AppStoreReview/screenshots/en-US/iphone")
+        self.assertEqual(self.screenshot_findings("1"), {"no iphone screenshots"})
+
+    def test_the_real_app_is_iphone_only(self) -> None:
+        # Every shipping build in the real project.yml is TARGETED_DEVICE_FAMILY "1";
+        # only Debug also runs on an iPad mini simulator.
+        self.assertEqual(gate.app_device_families(ROOT), frozenset({"1"}))
+
+    def test_a_debug_only_ipad_family_ships_iphone_only(self) -> None:
+        project = self.root / "cmux-next-ios/project.yml"
+        project.write_text(project.read_text().replace(
+            "        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n",
+            "        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n        TARGETED_DEVICE_FAMILY: \"1\"\n"
+            "      configs:\n        Debug:\n          TARGETED_DEVICE_FAMILY: \"1,2\"\n"))
+        self.assertEqual(gate.app_device_families(self.root), frozenset({"1"}))
+
+    def test_families_prints_the_shipped_families(self) -> None:
+        # ios-review-gate.yml skips a pull request's iPad leg when this prints exactly "1".
+        out = subprocess.run([sys.executable, "-I", str(ROOT / "cmux-next-ios/scripts/app_review_gate.py"), "families",
+                              "--source-root", str(ROOT)], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(out.strip(), "1")
+
     def test_missing_account_deletion_blocks(self) -> None:
         write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/SettingsPages.swift", 'Text("Account")\n')
         self.assertIn("account.deletion", self.rules(self.run_lint()))
@@ -106,9 +158,69 @@ class AppReviewGateTests(unittest.TestCase):
         lint.check_appstore_config()
         self.assertIn("appstore.config-missing", self.rules(lint))
 
+    def test_the_internal_submission_lane_needs_testflight_and_cmux_internals_bundle(self) -> None:
+        project = self.root / "cmux-next-ios/project.yml"
+        project.write_text(project.read_text().replace(
+            "  configs:\n    AppStore:", "  configs:\n    TestFlight:\n      CMUX_MOBILE_APP_BUNDLE_ID: dev.cmux.app.internal\n    AppStore:"))
+        lint = gate.Lint(self.root, "internal-submission")
+        lint.check_appstore_config()
+        self.assertEqual(self.rules(lint), set())
+        project.write_text(project.read_text().replace(
+            "CMUX_MOBILE_APP_BUNDLE_ID: dev.cmux.app.internal", "CMUX_MOBILE_APP_BUNDLE_ID: dev.cmux.app.other"))
+        lint = gate.Lint(self.root, "internal-submission")
+        lint.check_appstore_config()
+        self.assertIn("appstore.bundle-id", self.rules(lint))
+        project.write_text(project.read_text().replace("  TestFlight: release\n", ""))
+        lint = gate.Lint(self.root, "internal-submission")
+        lint.check_appstore_config()
+        self.assertIn("appstore.config-missing", self.rules(lint))
+
+    def test_only_the_submission_lanes_run_the_configuration_check_in_lint(self) -> None:
+        checked = {}
+        for lane in gate.LANES:
+            out = self.root / f"lint-{lane}.json"
+            gate.main(["lint", "--source-root", str(self.root), "--lane", lane, "--json", str(out)])
+            checked[lane] = "appstore-config" in json.loads(out.read_text())["checked"]
+        self.assertEqual(checked, {"appstore": True, "internal": False, "internal-submission": True})
+
+    def test_the_internal_submission_lane_holds_entitlements_to_the_app_store_rules(self) -> None:
+        ents = {"get-task-allow": True, "aps-environment": "development",
+                "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"]}
+        submission = gate.Lint(self.root, "internal-submission")
+        submission.check_entitlements(ents, "x")
+        internal = gate.Lint(self.root, "internal")
+        internal.check_entitlements(ents, "x")
+        self.assertEqual(self.rules(submission), {"entitlement.debug", "entitlement.aps", "entitlement.vpn"})
+        self.assertEqual(self.rules(internal), set(), "the ordinary internal lane is unchanged")
+
+    def test_the_internal_submission_binary_must_be_cmux_internal_without_vpn(self) -> None:
+        app = self.root / "Payload/CmuxMobileApp.app"
+        app.mkdir(parents=True)
+        (app / "PrivacyInfo.xcprivacy").write_text("x")
+        (app / "CmuxMobileApp").write_bytes(b"\x00NEVPNManager\x00")
+        for bundle_id, lane, want in (("dev.cmux.app.internal", "internal-submission", {"api.vpn"}),
+                                      ("com.cmux.app", "internal-submission", {"api.vpn", "binary.bundle-id"}),
+                                      ("dev.cmux.app.internal", "internal", set())):
+            (app / "Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleExecutable": "CmuxMobileApp", "CFBundleIdentifier": bundle_id,
+                "ITSAppUsesNonExemptEncryption": False, "CmuxMobileAppleSignIn": "YES"}))
+            lint = gate.Lint(self.root, lane)
+            lint.check_app_bundle(app)
+            self.assertEqual(self.rules(lint) & {"api.vpn", "binary.bundle-id"}, want, (bundle_id, lane))
+
+    def test_an_internal_submission_is_never_judged_without_asc_validate(self) -> None:
+        out = self.root / "report.md"
+        for lane, want in (("internal-submission", True), ("internal", False), ("appstore", False)):
+            lint_json = self.root / f"lint-{lane}.json"
+            lint_json.write_text(json.dumps({"lane": lane, "checked": [], "findings": []}))
+            gate.main(["report", "--lint", str(lint_json), "--asc-skipped", "--out", str(out)])
+            self.assertEqual("asc validate did not run" in out.read_text(), want, lane)
+
     def test_asc_validates_the_app_store_configurations_version(self) -> None:
         self.assertEqual(gate.marketing_version(self.root, "appstore"), "1.0.0")
         self.assertEqual(gate.marketing_version(self.root, "internal"), "1.2.0")
+        # cmux INTERNAL as a submission: the TestFlight configuration sets no version of its own.
+        self.assertEqual(gate.marketing_version(self.root, "internal-submission"), "1.2.0")
 
     def test_missing_store_metadata_is_a_clear_blocker(self) -> None:
         import shutil
@@ -116,6 +228,22 @@ class AppReviewGateTests(unittest.TestCase):
         lint = self.run_lint()
         self.assertIn("metadata.missing", self.rules(lint))
         self.assertTrue(any("cmux-next-ios/AppStoreReview/metadata" in f.message for f in lint.findings))
+
+    def test_a_raw_error_dump_in_user_text_warns_but_a_log_line_does_not(self) -> None:
+        rel = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/Failing.swift"
+        write(self.root, rel,
+              'log.error("failed: \\(String(describing: error), privacy: .public)")\n'
+              'let shown = UserFacingError.message(error)\n'
+              '// was: (error as? LocalizedError)?.errorDescription ?? String(describing: error)\n')
+        lint = self.run_lint()
+        self.assertEqual([f for f in lint.findings if f.rule == "ux.raw-error"], [])
+        write(self.root, rel, 'failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)\n')
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/FailingTests.swift",
+              'let text = x ?? String(describing: error)\n')
+        lint = self.run_lint()
+        raw = [f for f in lint.findings if f.rule == "ux.raw-error"]
+        self.assertEqual([(f.severity, f.where) for f in raw], [("warning", f"{rel}:1")])
+        self.assertNotIn("ux.raw-error", self.rules(lint))
 
     def test_google_and_github_without_apple_block(self) -> None:
         write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/Welcome.swift",
@@ -183,12 +311,162 @@ class AppReviewGateTests(unittest.TestCase):
               plistlib.dumps({"aps-environment": "production"}).decode())
         self.assertIn("signin.apple-entitlement", self.rules(self.run_lint()))
 
-    def test_no_billing_rules_remain(self) -> None:
-        # The NEXT app sells nothing: StoreKit alone must not ask for plans,
-        # Restore Purchases or subscription links.
-        write(self.root, "cmux-next-ios/App/Store.swift", "import StoreKit\n")
-        rules = {f.rule for f in self.run_lint().findings}
-        self.assertFalse({r for r in rules if r.startswith(("iap.restore", "iap.disclosure", "metadata.subscription"))}, rules)
+    def write_billing(self, notes: str | None = None, plans: str | None = None) -> None:
+        """A selling app: StoreKit, the plans screen and review notes as the real tree has them."""
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/LiveStoreKitClient.swift",
+              "import StoreKit\nfunc restore() async throws { try await AppStore.sync() }\n")
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBillingUI/MobilePlansView.swift", plans if plans is not None else (
+            'import StoreKit\nButton("Restore Purchases") { restorePurchases() }\n'
+            'let v = x.manageSubscriptionsSheet(isPresented: $m)\n'
+            'let terms = URL(string: "https://cmux.com/terms-of-service")!\n'
+            'let privacy = URL(string: "https://cmux.com/privacy-policy")!\n'
+            'let d = "Subscriptions renew automatically at the end of each month."\n'))
+        write(self.root, "cmux-next-ios/AppStoreReview/review-notes-asc.txt", notes if notes is not None else (
+            '## comment\nSettings > "Plan" opens "Plans". "Subscribe" buys in the Sandbox.\n'
+            '"Restore Purchases" is there; "Manage Subscription" opens Apple\'s settings.\n'))
+        write(self.root, "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json",
+              json.dumps({"description": "cmux for iPhone. Terms of Use: https://cmux.com/terms-of-service",
+                          "supportUrl": "https://cmux.com/support"}))
+
+    def iap_rules(self) -> set[str]:
+        return {f.rule for f in self.run_lint().findings if f.rule.startswith(("iap.", "metadata.subscription"))}
+
+    def test_an_app_without_storekit_has_no_subscription_rules(self) -> None:
+        self.assertEqual(self.iap_rules(), set())
+
+    def test_a_selling_app_with_restore_terms_and_notes_passes(self) -> None:
+        self.write_billing()
+        self.assertEqual(self.iap_rules(), set())
+        self.assertIn("subscriptions", self.run_lint().checked)
+
+    def test_storekit_without_restore_or_renewal_terms_blocks(self) -> None:
+        self.write_billing(plans="import StoreKit\nText(\"Plans\")\n")
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/LiveStoreKitClient.swift", "import StoreKit\n")
+        rules = self.iap_rules()
+        self.assertTrue({"iap.restore", "iap.disclosure"} <= rules, rules)
+        self.assertIn("iap.manage", {f.rule for f in self.run_lint().findings if f.severity == "warning"})
+
+    def test_review_notes_that_say_the_app_sells_nothing_block(self) -> None:
+        self.write_billing(notes="Payments: the app sells no digital goods and has no purchase links.\n")
+        self.assertIn("iap.review-notes", self.rules(self.run_lint()))
+
+    def test_review_notes_must_name_the_plan_row_and_restore(self) -> None:
+        self.write_billing(notes='Settings > "Plan" opens the plans. Buy in the Sandbox.\n')
+        messages = [f.message for f in self.run_lint().findings if f.rule == "iap.review-notes"]
+        self.assertEqual(len(messages), 1)
+        self.assertIn('"Restore Purchases"', messages[0])
+
+    def test_a_listing_without_a_terms_link_blocks_a_selling_app(self) -> None:
+        self.write_billing()
+        write(self.root, "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json",
+              json.dumps({"description": "cmux for iPhone", "supportUrl": "https://cmux.com/support"}))
+        self.assertIn("metadata.subscription-terms", self.rules(self.run_lint()))
+
+    INTERNAL_NOTES = "cmux-next-ios/AppStoreReview/review-notes-asc-internal.txt"
+    TRUTHFUL_INTERNAL_NOTES = ('## comment: "Subscribe" in a comment line is not sent\n'
+                               'Settings > "Plan" shows the account\'s current plan.\n'
+                               "This version offers no purchase, no subscription and no external purchase link.\n")
+
+    def write_no_sale(self, internal_notes: str, bundles: str = '"dev.cmux.app.internal"') -> None:
+        """A selling tree (write_billing) whose app lists cmux INTERNAL in
+        appsWithoutSubscriptions (cmux#50453), with INTERNAL's own notes."""
+        self.write_billing()
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/BillingPurchaseAvailability.swift",
+              f"public struct BillingPurchaseAvailability {{\n"
+              f"    public static let appsWithoutSubscriptions: Set<String> = [{bundles}]\n}}\n")
+        write(self.root, self.INTERNAL_NOTES, internal_notes)
+
+    def iap_findings(self, lane: str) -> dict[str, list[str]]:
+        found: dict[str, list[str]] = {}
+        for f in self.run_lint(lane).findings:
+            if f.rule.startswith(("iap.", "metadata.subscription")):
+                found.setdefault(f.rule, []).append(f"{f.severity}: {f.message}")
+        return found
+
+    def test_internal_notes_that_promise_a_purchase_block_a_build_that_sells_nothing(self) -> None:
+        self.write_no_sale('Settings > "Plan" opens "Plans". "Subscribe" buys in the Sandbox.\n'
+                           '"Restore Purchases" is there; "Manage Subscription" opens Apple\'s settings.\n')
+        found = self.iap_findings("internal-submission")
+        self.assertEqual(set(found), {"iap.review-notes"}, found)
+        message = found["iap.review-notes"][0]
+        self.assertTrue(message.startswith("blocker: "), message)
+        for word in (self.INTERNAL_NOTES, '"Subscribe"', '"Restore Purchases"', '"Manage Subscription"', "Sandbox",
+                     "dev.cmux.app.internal"):
+            self.assertIn(word, message)
+
+    def test_internal_notes_must_still_name_the_plan_row(self) -> None:
+        self.write_no_sale("This version offers no purchase.\n")
+        self.assertIn('never names "Plan"', self.iap_findings("internal-submission")["iap.review-notes"][0])
+
+    def test_truthful_internal_notes_pass_and_the_selling_rules_do_not_apply(self) -> None:
+        self.write_no_sale(self.TRUTHFUL_INTERNAL_NOTES)
+        # No restore, renewal terms, manage sheet or listing Terms link: a build that sells nothing owes none.
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBillingUI/MobilePlansView.swift",
+              'import StoreKit\nText("Plans")\n')
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/LiveStoreKitClient.swift",
+              "import StoreKit\n")
+        write(self.root, "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json",
+              json.dumps({"description": "cmux for iPhone", "supportUrl": "https://cmux.com/support"}))
+        self.assertEqual(self.iap_findings("internal-submission"), {})
+        self.assertIn("subscriptions", self.run_lint("internal-submission").checked)
+
+    def test_the_internal_notes_in_the_repository_pass_the_inverted_rule(self) -> None:
+        self.write_no_sale((ROOT / self.INTERNAL_NOTES).read_text())
+        self.assertEqual(self.iap_findings("internal-submission"), {})
+
+    def test_internal_notes_are_held_to_the_selling_rules_while_the_app_sells(self) -> None:
+        # Before the app lists dev.cmux.app.internal (cmux#50453), or once INTERNAL gets
+        # subscriptions and leaves the list, its build shows the purchase controls.
+        for bundles in ("", '"some.other.app"'):
+            with self.subTest(bundles=bundles):
+                self.write_no_sale(self.TRUTHFUL_INTERNAL_NOTES, bundles=bundles)
+                found = self.iap_findings("internal-submission")
+                self.assertEqual(set(found), {"iap.review-notes"}, found)
+                self.assertIn(self.INTERNAL_NOTES, found["iap.review-notes"][0])
+                self.assertIn('never names "Restore Purchases"', found["iap.review-notes"][0])
+
+    def test_the_appstore_lane_is_unchanged_by_the_internal_no_sale_list(self) -> None:
+        # com.cmux.app sells: its lane reads review-notes-asc.txt with every selling rule,
+        # whatever INTERNAL's notes or list say.
+        self.write_no_sale(self.TRUTHFUL_INTERNAL_NOTES)
+        self.assertEqual(self.iap_findings("appstore"), {})
+        self.write_no_sale('"Subscribe" "Restore Purchases" "Manage Subscription" Sandbox\n',
+                           bundles='"dev.cmux.app.internal", "com.cmux.app.not-this-one"')
+        self.assertEqual(self.iap_findings("appstore"), {})
+        write(self.root, "cmux-next-ios/AppStoreReview/review-notes-asc.txt", self.TRUTHFUL_INTERNAL_NOTES)
+        found = self.iap_findings("appstore")
+        self.assertEqual(set(found), {"iap.review-notes"}, found)
+        self.assertIn("cmux-next-ios/AppStoreReview/review-notes-asc.txt", found["iap.review-notes"][0])
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBillingUI/MobilePlansView.swift",
+              'import StoreKit\nText("Plans")\n')
+        self.assertTrue({"iap.restore", "iap.disclosure", "iap.manage"} <= set(self.iap_findings("appstore")))
+
+    def test_the_ordinary_internal_lane_keeps_the_appstore_notes_rule(self) -> None:
+        # The TestFlight nightly lane submits nothing: it judges as it did before.
+        self.write_no_sale('Settings > "Plan" opens "Plans". "Subscribe" buys in the Sandbox.\n')
+        self.assertEqual(self.iap_findings("internal"), {})
+
+    def test_a_switched_entitlements_setting_judges_every_file_it_can_pick(self) -> None:
+        # project.yml's AppStore configuration picks its entitlements by
+        # CMUX_MOBILE_ASSOCIATED_DOMAINS; both files must carry Sign in with Apple.
+        project = (self.root / "cmux-next-ios/project.yml").read_text()
+        project = project.replace(
+            "    settings:\n      base:\n        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n",
+            "    settings:\n      base:\n        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n"
+            "        CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements\n"
+            "        CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_YES: App/CmuxMobileApp-TestFlight-Links.entitlements\n", 1)
+        project = project.replace(
+            "        AppStore:\n          CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements\n",
+            "        AppStore:\n          CMUX_MOBILE_ENTITLEMENTS_NO: "
+            "$(CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_$(CMUX_MOBILE_ASSOCIATED_DOMAINS))\n", 1)
+        write(self.root, "cmux-next-ios/project.yml", project)
+        lint = self.run_lint()
+        self.assertIn("signin.apple-entitlement", self.rules(lint))
+        self.assertTrue(any("TestFlight-Links.entitlements" in f.where for f in lint.findings))
+        write(self.root, "cmux-next-ios/App/CmuxMobileApp-TestFlight-Links.entitlements",
+              plistlib.dumps({"aps-environment": "production", "com.apple.developer.applesignin": ["Default"],
+                              "com.apple.developer.associated-domains": ["applinks:cmux.com"]}).decode())
+        self.assertEqual(self.rules(self.run_lint()), set())
 
     def test_history_detector_that_vanished_blocks(self) -> None:
         write(self.root, "cmux-next-ios/AppStoreReview/rejection-history.json",
@@ -201,10 +479,64 @@ class AppReviewGateTests(unittest.TestCase):
         lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
         self.assertIn("privacy.purpose-string", self.rules(lint))
 
-    def manifests(self, app: list[str], **extensions: list[str]) -> None:
+    def test_a_privacy_api_in_a_linked_package_needs_its_purpose_string(self) -> None:
+        # The microphone lives in a shared package the kit links, not in the
+        # app's own folders; the prompt is still the app's.
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Package.swift",
+              'let p = Package(dependencies: [.package(path: "../../Packages/Shared/Voice")])\n')
+        write(self.root, "Packages/Shared/Voice/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/Shared/Voice/Sources/Voice/Rec.swift", "let e = AVAudioEngine()\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertIn("privacy.purpose-string", self.rules(lint))
+        self.assertTrue(any("NSMicrophoneUsageDescription" in f.message for f in lint.findings))
+
+    def test_a_package_the_app_does_not_link_is_not_judged(self) -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/iOS/Classic/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/iOS/Classic/Sources/Classic/Rec.swift", "let e = AVAudioEngine()\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertNotIn("privacy.purpose-string", self.rules(lint))
+
+    def test_a_biometry_locked_key_needs_the_face_id_purpose_string(self) -> None:
+        # The classic app's SSH key lock (#40636): Secure Enclave keys with
+        # biometry access control ask for Face ID with no LAContext call.
+        write(self.root, "cmux-next-ios/App/Keys.swift", "var flags: SecAccessControlCreateFlags = [.privateKeyUsage, .biometryCurrentSet]\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertTrue(any("NSFaceIDUsageDescription" in f.message and f.severity == "blocker" for f in lint.findings))
+
+    def test_a_generic_purpose_string_is_flagged(self) -> None:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSCameraUsageDescription": "This app uses the camera for features."}, "Info.plist")
+        self.assertIn("privacy.purpose-string-vague", {f.rule for f in lint.findings})
+
+    def test_bonjour_services_are_asked_for_only_when_bonjour_is_used(self) -> None:
+        plist = {"ITSAppUsesNonExemptEncryption": False,
+                 "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network for a faster link."}
+        write(self.root, "cmux-next-ios/App/Dial.swift", "let l = try NWListener(using: .tcp, on: 0)\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist(plist, "Info.plist")
+        self.assertNotIn("privacy.bonjour", {f.rule for f in lint.findings})
+        write(self.root, "cmux-next-ios/App/Browse.swift", 'let b = NWBrowser(for: .bonjour(type: "_cmux._tcp", domain: nil), using: .tcp)\n')
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist(plist, "Info.plist")
+        self.assertIn("privacy.bonjour", self.rules(lint))
+
+    # A valid reason code per category (the first one Apple lists that an app may use).
+    REASONS = {"NSPrivacyAccessedAPICategoryUserDefaults": ["CA92.1"], "NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1"],
+               "NSPrivacyAccessedAPICategorySystemBootTime": ["35F9.1"], "NSPrivacyAccessedAPICategoryDiskSpace": ["E174.1"],
+               "NSPrivacyAccessedAPICategoryActiveKeyboards": ["54BD.1"]}
+
+    def manifests(self, app: list[str], reasons: dict[str, list[str]] | None = None, extra: dict | None = None,
+                  **extensions: list[str]) -> None:
         def body(categories: list[str]) -> str:
-            return plistlib.dumps({"NSPrivacyTracking": False, "NSPrivacyAccessedAPITypes": [
-                {"NSPrivacyAccessedAPIType": c, "NSPrivacyAccessedAPITypeReasons": ["X.1"]} for c in categories]}).decode()
+            codes = dict(self.REASONS, **(reasons or {}))
+            return plistlib.dumps(dict({"NSPrivacyTracking": False, "NSPrivacyAccessedAPITypes": [
+                {"NSPrivacyAccessedAPIType": c, "NSPrivacyAccessedAPITypeReasons": codes.get(c, ["X.1"])}
+                for c in categories]}, **(extra or {}))).decode()
         write(self.root, "cmux-next-ios/App/PrivacyInfo.xcprivacy", body(app))
         for name in ("NotificationContent", "NotificationService"):
             if name in extensions:
@@ -223,6 +555,149 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertIn("privacy.required-reason", self.privacy_rules())
         self.manifests(["NSPrivacyAccessedAPICategoryDiskSpace"], NotificationContent=[], NotificationService=[])
         self.assertEqual(self.privacy_rules(), set())
+
+    # ---- common-rejections.json: the public lists' rejections the gate now proves.
+
+    def test_a_reason_code_outside_its_category_or_for_sdks_only_blocks(self) -> None:
+        # ITMS-91056: a reason Apple does not list for the category invalidates the manifest.
+        for codes in (["35F9.1"], ["C56D.1"]):
+            self.manifests(["NSPrivacyAccessedAPICategoryUserDefaults"], reasons={"NSPrivacyAccessedAPICategoryUserDefaults": codes},
+                           NotificationContent=[], NotificationService=[])
+            self.assertIn("privacy.manifest-reason-code", self.privacy_rules(), codes)
+        self.manifests(["NSPrivacyAccessedAPICategoryUserDefaults"], NotificationContent=[], NotificationService=[])
+        self.assertNotIn("privacy.manifest-reason-code", self.privacy_rules())
+
+    def test_app_group_defaults_need_1c8f_in_the_manifest_of_the_bundle_that_reads_them(self) -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileNotifications/PushActions.swift",
+              'static func sharedDefaults() -> UserDefaults? { UserDefaults(suiteName: "group.x") }\n')
+        write(self.root, "cmux-next-ios/NotificationContent/View.swift", "let p = PushSharedPreference.live(group: g)\n")
+        ud = "NSPrivacyAccessedAPICategoryUserDefaults"
+        self.manifests([ud], NotificationContent=[ud], NotificationService=[])
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_privacy_manifests()
+        where = {f.where.split(" -> ")[1] for f in lint.findings if f.rule == "privacy.reason-app-group"}
+        self.assertEqual(where, {"cmux-next-ios/App/PrivacyInfo.xcprivacy", "cmux-next-ios/NotificationContent/PrivacyInfo.xcprivacy"})
+        self.manifests([ud], reasons={ud: ["CA92.1", "1C8F.1"]}, NotificationContent=[ud], NotificationService=[])
+        self.assertNotIn("privacy.reason-app-group", self.privacy_rules())
+
+    def test_collected_data_must_use_apples_identifiers_and_tracking_needs_domains_and_att(self) -> None:
+        good = {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeEmailAddress", "NSPrivacyCollectedDataTypeLinked": True,
+                "NSPrivacyCollectedDataTypeTracking": False,
+                "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]}
+        self.manifests([], extra={"NSPrivacyCollectedDataTypes": [good]}, NotificationContent=[], NotificationService=[])
+        self.assertEqual(self.privacy_rules(), set())
+        bad = dict(good, NSPrivacyCollectedDataType="NSPrivacyCollectedDataTypeEmail",
+                   NSPrivacyCollectedDataTypePurposes=["AppFunctionality"])
+        self.manifests([], extra={"NSPrivacyCollectedDataTypes": [bad]}, NotificationContent=[], NotificationService=[])
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_privacy_manifests()
+        self.assertEqual(sum(f.rule == "privacy.collected-data" and f.where == "cmux-next-ios/App/PrivacyInfo.xcprivacy"
+                             for f in lint.findings), 2)
+        self.manifests([], extra={"NSPrivacyTracking": True}, NotificationContent=[], NotificationService=[])
+        self.assertIn("privacy.tracking", self.privacy_rules())
+
+    def lint_rules(self, plist: dict | None = None, lane: str = "appstore") -> set[str]:
+        lint = gate.Lint(self.root, lane)
+        lint.check_common_rejection_rules(plist or {})
+        return {f.rule for f in lint.findings}
+
+    def privacy_link(self) -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/Legal.swift",
+              'let p = URL(string: "https://cmux.com/privacy-policy")!\n')
+
+    def test_a_background_mode_the_app_never_uses_blocks(self) -> None:
+        self.privacy_link()
+        self.assertIn("background.unused-mode", self.lint_rules({"UIBackgroundModes": ["audio"]}))
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/Call.swift",
+              "try session.setCategory(.playAndRecord, mode: .voiceChat)\n")
+        self.assertNotIn("background.unused-mode", self.lint_rules({"UIBackgroundModes": ["audio"]}))
+        self.assertIn("background.unused-mode", self.lint_rules({"UIBackgroundModes": ["audio", "location"]}))
+
+    def test_uiwebview_in_source_or_binary_blocks(self) -> None:
+        self.privacy_link()
+        write(self.root, "cmux-next-ios/App/Old.swift", "// UIWebView was here\nlet w = WKWebView()\n")
+        self.assertNotIn("api.uiwebview", self.lint_rules())
+        write(self.root, "cmux-next-ios/App/Old.swift", "let w = UIWebView()\n")
+        self.assertIn("api.uiwebview", self.lint_rules())
+        app = self.root / "Payload/CmuxMobileApp.app"
+        app.mkdir(parents=True)
+        (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "CmuxMobileApp", "ITSAppUsesNonExemptEncryption": False,
+                                                         "CmuxMobileAppleSignIn": "YES"}))
+        (app / "CmuxMobileApp").write_bytes(b"\x00_OBJC_CLASS_$_UIWebView\x00")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_app_bundle(app)
+        self.assertIn("api.uiwebview", self.rules(lint))
+
+    def test_the_privacy_policy_must_be_linked_inside_the_app(self) -> None:
+        self.assertIn("privacy.policy-in-app", self.lint_rules())
+        self.privacy_link()
+        self.assertNotIn("privacy.policy-in-app", self.lint_rules())
+
+    def test_keywords_that_name_another_company_block_but_generic_words_do_not(self) -> None:
+        self.privacy_link()
+        rel = "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json"
+        write(self.root, rel, json.dumps({"description": "d", "keywords": "coding agent,cursor,warp,terminal"}))
+        self.assertNotIn("metadata.keyword-trademark", self.lint_rules())
+        write(self.root, rel, json.dumps({"description": "d", "keywords": "coding agent,Claude Code,chatgpt"}))
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_common_rejection_rules({})
+        self.assertEqual(sorted(f.message.split("'")[1] for f in lint.findings if f.rule == "metadata.keyword-trademark"),
+                         ["Claude", "chatgpt"])
+
+    def test_a_build_that_sells_nothing_warns_on_a_listing_that_says_it_sells_in_the_app(self) -> None:
+        self.privacy_link()
+        self.write_no_sale("Sign in with the demo account {{DEMO_ACCOUNT_EMAIL}}. Settings > \"Plan\" is read-only.")
+        rel = "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json"
+        write(self.root, rel, json.dumps({"description": "cmux Pro is a monthly subscription bought in the app."}))
+        self.assertIn("metadata.iap-claim", self.lint_rules(lane="internal-submission"))
+        self.assertNotIn("metadata.iap-claim", self.lint_rules(lane="appstore"))
+        write(self.root, rel, json.dumps({"description": "Plans are managed on cmux.com."}))
+        self.assertNotIn("metadata.iap-claim", self.lint_rules(lane="internal-submission"))
+
+    def test_a_submission_without_sign_in_steps_in_the_notes_blocks(self) -> None:
+        self.privacy_link()
+        write(self.root, "cmux-next-ios/AppStoreReview/review-notes-asc.txt", "cmux runs agents on your Mac.\n")
+        self.assertIn("review-notes.sign-in", self.lint_rules())
+        self.assertNotIn("review-notes.sign-in", self.lint_rules(lane="internal"))
+        write(self.root, "cmux-next-ios/AppStoreReview/review-notes-asc.txt", "Sign in: {{DEMO_ACCOUNT_EMAIL}}\n")
+        self.assertNotIn("review-notes.sign-in", self.lint_rules())
+
+    def test_an_entitlement_the_app_never_uses_blocks(self) -> None:
+        ents = {"aps-environment": "production", "com.apple.developer.healthkit": True}
+        write(self.root, "cmux-next-ios/App/Push.swift", "UIApplication.shared.registerForRemoteNotifications()\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_entitlements_used(ents, "x.entitlements")
+        self.assertEqual([f.message.split()[0] for f in lint.findings if f.rule == "entitlement.unused"],
+                         ["com.apple.developer.healthkit"])
+
+    def test_a_weakened_ats_warns(self) -> None:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False, "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True}}, "p")
+        self.assertNotIn("ats.exception", {f.rule for f in lint.findings})
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSAppTransportSecurity": {"NSExceptionDomains": {"x.com": {"NSExceptionAllowsInsecureHTTPLoads": True}}}}, "p")
+        self.assertIn("ats.exception", {f.rule for f in lint.findings})
+
+    def common(self, entries: list[dict]) -> list[str]:
+        write(self.root, gate.COMMON_REJECTIONS_FILE, json.dumps({"rejections": entries}))
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_common_rejections()
+        return sorted(f.rule for f in lint.findings)
+
+    def test_a_common_rejection_must_name_a_real_detector_a_source_and_a_known_status(self) -> None:
+        src = ["https://github.com/x/y"]
+        self.assertEqual(self.common([{"id": "a", "guideline": "2.1", "status": "gated", "sources": src,
+                                       "detectors": ["lint:account.deletion", "uitest:testX"]}]), [])
+        self.assertEqual(self.common([{"id": "a", "guideline": "2.1", "status": "gated", "sources": src,
+                                       "detectors": ["lint:no.such-rule", "uitest:testGone"]}]),
+                         ["common-rejections.detector-missing"] * 2)
+        self.assertEqual(self.common([{"id": "a", "guideline": "2.1", "status": "gated", "sources": src}]),
+                         ["common-rejections.no-detector"])
+        self.assertEqual(self.common([{"id": "a", "guideline": "2.1", "status": "maybe", "sources": src}]),
+                         ["common-rejections.status"])
+        self.assertEqual(self.common([{"id": "a", "guideline": "2.1", "status": "follow-up"}]),
+                         ["common-rejections.no-follow-up", "common-rejections.source"])
+
 
     def test_an_extension_without_its_own_manifest_blocks(self) -> None:
         self.manifests([], NotificationContent=[])
@@ -352,6 +827,51 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertIn("guideline lint left no result", text)
         self.assertIn("no ipad suite result", text)
 
+    def test_a_device_job_that_left_no_result_fails_the_report(self) -> None:
+        # Each device walks in its own job: a Duo job that failed, was
+        # cancelled or uploaded nothing must fail the report, and only Duo's
+        # own skip marker (no Duo simulator on the image) stands in for it.
+        passed = {"testNodes": [{"nodeType": "Test Case", "name": "testA()", "result": "Passed"}]}
+        results = []
+        for family in ("iphone", "ipad"):
+            path = self.root / f"{family}.json"
+            path.write_text(json.dumps(passed))
+            results += ["--xcresult-json", str(path)]
+        expect = ["--expect-device", "iphone", "--expect-device", "ipad", "--expect-device-or-skipped", "duo"]
+        out = self.root / "report.md"
+        self.assertEqual(gate.main(["report", "--asc-skipped", *results, *expect, "--out", str(out)]), 1)
+        self.assertIn("no duo suite result", out.read_text())
+        duo_skipped = self.root / "duo.skipped.json"
+        duo_skipped.write_text(json.dumps({"family": "duo", "skipped": True}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", *results, *expect,
+                                    "--skipped", str(duo_skipped), "--out", str(out)]), 0)
+        # A skip marker never excuses a device that must be walked.
+        ipad_skipped = self.root / "ipad.skipped.json"
+        ipad_skipped.write_text(json.dumps({"family": "ipad", "skipped": True}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", results[0], results[1], *expect,
+                                    "--skipped", str(duo_skipped), "--skipped", str(ipad_skipped),
+                                    "--out", str(out)]), 1)
+        self.assertIn("no ipad suite result", out.read_text())
+
+    def test_the_report_waits_for_and_expects_every_device_job(self) -> None:
+        # The devices walk side by side, one reviewer-path job each; the
+        # report needs them all and fails closed on any family's missing
+        # result, and each job's artifact has its own name.
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
+        report = workflow.split("\n  report:\n", 1)[1]
+        self.assertIn("fail-fast: false", reviewer)
+        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.families) }}\n", reviewer)
+        self.assertIn("name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}", reviewer)
+        self.assertNotIn("for family in", reviewer)
+        self.assertIn("needs: [plan, lint, reviewer-path, asc-validate]", report)
+        self.assertIn("pattern: review-gate-*", report)
+        self.assertIn("--expect-device iphone --expect-device-or-skipped duo", report)
+        # iPad: required on every run but a pull request on the iPhone-only app (the plan's skip marker).
+        self.assertIn('if [ "$EVENT" = pull_request ]; then args+=(--expect-device-or-skipped ipad); '
+                      'else args+=(--expect-device ipad); fi', report)
+        self.assertIn("find in -name '*.skipped.json'", report)
+
     def test_a_device_with_no_tests_is_never_a_pass(self) -> None:
         empty = self.root / "iphone.json"
         empty.write_text(json.dumps({"testNodes": []}))
@@ -409,6 +929,82 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(text.count("XCUITest cannot fold the simulator"), 1)
 
+    def ratchet_inputs(self, failed: list[str]) -> tuple[Path, Path]:
+        suite = self.root / "iphone.json"
+        cases = [{"nodeType": "Test Case", "name": name, "result": "Failed",
+                  "children": [{"nodeType": "Failure Message", "name": f"AppReviewGateUITests.swift:{i}: on screen: {i}"}]}
+                 for i, name in enumerate(failed, 1)] or [{"nodeType": "Test Case", "name": "testA()", "result": "Passed"}]
+        suite.write_text(json.dumps({"testNodes": [{"nodeType": "Unit test bundle", "name": "AppReviewGateUITests", "children": cases}]}))
+        known = self.root / "known-blockers.json"
+        known.write_text(json.dumps({"blockers": [{"key": "uitest.failed|iphone|AppReviewGateUITests/testOld()"}]}))
+        return suite, known
+
+    def test_a_known_blocker_alone_passes_a_change_and_still_shows(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()"])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        text = out.read_text()
+        self.assertEqual(code, 0)
+        self.assertIn("**NO**: 1 blocking", text)
+        self.assertIn("No new blocker", text)
+        # A submission reads no baseline: the same result refuses it.
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--out", str(out)]), 1)
+
+    def test_a_new_blocker_fails_the_change_that_brought_it(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()", "testNew()"])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        text = out.read_text()
+        self.assertEqual(code, 1)
+        self.assertIn("**1 new blocking**", text)
+        self.assertIn("uitest.failed|iphone|AppReviewGateUITests/testNew()", text)
+        self.assertNotIn("`uitest.failed|iphone|AppReviewGateUITests/testOld()`: ", text)
+
+    def test_a_fixed_blocker_is_named_for_removal(self) -> None:
+        suite, known = self.ratchet_inputs([])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        self.assertEqual(code, 0)
+        self.assertIn("remove from", out.read_text())
+
+    def test_a_change_cannot_pin_its_own_regression(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()", "testNew()"])
+        proposed = self.root / "proposed.json"
+        proposed.write_text(json.dumps({"blockers": [{"key": "uitest.failed|iphone|AppReviewGateUITests/testOld()"},
+                                                     {"key": "uitest.failed|iphone|AppReviewGateUITests/testNew()"}]}))
+        out = self.root / "report.md"
+        # Its own list alone would pass it; judged on the base's, it fails twice over.
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                                    "--known-blockers", str(proposed), "--out", str(out)]), 0)
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--known-blockers",
+                                    str(known), "--proposed-known-blockers", str(proposed), "--out", str(out)]), 1)
+        self.assertIn("known-blockers.added", out.read_text())
+        # Removing a fixed entry is fine.
+        suite, known = self.ratchet_inputs([])
+        proposed.write_text(json.dumps({"blockers": []}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--known-blockers",
+                                    str(known), "--proposed-known-blockers", str(proposed), "--out", str(out)]), 0)
+
+    def test_the_key_ignores_line_numbers_and_screen_dumps(self) -> None:
+        a = {"rule": "uitest.failed", "where": "ipad", "message": "AppReviewGateUITests/testX(): T.swift:120: on screen: a"}
+        b = {"rule": "uitest.failed", "where": "ipad", "message": "AppReviewGateUITests/testX(): T.swift:131: on screen: b"}
+        self.assertEqual(gate.blocker_key(a), gate.blocker_key(b))
+        self.assertEqual(gate.blocker_key({"rule": "r", "where": "a/B.swift:90"}),
+                         gate.blocker_key({"rule": "r", "where": "a/B.swift:91"}))
+
+    def test_missing_results_are_judged_apart_from_the_baseline(self) -> None:
+        # Fail closed: a suite that never reported is new, whatever is known.
+        _, known = self.ratchet_inputs([])
+        out = self.root / "report.md"
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--known-blockers", str(known), "--out", str(out)]), 0)
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--expect-device", "ipad",
+                                    "--known-blockers", str(known), "--out", str(out)]), 1)
+        known.write_text("not json")
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--known-blockers", str(known), "--out", str(out)]), 1)
+
 
 class RealTreeTests(unittest.TestCase):
     """The checked-in history, the NEXT app's UI tests and the gate agree."""
@@ -417,6 +1013,35 @@ class RealTreeTests(unittest.TestCase):
         lint = gate.Lint(ROOT, "appstore")
         lint.check_history()
         self.assertEqual([f.message for f in lint.findings], [])
+
+    def test_every_common_rejection_is_mapped_to_a_detector_that_exists_here(self) -> None:
+        lint = gate.Lint(ROOT, "internal-submission")
+        entries = lint.check_common_rejections()
+        self.assertGreaterEqual(len(entries), 30)
+        self.assertEqual([f.message for f in lint.findings], [])
+
+    def test_the_real_app_passes_the_common_rejection_rules(self) -> None:
+        # The App Group defaults reason, the background modes, UIWebView, the
+        # in-app privacy link, keywords, notes and the shipping entitlements.
+        for lane in gate.LANES:
+            lint = gate.Lint(ROOT, lane)
+            lint.check_privacy_manifests()
+            lint.check_common_rejection_rules(lint.project_info())
+            for rel in gate.APPSTORE_ENTITLEMENTS:
+                lint.check_entitlements_used(plistlib.loads((ROOT / rel).read_bytes()), rel)
+            self.assertEqual([f"{f.rule}: {f.message}" for f in lint.findings if f.severity == "blocker"], [], lane)
+
+    def test_the_app_declares_a_specific_purpose_string_for_every_privacy_api_it_links(self) -> None:
+        # Fails CI the moment the NEXT app (or a package it links) calls a
+        # privacy API without its Info.plist purpose string, or a purpose
+        # string reads as generic: iOS kills the app at the prompt, and App
+        # Review rejects under 5.1.1 (first-user journey, permission audit).
+        lint = gate.Lint(ROOT, "appstore")
+        plist = lint.project_info()
+        self.assertTrue(plist, "project.yml's CmuxMobileApp Info.plist properties could not be read")
+        lint.check_info_plist(plist, gate.PROJECT_YML)
+        privacy = [f"{f.rule}: {f.message}" for f in lint.findings if f.rule.startswith("privacy.")]
+        self.assertEqual(privacy, [])
 
     def test_the_workflow_runs_every_gate_test_by_its_real_name(self) -> None:
         # -only-testing names resolve only when target, class and method match.
@@ -428,7 +1053,519 @@ class RealTreeTests(unittest.TestCase):
                              ("-only-testing:CmuxMobileAppUITests/AppReviewGateUITests", workflow),
                              ("-scheme CmuxMobileApp ", workflow)):
             self.assertTrue(needle in text, needle)
-        self.assertFalse("Billing" in tests or "StoreKit" in tests)
+
+    def test_every_known_blocker_names_something_that_still_exists(self) -> None:
+        # A renamed or deleted test would leave a pin nothing can match.
+        known = json.loads((ROOT / gate.KNOWN_BLOCKERS_FILE).read_text())
+        tests = (ROOT / "cmux-next-ios/UITests/AppReviewGateUITests.swift").read_text()
+        for entry in known["blockers"]:
+            rule, where, *rest = entry["key"].split("|")
+            if rule == "uitest.failed":
+                self.assertIn(where, ("iphone", "ipad", "duo"), entry["key"])
+                name = rest[0].split("/")[-1].removesuffix("()")
+                self.assertIn(f"func {name}(", tests, entry["key"])
+            self.assertNotIn("agent", rule, "no agent rule is pinned")
+
+    def test_the_app_store_build_names_no_private_framework_path(self) -> None:
+        # The binary scan's api.private-framework blocker (2.5.1) failed the
+        # 1.0.0 upload's IPA check (run 44431574873): CmuxConversationUI named
+        # ChatKit's PrivateFrameworks path. Packages compile into every
+        # configuration, so the path lives only in the app target, compiled out
+        # of every shipping build (CMUX_MOBILE_PRODUCTION: Production, TestFlight,
+        # which builds the cmux INTERNAL record, TestFlightStaging and AppStore),
+        # and the package is handed the bundle.
+        packages = [p for p in (ROOT / "Packages/iOS").rglob("*.swift") if "PrivateFrameworks/" in p.read_text()]
+        self.assertEqual(packages, [], "an iOS package names a PrivateFrameworks path")
+        app = (ROOT / "cmux-next-ios/App/CmuxMobileApp.swift").read_text()
+        self.assertIn("PrivateFrameworks/ChatKit.framework", app)
+        depth = 0
+        for line in app.splitlines():
+            stripped = line.strip()
+            if stripped == "#if !CMUX_MOBILE_PRODUCTION":
+                depth += 1
+            elif depth and stripped.startswith("#if"):
+                depth += 1
+            elif depth and stripped == "#endif":
+                depth -= 1
+            elif "PrivateFrameworks/" in line:
+                self.assertGreater(depth, 0, f"outside #if !CMUX_MOBILE_PRODUCTION: {stripped}")
+        project = (ROOT / gate.PROJECT_YML).read_text()
+        for conditions in ("CMUX_MOBILE_PRODUCTION CMUX_MOBILE_TESTFLIGHT", "CMUX_MOBILE_PRODUCTION CMUX_MOBILE_APPSTORE"):
+            self.assertIn(f"SWIFT_ACTIVE_COMPILATION_CONDITIONS: {conditions}", project)
+
+    def test_pushes_and_pull_requests_fail_on_a_new_blocker(self) -> None:
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        self.assertIn('--known-blockers "base/$known" --proposed-known-blockers "$known"', workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", workflow)
+        self.assertNotIn("ADVISORY", workflow)
+        pull_request = workflow.split("  pull_request:", 1)[1].split("  workflow_dispatch:", 1)[0]
+        self.assertIn('"cmux-next-ios/**"', pull_request)
+
+
+class GateWorkflowTests(unittest.TestCase):
+    """The report's inputs and the workflow's wiring."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_the_gate_runs_no_agent_reviewer_pass(self) -> None:
+        # Every check is deterministic: no model judges the build, and the
+        # report takes no agent verdict (removed 2026-11-17).
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        for gone in ("Agent reviewer pass", "CLAUDE_CODE_OAUTH_TOKEN", "app_review_agent_pass",
+                     "--expect-agent", "--agent-skipped", "agent-findings.json", "@anthropic-ai/claude-code"):
+            self.assertNotIn(gone, workflow)
+        # `agent_pass` stays declared as an ignored input (main's readiness workflow still dispatches
+        # with it, and GitHub refuses an undeclared input), but nothing may read its value.
+        self.assertNotIn("inputs.agent_pass", workflow)
+        self.assertFalse((ROOT / "cmux-next-ios/scripts/app_review_agent_pass.py").exists())
+        self.assertEqual(self.report("--expect-agent")[0], 2, "the report no longer knows the agent's flags")
+
+    def report(self, *extra: str) -> tuple[int, str]:
+        out = self.root / "report.md"
+        out.unlink(missing_ok=True)
+        try:
+            code = gate.main(["report", "--asc-skipped", *extra, "--out", str(out)])
+        except SystemExit as exit:  # a flag the report does not know
+            code = exit.code
+        return code, out.read_text() if out.exists() else ""
+
+    def pick(self, exit_code: int) -> tuple[int, str, list[str]]:
+        picker = self.root / "picker.py"
+        picker.write_text(f"import sys\nprint('SIM-UDID')\nsys.exit({exit_code})\n")
+        results = self.root / f"results-{exit_code}"
+        results.mkdir()
+        github_env = self.root / f"env-{exit_code}"
+        github_env.write_text("")
+        proc = subprocess.run(
+            ["bash", "-e", str(ROOT / "cmux-next-ios/scripts/app_review_pick_step.sh"), "duo"],
+            env=dict(os.environ, RESULTS=str(results), GITHUB_ENV=str(github_env), PICKER=str(picker)),
+            capture_output=True, text=True)
+        return proc.returncode, github_env.read_text(), sorted(p.name for p in results.iterdir())
+
+    def test_only_the_pickers_no_simulator_exit_skips_a_device(self) -> None:
+        # Exit 3 is "no simulator for this family on the image": the leg
+        # skips with a marker the report reads. Any other failure fails the
+        # leg, so the report blocks on its missing result (#42997 review).
+        self.assertEqual(self.pick(0), (0, "UDID=SIM-UDID\n", []))
+        code, env, files = self.pick(3)
+        self.assertEqual((code, env, files), (0, "", ["duo.skipped.json"]))
+        code, env, files = self.pick(1)
+        self.assertEqual((code, env, files), (1, "", []))
+
+    def test_notes_and_verify_evidence_alone_never_start_the_gate(self) -> None:
+        # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the
+        # app and still walked the reviewer path on every device.
+        import yaml  # noqa: PLC0415
+
+        doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())
+        on = doc.get("on", doc.get(True))
+        for event in ("push", "pull_request"):
+            patterns = on[event]["paths"]
+            with self.subTest(event=event):
+                for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/alignment/alignscan.swift", "Packages/Shared/README.md"):
+                    self.assertFalse(github_paths_match(patterns, path), path)
+                for path in ("cmux-next-ios/CmuxMobileApp/App.swift", "cmux-next-ios/project.yml",
+                             "cmux-next-ios/AppStoreReview/reviewer-setup.md",
+                             "cmux-next-ios/AppStoreReview/known-blockers.json",
+                             "Packages/Shared/CmuxTheme/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
+                    self.assertTrue(github_paths_match(patterns, path), path)
+
+    def test_notes_and_verify_evidence_alone_never_start_the_kit_tests(self) -> None:
+        # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the
+        # app and still ran CmuxMobileKit's tests, then went red on kit tests it never touched.
+        import yaml  # noqa: PLC0415
+
+        doc = yaml.safe_load((ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text())
+        on = doc.get("on", doc.get(True))
+        for event in ("push", "pull_request"):
+            patterns = on[event]["paths"]
+            with self.subTest(event=event):
+                for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/alignment/alignscan.swift",
+                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
+                    self.assertFalse(github_paths_match(patterns, path), path)
+                for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/X.swift",
+                             "cmux-next-ios/CmuxMobileKit/Package.swift", "cmux-next-ios/rust/Cargo.toml",
+                             "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/Resources/notes.md",
+                             "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/Resources/x.md",
+                             "Packages/iOS/CmuxConversation/Sources/X.swift",
+                             ".github/workflows/cmux-next-ios-kit.yml"):
+                    self.assertTrue(github_paths_match(patterns, path), path)
+
+
+def github_paths_match(patterns: list[str], path: str) -> bool:
+    """GitHub's `paths` filter: the last pattern that matches PATH decides; a `!` one excludes it."""
+    def regex(glob: str) -> str:
+        out, i = [], 0
+        while i < len(glob):
+            if glob.startswith("**/", i):
+                out.append("(?:.*/)?")
+                i += 3
+            elif glob.startswith("**", i):
+                out.append(".*")
+                i += 2
+            elif glob[i] == "*":
+                out.append("[^/]*")
+                i += 1
+            else:
+                out.append(re.escape(glob[i]))
+                i += 1
+        return "".join(out)
+
+    included = False
+    for pattern in patterns:
+        negated = pattern.startswith("!")
+        if re.fullmatch(regex(pattern.removeprefix("!")), path):
+            included = not negated
+    return included
+
+
+DEVICES_SCRIPT = ROOT / ".github/scripts/ios_review_gate_devices.py"
+DEVICES_LIST = ROOT / ".github/ios-review-gate-devices.json"
+PINS = ROOT / "scripts/ci/xcode-pins.txt"
+PICKER = ROOT / "cmux-next-ios/scripts/app_review_pick_simulator.py"
+PASSED = {"testNodes": [{"nodeType": "Test Case", "name": "testA()", "result": "Passed"}]}
+
+# A stand-in `xcrun` for the macOS image's simctl: iPhone and iPad devices,
+# and an iPhone Duo device type only with FAKE_SIM_DUO=1. A `simctl create` is
+# logged to FAKE_SIM_CREATES, so a check that would create a simulator shows.
+FAKE_XCRUN = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+if args[:2] == ["simctl", "create"]:
+    open(os.environ["FAKE_SIM_CREATES"], "a").write(" ".join(args) + "\\n")
+    print("CREATED-UDID")
+    sys.exit(0)
+if os.environ.get("FAKE_SIM_BROKEN") == "1":
+    sys.exit(72)
+types = [{"name": "iPhone 17 Pro Max", "identifier": "t.iphone"}, {"name": "iPad Pro 13-inch (M5)", "identifier": "t.ipad"}]
+if os.environ.get("FAKE_SIM_DUO") == "1":
+    types.append({"name": "iPhone Duo", "identifier": "t.duo"})
+runtime = {"identifier": "r.ios26", "platform": "iOS", "version": "26.0", "isAvailable": True,
+           "supportedDeviceTypes": [{"identifier": t["identifier"]} for t in types]}
+what = args[2]
+if what == "runtimes":
+    print(json.dumps({"runtimes": [runtime]}))
+elif what == "devices":
+    print(json.dumps({"devices": {"r.ios26": [
+        {"name": "iPhone 17 Pro Max", "udid": "U-IPHONE", "isAvailable": True},
+        {"name": "iPad Pro 13-inch (M5)", "udid": "U-IPAD", "isAvailable": True}]}}))
+elif what == "devicetypes":
+    print(json.dumps({"devicetypes": types}))
+else:
+    sys.exit(2)
+"""
+
+
+class DevicePlanTests(unittest.TestCase):
+    """The plan job (Linux) decides which device legs take a Mac: a family the
+    image has no simulator for leaves its skip marker from the plan and never
+    queues, and every leg that does run checks the plan against its image."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def script(self, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+        self.assertTrue(DEVICES_SCRIPT.is_file(), f"{DEVICES_SCRIPT.relative_to(ROOT)} decides the device legs")
+        return subprocess.run([sys.executable, "-I", str(DEVICES_SCRIPT), *args], capture_output=True, text=True,
+                              env=dict(os.environ, **(env or {})))
+
+    def device_list(self) -> dict:
+        self.assertTrue(DEVICES_LIST.is_file(), f"{DEVICES_LIST.relative_to(ROOT)} lists the image's simulators")
+        return json.loads(DEVICES_LIST.read_text())
+
+    def matching_pins(self, devices: dict) -> str:
+        return f"# macOS  Xcode\n{devices['image']['macos']}       {devices['image']['xcode']}\n"
+
+    def plan(self, devices: dict, pins: str, trust: str = "true") -> tuple[subprocess.CompletedProcess, dict, list]:
+        devices_path = self.root / "devices.json"
+        devices_path.write_text(json.dumps(devices))
+        pins_path = self.root / "pins.txt"
+        pins_path.write_text(pins)
+        out = self.root / "planned"
+        shutil.rmtree(out, ignore_errors=True)
+        proc = self.script("plan", "--devices", str(devices_path), "--pins", str(pins_path), "--trust", trust,
+                           "--out-dir", str(out))
+        outputs = dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
+        markers = sorted(p.name for p in out.iterdir()) if out.is_dir() else []
+        return proc, outputs, markers
+
+    def report(self, *args: str) -> tuple[int, str]:
+        out = self.root / "report.md"
+        out.unlink(missing_ok=True)
+        code = gate.main(["report", "--asc-skipped", "--expect-device", "iphone", "--expect-device", "ipad",
+                          "--expect-device-or-skipped", "duo", *args, "--out", str(out)])
+        return code, out.read_text()
+
+    def results(self, *families: str) -> list[str]:
+        args = []
+        for family in families:
+            path = self.root / f"{family}.json"
+            path.write_text(json.dumps(PASSED))
+            args += ["--xcresult-json", str(path)]
+        return args
+
+    def test_the_plan_skips_duo_from_the_device_list_and_walks_the_rest(self) -> None:
+        devices = self.device_list()
+        proc, outputs, markers = self.plan(devices, self.matching_pins(devices))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(outputs["families"]), ["iphone", "ipad"])
+        self.assertEqual(json.loads(outputs["skipped"]), ["duo"])
+        self.assertTrue(json.loads(outputs["devices"])["decided"])
+        self.assertEqual(markers, ["duo.skipped.json"])
+        marker = json.loads((self.root / "planned/duo.skipped.json").read_text())
+        self.assertEqual((marker["family"], marker["skipped"], marker["planned"]), ("duo", True, True))
+        self.assertIn("iPhone Duo", marker["reason"])
+        # A pin the list was not checked on, or another repository's image:
+        # every family is walked and the legs' picker decides, as before.
+        for pins, trust in ((f"{devices['image']['macos']}  99.9\n", "true"), (self.matching_pins(devices), "false")):
+            proc, outputs, markers = self.plan(devices, pins, trust)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(json.loads(outputs["families"]), ["iphone", "ipad", "duo"])
+            self.assertFalse(json.loads(outputs["devices"])["decided"])
+            self.assertEqual(markers, [])
+
+    def test_the_checked_in_list_matches_the_pinned_xcode(self) -> None:
+        # The real list against the real pins: Duo takes no Mac today. A pin
+        # bump that leaves the list behind walks every family (above) and
+        # this names the list to check again.
+        devices = self.device_list()
+        proc, outputs, _ = self.plan(devices, PINS.read_text())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        decision = json.loads(outputs["devices"])
+        self.assertTrue(decision["decided"], decision.get("why"))
+        self.assertEqual((decision["walk"], sorted(decision["skip"])), (["iphone", "ipad"], ["duo"]))
+
+    def test_the_plans_duo_marker_stands_in_for_the_duo_leg(self) -> None:
+        devices = self.device_list()
+        proc, _, markers = self.plan(devices, self.matching_pins(devices))
+        self.assertEqual((proc.returncode, markers), (0, ["duo.skipped.json"]), proc.stderr)
+        code, text = self.report(*self.results("iphone", "ipad"), "--skipped", str(self.root / "planned/duo.skipped.json"))
+        self.assertEqual(code, 0, text)
+        self.assertIn("no duo suite result", self.report(*self.results("iphone", "ipad"))[1])
+
+    def test_a_plan_that_drops_iphone_or_ipad_fails(self) -> None:
+        for family, other in (("iphone", "ipad"), ("ipad", "iphone")):
+            devices = self.device_list()
+            devices["families"][family] = {"on_image": False, "reason": "not on this image"}
+            proc, outputs, markers = self.plan(devices, self.matching_pins(devices))
+            self.assertEqual(proc.returncode, 1, family)
+            self.assertIn(f"the report requires {family}", proc.stderr)
+            self.assertNotIn("families", outputs)
+            self.assertEqual(markers, [])
+            # A planned marker for a required family never passes the report.
+            marker = self.root / f"{family}.skipped.json"
+            marker.write_text(json.dumps({"family": family, "skipped": True, "planned": True, "reason": "x"}))
+            duo = self.root / "duo.skipped.json"
+            duo.write_text(json.dumps({"family": "duo", "skipped": True, "planned": True, "reason": "x"}))
+            code, text = self.report(*self.results(other), "--skipped", str(marker), "--skipped", str(duo))
+            self.assertEqual(code, 1)
+            self.assertIn(f"no {family} suite result", text)
+
+    def check(self, duo_on_image: bool, decision: dict,
+              broken: bool = False) -> tuple[subprocess.CompletedProcess, Path, str]:
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        xcrun = bin_dir / "xcrun"
+        xcrun.write_text(FAKE_XCRUN)
+        xcrun.chmod(0o755)
+        creates = self.root / "creates.log"
+        creates.write_text("")
+        out = self.root / "device-plan-mismatch.json"
+        out.unlink(missing_ok=True)
+        proc = self.script("check", "--plan", json.dumps(decision), "--picker", str(PICKER), "--out", str(out),
+                           env={"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                                "FAKE_SIM_DUO": "1" if duo_on_image else "0", "FAKE_SIM_CREATES": str(creates),
+                                "FAKE_SIM_BROKEN": "1" if broken else "0"})
+        return proc, out, creates.read_text()
+
+    def test_a_leg_fails_loudly_when_the_image_disagrees_with_the_plan(self) -> None:
+        skips_duo = {"decided": True, "xcode": "26.6", "walk": ["iphone", "ipad"], "skip": {"duo": "no Duo"}}
+        proc, out, _ = self.check(False, skips_duo)
+        self.assertEqual((proc.returncode, out.exists()), (0, False), proc.stderr)
+        # The image gained the Duo the plan skipped: red, named, and nothing
+        # created (the picker alone would create one).
+        proc, out, creates = self.check(True, skips_duo)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("::error::the image has a duo simulator, but the plan skipped it", proc.stderr)
+        self.assertEqual(json.loads(out.read_text())["mismatches"][0]["family"], "duo")
+        self.assertEqual(creates, "")
+        # The reverse: the plan walks Duo and the image has none.
+        walks_duo = {"decided": True, "xcode": "26.6", "walk": ["iphone", "ipad", "duo"], "skip": {}}
+        proc, out, _ = self.check(False, walks_duo)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("::error::the image has no duo simulator, but the plan walks it", proc.stderr)
+        # A plan that decided nothing checks nothing.
+        proc, out, _ = self.check(True, {"decided": False, "walk": ["iphone", "ipad", "duo"], "skip": {}})
+        self.assertEqual((proc.returncode, out.exists()), (0, False))
+        # A check that could not read the image is never agreement.
+        proc, out, _ = self.check(False, skips_duo, broken=True)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("check could not read this image's simulators", proc.stderr)
+        self.assertTrue(out.exists())
+        # Nor is a plan or picker the check cannot load.
+        out.unlink()
+        proc = self.script("check", "--plan", "not json", "--picker", str(PICKER), "--out", str(out))
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("::error::the device check could not run", proc.stderr)
+        self.assertTrue(out.exists())
+
+    def test_the_matrix_walks_only_the_plans_families(self) -> None:
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        plan = workflow.split("\n  plan:\n", 1)[1].split("\n  lint:\n", 1)[0]
+        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
+        report = workflow.split("\n  report:\n", 1)[1]
+        self.assertIn("families: ${{ steps.devices.outputs.families }}", plan)
+        self.assertIn("devices: ${{ steps.devices.outputs.devices }}", plan)
+        self.assertIn(".github/scripts/ios_review_gate_devices.py plan", plan)
+        self.assertIn("TRUST: ${{ github.repository_owner == 'manaflow-ai' }}", plan)
+        # The planned skips reach the report through its review-gate-* download.
+        self.assertIn("name: review-gate-planned-skips-${{ steps.plan.outputs.lane }}", plan)
+        self.assertIn("${{ runner.temp }}/planned/*.skipped.json", plan)
+        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.families) }}\n", reviewer)
+        # Every leg checks the plan against its image; a mismatch fails the report.
+        self.assertIn(".github/scripts/ios_review_gate_devices.py check", reviewer)
+        self.assertIn('--out "$RESULTS/device-plan-mismatch.json"', reviewer)
+        self.assertIn("            .github/scripts\n", reviewer)
+        self.assertIn("find in -name 'device-plan-mismatch.json'", report)
+        # The report's rules stay: iPhone required, Duo may skip, iPad may skip only on a pull request.
+        self.assertIn("--expect-device iphone --expect-device-or-skipped duo", report)
+        # iPad: required on every run but a pull request on the iPhone-only app (the plan's skip marker).
+        self.assertIn('if [ "$EVENT" = pull_request ]; then args+=(--expect-device-or-skipped ipad); '
+                      'else args+=(--expect-device ipad); fi', report)
+
+
+class InternalSubmissionTests(unittest.TestCase):
+    """cmux INTERNAL (dev.cmux.app.internal) to App Review: the builder's
+    `submittable` input (off for nightlies), the gate's internal-submission
+    lane, the receipt it writes on a YES, and the dispatch-only submit."""
+
+    @staticmethod
+    def workflow(name: str) -> dict:
+        import yaml  # noqa: PLC0415
+        return yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+
+    @staticmethod
+    def triggers(doc: dict) -> dict:
+        # PyYAML reads the bare key `on` as True.
+        return doc.get("on", doc.get(True))
+
+    def test_nightlies_stay_internal_only(self) -> None:
+        doc = self.workflow("ios-internal-nightly.yml")
+        submittable = self.triggers(doc)["workflow_dispatch"]["inputs"]["submittable"]
+        self.assertEqual((submittable["type"], submittable["default"]), ("boolean", False))
+        self.assertNotIn("submittable", (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text())
+        upload = next(s["run"] for s in doc["jobs"]["upload"]["steps"] if s.get("id") == "upload")
+        self.assertIn("reach=(--internal-only)", upload)
+        self.assertIn('[ "$SUBMITTABLE" != true ] || reach=(--submittable)', upload)
+
+    def test_the_builder_gates_the_exact_ipa_and_writes_a_receipt_only_on_yes(self) -> None:
+        jobs = self.workflow("ios-internal-nightly.yml")["jobs"]
+        gate_job = jobs["review-gate"]
+        self.assertEqual(gate_job["uses"], "./.github/workflows/ios-review-gate.yml")
+        self.assertEqual(gate_job["with"]["lane"], "internal-submission")
+        self.assertEqual(gate_job["with"]["ipa_artifact_name"], "cmux-internal-submission-ipa-${{ github.run_id }}")
+        self.assertIn("inputs.submittable", gate_job["if"])
+        # Run 45038240860: a called workflow gets no secret its caller does not pass, so asc validate had no key.
+        asc_keys = {"ASC_API_KEY_ID", "ASC_API_ISSUER_ID", "ASC_API_KEY_P8_BASE64"}
+        self.assertEqual(gate_job["secrets"], {k: f"${{{{ secrets.{k} }}}}" for k in asc_keys})
+        declared = self.triggers(self.workflow("ios-review-gate.yml"))["workflow_call"]["secrets"]
+        self.assertEqual(set(declared), asc_keys)
+        receipt_if = jobs["submission-receipt"]["if"]
+        for need in ("needs.review-gate.result == 'success'", "needs.review-gate.outputs.blocking == '0'",
+                     "needs.review-gate.outputs.sha == inputs.sha"):
+            self.assertIn(need, receipt_if)
+
+    def test_the_gate_runs_asc_validate_for_internal_submissions_on_the_builder_branch(self) -> None:
+        job = self.workflow("ios-review-gate.yml")["jobs"]["asc-validate"]
+        self.assertIn("needs.plan.outputs.lane == 'internal-submission' && github.ref == 'refs/heads/rc/cnx-ios-builder'", job["if"])
+        self.assertIn("vars.IOS_INTERNAL_APP_ID", job["env"]["ASC_APP_ID"])
+        self.assertIn("options: [appstore, internal, internal-submission]",
+                      (ROOT / ".github/workflows/ios-review-gate.yml").read_text())
+
+    def test_the_submit_workflow_runs_only_by_hand_with_a_confirm(self) -> None:
+        doc = self.workflow("ios-internal-submit.yml")
+        on = self.triggers(doc)
+        self.assertEqual(set(on), {"push", "workflow_dispatch"}, "no schedule, no workflow_call")
+        self.assertEqual(on["push"], {"branches": ["rc/cnx-ios-builder"]})
+        for name, job in doc["jobs"].items():
+            self.assertIn("github.event_name == 'workflow_dispatch'", job["if"], name)
+            self.assertIn("github.ref == 'refs/heads/rc/cnx-ios-builder'", job["if"], name)
+        submit = doc["jobs"]["submit"]["steps"][-1]["run"]
+        self.assertIn('[ "$CONFIRM" != SUBMIT ] || mode=--confirm-submit', submit)
+        self.assertIn("mode=--dry-run", submit)
+
+    def test_the_submission_writes_cmux_internals_own_review_notes(self) -> None:
+        # The INTERNAL record sells nothing: its submit writes review-notes-asc-internal.txt
+        # (asc_review_package.py --config TestFlight) before it validates and submits.
+        steps = self.workflow("ios-internal-submit.yml")["jobs"]["submit"]["steps"]
+        self.assertIn("cmux-next-ios/AppStoreReview", steps[0]["with"]["sparse-checkout"].split())
+        self.assertIn('--build-number "$BUILD_NUMBER" --config TestFlight "$mode"', steps[-1]["run"])
+        script = (ROOT / "cmux-next-ios/scripts/asc_submit_review.sh").read_text()
+        notes_at = script.index('asc_review_package.py" --app "$app" --config "$config" "${notes[@]}"')
+        self.assertLess(notes_at, script.index("asc validate --app"))
+        self.assertIn("[[ $dry_run == 0 ]] || notes+=(--dry-run)", script)
+        proc = subprocess.run(["bash", str(ROOT / "cmux-next-ios/scripts/asc_submit_review.sh"), "submit", "--app", "1",
+                               "--version", "1.2.0", "--build-number", "2", "--dry-run"], capture_output=True, text=True)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("submit needs --config AppStore or TestFlight", proc.stderr)
+
+    def test_the_receipt_round_trips_and_refuses_another_run_or_a_blocker(self) -> None:
+        nightly = self.workflow("ios-internal-nightly.yml")["jobs"]["submission-receipt"]["steps"][0]["run"]
+        check = next(s["run"] for s in self.workflow("ios-internal-submit.yml")["jobs"]["check"]["steps"]
+                     if s.get("id") == "receipt")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "ipa").mkdir()
+            (tmp_path / "ipa/CmuxMobileApp.ipa").write_bytes(b"ipa")
+            import hashlib  # noqa: PLC0415
+            ipa_sum = hashlib.sha256(b"ipa").hexdigest()
+            env = dict(os.environ, RUNNER_TEMP=tmp, GITHUB_STEP_SUMMARY=str(tmp_path / "summary"), SHA="a" * 40,
+                       MARKETING="1.2.0", BUILD_NUMBER="20261122120000", IPA_SHA256=ipa_sum, BLOCKING="0",
+                       GITHUB_RUN_ID="123")
+            self.assertEqual(subprocess.run(["bash", "-e", "-c", nightly], env=env).returncode, 0)
+            receipt = tmp_path / "receipt/submission.json"
+
+            def checked(run: str) -> tuple[int, str]:
+                out = tmp_path / "out"
+                out.write_text("")
+                proc = subprocess.run(["bash", "-e", "-c", check], capture_output=True, text=True,
+                                      env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(out), BUILD_RUN=run))
+                return proc.returncode, out.read_text()
+
+            self.assertEqual(checked("123"), (0, f"marketing=1.2.0\nbuild_number=20261122120000\nsha={'a' * 40}\n"))
+            self.assertEqual(checked("124")[0], 1, "another run's receipt")
+            (tmp_path / "ipa/CmuxMobileApp.ipa").write_bytes(b"other")
+            self.assertEqual(checked("123")[0], 1, "an IPA that is not the gated one")
+            (tmp_path / "ipa/CmuxMobileApp.ipa").write_bytes(b"ipa")
+            receipt.write_text(json.dumps(dict(json.loads(receipt.read_text()), blocking="2")))
+            self.assertEqual(checked("123")[0], 1, "a gate with blockers")
+
+    def test_scripts_refuse_an_internal_only_submission_and_a_submit_without_a_mode(self) -> None:
+        proc = subprocess.run(["bash", str(ROOT / "cmux-next-ios/scripts/testflight-build.sh"), "--submittable", "--internal-only"],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--internal-only would keep an App Store build out of App Review", proc.stderr)
+        submit = ROOT / "cmux-next-ios/scripts/asc_submit_review.sh"
+        for args, message in ((["submit", "--app", "6791408425", "--version", "1.2.0", "--build-number", "1"],
+                               "exactly one of --dry-run or --confirm-submit"),
+                              (["submit", "--app", "6791408425", "--version", "1.2.0", "--build-number", "1",
+                                "--dry-run", "--confirm-submit"], "exactly one of --dry-run or --confirm-submit"),
+                              (["attach", "--app", "x", "--version", "1.2.0", "--build-number", "1"], "--app must be"),
+                              (["release"], "attach or submit")):
+            proc = subprocess.run(["bash", str(submit), *args], capture_output=True, text=True)
+            self.assertNotEqual(proc.returncode, 0, args)
+            self.assertIn(message, proc.stderr, args)
 
 
 if __name__ == "__main__":

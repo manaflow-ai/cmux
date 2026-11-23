@@ -231,7 +231,8 @@ public final class AgentTurnStateFeed {
         case initialized(follows: Bool)
         /// A follow's reply (id 2, ``AgentWatchFollow``).
         case follow(AgentWatchFollow)
-        /// `_acpmux/lagged {watch: true}`: acpmux dropped pushes of the watch.
+        /// `_acpmux/lagged` with no `sessionIds` (acpmux sends `{dropped}`, `server/fanout.rs`;
+        /// `{watch: true}` too): acpmux dropped pushes of the watch.
         case lagged
 
         /// A pending push of a chat (or of a peer's row of it) is replaced by a newer one of the
@@ -280,7 +281,7 @@ public final class AgentTurnStateFeed {
                       let peer = params["peer"] as? String, !peer.isEmpty, let state = params["state"] as? String {
                 self = .peerState(peer: peer, state: state)
             } else if message["method"] as? String == "_acpmux/lagged",
-                      (message["params"] as? [String: Any])?["watch"] as? Bool == true {
+                      (message["params"] as? [String: Any])?["sessionIds"] == nil {
                 self = .lagged
             } else {
                 return nil
@@ -384,13 +385,16 @@ public final class AgentTurnStateFeed {
                 held = whole
             }
             if let peerRow { paging?.changedPeers[session, default: []].insert(peerRow.name) } else { paging?.changed.insert(session) }
-            // Most session records leave the indicator as it was: the store writes (and so
-            // redraws the tabs and rows that read this session) only what differs.
+            // Most records leave the indicator as it was: the store writes (and redraws) only what differs.
+            // A peer's push writes only that peer's row of the session id (its purge removes the row): never
+            // this Mac's state of the id (design audit 2026-11-18 finding 7).
             turns.apply(session: session, sessionName: sessionName, state: state, lastMessage: lastMessage, muted: muted, title: title,
-                        generatedTitle: generatedTitle, detail: detail, source: source, peer: peerRow?.row)
+                        generatedTitle: generatedTitle, detail: detail, source: source, peer: peerRow?.row, peerName: peerRow?.name)
+            // A purge that leaves the record blank drops it.
             if let peerRow, peerRow.row == nil { turns.removePeerRow(peerRow.name, session: session) }
             turns.setStartedBy(startedBy, session: session, source: source)
             if lanes.lanes[session] != lane { lanes.set(session, lane) }
+            if deleted { turns.sessionEnded(session) } // the chat is gone: its record goes too
             if deleted, !isMirror { Self.purged?(session) }
             if let peer, !isMirror { peerSessionChanged?(peer.name, peer.stale) }
         case .usage(let numbers, let next):
@@ -424,8 +428,9 @@ public final class AgentTurnStateFeed {
     static func hold(_ message: Message, in page: inout AgentWatchPage) {
         guard case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
                            let startedBy, _, _, let sessionName, let peerRow, _) = message else { return }
-        page.setSession(session, state: state, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle,
-                        sessionName: sessionName, detail: detail, lane: lane, startedBy: startedBy)
+        // A peer's row keeps this Mac's state of the id as it is, as the store does.
+        page.setSession(session, state: peerRow == nil ? state : page.states[session], lastMessage: lastMessage, muted: muted, title: title,
+                        generatedTitle: generatedTitle, sessionName: sessionName, detail: detail, lane: lane, startedBy: startedBy)
         if let peerRow { page.setPeerRow(session, peer: peerRow.name, row: peerRow.row) }
     }
 

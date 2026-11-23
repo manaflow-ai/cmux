@@ -48,7 +48,7 @@ import Testing
     nonisolated static let variants: [(ChromeStyle, Density)] = ChromeStyle.allCases.flatMap { style in Density.allCases.map { (style, $0) } }
 
     @Test(arguments: variants)
-    func theFirstTabSitsAsFarFromTheLeadingEdgeAsFromTheTop(style: ChromeStyle, density: Density) throws {
+    func theFirstTabKeepsTheStripsEndGap(style: ChromeStyle, density: Density) throws {
         defer { reset() }
         load(style, density: density)
         let model = TabStripModel(tabs: (0..<2).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
@@ -67,16 +67,10 @@ import Testing
         strip.layoutSubtreeIfNeeded()
         let pill = topLeft(try #require(strip.firstTabPillFrame), in: strip, window: window)
         let stripRect = topLeft(strip.bounds, in: strip, window: window)
-        if Metrics.paneBorder != .none {
-            #expect(abs(pill.minX - stripRect.minX) <= 0.01, "\(style) \(density): the first tab starts \(pill.minX - stripRect.minX) pt off the outline")
-            return
-        }
-        // Floating Panes: the card is the content rect; elsewhere the cell is the edge.
-        let visible = Metrics.floatingPanes ? stripRect.minX : 0
-        let visibleTop = Metrics.floatingPanes ? stripRect.minY : 0
-        let leading = pill.minX - visible, top = pill.minY - visibleTop
-        #expect(top > 0, "\(style) \(density): the tab touches the top edge")
-        #expect(abs(leading - top) <= 0.01, "\(style) \(density): \(leading) pt before the first tab, \(top) pt above it")
+        // Lucas 2026-11-15: one gap before the first tab at every density and in every style (`Metrics.tabStripEndGap`),
+        // outlined panes and the flush corner too.
+        let leading = pill.minX - stripRect.minX
+        #expect(abs(leading - TabStripMetrics().endGap(scale: scale)) <= 0.01, "\(style) \(density): \(leading) pt before the first tab")
     }
 
     @Test(arguments: Density.allCases)

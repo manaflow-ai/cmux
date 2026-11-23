@@ -17,7 +17,8 @@ public enum BookmarkStarState: Hashable, Sendable {
 /// it has the keyboard) asks the host to bookmark the page or edit its
 /// bookmark; the host anchors the edit bubble at this view.
 final class BookmarkStarButton: NSView, PointerHoverReporting {
-    private let image = NSImageView()
+    /// The star, its ink in the middle of the plate on whole pixels (`InkCenteredGlyphView`).
+    private let image = InkCenteredGlyphView()
     /// Where the pointer is now (`OmnibarPointer`).
     private var hover: PointerHover?
     private var isHovered: Bool { hover?.isHovering ?? false }
@@ -37,27 +38,24 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     /// Re-applies the star's size when the density or `browser.omnibar.*` sizes change.
     private let density = DensityBinding()
 
-    /// The star draws at `OmnibarStyle.starIconSize`: the toolbar glyph side, so its ink box is the back
-    /// arrow's and the Extensions puzzle's, clamped to the button's frame.
+    /// The star draws at `OmnibarStyle.starIconSize`, its ink centered on the plate on whole pixels (`InkCenteredGlyphView`).
     private func applyImage(size: CGFloat = OmnibarStyle.starIconSize) {
-        image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: size)
+        image.glyph = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: size)
     }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
-        layer?.cornerCurve = .continuous
+        layer?.cornerRadius = OmnibarStyle.starPlateCornerRadius(side: OmnibarStyle.starPlateSize)
+        // Helium's plate has circular corners.
+        layer?.cornerCurve = .circular
         translatesAutoresizingMaskIntoConstraints = false
-        image.translatesAutoresizingMaskIntoConstraints = false
-        image.imageScaling = .scaleNone
+        image.autoresizingMask = [.width, .height]
         addSubview(image)
         NSLayoutConstraint.activate([
-            // The trailing icon with 1 pt around it: 20 pt at Standard.
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.trailingIconSize + 2 },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.trailingIconSize + 2 },
-            image.centerXAnchor.constraint(equalTo: centerXAnchor),
-            image.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // Helium's plate: the bar's height less its edge inset on each side, 24 pt at Compact.
+            density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.starPlateSize },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.starPlateSize },
         ])
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -74,6 +72,13 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layout() {
+        super.layout()
+        // The bar's height can change live (density, `browser.omnibar.height`): the corner follows it.
+        layer?.cornerRadius = OmnibarStyle.starPlateCornerRadius(side: min(bounds.width, bounds.height))
+        image.frame = bounds
+    }
 
     /// The badge takes the whole press (not its image or label) and the first
     /// one in a browser window that is not key: one click acts, as Chrome's
@@ -116,7 +121,13 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         hover?.refresh()
+        // A theme repaint reaches only views in a window: one meanwhile left the star the old theme's ink, and only
+        // a click (a state change) redrew it (https://github.com/manaflow-ai/cmux/issues/50986).
+        if window != nil { needsDisplay = true }
     }
+
+    /// The star's tint now (tests).
+    var shownTint: NSColor? { image.contentTintColor }
 
     nonisolated override var wantsUpdateLayer: Bool { true }
 
@@ -124,7 +135,9 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         // A redraw during a hover fade leaves the fade running.
         if layer?.animation(forKey: "backgroundColor") == nil { paintFill(animated: false) }
         performWithTheme {
-            image.contentTintColor = state == .on ? OmnibarStyle.textPrimary : OmnibarStyle.textSecondary
+            // One ink, hollow or filled: the shape says bookmarked, not the color. The hollow star drew the secondary
+            // tone and the filled one the primary, so a click turned a dim star white (issue 50986).
+            image.contentTintColor = OmnibarStyle.iconInk
         }
     }
 
@@ -132,7 +145,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     private func paintFill(animated: Bool) {
         guard let layer else { return }
         performWithTheme {
-            ChromeHover.paint(layer, isHovered ? OmnibarStyle.chipHoverFill : nil, animated: animated && window != nil)
+            ChromeHover.paint(layer, isHovered ? OmnibarStyle.starHoverFill(isDark: themeScope.tokens.isDark) : nil, animated: animated && window != nil)
         }
     }
 }

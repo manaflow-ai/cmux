@@ -10,6 +10,8 @@ import {
   SNAPSHOT_SHOWN_GLOBAL,
   type SnapshotLive,
 } from "./shared";
+import { watchLaunchSettle } from "../launchSettle";
+import { LIVE_THINKING } from "../conversation/turns";
 
 type Shown = { at: number; swappedAt?: number };
 
@@ -32,6 +34,14 @@ function liveSide(): SnapshotLive {
 /// Whether the boot script drew a snapshot this document still shows.
 export function showsChatSnapshot(): boolean {
   return !!shown() && typeof document !== "undefined" && !!document.querySelector(SNAPSHOT_HOST_TAG);
+}
+
+/// Whether the copy on screen shows a turn still running: its live line (turns.ts LIVE_THINKING),
+/// which a kept tail cannot draw, since it keeps rows and not the turn's state.
+export function copyShowsRunningTurn(): boolean {
+  if (!showsChatSnapshot()) return false;
+  const root = document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot;
+  return !!root?.querySelector(`[data-row-id="${LIVE_THINKING}"]`);
 }
 
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
@@ -154,6 +164,8 @@ export function reportChatSnapshot(
   if (typeof window === "undefined") return;
   const shows = () => {
     void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
+    // The copy is the page's first paint: what moves from here is the launch's settle (launchSettle.ts).
+    watchLaunchSettle(report, SNAPSHOT_HOST_TAG);
     // A click or key while the copy shows ends the copy and does nothing else: the live page under
     // it is at opacity 0, so a press must never act on a control the person can't see (a permission
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
@@ -246,8 +258,13 @@ export function watchChatSnapshot(
       Math.max(0, due),
     );
   };
+  // A change moves the armed timer to its new due time, so the page wakes once when it has been quiet, never to
+  // find it changed and arm again (that re-arm woke a chat at rest after a switch, bench/chat-switch.bench.ts
+  // idle_wakeups). One MutationObserver callback per batch of changes: a clear and a set, no wakeup.
   const observer = new view.MutationObserver(() => {
     changedAt = performance.now();
+    if (timer !== undefined) view.clearTimeout(timer);
+    timer = undefined;
     schedule();
   });
   observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true });

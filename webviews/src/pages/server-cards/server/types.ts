@@ -1,7 +1,7 @@
 // The Mac server's surfaces on the server card page: the menu bar panel (`#/server-panel`), Health
-// (`#/server-health`) and the pairing code (`#/server-pairing`) in the menu bar item's popover, and
-// the Add Server card (`#/add-server`) in the floating card panel. The app answers the ops from one
-// ServerModel (ServerPageProvider.swift); the page derives every layout, button and key (model.ts).
+// (`#/server-health`) and the pairing code (`#/server-pairing`) in the menu bar item's popover. The
+// app answers the ops from one ServerModel (ServerPageProvider.swift); the page derives every layout,
+// button and key (model.ts). Add Server is a native card (AddServerDialog.swift).
 // Times are Unix milliseconds.
 
 export const ServerOps = {
@@ -9,18 +9,6 @@ export const ServerOps = {
   status: "cmux.server.status",
   /** `ServerIntent` → null. The person's own click or key only. */
   send: "cmux.server.send",
-  /** `{code}` → null: the Add Server code field (a complete code is looked up). */
-  setCode: "cmux.server.approver.setCode",
-  /** `{name}` → null: the Name field, read when Approve goes. */
-  setName: "cmux.server.approver.setName",
-  /** `{team}` → null: one of the found server's teams. */
-  setTeam: "cmux.server.approver.setTeam",
-  /** `{on}` → null: run the person's Chief on the server. The person's own click or key. */
-  setRunChief: "cmux.server.approver.setRunChief",
-  // No approve op: Approve and Try Again are the card panel's native control in its own footer under
-  // the page (WebCardPanel's PersonControl), and only the person's click on it adds the server.
-  /** `{}` → null: Cancel or Deny: the draft and the last answer go. */
-  cancel: "cmux.server.approver.cancel",
   /** Stream: one empty event whenever the status may have changed; the page asks again. */
   changes: "cmux.server.changes",
 } as const;
@@ -30,7 +18,6 @@ export const ServerRoutes = {
   panel: "server-panel",
   health: "server-health",
   pairing: "server-pairing",
-  addServer: "add-server",
 } as const;
 
 export type ServerPlatform = "macos" | "linux" | "windows";
@@ -129,47 +116,6 @@ export interface ChiefPlacement {
   lastReply?: number;
 }
 
-export interface ServerTeam {
-  id: string;
-  name: string;
-}
-
-/** The pending server a code points at: what the approver checks before Approve. */
-export interface PairingCandidate {
-  code: string;
-  name: string;
-  os: string;
-  version: string;
-  /** ISO 3166 region code (coarse location). */
-  region?: string;
-  words: string[];
-  teams: ServerTeam[];
-  /** The server can run the person's Chief. */
-  isChiefBrain: boolean;
-}
-
-export type AddServerStepName =
-  | "enterCode"
-  | "lookingUp"
-  | "codeRefused"
-  | "review"
-  | "approving"
-  | "approveFailed"
-  | "added";
-
-export interface ServerApprover {
-  /** Counts the card's openings: the page starts its own field state per opening. */
-  session: number;
-  step: AddServerStepName;
-  candidate?: PairingCandidate;
-  /** The refusal (codeRefused, approveFailed). */
-  reject?: string;
-  /** The added server's name. */
-  added?: string;
-  canApprove: boolean;
-  draft: { code: string; name: string; team?: string; runChief: boolean };
-}
-
 /** Intents in flight the page marks. */
 export interface ServerPending {
   switching: boolean;
@@ -185,7 +131,6 @@ export interface ServerStatus {
   /** The last refusal; cleared by the next intent. */
   lastReject?: string;
   pending: ServerPending;
-  approver: ServerApprover;
 }
 
 export type ServerIntent =

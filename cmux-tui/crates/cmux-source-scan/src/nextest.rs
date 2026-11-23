@@ -206,7 +206,13 @@ impl FilterParser<'_> {
                     matcher = Matcher::Regex;
                     arg = inner;
                 }
-                let value = arg.replace("\\)", ")").replace("\\,", ",");
+                // A string's `\)` and `\,` are the characters; a regex keeps its escapes (`\)` is
+                // a literal `)`), all but `\/`, as nextest reads it (review of cmux#41693, F2).
+                let value = if matcher == Matcher::Regex {
+                    regex_body(arg)
+                } else {
+                    arg.replace("\\)", ")").replace("\\,", ",")
+                };
                 // A regex that does not compile is a configuration error, as nextest says:
                 // read as a filter that matches nothing, it would let the scan come back clean.
                 let regex =
@@ -222,6 +228,28 @@ impl FilterParser<'_> {
             Tok::Op(op) => Err(format!("unexpected {op:?} in {text:?}")),
         }
     }
+}
+
+/// The regex between a filter's slashes: `\/` is a `/`, and every other escape stays for the
+/// regex to read.
+fn regex_body(body: &str) -> String {
+    let mut out = String::with_capacity(body.len());
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('/') => out.push('/'),
+            Some(next) => {
+                out.push('\\');
+                out.push(next);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 /// `*`, `?` and `[...]` (`[!...]` negated), all of `value`.

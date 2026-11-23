@@ -137,7 +137,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
-                    // ask-87d30da8e5: the chrome takes the theme and wallpaper of the Mac.
+                    // ask-87d30da8e5: on (the default), the chrome, wallpaper, accent (until one is picked) and
+                    // terminals follow the Mac's theme; off, the phone's own stock look. Leo, 2026-11-22: "if you
+                    // want it different, then it's a toggle."
                     Toggle(isOn: $macTheme.matchesMac) {
                         SettingsLabel("Match Mac theme", symbol: "macbook.and.iphone")
                     }
@@ -183,9 +185,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     LinkRow("Join the cmux Discord", symbol: "bubble.left.and.bubble.right", url: "https://discord.gg/xsgFEVrWCZ")
                     LinkRow("Follow @cmux on X", symbol: "at", url: "https://x.com/cmux")
                     LinkRow("cmux on GitHub", symbol: "chevron.left.forwardslash.chevron.right", url: "https://github.com/manaflow-ai/cmux")
-                    // The new-issue page, not the Mac's prefilled bug report form: that form requires a macOS
-                    // version, a Mac chip and an install method, none of which an iPhone report has.
-                    LinkRow("Send feedback", symbol: "envelope", url: "https://github.com/manaflow-ai/cmux/issues/new")
+                    // The Mac's bug report form, marked so HQ counts the report (FeedbackFormLink); its macOS,
+                    // chip and install fields describe the paired Mac.
+                    LinkRow("Send feedback", symbol: "envelope", url: Self.feedbackURL)
                         .accessibilityIdentifier("settings.sendFeedback")
                     CopyLogsRow()
                     LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
@@ -210,6 +212,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     .accessibilityIdentifier("settings.logout")
                     .confirmationDialog("Sign out of cmux?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
                         Button("Sign out", role: .destructive) { Task { await auth.signOut() } }
+                        Button("Cancel", role: .cancel) {}
                     }
                 } footer: {
                     VersionFooter().id("bottom")
@@ -289,9 +292,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .terminal: TerminalPage(settings: settings)
         case .terminalSizing: TerminalSizingMacsPage(store: store)
         case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
-        case .composer: ComposerPage(settings: settings)
+        case .composer: ComposerPage(settings: settings, voice: callPreferences)
         case .accentColor: AccentColorPage(accents: accentTheme)
-        case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs)
+        case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs,
+                                                       permission: notificationPermission)
         case .acknowledgements: AcknowledgementsPage()
         case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
         case .screenSharing:
@@ -303,6 +307,16 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .longPressMenus:
             LongPressMenusPage()
         }
+    }
+
+    /// Settings > Send feedback: the bug report form with HQ's report marker (FeedbackFormLink).
+    static var feedbackURL: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        return FeedbackFormLink.url(
+            appVersion: info["CFBundleShortVersionString"] as? String ?? "?",
+            build: info["CFBundleVersion"] as? String ?? "?",
+            osVersion: UIDevice.current.systemVersion
+        ).absoluteString
     }
 }
 
@@ -528,7 +542,7 @@ struct AppearanceTiles: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
@@ -589,6 +603,12 @@ private struct DeveloperSection: View {
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
     @AppStorage(DeveloperOptions.slowApprovalKey) private var slowApproval = false
     @State private var launchedWithMock = DeveloperOptions.mockData
+    /// The Cloud service this launch uses and where it came from (the tag's `CMUX_NEXT_CLOUD_BACKEND`,
+    /// kept from an earlier launch, a rig's variable, or the build's own).
+    @State private var cloudBackend = CloudBackendOverride.cloudService(
+        environment: ProcessInfo.processInfo.environment,
+        infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileCloudAPIBase") as? String,
+        defaults: .standard, debug: true)
 
     var body: some View {
         let mock = DeveloperOptions.mockSwitch(stored: mockData)
@@ -620,6 +640,15 @@ private struct DeveloperSection: View {
                     .foregroundStyle(theme.colors.label3)
                     .lineLimit(1)
             }
+            HStack {
+                SettingsLabel("Cloud backend", symbol: "cloud")
+                Spacer()
+                Text(verbatim: cloudBackend?.label ?? "None")
+                    .foregroundStyle(theme.colors.label3)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .accessibilityIdentifier("settings.developer.cloudBackend")
             if mockData != launchedWithMock || !launchDemo.isEmpty {
                 Button(role: .destructive) {
                     exit(0)

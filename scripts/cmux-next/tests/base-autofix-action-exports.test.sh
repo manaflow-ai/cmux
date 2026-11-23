@@ -15,12 +15,15 @@ land_script="$here/../base-autofix-land.sh"
 mac_script="$here/../base-autofix-action-exports.sh"
 tmp="$(mktemp -d)"
 git_fixture_trap_exit 'rm -rf "$tmp"'
+# shellcheck source=scripts/cmux-next/tests/lib/action-parity-stub.sh
+source "$here/lib/action-parity-stub.sh"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 fail() { echo "FAIL: $*" >&2; exit 1; }
 actions_src=Packages/macOS/CmuxNext/Sources/CmuxNextActions/Actions.swift
 surfaces=plans/cmux-next/action-surfaces.json
 md=plans/cmux-next/actions.md
 links=plans/cmux-next/links.json
+dump=plans/cmux-next/action-catalog.json
 
 # A remote at one base commit; a bot clone holding the repair (new action exports) on top of it;
 # a lane clone that pushes other people's commits.
@@ -31,12 +34,12 @@ setup() {
   (cd "$tmp/lane" && git checkout -q -b feat \
     && mkdir -p "$(dirname "$actions_src")" plans/cmux-next web/scripts \
     && echo "action v1" > "$actions_src" && echo "surfaces old" > "$surfaces" && echo "md old" > "$md" \
-    && echo "links old" > "$links" && echo "export v1" > web/scripts/export-docs-shortcuts.ts && echo readme > README.md \
+    && echo "dump old" > "$dump" && echo "links old" > "$links" && echo "export v1" > web/scripts/export-docs-shortcuts.ts && echo readme > README.md \
     && git add -A && git commit -q -m base && git push -q origin feat)
   git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"
   base="$(git -C "$tmp/bot" rev-parse HEAD)"
   (cd "$tmp/bot" && echo "surfaces new" > "$surfaces" && echo "md new" > "$md" \
-    && git commit -q -am "chore(next): base autofix at ${base:0:12}")
+    && echo "dump new" > "$dump" && git commit -q -am "chore(next): base autofix at ${base:0:12}")
 }
 lane_commit() { # <subject> <file> <text> [<file> <text>]...
   local subject="$1"; shift
@@ -72,6 +75,7 @@ push_at "$made" > "$tmp/out" 2>&1 || fail "action exports whose inputs moved aft
 [[ "$(git -C "$tmp/remote.git" rev-parse feat^)" == "$moved" ]] || fail "the progress is not on top of the newest tip"
 [[ "$(remote_show "$surfaces")" == "surfaces new" ]] || fail "action-surfaces.json made at T1 did not land as progress"
 [[ "$(remote_show "$md")" == "md new" ]] || fail "actions.md made at T1 did not land with it"
+[[ "$(remote_show "$dump")" == "dump new" ]] || fail "the full catalog did not land with its surface export"
 [[ "$(remote_show "$actions_src")" == "action v3" ]] || fail "the progress overwrote the newer action source"
 grep -q "::warning::.*land as progress" "$tmp/out" || fail "landing progress raises no warning: $(cat "$tmp/out")"
 
@@ -235,6 +239,7 @@ n="$(( $(cat "$FAKE_COUNT" 2>/dev/null || echo 0) + 1 ))"; echo "$n" > "$FAKE_CO
 source="$(cat Packages/macOS/CmuxNext/Sources/CmuxNextActions/Actions.swift)"
 echo "surfaces for $source" > plans/cmux-next/action-surfaces.json
 echo "md for $source" > plans/cmux-next/actions.md
+echo "dump for $source" > plans/cmux-next/action-catalog.json
 case "$FAKE_MOVE" in
   always | once) [[ "$FAKE_MOVE" == always || "$n" == 1 ]] || exit 0
     file=Packages/macOS/CmuxNext/Sources/CmuxNextActions/Actions.swift text="action moved $n" ;;
@@ -282,6 +287,7 @@ mac_run none > "$tmp/out" 2>"$tmp/err" || fail "a regeneration on the tip the qu
 grep -qx "made at: $tip" "$tmp/out" || fail "the exports are not made at the newest tip: $(cat "$tmp/out")"
 [[ "$(cat "$tmp/count")" == 1 ]] || fail "it regenerated $(cat "$tmp/count") times, not once on the tip"
 [[ "$(cat "$tmp/mac-out/$surfaces")" == "surfaces for action v2" ]] || fail "the export is not the tip's"
+[[ "$(cat "$tmp/mac-out/$dump")" == "dump for action v2" ]] || fail "the tip's full catalog was omitted"
 [[ "$(head -1 "$tmp/prepared")" == "$tip" ]] || fail "the tip was not prepared before its regeneration"
 [[ "$(tail -1 "$tmp/prepared")" == "$start" ]] || fail "the run's commit was not prepared again for the steps after"
 mac_head_is_start || fail "the checkout is not back at the run's commit"

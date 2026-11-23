@@ -20,6 +20,11 @@ old 100 MiB cap, with marked pages at its start, middle and end, is streamed by 
 `LinkUpload.upload(fileAt:)` over the paired link to the Mac's Chat Folder; it passes when the file
 lands in `<folder>/.cmux/attachments/phone-<session>/` with the same size and SHA-256 and the app's
 memory footprint grew by less than a fifth of the file (no whole-file Data).
+Once paired, the theme-file leg: the rig's cmux-next.json names a theme file (`<rig>/themes/pair-e2e.json`),
+the phone opens the Mac's terminal, and ten atomic saves alternating two terminal backgrounds are each
+timed from the save to the phone's `terminal theme of ... background #hex` log line (with the Mac's
+hand-off to hostd and hostd's publish as hops); then a refused value and a half-written file must leave
+the phone's background as it was while the Mac's notice names the file.
 With CMUX_IOS_CLOUD_PROOF_FILE, also opens a probe-owned real Cloud session on
 the paired phone, copies its history, sends a fresh challenge, reads the
 assistant reply, and taps an injected notification. That injection proves
@@ -44,8 +49,15 @@ signal, and hostd refuses a dial whose `fromUserId` is not the Mac's owner); a l
 have to fake that stamp, so it would test around the very check this proves. The account is the
 in-source DEBUG dev credential of the dev Stack project (the one verify/e2e/mac.py uses), not a
 production or personal account and not a secret.
+
+A step sent with `cmux-ci run --sign-in agent` carries no email or password: it gets the agent
+account's own session instead (CMUX_CI_SIGNIN_FILE, the file scripts/lib/fleet-signin-session.sh
+reads for handoff mode). With no email and password set, both apps start signed in from it: the
+phone from its DEBUG launch environment (CMUX_MOBILE_STACK_REFRESH_TOKEN, adopted while it holds no
+session), the Mac from its own token store file, written before its launch. The refresh token is
+never printed, and is in no argv and no artifact.
 """
-import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, socket, subprocess, sys, threading, time
+import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, socket, stat, statistics, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -69,8 +81,10 @@ def redact(text):
 def shows_a_code():
     """Whether this ref's Mobile Pairing page sends a pairing code (`qr`): on a ref without it no
     code is the expected "before"; on one with it, no code is a failure."""
-    src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")
-    return os.path.exists(src) and 'reply["qr"]' in open(src).read()
+    sources = ("Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobilePairingPageProvider.swift",
+               "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")  # before the move
+    paths = [os.path.join(ROOT, src) for src in sources]
+    return any(os.path.exists(path) and 'reply["qr"]' in open(path).read() for path in paths)
 
 
 def has_upload_probe():
@@ -104,11 +118,41 @@ def takes_pair_url_env():
     return os.path.exists(src) and '"CMUX_MOBILE_PAIR_URL"' in open(src).read()
 
 
+def signin_session():
+    """The step's own agent session ({email, project, refresh_token}) from `cmux-ci run --sign-in agent`
+    (CMUX_CI_SIGNIN_FILE), with the checks of scripts/lib/fleet-signin-session.sh; None when the step has
+    none. A file that fails them stops the run with the reason, never a value."""
+    path = os.environ.get("CMUX_CI_SIGNIN_FILE", "")
+    if not path:
+        return None
+    try:
+        info = os.lstat(path)
+    except OSError:
+        info = None
+    if info is None or not stat.S_ISREG(info.st_mode):
+        raise SystemExit("the sign-in session file is not a regular file")
+    if stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid():
+        raise SystemExit(f"the sign-in session file must be this user's, mode 0600 "
+                         f"(it is {info.st_uid}, {stat.S_IMODE(info.st_mode):o})")
+    try:
+        with open(path) as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        doc = None
+    keys = ("email", "project", "refresh_token")
+    values = {k: str(doc.get(k, "")) for k in keys} if isinstance(doc, dict) else {}
+    if (not values or doc.get("profile") != "agent" or "@" not in values["email"] or not values["project"]
+            or not values["refresh_token"] or any("\n" in v or "\r" in v for v in values.values())):
+        raise SystemExit("the sign-in session file is not an agent session (profile, email, project, refresh_token)")
+    return values
+
+
 def dev_credential():
-    """(email, password) of the DEBUG dev account, from the environment (`CMUX_UITEST_STACK_EMAIL` /
+    """The DEBUG dev account: {email, password} from the environment (`CMUX_UITEST_STACK_EMAIL` /
     `CMUX_UITEST_STACK_PASSWORD`, the names the app reads), else from the CI auth profile
     (`~/.secrets/cmuxterm-dev.env`, which ios-e2e.yml materializes from the existing dogfood secrets
-    under those same names); the source holds no credential."""
+    under those same names), else the step's own agent session ({email, project, refresh_token},
+    signin_session); the source holds no credential."""
     keys = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
     found = {k: os.environ.get(k, "") for k in keys}
     profile = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
@@ -117,10 +161,59 @@ def dev_credential():
             k, sep, v = line.rstrip("\n").partition("=")
             if sep and k in keys and not found[k]:
                 found[k] = v
-    if not all(found.values()):
-        raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
-                         "(or provide ~/.secrets/cmuxterm-dev.env)")
-    return found[keys[0]], found[keys[1]]
+    if all(found.values()):
+        return {"email": found[keys[0]], "password": found[keys[1]]}
+    session = signin_session()
+    if session:
+        return session
+    raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
+                     "(or provide ~/.secrets/cmuxterm-dev.env), or send the step with cmux-ci run --sign-in agent")
+
+
+def mac_token_store(app, bundle, exe, env, project, home):
+    """The tagged Mac app's own token store file for `project` (FileStackTokenStore's credentials.json in
+    CloudConfiguration.credentialsDirectory under `home`, the app's FileManager home). The app is signed ad
+    hoc (no_data_protection_keychain) and the rig's keychain holds no item of its bundle, so it restores its
+    session from this file. The folder's namespace is the Cloud selection the app itself reads at launch
+    (its bundled `cmux --json cloud env get`, asked here with the app's own environment and arguments); the
+    folder is under the tag's `cmux-next/<bundle>` or `cmux/<bundle>`, which forget_tag removes."""
+    cli = os.path.join(app, "Contents/Resources/bin/cmux")
+    try:
+        got = subprocess.run([cli, "--json", "cloud", "env", "get", "--cache-first", "--launch-args", json.dumps([exe])],
+                             env=dict(env, CMUX_BUNDLE_ID=bundle), capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, timeout=60)
+        selection = json.loads(got.stdout) if got.returncode == 0 else None
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        raise SystemExit(f"the Mac app's Cloud selection: {type(error).__name__}") from None
+    if not isinstance(selection, dict):
+        raise SystemExit(f"the Mac app's Cloud selection: cmux cloud env get exited {got.returncode}: "
+                         f"{redact(got.stderr.strip())[-300:]}")
+    if selection.get("bundle_id") != bundle:
+        raise SystemExit("the Mac app's Cloud selection belongs to another bundle")
+    if selection.get("stack_project_id") != project:
+        raise SystemExit("the sign-in session is for another Stack project than the Mac app's Cloud selection "
+                         f"({selection.get('name')!r}): the Mac could not use it")
+    namespace = selection.get("auth_storage_namespace") if selection.get("legacy_storage") else selection.get("auth_namespace")
+    parts = [home, "Library", "Application Support", "cmux-next" if namespace else "cmux", bundle]
+    return os.path.join(*parts, *([namespace] if namespace else []), "credentials.json")
+
+
+def write_mac_session(path, refresh_token):
+    """The session's refresh token in the Mac app's token store file (0600 in a 0700 folder), as the app
+    writes it; the app trades it for an access token at launch."""
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        json.dump({"refreshToken": refresh_token}, f)
+
+
+def mac_session_refreshed(path):
+    """Whether the Mac app has written an access token beside the refresh token it was given (it signed
+    in from the session); reads the file, prints nothing of it."""
+    try:
+        with open(path) as f:
+            return bool(json.load(f).get("accessToken"))
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def machine_id(bundle_id):
@@ -215,7 +308,8 @@ def main():
     support = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "Library/Application Support", mac_bundle)
     rig = os.path.join(a.work, "pair-rig")  # written only once cleanup is armed (below)
     config = os.path.join(rig, "cmux-next.json")
-    email, password = dev_credential()
+    account = dev_credential()
+    email = account["email"]
     probe = has_upload_probe()
     # The upload leg's Mac folder: a Chat Folder (agents.chats.roots), which hostd shares
     # (CMUX_MOBILE_FILE_ROOTS), so an upload with it as `cwd` lands in its .cmux/attachments.
@@ -232,6 +326,8 @@ def main():
                # (step 423a0bae's showed only other Macs) and name no host.
                CMUX_NEXT_MOBILE_DEVICE_NAME=RIG_MAC_NAME,
                CMUX_NEXT_SOCKET_MODE="automation")
+    # The theme-file leg's folder: `themes/` beside the rig's cmux-next.json (ThemeFileSetting).
+    themes_dir = os.path.join(rig, "themes")
 
     def rpc(method, params=None, timeout=30):
         try:
@@ -280,7 +376,12 @@ def main():
         return f"screens/{name}.png" if r.get("path") else f"no snapshot ({r.get('error')})"
 
     simctl = ["xcrun", "simctl", "--set", a.sims]
-    phone_env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL=email, SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=password)
+    if "password" in account:
+        phone_env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL=email,
+                         SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=account["password"])
+    else:
+        # The step's session (handoff mode's launch): the DEBUG app adopts it while it holds no session.
+        phone_env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN=account["refresh_token"])
 
     def phone_launch():
         """cmux on iPhone on Settings > Devices, signed in to the dev account (DEBUG launch environment)."""
@@ -292,9 +393,34 @@ def main():
         subprocess.run(simctl + ["io", a.udid, "screenshot", os.path.join(screens, f"{name}.png")], capture_output=True)
         return f"screens/{name}.png"
 
+    def phone_settled(timeout=20.0):
+        """Until the phone's screen holds still (3 screenshots in a row the same, 0.5 s apart): the Devices list
+        loads from the service after live data starts. Best effort: past TIMEOUT it notes it and goes on."""
+        probe = os.path.join(screens, ".settle-probe.png")
+        deadline, last, same = time.monotonic() + timeout, None, 0
+        try:
+            while time.monotonic() < deadline:
+                subprocess.run(simctl + ["io", a.udid, "screenshot", probe], capture_output=True)
+                try:
+                    digest = hashlib.sha256(open(probe, "rb").read()).hexdigest()
+                except OSError:
+                    digest = None
+                same = same + 1 if digest is not None and digest == last else 0
+                if same >= 2:
+                    return True
+                last = digest
+                time.sleep(0.5)
+            note(f"- phone: the screen never held still in {timeout:.0f} s; capturing it as it is")
+            return False
+        finally:
+            try:
+                os.remove(probe)
+            except OSError:
+                pass
+
     teardown = TagTeardown(a.mac_app)
     teardown.install()
-    streams, app, paired, url, uploaded = [], None, None, None, not probe
+    streams, app, paired, url, uploaded, theme_ok = [], None, None, None, not probe, True
     # The discovery leg: the phone's Allow request reaches the running Mac in seconds, and a Mac
     # restart with a second identity key beside its Keychain key heals with no action on the phone.
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
@@ -304,18 +430,29 @@ def main():
     try:
         note(f"- Keychain: {keychain.start()}")
         os.makedirs(rig, mode=0o700, exist_ok=True)
-        settings = {"mobile": {"allowIPhoneConnections": True}}
+        # The Mac's look comes from a theme file the theme-file leg saves over (theme A at launch).
+        settings = {"mobile": {"allowIPhoneConnections": True}, "appearance": {"themeFile": THEME_FILE_NAME}}
+        os.makedirs(themes_dir, mode=0o700, exist_ok=True)
+        write_theme_file(themes_dir, theme_file_text(THEME_FILE_LOOKS[0]))
         if probe:
             os.makedirs(upload_root, mode=0o700)
             settings["agents"] = {"chats": {"roots": [upload_root]}}
         with open(config, "w") as f:
             json.dump(settings, f)
+        # With a session, the explicit file names no account: the app signs in from no file (not even the
+        # account home's ambient ones) and restores the session put in its token store below.
         with os.fdopen(os.open(creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
-            f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={password}\n")
+            if "password" in account:
+                f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={account['password']}\n")
         if os.path.exists(sock):
             os.unlink(sock)  # this run's own tag
         plist = plistlib.load(open(os.path.join(a.mac_app, "Contents/Info.plist"), "rb"))
         exe = os.path.join(a.mac_app, "Contents/MacOS", plist["CFBundleExecutable"])
+        if "refresh_token" in account:
+            store = mac_token_store(a.mac_app, mac_bundle, exe, env, account["project"],
+                                    pwd.getpwuid(os.getuid()).pw_dir)
+            write_mac_session(store, account["refresh_token"])
+            note("- account: the step's agent session (cmux-ci run --sign-in agent), on the Mac and the phone")
         app_out = Stream([exe], os.path.join(a.out, "mac-app.log"), env=env)
         app = app_out.proc
         streams.append(app_out)
@@ -332,6 +469,10 @@ def main():
             raise SystemExit("the Mac app never answered on its control socket")
         teardown.remember()
         note(f"- Mac app {mac_bundle}: pid {app.pid}, control socket in {time.monotonic() - t0:.0f} s")
+        if "refresh_token" in account:
+            # Evidence only (the pairing page's own wait judges the run): a Keychain write would empty the file.
+            refreshed = wait_for(lambda: mac_session_refreshed(store), 30, every=2)
+            note(f"- Mac session: {'an access token from the step session in its token store file' if refreshed else 'no access token in its token store file in 30 s'}")
         pairing_logs = f'processID == {app.pid} AND subsystem == "com.cmuxterm.app.next" AND category BEGINSWITH "app.iphone"'
         streams.append(mac_log := Stream(["/usr/bin/log", "stream", "--level", "info", "--style", "compact",
                                           "--predicate", pairing_logs], os.path.join(a.out, "mac-pairing.log")))
@@ -379,7 +520,7 @@ def main():
         live = phone_log.wait(re.compile(r"live data on"), 90)
         if discovery:
             ask_ok = discovery_ask(mac_log, phone_log, asked_from, status, rpc, note)
-        time.sleep(5)  # bounded: the Devices list loads from the service after live data starts
+        phone_settled()  # the Devices list loads from the service after live data starts
         note(f"- phone: {'signed in, live data' if live else 'NO live data in 90 s'}; Settings > Devices "
              f"{phone_shot('phone-devices')}")
 
@@ -426,8 +567,15 @@ def main():
                  f"phone {phone_shot('phone-paired')}; Mac {mac_shot('mac-pairing-paired')}")
             phone_launch()
             phone_log.wait(re.compile(r"live data on"), 60)
-            time.sleep(5)  # bounded, as above
+            phone_settled()  # the Devices list loads from the service after live data starts
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
+            if paired:
+                try:
+                    theme_ok = theme_file_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, mac_log, phone_shot,
+                                              rpc, screens, themes_dir, support, a.out, note)
+                except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
+                    theme_ok = False
+                    note(f"- theme-file repaint: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
             if paired and probe:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
@@ -476,11 +624,201 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok else 1
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
+
+
+# The theme-file leg: the rig's cmux-next.json names this theme file (`<rig>/themes/<name>.json`), and
+# the leg saves looks A and B over it in turn. Each names a built-in Ghostty theme and its own terminal
+# colors (`colors` edit that theme), foreground on background well over 4.5:1, so the contrast guard
+# keeps them as written.
+THEME_FILE_NAME = "pair-e2e"
+THEME_FILE_LOOKS = [
+    {"appearance.theme": "Nord", "colors": {"background": "#14233a", "foreground": "#e6edf5"}},
+    {"appearance.theme": "Nord", "colors": {"background": "#3a1430", "foreground": "#f5e6ef"}},
+]
+THEME_FILE_SAMPLES = 10
+THEME_FILE_WAIT = 30  # seconds for one save to reach the phone
+THEME_FILE_HOLD = 5  # seconds a bad save must leave the phone's terminal as it was
+PHONE_THEME = re.compile(r"terminal theme of .*background (#[0-9a-fA-F]{6})")
+
+
+def theme_file_text(look):
+    return json.dumps(look, indent=2) + "\n"
+
+
+def write_theme_file(themes_dir, text):
+    """Saves the active theme file as an editor's atomic save does: a new file renamed over it."""
+    path = os.path.join(themes_dir, f"{THEME_FILE_NAME}.json")
+    temp = path + ".saving"
+    with open(temp, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp, path)
+
+
+def percentile(values, fraction):
+    """The median, or the nearest-rank percentile."""
+    if fraction == 0.5:
+        return statistics.median(values)
+    ordered = sorted(values)
+    return ordered[max(0, min(len(ordered) - 1, math.ceil(fraction * len(ordered)) - 1))]
+
+
+def hostd_appearance_lines(support):
+    """hostd's `published a changed appearance` lines: (UTC epoch seconds, terminal background, line)."""
+    found = []
+    for path in glob.glob(os.path.join(support, "**/cmux-mobile-host.log"), recursive=True):
+        for line in open(path, errors="replace"):
+            if "published a changed appearance" not in line:
+                continue
+            m = re.match(r"\s*(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z", line)
+            bg = re.search(r"terminal_background=(\S+)", line)
+            if not m:
+                continue
+            seconds = calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S")) + float("0." + (m.group(2) or "0"))
+            found.append((seconds, (bg.group(1) if bg else "none").strip('"').lower(), line))
+    return sorted(found)
+
+
+def terminal_share(bmp_path, colors, tolerance=12):
+    """The share of a BMP screenshot's (sampled) pixels within `tolerance` of each `#rrggbb` color."""
+    data = open(bmp_path, "rb").read()
+    if data[:2] != b"BM":
+        return None
+    offset = int.from_bytes(data[10:14], "little")
+    width = int.from_bytes(data[18:22], "little", signed=True)
+    height = abs(int.from_bytes(data[22:26], "little", signed=True))
+    bpp = int.from_bytes(data[28:30], "little")
+    if bpp not in (24, 32) or width <= 0:
+        return None
+    step, row = bpp // 8, ((bpp * width + 31) // 32) * 4
+    targets = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in colors]
+    hits, total = [0] * len(targets), 0
+    for y in range(0, height, 6):
+        base = offset + y * row
+        for x in range(0, width, 6):
+            p = base + x * step
+            b, g, r = data[p], data[p + 1], data[p + 2]
+            total += 1
+            for i, (tr, tg, tb) in enumerate(targets):
+                if abs(r - tr) <= tolerance and abs(g - tg) <= tolerance and abs(b - tb) <= tolerance:
+                    hits[i] += 1
+    return [h / total for h in hits] if total else None
+
+
+def theme_file_leg(simctl, udid, bundle_id, phone_env, phone_log, mac_log, phone_shot, rpc, screens, themes_dir,
+                   support, out, note):
+    """A theme file saved on the Mac repaints the paired iPhone's terminal (the `appearance` channel):
+    the phone opens the Mac's first terminal (DEBUG demo `live-terminal`), then the leg saves looks A
+    and B in turn, each timed from the save to the phone's `terminal theme of ... background #hex`
+    line, with the Mac's hand-off to hostd and hostd's publish as the hops between. Then a refused
+    value and a half-written file: the phone keeps the last good background, and the Mac's notice
+    names the file. Returns whether the leg passed."""
+    ok = True
+    since = time.monotonic()
+    subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-terminal"],
+                   env=phone_env, check=True, capture_output=True)
+    shown = phone_log.wait_at(re.compile(r"demo step: live-terminal (shown|no \w+)"), 240, since=since)
+    outcome = shown[1].group(1) if shown else "timed out"
+    looks = THEME_FILE_LOOKS
+    hexes = [look["colors"]["background"] for look in looks]
+    first = phone_log.wait_at(re.compile(rf"terminal theme of .*background {hexes[0]}", re.I), THEME_FILE_WAIT, since=since)
+    mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "theme-file-mac-window.png")}, timeout=60)
+    mac_line = "screens/theme-file-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
+    note(f"- theme-file: phone live-terminal {outcome}; theme A ({hexes[0]}) on the phone "
+         f"{'before the first save' if first else f'NOT seen in {THEME_FILE_WAIT} s'}; Mac {mac_line}")
+
+    samples = []  # (index, hex, write->phone ms, write->Mac sent ms, write->hostd ms)
+    current = 0
+    for i in range(THEME_FILE_SAMPLES):
+        current = (i + 1) % len(looks)
+        target = hexes[current]
+        mark = time.monotonic()
+        t_write = time.time()
+        write_theme_file(themes_dir, theme_file_text(looks[current]))
+        hit = phone_log.wait_at(re.compile(rf"terminal theme of .*background {target}", re.I), THEME_FILE_WAIT, since=mark)
+        if not hit:
+            ok = False
+            note(f"- theme-file sample {i + 1}: TIMEOUT, no phone terminal theme with background {target} in {THEME_FILE_WAIT} s")
+            break
+        t_phone = log_time(hit[1].string) or (time.time() - (time.monotonic() - hit[0]))
+        sent = mac_log.wait_at(re.compile(rf"appearance to hostd: .*terminal background {target}", re.I), 5, since=mark)
+        t_sent = log_time(sent[1].string) if sent else None
+        samples.append([i + 1, target, (t_phone - t_write) * 1000, (t_sent - t_write) * 1000 if t_sent else None,
+                        None, t_write])
+    if samples and ok:
+        shot = phone_shot("theme-file-phone")
+        bmp = os.path.join(out, "theme-file-phone.bmp")
+        subprocess.run(simctl + ["io", udid, "screenshot", "--type=bmp", bmp], capture_output=True)
+        share = terminal_share(bmp, [hexes[current], hexes[1 - current]]) if os.path.isfile(bmp) else None
+        if os.path.isfile(bmp):
+            os.unlink(bmp)
+        if share is None:
+            note(f"- theme-file last screen: {shot}; background pixels not checked (no BMP screenshot)")
+        else:
+            matches = share[0] >= 0.05 and share[0] > share[1]
+            ok = ok and matches
+            note(f"- theme-file last screen: {shot}; {share[0]:.0%} of sampled pixels are {hexes[current]}, "
+                 f"{share[1]:.0%} the other look's {hexes[1 - current]}: {'PASS' if matches else 'FAIL'}")
+
+    # hostd's publish of each change (its own log, UTC, read once the samples are in).
+    published = hostd_appearance_lines(support)
+    with open(os.path.join(out, "hostd-appearance.log"), "w") as f:
+        f.writelines(redact(line) for _, _, line in published)
+    for sample in samples:
+        hop = next((t for t, bg, _ in published if bg == sample[1].lower() and t >= sample[5] - 0.05), None)
+        sample[4] = (hop - sample[5]) * 1000 if hop else None
+    if samples:
+        phone_ms = [s[2] for s in samples]
+        note(f"- theme-file repaint: n={len(phone_ms)} min {min(phone_ms):.0f} ms, median "
+             f"{percentile(phone_ms, 0.5):.0f} ms, p95 {percentile(phone_ms, 0.95):.0f} ms"
+             f"{'' if ok and len(samples) == THEME_FILE_SAMPLES else ' (FAIL)'}")
+        for name, column in (("Mac sent to hostd", 3), ("hostd published", 4)):
+            values = [s[column] for s in samples if s[column] is not None]
+            note(f"- theme-file hop, save to {name}: " + (
+                f"n={len(values)} min {min(values):.0f} ms, median {percentile(values, 0.5):.0f} ms, p95 "
+                f"{percentile(values, 0.95):.0f} ms" if values else "no timestamps read"))
+        note("- theme-file samples (save to Mac sent / hostd published / phone, ms): " + "; ".join(
+            f"{s[0]} {s[1]} {'-' if s[3] is None else f'{s[3]:.0f}'}/{'-' if s[4] is None else f'{s[4]:.0f}'}/{s[2]:.0f}"
+            for s in samples))
+    if not ok:
+        return False
+
+    # A refused value, then a half-written file: the phone keeps the last good background, and the
+    # Mac's settings notice (its toast) names the theme file.
+    good = hexes[current]
+    other = re.compile(rf"terminal theme of .*background (?!{good})#[0-9a-fA-F]{{6}}", re.I)
+    file_label = f"themes/{THEME_FILE_NAME}.json"
+    bad = [("a refused appearance.accent \"purple\"", theme_file_text({**looks[current], "appearance.accent": "purple"})),
+           ("a half-written file", theme_file_text(looks[current])[:20])]
+    results, fallback_ok, seen = [], True, set()
+    for what, text in bad:
+        mark = time.monotonic()
+        write_theme_file(themes_dir, text)
+        toasts, deadline = set(), time.monotonic() + THEME_FILE_HOLD
+        while time.monotonic() < deadline:
+            reply = rpc("debug.toast", {}, timeout=5)
+            for window in (reply.get("windows") or []) if isinstance(reply, dict) else []:
+                for toast in window.get("toasts") or []:
+                    if file_label in str(toast.get("message", "")):
+                        toasts.add(str(toast.get("message")))
+            time.sleep(0.5)
+        moved = phone_log.wait_at(other, 0, since=mark)
+        kept = moved is None
+        named = sorted(toasts - seen)  # this save's own notice, not the one before still on screen
+        seen |= toasts
+        fallback_ok = fallback_ok and kept and bool(named)
+        results.append(f"{what}: phone {'kept ' + good if kept else 'MOVED to ' + moved[1].group(0)[-7:]} for "
+                       f"{THEME_FILE_HOLD} s; Mac notice {('names it: ' + repr(named[0][:160])) if named else 'NAMES NO FILE'}")
+    write_theme_file(themes_dir, theme_file_text(looks[current]))  # the last good look again
+    note(f"- theme-file fallback {'PASS' if fallback_ok else 'FAIL'}: " + "; ".join(results))
+    return ok and fallback_ok
 
 
 def log_time(line):
@@ -915,7 +1253,7 @@ def no_answer_evidence(app, ls_env, tag, sock, out):
 def scanner(udid, shot):
     """Settings > Devices > "Scan QR on your Mac", by a tap through AXe (the rig's UI driver)."""
     if not shutil.which("axe"):
-        return "not captured (axe is not installed on this host: brew install cameroncooke/axe/axe)"
+        return "not captured (axe is not installed on this host: scripts/install-axe-ci.sh)"
     try:
         tree = json.loads(subprocess.run(["axe", "describe-ui", "--udid", udid], capture_output=True, text=True,
                                          timeout=60).stdout or "[]")
