@@ -325,6 +325,11 @@ public final class DeviceHub {
         replace(device)
     }
 
+    /// Carries a signed share approval to `target` (``DeviceHubClient/sendShareApproval(target:approvalJSON:)``).
+    public func sendShareApproval(target: String, approvalJSON: String) async throws {
+        try await perform { try await $0.sendShareApproval(target: target, approvalJSON: approvalJSON) }
+    }
+
     public func setPermission(host: String, viewer: String, scope: DeviceScope) async throws {
         _ = try await perform { try await $0.setPermission(host: host, viewer: viewer, scope: scope) }
         await refreshPermissions(host: host)
