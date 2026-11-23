@@ -30,7 +30,8 @@
 //!
 //! No row here measures a time, and no row waits. A row that needs a store
 //! file with an old time or with a time ahead sets that time. Each call gets
-//! its config file and its log file in the test folder.
+//! its config file and its log file in the test folder, and each reset call
+//! gets its runtime folder there too.
 
 #![cfg(any(target_os = "macos", target_os = "linux"))]
 
@@ -62,13 +63,37 @@ fn set_written(path: &Path, time: SystemTime) {
     file.set_modified(time).unwrap();
 }
 
+/// The folder in the test folder `folder` that a reset call of a row gets as
+/// its runtime folder.
+fn the_runtime_folder(folder: &Path) -> PathBuf {
+    folder.join("run")
+}
+
 /// A test folder and its state root, with the saved state of the session
 /// `session` and no process that has its store open: the registry is opened
 /// one time and closed again, as a daemon that stopped leaves it. The time
 /// of the last write of the registry's file is long ago, as it is for a
 /// daemon that stopped some time before.
+///
+/// The test folder is in `/tmp`, so its name is short. A reset that is done
+/// drops the queue of hook events of its session, and that queue is next to
+/// the session's socket in the runtime folder. A socket name that is too
+/// long for a unix socket is put in a folder that each session of the
+/// machine's user shares. So each reset call of a row gets a runtime folder
+/// in the test folder, and the socket name of `session` there must be short
+/// enough to stay in it: then no call of a row can reach a file of a session
+/// that is not its own.
 fn a_state_root_with_a_closed_session(session: &str) -> (tempfile::TempDir, PathBuf) {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir_in("/tmp").unwrap();
+    let runtime = the_runtime_folder(folder.path());
+    let socket =
+        cmux_tui_core::server::try_default_socket_path_in_base_scoped(session, &runtime, None)
+            .unwrap();
+    assert!(
+        socket.starts_with(&runtime),
+        "the socket of the row's session is not in the test folder: {}",
+        socket.display()
+    );
     let state = fs::canonicalize(folder.path()).unwrap().join("state");
     drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
     set_written(&the_registry_file(&state), long_ago());
@@ -148,9 +173,12 @@ fn the_executable(folder: &Path) -> Command {
 }
 
 /// One call of `cmux --json session SESSION reset-state` with `more` and
-/// the state root `state`.
+/// the state root `state`. Its runtime folder is in `folder`, with no
+/// runtime scope of the process that runs the rows.
 fn reset_command(folder: &Path, state: &Path, session: &str, more: &[&str]) -> Output {
     the_executable(folder)
+        .env("XDG_RUNTIME_DIR", the_runtime_folder(folder))
+        .env_remove("CMUX_TUI_RUNTIME_SCOPE")
         .args(["--json", "session", session, "reset-state"])
         .args(more)
         .arg("--state")
@@ -489,6 +517,38 @@ fn the_check_of_a_store_with_an_empty_journal_file_reads_it_as_before() {
     );
 }
 
+/// A connection to the store with the name `name`, open, after it wrote the
+/// number 9 with no checkpoint. `file` is the store's file, made by
+/// [`a_closed_store_at_rest`] with the number 5; `name` is `file` or a link
+/// to it. After the write the number 9 is in the `-wal` file next to `file`
+/// only: `file` still holds the number 5, with its time of the last write
+/// long ago, and a read that does not look at the `-wal` file gives 5. This
+/// shows each of these.
+fn a_connection_with_the_number_9_in_the_wal_file_only(name: &Path, file: &Path) -> Connection {
+    let store = Connection::open(name).unwrap();
+    store.execute("UPDATE meta SET value = '9' WHERE key = 'schema_version'", []).unwrap();
+    assert_eq!(
+        fs::metadata(file).unwrap().modified().unwrap(),
+        long_ago(),
+        "the write of the row changed the time of the store file"
+    );
+    let mut wal = file.as_os_str().to_os_string();
+    wal.push("-wal");
+    let wal_bytes = fs::metadata(&wal).map_or(0, |wal| wal.len());
+    assert!(wal_bytes > 0, "the write of the row is not in a -wal file with bytes");
+    let no_wal = Connection::open_with_flags(
+        format!("file://{}?immutable=1", file.display()),
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+    )
+    .unwrap();
+    let in_the_file: String = no_wal
+        .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0))
+        .unwrap();
+    drop(no_wal);
+    assert_eq!(in_the_file, "5", "the store file holds the new number: it is not in the -wal only");
+    store
+}
+
 /// A store that a process has open can hold its newest number in the `-wal`
 /// file only. Here the row holds a connection open, as a daemon does, and
 /// writes the number 9 with no checkpoint: the store file still holds the
@@ -501,31 +561,51 @@ fn the_check_gives_a_number_that_is_only_in_the_wal_file() {
     let state = folder.path().join("sessions");
     let session = a_closed_store_at_rest(&state, 5);
     let file = session.join(REGISTRY_FILE);
-    let store = Connection::open(&file).unwrap();
-    store.execute("UPDATE meta SET value = '9' WHERE key = 'schema_version'", []).unwrap();
-    assert_eq!(
-        fs::metadata(&file).unwrap().modified().unwrap(),
-        long_ago(),
-        "the write of the row changed the time of the store file"
-    );
-    let wal_bytes =
-        fs::metadata(session.join(format!("{REGISTRY_FILE}-wal"))).map_or(0, |wal| wal.len());
-    assert!(wal_bytes > 0, "the write of the row is not in a -wal file with bytes");
-    let no_wal = Connection::open_with_flags(
-        format!("file://{}?immutable=1", file.display()),
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-    )
-    .unwrap();
-    let in_the_file: String = no_wal
-        .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0))
-        .unwrap();
-    drop(no_wal);
-    assert_eq!(in_the_file, "5", "the store file holds the new number: it is not in the -wal only");
+    let store = a_connection_with_the_number_9_in_the_wal_file_only(&file, &file);
     let (code, answer, stderr) = rollback_check(folder.path(), &state);
     assert_eq!(
         (code, answer),
         (Some(0), json!({ "workspace_registry": 9 })),
         "the check did not give the number that is in the -wal file; stderr: {stderr}"
+    );
+    drop(store);
+}
+
+/// The store's name in the session folder is a link to a store file in
+/// another folder. SQLite follows the link and keeps the `-wal` file next to
+/// the file that the link names, so the session folder has the link and no
+/// side file. Here the row holds a connection open through the link, as a
+/// daemon does, and writes the number 9 with no checkpoint: the number 9 is
+/// only in the `-wal` file in the other folder, and the file that the link
+/// names still holds the number 5, with its time of the last write long ago.
+/// A check that looks for the `-wal` file next to the link sees none and
+/// gives 5. The check must give 9.
+#[test]
+fn the_check_of_a_store_file_that_is_a_link_gives_a_number_that_is_only_in_the_wal_file() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path().join("sessions");
+    let file = a_closed_store_at_rest(&folder.path().join("kept"), 5).join(REGISTRY_FILE);
+    let session = state.join("session-0");
+    fs::create_dir_all(&session).unwrap();
+    let link = session.join(REGISTRY_FILE);
+    std::os::unix::fs::symlink(&file, &link).unwrap();
+    let store = a_connection_with_the_number_9_in_the_wal_file_only(&link, &file);
+    let in_the_session_folder: Vec<String> = fs::read_dir(&session)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        in_the_session_folder == [REGISTRY_FILE]
+            && fs::symlink_metadata(&link).unwrap().file_type().is_symlink(),
+        "the session folder does not have the link and nothing more: {in_the_session_folder:?}"
+    );
+    let (code, answer, stderr) = rollback_check(folder.path(), &state);
+    assert_eq!(
+        (code, answer),
+        (Some(0), json!({ "workspace_registry": 9 })),
+        "the check of a store file that is a link did not give the number that is in the -wal \
+         file; stderr: {stderr}"
     );
     drop(store);
 }
