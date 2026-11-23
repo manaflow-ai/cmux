@@ -131,7 +131,8 @@ struct FileExplorerPreviewCoordinator {
         }
     }
 
-    private static func present(_ error: Error, window: NSWindow?) {
+    /// Presents the shared localized failure message for remote file previews.
+    static func present(_ error: Error, window: NSWindow?) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "fileExplorer.preview.failedTitle", defaultValue: "Unable to open remote file")
