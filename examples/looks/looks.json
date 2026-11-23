@@ -20,6 +20,12 @@
       "pending": "An outside-only look: there is no built-in twin."
     },
     {
+      "id": "nature",
+      "addon": "nature",
+      "builtIn": null,
+      "pending": "An outside-only look: the wallpaper leads on the clearest glass. There is no built-in twin."
+    },
+    {
       "id": "grove",
       "addon": "grove",
       "builtIn": null,

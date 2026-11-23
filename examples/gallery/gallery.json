@@ -22,6 +22,7 @@
     {"kind": "look", "path": "looks/omnibar", "surfaces": ["settings", "theme-file", "agent-pane-css", "markdown-css"]},
     {"kind": "look", "path": "looks/kerf", "surfaces": ["settings", "theme-file", "view", "agent-pane-css", "markdown-css"]},
     {"kind": "look", "path": "looks/linen", "surfaces": ["settings", "theme-file", "view", "agent-pane-css", "markdown-css"]},
+    {"kind": "look", "path": "looks/nature", "surfaces": ["settings", "theme-file", "view", "agent-pane-css"]},
     {"kind": "look", "path": "looks/lumen", "surfaces": ["settings", "theme-file", "agent-pane-css"]},
     {"kind": "look", "path": "looks/material", "surfaces": ["settings", "theme-file", "view", "agent-pane-css", "markdown-css"]},
     {"kind": "look", "path": "looks/paper", "surfaces": ["settings", "theme-file", "view", "agent-pane-css"]},
