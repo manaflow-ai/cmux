@@ -1308,7 +1308,7 @@ function ComposerFrame({
         stashEdited();
         restoreDraft(restoredText, restoredAttachments);
       },
-      focus: () => focusRoute(field.current, "person", "a stashed draft came back: the composer"),
+      takeKeys: () => focusRoute(field.current, "person", "a stashed draft came back: the composer"),
     },
     sessionId ? newChatKey : undefined,
   );

@@ -19,7 +19,8 @@ export type StashedComposer = {
   loading(): boolean;
   /// Puts a draft back in the prompt, before what is typed there.
   restore(text: string, attachments: ComposerAttachment[]): void;
-  focus(): void;
+  /// Gives the prompt the keys (the composer moves them through focusRoute, as the person asked).
+  takeKeys(): void;
 };
 
 /// Whether `event` is ⌃S and nothing else.
@@ -90,7 +91,7 @@ export function useDraftStash(chat: string, composer: StashedComposer, leftovers
       const entry = await readStashed(from, target);
       if (!entry || !showing(on) || io.current.loading()) return;
       io.current.restore(entry.text, entry.attachments);
-      io.current.focus();
+      io.current.takeKeys();
       // Dropped once the composer has drawn it back, and only while it still shows the chat: one
       // closed or switched away first keeps the stashed copy.
       await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
@@ -103,13 +104,13 @@ export function useDraftStash(chat: string, composer: StashedComposer, leftovers
   /// brings the newest stashed one back. While an attachment loads it does neither.
   const toggle = () => {
     if (io.current.loading()) {
-      io.current.focus();
+      io.current.takeKeys();
       return;
     }
     const held = io.current.held();
     if (held.text.trim() || held.attachments.length) stash();
     else unstash();
-    io.current.focus();
+    io.current.takeKeys();
   };
   return { stashed, unstash, toggle };
 }

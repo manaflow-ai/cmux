@@ -66,7 +66,7 @@ test("⌃S while an attachment loads stashes nothing and keeps the prompt", asyn
       loading: () => loading,
       clear: () => void (cleared += 1),
       restore: () => {},
-      focus: () => {},
+      takeKeys: () => {},
     }).toggle;
     return null;
   }
@@ -100,7 +100,7 @@ test("a pick while the prompt is not ready restores nothing and keeps the stashe
       loading: () => true,
       clear: () => {},
       restore: (text) => void restored.push(text),
-      focus: () => {},
+      takeKeys: () => {},
     }).unstash;
     return null;
   }
@@ -132,7 +132,7 @@ test("a chip that changed while the stash was out (same id) keeps the prompt", a
       loading: () => false,
       clear: () => void (cleared += 1),
       restore: () => {},
-      focus: () => {},
+      takeKeys: () => {},
     }).toggle;
     return null;
   }
@@ -164,7 +164,7 @@ test("⌃S while a restore's drop is out waits, so a full stack lets no other dr
       loading: () => false,
       clear: () => void (text = ""),
       restore: (back) => void (text = back),
-      focus: () => {},
+      takeKeys: () => {},
     });
     return null;
   }
@@ -215,7 +215,7 @@ test("a session's composer lists the tab's leftover drafts after its own, and a 
         loading: () => false,
         clear: () => {},
         restore: (text) => void restored.push(text),
-        focus: () => {},
+        takeKeys: () => {},
       },
       "new-tab:t",
     );

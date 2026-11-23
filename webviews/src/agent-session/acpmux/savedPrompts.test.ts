@@ -46,7 +46,7 @@ describe("saved prompts", () => {
     const rows = savedPromptCommands([{ name: "standup", text: "What did I do", source: "saved" }]);
     const mid = slashMatches(rows, { query: "stand", length: 6, leading: false });
     expect(mid.map((match) => match.command.name)).toEqual(["standup"]);
-    expect(returnPicks(mid[0], "standup", false)).toBe(true);
+    expect(returnPicks(mid[0], "standup")).toBe(true);
   });
 
   test("variables the chat knows are filled; the first other one is left selected", () => {
