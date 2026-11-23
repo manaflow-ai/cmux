@@ -190,7 +190,6 @@ import { cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWa
 import { type PastTurn } from "./pastChatModel";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
-import { agentDotGridArm } from "./dotGrid/agentDotGrid.experiment";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import { TrustAsk } from "./TrustAsk";
@@ -2116,8 +2115,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentTray = useSubagentTray();
   const trayPlacement = useSubagentTrayPlacement();
   const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
-  // The agent dot grid on the home (dotGrid/agentDotGrid.experiment.ts): off unless opted in.
-  const [dotGridArm] = useState(agentDotGridArm);
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -9939,7 +9936,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     githubRepository,
     sandboxView,
     sandboxHoldsChat,
-    heroPicker,
     tourOffer,
     chatTones,
     chatAgentNames,
@@ -9957,7 +9953,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     paneToasts,
     toastTop,
     asks,
-    dotGridArm,
     hostLine,
     forkPendingLine,
     composer,
