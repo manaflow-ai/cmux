@@ -293,7 +293,14 @@ public struct WorkspacesList: View {
     /// refresh, "2 need you", or with several Macs how many are online.
     private var subtitle: String {
         if let mac = scopedMac {
-            return "\(displayName(mac)) · " + store.macReachability(mac).statusText(now: MinuteClock.shared.now)
+            let now = MinuteClock.shared.now
+            let reach = store.macReachability(mac)
+            // A dial under way adds no words: the Mac's presence stays (Leo, 2026-11-23: "stop showing
+            // that bullshit fucking connecting messages. they are way too long and unactionable").
+            let line = reach == .connecting
+                ? RelativeStamp(now: now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+                : reach.statusText(now: now)
+            return "\(displayName(mac)) · " + line
         }
         let state = launchState
         // One loading indicator at a time: over the placeholder rows the page already says it loads.

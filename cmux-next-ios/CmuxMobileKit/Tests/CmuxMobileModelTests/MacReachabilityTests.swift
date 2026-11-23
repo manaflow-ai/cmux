@@ -123,4 +123,13 @@ import Testing
         #expect(MacRecoveryAttempt(step: .service).timedOut().outcome(macName: "M")
             == "Couldn't reach the cmux service. Check this iPhone's connection, then retry.")
     }
+
+    @Test func eachStateNamesTheOneActionItOffers() {
+        #expect(MacReachability.authRequired.action == .signIn)
+        #expect(MacReachability.offline(lastSeenAt: nil).action == .retry)
+        #expect(MacReachability.connecting.action == nil)
+        #expect(MacRecoveryAttempt().action == nil)
+        #expect(MacRecoveryAttempt(step: .service).timedOut().action == .retry)
+        #expect(MacRecoveryAttempt(step: .session, result: .connected).action == nil)
+    }
 }

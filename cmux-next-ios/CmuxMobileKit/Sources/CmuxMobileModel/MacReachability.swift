@@ -72,10 +72,15 @@ public enum MacReachability: Equatable, Sendable {
     }
 
     /// Whether the Mac's view offers Retry: every state the person can try again from.
-    public var offersRetry: Bool {
+    public var offersRetry: Bool { action == .retry }
+
+    /// What the Mac's view offers the person in this state: Retry, or Sign In. Nil while it is
+    /// connected, or on its way (the view keeps its cached rows and says nothing more).
+    public var action: MacRecoveryAction? {
         switch self {
-        case .connected, .connecting, .notConnected, .authRequired: false
-        case .slow, .offline, .noAnswer, .serviceDown, .notAllowed, .phoneOffline: true
+        case .connected, .connecting, .notConnected: nil
+        case .authRequired: .signIn
+        case .slow, .offline, .noAnswer, .serviceDown, .notAllowed, .phoneOffline: .retry
         }
     }
 
@@ -161,6 +166,12 @@ public enum MacReachability: Equatable, Sendable {
     }
 }
 
+/// The one thing a Mac's view offers when the phone can't use it.
+public enum MacRecoveryAction: Equatable, Sendable {
+    case retry
+    case signIn
+}
+
 /// One Retry from a Mac's view, step by step, so the person sees how far it got (cmux#52200:
 /// "A user must know whether a retry reached the host and what to do next").
 public struct MacRecoveryAttempt: Equatable, Sendable {
@@ -210,6 +221,13 @@ public struct MacRecoveryAttempt: Equatable, Sendable {
     }
 
     public var isRunning: Bool { result == nil }
+
+    /// What the view offers beside the outcome: Retry once the attempt failed. Nil while it runs
+    /// (its steps show how far it got, under a time bound: ``timedOut()``) or once it connected.
+    public var action: MacRecoveryAction? {
+        if case .failed = result { return .retry }
+        return nil
+    }
 
     /// The attempt after the link showed `observation`, once the service step passed.
     public func advanced(by observation: Observation) -> MacRecoveryAttempt {
