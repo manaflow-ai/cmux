@@ -51,7 +51,8 @@ describe("menu look tokens", () => {
     const mismatches: string[] = [];
     for (const { file, text } of sheets) {
       const rules = [...text.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
-        selectors: match[1].split(",").map((s) => s.trim().replace(/\s+/g, " ")),
+        // A comma inside :not(...) or :is(...) is part of one selector, not a list separator.
+        selectors: match[1].split(/,(?![^(]*\))/).map((s) => s.trim().replace(/\s+/g, " ")),
         decls: new Map(
           match[2]
             .split(/;(?![^(]*\))/)
