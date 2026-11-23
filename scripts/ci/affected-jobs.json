@@ -39,7 +39,9 @@
           "inputs": [
             "scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/",
             "scripts/ci/apt-ensure.sh", "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
-            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/"
+            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/",
+            "scripts/ci/cargo-lib-tests-at-once.sh", "scripts/ci/tests/cargo-lib-tests-at-once.test.sh",
+            "scripts/ci/acpmux-tests-pr-deferred.txt"
           ]
         },
         "acpmux-sim": {
@@ -186,9 +188,6 @@
       },
       ".github/workflows/swift-linux-packages.yml": {
         "swift-linux-packages": "10 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 178 job-minutes"
-      },
-      ".github/workflows/cmux-next-ios-kit.yml": {
-        "kit-tests": "4 runs on 52 merged pull requests, 3 with a red, 1 of them the pull request's own (#43289): Tier B, fixed forward on the push; 140 job-minutes"
       },
       ".github/workflows/cmux-next-react-doctor.yml": {
         "react-doctor": "48 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46860): Tier B, fixed forward on the push; 90 job-minutes; the miss is #46860: an eslint complexity red in web/ it changed"

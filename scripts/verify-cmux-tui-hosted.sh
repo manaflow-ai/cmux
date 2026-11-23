@@ -125,17 +125,31 @@ if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
 fi
 
 branch="$(git symbolic-ref --quiet --short HEAD || true)"
-if [[ -z "$branch" ]]; then
-  echo "error: hosted verification requires a pushed branch, not detached HEAD" >&2
-  exit 1
-fi
-upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
-if [[ "$upstream" == */* ]]; then
-  remote="${upstream%%/*}"
-  remote_branch="${upstream#*/}"
+if [[ -n "$branch" ]]; then
+  upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+  if [[ "$upstream" == */* ]]; then
+    remote="${upstream%%/*}"
+    remote_branch="${upstream#*/}"
+  else
+    remote="origin"
+    remote_branch="$branch"
+  fi
 else
+  # A detached HEAD is enough when this commit is already a pushed branch's head:
+  # the dispatch below names a ref, so the branch holding this commit is the ref,
+  # whether or not a local branch is checked out at it. A clean detached worktree
+  # at a commit whose branch is checked out elsewhere is the usual way to verify.
   remote="origin"
-  remote_branch="$branch"
+  remote_branch="$(git for-each-ref --points-at HEAD --format='%(refname:lstrip=3)' \
+    "refs/remotes/$remote" | grep -v '^HEAD$' | head -n 1)"
+  if [[ -z "$remote_branch" ]]; then
+    echo "error: HEAD is detached and no $remote branch is known to point at it" >&2
+    echo "push this commit as a branch, then verify from that tree:" >&2
+    echo "  git push $remote HEAD:refs/heads/BRANCH" >&2
+    exit 1
+  fi
+  branch="$remote_branch"
+  echo "note: HEAD is detached at $(git rev-parse --short HEAD); verifying as $remote/$remote_branch, which points at it"
 fi
 remote_ref="$remote/$remote_branch"
 remote_url="$(git remote get-url "$remote")"
