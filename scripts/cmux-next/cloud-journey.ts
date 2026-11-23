@@ -1002,6 +1002,13 @@ export function spareRecordReady(m: any): boolean {
   return m?.status === "running" && Boolean(m?.host);
 }
 
+/** Whether a machine's guest runs a command for this caller now (the machine exec route, MachineGuest.ts). */
+export async function spareAnswersExec(api: Pick<Api, "raw">, machine: string): Promise<boolean> {
+  const r = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command: "true", timeoutMs: 5_000 }, 15_000);
+  const v: any = r.body?.value ?? r.body;
+  return r.status >= 200 && r.status < 300 && v?.ok !== false && Number(v?.exitCode ?? v?.exit_code ?? 1) === 0;
+}
+
 /**
  * Wait for a named spare to be ready: its cloud.spare.ready frame, or its own record showing it running, whichever is
  * first. The frame is told once, to the creator's sockets live when the spare turned ready (SpareReady.ts), and only
@@ -1009,9 +1016,10 @@ export function spareRecordReady(m: any): boolean {
  * prod-parity-allowlist). The warm names a spare that is often ready already, so in production the journey's socket,
  * opened after the warm, never heard of it and timed out at 120 s (11-22 00:55Z) on a spare it could have used.
  */
-export async function waitForSpareReady(api: Api, machine: string, budgetMs = 120_000, deps: { frame?: typeof waitForCloudSpareReady; read?: (machine: string) => Promise<any>; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<{ frame: WireEvent | null; row: any; by: "frame" | "record" }> {
+export async function waitForSpareReady(api: Api, machine: string, budgetMs = 120_000, deps: { frame?: typeof waitForCloudSpareReady; read?: (machine: string) => Promise<any>; answers?: (machine: string) => Promise<boolean>; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<{ frame: WireEvent | null; row: any; by: "frame" | "record" | "exec" }> {
   const frameWait = deps.frame ?? waitForCloudSpareReady;
   const read = deps.read ?? ((id: string) => api.read("cloud.machine.get", { machine: id }));
+  const answers = deps.answers ?? ((id: string) => spareAnswersExec(api, id));
   const pollMs = deps.pollMs ?? 2_000;
   const pause = deps.sleep ?? sleep;
   const stop = new AbortController();
@@ -1028,6 +1036,12 @@ export async function waitForSpareReady(api: Api, machine: string, budgetMs = 12
       } catch (error) {
         if (String((error as Error).message).startsWith(`spare ${machine} failed`)) throw error;
         lastError = String((error as Error).message);
+        // A person's read never names an unclaimed spare (CloudCore's cloud.machine.get answers not_found for a row
+        // still under its reservation, to anyone but the reservation's own principal), so in production this poll
+        // could never see one (11-23 05:24Z-07:24Z: three 120 s waits on a spare bound 20-80 min before). The exec
+        // route does answer the spare's own creator (CloudDO.ownerExec), the same route the login copy then uses:
+        // a guest that runs `true` is up.
+        if (/not[ _.-]?found/i.test(lastError) && await answers(machine).catch(() => false)) return { frame: null, row: { status: "running", ready_by: "exec" }, by: "exec" as const };
       }
       await pause(pollMs);
     }
@@ -1709,7 +1723,8 @@ export async function prepareSpareLogin(a: {
     leaseId ??= opaquePreclaimLeaseId(ready.lease_id ?? ready.leaseId ?? ready.reservation_id ?? ready.reservationId);
     if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
     const exec = directExec(a.api, spare, a.journey);
-    spareRow = await waitMachine(a.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+    // The ready wait's own answer when it has one; a frame names no row, so read it (exec-checked, as the wait is).
+    spareRow = ready0.row ?? (await waitForSpareReady(a.api, spare, 300_000, { frame: () => new Promise<never>(() => {}) })).row;
     await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope);
     const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
     if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
