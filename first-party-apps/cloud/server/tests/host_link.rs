@@ -57,13 +57,13 @@ fn link_get(host: &mut Host) -> Value {
 }
 
 fn connect(host: &mut Host, id: &str) -> Value {
-    host.result(id, "cloud.machine.connect", json!({ "machine": "vm-alpha01" }), Some(id))
+    host.result(id, "cloud.machine.connect", json!({ "machine": "vm_alpha01" }), Some(id))
 }
 
 /// Lines up to the result of op `id`, plus whether a host request came.
 fn connect_lines(host: &mut Host, id: &str) -> (Value, Vec<Value>) {
     host.send(&json!({ "type": "op", "id": id, "op": "cloud.machine.connect",
-        "args": { "machine": "vm-alpha01" }, "origin": "user", "idempotency_key": id }));
+        "args": { "machine": "vm_alpha01" }, "origin": "user", "idempotency_key": id }));
     let mut lines = host.answer(id);
     let result = lines.pop().expect("result");
     (result, lines)
@@ -104,7 +104,7 @@ fn connect_waits_for_link_get_and_then_spawns_with_the_hosts_folders() {
     assert_eq!(host.spawner.spawns(), 1);
     let command = host.spawner.log().commands[0].clone();
     assert_eq!(command.state_dir, std::path::PathBuf::from("/tmp/cmux-test/link-state-v2"));
-    assert_eq!(command.upstream, common::carrier_socket_of("vm-alpha01"), "the app's carrier");
+    assert_eq!(command.upstream, common::carrier_socket_of("vm_alpha01"), "the app's carrier");
 }
 
 #[test]
