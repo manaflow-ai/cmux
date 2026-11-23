@@ -17,7 +17,7 @@
 //! A stream belongs to the connection that started it, at most one at a time (a new start cancels
 //! the last), and ends with the connection. Who may call: the unix socket only, as `voice.rs`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -197,7 +197,9 @@ async fn start(conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     let session =
         cmux_voice::stream::run(endpoint, key, cmux_voice::Http::default(), language, rx, shown_tx);
     let (conn, sid) = (conn.clone(), id.clone());
-    tokio::spawn(async move {
+    // The session ends with its commands: a stop, a cancel, or the connection's end
+    // (`Streams::close_all` drops the sender); the hub's shutdown drops it too.
+    let _session = conn.scope.spawn_until_cancelled("voice-stream", async move {
         let forward = async {
             while let Some(shown) = shown_rx.recv().await {
                 let what = match shown {

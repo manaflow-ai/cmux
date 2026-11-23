@@ -1,7 +1,7 @@
+import CmuxNextCompat
 import CmuxNextDictation
 import Foundation
 import Network
-import Synchronization
 
 /// One dictation session's live stream through the LOCAL acpmux (`_acpmux/voice/stream.*`, acpmux
 /// `server/voice_stream.rs`), on a unix connection of its own: acpmux holds the provider's
@@ -22,6 +22,11 @@ nonisolated final class AcpmuxDictationStream: DictationLiveStream {
     static let stopDeadline: Duration = .seconds(25)
     static let startDeadline: Duration = .seconds(15)
     static let eventMethod = "_acpmux/voice/stream.event"
+    /// The words not yet read: the session reads each at once; a partial replaces the last.
+    static let maximumEvents = 1024
+    /// Chunks not yet written (one per microphone tap, about 10 a second): a minute of backlog.
+    /// Past it a new chunk is dropped, and a stop fails at once.
+    static let maximumOutgoing = 600
 
     let events: AsyncStream<DictationTranscriptionEvent>
     private let shown: AsyncStream<DictationTranscriptionEvent>.Continuation
@@ -35,8 +40,10 @@ nonisolated final class AcpmuxDictationStream: DictationLiveStream {
     private init(connection: NWConnection, stream: String) {
         self.connection = connection
         self.stream = stream
-        (events, shown) = AsyncStream.makeStream(of: DictationTranscriptionEvent.self)
-        let (items, outgoing) = AsyncStream.makeStream(of: Outgoing.self)
+        (events, shown) = AsyncStream.makeStream(of: DictationTranscriptionEvent.self,
+                                                  bufferingPolicy: .bufferingNewest(Self.maximumEvents))
+        let (items, outgoing) = AsyncStream.makeStream(of: Outgoing.self,
+                                                       bufferingPolicy: .bufferingOldest(Self.maximumOutgoing))
         self.outgoing = outgoing
         // task-owner: stored in tasks; both end with the connection, which cancel() and stop() close
         let writer = Task { [self] in await write(items) }
@@ -81,8 +88,10 @@ nonisolated final class AcpmuxDictationStream: DictationLiveStream {
         try await withAgentPaneDeadline(Self.stopDeadline, label: "acpmux voice stream.stop",
                                         onTimeout: { connection.cancel() }) { [outgoing] in
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                if case .terminated = outgoing.yield(.stop(continuation)) {
+                // Dropped (the backlog is full; the oldest policy drops the new item) or closed.
+                guard case .enqueued = outgoing.yield(.stop(continuation)) else {
                     continuation.resume(throwing: DictationFailure.providerFailed(code: "offline", detail: ""))
+                    return
                 }
             }
         }
