@@ -25,9 +25,31 @@ const LIST_LABEL = {
   skills: "sessionInfo.context.skills",
 } as const;
 
+/// The bar's segments: each used category and the autocompact buffer, in the rows' order, with the
+/// neighbours of one color as one segment, so the greys read as one block as Claude Code desktop's do.
+function barSegments(breakdown: Breakdown) {
+  const segments: { kind: string; hue?: string; share: number }[] = [];
+  for (const row of breakdown.rows) {
+    if ((row.kind !== "used" && row.kind !== "buffer") || (row.share ?? 0) <= 0) continue;
+    const last = segments.at(-1);
+    if (last && last.kind === row.kind && last.hue === row.hue) last.share += row.share ?? 0;
+    else segments.push({ kind: row.kind, hue: row.hue, share: row.share ?? 0 });
+  }
+  return segments;
+}
+
+/// The space above a row that starts a group, as Claude Code desktop's Context card spaces them: a
+/// row's height before the buffer and free space, a gap before the deferred categories.
+function groupGap(rows: Breakdown["rows"], index: number): "group" | "deferred" | undefined {
+  const row = rows[index];
+  const before = rows[index - 1];
+  if (!before || before.kind === row.kind) return undefined;
+  if (row.kind === "deferred") return "deferred";
+  return before.kind === "used" ? "group" : undefined;
+}
+
 /// The breakdown's bar, its rows and its folds, as Session Info and the ring's details draw them.
-/// Without `bar`, its rows and folds alone (Session Info's Context fold: its head has the meter).
-export function ContextBreakdownView({ breakdown, bar = true }: { breakdown: Breakdown; bar?: boolean }) {
+export function ContextBreakdownView({ breakdown }: { breakdown: Breakdown }) {
   const t = useT();
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const tokens = intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
@@ -40,27 +62,28 @@ export function ContextBreakdownView({ breakdown, bar = true }: { breakdown: Bre
     });
   return (
     <div className="acpmux-context-breakdown">
-      {bar && (
-        <div className="acpmux-session-info-context__bar" aria-hidden="true">
-          {breakdown.rows
-            .filter((row) => (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0)
-            .map((row, index) => (
-              <span
-                key={`${row.name}-${index}`}
-                data-kind={row.kind}
-                data-tone={row.tone}
-                style={{ width: `${(row.share ?? 0) * 100}%` }}
-              />
-            ))}
-        </div>
-      )}
+      <div className="acpmux-session-info-context__bar" aria-hidden="true">
+        {barSegments(breakdown).map((segment, index) => (
+          <span
+            key={index}
+            data-kind={segment.kind}
+            data-hue={segment.hue}
+            style={{ width: `${segment.share * 100}%` }}
+          />
+        ))}
+      </div>
       <ul className="acpmux-session-info-list">
         {breakdown.rows.map((row, index) => (
-          <li key={`${row.name}-${index}`} className="acpmux-session-info-row" data-kind={row.kind}>
+          <li
+            key={`${row.name}-${index}`}
+            className="acpmux-session-info-row"
+            data-kind={row.kind}
+            data-gap={groupGap(breakdown.rows, index)}
+          >
             <span
               className="acpmux-session-info-context__swatch"
               data-kind={row.kind}
-              data-tone={row.tone}
+              data-hue={row.hue}
               aria-hidden="true"
             />
             <span className="acpmux-session-info-row__name">{row.name}</span>
@@ -81,7 +104,7 @@ export function ContextBreakdownView({ breakdown, bar = true }: { breakdown: Bre
             aria-expanded={open.has(list.id)}
             onClick={() => toggle(list.id)}
           >
-            <Icon name={open.has(list.id) ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+            <Icon name="disclosure.collapsed" size={16} />
             <span className="acpmux-session-info-row__name">{t(LIST_LABEL[list.id])}</span>
             <span className="acpmux-session-info-row__end">{list.items.length}</span>
           </button>
@@ -114,9 +137,9 @@ export function ContextSection({
   percent: number;
   /// Claude Code's /context, as acpmux kept it (`summary.contextBreakdown`).
   breakdown?: unknown;
-  /// Its rows alone, from the first one down (Messages, or Used): Session Info's Context fold, whose
-  /// head has the total and the meter (Lucas, 2026-11-06: "the expansion should show the messages and
-  /// below").
+  /// No total line: Session Info's Context fold, whose head has the total and the meter (Lucas,
+  /// 2026-11-06: "the expansion should show the messages and below"). A /context breakdown still
+  /// draws its bar on top, split by category as Claude Code desktop's (Lucas, 2026-11-23).
   rowsOnly?: boolean;
   /// Sends the chat's agent its `/compact` (App.tsx `compactChat`); unset where the agent lists no
   /// compact command or the chat cannot be sent to, so no Compact shows.
@@ -147,7 +170,7 @@ export function ContextSection({
         </div>
       )}
       {breakdown ? (
-        <ContextBreakdownView breakdown={breakdown} bar={!rowsOnly} />
+        <ContextBreakdownView breakdown={breakdown} />
       ) : (
         <>
           {!rowsOnly && (
