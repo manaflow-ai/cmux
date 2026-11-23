@@ -70,7 +70,12 @@ jobs:
       - name: Validate managed relay catalog
         run: bun run relay-catalog:check
 
+      # The type check reports its red and keeps going, so the tests and builds after it still run on a
+      # tree with a type error; the last step fails the job on it (Leo, 2026-11-19: "the CI doesn't
+      # necessarily have to fail and like give up").
       - name: Typecheck
+        id: typecheck
+        continue-on-error: true
         run: bun run typecheck
 
       - name: Unit tests
@@ -78,6 +83,12 @@ jobs:
 
       - name: Wrangler dry-run build
         run: bunx wrangler deploy --dry-run --outdir dist
+
+      - name: Fail on the type check
+        if: ${{ !cancelled() && steps.typecheck.outcome == 'failure' }}
+        run: |
+          echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
+          exit 1
 
   deploy:
     environment: presence-deploy
