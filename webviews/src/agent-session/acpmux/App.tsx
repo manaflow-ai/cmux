@@ -456,6 +456,8 @@ import {
   cloudSendAfterCheck,
   composerCloudStartFolder,
   pageOnOtherMachine,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
 } from "./cloudRun";
 import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
 import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
@@ -4651,7 +4653,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }
       return autoPicked && autoSend.current !== undefined;
     },
-    once: <A extends unknown[], R>(send: (...args: A) => R) =>
+    once:
+      <A extends unknown[], R>(send: (...args: A) => R) =>
       (...args: A): R => {
         const page = newTabGeneration;
         const decided = autoPicked && autoDecided.current === page && autoSend.current === undefined;
