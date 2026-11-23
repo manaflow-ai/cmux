@@ -10,7 +10,9 @@ import Foundation
 /// `CMUX_MOBILE_BILLING_DEMO` picks the state: `free` (Free, Go/Pro/Max
 /// offers), `pro` (an App Store Pro subscriber), `stripe` (pays on the web: no
 /// purchase buttons), `team` (team billing), `unavailable` (the server sells
-/// nothing to this bundle, today's state for cmux NEXT). `CMUX_MOBILE_BILLING_DEMO_OPEN=1`
+/// nothing to this bundle, today's state for cmux NEXT), `testflight` (production's
+/// answer to a TestFlight or dev build: not eligible, `purchases_unavailable`, no
+/// products, on Pro) and `testflight-free` (the same on Free). `CMUX_MOBILE_BILLING_DEMO_OPEN=1`
 /// opens the plans screen at launch. Prices are the server's USD list prices
 /// (`web/services/billing/apple/config.ts` `APPLE_USD_LIST_PRICE`, yearly at 9.6×).
 struct BillingDemo {
@@ -42,12 +44,14 @@ private actor DemoBillingServer: BillingAPI {
         switch state {
         case "pro": plan = BillingCurrentPlan(planID: .pro, source: .apple)
         case "stripe": plan = BillingCurrentPlan(planID: .pro, source: .stripe)
+        case "testflight": plan = BillingCurrentPlan(planID: .pro, source: .none)
         default: plan = BillingCurrentPlan(planID: .free, source: .none)
         }
     }
 
     func accountToken() async throws -> BillingAccount {
-        let products = state == "unavailable" ? [] : [BillingPlanID.go, .pro, .max].flatMap { plan in
+        let sellsNothing = ["unavailable", "testflight", "testflight-free"].contains(state)
+        let products = sellsNothing ? [] : [BillingPlanID.go, .pro, .max].flatMap { plan in
             BillingPeriod.allCases.map { period in
                 BillingProductReference(productID: "\(bundleIdentifier).\(plan.rawValue).\(period.rawValue)",
                                         planID: plan, billingPeriod: period)
@@ -56,6 +60,7 @@ private actor DemoBillingServer: BillingAPI {
         let reason: BillingIneligibilityReason? = switch state {
         case "stripe": .stripeSubscriptionActive
         case "team": .teamBilling
+        case "testflight", "testflight-free": .purchasesUnavailable
         default: nil
         }
         return BillingAccount(appAccountToken: UUID(),
