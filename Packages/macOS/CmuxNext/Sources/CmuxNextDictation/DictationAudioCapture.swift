@@ -21,14 +21,11 @@ public protocol DictationAudioCapturing: Sendable {
     func stop() async
 }
 
-/// The default input device through an `AVAudioEngine` input tap, the same
-/// capture ``SFSpeechDictationTranscriber`` does, restarted when the device
-/// or its format changes.
+/// The default input device (``DictationInputTap``): the same capture
+/// ``SFSpeechDictationTranscriber`` does, reopened when the device or its
+/// format changes.
 public actor MicrophoneDictationCapture: DictationAudioCapturing {
-    private var audioEngine: AVAudioEngine?
-    private var configurationChangeTask: Task<Void, Never>?
-    private var onBuffer: (@Sendable (AVAudioPCMBuffer) -> Void)?
-    private var onFailure: (@Sendable (DictationFailure) async -> Void)?
+    private let tap = DictationInputTap()
 
     public init() {}
 
@@ -36,81 +33,14 @@ public actor MicrophoneDictationCapture: DictationAudioCapturing {
         onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
         onFailure: @escaping @Sendable (DictationFailure) async -> Void
     ) async throws {
-        self.onBuffer = onBuffer
-        self.onFailure = onFailure
         do {
-            try startAudioEngine()
+            try tap.start(onBuffer: onBuffer, onFailure: onFailure)
         } catch {
-            self.onBuffer = nil
-            self.onFailure = nil
             throw error as? DictationFailure ?? DictationFailure.audioCaptureFailed(error.localizedDescription)
         }
-        observeConfigurationChanges()
     }
 
     public func stop() async {
-        onBuffer = nil
-        onFailure = nil
-        stopAudioEngine()
-    }
-
-    private func startAudioEngine() throws {
-        guard let sink = onBuffer else { return }
-        let engine = AVAudioEngine()
-        let inputNode = engine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw DictationFailure.audioCaptureFailed("no audio input device")
-        }
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            sink(buffer)
-        }
-        engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            inputNode.removeTap(onBus: 0)
-            throw error
-        }
-        audioEngine = engine
-    }
-
-    private func stopAudioEngine() {
-        configurationChangeTask?.cancel()
-        configurationChangeTask = nil
-        guard let engine = audioEngine else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        audioEngine = nil
-    }
-
-    /// Restarts the tap when the input device or its format changes
-    /// (device unplugged, default input switched) instead of crashing on a
-    /// stale-format tap.
-    private func observeConfigurationChanges() {
-        // task-owner: stored in configurationChangeTask; stop() cancels it
-        configurationChangeTask = Task { [weak self] in
-            let changes = NotificationCenter.default.notifications(
-                named: .AVAudioEngineConfigurationChange
-            )
-            for await _ in changes {
-                guard let self else { return }
-                await self.handleConfigurationChange()
-            }
-        }
-    }
-
-    private func handleConfigurationChange() async {
-        guard let engine = audioEngine else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        audioEngine = nil
-        do {
-            try startAudioEngine()
-        } catch {
-            let report = onFailure
-            stopAudioEngine()
-            await report?(.audioCaptureFailed(error.localizedDescription))
-        }
+        tap.stop()
     }
 }
