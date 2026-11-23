@@ -267,6 +267,9 @@
   animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
 }
 .acpmux-hybrid-tri__name { margin-inline-start: 4px; color: var(--agent-text); }
+/* Where the chat runs now, after the name: quieter than the name, cut before the name is. */
+.acpmux-hybrid-tri__where { color: var(--agent-text-muted); }
+.acpmux-hybrid-tri__where::before { content: "\00b7"; margin-inline: 4px; }
 :root[data-cmux-motion="reduced"] .acpmux-hybrid-tri__glyph,
 :root[data-cmux-motion="off"] .acpmux-hybrid-tri__glyph { animation: none; }
 @media (prefers-reduced-motion: reduce) {

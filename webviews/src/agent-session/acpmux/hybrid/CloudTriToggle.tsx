@@ -103,6 +103,7 @@ export function CloudTriToggle({
   holders,
   onTrade,
   holdersOpen = false,
+  where,
   onChange,
   onLitChange,
 }: {
@@ -129,6 +130,9 @@ export function CloudTriToggle({
   onTrade?(session: string): void;
   /// The holders' menu opens drawn (the gallery's still).
   holdersOpen?: boolean;
+  /// Where the chat runs right now, from the app's place state ("This Mac", the Cloud machine's
+  /// name, "Moving to ..."): drawn after the name, so turning Hybrid on shows what it did.
+  where?: string;
   onChange(pin: HybridPin): void;
   /// Choosing Hybrid again while it is chosen turns its light on or off.
   onLitChange?(lit: boolean): void;
@@ -284,7 +288,14 @@ export function CloudTriToggle({
         </Menu>
       )}
       {named && !why && !(holders && holders.length > 0) && (
-        <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">{name}</span>
+        <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">
+          {name}
+          {where && (
+            <span className="acpmux-hybrid-tri__where" data-testid="hybrid-where">
+              {where}
+            </span>
+          )}
+        </span>
       )}
     </span>
   );

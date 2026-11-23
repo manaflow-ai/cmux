@@ -35,6 +35,8 @@ type Props = {
   blocked?: HybridBlockedWhy;
   /// Every slot taken: the chats holding them, in the name's menu (drawn open).
   holders?: SlotHolder[];
+  /// Where the chat runs now, after the name (the app's place state in the real mount).
+  where?: string;
 };
 
 const HOLDERS: SlotHolder[] = [
@@ -49,7 +51,7 @@ const VIEWS: Record<Props["state"], HybridView> = {
   waiting: { lit: false, waiting: true, pin: "auto", at: "local", used: 3, total: 3 },
 };
 
-function Stage({ page, spot, look, state, form, tri, pin = "auto", blocked, holders }: Props) {
+function Stage({ page, spot, look, state, form, tri, pin = "auto", blocked, holders, where }: Props) {
   const [view, setView] = useState(VIEWS[state]);
   const [mode, setMode] = useState(pin);
   const [held, setHeld] = useState(holders);
@@ -61,6 +63,7 @@ function Stage({ page, spot, look, state, form, tri, pin = "auto", blocked, hold
       named={spot === "above" || tri === "cycle"}
       lit={view.lit}
       waiting={view.waiting}
+      where={where}
       blocked={blocked ? { why: blocked } : undefined}
       onBlockedClick={() => undefined}
       holders={held}
@@ -203,6 +206,17 @@ for (const why of ["signed-out", "no-plan"] as const) {
   firstRun[`newtab-above-three-state-blocked-${why}`] = {
     note: `${SPOT_NOTES["newtab-above"]} Where a new user meets it first. ${BLOCKED_NOTES[why]}`,
     props: { page: "newtab", spot: "above", look: "rainbow", state: "off", tri: "segments", blocked: why },
+  };
+}
+for (const [id, where, pin, note] of [
+  ["mac", "This Mac", "auto", "Hybrid, running on this Mac"],
+  ["cloud", "atlas-web-cloud", "auto", "Hybrid, running on its Cloud machine"],
+  ["moving", "Moving to atlas-web-cloud", "auto", "Hybrid while the chat moves"],
+  ["pinned", "atlas-web-cloud", "cloud", "Only in Cloud, naming the machine"],
+] as const) {
+  firstRun[`chat-above-three-state-where-${id}`] = {
+    note: `${SPOT_NOTES["chat-above"]} ${note}: the place after the name is the one the app reports, so the choice shows what it did.`,
+    props: { page: "chat", spot: "above", look: "rainbow", state: id === "mac" ? "off" : "on", tri: "segments", pin, where },
   };
 }
 firstRun["chat-above-three-state-full-holders"] = {
