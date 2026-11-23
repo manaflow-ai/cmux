@@ -7,6 +7,11 @@ import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { CLOUD_INTRO_BILLING_COPY } from "../services/billing/cloudIntro";
 import { CLOUD_TASTE_BILLING_COPY } from "../services/billing/cloudTaste";
 import { cloudIntroBillingCode, cloudIntroLayout, cloudIntroOfferFacts } from "../services/billing/cloudIntroOffer";
+import {
+  CLOUD_PROOF_BURST_LAST_READY_SECONDS,
+  CLOUD_PROOF_BURST_MACHINES,
+  cloudIntroProofStats,
+} from "../services/billing/cloudIntroProof";
 
 // The $1 pass on the cmux NEXT pricing preview and its /pricing notices.
 
@@ -237,9 +242,6 @@ describe("the $1 pass /pricing notices", () => {
 });
 
 describe("the proof strip on the $1 pass", () => {
-  const { cloudIntroProofStats, CLOUD_PROOF_BURST_MACHINES, CLOUD_PROOF_BURST_LAST_READY_SECONDS } =
-    require("../services/billing/cloudIntroProof") as typeof import("../services/billing/cloudIntroProof");
-
   test("the constants are the measured figures", () => {
     expect(cloudIntroProofStats()).toEqual([
       { id: "newMachine", seconds: 9.5 },
