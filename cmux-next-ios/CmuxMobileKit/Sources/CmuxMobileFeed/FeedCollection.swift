@@ -692,7 +692,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func isPinned(_ header: FeedDayHeaderView, in tableView: UITableView) -> Bool {
         guard let section = header.section, let index = shownGroups.firstIndex(where: { $0.section == section }),
               index + 1 < tableView.numberOfSections else { return false }
-        return tableView.contentOffset.y + tableView.adjustedContentInset.top > tableView.rectForHeader(inSection: index + 1).minY + 0.5
+        return tableView.contentOffset.y + tableView.adjustedContentInset.top > tableView.rect(forSection: index + 1).minY + 0.5
     }
 
     /// A pinned label shows on a material chip while the list moves, and leaves once it rests (it
