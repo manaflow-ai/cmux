@@ -1784,7 +1784,9 @@ jobs:
           # Replay the files of the reds the base passed again, until it fails them, at most base_again times. None when
           # the history answered every red (replay=0): this base has no install, bundles or browsers then. A replay
           # starts only when its files' limits (one job, no retries) fit the budget left; one that does not fit is not
-          # run, and its reds stay the change's, not replayed (never excused). No clock reads as no time left.
+          # run, and its files are marked unjudged: their reds are "base result unavailable" (deferred to the merge
+          # gate, the step fails), never the change's and never excused. cmux#51403 (run 45100248005) had "-5s left"
+          # and "-3s left" and charged the files it never replayed. No clock reads as no time left.
           again=() base_again=2
           : "${JOB_TIMEOUT_MINUTES:=0}" "${REPLAY_RESERVE:=0}"  # unset: no budget, no further replay
           started="$(cat "$RUNNER_TEMP/job-started" 2>/dev/null || echo 0)"
@@ -1814,8 +1816,10 @@ jobs:
                 need=$(( need + limit ))
               done < "$RUNNER_TEMP/base-again-files"
               if [ "$need" -gt "$left" ]; then
-                echo "the replay budget (${left}s left) cannot fit another base replay (${need}s); the change's own, not replayed:"
+                echo "the replay budget (${left}s left) cannot fit another base replay (${need}s); not judged, not replayed:"
                 sed 's/^/  /' "$RUNNER_TEMP/base-again-files"
+                python3 "$runner/webviews_test_results.py" --mark-unjudged "$RUNNER_TEMP/base-again-files" "$BASE_RESULTS" ||
+                  echo "the files the budget left unreplayed were not marked"
                 break
               fi
               echo "replaying on the base again ($n of $base_again):"; sed 's/^/  /' "$RUNNER_TEMP/base-again-files"
@@ -1911,7 +1915,8 @@ jobs:
           runner="$RUNNER_TEMP/head-results/runner"
           echo "re-running alone on the head:"; sed 's/^/  /' "$RUNNER_TEMP/head-rerun-files"
           # No file runs past two minutes before the job's timeout (the verdict's margin): a file the re-run did not
-          # reach is missing from it, so its reds stay the change's, and the job still says so instead of being cut.
+          # reach is marked unreached in its results, so its reds are not judged (unknown, the step still fails),
+          # never the change's, and the job says so instead of being cut.
           started="$(cat "$RUNNER_TEMP/job-started" 2>/dev/null || echo 0)"
           [[ "$started" =~ ^[0-9]+$ ]] || started=0
           stop_at=""
@@ -1921,6 +1926,8 @@ jobs:
             CMUX_WEB_TEST_RESULTS="$HEAD_RERUN" \
             env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
             bash "$runner/run-webviews-tests.sh" || true
+          python3 "$runner/webviews_test_results.py" --mark-unreached "$RUNNER_TEMP/head-rerun-files" "$HEAD_RERUN" ||
+            echo "the head re-run's unreached files were not marked"
           again=()
           for found in "$RUNNER_TEMP"/base-again-*.json; do
             [ -e "$found" ] && again+=(--base-again "$found")

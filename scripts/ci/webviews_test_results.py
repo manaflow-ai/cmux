@@ -4,11 +4,13 @@
     webviews_test_results.py SUMMARY OUT.json     # write {name: passed}
     webviews_test_results.py --failed-files OUT.json  # print the files with a red, one a line
     webviews_test_results.py --mark-unreached FILES OUT.json  # name in OUT.json the FILES it has no result for
+    webviews_test_results.py --mark-unjudged FILES OUT.json   # name in OUT.json the FILES whose further replay never ran
 
 SUMMARY has a `RESULT FILE LOG` line per file. A failed file lists each of its `(fail)` tests as
 `FILE > TEST: false`; a complete failed file also lists its explicit `(pass)` tests as true. A file that timed out, or failed without naming a test (it did not load),
 is `FILE: false`; a passing file is `FILE: true`. Results compare by exact name, so a base file
-that crashed or hung says nothing about the tests it never reached: their reds stay the change's.
+that crashed or hung says nothing about the tests it never reached: guards_new_reds.py reads their reds as
+"base result unavailable", not the change's (cmux#51403).
 A file red again on its retry alone keeps a log of both runs; only the retry's outcomes count,
 since the base reruns the file once, alone, too.
 
@@ -201,6 +203,26 @@ def mark_unreached(files: Path, out: Path) -> list[str]:
     return unreached
 
 
+def mark_unjudged(files: Path, out: Path) -> list[str]:
+    """Record in OUT (`_cmux_unjudged`) every file of FILES, and return them.
+
+    react-apps-base-check replays again (base_again) the files of the reds a first base replay passed, since one pass
+    of a test that flaps proves nothing. When the job's budget cannot fit that replay it does not run, and those reds
+    have no verdict: named here, guards_new_reds.py reads them as "base result unavailable", never the change's
+    (cmux#51403, run 45100248005: "the replay budget (-3s left) cannot fit another base replay" charged three files).
+    Unreadable results are left alone (guards_new_reds.py already treats a base it cannot read as unavailable)."""
+    try:
+        results = json.loads(out.read_text(encoding="utf-8"))
+        wanted = sorted({line.strip() for line in files.read_text(encoding="utf-8").splitlines() if line.strip()})
+    except (OSError, ValueError):
+        return []
+    if not isinstance(results, dict) or not wanted:
+        return []
+    results["_cmux_unjudged"] = sorted(set(results.get("_cmux_unjudged") or []) | set(wanted))
+    out.write_text(json.dumps(results, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    return wanted
+
+
 def tap_observations(summary: Path, *, log_dir: Path | None = None):
     """Explicit outcomes from each file's final whole attempt, with bounded line/diagnostic buffers.
 
@@ -300,6 +322,13 @@ def main(argv: list[str]) -> int:
         if unreached:
             print(f"the replay did not reach {len(unreached)} files (no base result):")
             for file in unreached:
+                print(f"  {file}")
+        return 0
+    if len(argv) == 3 and argv[0] == "--mark-unjudged":
+        unjudged = mark_unjudged(Path(argv[1]), Path(argv[2]))
+        if unjudged:
+            print(f"the replay budget left {len(unjudged)} files without their further base replay (not judged):")
+            for file in unjudged:
                 print(f"  {file}")
         return 0
     if len(argv) != 2:
