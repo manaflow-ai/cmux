@@ -2741,3 +2741,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
   1.4x smaller than on its tab.
   Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"
+  2026-11-22 (follow-up to #49591): a favicon's raster box grows with its larger optical side, so its bitmap holds the
+  pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
+  its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
+  Sidebar-Look: no visual change
