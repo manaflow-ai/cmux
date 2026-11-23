@@ -127,7 +127,7 @@ impl Fetch for StoreFirst {
         if let Some(bytes) = self.stored_bytes(entry) {
             let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
             let end = start.saturating_add(len as usize).min(bytes.len());
-            return Ok(bytes[start..end].to_vec());
+            return Ok(bytes.get(start..end).unwrap_or_default().to_vec());
         }
         self.mac.fetch_add(1, Ordering::Relaxed);
         self.link.read(entry, offset, len)
