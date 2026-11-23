@@ -634,6 +634,66 @@
             "back",
             "machine"
           ]
+        },
+        {
+          "key": "cloud.auto",
+          "name": "autoOnReserve",
+          "note": "RFD 0072 stage 1 (shadow): cmux-host-budget reserve.rs judges agents' own CPU and memory against the reserve and records what it would move to auto-shadow.jsonl. Nothing moves.",
+          "title": {
+            "key": "settings.cloud.auto",
+            "text": "Auto: Move Agents When They Crowd You"
+          },
+          "help": {
+            "key": "settings.cloud.auto.help",
+            "text": "For now cmux only notes which chat it would have moved to Cloud, and why. Nothing moves."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "auto",
+            "load",
+            "cpu",
+            "memory",
+            "reserve",
+            "busy",
+            "slow",
+            "offload",
+            "move",
+            "agents"
+          ]
+        },
+        {
+          "key": "cloud.autoReserve",
+          "name": "autoReserve",
+          "note": "The share of performance cores and RAM kept for the person; agents' budget is the rest. Four stops (RFD 0072).",
+          "title": {
+            "key": "settings.cloud.autoReserve",
+            "text": "Keep for Me"
+          },
+          "help": {
+            "key": "settings.cloud.autoReserve.help",
+            "text": "The share of this computer kept for you. Agents run here in the rest."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 0.75,
+            "step": 0.25,
+            "unit": "fraction"
+          },
+          "default": 0.5,
+          "keywords": [
+            "cloud",
+            "auto",
+            "reserve",
+            "keep",
+            "share",
+            "cpu",
+            "memory",
+            "slider",
+            "percent"
+          ]
         }
       ]
     },

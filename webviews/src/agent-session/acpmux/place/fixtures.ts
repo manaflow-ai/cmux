@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-import type { EvacuateState, MoveView, PlaceState } from "./placeModel";
+import type { AutoReserveState, EvacuateState, MoveView, PlaceState } from "./placeModel";
 
 const STARTED = Date.UTC(2026, 9, 6, 9, 41, 0);
 
@@ -85,7 +85,19 @@ export const PLACES = {
   autoLocal: { mode: "auto", at: "local" },
   autoCloud: { mode: "auto", at: "cloud", cloudName: "swift-otter" },
   moving: { mode: "cloud", at: "local", cloudName: "swift-otter", move: MOVES.moving },
+  autoReserve: { mode: "auto", at: "local", reserve: { on: true, keep: 0.5 } },
 } satisfies Record<string, PlaceState>;
+
+/// Auto on reserve (RFD 0072, shadow): off, on at the default, and on with a would-be move.
+export const RESERVES = {
+  off: { on: false, keep: 0.5 },
+  on: { on: true, keep: 0.5 },
+  wouldMove: {
+    on: true,
+    keep: 0.25,
+    shadow: { title: "Port the settings page", reason: "cpu", atMs: Date.UTC(2026, 10, 23, 11, 2, 0) },
+  },
+} satisfies Record<string, AutoReserveState>;
 
 const EVAC_STARTED = Date.UTC(2026, 9, 6, 9, 41, 0);
 

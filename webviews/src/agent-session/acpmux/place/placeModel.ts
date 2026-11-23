@@ -44,11 +44,30 @@ export interface MoveView {
   readonly canRetry: boolean;
 }
 
+/// Auto on reserve's stops (`cloud.autoReserve`, a fraction): the share of this Mac kept for the person.
+export const RESERVE_STOPS = [0, 0.25, 0.5, 0.75] as const;
+
+/// The last move Auto would have made (cmux-host-budget `reserve.rs`'s shadow line), with the chat's title.
+export interface ReserveShadow {
+  readonly title: string;
+  readonly reason: "cpu" | "memory";
+  readonly atMs: number;
+}
+
+/// Auto on reserve (RFD 0072): the setting, and in stage 1 (shadow) what it would have moved.
+export interface AutoReserveState {
+  readonly on: boolean;
+  readonly keep: number;
+  readonly shadow?: ReserveShadow;
+}
+
 export interface PlaceState {
   readonly mode: PlaceMode;
   readonly at: PlaceAt;
   readonly cloudName?: string;
   readonly move?: MoveView;
+  /// Drawn under Auto when the app sends it.
+  readonly reserve?: AutoReserveState;
 }
 
 export type EvacuateChatState = "queued" | "moving" | "live" | "failed" | "cancelled";
@@ -154,11 +173,41 @@ export function placeOf(value: unknown): PlaceState | undefined {
   const raw = value as Record<string, unknown>;
   if (!(MODES as readonly unknown[]).includes(raw.mode)) return undefined;
   const move = moveOf(raw.move);
+  const reserve = reserveOf(raw.reserve);
   return {
     mode: raw.mode as PlaceMode,
     at: raw.at === "cloud" ? "cloud" : "local",
     ...(typeof raw.cloudName === "string" && raw.cloudName ? { cloudName: raw.cloudName } : {}),
     ...(move ? { move } : {}),
+    ...(reserve ? { reserve } : {}),
+  };
+}
+
+/// `place.reserve`: a keep off the stops snaps down to one, as Rust's `ReserveSetting::reserve` does.
+export function reserveOf(value: unknown): AutoReserveState | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.on !== "boolean") return undefined;
+  const asked = typeof raw.keep === "number" && Number.isFinite(raw.keep) ? raw.keep : 0.5;
+  const keep = [...RESERVE_STOPS].reverse().find((stop) => stop <= asked + 1e-9) ?? 0;
+  const shadow = (raw.shadow ?? undefined) as Record<string, unknown> | undefined;
+  const shadowOk =
+    shadow &&
+    typeof shadow.title === "string" &&
+    (shadow.reason === "cpu" || shadow.reason === "memory") &&
+    typeof shadow.atMs === "number";
+  return {
+    on: raw.on,
+    keep,
+    ...(shadowOk
+      ? {
+          shadow: {
+            title: shadow.title as string,
+            reason: shadow.reason as "cpu" | "memory",
+            atMs: shadow.atMs as number,
+          },
+        }
+      : {}),
   };
 }
 

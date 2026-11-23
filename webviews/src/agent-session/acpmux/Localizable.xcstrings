@@ -466796,6 +466796,798 @@
           }
         }
       }
+    },
+    "placeReserve.toggle": {
+      "comment": "Agent pane: Auto on reserve's switch (moves agents to Cloud while they use more of this Mac than the person left them)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move agents when they crowd you"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انقل الوكلاء عندما يزاحمونك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti agente kad ti zauzmu računar"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt agenter, når de fylder for meget"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten verschieben, wenn sie dich bremsen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover agentes cuando te quiten espacio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacer les agents quand ils vous gênent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta gli agenti quando ti rallentano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントが重くなったら移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីភ្នាក់ងារ ពេលពួកវារំខានអ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 방해되면 옮기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt agenter når de tar for mye plass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenoś agentów, gdy ci przeszkadzają"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover agentes quando atrapalharem você"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переносить агентов, когда они мешают"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายเอเจนต์เมื่อแย่งทรัพยากรคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanlar seni sıkıştırınca taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переносити агентів, коли вони заважають"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển agent khi chúng chiếm chỗ của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体占用过多时移走"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理佔用過多時移走"
+          }
+        }
+      }
+    },
+    "placeReserve.keep": {
+      "comment": "Agent pane: the label of the share of this Mac kept for the person (a slider of 0, 25, 50, 75%)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep for me"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "احتفظ لي بـ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostavi meni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behold til mig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Für mich behalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reservar para mí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Garder pour moi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tieni per me"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分用に確保"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទុកសម្រាប់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 몫으로 남기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behold til meg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zostaw dla mnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reservar para mim"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оставить мне"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เก็บไว้ให้ฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bana ayır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Залишити мені"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giữ cho tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "为我保留"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "為我保留"
+          }
+        }
+      }
+    },
+    "placeReserve.trial": {
+      "comment": "Agent pane: under Auto on reserve while it only records what it would do",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trial: cmux notes which chat it would move. Nothing moves yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجربة: يسجّل cmux المحادثة التي كان سينقلها. لا شيء يُنقل بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proba: cmux bilježi koji bi chat premjestio. Još se ništa ne premješta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøve: cmux noterer, hvilken chat den ville flytte. Intet flyttes endnu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Test: cmux notiert, welchen Chat es verschieben würde. Noch wird nichts verschoben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prueba: cmux anota qué chat movería. Aún no se mueve nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Essai : cmux note quel chat il déplacerait. Rien ne bouge encore."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prova: cmux annota quale chat sposterebbe. Per ora non si sposta nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "試行中：cmux は移動するはずのチャットを記録します。まだ何も移動しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សាកល្បង៖ cmux កត់ត្រាការជជែកដែលវានឹងផ្លាស់ទី។ មិនទាន់ផ្លាស់ទីអ្វីទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시험 중: cmux는 옮길 채팅을 기록만 합니다. 아직 아무것도 옮기지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøve: cmux noterer hvilken chat den ville flyttet. Ingenting flyttes ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Próba: cmux zapisuje, który czat by przeniósł. Na razie nic się nie przenosi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teste: o cmux anota qual chat moveria. Nada é movido ainda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Проба: cmux отмечает, какой чат перенёс бы. Пока ничего не переносится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทดลอง: cmux จดว่าจะย้ายแชทใด ยังไม่มีการย้ายจริง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deneme: cmux hangi sohbeti taşıyacağını not eder. Henüz hiçbir şey taşınmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Проба: cmux записує, який чат переніс би. Поки нічого не переноситься."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thử nghiệm: cmux ghi lại cuộc trò chuyện nó sẽ chuyển. Chưa chuyển gì."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "试用：cmux 只记录会移走哪个聊天，暂不移动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "試用：cmux 只記錄會移走哪個聊天，暫不移動。"
+          }
+        }
+      }
+    },
+    "placeReserve.noneYet": {
+      "comment": "Agent pane: Auto on reserve has not found a chat to move",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing would have moved yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يكن ليُنقل شيء بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još se ništa ne bi premjestilo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet ville være flyttet endnu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bisher wäre nichts verschoben worden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún no se habría movido nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rien n’aurait encore été déplacé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finora non si sarebbe spostato nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "まだ移動対象はありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់មានអ្វីត្រូវផ្លាស់ទីទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 옮겼을 채팅이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingenting ville blitt flyttet ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na razie nic nie zostałoby przeniesione."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada teria sido movido ainda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока ничего не было бы перенесено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่มีอะไรที่จะถูกย้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Henüz hiçbir şey taşınmazdı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки нічого не було б перенесено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa có gì sẽ bị chuyển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前还没有会被移走的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前還沒有會被移走的聊天。"
+          }
+        }
+      }
+    },
+    "placeReserve.wouldMoveCpu": {
+      "comment": "Agent pane: the last chat Auto on reserve would have moved, because agents used too much CPU; {title} is the chat, {time} the clock time",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Would have moved “{title}” at {time}: agents used more CPU than you left them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كان سينقل «{title}» عند {time}: استخدم الوكلاء من المعالج أكثر مما تركته لهم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjestio bi „{title}” u {time}: agenti su koristili više CPU-a nego što si im ostavio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ville have flyttet “{title}” kl. {time}: agenter brugte mere CPU, end du gav dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hätte „{title}“ um {time} verschoben: Agenten nutzten mehr CPU, als du ihnen gelassen hast."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Habría movido «{title}» a las {time}: los agentes usaron más CPU de la que les dejaste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aurait déplacé « {title} » à {time} : les agents utilisaient plus de CPU que vous ne leur laissiez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avrebbe spostato “{title}” alle {time}: gli agenti usavano più CPU di quella lasciata a loro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} に「{title}」を移動していました：エージェントが割り当てより多くの CPU を使用。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នឹងផ្លាស់ទី “{title}” នៅ {time}៖ ភ្នាក់ងារប្រើ CPU លើសពីអ្វីដែលអ្នកទុកឱ្យ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time}에 “{title}”을(를) 옮겼을 것입니다: 에이전트가 남겨 둔 것보다 CPU를 더 썼습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ville flyttet «{title}» kl. {time}: agentene brukte mer CPU enn du ga dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeniósłby „{title}” o {time}: agenci używali więcej CPU, niż im zostawiono."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teria movido “{title}” às {time}: os agentes usaram mais CPU do que você deixou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенёс бы «{title}» в {time}: агенты использовали больше CPU, чем вы им оставили."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จะย้าย “{title}” เมื่อ {time}: เอเจนต์ใช้ CPU เกินกว่าที่คุณเหลือให้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{title}” sohbetini {time} itibarıyla taşırdı: ajanlar onlara bıraktığından fazla CPU kullandı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переніс би «{title}» о {time}: агенти використали більше CPU, ніж ви їм залишили."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lẽ ra đã chuyển “{title}” lúc {time}: agent dùng nhiều CPU hơn phần bạn để lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "本会在 {time} 移走“{title}”：智能体用的 CPU 超出你留给它们的份额。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "本會在 {time} 移走「{title}」：代理用的 CPU 超出你留給它們的份額。"
+          }
+        }
+      }
+    },
+    "placeReserve.wouldMoveMemory": {
+      "comment": "Agent pane: the last chat Auto on reserve would have moved, because agents used too much memory; {title} is the chat, {time} the clock time",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Would have moved “{title}” at {time}: agents used more memory than you left them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كان سينقل «{title}» عند {time}: استخدم الوكلاء من الذاكرة أكثر مما تركته لهم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjestio bi „{title}” u {time}: agenti su koristili više memorije nego što si im ostavio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ville have flyttet “{title}” kl. {time}: agenter brugte mere hukommelse, end du gav dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hätte „{title}“ um {time} verschoben: Agenten nutzten mehr Speicher, als du ihnen gelassen hast."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Habría movido «{title}» a las {time}: los agentes usaron más memoria de la que les dejaste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aurait déplacé « {title} » à {time} : les agents utilisaient plus de mémoire que vous ne leur laissiez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avrebbe spostato “{title}” alle {time}: gli agenti usavano più memoria di quella lasciata a loro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} に「{title}」を移動していました：エージェントが割り当てより多くのメモリを使用。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នឹងផ្លាស់ទី “{title}” នៅ {time}៖ ភ្នាក់ងារប្រើអង្គចងចាំលើសពីអ្វីដែលអ្នកទុកឱ្យ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time}에 “{title}”을(를) 옮겼을 것입니다: 에이전트가 남겨 둔 것보다 메모리를 더 썼습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ville flyttet «{title}» kl. {time}: agentene brukte mer minne enn du ga dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeniósłby „{title}” o {time}: agenci używali więcej pamięci, niż im zostawiono."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teria movido “{title}” às {time}: os agentes usaram mais memória do que você deixou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенёс бы «{title}» в {time}: агенты использовали больше памяти, чем вы им оставили."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จะย้าย “{title}” เมื่อ {time}: เอเจนต์ใช้หน่วยความจำเกินกว่าที่คุณเหลือให้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{title}” sohbetini {time} itibarıyla taşırdı: ajanlar onlara bıraktığından fazla bellek kullandı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переніс би «{title}» о {time}: агенти використали більше пам’яті, ніж ви їм залишили."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lẽ ra đã chuyển “{title}” lúc {time}: agent dùng nhiều bộ nhớ hơn phần bạn để lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "本会在 {time} 移走“{title}”：智能体用的内存超出你留给它们的份额。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "本會在 {time} 移走「{title}」：代理用的記憶體超出你留給它們的份額。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
