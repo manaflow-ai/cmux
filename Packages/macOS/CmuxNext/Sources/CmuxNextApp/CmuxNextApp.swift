@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextMacScreen
 import CmuxNextMallocZone
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -18,16 +19,13 @@ import CmuxNextWakeups
 public struct CmuxNextApp {
     public func main() {
         if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { _exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld; `_exit` skips atexit handlers and static destructors
-        if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) } // _exit: no static destructors under Chromium's threads
+        if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) }; MacScreenStreamChild(arguments: CommandLine.arguments)?.run() // _exit: no static destructors under Chromium's threads; the Screen Sharing helper's child (the iPhone viewer's screen host) runs and exits, no app starts
         announceBenchHooksBuild()
         ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch() // defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
-        // First, while the process has one thread: install the delegating
-        // default malloc zone Chromium expects (Chromium's
-        // EarlyMallocZoneRegistration). The Chromium framework is mapped
-        // later on a background thread; its PartitionAlloc constructor then
-        // swaps zones without a moment where no zone owns system memory.
-        // Without this, a free() on another thread in that moment crashed
-        // with "No zone found" (browser-isolation.md, allocator zone race).
+        // First, while the process has one thread: install the delegating default malloc zone Chromium expects
+        // (Chromium's EarlyMallocZoneRegistration). The Chromium framework is mapped later on a background thread;
+        // its PartitionAlloc constructor then swaps zones without a moment where no zone owns system memory. Without
+        // this, a free() on another thread in that moment crashed with "No zone found" (browser-isolation.md, allocator zone race).
         _ = cmux_early_malloc_zone_registration()
         // Before any socket or pipe exists (ChildSignalDefaults); the open-file limit before CefInitialize
         // (OpenFileLimit: launchd's 256 stopped the app at 80-100 Chromium tabs).
@@ -82,8 +80,7 @@ public struct CmuxNextApp {
             || environment.relaunchBehind != nil
         let delegate = AppDelegate(environment: environment,
                                    launchReads: (work, launchImages, relaunchWake, chromium), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
-        app.delegate = delegate
-        app.setActivationPolicy(.regular)
+        app.delegate = delegate; app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp"); DebugTimings.markLaunch("main.run")
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {

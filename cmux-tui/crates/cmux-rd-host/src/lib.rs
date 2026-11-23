@@ -122,6 +122,8 @@ mod testapp;
 mod token;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod upstream;
+// `__webrtc-host`: the app's WebRTC screen host as the Screen Sharing helper's child (its grants).
+pub mod webrtc_child;
 // `cmux-rd view`: the Linux viewer of a device hub session (Windows follows from the same module).
 #[cfg(all(feature = "link", feature = "openh264", target_os = "linux"))]
 mod view;
@@ -262,6 +264,11 @@ pub fn run_cli(args: &[String]) -> i32 {
     #[cfg(all(target_os = "macos", feature = "computer-use"))]
     if cmd == computer_use_worker::MODE {
         return computer_use_worker::run(&args[1..]);
+    }
+    // The app's iPhone viewer host, started as this helper's child so its capture and input use the
+    // helper's Screen Recording and Accessibility grants; stdio is the app's, passed through.
+    if cmd == webrtc_child::MODE {
+        return webrtc_child::run(&args[1..]);
     }
     if matches!(cmd.as_str(), "-h" | "--help" | "help") {
         println!("{USAGE}");

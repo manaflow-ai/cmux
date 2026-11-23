@@ -16,7 +16,10 @@ import os
 /// The viewer chooses the protocol with its offer. A viewer that offers WebRTC
 /// (the iPhone's Screen Sharing viewer, or a Mac from before cmux.rd/1) is served
 /// by `ScreenStreamHost` with that offer and every later signal, so this Mac
-/// stays viewable from every client the hub admits.
+/// stays viewable from every client the hub admits. That host runs in its own
+/// process too (``MacScreenStreamProcess``: this app's executable started by the
+/// helper as the helper's child), so its capture and input also use the helper's
+/// grants; only a build without the helper runs it in this app.
 nonisolated final class MacScreenRdHost: Sendable {
     enum Event: Sendable, Equatable {
         /// The viewer's link is up: it sees (and, in a control session, controls) the screen.
@@ -40,6 +43,8 @@ nonisolated final class MacScreenRdHost: Sendable {
     private let process = MacScreenRdProcess()
     /// The WebRTC host when the viewer offered WebRTC (nil until then, and for a cmux.rd/1 viewer).
     private let webRTC = Mutex<ScreenStreamHost?>(nil)
+    /// The WebRTC host's process when the helper runs it (the in-app `webRTC` otherwise).
+    private let webRTCProcess = Mutex<MacScreenStreamProcess?>(nil)
     /// Reads the process's lines until it ends; outlives `serve` (a connected session outlives its
     /// signaling), cancelled by `disconnectViewer`.
     private let output = Mutex<Task<Void, Never>?>(nil)
@@ -200,8 +205,11 @@ nonisolated final class MacScreenRdHost: Sendable {
         try await webRTCServe?.value
     }
 
-    /// Serves a WebRTC viewer with `ScreenStreamHost` over the forwarded signaling.
+    /// Serves a WebRTC viewer with `ScreenStreamHost` over the forwarded signaling: in the Screen
+    /// Sharing helper's child when this build carries the helper (never this app then: macOS would
+    /// check this app's grants), else in this app.
     private func serveWebRTC(_ signaling: MacScreenForwardedSignaling) async throws {
+        if let helper = MacScreenHelper.bundled() { return try await serveWebRTCInHelper(signaling, helper: helper) }
         let logger = logger
         let log: @Sendable (String) -> Void = { line in logger.info("\(line, privacy: .public)") }
         // SECURITY: the capture leaves out the app's windows only the person at this Mac may see, and
@@ -228,6 +236,32 @@ nonisolated final class MacScreenRdHost: Sendable {
         logger.info("serving a WebRTC viewer")
         defer { webRTCExclusions.withLock { $0 }?.cancel() }
         try await host.serve(signaling)
+    }
+
+    /// The WebRTC host in the helper's child (``MacScreenStreamProcess``).
+    private func serveWebRTCInHelper(_ signaling: MacScreenForwardedSignaling, helper: MacScreenHelper) async throws {
+        let child = MacScreenStreamProcess()
+        webRTCProcess.withLock { $0 = child }
+        try await child.startInHelper(helper)
+        // SECURITY: the child's capture leaves out the app's windows only the person at this Mac may
+        // see: the list now on the setup, then the whole list on every change while the session lasts.
+        let watch = Self.watchExcludedWindows { ids in child.exclude(ids) }
+        webRTCExclusions.withLock { previous in
+            previous?.cancel()
+            previous = watch
+        }
+        defer {
+            watch.cancel()
+            child.stop()
+        }
+        try await child.serve(signaling, name: session.name, viewOnly: session.viewOnly,
+                              excluded: CaptureExcludedWindows().windowIDs) { [weak self] event, message in
+            switch event {
+            case .viewerConnected: self?.emit(.viewerConnected)
+            case .viewerEnded: self?.emit(.viewerEnded("the WebRTC viewer left"))
+            case .sourceFailed: self?.emit(.sourceFailed(message ?? "the screen stream host failed"))
+            }
+        }
     }
 
     /// Sends the rd process the windows its capture leaves out now (it applies the list to the running
@@ -280,6 +314,7 @@ nonisolated final class MacScreenRdHost: Sendable {
         process.stop()
         output.withLock { $0 }?.cancel()
         // Closing the peer connection waits on WebRTC's threads: never on the caller's (the main actor).
+        webRTCProcess.withLock { $0 }?.stop()
         if let host = webRTC.withLock({ $0 }) { Task.detached(priority: WorkPriority.userVisible.taskPriority) { host.disconnectViewer() } }
     }
 
