@@ -517,7 +517,8 @@ import Testing
         #expect(rows.heldCount == newMatches, "the pill counts the new matching records")
         // The 60 dropped rows' bodies are let go: what the rows keep is the journal's plus small stubs.
         let dropped = held.filter { $0.id < journal.firstID }
-        #expect(!dropped.isEmpty && dropped.allSatisfy(\.isStub), "dropped rows are kept as stubs")
+        let allStubs = dropped.allSatisfy { $0.isStub }
+        #expect(!dropped.isEmpty && allStubs, "dropped rows are kept as stubs")
         #expect(dropped.allSatisfy { $0.line.utf8.count < 400 }, "a stub keeps no body")
         #expect(rows.stubbed == dropped.count)
         let keptBytes = held.reduce(0) { $0 + $1.line.utf8.count }
@@ -529,7 +530,8 @@ import Testing
         rows.setHolding(false, journal: journal)
         #expect(rows.rows(journal).map(\.id) == brute(journal, query), "the hold's end lands the new records, pruned to the journal")
         #expect(rows.heldCount == 0)
-        #expect(!rows.rows(journal).contains(where: \.isStub))
+        let stubsLeft = rows.rows(journal).filter { $0.isStub }.count
+        #expect(stubsLeft == 0, "no stub stays once the hold ends (\(stubsLeft) left)")
     }
 
     /// A new query or Clear while held: the rows are the journal's (nothing held stays behind).
