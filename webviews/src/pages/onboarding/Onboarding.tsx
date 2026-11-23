@@ -10,7 +10,6 @@ import { DialogButton } from "../../ui/DialogButton";
 import { StableLabel } from "../../ui/StableLabel";
 import type { Strings } from "../shared/i18n";
 import { AgentsStep, DEFAULT_AGENTS_LOOK, type AgentsLook } from "./AgentsStep";
-import { AgentToolsStep } from "./AgentToolsStep";
 import { ComputerUseStep } from "./ComputerUseStep";
 import { ImportSources, ImportStep } from "./ImportStep";
 import { DEFAULT_MAKE_IT_YOURS_LOOK, MakeItYoursStep, type MakeItYoursLook } from "./MakeItYoursStep";
@@ -39,17 +38,15 @@ function Footer({ footer, step, leading }: { footer: OnboardingFooter; step: Onb
             {back}
           </DialogButton>
         )}
-        {footer.skip !== "none" && (
-          <DialogButton
-            dialogKey="escape"
-            className="ui-button ui-btn"
-            data-variant="subtle"
-            data-size="md"
-            onClick={() => store.call(OPS.skip)}
-          >
-            <StableLabel label={skipLabel(strings, footer.skip)} alternatives={skipLabels(strings, step)} />
-          </DialogButton>
-        )}
+        <DialogButton
+          dialogKey="escape"
+          className="ui-button ui-btn"
+          data-variant="subtle"
+          data-size="md"
+          onClick={() => store.call(OPS.skip)}
+        >
+          <StableLabel label={skipLabel(strings, footer.skip)} alternatives={skipLabels(strings, step)} />
+        </DialogButton>
         <DialogButton
           dialogKey="return"
           className="ui-button ui-btn"
@@ -77,7 +74,6 @@ function Scaffold({
 }) {
   const { strings } = useOnboarding();
   const agents = state.step === "agents";
-  const tools = state.step === "agentTools";
   const make = state.step === "makeItYours";
   const sources = !agents && !make && state.importer != null ? <ImportSources importer={state.importer} /> : null;
   return (
@@ -86,21 +82,16 @@ function Scaffold({
         <h1 className="onb-title">
           {agents
             ? strings.t("onboarding.agents.heading")
-            : tools
-              ? strings.t("onboarding.agentTools.heading")
-              : make
-                ? strings.t("onboarding.makeItYours.title")
-                : strings.t("onboarding.import.title2")}
+            : make
+              ? strings.t("onboarding.makeItYours.title")
+              : strings.t("onboarding.import.title2")}
         </h1>
         {agents && <p className="onb-sentence">{strings.t("onboarding.agents.body")}</p>}
-        {tools && <p className="onb-sentence">{strings.t("onboarding.agentTools.body")}</p>}
         {make && <p className="onb-sentence">{strings.t("onboarding.makeItYours.body")}</p>}
       </header>
       <div className="onb-body">
         {agents ? (
           <AgentsStep agents={state.agents} look={agentsLook} />
-        ) : tools ? (
-          <AgentToolsStep tools={state.agentTools} />
         ) : make ? (
           <MakeItYoursStep choices={state.makeItYours} look={makeItYoursLook} />
         ) : state.importer != null ? (

@@ -1389,7 +1389,7 @@ export type IntegrationRow = {
 export type AgentToolsCardRow = {
   id: string;
   name: string;
-  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
+  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not (`agents.cmuxMcp` is off). */
   state: "ready" | "terminals" | "failed";
   /** The line that removes a `cmux` entry in the agent's own settings that runs `cmux mcp serve`, used
    * outside cmux (not this build's own manual line); null or absent for none. Remove runs it only on
@@ -1401,12 +1401,12 @@ export type AgentToolsCardRow = {
 export type AgentToolsCardState = {
   /** The first read answered (an empty list then says none was found). */
   loaded: boolean;
-  /** Turn On runs. */
+  /** Turn On (shown while `agents.cmuxMcp` is off) runs. */
   applying: boolean;
   /** The answer could not be saved. */
   failed: boolean;
-  /** `agents.cmuxMcp` now. Absent from older hosts. */
-  choice?: "ask" | "on" | "off";
+  /** `agents.cmuxMcp` now (`on` unless the person turned it off). Absent from older hosts. */
+  choice?: "on" | "off";
   rows: AgentToolsCardRow[];
   /** The lines a person runs themselves to use cmux's tools in agents started elsewhere (cmux never
    * runs them). Absent from older hosts. */
