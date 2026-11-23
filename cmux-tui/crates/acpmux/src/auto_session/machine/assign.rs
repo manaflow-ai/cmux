@@ -150,10 +150,11 @@ async fn deliver(
         ..PromptOptions::default()
     };
     let blocks = vec![json!({ "type": "text", "text": message.text })];
-    let (hub, session) = (Arc::clone(hub), Arc::clone(session));
-    // The prompt's future ends with its turn; only its acceptance is waited for here.
-    let mut turn = tokio::spawn(async move {
-        hub.prompt_with(&session, blocks, "auto-mode", false, options).await
+    let (owner, session) = (Arc::clone(hub), Arc::clone(session));
+    // The prompt's future ends with its turn; only its acceptance is waited for here. The turn
+    // is the hub's task, as any chat's is: it ends with the daemon.
+    let mut turn = hub.scope.spawn_named("auto-mode-inbox-message", async move {
+        owner.prompt_with(&session, blocks, "auto-mode", false, options).await
     });
     let ended = tokio::select! {
         accepted = recorded => match accepted {

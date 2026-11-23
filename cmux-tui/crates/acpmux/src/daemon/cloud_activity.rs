@@ -360,7 +360,7 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     agent_socket_appears(&path).await;
     // The agent is here. On a Cloud machine, Auto mode's side starts with it.
     if crate::cloud_host::is_cloud_vm() {
-        tokio::spawn(auto_mode(hub.clone()));
+        hub.scope.spawn_until_cancelled("auto-mode-machine", auto_mode(hub.clone()));
     }
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
