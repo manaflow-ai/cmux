@@ -17,8 +17,8 @@ use crate::event::{
     TeamRefreshTicket, TokenReadKind,
 };
 use crate::machine::Refusal;
-use crate::phase::{AuthPhase, PhaseDamper, TIMED_OUT_RESET};
 use crate::model::{AuthTeam, AuthUser, LaunchOptions};
+use crate::phase::{AuthPhase, PhaseDamper, TIMED_OUT_RESET};
 
 /// The session generation the sample states are in and their answers carry.
 const SESSION: u64 = 7;
@@ -208,7 +208,10 @@ pub(crate) fn sample_events() -> Vec<Event> {
         Event::PhaseEnded { id: 1 },
         Event::SupersedeTimedOutPhases,
         Event::TokenReadEmpty { storage_was_available: true, read_failed: false },
-        Event::ClearAuthStateRequested { reason: "sample".to_owned(), preserve_pending_code: false },
+        Event::ClearAuthStateRequested {
+            reason: "sample".to_owned(),
+            preserve_pending_code: false,
+        },
         Event::AvailableTeamsSet(vec![AuthTeam::new("team-a", "A")]),
     ]
 }
