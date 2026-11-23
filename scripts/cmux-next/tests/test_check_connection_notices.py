@@ -372,23 +372,22 @@ class NativeShapes(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("AgentSubagent shows a connection state ('Disconnected')", out)
 
-    def test_a_sidebar_sections_row_click_is_an_action(self):
-        """A Mac sidebar section's rows are clicked through `activate(_ id: LayoutItemID)` (HostsSidebar opens a
-        connecting host); a section with no row click does not pass on its words alone."""
+    def test_a_sidebar_section_that_activates_its_rows_is_an_action(self):
+        """A sidebar section whose rows click through `activate(_ id: LayoutItemID)` (Mac HostsSidebar: a
+        Connecting row opens the workspace once connected) carries the person's action; a section without it does not."""
         clicked = ("final class HostsSidebar {\n"
-                   "    static func caption(_ connecting: Bool) -> String { connecting ? \"Connecting…\" : \"Ready\" }\n"
-                   "    func activate(_ id: LayoutItemID) -> Bool { true }\n}\n")
-        unclicked = ("final class QuietSidebar {\n"
-                     "    static func caption(_ connecting: Bool) -> String { connecting ? \"Connecting…\" : \"Ready\" }\n"
-                     "    func activated(_ id: String) -> Bool { true }\n}\n")
+                   "    static func caption() -> String { \"Connecting\u2026\" }\n"
+                   "    public func activate(_ id: LayoutItemID) -> Bool { true }\n}\n")
+        unclicked = ("final class PeersSidebar {\n"
+                     "    static func caption() -> String { \"Connecting\u2026\" }\n}\n")
         tree = Tree(self)
-        tree.write(f"{IOS}/HostsSidebar.swift", clicked)
+        tree.write(f"{MAC}/HostsSidebar.swift", clicked)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
-        tree.write(f"{IOS}/QuietSidebar.swift", unclicked)
+        tree.write(f"{MAC}/PeersSidebar.swift", unclicked)
         code, out = tree.check()
         self.assertEqual(code, 1, out)
-        self.assertIn("QuietSidebar shows a connection state", out)
+        self.assertIn("PeersSidebar shows a connection state", out)
 
     def test_tests_and_galleries_are_not_read(self):
         tree = Tree(self)

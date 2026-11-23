@@ -35,10 +35,12 @@ Swift build handed to a person. Table: [cmux-hot-loop, Signed in](skills/cmux-ho
 
 - **Agents never compile or test on the person's Mac.** No local `swift build`/`swift test`, `xcodebuild`,
   `cargo build|test|clippy` or `scripts/reload.sh`: run them on the fleet (`cmux-ci run --class CLASS --script
-  ... --ref SHA`, `cmux-ci build cmux --ref SHA`). Never bypass the PATH guards. Details:
+  ... --ref SHA`, `cmux-ci build cmux --ref SHA`). A web or daemon change needs no build: `cmux app try .`
+  first ([the loop](#the-loop-use-it-first-then-test)). Never bypass the PATH guards. Details:
   [verification rules](skills/cmux-dev-workflow/references/verification-rules.md).
 - **Never quit, kill, relaunch or replace the user's running cmux** (`/Applications/cmux.app`,
-  `com.cmuxterm.app`), and never set `CMUX_ALLOW_REPLACING_RUNNING_CMUX`. Reproduce in a tagged build.
+  `com.cmuxterm.app`), and never set `CMUX_ALLOW_REPLACING_RUNNING_CMUX`. Reproduce in a copy of the NIGHTLY
+  (`cmux app try .`), or a tagged build when the change needs one.
 - **Wait on GitHub with one shared waiter, never a poll**: one background `glaeda-gh wait pr OWNER/REPO#N --sha
   FULL_SHA` per PR, or the acpmux `run_wait` tool; never `gh pr checks --watch`, `gh run watch` or a sleep loop
   ([verification rules](skills/cmux-dev-workflow/references/verification-rules.md)).
@@ -69,7 +71,8 @@ Swift build handed to a person. Table: [cmux-hot-loop, Signed in](skills/cmux-ho
 - **Nightlies never use Blacksmith, run on one signing Mac, and nobody cancels them** (Lawrence, 2026-10-30
   and 2026-11-04): [landing](docs/ci/landing.md#ci-runners-and-nightlies).
 - **A change to the Mac or iOS app is done when the person can open it**: the report ends with the dev build
-  link, the fleet simulator evidence and the iPhone install result
+  link (a web or daemon change: `cmux app try <PR>`, a build only when `hot-verify.py plan` needs one or the
+  person asks), the fleet simulator evidence and the iPhone install result
   ([finishing a task](skills/cmux-dev-workflow/references/finishing-a-task.md)). A docs-only change gives the
   file path instead.
 

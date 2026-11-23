@@ -1,3 +1,4 @@
+// `ShellModel` and `InviteEmail` are iOS-only; this target also builds on macOS.
 #if os(iOS)
 @testable import CmuxMobileLive
 import CmuxMobileModel
