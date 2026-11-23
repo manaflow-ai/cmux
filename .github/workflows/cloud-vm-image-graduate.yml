@@ -50,6 +50,7 @@ jobs:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
+          set -o pipefail
           mkdir -p "$RUNNER_TEMP/graduate"
           bun web/scripts/cmux-vm-image/graduate.ts --backend dev --out "$RUNNER_TEMP/graduate/report.json" 2>&1 | tee "$RUNNER_TEMP/graduate/log.txt"
       - name: Summary

@@ -15,7 +15,7 @@
  *
  * Usage (from web/):
  *   bun scripts/cmux-vm-image/graduate.ts --summary SUMMARY.json [--min-people N] [--write]
- *   CMUX_INSTALL_COUNTS_TOKEN=... bun scripts/cmux-vm-image/graduate.ts --api https://cloud-api.cmux.dev [--min-people N] [--write]
+ *   CMUX_INSTALL_COUNTS_TOKEN=... bun scripts/cmux-vm-image/graduate.ts --api https://cmux-platform-production.debussy.workers.dev [--min-people N] [--write]
  *   bun scripts/cmux-vm-image/graduate.ts --backend dev [--out REPORT.json]   (signs in as CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD)
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -114,10 +114,13 @@ export function parseSummary(text: string): SummaryRow[] {
   return v.names.filter((r): r is SummaryRow => !!r && typeof r.name === "string" && typeof r.people === "number");
 }
 
-/** The backends and Stack projects cloud-journey.ts signs in to (its STACK and resolveBackend; kept in step by hand). */
+/**
+ * The cmux-platform worker that serves /v1/install-counts per backend (its wrangler.jsonc PLATFORM_ORIGIN, not the cmux-api
+ * host, which answers 404 there), and the Stack project cloud-journey.ts signs in to (its STACK; kept in step by hand).
+ */
 const BACKENDS: Record<string, { api: string; stack: { project: string; clientKey: string } }> = {
-  dev: { api: "https://cmux-api-development.debussy.workers.dev", stack: { project: "454ecd03-1db2-4050-845e-4ce5b0cd9895", clientKey: "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g" } },
-  prod: { api: "https://cloud-api.cmux.dev", stack: { project: "9790718f-14cd-4f7e-824d-eaf527a82b82", clientKey: "" } },
+  dev: { api: "https://cmux-platform-development.debussy.workers.dev", stack: { project: "454ecd03-1db2-4050-845e-4ce5b0cd9895", clientKey: "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g" } },
+  prod: { api: "https://cmux-platform-production.debussy.workers.dev", stack: { project: "9790718f-14cd-4f7e-824d-eaf527a82b82", clientKey: "" } },
 };
 
 /** The test account's person token: Stack's password sign-in, as cloud-journey.ts passwordSignIn. */
