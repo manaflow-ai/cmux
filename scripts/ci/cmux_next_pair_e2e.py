@@ -655,6 +655,7 @@ def main():
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
 LATEST_OUTPUT = re.compile(r"timing launch chat_latest_output_frame \((\d+)ms\)")
 TAB_ID = re.compile(r"^tab_[0-9a-f]{32}$")
+OPEN_LIVE_CHAT = re.compile(r"open-live chat (\S+) running (true|false)")
 
 
 def phone_dial_evidence(path, url):
@@ -719,48 +720,86 @@ def open_live_leg(simctl, udid, bundle_id, phone_env, phone_log, rpc, out, runs,
         return False
     chat_pane, tab = found
     made = pane("new_chat", pane=chat_pane.get("id"), harness="claude")
+    # The reply is {"pane", "result"}: the page's chat state is under result.
     state = wait_for(lambda: (lambda s: s if isinstance(s, dict) and "error" not in s and s.get("connection") else None)(
-        pane("chat_state", pane=chat_pane.get("id"))), 60, every=1)
+        (pane("chat_state", pane=chat_pane.get("id")) or {}).get("result")), 60, every=1)
     link_id = _tab_link_id(tab)
     note(f"- open-live: Claude chat on the Mac, tab {'with a link id' if link_id else 'WITHOUT a tab_ link id'}; "
          f"new_chat {redact(json.dumps(made))[:160]}; state {redact(json.dumps(state))[:200]}")
     if not link_id:
         return False
+    def chat():
+        r = pane("chat_state", pane=chat_pane.get("id"))
+        st = r.get("result") if isinstance(r, dict) and isinstance(r.get("result"), dict) else r
+        return st if isinstance(st, dict) else {}
+
+    def streaming(st):
+        return bool(st.get("isWorking")) or bool((st.get("lastAssistant") or {}).get("streaming"))
+
+    # The idle fixture is a chat at rest after one real reply: wait for that reply, not a fixed time.
     first = pane("send_prompt", pane=chat_pane.get("id"), text="Reply with the single word ready.")
-    time.sleep(15)  # bounded: the first reply's rows reach the transcript the phone opens
-    note(f"- open-live: first prompt {redact(json.dumps(first))[:160]}")
+    rest = wait_for(lambda: (lambda st: st if (st.get("lastAssistant") or {}).get("text") and not streaming(st)
+                             else None)(chat()), 120, every=1)
+    note(f"- open-live: first prompt {redact(json.dumps(first))[:160]}; reply "
+         f"{'at rest, ' + repr(((rest or {}).get('lastAssistant') or {}).get('text', '')[:40]) if rest else 'NOT at rest in 120 s'}")
+    if not rest:
+        return False
+    # Which chat a launch showed: the phone names it on the line before its mark (ChatTranscriptList);
+    # it must be the one the link opens (the tab link id, or the Mac's session id for it).
+    mine = {link_id, rest.get("sessionId")} | {v for v in tab.values() if isinstance(v, str)}
+    mine.discard(None)
 
     video = os.path.join(out, "open-live.mp4")
     rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec", "h264", "--force", video],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1)  # the recorder's first frame; it has no ready signal
     env = dict(phone_env, SIMCTL_CHILD_CMUX_MOBILE_OPEN_URL=f"cmux://tab/{link_id}")
+    long_prompt = "Count from 1 to 3000, one number per line, with no other text."
     rows, ok = {}, True
     try:
         for row in ("idle fixture", "duress"):
-            if row == "duress":
-                sent = pane("send_prompt", pane=chat_pane.get("id"),
-                            text="Count from 1 to 3000, one number per line, with no other text.")
-                time.sleep(5)  # bounded: the reply is streaming before the first launch
-                note(f"- open-live duress: the chat streams a long reply while the phone opens ({redact(json.dumps(sent))[:160]})")
-            samples = []
+            samples, why = [], []
             for i in range(runs):
+                if row == "duress" and not streaming(chat()):
+                    # Each duress launch opens onto a reply that is streaming now, not one sent earlier
+                    # that may have finished: a fresh long prompt whenever the last one is done.
+                    sent = pane("send_prompt", pane=chat_pane.get("id"), text=long_prompt)
+                    live = wait_for(lambda: streaming(chat()), 60, every=0.5)
+                    note(f"- open-live duress launch {i + 1}: long reply {'streaming' if live else 'NOT streaming in 60 s'} "
+                         f"({redact(json.dumps(sent))[:120]})")
                 subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True, timeout=60)
                 time.sleep(2)
                 since = time.monotonic()
-                subprocess.run(simctl + ["launch", udid, bundle_id], env=env, capture_output=True, timeout=60)
-                hit = phone_log.wait_at(LATEST_OUTPUT, 60, since=since)
-                samples.append(int(hit[1].group(1)) if hit else None)
+                launched = subprocess.run(simctl + ["launch", udid, bundle_id], env=env, capture_output=True,
+                                          text=True, timeout=60)
+                pid = (re.search(r":\s*(\d+)\s*$", launched.stdout or "") or [None, None])[1]
+                # `log stream` delivers lines late, so a line is this launch's only by the process id its
+                # chat line names; the mark is the first after that line (the old process is gone by then).
+                seen = phone_log.wait_at(re.compile(OPEN_LIVE_CHAT.pattern + (rf" pid {pid}\b" if pid else "")),
+                                         60, since=since)
+                hit = phone_log.wait_at(LATEST_OUTPUT, 10, since=seen[0]) if seen else None
+                mac_streaming = streaming(chat()) if row == "duress" else None
+                shown = seen[1].group(1) if seen else None
+                running = seen[1].group(2) == "true" if seen else None
+                bad = ("no chat line from this launch in 60 s" if not seen else
+                       "no latest-output mark after its chat line" if not hit else
+                       f"showed chat {shown[:12]}, not the linked one" if shown not in mine else
+                       "the phone's chat was not running at its frame" if row == "duress" and not running else
+                       "the Mac's reply had finished by the frame" if row == "duress" and not mac_streaming else
+                       "the phone's chat was still running (not at rest)" if row == "idle fixture" and running else None)
+                samples.append(None if bad else int(hit[1].group(1)))
+                why.append(bad)
             got = sorted(v for v in samples if v is not None)
-            rows[row] = {"samples_ms": samples}
+            rows[row] = {"samples_ms": samples, "rejected": why}
             if len(got) == runs:
                 rows[row].update(p50_ms=percentile(got, 0.5), p95_ms=percentile(got, 0.95))
-                note(f"- open-live {row}: launch -> latest output line visible, n={runs}: p50 "
+                note(f"- open-live {row}: launch -> latest output line of the linked chat visible"
+                     f"{', its reply streaming on phone and Mac' if row == 'duress' else ', at rest'}, n={runs}: p50 "
                      f"{rows[row]['p50_ms']:.0f} ms, p95 {rows[row]['p95_ms']:.0f} ms (samples {samples})")
             else:
                 ok = False
-                note(f"- open-live {row}: {runs - len(got)} of {runs} launches showed no chat output in 60 s "
-                     f"(samples {samples}) -> FAIL")
+                note(f"- open-live {row}: {runs - len(got)} of {runs} launches not counted (samples {samples}; "
+                     f"why {[w for w in why if w]}) -> FAIL")
     finally:
         rec.send_signal(2)  # SIGINT ends the file cleanly
         try:
@@ -769,9 +808,12 @@ def open_live_leg(simctl, udid, bundle_id, phone_env, phone_log, rpc, out, runs,
             rec.kill()
     with open(os.path.join(out, "open-live.json"), "w") as f:
         json.dump({"runs": runs, "rows": rows, "mark": "chat_latest_output_frame",
-                   "duress": "the chat streams a long Claude reply while the phone opens"}, f, indent=1)
-    note(f"- open-live: video open-live.mp4, numbers open-live.json")
+                   "duress": "each launch opens while the linked chat streams a long Claude reply "
+                             "(checked on the phone at its frame and on the Mac after it)"}, f, indent=1)
+    note("- open-live: video open-live.mp4, numbers open-live.json")
     return ok
+
+
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
 
 
