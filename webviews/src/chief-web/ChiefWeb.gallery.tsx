@@ -142,7 +142,12 @@ export default componentEntry<ChiefWebProps>({
   height: 844,
   widths: { narrow: 390, normal: 768, wide: 1280 },
   pane: true,
-  load: () => import("./ChiefWeb").then((module) => module.ChiefWeb),
+  // The transcript chunk first, so a variant draws its rows on its first frame as the page does once loaded.
+  load: async () => {
+    const module = await import("./ChiefWeb");
+    await module.loadChiefTranscript();
+    return module.ChiefWeb;
+  },
   variants: {
     "phone-light": {
       props: fixture(),

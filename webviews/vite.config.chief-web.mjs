@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import base from "./vite.config";
 import { galleryModules } from "./dev-server/galleryHost";
+import { transcriptSheet } from "./vite.config.guest-page.mjs";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)));
 const pageRoot = path.join(webviewsRoot, "src/chief-web");
@@ -22,6 +23,8 @@ export default {
   plugins: [
     ...(base.plugins ?? []),
     { ...galleryModules(), name: "cmux-chief-web-pane-css", generateBundle: undefined },
+    // The pane sheet split as on the guest page: the first frame's part with the entry, the rest beside it.
+    transcriptSheet,
   ],
   build: {
     outDir: process.env.CMUX_CHIEF_WEB_OUT_DIR ?? path.join(webviewsRoot, "dist/chief-web"),
