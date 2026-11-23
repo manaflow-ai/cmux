@@ -249,6 +249,16 @@ impl Hub {
         // env, `session_env::workspace_id`), else its parent's.
         let workspace_id = workspace_id.or_else(|| parent_meta.workspace_id.clone());
         crate::agent_displays::mark(&mut fork_env, workspace_id.as_deref());
+        // The person's per-agent switch (cmux#49395), as a start gets it (`spawn.rs`), unless the
+        // parent carries another Mac's answer (`cmux_tools_answer::inherited` keeps that one).
+        if !parent_meta.session_env.contains_key(crate::agent_tools::TOOLS_ANSWER_ENV) {
+            let family = parent_meta.family.as_deref().unwrap_or(&parent_meta.harness);
+            crate::agent_tools::agent_switch_answer(
+                &mut fork_env,
+                crate::user_settings::text().as_deref(),
+                crate::agent_tools::switch_agent(family),
+            );
+        }
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
         // Onto another harness: its agent starts from the chat's transcript (`Made::Fresh`).
         let target = match retarget {
@@ -661,6 +671,7 @@ impl Hub {
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
+            effort_request: parent_meta.effort_request.clone(),
             cwd,
             // A fork sees what its parent saw, but never its own folder twice.
             additional_directories: fork_dirs,
@@ -668,6 +679,8 @@ impl Hub {
             // with the parent.
             stop_condition: None,
             stop_condition_sent: false,
+            // A fork of a read-only chat stays read-only (`restricted.rs`).
+            restricted: parent_meta.restricted,
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
@@ -840,6 +853,7 @@ impl Hub {
             meta.family = Some(t.family.clone());
             meta.preset = None;
             meta.model_request = if t.spawn_model { t.model.clone() } else { None };
+            meta.effort_request = None;
             meta.agent_info = None;
             meta.agent_capabilities = None;
             meta.mode_set_by_cmux = None;

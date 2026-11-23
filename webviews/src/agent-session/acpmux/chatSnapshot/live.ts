@@ -10,6 +10,8 @@ import {
   SNAPSHOT_SHOWN_GLOBAL,
   type SnapshotLive,
 } from "./shared";
+import { watchLaunchSettle } from "../launchSettle";
+import { LIVE_THINKING } from "../conversation/turns";
 
 type Shown = { at: number; swappedAt?: number };
 
@@ -53,6 +55,14 @@ export function chatSnapshotDock(notices: string): { space: number; notice: numb
   let notice = 0;
   if (space > 0) for (const line of dock.querySelectorAll(notices)) notice += line.getBoundingClientRect().height;
   return { space, notice };
+}
+
+/// Whether the copy on screen shows a turn still running: its live line (turns.ts LIVE_THINKING),
+/// which a kept tail cannot draw, since it keeps rows and not the turn's state.
+export function copyShowsRunningTurn(): boolean {
+  if (!showsChatSnapshot()) return false;
+  const root = document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot;
+  return !!root?.querySelector(`[data-row-id="${LIVE_THINKING}"]`);
 }
 
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
@@ -175,6 +185,8 @@ export function reportChatSnapshot(
   if (typeof window === "undefined") return;
   const shows = () => {
     void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
+    // The copy is the page's first paint: what moves from here is the launch's settle (launchSettle.ts).
+    watchLaunchSettle(report, SNAPSHOT_HOST_TAG);
     // A click or key while the copy shows ends the copy and does nothing else: the live page under
     // it is at opacity 0, so a press must never act on a control the person can't see (a permission
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
