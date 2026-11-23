@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "cc981d12cb04b0a5fec675c072b70593a7ec85d841dd735743fc6b420becb95d",
+  "catalog_sha256": "e51c126cca967b8c9871730a50c73b38c077018a0a806118b6f677d524369f9e",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -106,12 +106,6 @@
     "chat.pin": {
       "class": "mutation"
     },
-    "chief.automation.list": {
-      "class": "read"
-    },
-    "chief.automation.update": {
-      "class": "mutation"
-    },
     "chief.continue": {
       "class": "mutation"
     },
@@ -195,6 +189,9 @@
     },
     "cloud.machine.chat_access": {
       "class": "read"
+    },
+    "cloud.machine.chief_resize": {
+      "class": "mutation"
     },
     "cloud.machine.chief_start": {
       "class": "mutation"
