@@ -219,6 +219,19 @@
   gap: var(--ds-space-3);
 }
 
+/* A provider signing in (logins done right): the row grows and the device card sits under its name. */
+.onb-agent-list[data-look] .onb-agent[data-signing] {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: var(--onb-agent-row);
+  padding-block: var(--ds-space-2);
+}
+.onb-agent-signin {
+  flex: 1 0 100%;
+  min-width: 0;
+  padding-inline-start: calc(var(--onb-agent-icon) + var(--ds-space-3));
+}
+
 /* A: a rounded card per agent (the Swift step's look). */
 .onb-agent-list[data-look="cards"] {
   display: flex;
@@ -432,6 +445,18 @@
 .onb-import-access.ui-btn {
   font-size: var(--text-caption);
 }
+/* A quiet button on the import cards' glass (Open System Settings) rests at the control level
+   (design/chat-surfaces.md): no fill, the ink's 16% outline. The subtle fill is the text's own 6%,
+   which in dark lifts the glass toward a white wallpaper under it, so the button's words fell to
+   4.2:1 while the card's held 4.6:1. Hover and press keep their fills; the previous glass keeps the
+   old filled rest. */
+:root:not([data-glass-levels="previous"])
+  .onb-import
+  :is(.onb-import-list, .onb-import-options, .onb-express-ask)
+  .ui-btn[data-variant="subtle"]:not(:hover, :active, [data-popup-open], [data-disabled]) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--ds-surface-control-line);
+}
 
 .onb-kinds {
   display: flex;
@@ -573,18 +598,18 @@
 
 /* Grouped: the browsers in one card, hairlines between, and the kinds in a second card, two to a
    line (Settings' lists; the agents step's list look). */
-/* The cards are frosted glass of their own: the surface color at 62% over a blur, so a busy wallpaper
-   behind the window's glass never fights the rows' text (the plain look's 5% tint did). Never opaque. */
+/* The cards take the surface color at the chrome glass level, so a busy wallpaper behind the window's glass never
+   fights the rows' text (the plain look's 5% tint did). Never opaque. No blur of their own: the window's glass
+   already frosts the wallpaper, and a second backdrop-filter over it was a second frost (Leo 2026-11-22: "doubled
+   up glass/wack looking glass all over the place"). */
 .onb-import {
-  --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
+  --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) var(--ds-glass-chrome-tint), transparent);
 }
 .onb-import .onb-import-list,
 .onb-import .onb-import-options {
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
   background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
 }
 .onb-import .onb-import-list {
   gap: 0;
@@ -880,8 +905,6 @@
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
   background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
   text-align: start;
 }
 .onb-express-ask-icon {
@@ -907,15 +930,19 @@
   visibility: hidden;
 }
 
-/* Reduce Transparency: the import cards turn solid and drop their blur (the one place glass may). */
+/* Reduce Transparency: the import cards turn solid. */
 @media (prefers-reduced-transparency: reduce) {
   .onb-import {
     --onb-card-glass: var(--ds-color-surface);
   }
-  .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
+}
+/* Liquid Glass off (appearance.liquidGlass): the same solid cards. */
+:where(:root[data-glass="off"]) .onb-import {
+  --onb-card-glass: var(--ds-color-surface);
+}
+:where(:root[data-glass="off"]) .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* A row's fill and a control's opacity follow the motion switch (WebTheme's data-cmux-motion). */
@@ -927,15 +954,6 @@
   :is(.onb-import-row, .onb-progress-bar, .onb-import input[type="checkbox"], .onb-box-mark) {
     transition: none;
   }
-}
-
-/* cmux Tools: the Agents step's list, its status line, then where Settings keeps the answer. */
-.onb-agent-tools-note {
-  margin-top: auto;
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* Make cmux Yours (cmux#48416): three groups of native radios in the 300-point body. The radio

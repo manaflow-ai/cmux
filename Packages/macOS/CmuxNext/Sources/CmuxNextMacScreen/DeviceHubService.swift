@@ -174,6 +174,9 @@ public final class DeviceHubService {
     private func reconcile() {
         guard !captureCleanupActive else { return }
         guard let url, let user, !leftHub else {
+            // The hub stays off without a word otherwise, and Your Devices has nothing to read (ask-6a79af928f).
+            let address = url == nil ? "missing" : "set", signedIn = user != nil, left = leftHub
+            logger.info("device hub not started: address \(address, privacy: .public), signed in \(signedIn, privacy: .public), left hub \(left, privacy: .public)")
             stopHub(endingSessions: true)
             return
         }

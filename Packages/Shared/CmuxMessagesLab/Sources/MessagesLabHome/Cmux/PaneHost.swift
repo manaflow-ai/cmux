@@ -328,7 +328,10 @@ extension FieldChrome {
     ///
     /// A light theme's glass is as pale as the page, so the field gets a hairline edge of
     /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11); dark glass keeps its own rim.
-    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
+    /// `fill`: the field's tint over a see-through window (the web composer's surface there), so the
+    /// placeholder reads on it as on the web field; nil keeps the clear system glass.
+    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil, fill: NSColor? = nil) {
+        if field.tintColor != fill { field.tintColor = fill }
         field.wantsLayer = true
         if let layer = field.layer {
             // NSGlassEffectView rounds its glass internally, independently of its backing
@@ -361,6 +364,8 @@ extension FieldChrome {
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
+    /// cmux: the rows' scroll position changed (``MessagesLabHomeView/onScrolled``).
+    var onScrolled: (() -> Void)?
     /// The projection, nil until `install` (crash program: no longer an IUO that trapped
     /// when read early).
     private(set) var store: Store?
@@ -618,6 +623,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             self?.host.updateTopFadeScrollEdge()
             self?.scrolledForSaveHover()
             self?.intents?.scrolled()
+            self?.onScrolled?()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
@@ -666,6 +672,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func dispatch(_ a: Action) {
         guard let store else { return }
         if case .reply(let ref) = a, intents?.canInteract(with: ref.messageId) == false { return }
+        let field = demo.map { ($0.compose.fieldRect, $0.fieldTop) }
         thread.note(a)
         forgetQuote(for: a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
@@ -700,12 +707,16 @@ final class ChatController: NSObject, NSTextViewDelegate {
             inKeystrokeFrame = true
             nextFrame { [weak self] in self?.inKeystrokeFrame = false }
         }
-        afterEngine()
+        // A key that kept the field's frame changed only the compose layers (no engine job ran with it: a due one waits
+        // for the next frame, `ahead`), so the scale walk covers the compose tree alone.
+        let keyInField: Bool = { if case .setDraft = a, let demo, let field { return field == (demo.compose.fieldRect, demo.fieldTop) }; return false }()
+        afterEngine(composeOnly: keyInField)
     }
 
-    /// After any engine change: the native views follow the shared geometry.
-    func afterEngine() {
-        ScaleKeeper.shared.setNeedsApply()
+    /// After any engine change: the native views follow the shared geometry. `composeOnly`: only the compose layers
+    /// could have changed (ScaleKeeper walks that tree alone).
+    func afterEngine(composeOnly: Bool = false) {
+        if composeOnly { ScaleKeeper.shared.setNeedsComposeApply(host) } else { ScaleKeeper.shared.setNeedsApply() }
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }

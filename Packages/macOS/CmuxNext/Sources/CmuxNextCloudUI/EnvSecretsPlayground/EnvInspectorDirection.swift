@@ -243,11 +243,12 @@ struct EnvInspectorDirection {
     private func typeRadio(_ current: EnvSecretsKind, entry: EnvSecretsEntry?) -> NSView {
         let items: [NSView] = EnvSecretsKind.allCases.map { kind in  // visible-only: the four row types
             let on = kind == current
-            let text = envV([envLabel(kind.title, weight: .semibold, color: EnvInk.text),
-                             envLabel(kind.promise, size: TypeScale.caption, color: EnvInk.secondary)], spacing: 1)
-            let radio = envSymbol(on ? "largecircle.fill.circle" : "circle", size: TypeScale.body, color: on ? .controlAccentColor : EnvInk.tertiary)
-            let row = envH([radio, text, envSpacer()], spacing: 8, align: .top)
-            return EnvClickArea(row) { [model, reload] in
+            let title = envLabel(kind.title, weight: .semibold, color: EnvInk.text)
+            title.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            // The note takes the row's width and wraps in a narrow window, as a SwiftUI Text does.
+            let text = envV([title, envLabel(kind.promise, size: TypeScale.caption, color: EnvInk.secondary, wraps: true)], spacing: 1, fill: true)
+            text.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            return EnvClickArea(envRadioRow(picked: on, title: title, text: text, size: TypeScale.body)) { [model, reload] in
                 if let entry { model.setKind(kind, for: entry) }
                 reload()
             }
@@ -259,7 +260,7 @@ struct EnvInspectorDirection {
         let entry = model.review.first { $0.name == "LEGACY_LICENSE" } ?? model.review[0]
         var typeRows = [typeRadio(entry.kind, entry: entry)]
         if let reason = entry.reason {
-            typeRows.append(envLabel("Picked because: \(reason).", size: TypeScale.caption, color: EnvInk.tertiary))
+            typeRows.append(envLabel("Picked because: \(reason).", size: TypeScale.caption, color: EnvInk.tertiary, wraps: true))
         }
         var views: [NSView] = [
             envH([envLabel("Review 7 pasted lines", size: TypeScale.title, weight: .semibold), envSpacer(),
@@ -345,6 +346,7 @@ struct EnvInspectorDirection {
     private func noHostDetail() -> NSView {
         let entry = sample.noHost
         let host = NSTextField(string: "")
+        host.focusRingType = .none
         host.placeholderString = "api.example.com"
         host.isBezeled = true
         host.bezelStyle = .roundedBezel
@@ -371,13 +373,30 @@ struct EnvInspectorDirection {
                      color: EnvInk.secondary, wraps: true),
             envH([envSpacer(), EnvButton("Cancel"), EnvButton("Revoke with Touch ID", look: .destructive, symbol: "touchid")]),
         ], spacing: 10, fill: true)
-        let sheet = envSized(EnvBox(column, padding: envPad(18), fill: EnvInk.canvas, border: EnvInk.line, corner: .radius(12)), width: 380)
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.shadowColor.withAlphaComponent(0.18)
-        shadow.shadowBlurRadius = 18
-        shadow.shadowOffset = NSSize(width: 0, height: -8)
-        sheet.shadow = shadow
-        return sheet
+        let sheet = EnvBox(column, padding: envPad(18), fill: EnvInk.canvas, border: EnvInk.line, corner: .radius(12))
+        // Two shadows under the sheet's shape, as the SwiftUI sheet had: a tight contact shadow and a soft drop.
+        let holder = envSized(NSView(), width: 380)
+        for (alpha, blur, drop) in [(0.18, 18.0, 8.0), (0.10, 2.0, 1.0)] {  // visible-only: the two shadow layers
+            let shape = EnvBox(nil, fill: EnvInk.canvas, corner: .radius(12))
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.shadowColor.withAlphaComponent(alpha)
+            shadow.shadowBlurRadius = blur
+            shadow.shadowOffset = NSSize(width: 0, height: -drop)
+            shape.shadow = shadow
+            pin(shape, in: holder)
+        }
+        pin(sheet, in: holder)
+        return holder
+    }
+
+    /// Adds `view` to `holder`, edge to edge.
+    private func pin(_ view: NSView, in holder: NSView) {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        holder.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: holder.topAnchor), view.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
+            view.leadingAnchor.constraint(equalTo: holder.leadingAnchor), view.trailingAnchor.constraint(equalTo: holder.trailingAnchor),
+        ])
     }
 
     private func scopesDetail() -> NSView {
@@ -416,6 +435,7 @@ struct EnvInspectorDirection {
 
     private func requestDetail() -> NSView {
         let value = NSSecureTextField(string: "")
+        value.focusRingType = .none
         value.placeholderString = "Type or paste the value"
         value.isBezeled = true
         value.bezelStyle = .roundedBezel

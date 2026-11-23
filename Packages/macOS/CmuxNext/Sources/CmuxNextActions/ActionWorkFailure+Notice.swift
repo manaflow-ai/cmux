@@ -48,14 +48,14 @@ extension ActionWorkFailure {
 
     /// "<title> did not apply: <reason>" (Localizable.xcstrings).
     static func failedText(_ title: String, _ reason: String) -> String {
-        String(format: String(localized: "action.effect.failed", defaultValue: "%1$@ did not apply: %2$@", bundle: .module), title, reason)
+        String(format: String(localized: "action.effect.failed", defaultValue: "%1$@ did not apply: %2$@", bundle: .localizedModule), title, reason)
     }
 
     /// "<title> did not apply." with no reason: the daemon's own text is for the log.
     static func failedText(_ title: String) -> String {
-        String(format: String(localized: "action.effect.failedPlain", defaultValue: "%1$@ did not apply.", bundle: .module), title)
+        String(format: String(localized: "action.effect.failedPlain", defaultValue: "%1$@ did not apply.", bundle: .localizedModule), title)
     }
 
     /// "That did not apply.": a refusal with no change to name (a key or menu run's background work).
-    static var failedUntitled: String { String(localized: "action.effect.failedUntitled", defaultValue: "That did not apply.", bundle: .module) }
+    static var failedUntitled: String { String(localized: "action.effect.failedUntitled", defaultValue: "That did not apply.", bundle: .localizedModule) }
 }
