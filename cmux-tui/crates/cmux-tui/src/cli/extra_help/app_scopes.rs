@@ -98,6 +98,7 @@ fn scope_text(args: &[String]) -> Option<String> {
         ["live", ..] => return Some(format!("{}\n", messages.live.usage)),
         ["nightly", ..] => return Some(format!("{}\n", messages.nightly.usage)),
         ["app", "try", ..] => return Some(format!("{}\n", messages.app_try.usage)),
+        ["app", "versions" | "use", ..] => return Some(format!("{}\n", messages.nightly.usage)),
         ["app", "web-pieces", ..] => {
             return Some(format!("{}\n", super::super::app::WEB_PIECES_USAGE));
         }
@@ -151,6 +152,8 @@ usage: cmux app ping | identify | capabilities
        cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
        cmux app try . [--from APP] | . --extract | . --stop  (your working tree in a copy of your NIGHTLY: no dev build)
        cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
+       cmux app versions [--limit N]            (the recent builds: * this one, kept, pulled)
+       cmux app use previous|next|latest|<build>  (go back or forward to that build, every session kept)
        cmux app try <share link> [--dry-run]    (a build someone shared, beside your cmux)
        cmux app share [--app APP] [--bundle] [--dry-run]  (the build you run, as one `cmux app try` line: a SHA when it can)
        cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)

@@ -328,6 +328,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
         ("app", Some("try")) => AppCommand::Try(try_cmd::parse(rest.get(1..).unwrap_or_default())?),
+        ("app", Some(verb @ ("versions" | "use"))) => {
+            AppCommand::Nightly(nightly::parse_app(verb, rest.get(1..).unwrap_or_default())?)
+        }
         ("app", Some("share")) => {
             AppCommand::Share(try_cmd::parse_share(rest.get(1..).unwrap_or_default())?)
         }
@@ -623,7 +626,7 @@ pub(super) fn action_origin() -> &'static str {
 
 /// An action argument's name from its flag: the catalog names arguments in
 /// camelCase (`--keep-sessions` is `keepSessions`).
-pub(super) fn argument_name(flag: &str) -> String {
+pub(in crate::cli) fn argument_name(flag: &str) -> String {
     let mut name = String::with_capacity(flag.len());
     let mut upper = false;
     for character in flag.chars() {
