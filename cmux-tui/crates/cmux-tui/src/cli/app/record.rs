@@ -212,7 +212,11 @@ pub(super) fn run(global: &GlobalArgs, request: Request) -> i32 {
     let dropped = (asked as usize).saturating_sub(frames.len());
     let report_frames = timeline(&ok, request.fps);
     let masked = masked_areas(&ok);
-    let first = ok[0].result.as_ref().map(|value| value["result"].clone()).unwrap_or(Value::Null);
+    let first = ok
+        .first()
+        .and_then(|frame| frame.result.as_ref().ok())
+        .map(|value| field(value, "result").clone())
+        .unwrap_or(Value::Null);
     let seconds = elapsed.as_secs_f64();
     let reached = if seconds > 0.0 { ok.len() as f64 / seconds } else { 0.0 };
     let mut report = json!({
@@ -224,9 +228,9 @@ pub(super) fn run(global: &GlobalArgs, request: Request) -> i32 {
         "seconds": (seconds * 100.0).round() / 100.0,
         "dropped": dropped,
         "failed": failed,
-        "width": first["width"],
-        "height": first["height"],
-        "scale": first["scale"],
+        "width": field(&first, "width"),
+        "height": field(&first, "height"),
+        "scale": field(&first, "scale"),
         "masked_areas": masked,
         "frames_dir": place.frames.to_string_lossy(),
     });
@@ -255,14 +259,14 @@ pub(super) fn run(global: &GlobalArgs, request: Request) -> i32 {
             None => {
                 let args = ffmpeg_args(&place.frames, movie);
                 let words: Vec<String> = args.iter().map(|arg| shell_word(arg)).collect();
-                report["encode_command"] = json!(format!("ffmpeg {}", words.join(" ")));
-                note = Some(messages.no_ffmpeg.replace("{dir}", &place.frames.to_string_lossy()))
+                put(&mut report, "encode_command", json!(format!("ffmpeg {}", words.join(" "))));
+                note = Some(messages.no_ffmpeg.replace("{dir}", &place.frames.to_string_lossy()));
             }
             Some(ffmpeg) => match encode(&ffmpeg, &place.frames, movie) {
                 Ok(()) => {
                     let _ = std::fs::remove_dir_all(&place.frames);
-                    report["frames_dir"] = Value::Null;
-                    report["path"] = json!(movie.to_string_lossy());
+                    put(&mut report, "frames_dir", Value::Null);
+                    put(&mut report, "path", json!(movie.to_string_lossy()));
                 }
                 Err(error) => {
                     note = Some(
@@ -276,10 +280,10 @@ pub(super) fn run(global: &GlobalArgs, request: Request) -> i32 {
         }
     }
     if report.get("path").is_none_or(Value::is_null) {
-        report["path"] = json!(place.frames.to_string_lossy());
+        put(&mut report, "path", json!(place.frames.to_string_lossy()));
     }
     if let Some(note) = &note {
-        report["note"] = json!(note);
+        put(&mut report, "note", json!(note));
     }
     match global.output {
         OutputMode::Human => {
@@ -368,10 +372,12 @@ fn shoot(stream: &mut UnixStream, request: &Request, file: &Path) -> Result<Valu
         Some(FRAME_TIMEOUT),
         deadline,
     ) {
-        Ok(Ok(value)) if value["result"]["path"].is_string() => Ok(value),
+        Ok(Ok(value)) if field(field(&value, "result"), "path").is_string() => Ok(value),
         Ok(Ok(value)) => Err(json!({
             "code": "record.no_image",
-            "message": value["error"]["message"].as_str().unwrap_or("the capture gave no image"),
+            "message": field(field(&value, "error"), "message")
+                .as_str()
+                .unwrap_or("the capture gave no image"),
         })),
         Ok(Err(error)) => Err(error),
         Err(error) => Err(json!({"code": "app.transport", "message": error})),
@@ -398,7 +404,7 @@ fn masked_areas(frames: &[&Frame]) -> Vec<String> {
     let mut areas: Vec<String> = frames
         .iter()
         .filter_map(|frame| frame.result.as_ref().ok())
-        .filter_map(|value| value["result"]["masked_areas"].as_array())
+        .filter_map(|value| field(field(value, "result"), "masked_areas").as_array())
         .flatten()
         .filter_map(|area| area.as_str().map(str::to_owned))
         .collect();
@@ -423,11 +429,11 @@ fn ffmpeg() -> Option<PathBuf> {
 pub(super) fn concat_list(frames: &[Value]) -> String {
     let mut list = String::from("ffconcat version 1.0\n");
     for frame in frames {
-        let file = frame["file"].as_str().unwrap_or_default();
-        let seconds = frame["duration_ms"].as_u64().unwrap_or(0) as f64 / 1000.0;
+        let file = field(frame, "file").as_str().unwrap_or_default();
+        let seconds = field(frame, "duration_ms").as_u64().unwrap_or(0) as f64 / 1000.0;
         let _ = writeln!(list, "file '{file}'\nduration {seconds:.3}");
     }
-    if let Some(file) = frames.last().and_then(|frame| frame["file"].as_str()) {
+    if let Some(file) = frames.last().and_then(|frame| field(frame, "file").as_str()) {
         let _ = writeln!(list, "file '{file}'");
     }
     list
@@ -500,7 +506,7 @@ fn fill(template: &str, pairs: &[(&str, String)]) -> String {
 
 /// The summary printed without `--json`.
 pub(super) fn human(report: &Value, messages: &crate::localization::RecordMessages) -> String {
-    let text = |key: &str| match &report[key] {
+    let text = |key: &str| match field(report, key) {
         Value::String(text) => text.clone(),
         Value::Null => String::new(),
         other => other.to_string(),
@@ -520,25 +526,45 @@ pub(super) fn human(report: &Value, messages: &crate::localization::RecordMessag
             ],
         )
     );
-    let areas: Vec<&str> =
-        report["masked_areas"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let areas: Vec<&str> = field(report, "masked_areas")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
     if !areas.is_empty() {
         let _ = writeln!(out, "{}", messages.masked.replace("{areas}", &areas.join(", ")));
     }
-    if report["dropped"].as_u64().unwrap_or(0) + report["failed"].as_u64().unwrap_or(0) > 0 {
+    if field(report, "dropped").as_u64().unwrap_or(0)
+        + field(report, "failed").as_u64().unwrap_or(0)
+        > 0
+    {
         let _ = writeln!(
             out,
             "{}",
             fill(messages.skipped, &[("dropped", text("dropped")), ("failed", text("failed"))])
         );
     }
-    if let Some(note) = report["note"].as_str() {
+    if let Some(note) = field(report, "note").as_str() {
         let _ = writeln!(out, "{note}");
     }
-    if let Some(command) = report["encode_command"].as_str() {
+    if let Some(command) = field(report, "encode_command").as_str() {
         let _ = writeln!(out, "  {command}");
     }
     out
+}
+
+/// A JSON object's field, or null when it is missing or the value is not an object (no indexing panic path).
+fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    static NULL: Value = Value::Null;
+    value.get(key).unwrap_or(&NULL)
+}
+
+/// Sets a field of the report object (the report is always an object; anything else is left alone).
+fn put(report: &mut Value, key: &str, value: Value) {
+    if let Some(object) = report.as_object_mut() {
+        object.insert(key.to_owned(), value);
+    }
 }
 
 #[cfg(test)]

@@ -863,7 +863,7 @@ pub(super) fn run_pane_record(global: &GlobalArgs, args: &[String]) -> Option<i3
     {
         return None;
     }
-    Some(match record::parse(record::Noun::Pane, &args[1..]) {
+    Some(match record::parse(record::Noun::Pane, args.get(1..).unwrap_or_default()) {
         Ok(command) => run(global, command),
         Err(error) => failure("usage.invalid", &error.0, global.output, 2),
     })
