@@ -237,3 +237,81 @@ test("a source that cannot read calls is read whole", async () => {
   expect(seen.registry!.processes).toHaveLength(COUNT);
   expect(seen.registry!.omitted ?? 0).toBe(0);
 });
+
+/// Session Info reads the window, never the whole list: its count is the whole history's from the
+/// first reply (Leo, 2026-11-19: "dam this is slow as shit on the sesion info"; Background tasks read
+/// 28,408 shells in 29 serial pages on open and jumped from "6 finished" to "28407 finished"), and its
+/// finished list pages back by `endedBefore` only as far as it is scrolled, each page bounded, until
+/// it holds every ended command the whole list has, each once.
+test("older pages walk back to the whole history, one bounded page at a time, the count steady", async () => {
+  const PAGE = processes.PROCESS_LIST_OLDER;
+  const fake = daemon();
+  const pages: number[] = [];
+  fake.source.listOlderProcesses = async (sessionId, recent, endedBefore) => {
+    fake.asked.push({ sessionId, recent, endedBefore });
+    const end = (p: { endedAt?: number }) => p.endedAt ?? 0;
+    const older = fake.all.filter((p) => p.state !== "running" && end(p) < endedBefore);
+    const ends = older.map(end).sort((a, b) => b - a);
+    const cutoff = ends.length <= recent ? 0 : ends[recent - 1]!;
+    const kept = older.filter((p) => end(p) >= cutoff);
+    pages.push(kept.length);
+    const omitted = older.length - kept.length;
+    return { processes: kept, recent, ...(omitted > 0 ? { omitted, endedBefore: cutoff } : {}) };
+  };
+  const whole = chatCount((await registryOf(daemon().source)).seen.registry!);
+  root!.unmount();
+  const { seen } = await registryOf(fake.source, { calls: callsOf(TRANSCRIPT), endedWithin: WITHIN });
+  expect(fake.asked.some((ask) => "recent" in ask && ask.recent === undefined)).toBe(false);
+  expect(chatCount(seen.registry!)).toBe(whole);
+  for (let round = 0; round < 50 && seen.registry!.loadOlder; round += 1) {
+    await act(async () => seen.registry!.loadOlder!());
+    for (let n = 0; n < 5; n += 1) await act(tick);
+    expect(chatCount(seen.registry!)).toBe(whole);
+  }
+  expect(seen.registry!.loadOlder).toBeUndefined();
+  expect(seen.registry!.omitted ?? 0).toBe(0);
+  expect(pages.length).toBeGreaterThan(1);
+  expect(Math.max(...pages)).toBeLessThanOrEqual(PAGE + 1);
+  const ids = seen.registry!.processes.map((p) => p.id);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(ids.length).toBe(COUNT);
+});
+
+test("a reopened chat draws its last list on the first frame, then the fresh one replaces it", async () => {
+  const fake = daemon();
+  const window = { calls: callsOf(TRANSCRIPT), endedWithin: WITHIN };
+  const first = await registryOf(fake.source, window);
+  const opened = first.seen.registry!;
+  expect(opened.processes.length).toBeGreaterThan(0);
+  root!.unmount();
+  // The reopen's read is held: what the first frame draws is the remembered list.
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const read = fake.source.listProcesses.bind(fake.source);
+  fake.source.listProcesses = async (...args) => {
+    await gate;
+    return read(...args);
+  };
+  let firstFrame: ProcessRegistry | undefined;
+  const seen: { registry?: ProcessRegistry } = {};
+  function Probe() {
+    seen.registry = useProcessRegistry(fake.source, CHAT, true, window);
+    firstFrame ??= seen.registry;
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Probe />));
+  expect(firstFrame!.listed).toBe(true);
+  expect(firstFrame!.processes.map((p) => p.id)).toEqual(opened.processes.map((p) => p.id));
+  expect(chatCount(firstFrame!)).toBe(chatCount(opened));
+  // One shell ended while it was closed; the fresh read shows it, and no remembered row lingers.
+  const ended = fake.all.find((p) => p.state === "running" && p.id.endsWith("/task-7"))!;
+  Object.assign(ended, { state: "exited", endedAt: NOW - 1_000 });
+  release();
+  for (let n = 0; n < 10; n += 1) await act(tick);
+  const fresh = seen.registry!;
+  expect(fresh.processes.find((p) => p.id === ended.id)?.state).toBe("exited");
+  expect(fresh.processes.filter((p) => p.state === "running").length).toBe(
+    fake.all.filter((p) => p.state === "running").length,
+  );
+});

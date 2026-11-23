@@ -51,12 +51,18 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         let paging = process_page_params(params)?;
         let recent = recent_param(params)?;
         let within = byte_param(params, "endedWithin")?;
+        let before = byte_param(params, "endedBefore")?;
         let calls = calls_param(params)?;
         if recent.is_some() && paging.is_some() {
             return Err(RpcError::invalid_params("recent does not take limit or cursor"));
         }
         if within.is_some() && recent.is_none() {
             return Err(RpcError::invalid_params("endedWithin requires recent"));
+        }
+        if before.is_some() && (recent.is_none() || within.is_some()) {
+            return Err(RpcError::invalid_params(
+                "endedBefore requires recent and takes no endedWithin",
+            ));
         }
         if calls.is_some() && (recent.is_some() || paging.is_some()) {
             return Err(RpcError::invalid_params("calls takes no recent, limit or cursor"));
@@ -74,6 +80,9 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
                     .as_str()
                     .ok_or_else(|| RpcError::invalid_params("sessionId must be a string"))?;
                 let session = hub.resolve(key)?;
+                if let (Some(recent), Some(before)) = (recent, before) {
+                    return hub.list_older_processes(&session, recent, before);
+                }
                 if let Some(recent) = recent {
                     return hub.list_recent_processes(&session, recent, within);
                 }

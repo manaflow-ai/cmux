@@ -14,7 +14,7 @@
 // listed process is that process.
 import { acpmuxSend } from "../conversation/acpmuxSends";
 import type { Translate } from "../i18n";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
 import { replayProcessUpdates } from "./processUpdateReplay";
 import { commandWorkLabel } from "./commandWorkLabel";
@@ -113,10 +113,15 @@ export type ProcessSource = {
   /// With `recent`: the running ones, the `recent` that ended last and those that ended in the last
   /// `endedWithin` ms, the reply saying `recent`, `omitted` and `endedBefore` (direct.ts
   /// `listProcesses`); a reply without `recent` is the whole list.
-  listProcesses(sessionId: string, recent?: number, endedWithin?: number): Promise<unknown>;
+  /// `windowOnly`: an acpmux that does not read `recent` answers `{windowless: true}`, never the
+  /// whole list (a read made ahead of need, `useProcessRegistry` `warm`).
+  listProcesses(sessionId: string, recent?: number, endedWithin?: number, windowOnly?: boolean): Promise<unknown>;
   /// The processes the tool calls `calls` started, however old (direct.ts `listProcessCalls`).
   /// Without it, or when it fails, the registry holds the whole list.
   listProcessCalls?(sessionId: string, calls: readonly string[]): Promise<readonly unknown[]>;
+  /// The next older page of a `recent` read, by the last reply's `endedBefore` (direct.ts
+  /// `listOlderProcesses`): Session Info's finished list reads it as it scrolls to its end.
+  listOlderProcesses?(sessionId: string, recent: number, endedBefore: number): Promise<unknown>;
   /// Registers the `process_update` listener; returns its removal.
   watchProcesses(listener: (process: unknown) => void): () => void;
 };
@@ -126,14 +131,52 @@ export type ProcessSource = {
 /// chat's processes it does not hold (`RegistryWindow`), each one ended and started by no call of
 /// the window's `calls`, so a count of the whole history is the held one's plus `omitted`
 /// (`backgroundRowCount`). None while it holds the whole list.
-export type ProcessRegistry = { processes: readonly SessionInfoProcess[]; listed: boolean; omitted?: number };
+export type ProcessRegistry = {
+  processes: readonly SessionInfoProcess[];
+  listed: boolean;
+  omitted?: number;
+  /// Reads the next older page of the ended ones it left out (`PROCESS_LIST_OLDER`), once at a
+  /// time; present while `omitted` is and the source can read one. Session Info's finished list
+  /// calls it as its end comes into view, so a god chat's history is read only as far as a person
+  /// scrolls, never on open.
+  loadOlder?: () => void;
+};
 
 const NO_PROCESSES: ProcessRegistry = { processes: [], listed: false };
 
 /// Ended processes a chat's page holds beside every running one while no list of the whole history
-/// shows (direct.ts `listProcesses` `recent`, `useProcessRegistry`). Session Info, the summary
-/// card's task list and the Background tasks panel read the whole history while they are open.
+/// shows (direct.ts `listProcesses` `recent`, `useProcessRegistry`). Session Info reads the same
+/// window, its counts adding `omitted`, and pages back by `PROCESS_LIST_OLDER`; the summary card's
+/// task list and the Background tasks panel read the whole history while they are open.
 export const PROCESS_LIST_RECENT = 500;
+
+/// How many ended processes an older page reads (`ProcessRegistry.loadOlder`): a few screens of
+/// Session Info's finished list, one bounded reply.
+export const PROCESS_LIST_OLDER = 200;
+
+/// `state` with an older page's records (`reply`, ended before `state.endedBefore`) before the ones
+/// it holds, in start order as the page started them earlier, each id once; `omitted` and
+/// `endedBefore` the page's, less every held record the page left out (as `recentState`).
+export function olderState(
+  state: RegistryState,
+  reply: { processes?: unknown; omitted?: unknown; endedBefore?: unknown },
+): RegistryState {
+  const sessionId = state.sessionId;
+  if (!sessionId || !state.partial) return state;
+  const have = new Set(state.processes.map((process) => process.id));
+  const page = processesOf(reply, sessionId).filter((process) => !have.has(process.id));
+  const endedBefore = typeof reply.endedBefore === "number" ? reply.endedBefore : undefined;
+  let omitted = typeof reply.omitted === "number" ? reply.omitted : 0;
+  if (endedBefore !== undefined) for (const process of state.processes) if (leftOut(process, endedBefore)) omitted -= 1;
+  return {
+    sessionId,
+    listed: state.listed,
+    partial: true,
+    processes: page.length > 0 ? [...page, ...state.processes] : state.processes,
+    omitted: Math.max(0, omitted),
+    ...(endedBefore === undefined ? {} : { endedBefore }),
+  };
+}
 
 /// What the registry holds while no list of the chat's whole history shows: every running process,
 /// the `PROCESS_LIST_RECENT` that ended last, every one that ended in the last `endedWithin` ms
@@ -149,7 +192,33 @@ type RegistryState = ProcessRegistry & {
   partial?: boolean;
   /// acpmux's split (`endedBefore`): every ended process not held ended before it.
   endedBefore?: number;
+  /// The chat's last list on this page, drawn while its fresh one is read (`rememberedRegistry`).
+  cached?: true;
 };
+
+/// How many chats' last lists a source keeps for a reopen.
+const REMEMBERED_CHATS = 16;
+
+/// Each source's chats' last lists, newest last: Session Info reopened on a chat draws its last
+/// list on the first frame and reads the fresh one behind it (stale-while-revalidate), as acpmux's
+/// own window cache answers that read without walking the history (`hub/processes.rs`
+/// `WindowCache`). Leo: "dam this is slow as shit on the sesion info".
+const REMEMBERED = new WeakMap<ProcessSource, Map<string, RegistryState>>();
+
+function rememberedRegistry(source: ProcessSource | undefined, sessionId: string | undefined) {
+  return source && sessionId ? REMEMBERED.get(source)?.get(sessionId) : undefined;
+}
+
+function rememberRegistry(source: ProcessSource, sessionId: string, state: RegistryState) {
+  let chats = REMEMBERED.get(source);
+  if (!chats) REMEMBERED.set(source, (chats = new Map()));
+  chats.delete(sessionId);
+  chats.set(sessionId, { ...state, cached: true });
+  for (const oldest of chats.keys()) {
+    if (chats.size <= REMEMBERED_CHATS) break;
+    chats.delete(oldest);
+  }
+}
 
 /// `record` was one the recent reply left out: it ended before the split (a process ends once, so
 /// a new one ends after it).
@@ -259,6 +328,9 @@ function windowState(
   };
 }
 
+/// Sources whose acpmux reads no window (`recent`): read ahead of need never again on this page.
+const WINDOWLESS = new WeakSet<ProcessSource>();
+
 /// Chat `sessionId`'s background processes while `live`, and while one it knows still runs (so its
 /// end arrives), kept current from the registry's updates. A listing that fails leaves what the
 /// updates said. Going quiet keeps the last records, and the next listing replaces them, so a
@@ -275,13 +347,21 @@ export function useProcessRegistry(
   sessionId: string | undefined,
   live: boolean,
   window?: RegistryWindow,
+  /// Read the window ahead of need too (Session Info can open here): its counts are there on the
+  /// panel's first frame. Only a window, and only from an acpmux that reads one: never the whole list.
+  warm = false,
 ): ProcessRegistry {
-  const [state, setState] = useState<RegistryState>(NO_PROCESSES);
+  const [state, setState] = useState<RegistryState>(() => rememberedRegistry(source, sessionId) ?? NO_PROCESSES);
   // A source that could not read a window, for this chat: read whole from then on.
   const [refused, setRefused] = useState<string>();
   const windowed = window !== undefined && source?.listProcessCalls !== undefined && refused !== sessionId;
   const running = state.sessionId === sessionId && state.processes.some((process) => process.state === "running");
-  const on = live || running;
+  // A source whose acpmux answered a window read without `recent`: no read ahead from it again.
+  const [windowless, setWindowless] = useState(() => !!source && WINDOWLESS.has(source));
+  const ahead = warm && windowed && !windowless && !(source && WINDOWLESS.has(source));
+  const on = live || running || ahead;
+  // Only ahead of need: the read must stay a window (`windowOnly`).
+  const aheadOnly = ahead && !live && !running;
   // The window's calls as of now, for a read in flight; and the calls read for the chat so far.
   const calls = useRef<readonly string[]>([]);
   const windowCalls = window?.calls;
@@ -300,12 +380,17 @@ export function useProcessRegistry(
     endedWithinRef.current = endedWithin;
     if (asked.current.sessionId !== sessionId || !windowed) asked.current = { sessionId, calls: new Set() };
     if (seenRunning.current.sessionId !== sessionId) seenRunning.current = { sessionId, ids: new Set() };
-    // Read once per new list, not per render.
-    if (state.sessionId === sessionId && seenRunning.current.read !== state.processes) {
+    // Read once per new list, not per render; a remembered list is not one this view saw.
+    if (state.sessionId === sessionId && !state.cached && seenRunning.current.read !== state.processes) {
       seenRunning.current.read = state.processes;
       for (const process of state.processes) if (process.state === "running") seenRunning.current.ids.add(process.id);
     }
   }, [windowCalls, endedWithin, sessionId, windowed, state]);
+  // The chat's list as read, kept for the next open (`REMEMBERED`).
+  useEffect(() => {
+    if (source && sessionId && state.sessionId === sessionId && state.listed && !state.cached)
+      rememberRegistry(source, sessionId, state);
+  }, [source, sessionId, state]);
   useEffect(() => {
     // Closing the history releases its older rows even when an idle chat needs no subscription;
     // every process the window's calls started is held, so those calls need no read.
@@ -324,7 +409,11 @@ export function useProcessRegistry(
     // Retain only the latest update per process ID while the list is pending.
     const pending = new Map<string, SessionInfoProcess>();
     let awaitingList = true;
-    setState((known) => (known.sessionId === sessionId ? known : { sessionId, processes: [], listed: false }));
+    setState((known) =>
+      known.sessionId === sessionId
+        ? known
+        : (rememberedRegistry(source, sessionId) ?? { sessionId, processes: [], listed: false }),
+    );
     const stop = source.watchProcesses((value) => {
       const process = processOf(value, sessionId);
       if (!process) return;
@@ -358,11 +447,21 @@ export function useProcessRegistry(
       const read = async () => {
         let reply: { processes?: unknown; recent?: unknown; omitted?: unknown; endedBefore?: unknown } | undefined;
         try {
-          reply = (await source.listProcesses(sessionId, PROCESS_LIST_RECENT, endedWithinRef.current)) as typeof reply;
+          reply = (await source.listProcesses(
+            sessionId,
+            PROCESS_LIST_RECENT,
+            endedWithinRef.current,
+            aheadOnly,
+          )) as typeof reply;
         } catch {
           return settle();
         }
         if (!current) return;
+        if ((reply as { windowless?: unknown } | undefined)?.windowless === true) {
+          WINDOWLESS.add(source);
+          setWindowless(true);
+          return settle();
+        }
         // Read whole: an acpmux without `recent` answered its whole list.
         if (reply?.recent !== PROCESS_LIST_RECENT || !readCalls) return whole(reply);
         // The calls the transcript shows, read before the list is shown, so a shell it names is
@@ -390,9 +489,12 @@ export function useProcessRegistry(
         setState((known) => {
           const mine = known.sessionId === sessionId ? known : undefined;
           // After the whole list: only what this view saw run stays beside the window.
-          const held = mine?.partial
-            ? mine.processes
-            : (mine?.processes.filter((process) => seenRunning.current.ids.has(process.id)) ?? []);
+          // A remembered list is replaced whole: its running rows may have ended since.
+          const held = mine?.cached
+            ? []
+            : mine?.partial
+              ? mine.processes
+              : (mine?.processes.filter((process) => seenRunning.current.ids.has(process.id)) ?? []);
           return recentState(sessionId, recent, pending, held, called);
         });
         settle();
@@ -404,8 +506,10 @@ export function useProcessRegistry(
       settle();
       stop();
     };
-    // `calls` and `endedWithin` are refs, read when the list is: a new call is read below.
-  }, [source, sessionId, on, windowed]);
+    // `calls` and `endedWithin` are refs, read when the list is: a new call is read below. `aheadOnly`
+    // is read as the effect starts: a change of it alone needs no new read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, sessionId, on, windowed, windowless]);
   // Calls the transcript shows that were not read yet (older rows read, a subagent's view opened):
   // their processes, which join what the registry holds.
   const partial = windowed && state.sessionId === sessionId && state.partial === true;
@@ -430,9 +534,37 @@ export function useProcessRegistry(
       },
     );
   }, [partial, source, sessionId, shownCalls]);
-  if (state.sessionId !== sessionId) return NO_PROCESSES;
+  // One older page at a time, for the chat it was asked for; a refusal stops paging for the chat
+  // (the counts stay whole: `omitted`).
+  const older = useRef<{ sessionId?: string; busy: boolean; refused: boolean }>({ busy: false, refused: false });
+  const readOlder = source?.listOlderProcesses?.bind(source);
+  const before = state.sessionId === sessionId && state.partial ? state.endedBefore : undefined;
+  const loadOlder = useCallback(() => {
+    if (!readOlder || !sessionId || before === undefined) return;
+    if (older.current.sessionId !== sessionId) older.current = { sessionId, busy: false, refused: false };
+    const book = older.current;
+    if (book.busy || book.refused) return;
+    book.busy = true;
+    readOlder(sessionId, PROCESS_LIST_OLDER, before).then(
+      (reply) => {
+        book.busy = false;
+        setState((known) =>
+          known.sessionId === sessionId && known.endedBefore === before
+            ? olderState(known, reply as Parameters<typeof olderState>[1])
+            : known,
+        );
+      },
+      () => {
+        book.busy = false;
+        book.refused = true;
+      },
+    );
+  }, [readOlder, sessionId, before]);
+  const pages = readOlder !== undefined && before !== undefined && (state.omitted ?? 0) > 0;
+  const registry = useMemo(() => (pages ? { ...state, loadOlder } : state), [pages, state, loadOlder]);
+  if (state.sessionId !== sessionId) return rememberedRegistry(source, sessionId) ?? NO_PROCESSES;
   // The whole list read after a window: no count is added.
-  return state;
+  return registry;
 }
 
 /// How many rows Session Info's Background tasks lists for these processes and transcript tasks

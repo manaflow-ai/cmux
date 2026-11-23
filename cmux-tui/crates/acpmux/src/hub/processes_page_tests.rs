@@ -383,3 +383,43 @@ fn a_recent_reply_refuses_a_running_identity_that_cannot_fit_as_a_stub() {
     let error = recent_values(vec![process], 0, 0, 100, 1_000, |_| 0).unwrap_err();
     assert_eq!(error.data.as_ref().unwrap()["reason"], "message.too_large");
 }
+
+/// Paging back from a recent reply by its `endedBefore` reaches every ended process once, newest
+/// pages first, no running one, each page bounded: Session Info's finished list of a chat with
+/// 28,408 shells read them all on open (29 serial pages) and jumped from "6 finished" to "28407
+/// finished" (Leo, 2026-11-19: "dam this is slow as shit on the sesion info").
+#[test]
+fn older_pages_walk_back_from_the_split_to_the_first_end_once_each() {
+    let mut table = ProcessTable::default();
+    for index in 0..10_000 {
+        // Every 2,500th is running; ends tie in pairs, so a page's split keeps a pair together.
+        let end = (index % 2_500 != 7).then_some(1_000 + index as u64 / 2);
+        table.upsert(ended(index, end, format!("step {index}")));
+    }
+    let (first, older, cutoff) = table.recent_snapshot(100, None);
+    let mut seen: std::collections::HashSet<String> = first.iter().map(|p| p.id.clone()).collect();
+    let (mut before, mut left, mut pages) = (cutoff, older, 0);
+    while left > 0 {
+        let (page, older, split) = table.older_snapshot(100, before);
+        pages += 1;
+        assert!(page.iter().all(|p| p.state != ProcessState::Running));
+        assert!(page.iter().all(|p| (split..before).contains(&p.ended_at.unwrap())));
+        let last = older == 0;
+        assert!(
+            page.len() <= 101 && (last || page.len() >= 100),
+            "page {pages} holds {}",
+            page.len()
+        );
+        assert_eq!(older + page.len(), left, "omitted shrinks by the page");
+        for p in &page {
+            assert!(seen.insert(p.id.clone()), "{} read twice", p.id);
+        }
+        let reply = recent_values(page, older, split, 100, PROCESS_PAGE_BUDGET, |_| 0).unwrap();
+        assert_eq!(reply.get("endedBefore").is_some(), older > 0);
+        (before, left) = (split, older);
+    }
+    assert_eq!(seen.len(), 10_000);
+    assert!(pages <= 100, "{pages} pages");
+    let (none, zero, _) = table.older_snapshot(100, 0);
+    assert!(none.is_empty() && zero == 0);
+}

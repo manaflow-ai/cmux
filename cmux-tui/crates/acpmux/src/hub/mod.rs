@@ -926,6 +926,8 @@ pub struct Hub {
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
     /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
     pub(crate) chat_activity_cache: crate::chats::ActivityCache,
+    /// Session Info's process windows, each tagged with its chat (`processes.rs` `WindowCache`).
+    pub(super) process_windows: processes::WindowCache,
     /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
     /// as it was.
     pub(super) book_tee: std::sync::OnceLock<Arc<book_tee::BookTee>>,
@@ -1513,6 +1515,7 @@ impl Hub {
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
+            process_windows: processes::WindowCache::default(),
             book_tee: std::sync::OnceLock::new(),
             rows: Default::default(),
             #[cfg(test)]
@@ -2978,6 +2981,11 @@ impl Hub {
         self.ledger.observe(session, &record);
         // Its row's sequence numbers and date moved, sent or not: its cached closed row is stale.
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        // A process record changes the chat's process windows: one tag write, however many are
+        // cached (`processes.rs` `WindowCache`).
+        if processes::folds_process(record.dir.as_bytes(), kind.as_bytes()) {
+            self.process_windows.invalidate(processes::InfoTag::Processes(session.id.clone()));
+        }
         if matches!(
             kind,
             "status"
@@ -3011,6 +3019,7 @@ impl Hub {
                 | profile_respawn::RECORD_KIND
         ) {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
+            self.process_windows.invalidate(processes::InfoTag::Session(session.id.clone()));
         }
         let closed = session.status() == SessionStatus::Closed;
         self.chat_activity_cache.note(&session.id, &record.kind, closed);

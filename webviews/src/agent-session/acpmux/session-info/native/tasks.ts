@@ -59,6 +59,10 @@ export type TasksSectionInput = {
   /// The finished commands show under "N finished"; `onFinishedOpen` flips it.
   finishedOpen?: boolean;
   onFinishedOpen?: (open: boolean) => void;
+  /// Ended commands the registry counted but does not hold (its `omitted`): in the count, and read
+  /// a page at a time by the "Show N more" row (`onLoadOlder`, the registry's `loadOlder`).
+  older?: number;
+  onLoadOlder?: () => void;
   /// The page-owned phase choices, by `<workflow id>/<phase id>` (useNativeWorkflowPhases).
   phases?: Readonly<Record<string, boolean>>;
   onPhase?: (key: string, open: boolean) => void;
@@ -211,17 +215,27 @@ export function tasksSection(
     ...finished.map((item) => ({ at: item.endedAt ?? item.startedAt, row: () => finishedCommand(item) })),
     ...ended.map((entry) => ({ at: entry.status.endedAt, row: () => scheduledRow(entry) })),
   ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity));
-  if (finishedRows.length > 0) {
+  const older = input.older ?? 0;
+  if (finishedRows.length + older > 0) {
     const finishedOpen = input.finishedOpen ?? false;
     const onFinishedOpen = input.onFinishedOpen;
     rows.push({
       id: "finished",
       symbol: finishedOpen ? "chevron.down" : "chevron.right",
-      title: t("rail.finished", { count: finishedRows.length }),
+      title: t("rail.finished", { count: finishedRows.length + older }),
       tone: "muted",
       ...(onFinishedOpen ? { action: actions.add("tasks.finished", () => onFinishedOpen(!finishedOpen)) } : {}),
     });
     if (finishedOpen) for (const entry of finishedRows) rows.push(entry.row());
+    const onLoadOlder = input.onLoadOlder;
+    if (finishedOpen && older > 0 && onLoadOlder)
+      rows.push({
+        id: "finished-older",
+        symbol: "chevron.down",
+        title: t("sessionInfo.subagents.more", { n: older }),
+        tone: "muted",
+        action: actions.add("tasks.finished.older", onLoadOlder),
+      });
   }
 
   const runningCount =

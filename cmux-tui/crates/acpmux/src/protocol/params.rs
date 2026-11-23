@@ -254,7 +254,7 @@ keyed! {
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
-    ProcessListParams: ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"];
+    ProcessListParams: ["sessionId", "cursor", "limit", "recent", "endedWithin", "endedBefore", "calls"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
     /// `_acpmux/queue_approve`.

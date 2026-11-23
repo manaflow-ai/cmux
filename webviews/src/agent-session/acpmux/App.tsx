@@ -2988,10 +2988,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
 
   const processSource = useMemo<ProcessSource>(
     () => ({
-      listProcesses: (sessionId, recent, endedWithin) =>
-        directClient.current?.listProcesses(sessionId, recent, endedWithin) ?? Promise.reject(new Error()),
+      listProcesses: (sessionId, recent, endedWithin, windowOnly) =>
+        directClient.current?.listProcesses(sessionId, recent, endedWithin, windowOnly) ?? Promise.reject(new Error()),
       listProcessCalls: (sessionId, calls) =>
         directClient.current?.listProcessCalls(sessionId, calls) ?? Promise.reject(new Error()),
+      listOlderProcesses: (sessionId, recent, endedBefore) =>
+        directClient.current?.listOlderProcesses(sessionId, recent, endedBefore) ?? Promise.reject(new Error()),
       watchProcesses: (listener) => directClient.current?.watchProcesses(listener) ?? (() => undefined),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
@@ -3074,10 +3076,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const fromOwn = shownSubagent === subagentView ? ownLogged?.views[shownSubagent] : undefined;
     return (fromOwn?.length ?? 0) > (fromChat?.length ?? 0) ? fromOwn : fromChat;
   }, [shownSubagent, snapshot.subagentViews, subagentView, ownLogged]);
-  // The whole history is read only while a list of it shows: Session Info, the Background tasks
-  // panel, or the summary card, which lists every task while Session Info is off (SummaryTasks.tsx).
-  const wholeProcessList =
-    (sessionInfoOn && sessionInfoOpened) || backgroundOpen || (!sessionInfoOn && summaryCard.shown);
+  // The whole history is read only while a list of it shows: the Background tasks panel, or the
+  // summary card, which lists every task while Session Info is off (SummaryTasks.tsx). Session Info
+  // reads the window too: its counts add `omitted` and its finished list pages back as it scrolls
+  // (`loadOlder`). Reading every process on open took 29 serial pages for a chat of 28,408 shells,
+  // and Background tasks jumped from "6 finished" to "28407 finished" a second after the panel drew
+  // (Leo, 2026-11-19: "dam this is slow as shit on the sesion info").
+  const wholeProcessList = backgroundOpen || (!sessionInfoOn && summaryCard.shown);
   // Otherwise the registry holds the running processes, the ones that ended last or within the
   // tray's linger (with a minute for the clocks, subagents/trayLinger.ts), and those of every call
   // the transcript's tasks and a subagent view's rows name, so the tray, the running line and the
@@ -3092,6 +3097,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => (wholeProcessList ? undefined : { calls: registryCalls, endedWithin: TRAY_LINGER_MS + 60_000 }),
     [wholeProcessList, registryCalls],
   );
+  // The window is also read ahead while Session Info can be opened here (`warm`), not only once it
+  // is, so the panel draws its Background tasks row and counts on its first frame, with nothing
+  // landing late to push the panel down. It is one bounded reply (`PROCESS_LIST_RECENT` ended, the
+  // running ones), however long the chat, and never the whole list.
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
@@ -3101,6 +3110,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.isWorking ||
       transcriptRunning.length > 0,
     registryWindow,
+    sessionInfoOn,
   );
   const runningCommandList = useMemo(
     () =>

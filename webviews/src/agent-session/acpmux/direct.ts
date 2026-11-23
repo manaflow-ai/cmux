@@ -4866,11 +4866,34 @@ export class AcpmuxDirectClient {
   /// `list_recent_processes`); such a reply says `recent`. A god chat's 56,000 shells were 66 MB of
   /// JSON parsed and held in the renderer for a tray of a few. An acpmux or host that refuses
   /// `recent`, or ignores it (no `recent` echoed), is read whole, as before, with no `recent`.
+  /// The next older page of a `recent` read: the `recent` that ended last of those that ended
+  /// before `endedBefore` (the last reply's), with that page's `omitted` and `endedBefore` (none once
+  /// nothing older is left; acpmux `list_older_processes`). Never falls back to a whole read: an
+  /// acpmux or host that refuses it rejects, and the list stays as it is.
+  async listOlderProcesses(
+    sessionId: string,
+    recent: number,
+    endedBefore: number,
+  ): Promise<{ processes: unknown[]; omitted?: number; endedBefore?: number; recent: number }> {
+    const reply = (await this.request("_acpmux/process/list", { sessionId, recent, endedBefore })) as
+      | { processes?: unknown; recent?: unknown; omitted?: unknown; endedBefore?: unknown }
+      | undefined;
+    if (!Array.isArray(reply?.processes) || reply.recent !== recent) throw new Error("no older page");
+    const { omitted, endedBefore: next } = reply;
+    return {
+      processes: reply.processes,
+      recent,
+      ...(typeof omitted === "number" && omitted > 0 ? { omitted } : {}),
+      ...(typeof next === "number" ? { endedBefore: next } : {}),
+    };
+  }
+
   async listProcesses(
     sessionId: string,
     recent?: number,
     endedWithin?: number,
-  ): Promise<{ processes?: unknown[]; omitted?: number; endedBefore?: number; recent?: number }> {
+    windowOnly = false,
+  ): Promise<{ processes?: unknown[]; omitted?: number; endedBefore?: number; recent?: number; windowless?: true }> {
     if (recent !== undefined) {
       const reply = await this.request("_acpmux/process/list", {
         sessionId,
@@ -4892,6 +4915,8 @@ export class AcpmuxDirectClient {
           ...(typeof endedBefore === "number" ? { endedBefore } : {}),
         };
       }
+      // A read made ahead of need stays a window: never the whole list (processes.ts `warm`).
+      if (windowOnly) return { windowless: true };
     }
     const processes: unknown[] = [];
     const at = new Map<string, number>();

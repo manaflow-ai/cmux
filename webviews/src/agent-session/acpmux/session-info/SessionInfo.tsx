@@ -358,6 +358,8 @@ export function SessionInfo({
   statuses = {},
   processes = [],
   listed = false,
+  olderProcesses = 0,
+  onLoadOlderProcesses,
   transcriptTasks = [],
   sessions = [],
   workflows = [],
@@ -442,6 +444,11 @@ export function SessionInfo({
   /// The registry answered a listing for the chat: a transcript task it does not list no longer
   /// runs (processes.ts `backgroundCommands`).
   listed?: boolean;
+  /// How many ended processes of the chat the registry does not hold yet (processes.ts
+  /// `ProcessRegistry.omitted`): Background tasks' "N finished" counts them, and its list reads
+  /// them page by page (`onLoadOlderProcesses`) as its end comes into view.
+  olderProcesses?: number;
+  onLoadOlderProcesses?: () => void;
   /// The background commands the transcript knows (sessionSummary `backgroundTasks`): Claude's
   /// background Bash, Ctrl-B's included, which the registry may not list.
   transcriptTasks?: readonly SummaryBackgroundTask[];
@@ -549,7 +556,12 @@ export function SessionInfo({
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
-  const { servers, tasks: commands } = sessionInfoLists(processes, transcriptTasks, listed);
+  // Once per list, not per render: a section fold draws the panel again (Leo, 2026-11-19: "dam this
+  // is slow as shit on the sesion info").
+  const { servers, tasks: commands } = useMemo(
+    () => sessionInfoLists(processes, transcriptTasks, listed),
+    [processes, transcriptTasks, listed],
+  );
   // A chat on this Mac opens a task's terminal; elsewhere a row shows the call that started it,
   // when the loaded transcript holds it. A wakeup or cron job shows the call that made it on any
   // chat (TasksSection `scheduledRow`). Read only then, so a local chat with nothing scheduled adds
@@ -873,7 +885,10 @@ export function SessionInfo({
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
   // A command a workflow's agent started is listed under that agent, not as the chat's own.
-  const { own: ownCommands, workflows: workflowCommands } = attributeCommands(commands, workflows);
+  const { own: ownCommands, workflows: workflowCommands } = useMemo(
+    () => attributeCommands(commands, workflows),
+    [commands, workflows],
+  );
   // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
   // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
   const ownAlsoHere = useAlsoHere(chatId, shownAlsoHere ? undefined : allSessions);
@@ -889,7 +904,7 @@ export function SessionInfo({
       <AlsoHereSection rows={alsoHereRows} onOpen={onOpenChat} />
     </SessionInfoSection>
   );
-  const tasks = servers.length + commands.length + scheduled.length + workflows.length > 0 && (
+  const tasks = servers.length + commands.length + scheduled.length + workflows.length + olderProcesses > 0 && (
     <SessionInfoSection
       id="tasks"
       title={t("summary.backgroundTasks")}
@@ -908,9 +923,11 @@ export function SessionInfo({
         />
       )}
       {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
-      {ownCommands.length + scheduled.length > 0 && (
+      {ownCommands.length + scheduled.length + olderProcesses > 0 && (
         <TasksSection
           commands={ownCommands}
+          older={olderProcesses}
+          onLoadOlder={onLoadOlderProcesses}
           scheduled={scheduled}
           onStop={onStopProcess}
           local={local}

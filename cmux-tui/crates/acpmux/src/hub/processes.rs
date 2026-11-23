@@ -163,6 +163,10 @@ mod preview;
 #[path = "processes_preview_tests.rs"]
 mod process_preview_tests;
 
+#[cfg(test)]
+#[path = "processes_window_cache_tests.rs"]
+mod process_window_cache_tests;
+
 impl ProcessTable {
     /// All appends go here, including records replayed from a logged process update.
     fn insert(&mut self, process: Process) -> usize {
@@ -409,6 +413,36 @@ impl ProcessTable {
             .iter()
             .filter(|p| {
                 let keep = p.state == ProcessState::Running || process_end(p) >= cutoff;
+                older += usize::from(!keep);
+                keep
+            })
+            .cloned()
+            .collect();
+        (kept, older, cutoff)
+    }
+
+    /// The next older page of a recent read (`_acpmux/process/list {recent, endedBefore}`): of the
+    /// processes that ended before `before` (a reply's `endedBefore`), the `recent` that ended last,
+    /// in the order they started; how many of those it left out; and the new split, as
+    /// [`Self::recent_snapshot`] gives them (ties kept together). Running processes are the first
+    /// page's, never an older one's. A client pages back through a god chat's tens of thousands
+    /// of shells one bounded reply at a time, only as far as a person scrolls.
+    fn older_snapshot(&self, recent: usize, before: u64) -> (Vec<Process>, usize, u64) {
+        let ended = |p: &&Process| p.state != ProcessState::Running && process_end(p) < before;
+        let mut ends: Vec<u64> = self.processes.iter().filter(ended).map(process_end).collect();
+        let cutoff = if ends.len() <= recent {
+            0
+        } else {
+            let at = ends.len() - recent;
+            *ends.select_nth_unstable(at).1
+        };
+        let mut older = 0_usize;
+        let kept = self
+            .processes
+            .iter()
+            .filter(ended)
+            .filter(|p| {
+                let keep = process_end(p) >= cutoff;
                 older += usize::from(!keep);
                 keep
             })
@@ -771,7 +805,7 @@ async fn read_output(
 
 /// Whether a record of `dir` and `kind` is one `Hub::read_processes` folds: each kind is in
 /// `INDEXED_KINDS`, so the read takes the log's copies where they are good.
-fn folds_process(dir: &[u8], kind: &[u8]) -> bool {
+pub(super) fn folds_process(dir: &[u8], kind: &[u8]) -> bool {
     matches!(
         (dir, kind),
         (b"in", b"background_task_update")
@@ -779,7 +813,88 @@ fn folds_process(dir: &[u8], kind: &[u8]) -> bool {
     )
 }
 
+/// A tag of a cached process window: the chat it was read from. `Processes` is invalidated by each
+/// process record the chat logs, `Session` by each change of its state and by a host move that
+/// reads its table again.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum InfoTag {
+    Session(String),
+    Processes(String),
+}
+
+/// A window snapshot: the rows, how many ended before them, and the split.
+type WindowSnapshot = (Vec<Process>, usize, u64);
+
+/// Session Info's process windows, cached (`cmux-tag-cache`): a chat's first page
+/// (`_acpmux/process/list {recent}`) and each older page (`{recent, endedBefore}`), keyed by the
+/// chat, `recent` and `endedBefore`, tagged with the chat. A read of a cached window is the page's
+/// rows, not a walk of the whole history: a god chat with 28,408 shells answers its reopen without
+/// counting them again. Each process record the chat logs invalidates its tag, one write whatever
+/// is cached, so the next read takes the table again. Its output lengths are still read live
+/// ([`recent_values`]).
+pub(crate) struct WindowCache(
+    std::sync::Mutex<
+        cmux_tag_cache::TagCache<(String, usize, Option<u64>), Arc<WindowSnapshot>, InfoTag>,
+    >,
+);
+
+/// How many windows are cached: a few open Session Info panels and the older pages scrolled.
+const WINDOW_CACHE_ENTRIES: usize = 256;
+
+impl Default for WindowCache {
+    fn default() -> Self {
+        Self(std::sync::Mutex::new(cmux_tag_cache::TagCache::new(WINDOW_CACHE_ENTRIES)))
+    }
+}
+
+impl WindowCache {
+    fn lock(
+        &self,
+    ) -> std::sync::MutexGuard<
+        '_,
+        cmux_tag_cache::TagCache<(String, usize, Option<u64>), Arc<WindowSnapshot>, InfoTag>,
+    > {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Marks every window carrying `tag` stale.
+    pub(crate) fn invalidate(&self, tag: InfoTag) {
+        self.lock().invalidate(tag);
+    }
+}
+
 impl Hub {
+    /// The window of `recent` rows that ended before `before` (none: the first page), from the
+    /// cache while it is fresh, else read from the table and cached at the stamp taken before the
+    /// read: a process record logged meanwhile leaves it stale ([`WindowCache`]).
+    fn cached_window(
+        &self,
+        session: &Session,
+        recent: usize,
+        before: Option<u64>,
+    ) -> Arc<WindowSnapshot> {
+        let key = (session.id.clone(), recent, before);
+        let stamp = {
+            let cache = self.process_windows.lock();
+            if let Some(hit) = cache.get(&key).fresh() {
+                return Arc::clone(hit);
+            }
+            cache.stamp()
+        };
+        let window = {
+            let table = self.process_table(session);
+            match before {
+                None => table.recent_snapshot(recent, None),
+                Some(before) => table.older_snapshot(recent, before),
+            }
+        };
+        let window = Arc::new(window);
+        let tags =
+            vec![InfoTag::Session(session.id.clone()), InfoTag::Processes(session.id.clone())];
+        self.process_windows.lock().insert_at(key, Arc::clone(&window), tags, stamp);
+        window
+    }
+
     /// The session's table, read from its log's copies the first time.
     fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
         let mut table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
@@ -852,6 +967,8 @@ impl Hub {
         // The preview watches still run: they stay the only ones.
         table.watching = std::mem::take(&mut slot.watching);
         *slot = table;
+        drop(slot);
+        self.process_windows.invalidate(InfoTag::Session(session.id.clone()));
     }
 
     /// A logged `background_task_update` (`tap.rs`), the session's own or a
@@ -985,7 +1102,31 @@ impl Hub {
         ended_within: Option<u64>,
     ) -> Result<Value, RpcError> {
         let since = ended_within.map(|within| now_ms().saturating_sub(within));
-        let (processes, older, cutoff) = self.process_table(session).recent_snapshot(recent, since);
+        // The cached window splits at the `recent` newest ends; one that ended within `endedWithin`
+        // past that split widens it, a read the cache does not hold (a burst of over `recent` ends
+        // in the window's minute).
+        let window = self.cached_window(session, recent, None);
+        let (processes, older, cutoff) = match since {
+            Some(since) if since < window.2 => {
+                self.process_table(session).recent_snapshot(recent, Some(since))
+            }
+            _ => (*window).clone(),
+        };
+        recent_values(processes, older, cutoff, recent, PROCESS_PAGE_BUDGET, output_len)
+    }
+
+    /// `_acpmux/process/list {sessionId, recent, endedBefore}`: the next older page of a recent
+    /// read ([`ProcessTable::older_snapshot`]), as [`Self::list_recent_processes`] replies: `omitted`
+    /// how many ended before this page, `endedBefore` the end that splits them (absent once none
+    /// is left). Session Info's finished list reads it as it scrolls to its end.
+    pub(crate) fn list_older_processes(
+        &self,
+        session: &Session,
+        recent: usize,
+        before: u64,
+    ) -> Result<Value, RpcError> {
+        let (processes, older, cutoff) =
+            (*self.cached_window(session, recent, Some(before))).clone();
         recent_values(processes, older, cutoff, recent, PROCESS_PAGE_BUDGET, output_len)
     }
 

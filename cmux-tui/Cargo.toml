@@ -90,6 +90,7 @@ members = [
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-files-host",
+    "crates/cmux-tag-cache",
     "crates/cmux-projection",
     "crates/cmux-deadline",
     "crates/cmux-remote-protocol",
@@ -235,6 +236,7 @@ default-members = [
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-deadline",
+    "crates/cmux-tag-cache",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
@@ -362,6 +364,7 @@ cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
+cmux-tag-cache = { path = "crates/cmux-tag-cache" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }

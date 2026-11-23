@@ -15,7 +15,7 @@
 // it, and on the row's hover or focus Stop takes the time's place (sessionInfo.css). The panel's body
 // scrolls, not the section; nothing is cut to a few rows. A command that starts while the list is drawn
 // drops in at the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
-import { useContext, useState } from "react";
+import { useContext, useState, useEffect } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { OpenBackgroundTasks } from "../backgroundTasks/openBackgroundTasks";
 import { formatDuration, spanDuration } from "../conversation/turns";
@@ -39,6 +39,8 @@ const ROW_ICON = rowIconSize(12);
 
 export function TasksSection({
   commands,
+  older = 0,
+  onLoadOlder,
   scheduled = [],
   onStop,
   local = true,
@@ -46,6 +48,10 @@ export function TasksSection({
   onShowCall,
 }: {
   commands: readonly BackgroundCommand[];
+  /// Ended commands acpmux holds that the page has not read yet (processes.ts `omitted`): counted in
+  /// "N finished", and read a page at a time by `onLoadOlder` as the list's end comes into view.
+  older?: number;
+  onLoadOlder?: () => void;
   /// Wakeups and cron jobs the agent scheduled for itself (sessionSummary `scheduled`).
   scheduled?: readonly SummaryWakeup[];
   /// `_acpmux/process/kill`; without it, or for a command the registry does not list, no Stop.
@@ -162,13 +168,20 @@ export function TasksSection({
       </WithFacts>
     );
   };
-  // The ended commands and scheduled items as one list, latest first.
-  const finishedRows = [
-    ...finished.map((command) => ({ at: command.endedAt ?? command.startedAt, command })),
-    ...ended.map((entry) => ({ at: entry.status.endedAt, entry })),
-  ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity));
+  // The ended commands and scheduled items as one list, latest first, built only while it is drawn,
+  // then the ones acpmux has not sent yet: a row that reads the next page as it comes into view.
+  const finishedCount = finished.length + ended.length + older;
+  const finishedRows: FinishedRow[] = finishedFold.drawn
+    ? [
+        ...[
+          ...finished.map((command) => ({ at: command.endedAt ?? command.startedAt, command })),
+          ...ended.map((entry) => ({ at: entry.status.endedAt, entry })),
+        ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity)),
+        ...(older > 0 && onLoadOlder ? [{ older: onLoadOlder }] : []),
+      ]
+    : [];
   return (
-    <div data-section="tasks">
+    <div data-section="tasks" data-finished-count={finishedCount}>
       {(running.length > 0 || active.length > 0) && (
         <ul className="acpmux-session-info-list">
           {running.map((command) =>
@@ -185,11 +198,11 @@ export function TasksSection({
           {active.map(scheduledRow)}
         </ul>
       )}
-      {finishedRows.length > 0 && (
+      {finishedCount > 0 && (
         <>
           <SessionInfoFold open={showFinished} onToggle={() => finishedFold.toggle(!showFinished, setShowFinished)}>
             <Icon name="disclosure.collapsed" size={12} />
-            {t("rail.finished", { count: finishedRows.length })}
+            {t("rail.finished", { count: finishedCount })}
           </SessionInfoFold>
           {finishedFold.drawn && (
             <div ref={finishedFold.ref} className="acpmux-session-info-fold-box">
@@ -198,15 +211,19 @@ export function TasksSection({
                 <WindowedRows
                   items={finishedRows}
                   render={(entry) =>
-                    "command" in entry
-                      ? row(
-                          entry.command,
-                          entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
-                            ? spanDuration(t, entry.command.endedAt - entry.command.startedAt)
-                            : undefined,
-                          t(COMMAND_STATE[entry.command.state]),
-                        )
-                      : scheduledRow(entry.entry)
+                    "older" in entry ? (
+                      <OlderRows key="older" load={entry.older} />
+                    ) : "command" in entry ? (
+                      row(
+                        entry.command,
+                        entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
+                          ? spanDuration(t, entry.command.endedAt - entry.command.startedAt)
+                          : undefined,
+                        t(COMMAND_STATE[entry.command.state]),
+                      )
+                    ) : (
+                      scheduledRow(entry.entry)
+                    )
                   }
                 />
               </ul>
@@ -216,6 +233,20 @@ export function TasksSection({
       )}
     </div>
   );
+}
+
+type FinishedRow =
+  | { at?: number; command: BackgroundCommand }
+  | { at?: number; entry: ScheduledEntry }
+  | { older: () => void };
+
+/// The finished list's last row while acpmux holds older ended commands: drawn only once the list
+/// reaches it (WindowedRows), it reads the next page, and again for each page while it stays drawn.
+/// A row's height, empty, so the list does not jump when the page lands under it.
+function OlderRows({ load }: { load: () => void }) {
+  // mount-read: this row mounts only when the list's end is drawn, and reads one older page then.
+  useEffect(() => load(), [load]);
+  return <li className="acpmux-session-info-task acpmux-session-info-task--older" aria-hidden="true" />;
 }
 
 /// Stop: off once sent, until the registry's update ends the row; when acpmux or the harness
