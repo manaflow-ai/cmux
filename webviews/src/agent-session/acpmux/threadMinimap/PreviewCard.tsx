@@ -328,7 +328,7 @@ export const PreviewCard = React.forwardRef<
     <div
       ref={own}
       id={id}
-      className="acpmux-minimap__card"
+      className="ui-card ui-glass acpmux-minimap__card"
       data-prompt={prompt !== undefined ? "" : undefined}
       data-incoming={from !== undefined || undefined}
       data-pending={pending || undefined}

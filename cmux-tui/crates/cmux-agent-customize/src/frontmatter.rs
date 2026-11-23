@@ -21,8 +21,9 @@ pub struct Frontmatter {
     pub tools: Vec<String>,
 }
 
-/// The frontmatter of `text`, or `None` when it has no `---` block or the block is not a YAML map.
-pub fn parse(text: &str) -> Option<Frontmatter> {
+/// `text`'s `---` block (without its fences) and what follows its closing line, or `None` when it
+/// has none.
+fn split(text: &str) -> Option<(&str, &str)> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let body = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n"))?;
     let end = body
@@ -30,7 +31,21 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
         .map(|(at, _)| at)
         .find(|&at| matches!(body[at + 4..].chars().next(), None | Some('\n' | '\r' | ' ' | '\t')))
         .or_else(|| body.starts_with("---").then_some(0))?;
-    let block = &body[..end];
+    let close = if end == 0 && body.starts_with("---") { 3 } else { end + 4 };
+    let rest = &body[close.min(body.len())..];
+    let rest = rest.split_once('\n').map_or("", |(_, after)| after);
+    Some((&body[..end], rest))
+}
+
+/// What follows the frontmatter of `text` (the prompt of a slash command file); all of `text`
+/// when it has no `---` block.
+pub fn body(text: &str) -> &str {
+    split(text).map_or(text, |(_, rest)| rest)
+}
+
+/// The frontmatter of `text`, or `None` when it has no `---` block or the block is not a YAML map.
+pub fn parse(text: &str) -> Option<Frontmatter> {
+    let (block, _) = split(text)?;
     let docs = YamlLoader::load_from_str(block).ok()?;
     let map = match docs.into_iter().next() {
         Some(Yaml::Hash(map)) => map,
@@ -104,6 +119,15 @@ mod tests {
         );
         let literal = "---\r\nname: x\r\ndescription: |\r\n  one\r\n  two\r\n---\r\n";
         assert_eq!(parse(literal).unwrap().description.as_deref(), Some("one\ntwo"));
+    }
+
+    #[test]
+    fn body_follows_the_block() {
+        assert_eq!(body("---\ndescription: d\n---\nDo it\nnow\n"), "Do it\nnow\n");
+        assert_eq!(body("---\r\ndescription: d\r\n---\r\nDo it\r\n"), "Do it\r\n");
+        assert_eq!(body("---\n---\nx"), "x");
+        assert_eq!(body("no frontmatter"), "no frontmatter");
+        assert_eq!(body("---\ndescription: d\n---"), "");
     }
 
     #[test]
