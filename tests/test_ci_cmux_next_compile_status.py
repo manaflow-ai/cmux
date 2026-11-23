@@ -73,7 +73,7 @@ fi
 exit 0
 '''
 # A git that answers `ls-remote` with $HEAD_SHA as the branch head (exit 128 when it is unset), logging each call
-# to $READS.git: the superseded check's one read of the branch head (note-553).
+# to $READS.git: the superseded check's one read of the branch head (note-554).
 FAKE_GIT = r'''#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$READS.git"
 [[ -n "${HEAD_SHA:-}" ]] || exit 128
@@ -102,6 +102,12 @@ def step_script() -> str:
 
 
 @unittest.skipUnless(shutil.which("jq"), "jq is not installed")
+def without_no_state(text):
+    """The step always writes `state=` (note-519: `none` when no read answered); these tests judge the handoff
+    lines, so drop the `state=none` line. Tests of a real state read it unfiltered through their own assertions."""
+    return "".join(l for l in text.splitlines(True) if l.strip() != "state=none")
+
+
 class StatusMapping(unittest.TestCase):
     def run_step(self, reply: dict | None, **env: str) -> tuple[int, list[dict], list[str]]:
         if reply is None or reply.get("state") == "running":
@@ -120,8 +126,8 @@ class StatusMapping(unittest.TestCase):
                      "RESULTS": "https://results/v1", "REPLY": str(Path(tmp, "reply.json")),
                      "POSTS": str(Path(tmp, "posts")), "READS": str(Path(tmp, "reads")),
                      "GITHUB_OUTPUT": str(Path(tmp, "output")), **env})
-            self.stdout, self.output = done.stdout, (Path(tmp, "output").read_text()
-                                                     if Path(tmp, "output").exists() else "")
+            self.stdout, self.output = done.stdout, without_no_state(Path(tmp, "output").read_text()
+                                                                     if Path(tmp, "output").exists() else "")
             self.tries = [json.loads(line)["state"] for line in Path(tmp, "posts.tries").read_text().splitlines()] \
                 if Path(tmp, "posts.tries").exists() else []
             posts = [json.loads(line) for line in Path(tmp, "posts").read_text().splitlines()] \
@@ -166,7 +172,7 @@ class StatusMapping(unittest.TestCase):
                 self.assertEqual(self.output.strip(), f"state={state}")
 
     def test_a_superseded_push_whose_branch_moved_ends_at_its_first_read(self):
-        """note-553: the controller will never check a superseded push tip; once the branch head has moved on, the job
+        """note-554: the controller will never check a superseded push tip; once the branch head has moved on, the job
         posts a no-verdict status at once and ends green instead of waiting 40 minutes and failing."""
         newer = "b" * 40
         code, posts, reads = self.run_step(self.reply("superseded", superseded_by=newer), HEAD_SHA=newer,
@@ -537,7 +543,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
                                               for read in reads), reads)
 
     def test_a_superseded_push_whose_branch_moved_skips_the_mac_fallback(self):
-        """note-553: superseded and the branch moved on is its own verdict, so neither admission nor the Mac Release
+        """note-554: superseded and the branch moved on is its own verdict, so neither admission nor the Mac Release
         compile runs; anything else about a superseded receipt is unavailable, as before."""
         newer = "b" * 40
         code, verdict, reads = self.run_step(self.reply("superseded"), HEAD_SHA=newer, WAIT_SECONDS="400")
@@ -640,7 +646,7 @@ class ResultsServiceDown(unittest.TestCase):
                 env={"PATH": os.environ["PATH"], "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output), "GH_TOKEN": "t",
                      "SHA": SHA, "REPO": REPO, "API": f"{self.server.url}/repos/{REPO}",
                      "RUN_URL": "https://github.com/run/1", "RESULTS": f"{self.server.url}/v1", **env})
-            return done.returncode, done.stdout, output.read_text() if output.exists() else ""
+            return done.returncode, done.stdout, without_no_state(output.read_text() if output.exists() else "")
 
     def compile_status(self, **env: str) -> tuple[int, str, str]:
         return self.bash(step_script(), PROBE_GAP="1", READ_GAP="1", **env)
