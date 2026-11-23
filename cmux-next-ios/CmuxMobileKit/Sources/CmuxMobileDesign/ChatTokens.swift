@@ -33,6 +33,14 @@ extension Color {
     /// the view redraws when the choice changes. Never hard-code a hue in its place.
     public static var cmuxMobileAccent: Color { CmuxMobileAccentTheme.shared.accentToken.color }
     public static var cmuxMobileOnAccent: Color { CmuxMobileAccentTheme.shared.onAccentToken.color }
+    /// Send's fill and ink in the composers: the accent's hue, or the theme's blue with Default
+    /// (`CmuxMobileAccentTheme.sendToken`), never a white or black disk.
+    public static var cmuxMobileSend: Color { CmuxMobileAccentTheme.shared.sendToken.color }
+    public static var cmuxMobileOnSend: Color { CmuxMobileAccentTheme.shared.onSendToken.color }
+    /// The band between a composer and the system keyboard while it is up: the page darkened, as
+    /// the ChatGPT and Claude iOS apps draw it, so the composer sits on the keyboard instead of
+    /// floating over a strip of transcript (Leo, 2026-11-23).
+    public static let cmuxMobileKeyboardSkirt = dynamic(dark: rgba(0x000000, 0.55), light: rgba(0x000000, 0.10))
     public static let cmuxMobileSuccess = dynamic(dark: rgba(0x30D158), light: rgba(0x34C759))
     public static let cmuxMobileDanger = dynamic(dark: rgba(0xFF453A), light: rgba(0xFF3B30))
     public static let cmuxMobileWarning = dynamic(dark: rgba(0xFFD60A), light: rgba(0xFFCC00))
@@ -68,6 +76,9 @@ extension UIColor {
     /// The user's accent: resolved from the current choice each time a trait collection resolves it.
     public static let cmuxMobileAccent = UIColor { CmuxMobileAccentTheme.shared.accentToken.uiColor.resolvedColor(with: $0) }
     public static let cmuxMobileOnAccent = UIColor { CmuxMobileAccentTheme.shared.onAccentToken.uiColor.resolvedColor(with: $0) }
+    public static let cmuxMobileSend = UIColor { CmuxMobileAccentTheme.shared.sendToken.uiColor.resolvedColor(with: $0) }
+    public static let cmuxMobileOnSend = UIColor { CmuxMobileAccentTheme.shared.onSendToken.uiColor.resolvedColor(with: $0) }
+    public static let cmuxMobileKeyboardSkirt = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0x000000, 0.55) : Color.rgba(0x000000, 0.10) }
     public static let cmuxMobileSuccess = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0x30D158) : Color.rgba(0x34C759) }
     public static let cmuxMobileDanger = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFF453A) : Color.rgba(0xFF3B30) }
     public static let cmuxMobileWarning = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFFD60A) : Color.rgba(0xFFCC00) }
