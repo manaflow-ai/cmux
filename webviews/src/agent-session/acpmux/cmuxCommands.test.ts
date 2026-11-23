@@ -24,6 +24,7 @@ test("status is available before harness commands and stays cmux-owned", () => {
     "resume",
     "login",
     "customize",
+    "help",
     "compact",
     // Not advertised by this harness: cmux's passthrough fallback, after the harness's own.
     "clear",
