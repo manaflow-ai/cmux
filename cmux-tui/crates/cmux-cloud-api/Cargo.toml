@@ -10,6 +10,7 @@ description = "NEXT Cloud's API calls (the daemon's sandboxed Runs, the API Work
 [dependencies]
 base64.workspace = true
 bytes.workspace = true
+cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
 cmux-cloud-machine.workspace = true
 reqwest = { workspace = true, features = ["stream"] }

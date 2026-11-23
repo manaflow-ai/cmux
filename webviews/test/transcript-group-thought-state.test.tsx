@@ -54,7 +54,8 @@ const search = (n: number): AcpmuxActivity => ({
 });
 const thought = (n: number): AcpmuxActivity => ({
   kind: "thought",
-  text: `Thought number ${n}: the helper retries on every status, so check the caller next.`,
+  // Two lines: the first is the row's line, the second opens under it (a one-line thought opens nothing).
+  text: `The helper retries on every status.\nThought number ${n}: so check the caller next.`,
   startedAt: 0,
   endedAt: 3_000,
 });

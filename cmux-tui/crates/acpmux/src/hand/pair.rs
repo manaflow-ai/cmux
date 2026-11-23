@@ -77,6 +77,7 @@ pub async fn pair(
     });
     let _ = rustls::crypto::ring::default_provider().install_default();
     let client = reqwest::Client::builder()
+        .default_headers(cmux_build_space::headers()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
         .user_agent(concat!("cmux-hand/", env!("CARGO_PKG_VERSION")))

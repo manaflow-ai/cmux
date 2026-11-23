@@ -13,7 +13,15 @@ impl Translator {
                 match m.as_str() {
                     method::INITIALIZE => {
                         self.pending.lock().await.insert(id.to_string(), Pending::Initialize);
-                        let suggestions = prompt_suggestions::enabled_in_settings();
+                        // None for a process no person started (`hub/host_level.rs`).
+                        let for_agent = p
+                            .pointer(&format!(
+                                "/_meta/acpmux/{}",
+                                prompt_suggestions::NO_SUGGESTIONS
+                            ))
+                            .and_then(Value::as_bool)
+                            == Some(true);
+                        let suggestions = prompt_suggestions::enabled_in_settings() && !for_agent;
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
@@ -62,6 +70,11 @@ impl Translator {
                                 id.clone(),
                                 RpcError::invalid_params(super::STEER_NO_TURN),
                             ));
+                        }
+                        // A new turn (not a steer into this one): the task list ages a turn
+                        // (`task_plan.rs`).
+                        if !steer {
+                            self.task_plan.lock().await.begin_turn();
                         }
                         // The hub's prompt for the turn Claude Code runs on steers it read after
                         // its turn ended: nothing to write (`carry.rs`).
@@ -117,6 +130,9 @@ impl Translator {
                         // Claude Code echoes the line with this uuid when it reads it.
                         let uuid = uuid::Uuid::now_v7().to_string();
                         let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
+                        // Suggestions only after a person's own turn (`prompt_suggestions.rs`):
+                        // the pause line goes ahead of the prompt.
+                        let pause = self.suggestion_turn(&p, &uuid);
                         // A new prompt of the hub's: no carried turn waits for one any more.
                         self.clear_carry().await;
                         self.in_turn.store(true, Ordering::SeqCst);
@@ -136,7 +152,7 @@ impl Translator {
                             .map(|(k, _)| k.clone())
                             .collect();
                         pending.insert(id.to_string(), Pending::Prompt);
-                        Outbound::Lines(vec![line])
+                        Outbound::Lines(pause.into_iter().chain([line]).collect())
                     }
                     method::SESSION_SET_MODE => {
                         let mode =
@@ -399,8 +415,8 @@ impl Translator {
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
-                    // reads the steer; with none waiting, or while a subagent or a background
-                    // shell runs (`interrupt_ends_work`), nothing stops.
+                    // reads the steer; with none waiting, or while a foreground subagent runs
+                    // (`interrupt_ends_work`), nothing stops.
                     method::MUX_STEP_NOW => {
                         if !self.in_turn.load(Ordering::SeqCst)
                             || self.steers.lock().await.is_empty()
@@ -513,13 +529,18 @@ impl Translator {
         }
     }
 
-    /// Whether Claude Code's `interrupt` would end more than the current step: it kills every
-    /// running subagent (background ones too) and every background shell, so Send now never
-    /// writes it while one runs (cosmic-gray, 2026-10-21: a Send now killed two background
-    /// subagents). The steer is then read at the next tool boundary instead.
+    /// Whether Claude Code's `interrupt` would end more than the current step: a foreground
+    /// subagent (an Agent call the step waits on) dies with it, so Send now never writes it while
+    /// one runs, and the steer is read at the next tool boundary instead. Background subagents
+    /// and background shells do not count: `initialize` declares `perTaskStopAffordance`
+    /// (`initialize_request`), with which Claude Code's interrupt "spares running background
+    /// agents/workflows (Stop only aborts the turn)". Counting them (cosmic-gray, 2026-10-21, before
+    /// that declaration) made Send now stop nothing in a coordinator whose helpers always run, and
+    /// the person's message sat unread behind its tool steps (Leo, 2026-11-21: "They have tons of
+    /// helpers and they're not really responding to my messages").
     pub(super) async fn interrupt_ends_work(&self) -> bool {
-        !self.subagents.lock().await.is_empty()
-            || self.background_shells.lock().await.values().any(|shell| shell.background)
+        let background: HashSet<String> = self.background_subagents.lock().await.clone();
+        self.subagents.lock().await.keys().any(|tool| !background.contains(tool))
     }
 
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop

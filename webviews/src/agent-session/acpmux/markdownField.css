@@ -3,12 +3,13 @@
    only where the user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  /* Goldilocks after #24984: the old cap was eight body lines plus the control row, then
-     31bbb2fd6d4 let 40vh win. Lawrence found that growth too big; twelve lines is the compromise,
-     with 40vh still limiting unusually tall panes. Short panes still give up height (bottomStack.css). */
+  /* The draft grows about as tall as Claude Code desktop's before it scrolls (Leo 2026-11-22: "look at
+     how big claude code can grow"): up to 60% of the pane, thirty lines at most. Was twelve lines or
+     40vh (#24984, Lawrence: "too big" then), which capped a pasted page at a third of the pane. Short
+     panes still give up height (bottomStack.css). */
   max-height: min(
-    calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 12) + var(--cmux-control-height, 23px)),
-    40vh
+    calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 30) + var(--cmux-control-height, 23px)),
+    60vh
   );
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
@@ -31,6 +32,10 @@
   --acpmux-md-scrollbar-lane: 8px;
   /* The minimal scroller's track (scrollers.ts) stops short of the composer's rounded corners. */
   --cmux-minimal-scroller-inset: calc(10px * var(--cmux-interface-scale, 1));
+  /* Its thumb shows only while the draft scrolls (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE) and fades
+     in and out at the transcript's pace (conversation.css .acpmux-scroll), the host's durations. */
+  --cmux-scroller-fade-in: var(--agent-motion-in);
+  --cmux-scroller-fade-out: var(--agent-motion-move);
   /* Its lane is always reserved (scrollers.ts), so it comes out of the right padding: the
      draft keeps the same width, and never rewraps, whether or not it overflows. */
   padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
@@ -129,6 +134,22 @@
   word-break: break-word;
   caret-color: var(--cmux-caret, var(--agent-text));
 }
+/* The field's text before its editor exists (MarkdownField.tsx `standIn`). The editor is made a task
+   or more after the field mounts; before this the field drew at its padding alone until then and grew
+   a line (or a whole draft) when the editor came, moving the composer's top on a chat's first load
+   (https://github.com/manaflow-ai/cmux/issues/48498). The editor's box: one line at the least, the
+   text wrapped as the editor wraps it. */
+.acpmux-md-standin {
+  min-height: var(--text-content--line-height);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  user-select: none;
+}
+.acpmux-md-standin[hidden] {
+  display: none;
+}
 .acpmux-md > * {
   margin: 0;
 }
@@ -165,14 +186,14 @@
 .acpmux-md code {
   padding: 1px 4px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-surface-inset);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--cv-code-size, calc(var(--text-content) * 13 / 14));
 }
 .acpmux-md pre {
   padding: 8px 10px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-inset);
   overflow-x: auto;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--cv-codeblock-size, calc(var(--text-content) * 12 / 14));
@@ -523,7 +544,7 @@
   text-decoration: none;
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -631,7 +652,7 @@
   content: attr(data-title);
   padding: var(--cmux-link-chip-pad-block) var(--cmux-link-chip-pad-inline);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--cv-text, var(--agent-text));
   font-size: var(--text-content);
   line-height: var(--text-content--line-height);

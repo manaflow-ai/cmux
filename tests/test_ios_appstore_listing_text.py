@@ -12,8 +12,8 @@ under Connection Method, use Add Computer, open the App Review workspace", scree
 the replacing app does not have. This test fails a locale when:
   - a field is over its App Store limit;
   - the locale set is not the production record's, or the two trees (app-info and
-    version) hold different locales, or the version tree is not project.yml's
-    MARKETING_VERSION;
+    version) hold different locales, or the version tree is not the AppStore
+    configuration's MARKETING_VERSION in project.yml;
   - it names a classic-only screen (CLASSIC_ONLY_TERMS);
   - the public text carries App Review instructions (they belong in the notes);
   - a quoted screen name (any locale) is not a string the app shows;
@@ -157,7 +157,12 @@ def app_strings() -> set[str]:
 
 
 def marketing_version() -> str:
-    match = re.search(r"^\s*MARKETING_VERSION:\s*\"?([0-9][0-9.]*)\"?\s*$", PROJECT_YML.read_text(encoding="utf-8"), re.MULTILINE)
+    """The App Store version: the AppStore configuration's MARKETING_VERSION, else the base one."""
+    text = PROJECT_YML.read_text(encoding="utf-8")
+    pattern = re.compile(r"^\s*MARKETING_VERSION:\s*\"?([0-9][0-9.]*)\"?\s*$", re.MULTILINE)
+    block = re.search(r"^    AppStore:\n((?:(?:      .*)?\n)*)", text, re.MULTILINE)
+    match = pattern.search(block.group(1)) if block else None
+    match = match or pattern.search(text)
     assert match, f"{PROJECT_YML} has no MARKETING_VERSION"
     return match.group(1)
 
@@ -242,7 +247,7 @@ class ListingTextTest(unittest.TestCase):
         version = marketing_version()
         versions = [tree for tree in self.listings if tree.startswith("version/")]
         self.assertEqual(versions, [f"version/{version}"],
-                         f"move metadata/version/<dir> to project.yml's MARKETING_VERSION {version}")
+                         f"move metadata/version/<dir> to the AppStore configuration's MARKETING_VERSION {version}")
         for tree, locales in self.listings.items():
             with self.subTest(tree=tree):
                 self.assertEqual(sorted(locales), sorted(PRODUCTION_LOCALES))

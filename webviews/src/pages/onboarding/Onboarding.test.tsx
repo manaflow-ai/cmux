@@ -16,7 +16,11 @@ function render(state: OnboardingState, look?: AgentsLook): string {
 }
 
 /** Text with tags removed, so assertions read what a person reads (hidden sizing labels are attributes). */
-const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+const text = (html: string) =>
+  html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ");
 
 describe("agents", () => {
   test("title, line, each agent with its sign-in, and Skip / Continue", () => {
