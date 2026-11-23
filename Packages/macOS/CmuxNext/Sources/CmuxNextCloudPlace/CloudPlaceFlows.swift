@@ -116,7 +116,13 @@ public final class CloudPlaceFlows {
 
     /// The move starts at `preflight`.
     @discardableResult
-    public func begin(session: String, toCloud: Bool, trigger: Trigger, from: String, to: String, cargo: Cargo) -> Next {
+    public func begin(session: String?, toCloud: Bool, trigger argument: String?, from: String, to: String, cargo: Cargo = .init()) -> Next {
+        begin(session: session, toCloud: toCloud, trigger: Trigger(argument: argument), from: from, to: to, cargo: cargo)
+    }
+
+    @discardableResult
+    public func begin(session: String?, toCloud: Bool, trigger: Trigger, from: String, to: String, cargo: Cargo = .init()) -> Next {
+        guard let session else { return .go }
         flows[session] = nil
         cancelled.remove(session)
         if case .auto = trigger { started[session] = (true, toCloud) } else { started[session] = (false, toCloud) }
@@ -126,15 +132,16 @@ public final class CloudPlaceFlows {
 
     /// `step` starts (the steps before it are done).
     @discardableResult
-    public func step(_ session: String, _ step: String) -> Next { report(session, ["event": "step", "step": step, "atMs": nowMs]) }
+    public func step(_ session: String?, _ step: String) -> Next { session.map { report(session, ["event": "step", "step": step, "atMs": nowMs]) } ?? .go }
 
     /// The machine got its name.
     @discardableResult
-    public func target(_ session: String, to name: String) -> Next { report(session, ["event": "target", "to": name]) }
+    public func target(_ session: String?, to name: String) -> Next { session.map { report($0, ["event": "target", "to": name]) } ?? .go }
 
     /// The chat runs on the new place.
     @discardableResult
-    public func live(_ session: String) -> Next {
+    public func live(_ session: String?) -> Next {
+        guard let session else { return .go }
         if let kind = started.removeValue(forKey: session) {
             // Auto may bring back only what Auto moved; a person's move either way ends that.
             if kind.auto && kind.toCloud { autoMoved.insert(session) } else { autoMoved.remove(session) }
@@ -144,14 +151,17 @@ public final class CloudPlaceFlows {
     }
 
     @discardableResult
-    public func failed(_ session: String, reason: String) -> Next {
+    public func failed(_ session: String?, reason: String) -> Next {
+        guard let session else { return .go }
         started[session] = nil
         return report(session, ["event": "failed", "reason": reason, "atMs": nowMs])
     }
 
     /// The next step of the move. Throws ``CancellationError`` when the reducer says stop (a Cancel it honours at this boundary), for
     /// steps before the chat lands; once the chat committed, use ``step(_:_:)``, which never stops the move.
-    public func advance(_ session: String, _ step: String) throws {
+    public func advance(_ session: String?, _ step: String) throws {
+        try Task.checkCancellation()
+        guard let session else { return }
         guard self.step(session, step) != .stop else {
             cancelled.insert(session)
             throw CancellationError()
@@ -171,13 +181,14 @@ public final class CloudPlaceFlows {
     }
 
     /// Whether Cancel ended the session's move (its stop shows no failure and keeps no Retry).
-    public func wasCancelled(_ session: String) -> Bool { cancelled.contains(session) }
+    public func wasCancelled(_ session: String?) -> Bool { session.map { cancelled.contains($0) } ?? false }
 
     /// Registers what stops the session's move; ends with ``finished(_:)``.
-    public func onCancel(_ session: String, _ stop: @escaping () -> Void) { stoppers[session] = stop }
+    public func onCancel(_ session: String?, _ stop: @escaping () -> Void) { if let session { stoppers[session] = stop } }
 
     /// The move's work ended (any way): its stopper goes.
-    public func finished(_ session: String) {
+    public func finished(_ session: String?) {
+        guard let session else { return }
         stoppers[session] = nil
         started[session] = nil
         cancelled.remove(session)

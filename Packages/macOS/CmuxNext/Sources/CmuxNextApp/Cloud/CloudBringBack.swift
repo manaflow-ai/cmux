@@ -112,22 +112,22 @@ struct CloudBringBack {
             do {
                 let machine = try await body()
                 retries[tabID] = nil
-                if let session { place.live(session) }
+                place.live(session)
                 CloudMove.toast(services, toastID, toMachine ? CloudMoveStrings.moved(machine) : CloudBringBackStrings.broughtBack, duration: .seconds(6))
                 return nil
             } catch {
                 // Cancel stopped it (the reducer's Cancelled): the chat stays on the machine, with no failure and no Retry.
-                if let session, place.wasCancelled(session) {
+                if place.wasCancelled(session) {
                     retries[tabID] = nil
                     CmuxToastCenter.shared.close(id: toastID)
                     return nil
                 }
                 let failure = stopped(error, tab: tabID, toast: toastID, action: action)
-                if let session { place.failed(session, reason: failure.message) }
+                place.failed(session, reason: failure.message)
                 return failure
             }
         }
-        if let session { place.onCancel(session) { work.cancel() } }
+        place.onCancel(session) { work.cancel() }
         services.registry.track(work)
     }
 
@@ -178,10 +178,8 @@ struct CloudBringBack {
         var again = CloudMoveRetries.Retry.move(machineID: pinned ?? entry.machineID)
         // The flow the chat's header draws (``CloudPlaceFlows``): each step below reports itself.
         let place = services.cloud.place, flow = toMachine ? nil : entry.session
-        if let flow {
-            place.begin(session: flow, toCloud: false, trigger: .init(argument: invocation["trigger"]?.stringValue), from: services.machines.machineName(entry.machineID) ?? "",
-                        to: CloudPlaceFlows.thisMac, cargo: CloudPlaceCargo.read(tab: tab, session: entry.session, services: services))
-        }
+        place.begin(session: flow, toCloud: false, trigger: invocation["trigger"]?.stringValue, from: services.machines.machineName(entry.machineID) ?? "",
+                    to: CloudPlaceFlows.thisMac, cargo: CloudPlaceCargo.read(tab: tab, session: entry.session, services: services))
         guard let machine = services.machines.session(entry.machineID) else {
             // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
             if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted, retry: pinned.map { _ in again }) }
@@ -196,7 +194,7 @@ struct CloudBringBack {
         let connected = { [again] (session: CloudMachineSession) async throws -> CloudMachineSession in
             do { return try await CloudMove.connected(session, invocation) } catch let failure as Failure { throw Failure(message: failure.message, retry: again) }
         }
-        if let flow { try place.advance(flow, "machine") }
+        try place.advance(flow, "machine")
         _ = try await connected(machine)
         let pending: CloudMachineSession?
         if let id = pinned {
@@ -214,7 +212,7 @@ struct CloudBringBack {
             try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: toastID, retry: again.updating)
             CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
         }
-        if let flow { try place.advance(flow, "sync") }
+        try place.advance(flow, "sync")
         let pulled: CloudMoveCLI.Answer
         if pending != nil || toMachine { pulled = CloudMoveCLI.Answer(ok: true) } else { do {
             pulled = try await cli.bringBackPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
@@ -250,10 +248,7 @@ struct CloudBringBack {
             again = .move(machineID: target.machineID)
             services.cloud.bringBackRetries[tab.id] = again
         }
-        if let flow {
-            try Task.checkCancellation()
-            try place.advance(flow, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
-        }
+        try place.advance(flow, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
         var moved = CloudMoveCLI.Answer(ok: false), landing = onto?.remotes.first
         do {
             // A running turn goes on where the chat lands with its last changes (to another machine: relayed; a refused work root, the next).
@@ -276,7 +271,7 @@ struct CloudBringBack {
             if target != nil, failure.retry == nil { failure.retry = again }
             throw failure
         }
-        if let flow { place.step(flow, "commit") }
+        place.step(flow, "commit")
         if let target, let landing { return try await landed(on: target, landing, session: session, entry: entry, key: moved.transferID, tab: tab) }
         // The move committed: from here Retry only opens the chat's tab on this Mac. The ledger
         // keeps that (not only memory) until the tab opened.
