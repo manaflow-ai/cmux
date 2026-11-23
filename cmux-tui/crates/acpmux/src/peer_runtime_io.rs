@@ -237,7 +237,12 @@ impl Peer {
                 return;
             }
         }
+        let mut immediate_redial = false;
         while !self.stop.load(Ordering::SeqCst) {
+            crate::gauges::bump(&crate::gauges::links().link_dials);
+            if immediate_redial {
+                crate::gauges::bump(&crate::gauges::links().link_redials);
+            }
             let outcome = self.connect_once(&mut out_rx).await;
             let restarting = matches!(&outcome, Ok(LinkEnd::Restarting | LinkEnd::Switching));
             let was_ready = self.link().is_ready();
@@ -280,6 +285,7 @@ impl Peer {
             }
             // One immediate attempt for this Close 1012. If that attempt fails, it follows
             // the unchanged real-failure backoff; restarting is not a persistent retry mode.
+            immediate_redial = redial_now || (was_ready && restarting);
             let Some(delay) = delay else {
                 continue;
             };
@@ -544,6 +550,8 @@ impl Peer {
         }
         *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = opened.presented;
         self.carried_by(via.carrier().wire());
+        // Held while this link's connection is: `gauges.links.linksOpen`.
+        let _open = crate::gauges::Held::on(&crate::gauges::links().links_open);
         self.set_serving(Some(via));
         self.start_probes();
         let heard = Some(opened.heard);
@@ -899,6 +907,8 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        // Time this daemon kept the loop from reading is not the peer's silence (`ReaderHeld`).
+        let mut reader = crate::peer_link::ReaderHeld::default();
         let mut stale_settled = false;
         let mut handshake_ended = false;
         let mut health_asked: Option<tokio::time::Instant> = None;
@@ -1066,6 +1076,11 @@ impl Peer {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(LinkEnd::Stopped);
             }
+            if let Some(held) = reader.resume()
+                && held >= timings.ping_every
+            {
+                tracing::info!(peer = %self.name, "this daemon kept the link from reading for {}ms; its silence counts from now", held.as_millis());
+            }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
@@ -1084,6 +1099,12 @@ impl Peer {
                     if request_probe && wake_probe.is_some_and(|due| stalled(now, due)) {
                         tracing::debug!(peer = %self.name, "the link's loop ran {}ms late; its probe waits again", now.saturating_duration_since(wake_probe.unwrap_or(now)).as_millis());
                         wake_probe = Some(now + wait);
+                        continue;
+                    }
+                    // This daemon did not read for part of the probe's wait: the answer may be
+                    // in, unread. The probe waits its whole time from when reading resumed.
+                    if reader.reading() < network::NETWORK_PROBE {
+                        wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE - reader.reading());
                         continue;
                     }
                     if request_probe {
@@ -1166,7 +1187,8 @@ impl Peer {
                         break Ok(LinkEnd::Switching);
                     }
                     let now = tokio::time::Instant::now();
-                    let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap);
+                    // A gap this daemon made by not reading teaches the budget nothing.
+                    let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap).min(reader.reading());
                     let (was, silence) = self.with_silence(|b| {
                         let was = b.current();
                         b.answered_after(gap, now);
@@ -1176,7 +1198,7 @@ impl Peer {
                     if silence != was {
                         tracing::info!(peer = %self.name, "silence budget {}s (was {}s; longest wait for an answer {}ms)", silence.as_secs(), was.as_secs(), gap.as_millis());
                     }
-                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     // The time this tick came late, this loop stuck (a loaded Mac, a write or a
                     // full notice queue), was no read of the peer: not its silence. Bytes it sent
                     // meanwhile wait unread. cosmic-gray at load 100 dropped 493 links in 3 h for
@@ -1205,7 +1227,7 @@ impl Peer {
                         self.refresh_health();
                     }
                 }
-                frame = source.next() => {
+                frame = reader.listen(source.next()) => {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
                     // `select!` is unbiased: a frame read as the deadline passes may not finish
@@ -1428,7 +1450,7 @@ impl Peer {
                     // Before the frame is marked: a link a wake check drops never had it.
                     check_wake!();
                     // Read before the write: a large frame's write is not the peer's silence.
-                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     // Marked before the write: a frame that is partly written may still run.
                     let prompt_key = key.as_ref();
                     if let Some(key) = prompt_key {
