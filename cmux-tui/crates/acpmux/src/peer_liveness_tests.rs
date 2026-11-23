@@ -242,38 +242,72 @@ async fn a_network_change_keeps_a_link_that_answers() {
     answering.abort();
 }
 
-/// cosmic-gray at load 80 to 100 (2026-11-22): its daemon's link loops waited seconds for a
-/// thread, and 493 links in 3 h were dropped for "6 to 19 s without a frame" that were this
-/// Mac's stalls, the peer's answers waiting unread. A stall of this loop is not the peer's
-/// silence: a link to a peer that answers survives ten 7 s stalls.
+/// A live peer that says something each second and answers each ping, until its end closes.
+fn talkative_peer(
+    mut server: WebSocketStream<tokio::io::DuplexStream>,
+) -> tokio::task::JoinHandle<()> {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    tokio::spawn(async move {
+        let note = r#"{"jsonrpc":"2.0","method":"_test/note","params":{}}"#;
+        loop {
+            tokio::select! {
+                () = tokio::time::sleep(Duration::from_secs(1)) => {
+                    if server.send(Frame::Text(note.into())).await.is_err() {
+                        return;
+                    }
+                }
+                frame = server.next() => if frame.is_none_or(|f| f.is_err()) { return },
+            }
+        }
+    })
+}
+
+/// This computer's stalls, as the link's loop meets them: the hub does not take its notices
+/// (`notices`, one slot) for `stall`, so the loop waits on its send while the peer's frames and
+/// pongs wait unread; then the hub takes them all, and every timer due meanwhile is ready with
+/// the frames. Answers when the link ended, if it did.
+async fn stall_like_a_loaded_mac(
+    notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>,
+    serving: &mut (impl std::future::Future<Output = Result<LinkEnd, String>> + Unpin),
+    calm: Duration,
+    stall: Duration,
+) -> Option<Result<LinkEnd, String>> {
+    let taking = async {
+        let until = tokio::time::Instant::now() + calm;
+        while tokio::time::timeout_at(until, notices.recv()).await.is_ok_and(|n| n.is_some()) {}
+        tokio::time::sleep(stall).await;
+    };
+    tokio::select! {
+        ended = serving => Some(ended),
+        () = taking => None,
+    }
+}
+
+/// cosmic-gray at load 80 to 100 (2026-11-22): its daemon's link loops waited seconds (for a
+/// thread, for the hub to take a notice), and 493 links in 3 h were dropped for "6 to 19 s
+/// without a frame" while the peer's frames waited unread. The time this loop was stuck is not
+/// the peer's silence: a link to a live peer survives ten 9 s stalls.
 #[tokio::test(start_paused = true)]
 async fn a_stall_of_this_computer_is_not_the_peers_silence() {
-    use futures_util::StreamExt;
-    let (tx, _rx) = mpsc::channel(8);
+    let (tx, mut notices) = mpsc::channel(1);
     let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
     Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
         Duration::from_secs(3_600);
-    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let (ours, theirs) = tokio::io::duplex(1 << 20);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
-    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
-    // Reading answers each ping with a pong.
-    let answering = tokio::spawn(async move { while server.next().await.is_some() {} });
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let talking = talkative_peer(server);
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
-    let link = peer.clone();
-    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    let serving = peer.serve(client, &mut out_rx);
+    tokio::pin!(serving);
     for stall in 0..10 {
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        peer.out
-            .try_send(Outbound { epoch: peer.link_epoch(), key: None, line: "{}".into() })
-            .unwrap();
-        // Nothing runs for 7 s, then every timer due meanwhile fires at once.
-        tokio::time::advance(Duration::from_secs(7)).await;
-        assert!(!serving.is_finished(), "dropped after stall {stall}");
+        let calm = Duration::from_secs(3);
+        let ended =
+            stall_like_a_loaded_mac(&mut notices, &mut serving, calm, Duration::from_secs(9)).await;
+        assert!(ended.is_none(), "dropped at stall {stall}: {ended:?}");
     }
-    tokio::time::sleep(Duration::from_secs(5)).await;
-    assert!(!serving.is_finished(), "a link that answers is kept");
-    serving.abort();
-    answering.abort();
+    talking.abort();
 }
 
 /// A dead link is still found when a stall came first: the first tick that runs on time after
@@ -349,13 +383,12 @@ async fn a_request_waits_for_a_peer_whose_round_trip_is_measured_slow() {
 
 /// Duress count, run by hand on any commit (it uses nothing newer than the link loop):
 /// `cargo test -p acpmux duress_link_drops -- --ignored --nocapture`. A live peer, and this
-/// computer stalls 60 times for 3 to 9 s (cosmic-gray at load 80 to 100), a request before each:
-/// how many times its link drops and is redialed.
+/// computer stalls 60 times for 3 to 9 s, 3 s apart (cosmic-gray at load 80 to 100): how many
+/// times its link drops and is redialed.
 #[tokio::test(start_paused = true)]
 #[ignore = "a duress count for a PR's Duress line, not a check"]
 async fn duress_link_drops_under_this_computers_stalls() {
-    use futures_util::StreamExt;
-    let (tx, _rx) = mpsc::channel(8);
+    let (tx, mut notices) = mpsc::channel(1);
     let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
     Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
         Duration::from_secs(3_600);
@@ -364,31 +397,24 @@ async fn duress_link_drops_under_this_computers_stalls() {
     let mut next = 0;
     let mut why: Vec<String> = Vec::new();
     while next < stalls.len() {
-        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        let (ours, theirs) = tokio::io::duplex(1 << 20);
         let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
-        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
-        let answering = tokio::spawn(async move { while server.next().await.is_some() {} });
+        let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let talking = talkative_peer(server);
         let serving = peer.serve(client, &mut out_rx);
         tokio::pin!(serving);
-        // The loop runs in this task: while this task stalls, so does the link's loop.
-        loop {
-            tokio::select! {
-                ended = &mut serving => {
-                    why.push(format!("{ended:?}"));
-                    break;
-                }
-                () = tokio::time::sleep(Duration::from_secs(2)) => {
-                    let line = Outbound { epoch: peer.link_epoch(), key: None, line: "{}".into() };
-                    let _ = peer.out.try_send(line);
-                    tokio::time::advance(Duration::from_secs(stalls[next])).await;
-                    next += 1;
-                    if next == stalls.len() {
-                        break;
-                    }
-                }
+        while next < stalls.len() {
+            let stall = Duration::from_secs(stalls[next]);
+            next += 1;
+            let calm = Duration::from_secs(3);
+            if let Some(ended) =
+                stall_like_a_loaded_mac(&mut notices, &mut serving, calm, stall).await
+            {
+                why.push(format!("{ended:?}"));
+                break;
             }
         }
-        answering.abort();
+        talking.abort();
     }
     let probe = why.iter().filter(|w| w.contains("after a request")).count();
     let silence = why.iter().filter(|w| w.contains("stopped answering")).count();
