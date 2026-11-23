@@ -320,6 +320,7 @@ use split_respawn::{
 mod agent_cli_hybrid;
 mod attach_output_coalesce;
 mod connection_wait;
+mod machine_ports;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
