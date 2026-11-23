@@ -20,6 +20,7 @@ use serde_json::Value;
 use super::super::code::{WebBase, WebTarget};
 use super::super::expire::Expiry;
 use crate::store::Generation;
+use crate::tree::SETTINGS;
 use crate::{Customize, Error, tree, validate};
 
 /// How far back a recover looks for a setup that loads.
@@ -136,7 +137,33 @@ impl Customize {
     /// The newest version of `path` a generation holds that loads and is
     /// not what is live now: `(generation, bytes)`.
     pub(super) fn last_good_version(&self, path: &str) -> Option<(u32, Vec<u8>)> {
+        self.last_good_version_where(path, |_| true)
+    }
+
+    /// [`Self::last_good_version`], also held to `also` (the settings file's menus all load).
+    pub(super) fn last_good_version_where(
+        &self,
+        path: &str,
+        also: impl Fn(&[u8]) -> bool,
+    ) -> Option<(u32, Vec<u8>)> {
         let live = tree::read(self.roots(), path).ok().flatten();
+        // A file is checked with the live files beside it: a views manifest names its
+        // `runtime.main`, which is in the folder, not in the manifest.
+        let folder = path.rsplit_once('/').map(|(dir, _)| format!("{dir}/"));
+        let beside: BTreeMap<String, Vec<u8>> = match &folder {
+            Some(folder) => tree::scan(self.roots())
+                .map(|scan| {
+                    scan.tree
+                        .keys()
+                        .filter(|other| other.starts_with(folder.as_str()) && *other != path)
+                        .filter_map(|other| {
+                            Some((other.clone(), tree::read(self.roots(), other).ok()??))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            None => BTreeMap::new(),
+        };
         let index = self.store().index().ok()?;
         for generation in index.generations.iter().rev().take(GENERATIONS_LOOKED_AT) {
             let Ok(tree) = self.store().tree(generation.n) else { continue };
@@ -145,8 +172,10 @@ impl Customize {
             if live.as_ref() == Some(&bytes) {
                 continue;
             }
-            let one = BTreeMap::from([(path.to_owned(), bytes.clone())]);
-            if validate::problems(&one).is_empty() {
+            let mut one = beside.clone();
+            one.insert(path.to_owned(), bytes.clone());
+            let loads = validate::problems(&one).iter().all(|problem| problem.path != path);
+            if loads && also(&bytes) {
                 return Some((generation.n, bytes));
             }
         }
@@ -157,7 +186,9 @@ impl Customize {
     /// is written in place (through a link: a file in a dotfiles repo stays linked), so it is
     /// never missing, even if cmux stops between the copy and the write.
     pub(super) fn restore_file(&self, path: &str, now_ms: u64) -> Result<(u32, String), Error> {
-        let (n, bytes) = self.last_good_version(path).ok_or_else(|| {
+        let good =
+            if path == SETTINGS { self.last_good_settings() } else { self.last_good_version(path) };
+        let (n, bytes) = good.ok_or_else(|| {
             Error::Library(format!("no generation holds a version of {path} that loads"))
         })?;
         let file = tree::locate(self.roots(), path)
