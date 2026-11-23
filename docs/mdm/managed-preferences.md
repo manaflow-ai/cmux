@@ -711,6 +711,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.delivery.question` | string | `"banner"` | `off`, `badge`, `banner` | Question |
 | `notifications.delivery.taskComplete` | string | `"banner"` | `off`, `banner` | Task Complete |
 | `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view. |
+| `labs.highContrastLook` | boolean | `false` |  | High Contrast Look. Raises derived chrome text to a 7:1 contrast floor. Off, cmux keeps its normal 4.5:1 floor. |
 | `labs.liveTree` | boolean | `false` |  | Live Tree. Show the shared live-tree path and compile lanes in the agent pane. |
 | `labs.voiceRoom` | boolean | `false` |  | Voice Room. While a room is open, cmux sends a transcript of your mic and your screen's text to it. |
 | `labs.voiceRoomURL` | string | `""` |  | Voice Room Address. The room's web address. Empty uses the room server on this Mac. |
