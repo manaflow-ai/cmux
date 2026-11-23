@@ -31,7 +31,7 @@ public nonisolated enum TwoTone: String, Sendable, CaseIterable, Codable, Hashab
     /// The accent on a tone (WCAG 2 non-text).
     public static let markMinimum = 3.0
     /// `auto`: tone A's OKLCH lightness step from the background.
-    static let autoLightnessStep = 0.03
+    static let autoLightnessStep = 0.045
     /// `auto`, dark: tone A's least OKLCH lightness, so a black background still gets a tone apart from it.
     static let autoDarkFloor = 0.18
     /// `auto`: the share tone A turns from the background toward the accent in OKLab's a/b plane.

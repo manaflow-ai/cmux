@@ -6,8 +6,7 @@
 //! good and not eyesore-ish".
 //!
 //! - `off` (the default): nothing changes.
-//! - `auto`: tone A from the theme itself: its background, a step (0.03, the
-//!   design debate's of 2026-11-22) lighter in
+//! - `auto`: tone A from the theme itself: its background, a step lighter in
 //!   dark and darker in light, turned toward the accent's hue with a little of
 //!   its chroma; the content keeps the theme's background and the accent is
 //!   the theme's, fitted to both.
@@ -35,10 +34,8 @@ pub const AUTO: &str = "auto";
 pub const TEXT_MINIMUM: f64 = 4.5;
 /// The accent on a tone (WCAG 2 non-text contrast).
 pub const MARK_MINIMUM: f64 = 3.0;
-/// `auto`: how far tone A's OKLCH lightness steps from the background: 0.03,
-/// the step the design debate settled on (2026-11-22), seen apart and never a
-/// jump.
-pub const AUTO_LIGHTNESS_STEP: f64 = 0.03;
+/// `auto`: how far tone A's OKLCH lightness steps from the background.
+pub const AUTO_LIGHTNESS_STEP: f64 = 0.045;
 /// `auto`, dark: tone A's least OKLCH lightness, so a black background still
 /// gets a tone apart from it (lightness near 0 is all one black).
 pub const AUTO_DARK_FLOOR: f64 = 0.18;
