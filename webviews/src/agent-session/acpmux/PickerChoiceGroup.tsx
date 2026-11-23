@@ -20,18 +20,21 @@ export function PickerChoiceGroup({
   return (
     <fieldset className={horizontal ? "acpmux-picker-speed-options" : "acpmux-picker-reasoning-options"}>
       <legend className={horizontal ? "sr-only" : "text-detail text-muted"}>{label}</legend>
-      {choices.map((choice) => (
-        <label key={choice.value}>
-          <input
-            type="radio"
-            name={name}
-            value={choice.value}
-            checked={choice.value === current}
-            onChange={() => onPick(choice.value)}
-          />
-          {choice.name ?? choice.value}
-        </label>
-      ))}
+      {choices.map((choice) => {
+        const text = choice.name ?? choice.value;
+        return (
+          <label key={choice.value} aria-label={text}>
+            <input
+              type="radio"
+              name={name}
+              value={choice.value}
+              checked={choice.value === current}
+              onChange={() => onPick(choice.value)}
+            />
+            <span>{text}</span>
+          </label>
+        );
+      })}
     </fieldset>
   );
 }

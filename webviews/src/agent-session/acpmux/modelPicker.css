@@ -23,7 +23,7 @@
 .acpmux-picker-speed-options {
   margin: 0;
   min-width: 0;
-  padding: 6px;
+  padding: var(--ds-space-1);
   overflow: auto;
   border: 0;
 }
@@ -34,7 +34,7 @@
 .acpmux-picker-reasoning-options legend {
   float: inline-start;
   width: 100%;
-  padding: 3px 5px;
+  padding: var(--grid-half-step) var(--ds-space-1);
 }
 .acpmux-picker-speed-options {
   display: flex;
@@ -46,9 +46,9 @@
 .acpmux-picker-speed-options label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  padding: 2px 5px;
+  gap: var(--ds-space-2);
+  min-height: var(--ui-row-height);
+  padding: var(--grid-half-step) var(--ds-space-1);
 }
 .acpmux-picker-reasoning-options label { clear: both; }
 @media (max-width: 407px) {
