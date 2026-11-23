@@ -112,6 +112,9 @@ pub(crate) fn from_settings(root: &Value, base: PolicyConfig) -> PolicyConfig {
     if let Some(value) = flag("whileLocked") {
         config.while_locked = value;
     }
+    if let Some(value) = flag("alerts") {
+        config.alerts = value;
+    }
     config
 }
 
