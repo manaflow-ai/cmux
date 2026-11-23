@@ -85,7 +85,7 @@ const snapshot = (version: number, isWorking: boolean) =>
     { title: "Retry loop", isWorking },
   );
 
-type AnimationSeen = {
+export type AnimationSeen = {
   /// Whether the animated element's box meets the scroller's view at all.
   inView: boolean;
   name: string;
@@ -214,7 +214,8 @@ function scene(which: Scene): Play {
     if (new URLSearchParams(view.location.search).get("hold") === "1") return;
 
     const started = view.performance.now();
-    const declared = ctx.declare({ kind: "expand", reason: "the turn's end folds its work" });
+    // The turn's end folds its work: the one move this play declares (layout/motionContract.ts).
+    const declared = ctx.declare("expand");
     end();
     for (const at of FRAMES_MS) {
       await new Promise<void>((resolve) => {
