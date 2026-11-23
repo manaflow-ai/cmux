@@ -25,14 +25,14 @@ public final class RemoteMachinesSidebarExperiment {
                 socketPath: @escaping @MainActor @Sendable () -> String?,
                 displayName: @escaping (String) -> String?,
                 open: @escaping (Any) -> Void,
-                currentFeed: @escaping @MainActor @Sendable () -> AgentTurnStateFeed? = {
-                    // The launch window predates ChatsFeed.started. Its first page changes `live`,
-                    // waking this read after the feed is installed, without moving work before the frame.
-                    _ = AgentLaneStore.shared.live
-                    return AgentTurnStateFeed.shared
-                }) {
+                currentFeed: (@MainActor @Sendable () -> AgentTurnStateFeed?)? = nil) {
         self.sidebar = sidebar as! RemoteMachinesSidebar
-        self.currentFeed = currentFeed
+        self.currentFeed = currentFeed ?? {
+            // The launch window predates ChatsFeed.started. Its first page changes `live`,
+            // waking this read after the feed is installed, without moving work before the frame.
+            _ = AgentLaneStore.shared.live
+            return AgentTurnStateFeed.shared
+        }
         self.enabled = enabled
         self.socketPath = socketPath
         self.displayName = displayName
