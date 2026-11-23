@@ -77,29 +77,17 @@ jobs:
           test -x "$binary"
           echo "built in $(( $(date +%s) - start )) s at $(git rev-parse HEAD)"
           echo "path=$binary" >> "$GITHUB_OUTPUT"
-      - name: Resolve and download the published NEXT DEV app
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Download the published NEXT DEV app
+        # The public release URL, not the REST API: run 45235451832 failed here on the installation's API rate limit.
+        # The bundle id and the signing team below are what gate the launch.
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/published"
           mkdir -p "$dir"
-          for attempt in 1 2 3; do
-            row="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/cmux-next-dev" \
-              --jq '[.assets[] | select(.name == "cmux-NEXT-DEV.zip")][0] | "\(.id) \(.digest // "")"')"
-            id="${row%% *}"
-            sha="${row#* }"; sha="${sha#sha256:}"
-            case "$id" in ''|null|*[!0-9]*) echo "::error::no cmux-NEXT-DEV.zip"; exit 1;; esac
-            if [ "${#sha}" -ne 64 ]; then echo "::error::the asset has no sha256 digest"; exit 1; fi
-            rm -f "$dir/app.zip"
-            if curl -fsSL --retry 3 -o "$dir/app.zip" -H "Authorization: Bearer $GH_TOKEN" \
-                 -H "Accept: application/octet-stream" \
-                 "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id" \
-               && echo "$sha  $dir/app.zip" | shasum -a 256 -c -; then
-              break
-            fi
-            if [ "$attempt" -eq 3 ]; then echo "::error::asset $id unreadable at its sha256"; exit 1; fi
-          done
+          curl -fsSL --retry 5 --retry-all-errors --max-time 600 -o "$dir/app.zip" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/cmux-next-dev/cmux-NEXT-DEV.zip"
+          sha="$(shasum -a 256 "$dir/app.zip" | cut -d' ' -f1)"
+          id=public-url
           ditto -x -k "$dir/app.zip" "$dir"
           app="$(find "$dir" -maxdepth 2 -name '*.app' -type d | head -n 1)"
           [ -n "$app" ] || { echo "::error::the zip holds no app"; exit 1; }
