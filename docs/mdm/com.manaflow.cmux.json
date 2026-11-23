@@ -1,6 +1,14 @@
 {
   "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default. Exception: agents.chats.roots adds locked roots to the user list; agents.chats.enabled and agents.chats.discovery can only be forced off.",
   "properties" : {
+    "actions" : {
+      "default" : {
+
+      },
+      "description" : "Commands of your own by id, each with a title and a shell command (or an agent), shown in the command palette.",
+      "title" : "Custom Commands",
+      "type" : "string"
+    },
     "agentPane.attachmentView" : {
       "default" : "inline",
       "description" : "How pictures and files show in the composer and in sent messages.",
@@ -5456,6 +5464,28 @@
       ],
       "title" : "Section Look",
       "type" : "string"
+    },
+    "sidebar.sections.hidden" : {
+      "default" : [
+
+      ],
+      "description" : "Sidebar sections to hide, by id. The section of the selected workspace always shows.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hidden Sections",
+      "type" : "array"
+    },
+    "sidebar.sections.order" : {
+      "default" : [
+
+      ],
+      "description" : "Sidebar sections to show first in their part of the sidebar, in this order, by id.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Section Order",
+      "type" : "array"
     },
     "sidebar.sessionTree" : {
       "default" : false,

@@ -375,6 +375,8 @@
         "terminal.fontSize",
         "terminal.term",
         "sidebar.sectionLook",
+        "sidebar.sections.hidden",
+        "sidebar.sections.order",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll",
@@ -1107,6 +1109,13 @@
       "keys": [
         "palette.aliases",
         "palette.pins"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "An action runs a shell command when it is picked: an agent could put any command under a title the person trusts. A profile the person applies may carry them, one per key (actions.<id>).",
+      "keys": [
+        "actions"
       ]
     },
     {

@@ -22,6 +22,10 @@ extension SettingDescriptor {
     public func accepts(_ value: JSONValue) -> Bool {
         if path == CustomDensitiesSetting.configPath { return CustomDensitiesSetting.accepts(value) }
         if path == CommandLabelsSetting().configPath { return CommandLabelsSetting.accepts(value) }
+        if path == ConfigActionsSetting.configPath { return ConfigActionsSetting.accepts(value) }
+        if path == SidebarSectionIDsSetting.sectionsHiddenPath || path == SidebarSectionIDsSetting.sectionsOrderPath {
+            return SidebarSectionIDsSetting.accepts(value)
+        }
         if path == TranscriptTokensSetting.configPath { return TranscriptTokensSetting.accepts(value) }
         if path == ThemeFileSetting.configPath { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
         if path == BackdropSelectionSetting.lightPath || path == BackdropSelectionSetting.darkPath {

@@ -4,6 +4,7 @@ import { ChoiceOrNumberEditor } from "./ChoiceOrNumberEditor";
 import { ChoiceOrUrlEditor } from "./ChoiceOrUrlEditor";
 import { ChoiceSetEditor } from "./ChoiceSetEditor";
 import { ColorEditor } from "./ColorEditor";
+import { ConfigActionsEditor } from "./ConfigActionsEditor";
 import { DomainListEditor } from "./DomainListEditor";
 import { ChatRootsEditor } from "./ChatRootsEditor";
 import { FolderListEditor } from "./FolderListEditor";
@@ -56,6 +57,8 @@ export function Editor(props: EditorProps): ReactNode {
     case "sound":
       return <SoundEditor {...props} />;
     case "text":
+      // The person's own palette commands (cmux-next.json `actions`): a list with a name and a command each.
+      if (row.validation === "domain:config_actions") return <ConfigActionsEditor {...props} />;
       return <TextEditor {...props} />;
     case "url":
       return row.validation === "domain:search_template" ? (

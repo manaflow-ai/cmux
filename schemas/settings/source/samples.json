@@ -451,6 +451,37 @@
         true
       ]
     },
+    "domain:config_actions": {
+      "accept": [
+        {},
+        {"deploy": {"title": "Deploy", "command": "make deploy"}},
+        {"review": {"type": "agent", "agent": "claude", "args": "-p review", "icon": "sparkles", "target": "currentTerminal"}, "logs": {"command": "tail -f log", "icon": {"type": "symbol", "name": "doc.text"}, "tooltip": "Logs"}}
+      ],
+      "refuse": [
+        [],
+        "make deploy",
+        {"deploy": "make deploy"},
+        {"deploy": {"title": "Deploy"}},
+        {"deploy": {"command": " "}},
+        {"deploy": {"type": "workspace", "command": "x"}},
+        {"review": {"agent": "claude --yolo"}},
+        {"deploy": {"command": "x", "target": "elsewhere"}}
+      ]
+    },
+    "domain:sidebar_section_ids": {
+      "accept": [
+        [],
+        ["recents"],
+        ["projects", "pinned"]
+      ],
+      "refuse": [
+        "recents",
+        [""],
+        ["pinned", "pinned"],
+        [1],
+        {"hidden": ["recents"]}
+      ]
+    },
     "domain:search_template": {
       "accept": [
         "",

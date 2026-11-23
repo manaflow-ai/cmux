@@ -271,6 +271,7 @@ extension SettingDescriptor {
     var otherSampleValues: [JSONValue] {
         if path == CustomDensitiesSetting.configPath { return [.array([.object(["id": "my-tight", "name": "My Tight"])])] }
         if path == CommandLabelsSetting().configPath { return [.array(["cmux-fleet"])] }
+        if path == ConfigActionsSetting.configPath { return [.object(["deploy": .object(["command": .string("make deploy")])])] }
         if path == ChatSettings.rootsPath { return [.array(["/opt/cmux-test-chats"]), .array([])] }
         if path == NewTabAppSetting.configPath { return [.string("local/showcase-newtab"), .string("local/web-pane")] }
         switch kind {

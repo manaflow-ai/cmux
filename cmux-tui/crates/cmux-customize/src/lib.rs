@@ -22,6 +22,7 @@ pub mod community;
 mod diff;
 mod engine;
 mod file_refs;
+mod keyed;
 pub mod library;
 mod paths;
 pub mod profile;

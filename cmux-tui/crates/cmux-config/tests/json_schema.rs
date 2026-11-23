@@ -59,7 +59,8 @@ fn json_schema_fails_every_portable_refused_sample() {
 fn json_schema_allows_keys_outside_the_schema() {
     let document = json!({
         "$schema": "./cmux-next.schema.json",
-        "actions": { "custom": { "title": "x" } },
+        "actions": { "custom": { "command": "x" } },
+        "futureSection": { "a": 1 },
         "appearance": { "theme": "light:Catppuccin Latte,dark:Catppuccin Mocha", "glassTransparency": 0.4 },
         "sidebar": { "side": "right", "density": "compact" },
         "terminal": { "fontFamily": "Berkeley Mono", "fontSize": 13 },

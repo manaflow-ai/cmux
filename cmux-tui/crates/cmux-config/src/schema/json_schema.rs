@@ -256,6 +256,45 @@ fn kind_schema(row: &Row) -> Value {
                 None => json!({ "type": "string" }),
             };
         }
+        Validation::Domain(DomainKind::ConfigActions) => {
+            let text = json!({ "type": "string", "pattern": "\\S" });
+            let icon = json!({
+                "anyOf": [
+                    { "type": "string" },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "type": { "enum": ["symbol", "sfSymbol", "systemImage", "image", "file"] },
+                            "name": { "type": "string" },
+                            "path": { "type": "string" },
+                        },
+                    },
+                ],
+            });
+            let action = json!({
+                "type": "object",
+                "properties": {
+                    "type": { "enum": ["command", "agent"] },
+                    "title": { "type": "string" },
+                    "tooltip": { "type": "string" },
+                    "command": text,
+                    "agent": { "type": "string", "pattern": "^\\s*\\S+\\s*$" },
+                    "args": { "type": "string" },
+                    "icon": icon,
+                    "target": { "enum": super::accepts::CONFIG_ACTION_TARGETS },
+                },
+                "anyOf": [{ "required": ["command"] }, { "required": ["agent"] }],
+            });
+            return json!({ "type": "object", "additionalProperties": action });
+        }
+        Validation::Domain(DomainKind::SidebarSectionIds) => {
+            return json!({
+                "type": "array",
+                "maxItems": 256,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+            });
+        }
         _ => {}
     }
     match &row.kind {

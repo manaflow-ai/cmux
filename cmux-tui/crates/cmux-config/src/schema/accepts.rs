@@ -108,6 +108,12 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         )
     } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
         Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
+    } else if row.validation == super::Validation::Domain(DomainKind::ConfigActions) {
+        Accepted::Shape(
+            "an object of actions by id, each with a command (or an agent), and an optional title, tooltip, icon and target",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::SidebarSectionIds) {
+        Accepted::Shape("an array of at most 256 distinct section ids of 1 to 128 characters")
     } else {
         accepted(&row.kind, domains)
     };
@@ -200,6 +206,12 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::AppId) => {
             return value.as_str().is_some_and(super::app_id::is_valid_app_id);
+        }
+        super::Validation::Domain(DomainKind::ConfigActions) => {
+            return value.as_object().is_some_and(|actions| actions.values().all(is_config_action));
+        }
+        super::Validation::Domain(DomainKind::SidebarSectionIds) => {
+            return is_sidebar_section_ids(value);
         }
         super::Validation::Domain(DomainKind::TranscriptTokens) => {
             return crate::transcript_look::accepts_tokens(value);
@@ -354,6 +366,51 @@ fn is_command_label(value: &Value) -> bool {
         && (members.contains_key("program") || members.contains_key("match"))
 }
 
+/// The targets an action runs in (Swift `ConfigCommandAction.Target`).
+pub const CONFIG_ACTION_TARGETS: [&str; 2] = ["newTabInCurrentPane", "currentTerminal"];
+
+/// One `actions.<id>` entry Swift `ConfigActionParser` takes with no
+/// diagnostic: an object whose `type` (default `agent` when it names an
+/// agent, else `command`) is `command` with a non-blank `command`, or `agent`
+/// with an `agent` of one word; `target`, when present, a known target. Other
+/// members (title, tooltip, icon, args) never make a diagnostic.
+pub fn is_config_action(value: &Value) -> bool {
+    let Some(fields) = value.as_object() else { return false };
+    // Swift `trimmed`: a string with something besides whitespace.
+    let trimmed = |name: &str| {
+        fields.get(name).and_then(Value::as_str).map(str::trim).filter(|text| !text.is_empty())
+    };
+    let kind =
+        trimmed("type").unwrap_or(if fields.contains_key("agent") { "agent" } else { "command" });
+    let runs = match kind {
+        "command" => trimmed("command").is_some(),
+        "agent" => trimmed("agent").is_some_and(|agent| !agent.chars().any(char::is_whitespace)),
+        _ => false,
+    };
+    let target_ok = fields.get("target").is_none_or(|target| {
+        target.as_str().is_some_and(|target| CONFIG_ACTION_TARGETS.contains(&target))
+    });
+    runs && target_ok
+}
+
+/// The most ids a sidebar section list holds, and the longest id
+/// (cmux-layout-reducer `sidebar_section_customization`).
+const MAX_SECTION_IDS: usize = 256;
+const MAX_SECTION_ID_CHARS: usize = 128;
+
+/// Swift `SidebarSectionIDsSetting.accepts`: at most 256 distinct ids of 1
+/// to 128 characters.
+fn is_sidebar_section_ids(value: &Value) -> bool {
+    let Some(items) = value.as_array() else { return false };
+    let mut seen = BTreeSet::new();
+    items.len() <= MAX_SECTION_IDS
+        && items.iter().all(|item| {
+            item.as_str().is_some_and(|id| {
+                !id.is_empty() && id.chars().count() <= MAX_SECTION_ID_CHARS && seen.insert(id)
+            })
+        })
+}
+
 /// Swift `BrowserOmnibarSetting.isSearchTemplate`: empty, or an address
 /// with a `%s` or `{searchTerms}` placeholder that is valid once filled.
 fn is_search_template(text: &str) -> bool {
@@ -462,6 +519,8 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
         DomainKind::AppId => "app_id",
+        DomainKind::ConfigActions => "config_actions",
+        DomainKind::SidebarSectionIds => "sidebar_section_ids",
         DomainKind::TranscriptTokens => "transcript_tokens",
     }
 }

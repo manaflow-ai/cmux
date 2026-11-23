@@ -345,6 +345,22 @@ fn project_value(row: &Row, value: &Value) -> Value {
             None => value.clone(),
         };
     }
+    if row.validation == Validation::Domain(DomainKind::ConfigActions) {
+        return match value.as_object() {
+            Some(actions) => Value::Object(
+                actions
+                    .iter()
+                    .map(|(id, action)| {
+                        // `command` and `args` are shell text that can embed credentials
+                        // (`TOKEN=... gh pr list`), which no key or URL check recognizes: withheld.
+                        let read = ["type", "title", "tooltip", "agent", "icon", "target"];
+                        (id.clone(), fields(action, &read))
+                    })
+                    .collect(),
+            ),
+            None => value.clone(),
+        };
+    }
     if matches!(row.kind, Kind::TimeRange) {
         return fields(value, &["start", "end"]);
     }

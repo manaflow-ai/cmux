@@ -2170,6 +2170,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<dict/>
+			<key>pfm_description</key>
+			<string>Commands of your own by id, each with a title and a shell command (or an agent), shown in the command palette.</string>
+			<key>pfm_name</key>
+			<string>actions</string>
+			<key>pfm_title</key>
+			<string>Custom Commands</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
 			<string>Commands shown first when the command palette opens, in this order, by action id.</string>
@@ -7065,6 +7077,48 @@
 			<string>Wrap Around</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Sidebar sections to hide, by id. The section of the selected workspace always shows.</string>
+			<key>pfm_name</key>
+			<string>sidebar.sections.hidden</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Hidden Sections</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Sidebar sections to show first in their part of the sidebar, in this order, by id.</string>
+			<key>pfm_name</key>
+			<string>sidebar.sections.order</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Section Order</string>
+			<key>pfm_type</key>
+			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

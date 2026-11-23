@@ -21,7 +21,7 @@ use serde_json::Value;
 use crate::library::keys::{self, KEYBINDINGS};
 use crate::redact::{self, find_secret};
 use crate::tree::{self, Part, SETTINGS};
-use crate::{Begun, Customize, Error, validate};
+use crate::{Begun, Customize, Error, keyed, validate};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Profile {
@@ -252,24 +252,34 @@ impl Customize {
     /// every file is at a path a part owns and the scan reads, and that no
     /// name or description hides a character. What `use` and a library
     /// import check before a byte is written.
-    pub(crate) fn check_profile(&self, profile: &Profile) -> Result<(), Error> {
+    ///
+    /// A key of a keyed row is one member (`actions.deploy`). The person's
+    /// own commands (`actions.<id>`) only the person may set: a profile
+    /// carries them, and only the person applies it (`origin` is not the
+    /// MCP tools').
+    pub(crate) fn check_profile(&self, profile: &Profile, origin: &str) -> Result<(), Error> {
         if profile.version != 1 {
             return Err(Error::Profile(format!(
                 "this profile is format {}; this cmux reads format 1",
                 profile.version
             )));
         }
-        let schema = Schema::embedded();
         for (key, value) in &profile.settings {
-            let row = schema.row(key).ok_or_else(|| {
+            let resolved = keyed::resolve(key).ok_or_else(|| {
                 Error::Profile(format!("the setting {key} is not one this cmux has"))
             })?;
-            if !row.agent_settable {
-                return Err(Error::Profile(format!(
-                    "the setting {key} is one only you can change; a profile may not set it"
-                )));
+            if !resolved.writable_by(origin) {
+                return Err(Error::Profile(if keyed::person_carried(resolved.row) {
+                    format!(
+                        "the setting {key} runs a command, so only you can apply this profile: run the same `cmux customize` command yourself in a terminal"
+                    )
+                } else {
+                    format!(
+                        "the setting {key} is one only you can change; a profile may not set it"
+                    )
+                }));
             }
-            if cmux_config::schema::accepts(row, value, &Default::default()).is_err() {
+            if !resolved.accepts(value) {
                 // The key says where to look; the refused value (which may be
                 // a credential under the wrong key) stays in the file.
                 let message = if key == "workspaceColors.indicatorStyle" {
@@ -327,7 +337,7 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Begun, Error> {
-        self.check_profile(profile)?;
+        self.check_profile(profile, origin)?;
         // One import at a time, from the first read to the last write: two
         // that merged into the same settings text would each write theirs
         // and the later one would drop the other's keys, in no generation.
@@ -343,8 +353,7 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Begun, Error> {
-        self.check_profile(profile)?;
-        let schema = Schema::embedded();
+        self.check_profile(profile, origin)?;
         let mut files: BTreeMap<String, Vec<u8>> = profile
             .files
             .iter()
@@ -377,8 +386,8 @@ impl Customize {
                 text = "{}\n".to_owned();
             }
             for (key, value) in &profile.settings {
-                let Some(row) = schema.row(key) else { continue };
-                text = jsonc::set(&text, &row.path, value).map_err(|error| {
+                let Some(key) = keyed::resolve(key) else { continue };
+                text = jsonc::set(&text, &key.path, value).map_err(|error| {
                     let why = redact::text(&error.to_string());
                     Error::Profile(format!("your settings file: {why}"))
                 })?;
@@ -463,8 +472,10 @@ impl Customize {
 }
 
 /// The settings of a settings file that may travel in a profile: every key
-/// an agent may set whose value carries no credential. Also the keys left
-/// out for a credential, and how many set keys only the person may change.
+/// an agent may set whose value carries no credential, and each of the
+/// person's own commands as its own key (`actions.<id>`, see
+/// [`keyed::person_carried`]). Also the keys left out for a credential, and
+/// how many set keys only the person may change.
 pub(crate) fn shareable_settings(text: &str) -> (BTreeMap<String, Value>, Vec<String>, usize) {
     let file = jsonc::parse(text).unwrap_or(Value::Null);
     let mut settings = BTreeMap::new();
@@ -472,6 +483,20 @@ pub(crate) fn shareable_settings(text: &str) -> (BTreeMap<String, Value>, Vec<St
     let mut credentials = Vec::new();
     for row in &Schema::embedded().rows {
         let url = matches!(row.kind, cmux_config::schema::Kind::Url);
+        if keyed::person_carried(row) {
+            let members = cmux_config::value::value_at(&file, &row.path).and_then(Value::as_object);
+            for (id, value) in members.into_iter().flatten() {
+                let key = format!("{}.{id}", row.key);
+                if redact::sensitive_value(value, false)
+                    || find_secret(&value.to_string()).is_some()
+                {
+                    credentials.push(key);
+                } else {
+                    settings.insert(key, value.clone());
+                }
+            }
+            continue;
+        }
         match cmux_config::value::value_at(&file, &row.path) {
             // A setting an agent may set can still hold a credential (a page
             // URL with a password in it).

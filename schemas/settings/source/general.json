@@ -2516,6 +2516,29 @@
           }
         },
         {
+          "key": "actions",
+          "note": "Commands of one's own by id (ConfigActionParser; ConfigActionsController registers each as cmuxConfig.<id> in the palette, shortcuts and the CLI). A profile carries one action per key (actions.<id>), so two palette packs stack; the person applies it, as an action runs a shell command.",
+          "title": {
+            "key": "settings.actions",
+            "text": "Custom Commands"
+          },
+          "help": {
+            "key": "settings.actions.help",
+            "text": "Commands of your own by id, each with a title and a shell command (or an agent), shown in the command palette."
+          },
+          "kind": "text",
+          "default": {},
+          "keywords": [
+            "palette",
+            "action",
+            "command",
+            "custom",
+            "shell",
+            "script"
+          ],
+          "swift_owner": "ConfigActionsSetting"
+        },
+        {
           "key": "palette.pins",
           "title": {
             "key": "settings.palette.pins",

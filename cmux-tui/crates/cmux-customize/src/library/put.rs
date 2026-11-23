@@ -39,12 +39,15 @@ impl Customize {
             until_ms: None,
             code: None,
         };
-        self.check_collection(&Collection {
-            version: COLLECTION_VERSION,
-            name: String::new(),
-            description: String::new(),
-            entries: vec![entry.clone()],
-        })?;
+        self.check_collection(
+            &Collection {
+                version: COLLECTION_VERSION,
+                name: String::new(),
+                description: String::new(),
+                entries: vec![entry.clone()],
+            },
+            origin,
+        )?;
         let live_settings = self.live_settings()?;
         let label = format!("library: put {name}");
         self.library_change(&label, origin, now_ms, |library| {
