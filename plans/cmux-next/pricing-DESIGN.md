@@ -4,12 +4,22 @@ Status: PROPOSAL, 2026-10-19. Nothing here is for sale. No Stripe Product or Pri
 created and the page is not on the production site. The user approves the numbers in
 section 9 first.
 
-- Code: `web/services/billing/chiefPricing.ts` (tier data, rates, calculator math),
-  `web/app/[locale]/(landing)/next/pricing/` (page + calculator),
-  tests `web/tests/chief-pricing.test.ts`, `web/tests/chief-pricing-calculator.test.tsx`.
+Update 2026-11-16: the user decided cmux NEXT sells exactly two plans, cmux Pro at $50/month
+and cmux Max at $200/month, decoupled from cmux classic (a classic subscription does not carry
+over; classic subscribers email founders@cmux.com to transfer). The page at
+`web/app/[locale]/(landing)/next/pricing/page.tsx` now shows only those two plans from
+`web/services/billing/nextPlans.ts` (plan IDs `next-pro` / `next-max`, lookup keys
+`cmux-next-pro-monthly-50` / `cmux-next-max-monthly-200` in `plans.ts`, no Stripe objects yet)
+with included amounts the backend enforces today (Pro $20, Max $100), not this proposal's $25.
+The calculator was removed from the page; `chiefPricing.ts` keeps the proposal math below.
+Online checkout stays off (`NEXT_PLAN_CHECKOUT_ENABLED`); plan buttons lead to the contact email.
+Tests: `web/tests/next-pricing-page.test.tsx`.
+
+- Code: `web/services/billing/chiefPricing.ts` (proposal tier data, rates, calculator math),
+  `web/app/[locale]/(landing)/next/pricing/` (page), tests `web/tests/chief-pricing.test.ts`.
 - Gallery: `plans/cmux-next/pricing-gallery/index.html` (variants A-D of the page, E-G in-app).
-- The page renders only outside Vercel production (`isNextPricingPreviewEnabled`), is
-  `noindex`, and its paid buttons link to today's `/pricing`.
+- The page renders only outside Vercel production (`isNextPricingPreviewEnabled`) and is
+  `noindex`.
 
 User ask (2026-10-19): "incorporate how we price Chief into everything ... Chief is going to
 be the killer feature that people will pay for ... usage-based tokens with Chief, with an
