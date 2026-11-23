@@ -23,6 +23,8 @@ BIG = "blacksmith-32vcpu-ubuntu-2404"
 SMALL = "blacksmith-16vcpu-ubuntu-2404"
 
 
+PERSISTENT = "cmux-linux"
+
 def blacksmith_set(job: str) -> set[str]:
     """Members of the pools selected for this job's size and failover."""
     labels = (size_label(WORKFLOW.name, job), failover_label(WORKFLOW.name, job))
@@ -172,6 +174,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                     self.assertEqual(labels - ({NIGHTLY} if name in NIGHTLY_TREE_JOBS else set()), {"cmux-linux"})
                 continue
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
+                       | ({PERSISTENT} if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}") else set())
                        | ({NIGHTLY} if name in NIGHTLY_TREE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
@@ -184,6 +187,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # A write-token job reads only the ephemeral_only linux_4 pool, whose own next member is its overflow
             # (tests/test_ci_ephemeral_pool_readers.py); the switch does not move it.
             if "CI_CLOUD_OVERFLOW_SAVED" not in runs_on and runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux_4 }}"):
+                continue
+            # The persistent pool is one label; there is no other Blacksmith size to move to.
+            if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}"):
                 continue
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
