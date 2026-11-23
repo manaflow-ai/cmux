@@ -14,13 +14,7 @@ import type { CloudStore } from "./store";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
 
-export function CloudPage({
-  store,
-  strings,
-}: {
-  store: CloudStore;
-  strings: Strings;
-}) {
+export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
   // The near-cap banner's dismissal, kept across the storefront and the machine list (Notices.tsx).
@@ -52,15 +46,10 @@ export function CloudPage({
   // `readAgainLater`), so there is nothing to press: the page shows nothing while it recovers (a
   // launch, a daemon restart), and once that lasts the grace, one quiet line with no button. The
   // stretch holds across the store's attempts (`recovering`), so the line does not flash.
-  const outage =
-    snap.connection === "disconnected" ||
-    snap.connection === "failed" ||
-    (!!snap.recovering && loading);
+  const outage = snap.connection === "disconnected" || snap.connection === "failed" || (!!snap.recovering && loading);
   const outageLasting = useLasting(outage);
   const signedIn = !!snap.auth?.signedIn && snap.connection === "connected";
-  const storefront =
-    signedIn &&
-    (snap.view === "get" || (!snap.loading && snap.rows.length === 0));
+  const storefront = signedIn && (snap.view === "get" || (!snap.loading && snap.rows.length === 0));
   // The header switches between the list and the storefront once the team has a machine.
   const viewSwitch =
     signedIn && snap.rows.length > 0 ? (
@@ -78,51 +67,30 @@ export function CloudPage({
         // The last failure's words stay reachable on hover, not as a second line.
         <div
           className="cloud-message cloud-still-trying"
-          title={
-            snap.error ? errorText(snap.error, snap.errorCode, t) : undefined
-          }
+          title={snap.error ? errorText(snap.error, snap.errorCode, t) : undefined}
         >
           <p>{t(L.stillTrying)}</p>
         </div>
       ) : null;
     // `!snap.auth` again so the rest of the body reads it as set.
     if (!snap.auth || loading)
-      return loadingShown ? (
-        <div className="cloud-message cloud-loading">{t(L.loading)}</div>
-      ) : null;
+      return loadingShown ? <div className="cloud-message cloud-loading">{t(L.loading)}</div> : null;
     // Signed out, with no machines yet, or at `#/get`: the storefront (Storefront.tsx).
     if (!snap.auth.signedIn || storefront)
       return (
         <>
-          {snap.auth.signedIn && (
-            <SpendCapBanner
-              state={snap}
-              strings={strings}
-              {...capBannerProps}
-            />
-          )}
+          {snap.auth.signedIn && <SpendCapBanner state={snap} strings={strings} {...capBannerProps} />}
           {snap.refusal && (
-            <PlanNotice
-              refusal={snap.refusal}
-              strings={strings}
-              onDismiss={() => store.dismissError()}
-            />
+            <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />
           )}
-          {snap.blocked === "no_snapshot_configured" &&
-            !snap.create?.blocked && (
-              <div className="cloud-error cloud-blocked" role="alert">
-                <span className="cloud-error-text">
-                  {t(L.noSnapshotConfigured)}
-                </span>
-                <button
-                  type="button"
-                  className="cloud-link-button"
-                  onClick={() => store.dismissError()}
-                >
-                  {t(L.dismissError)}
-                </button>
-              </div>
-            )}
+          {snap.blocked === "no_snapshot_configured" && !snap.create?.blocked && (
+            <div className="cloud-error cloud-blocked" role="alert">
+              <span className="cloud-error-text">{t(L.noSnapshotConfigured)}</span>
+              <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
+                {t(L.dismissError)}
+              </button>
+            </div>
+          )}
           <Storefront store={store} state={snap} strings={strings} />
           {/* The last machine went to an archive: its Restore stays reachable from the storefront. */}
           {snap.auth.signedIn && snap.rows.length === 0 && (
@@ -141,33 +109,19 @@ export function CloudPage({
         {known && outageLasting && (
           <output
             className="cloud-error cloud-disconnected-line cloud-still-trying"
-            title={
-              snap.error ? errorText(snap.error, snap.errorCode, t) : undefined
-            }
+            title={snap.error ? errorText(snap.error, snap.errorCode, t) : undefined}
           >
             <span className="cloud-error-text">{t(L.stillTrying)}</span>
           </output>
         )}
         <SpendCapBanner state={snap} strings={strings} {...capBannerProps} />
         <MigrationBanner store={store} state={snap} strings={strings} />
-        {snap.refusal && (
-          <PlanNotice
-            refusal={snap.refusal}
-            strings={strings}
-            onDismiss={() => store.dismissError()}
-          />
-        )}
+        {snap.refusal && <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />}
         {/* An open create sheet that says it itself takes it: one notice, not two. */}
         {snap.blocked === "no_snapshot_configured" && !snap.create?.blocked && (
           <div className="cloud-error cloud-blocked" role="alert">
-            <span className="cloud-error-text">
-              {t(L.noSnapshotConfigured)}
-            </span>
-            <button
-              type="button"
-              className="cloud-link-button"
-              onClick={() => store.dismissError()}
-            >
+            <span className="cloud-error-text">{t(L.noSnapshotConfigured)}</span>
+            <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
               {t(L.dismissError)}
             </button>
           </div>
@@ -176,11 +130,7 @@ export function CloudPage({
           <section className="cloud-machines" aria-label={t(L.machines)}>
             <div className="cloud-section-header">
               <h2 className="cloud-section-title">{t(L.machines)}</h2>
-              <button
-                type="button"
-                className="cloud-button cloud-create-button"
-                onClick={() => store.openCreate()}
-              >
+              <button type="button" className="cloud-button cloud-create-button" onClick={() => store.openCreate()}>
                 {t(L.create)}
               </button>
             </div>
@@ -212,9 +162,7 @@ export function CloudPage({
               strings={strings}
             />
           ) : (
-            <div className="cloud-message cloud-detail-placeholder">
-              {t(L.selectMachine)}
-            </div>
+            <div className="cloud-message cloud-detail-placeholder">{t(L.selectMachine)}</div>
           )}
           <AccountPanel store={store} state={snap} strings={strings} />
         </div>
@@ -227,34 +175,19 @@ export function CloudPage({
         <h1 className="cloud-title">{t(L.title)}</h1>
         {viewSwitch}
       </header>
-      {snap.error &&
-        snap.connection !== "disconnected" &&
-        snap.connection !== "failed" && (
-          <div className="cloud-error" role="alert">
-            <span className="cloud-error-text">
-              <span>{t(L.actionFailed)}</span>
-              <span className="cloud-error-detail">
-                {errorText(snap.error, snap.errorCode, t)}
-              </span>
-            </span>
-            <button
-              type="button"
-              className="cloud-link-button"
-              onClick={() => store.dismissError()}
-            >
-              {t(L.dismissError)}
-            </button>
-          </div>
-        )}
-      {body()}
-      {snap.create && (
-        <CreateSheet
-          store={store}
-          state={snap}
-          draft={snap.create}
-          strings={strings}
-        />
+      {snap.error && snap.connection !== "disconnected" && snap.connection !== "failed" && (
+        <div className="cloud-error" role="alert">
+          <span className="cloud-error-text">
+            <span>{t(L.actionFailed)}</span>
+            <span className="cloud-error-detail">{errorText(snap.error, snap.errorCode, t)}</span>
+          </span>
+          <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
+            {t(L.dismissError)}
+          </button>
+        </div>
       )}
+      {body()}
+      {snap.create && <CreateSheet store={store} state={snap} draft={snap.create} strings={strings} />}
     </div>
   );
 }
