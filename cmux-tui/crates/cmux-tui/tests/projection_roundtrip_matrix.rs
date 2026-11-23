@@ -260,6 +260,8 @@ struct Trip {
     /// The machine's folder: the mount.
     folder: PathBuf,
     root: PathBuf,
+    /// The link between them when the case pauses the machine ([`pause::Relay`]).
+    relay: Option<pause::Relay>,
 }
 
 impl Drop for Trip {
@@ -288,6 +290,17 @@ fn trip(case: &str, fill: impl FnOnce(&Side, &Path)) -> Result<Trip, Skip> {
 /// Makes the Mac's folder with `fill`, then starts the chat from it: projected, or (`projected`
 /// false, with projection turned off) copied as before.
 fn trip_as(case: &str, projected: bool, fill: impl FnOnce(&Side, &Path)) -> Result<Trip, Skip> {
+    trip_with(case, projected, None, fill)
+}
+
+/// [`trip_as`], with the Mac reaching the machine through a [`pause::Relay`] when `relay` says
+/// whether it has a quiet socket.
+fn trip_with(
+    case: &str,
+    projected: bool,
+    relay: Option<bool>,
+    fill: impl FnOnce(&Side, &Path),
+) -> Result<Trip, Skip> {
     if projected && !fuse_here() {
         return Err("no FUSE here".into());
     }
@@ -299,7 +312,12 @@ fn trip_as(case: &str, projected: bool, fill: impl FnOnce(&Side, &Path)) -> Resu
     let local = mac.home.join("Projects/app");
     fs::create_dir_all(&local).unwrap();
     fill(&mac, &local);
-    let machine = Machine::start(&root.join("vm"));
+    let mut machine = Machine::start(&root.join("vm"));
+    let relay = relay.map(|quiet| {
+        let relay = pause::Relay::start(&root.join("relay.sock"), &machine.dial, quiet);
+        machine.dial = relay.path.clone();
+        relay
+    });
     let key = new_key();
     let output = mac
         .cmux()
@@ -322,7 +340,7 @@ fn trip_as(case: &str, projected: bool, fill: impl FnOnce(&Side, &Path)) -> Resu
         .unwrap_or(Value::Null);
     assert_eq!(answer["ok"], true, "start-chat copy: {stdout}{stderr}");
     let folder = PathBuf::from(answer["folder"].as_str().unwrap());
-    let trip = Trip { mac, machine, local, folder, root };
+    let trip = Trip { mac, machine, local, folder, root, relay };
     if !projected {
         assert_ne!(answer["mode"], "projected", "{answer}");
         // A held copy answers at its head and sends the rest after: the folder reads ready once
@@ -916,6 +934,10 @@ fn nested_commit_fast_forwards(t: &Trip) {
 /// A seeded randomized round trip, after cmux#45882's (the same seeds and promises, adapted to
 /// this pull, which changes nothing on the Mac when any path conflicts): small trees, random
 /// edits, deletes, moves and new files on the machine and edits and deletes on the Mac, then
+/// A machine paused under a live agent and resumed (`projection_roundtrip_matrix/pause.rs`).
+#[path = "projection_roundtrip_matrix/pause.rs"]
+mod pause;
+
 /// Bring Back, twice per trial. After each pull:
 /// - with no path changed on both sides, every machine change landed and every Mac edit stayed;
 /// - otherwise the conflicts are exactly the paths both sides changed, nothing of the Mac's
