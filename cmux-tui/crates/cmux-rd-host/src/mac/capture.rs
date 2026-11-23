@@ -773,21 +773,25 @@ fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
     Ok(displays[index])
 }
 
-/// How long ago, in µs, the mach absolute time `then` was. The Mach timebase and clock calls are
+/// The mach timebase (numerator, denominator: ns a tick). The Mach timebase and clock calls are
 /// deprecated in favour of the `mach2` crate, which cmux-rd-host does not depend on; they are not
 /// defective.
 #[allow(deprecated)]
-fn mach_age_us(then: u64) -> u64 {
-    static BASE: OnceLock<(u64, u64)> = OnceLock::new();
-    let (numer, denom) = *BASE.get_or_init(|| {
+fn mach_timebase() -> (u32, u32) {
+    static BASE: OnceLock<(u32, u32)> = OnceLock::new();
+    *BASE.get_or_init(|| {
         let mut base = libc::mach_timebase_info { numer: 1, denom: 1 };
         // SAFETY: mach_timebase_info writes into a valid struct.
         unsafe { libc::mach_timebase_info(&mut base) };
-        (u64::from(base.numer), u64::from(base.denom.max(1)))
-    });
+        (base.numer, base.denom.max(1))
+    })
+}
+
+/// The mach clock now (see [`mach_timebase`] for the deprecation).
+#[allow(deprecated)]
+fn mach_now() -> u64 {
     // SAFETY: mach_absolute_time has no preconditions.
-    let ticks = unsafe { libc::mach_absolute_time() }.saturating_sub(then);
-    (u128::from(ticks) * u128::from(numer) / u128::from(denom) / 1000) as u64
+    unsafe { libc::mach_absolute_time() }
 }
 
 /// The CoreFoundation number at `key` in `dictionary`, as an i64.
@@ -846,10 +850,15 @@ extern "C" fn did_output(
                 }
             }
         }
+        // Both clocks read together: the display time (mach absolute time: the vsync the window
+        // server composited this frame for, usually still ahead when the frame arrives here)
+        // moves onto the protocol clock by its distance from `mach`, ahead or behind.
+        let mach = mach_now();
         let arrived = crate::clock::now_ns() / 1000;
-        // The display time is in mach absolute time: its age now, taken off the protocol clock.
-        let shown = number(info, sck::SCStreamFrameInfoDisplayTime())
-            .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
+        let shown = number(info, sck::SCStreamFrameInfoDisplayTime()).map(|display| {
+            let (numer, denom) = mach_timebase();
+            crate::clock::mach_to_protocol_us(arrived, mach, display as u64, numer, denom)
+        });
         let frame = (!buffer.is_null()).then(|| PixelBuffer(Retained::retain(buffer.cast_const())));
         #[cfg(feature = "bench")]
         let (counter, nonce) = sink.marker.map_or((None, None), |marker| {

@@ -160,6 +160,8 @@ final class AppServices {
         let joinLine = JoinConsentFixtureLine()
         /// `debug.object_menu`: the tab or pane menu it opened last; nil after a workspace menu.
         weak var objectMenu: NSMenu?
+        /// `debug.object_menu {menu: customizations}`: the item whose submenu it opened last, which owns that menu's delegate.
+        var customizationsItem: NSMenuItem?
     }
     #endif
     /// The Machines section's hub-joined machines (`cmux machine list`); signed out or switched account or team: emptied, then read.
@@ -423,7 +425,13 @@ final class AppServices {
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
     private(set) lazy var designMode = BrowserDesignModeController(services: self)
-    private(set) lazy var uiInspector = UIInspectorController(services: self)
+    private(set) lazy var uiInspector = UIInspectorController(host: .init(
+        pages: { [weak self] in self.map { Array($0.agentTabs.views.values) } ?? [] },
+        activeWindow: { [weak self] in self?.windows.active?.window },
+        capture: { [weak self] window in
+            guard let self else { return nil }
+            return try? await AppWindowImage(services: self).capture(window)
+        }))
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
     /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`).

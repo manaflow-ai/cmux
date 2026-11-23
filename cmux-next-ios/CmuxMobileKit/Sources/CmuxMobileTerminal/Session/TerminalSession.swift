@@ -229,11 +229,40 @@ public protocol TerminalSession: AnyObject {
     /// it asked (a mirror reset and a longer replay follow).
     @discardableResult
     func loadOlderHistory() -> Bool
+    /// The mirror holds a window far above the Mac's screen (a reader went up
+    /// a long history, `attach-replay-history-window-v1`): its history rows,
+    /// then the Mac's screen, without the rows between. Nil: the mirror's rows
+    /// reach the screen. The screen asks for newer rows (``loadNewerHistory(toTheScreen:)``)
+    /// when its reader comes down to the window's last row.
+    var historyWindowRows: Int? { get }
+    /// The reader came down to the last row of the window the mirror holds
+    /// (``historyWindowRows``): the window moves down toward the screen; or,
+    /// `toTheScreen`, the reader came up from the screen to the window: the
+    /// mirror holds the newest rows again.
+    /// Called as often as the page scrolls there; the session decides.
+    /// Returns whether it asked (a mirror reset and a replay follow).
+    @discardableResult
+    func loadNewerHistory(toTheScreen: Bool) -> Bool
     /// Before the first attach: the screen will put a reader back on a row
     /// `rows` rows above the end (a tab back from the warm set,
     /// ``TerminalScrollPlace``), so a session that attaches with the latest
     /// screen first asks for at least that much history at once. Others ignore it.
     func requestHistoryRows(_ rows: Int)
+    /// The phone projects this terminal itself (``TerminalProjectingSession``):
+    /// the session claims a size only when told to, and never holds the
+    /// Mac's own grid back from the screen while the primary screen shows.
+    /// Sessions without a Mac ignore it.
+    func setProjectsLocally(_ projects: Bool)
+    /// Where the reader is, in the page's rows: from the document's end to
+    /// the top of the screen they read (the screen's height at the bottom).
+    /// A projection keeps those lines when it re-wraps at a new width.
+    /// Called as the page scrolls; others ignore it.
+    func noteReaderRowsFromEnd(_ rows: Int)
+    /// The session itself, under any session wrapping it (the projection).
+    var underlyingSession: AnyObject { get }
+    /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
+    /// there (`phone-frames`). Others ignore it.
+    func reportScrollFrames(_ pan: TerminalPanFrames)
 }
 
 extension TerminalSession {
@@ -266,7 +295,19 @@ extension TerminalSession {
     @discardableResult
     public func loadOlderHistory() -> Bool { false }
 
+    public var historyWindowRows: Int? { nil }
+
+    @discardableResult
+    public func loadNewerHistory(toTheScreen: Bool) -> Bool { false }
+
     public func requestHistoryRows(_ rows: Int) {}
+
+    public func setProjectsLocally(_ projects: Bool) {}
+
+    public func noteReaderRowsFromEnd(_ rows: Int) {}
+
+    public var underlyingSession: AnyObject { self }
+    public func reportScrollFrames(_ pan: TerminalPanFrames) {}
 
     public var hostGridOwnerName: String? { nil }
 }
