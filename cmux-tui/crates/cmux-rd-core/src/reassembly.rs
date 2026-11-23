@@ -107,6 +107,13 @@ pub const MAX_FRAME_WAIT_US: u64 = 1_500_000;
 /// 1.5 s, expired, and the viewer asked for another, so no frame was shown (hq#19915).
 pub const MAX_KEYFRAME_WAIT_US: u64 = 4_000_000;
 
+/// How long an incomplete keyframe waits after its newest shard, when the deadline is
+/// shorter. Its repairs cross the bottleneck's queue: at 8 Mbit/s and 2 % loss the round
+/// trip grew to 250-800 ms, so a keyframe whose last shards had arrived expired 200 ms
+/// later with its NACKed shards still queued, every attempt, and no frame was shown in
+/// 15 s (hq#19915). Later frames cannot decode without it, so waiting longer costs nothing.
+pub const KEYFRAME_REPAIR_WAIT_US: u64 = 1_000_000;
+
 impl Reassembler {
     /// `deadline_us`: how long a frame may wait for missing shards after its newest shard.
     pub fn new(deadline_us: u64) -> Self {
@@ -285,13 +292,18 @@ impl Reassembler {
     }
 
     /// The last instant an incomplete frame may still wait: `deadline_us` after its
-    /// newest shard, at most [`MAX_FRAME_WAIT_US`] ([`MAX_KEYFRAME_WAIT_US`] for a
-    /// keyframe; or the deadline, if longer) after its first.
+    /// newest shard ([`KEYFRAME_REPAIR_WAIT_US`] for a keyframe, if longer), at most
+    /// [`MAX_FRAME_WAIT_US`] ([`MAX_KEYFRAME_WAIT_US`] for a keyframe; or the deadline, if
+    /// longer) after its first.
     fn expires_after_us(&self, p: &Pending) -> u64 {
-        let wait =
-            if p.flags & flags::KEYFRAME != 0 { MAX_KEYFRAME_WAIT_US } else { MAX_FRAME_WAIT_US };
+        let keyframe = p.flags & flags::KEYFRAME != 0;
+        let (wait, after) = if keyframe {
+            (MAX_KEYFRAME_WAIT_US, self.deadline_us.max(KEYFRAME_REPAIR_WAIT_US))
+        } else {
+            (MAX_FRAME_WAIT_US, self.deadline_us)
+        };
         let cap = p.first_seen_us.saturating_add(wait.max(self.deadline_us));
-        p.last_seen_us.saturating_add(self.deadline_us).min(cap)
+        p.last_seen_us.saturating_add(after).min(cap)
     }
 
     fn decodable(p: &Pending) -> bool {

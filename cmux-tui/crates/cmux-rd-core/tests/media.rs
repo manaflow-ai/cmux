@@ -310,7 +310,7 @@ fn next_expiry_names_the_oldest_incomplete_frame() {
     let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
     let mut r = Reassembler::new(200);
     assert_eq!(r.next_expiry_us(), None);
-    let out = p.packetize(1, flags::KEYFRAME, &body(1, 5000, true), 0).expect("packetize");
+    let out = p.packetize(1, 0, &body(1, 5000, false), 0).expect("packetize");
     let (h, payload) = DatagramHeader::decode(&out.datagrams[0]).expect("decode");
     assert!(r.push(&h, payload, 1_000).is_empty());
     // The frame expires strictly after its deadline.
@@ -485,4 +485,24 @@ fn a_waiting_frame_is_dropped_one_microsecond_past_its_deadline() {
     assert!(r.tick(1_000 + deadline + 1).is_empty());
     assert_eq!(r.take_losses(), vec![FrameLoss::Incomplete { frame: 2 }]);
     assert!(r.need_recovery());
+}
+
+/// A keyframe's repairs cross the bottleneck's queue, so an incomplete keyframe waits
+/// KEYFRAME_REPAIR_WAIT_US after its newest shard, not the 200 ms deadline (hq#19915:
+/// at 8 Mbit/s and 2 % loss every keyframe expired with its repairs still queued).
+#[test]
+fn an_incomplete_keyframe_waits_for_its_repairs() {
+    use cmux_rd_core::reassembly::KEYFRAME_REPAIR_WAIT_US;
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(200_000);
+    let out = p.packetize(1, flags::KEYFRAME, &body(1, 5000, true), 0).expect("packetize");
+    for d in out.datagrams.iter().skip(1) {
+        let (h, payload) = DatagramHeader::decode(d).expect("decode");
+        assert!(r.push(&h, payload, 1_000).is_empty());
+    }
+    assert_eq!(r.next_expiry_us(), Some(1_000 + KEYFRAME_REPAIR_WAIT_US + 1));
+    assert!(r.tick(1_000 + 600_000).is_empty());
+    assert!(r.take_losses().is_empty(), "expired with its repair still on the way");
+    let (h, payload) = DatagramHeader::decode(&out.datagrams[0]).expect("decode");
+    assert_eq!(r.push(&h, payload, 1_000 + 700_000).len(), 1, "the repaired keyframe");
 }
