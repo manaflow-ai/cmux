@@ -673,31 +673,43 @@ type Round = {
   bytesDown: number;
 };
 
-/** The settled page drawn from scratch in this page (BOUND=1): body swapped for a copy of its settled DOM, scroll
- *  offset restored, timed to the next painted frame; the median of BOUND_DRAWS draws. Ends the page's app. */
+/** The settled page served as a static page (BOUND=1): the settled DOM, scripts removed, at the app's own origin
+ *  (its stylesheets, fonts), the scroll offset restored by an inline script before the first paint; ms from navigation
+ *  to its first contentful paint, the median of BOUND_DRAWS loads in fresh pages of the same context. No restart can
+ *  show the settled page sooner than its own HTML loads and paints. */
 async function drawBound(page: Page): Promise<number> {
-  const copy = await page.evaluate(() => {
-    const clone = document.body.cloneNode(true) as HTMLElement;
+  const html = await page.evaluate(() => {
+    const clone = document.documentElement.cloneNode(true) as HTMLElement;
     for (const node of clone.querySelectorAll("script")) node.remove();
-    return { body: clone.innerHTML, scrollTop: document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0 };
+    const scrollTop = document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0;
+    const restore = document.createElement("script");
+    restore.textContent = `{const s=document.querySelector(".acpmux-scroll");if(s)s.scrollTop=${scrollTop}}`;
+    clone.querySelector("body")?.append(restore);
+    return `<!doctype html>${clone.outerHTML}`;
   });
+  const at = new URL("/__settled-bound.html", page.url()).href;
   const draws: number[] = [];
-  for (let draw = 0; draw < Math.max(1, BOUND_DRAWS); draw += 1)
-    draws.push(
-      await page.evaluate(
-        ({ body, scrollTop }) =>
-          new Promise<number>((resolve) => {
-            document.body.innerHTML = "";
-            void document.body.offsetHeight;
-            const t0 = performance.now();
-            document.body.innerHTML = body;
-            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-            if (scroller) scroller.scrollTop = scrollTop;
-            requestAnimationFrame(() => setTimeout(() => resolve(performance.now() - t0), 0));
-          }),
-        copy,
-      ),
-    );
+  for (let draw = 0; draw < Math.max(1, BOUND_DRAWS); draw += 1) {
+    const one = await page.context().newPage();
+    await one.setViewportSize(page.viewportSize() ?? RELAUNCH_VIEWPORT);
+    try {
+      await one.route(at, (route) => route.fulfill({ contentType: "text/html", body: html }));
+      await one.goto(at, { waitUntil: "load" });
+      draws.push(
+        await one.evaluate(
+          () =>
+            new Promise<number>((resolve) => {
+              const paint = () =>
+                performance.getEntriesByName("first-contentful-paint")[0]?.startTime ??
+                performance.getEntriesByType("paint").at(-1)?.startTime;
+              requestAnimationFrame(() => setTimeout(() => resolve(paint() ?? performance.now()), 0));
+            }),
+        ),
+      );
+    } finally {
+      await one.close();
+    }
+  }
   draws.sort((a, b) => a - b);
   return draws[Math.floor(draws.length / 2)]!;
 }
