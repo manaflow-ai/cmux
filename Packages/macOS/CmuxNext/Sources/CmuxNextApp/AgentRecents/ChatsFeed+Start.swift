@@ -24,8 +24,9 @@ extension ChatsFeed {
                                                                    peerSessionChanged: { [updates = services.daemonUpdates] in updates.peerSessionChanged($0, stale: $1) })
         AgentTurnStateFeed.shared = turns
         // A peer that connects, drops or is added reads Settings > Devices' list again: Move to… lists
-        // the acpmux peers from it (``CloudMoveTargets``). One read at a time; a push changes nothing else.
-        turns.peerStateChanged = { [weak services] _, _ in
+        // the acpmux peers from it (``CloudMoveTargets``). One read at a time; the Labs Hosts section hears it too.
+        SidebarMachineSections.bindPeerState(turns, sections: { [weak services] in services?.windows.controllers.map(\.sidebar.machineSections) ?? [] }) { [weak services] peer, state in
+            services?.agentTabs.machineLink.events.linkChanged(peer: peer, state: state)
             // task-owner: one `device list` read per peer link change; DeviceDirectory skips it while one runs
             Task { [weak services] in await services?.devices.refresh() }
         }

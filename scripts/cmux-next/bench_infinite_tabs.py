@@ -53,6 +53,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402
 import bench_power as bp  # noqa: E402
 import bench_workspace_hibernation as bw  # noqa: E402
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 
 ROWS: list[dict] = []
 # A ratio's denominator is at least its noise floor (as infinite-items.py): an empty app at 0.00 % CPU divides by nothing.
@@ -93,6 +94,20 @@ def phase(pid: int, bundle: str, sock: str, label: str, items: int, seconds: flo
     return result
 
 
+def settled(pid: int, bundle: str, sock: str, label: str, limit_s: float, want=None) -> None:
+    """Until `want()` holds (when given), then the app's processes and counts read the same for about 3 s."""
+    if want is not None and not wait_until(want, label, timeout=limit_s, interval=1.0, raise_on_timeout=False):
+        print(f"   {label}: not reached within {round(limit_s)} s; measuring anyway counts={json.dumps(counts(sock))}",
+              file=sys.stderr)
+
+    def read():
+        return counts(sock), sorted(bm.owned(pid, bundle))
+    try:
+        wait_stable(read, f"the app before {label}", timeout=limit_s, interval=0.5, reads=7)
+    except StateWaitTimeout as error:
+        print(f"   {error}; measuring anyway", file=sys.stderr)
+
+
 def new_workspace(app: bm.App) -> str | None:
     made = app.run("workspace.newAtBottom")
     workspace = next((str(i) for i in made.get("created", []) if str(i).startswith("ws_")), None)
@@ -118,7 +133,9 @@ def build_workspace(app: bm.App, sock: str, chats: bm.FakeChats | None, index: i
             print(f"   workspace {index}: terminal: {made['error']}", file=sys.stderr)
     pages = []
     for url in urls:
-        opened = app.run("openBrowser.chromium", url=url)
+        # Shown, as a person's open is: a page opened behind (the CLI's script origin) is never on screen, so it
+        # has no leave picture and hibernates with no last frame.
+        opened = app.action("openBrowser.chromium", focus=True, url=url)
         page = bw.created_tab(opened)
         if page is None:
             print(f"   workspace {index}: no page for {url}: {opened.get('error') or opened}", file=sys.stderr)
@@ -244,9 +261,11 @@ def run(argv: list[str]) -> int:
     parser.add_argument("--heap-mb", type=int, default=20, help="each page's stand-in heap while it is awake")
     parser.add_argument("--lag", type=int, default=2, help="a workspace is hibernated once the build is this many past it")
     parser.add_argument("--wake", type=int, default=20, help="hibernated pages shown again and timed")
-    parser.add_argument("--settle", type=float, default=45, help="seconds before each measured phase")
+    parser.add_argument("--settle", type=float, default=45, help="the app settles (state, not a timer) before each measured phase within max(120, 2 x this) seconds")
     parser.add_argument("--measure", type=float, default=30, help="idle seconds of CPU and wakeups in each phase")
     parser.add_argument("--config", default="{}", help="cmux.json settings merged over the run's own")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                        help="an environment variable for the app (repeatable), e.g. CMUX_NEXT_TUI_TERMINAL_HOST_MODEL=holder")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     if sys.platform != "darwin":
@@ -262,16 +281,21 @@ def run(argv: list[str]) -> int:
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
     bp.wipe_state(bundle)
-    pid, sock, scratch = bm.launch(bundle, config)
+    if any("=" not in pair or not pair.split("=", 1)[0] for pair in args.env):
+        raise SystemExit("bench-infinite-tabs: --env takes NAME=VALUE")
+    extra_env = dict(pair.split("=", 1) for pair in args.env)
+    pid, sock, scratch = bm.launch(bundle, config, extra_env=extra_env)
     app = bm.App(bundle, sock)
     report = {"app": bundle, "config": config, "phases": {}, "wakes": [],
-              "asked": {"tabs": args.tabs, "workspaces": args.workspaces, "chats": args.chats, "heap_mb": args.heap_mb}}
+              "asked": {"tabs": args.tabs, "workspaces": args.workspaces, "chats": args.chats, "heap_mb": args.heap_mb},
+              "env": extra_env}
     made: list[dict] = []
     tally = {"workspace_refused": 0, "tab_asked": 0, "tab_refused": 0}
     status = 1
     pages_checked = False
     try:
-        time.sleep(args.settle)  # test script: the launched app settles before its empty sample
+        # The launched app has settled once its processes (helpers up) and counts hold still.
+        settled(pid, bundle, sock, "the empty sample", max(120.0, 2 * args.settle))
         phase(pid, bundle, sock, "empty", 0, args.measure, report)
         chats = bm.FakeChats(app, bundle, args.fake_agent) if args.chats else None
         started = time.monotonic()
@@ -309,9 +333,31 @@ def run(argv: list[str]) -> int:
         report["hibernate_tally"] = tally
         print(f"INFTABS-BUILT workspaces={len(made)} pages={sum(len(e['pages']) for e in made)} build_s={report['build_s']} "
               f"hibernate={json.dumps(tally)}", flush=True)
-        time.sleep(args.settle)  # test script: renderers exit, idle agents hibernate, the app settles
+        # Every page asked to hibernate is hibernated (or exempt) and every workspace not refused is hibernated,
+        # then renderers have exited once the app's processes and counts hold still.
+        tabs = {page["tab"] for entry in made for page in entry["pages"]}
+        want_workspaces = len(made) - tally["workspace_refused"]
+
+        def all_asleep():
+            sleep = hibernation(sock)
+            done = set(sleep.get("hibernated") or []) | set((sleep.get("exemptions") or {}).keys())
+            return tabs <= done and (bw.surfaces(sock).get("hibernated_workspaces") or 0) >= want_workspaces
+        settled(pid, bundle, sock, "the full sample", max(120.0, 2 * args.settle), want=all_asleep)
+        # Who runs in the idle window (the app's wakeup ledger, its threads' CPU, Chromium's pump counters, live
+        # pages, a stack sample after it), and where the biggest kinds keep their memory: the numbers a fix starts from.
+        attribution = bm.Attribution(app, pid, bundle, kinds=("app", "cef-gpu"))
+        pump_before = (app.call("debug.cef", timeout=30) or {}).get("pump") or {}
+        attribution.start()
         full = phase(pid, bundle, sock, "full", len(made) + sum(len(e["pages"]) for e in made), args.measure, report)
+        found = attribution.finish()
+        pump_after = (app.call("debug.cef", timeout=30) or {}).get("pump") or {}
+        pump = {key: round(value - pump_before.get(key, 0), 3) for key, value in pump_after.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)}
+        report["full_attribution"] = {**found, "pump_delta": pump}
+        bm.print_attribution("full", found)
+        print(f"PERF-ATTR full pump window_s={found['window_s']} delta={json.dumps(pump)}", flush=True)
         kinds_table(report["phases"]["empty"], full)
+        bm.print_vmmap(full, "app,cef-renderer,tui-daemon")
         with_pages = [entry for entry in made if entry["pages"]]
         step = max(1, len(with_pages) // max(1, args.wake))
         for entry in with_pages[::step][: args.wake]:

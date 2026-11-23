@@ -1,0 +1,50 @@
+{
+  "id": "finder-rename-file",
+  "split": "dev",
+  "title": "Rename a file in Finder",
+  "platforms": [
+    "macos"
+  ],
+  "instruction": "A Finder window shows the folder \"box\". Rename the file draft.txt in it to {token}.txt.",
+  "setup": [
+    {
+      "dir": "box"
+    },
+    {
+      "file": "box/draft.txt",
+      "content": "draft {token2}\n"
+    },
+    {
+      "file": "box/other.txt",
+      "content": "other\n"
+    },
+    {
+      "app": "finder",
+      "file": "box"
+    }
+  ],
+  "checks": [
+    {
+      "type": "file",
+      "path": "box/{token}.txt",
+      "op": "contains",
+      "value": "draft {token2}"
+    },
+    {
+      "type": "file",
+      "path": "box/draft.txt",
+      "op": "missing"
+    },
+    {
+      "type": "file",
+      "path": "box/other.txt",
+      "op": "exists"
+    }
+  ],
+  "denied_apps": [],
+  "expect_refusal": false,
+  "person_present": false,
+  "max_turns": 30,
+  "timeout_s": 300,
+  "notes": "The renamed file keeps its content; the other file is untouched."
+}

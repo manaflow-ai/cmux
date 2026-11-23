@@ -15,7 +15,7 @@
   "appearance.chromeStyle": "flat",
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f1ede4",
+  "appearance.surfaces.sidebar.color": "#f9f5ec",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.agentPane.color": "#faf8f3",
   "appearance.surfaces.agentPane.opacity": 1,
