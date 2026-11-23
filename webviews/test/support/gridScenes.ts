@@ -23,7 +23,7 @@ const selectorRoles: Record<string, string> = {
   ".cv-iconbtn svg": "icon",
   ".acpmux-lineage__icon": "lead",
   ".acpmux-location-leading svg": "lead",
-  ".acpmux-location-picker:last-child svg": "trail",
+  '.acpmux-location-picker[data-kind="branch"] svg': "trail",
   ".acpmux-access-trigger svg": "lead",
   ".acpmux-trust-ask-icon": "lead",
   ".acpmux-queued-kind": "lead",
@@ -247,7 +247,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-composer-strip",
     ".acpmux-location-leading svg",
     ".acpmux-location-label",
-    ".acpmux-location-picker:last-child svg",
+    '.acpmux-location-picker[data-kind="branch"] svg',
   ),
   stack(
     "stack.trust",
