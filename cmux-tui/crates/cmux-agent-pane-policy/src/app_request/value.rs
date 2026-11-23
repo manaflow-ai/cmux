@@ -75,8 +75,8 @@ pub fn as_bool(value: &Value) -> Option<bool> {
     match value {
         Value::Bool(flag) => Some(*flag),
         Value::Number(number) => match number.as_f64() {
-            Some(zero) if zero == 0.0 => Some(false),
-            Some(one) if one == 1.0 => Some(true),
+            Some(0.0) => Some(false),
+            Some(1.0) => Some(true),
             _ => None,
         },
         _ => None,
@@ -146,11 +146,6 @@ pub fn plain_number(value: &Value) -> Option<&Number> {
     }
 }
 
-/// Swift's `String.count`: extended grapheme clusters.
-pub fn count(text: &str) -> usize {
-    text.graphemes(true).count()
-}
-
 /// Swift's `String.prefix(n)`: the first `n` extended grapheme clusters.
 pub fn prefix(text: &str, limit: usize) -> String {
     text.graphemes(true).take(limit).collect()
@@ -179,9 +174,4 @@ pub fn id_bytes(text: Option<&str>, limit: usize) -> Option<&str> {
 /// A non-empty string of at most `limit` characters.
 pub fn id_chars(text: Option<&str>, limit: usize) -> Option<&str> {
     text.filter(|text| !text.is_empty() && count_within(text, limit))
-}
-
-/// `value.rounded() == value` and finite.
-pub fn is_whole(value: f64) -> bool {
-    value.is_finite() && value.round() == value
 }
