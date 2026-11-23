@@ -170,7 +170,7 @@ export function isHostEndpoint(text: unknown): boolean {
  * One host of `machines.hosts`: a label and its ssh endpoints tried in order. The Rust rule is
  * cmux-config `hosts::host`, the Swift one `HostsSetting`; a list also needs unique labels.
  */
-export function isHost(value: unknown): boolean {
+export function isMachineHost(value: unknown): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const host = value as Record<string, unknown>;
   if (typeof host.label !== "string" || host.label.trim() === "" || [...host.label].length > 64) return false;
@@ -185,8 +185,8 @@ export function isHost(value: unknown): boolean {
   return ["icon", "id"].every((key) => host[key] === undefined || typeof host[key] === "string");
 }
 
-function isHostList(value: unknown): boolean {
-  if (!Array.isArray(value) || !value.every(isHost)) return false;
+function isMachineHostList(value: unknown): boolean {
+  if (!Array.isArray(value) || !value.every(isMachineHost)) return false;
   const labels = value.map((host) => (host as { label: string }).label.trim().toLowerCase());
   return new Set(labels).size === labels.length;
 }
@@ -275,7 +275,7 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       : "expected a list of preset names and rules, each with a label and a program or match";
   }
   if (row.validation === "domain:hosts") {
-    return isHostList(value) ? null : "expected a list of hosts, each with a unique label and ssh endpoints";
+    return isMachineHostList(value) ? null : "expected a list of hosts, each with a unique label and ssh endpoints";
   }
   if (row.validation === "domain:app_id") {
     // The manifest's own id pattern, which the export carries on the row.

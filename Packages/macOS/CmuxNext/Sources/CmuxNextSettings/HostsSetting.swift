@@ -10,7 +10,7 @@ import Foundation
 /// ```
 ///
 /// cmux-config `hosts.rs` owns the rule and `cmux hosts list|check` reads the list; this is the
-/// Settings write check, the same rule (and webviews validate.ts `isHost`).
+/// Settings write check, the same rule (and webviews validate.ts `isMachineHost`).
 public nonisolated struct HostsSetting: Sendable {
     public init() {}
 
