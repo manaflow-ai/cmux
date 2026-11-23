@@ -26,9 +26,9 @@ import CmuxNextCompat
 
     /// A real user event reached the pane. `click`: a click on the page or the native permission
     /// shortcut, the only gestures that may answer a permission prompt (``hasFreshAnswerGesture``).
-    /// `press`: a Return or keypad Enter press, or a mouse click, on the page itself (``AgentPaneView/judge(_:eventWindow:)``):
-    /// the only gestures Set Up takes (``consumeFreshGesture()``). Any other gesture (another key, a native menu choice
-    /// or shortcut) ends the last one.
+    /// `press`: a Return, keypad Enter or Space press (Space activates the focused Send button), or a mouse click, on the
+    /// page itself (``AgentPaneView/judge(_:eventWindow:)``): the only gestures Set Up takes (``consumeFreshGesture()``).
+    /// Any other gesture (another key, a native menu choice or shortcut) ends the last one.
     public func record(click: Bool = false, press: Bool = false) {
         questionReturn = nil
         last = now()
@@ -45,11 +45,11 @@ import CmuxNextCompat
         lastPress = nil
     }
 
-    /// The person's last Return press or click in the pane, when no other key, click or posted input came after it, for
+    /// The person's last Return or Space press or click in the pane, when no other key, click or posted input came after it, for
     /// an action that needs one from just now (``consumeFreshGesture()``).
     private var lastPress: TimeInterval?
 
-    /// Spends the person's Return press or click from just now (within ``answerWindow``) for one action that opens app
+    /// Spends the person's Return or Space press or click from just now (within ``answerWindow``) for one action that opens app
     /// UI by itself (Set Up Computer Use from a held `@computer-use` send): true once per gesture, only while the
     /// gesture's grant credit is unspent, and only when it is the pane's last input (review round 3 of #48024: bound to
     /// the physical event that sent or clicked). Not the generic credit, which any key press leaves for half a minute, so

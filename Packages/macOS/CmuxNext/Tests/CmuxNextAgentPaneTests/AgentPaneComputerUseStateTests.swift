@@ -121,10 +121,11 @@ struct AgentPaneComputerUseStateTests {
         #expect(ran == ["palette.computerUse.setup"])
     }
 
-    /// Review round 3 of #48024 (bind setup to the initiating physical event): Set Up takes only a Return press or a
-    /// mouse click, and only while it is the pane's last input. Another key, a native choice or posted input after it
-    /// ends it; a later click is a gesture of its own.
-    @Test func setUpTakesOnlyTheLastReturnOrClick() async {
+    /// Review round 3 of #48024 (bind setup to the initiating physical event): Set Up takes only a Return or Space press
+    /// or a mouse click, and only while it is the pane's last input. Another key, a native choice or posted input after it
+    /// ends it; a later click is a gesture of its own. Review round 4: Space on the focused Send button holds the draft
+    /// and opens Set Up, as Return does.
+    @Test func setUpTakesOnlyTheLastReturnSpaceOrClick() async throws {
         final class Clock { var now: TimeInterval = 100 }
         let clock = Clock()
         let model = AgentPaneModel(host: NoHost(), transport: AgentPaneTransport(gestures: AgentPaneUserGestures(now: { clock.now })))
@@ -132,9 +133,21 @@ struct AgentPaneComputerUseStateTests {
         model.onRunAction = { _, _ in ran += 1; return .ran }
         let gestures = model.transport.gestures
         let setUp = { await model.respond(to: .runAction(AgentPaneComputerUseState.setupAction))["ok"] as? Bool == true }
-        // Another key (a letter, Space, Tab): no Set Up.
+        // The pane's judge calls Return, keypad Enter and Space a press; a letter or Tab is another key.
+        func key(_ code: CGKeyCode) throws -> NSEvent { try Self.submitEvent(source: 0, key: code) }
+        for code: CGKeyCode in [36, 76, 49] { #expect(AgentPaneView.isPressKey(try key(code)), "key \(code)") }
+        for code: CGKeyCode in [0, 48] { #expect(!AgentPaneView.isPressKey(try key(code)), "key \(code)") }
+        // Another key (a letter, Tab): no Set Up.
         gestures.record()
-        #expect(!(await setUp()), "a key that is not Return opened Set Up")
+        #expect(!(await setUp()), "a key that is not Return or Space opened Set Up")
+        // Space on the focused Send button: Set Up once.
+        gestures.record(press: true)
+        #expect(await setUp())
+        #expect(!(await setUp()), "one Space opened Set Up twice")
+        // Space, then another key before the request: not the last input.
+        gestures.record(press: true)
+        gestures.record()
+        #expect(!(await setUp()), "a key typed after the Space let Set Up through")
         // Return, then another key before the request: the Return is no longer the person's last input.
         gestures.record(press: true)
         gestures.record()
@@ -149,7 +162,7 @@ struct AgentPaneComputerUseStateTests {
         gestures.record(click: true, press: true)
         #expect(await setUp())
         #expect(!(await setUp()))
-        #expect(ran == 1)
+        #expect(ran == 2)
     }
 
     /// Review round 3 of #48024 (P1): a native New Tab page on an SSH or Cloud machine starts its chat there, so this
@@ -172,22 +185,6 @@ struct AgentPaneComputerUseStateTests {
         // The field reaches the page's initial render: the page's own part of the context.
         #expect(remote.ownTree?["startsRemote"] as? Bool == true)
         #expect(local.ownTree?["startsRemote"] == nil)
-    }
-
-    /// Review round 3 of #48024 (task: acpmux holds `@computer-use` prompts): the host tells its local connection's acpmux
-    /// the state as `_acpmux/computer_use_state {state}`, null while unknown.
-    @Test func theDaemonHearsTheStateAsItsRawValueOrNull() throws {
-        func params(_ state: AgentPaneComputerUseState?) throws -> [String: Any] {
-            let text = try #require(AgentPaneTransport.computerUseStateFrame(state, id: 7))
-            let frame = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
-            #expect(frame["method"] as? String == "_acpmux/computer_use_state")
-            #expect(frame["id"] as? Int == 7)
-            return try #require(frame["params"] as? [String: Any])
-        }
-        #expect(try params(.needsSetup)["state"] as? String == "needs_setup")
-        #expect(try params(.ready)["state"] as? String == "ready")
-        #expect(try params(.disabled)["state"] as? String == "disabled")
-        #expect(try params(nil)["state"] is NSNull)
     }
 
     /// Review round 2 of #48024 (P0): New Tab's `app.action` runs a listed palette row as the person's pick with no
@@ -245,7 +242,7 @@ struct AgentPaneComputerUseStateTests {
 
     /// Review round 2 of #48024: native New Tab opened the chat and closed, so the new chat's page held the send with
     /// no gesture left to open Set Up. The submit decides first, on the person's own key press.
-    @Test func aNativeNewTabSubmitNamingComputerUseHoldsUntilItIsReady() {
+    @Test func aNativeNewTabSubmitNamingComputerUseHoldsUntilItIsReady() throws {
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
         var runs: [ActionInvocation] = []
@@ -253,9 +250,10 @@ struct AgentPaneComputerUseStateTests {
         #expect(bound)
         var refusals: [String] = []
         registry.refusalObserver = { reason, _ in refusals.append(reason) }
-        let follower = AgentPaneComputerUse(read: nil)
+        let person = try Self.submitEvent(source: 0)
+        let follower = AgentPaneComputerUse(read: nil, uptime: { person.timestamp })
         let prompt = "open Notes with @computer-use"
-        let holds = { follower.holdsSubmit(prompt, registry: registry, refusal: "turned off") }
+        let holds = { follower.holdsSubmit(prompt, registry: registry, refusal: "turned off", event: person) }
         #expect(!holds(), "an unknown state let the page decide")
         follower.set(.ready)
         #expect(!holds(), "ready held the send")
@@ -265,10 +263,68 @@ struct AgentPaneComputerUseStateTests {
         }
         #expect(runs.count == 3, "Set Up ran \(runs.count) times for 3 held submits")
         #expect(runs.allSatisfy { $0.origin == .user }, "Set Up did not run as the person's own run")
-        #expect(!follower.holdsSubmit("open Notes", registry: registry, refusal: "turned off"), "a prompt with no mention was held")
+        #expect(!follower.holdsSubmit("open Notes", registry: registry, refusal: "turned off", event: person), "a prompt with no mention was held")
         follower.set(.disabled)
         #expect(holds())
         #expect(refusals == ["turned off"])
         #expect(runs.count == 3, "Set Up ran while the organization turned computer use off")
+    }
+
+    /// A Return (or another key, `key`) or a left click, as posted by process `source` (0: the HID system, the person).
+    static func submitEvent(source: Int64, key: CGKeyCode? = 36, repeats: Bool = false) throws -> NSEvent {
+        let cgEvent: CGEvent
+        if let key {
+            cgEvent = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: true))
+            if repeats { cgEvent.setIntegerValueField(.keyboardEventAutorepeat, value: 1) }
+        } else {
+            cgEvent = try #require(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: .zero, mouseButton: .left))
+        }
+        cgEvent.setIntegerValueField(.eventSourceUnixProcessID, value: source)
+        return try #require(NSEvent(cgEvent: cgEvent))
+    }
+
+    /// Review round 4 of #48024: native New Tab ran Set Up as the person's own run from any submit, so input another
+    /// process posted (a Return or a click on the Ask row) opened it. Setup runs only from the person's own Return or
+    /// click from just now; any other submit still holds, keeps the text and shows the notice, and never opens setup.
+    @Test func aNativeNewTabSubmitOpensSetupOnlyFromThePersonsOwnInput() throws {
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        var runs = 0
+        let bound = registry.bind(ActionID(rawValue: AgentPaneComputerUseState.setupAction), invoke: { _ in runs += 1 })
+        #expect(bound)
+        var refusals: [String] = []
+        registry.refusalObserver = { reason, _ in refusals.append(reason) }
+        final class Clock { var now: TimeInterval = 0 }
+        let clock = Clock()
+        let follower = AgentPaneComputerUse(read: nil, uptime: { clock.now })
+        follower.set(.needsSetup)
+        let prompt = "open Notes with @computer-use"
+        let foreign = Int64(getpid()) + 1
+        func submit(_ event: NSEvent?) -> Bool {
+            clock.now = event?.timestamp ?? clock.now
+            return follower.holdsSubmit(prompt, registry: registry, refusal: "off", event: event)
+        }
+
+        // Not the person's: a posted Return, a posted click, a held key's repeat, a key that does not submit, no event.
+        let notPersons: [NSEvent?] = [try Self.submitEvent(source: foreign), try Self.submitEvent(source: foreign, key: nil),
+                                      try Self.submitEvent(source: 0, repeats: true), try Self.submitEvent(source: 0, key: 0), nil]
+        for (index, event) in notPersons.enumerated() {
+            #expect(submit(event), "submit \(index) went to a chat")
+            #expect(runs == 0, "submit \(index) opened setup")
+        }
+        #expect(refusals == Array(repeating: AgentPaneComputerUse.notSetUp, count: notPersons.count), "a held submit showed no notice")
+        // The person's Return from longer ago than the answer window: an event AppKit still holds while it runs an
+        // accessibility press.
+        let stale = try Self.submitEvent(source: 0)
+        clock.now = stale.timestamp + AgentPaneUserGestures.answerWindow + 1
+        #expect(follower.holdsSubmit(prompt, registry: registry, refusal: "off", event: stale))
+        #expect(runs == 0, "an old Return opened setup")
+
+        // The person's own Return, then their own click on the Ask row: setup each time, and no notice.
+        refusals = []
+        #expect(submit(try Self.submitEvent(source: 0)))
+        #expect(submit(try Self.submitEvent(source: 0, key: nil)))
+        #expect(runs == 2)
+        #expect(refusals.isEmpty)
     }
 }

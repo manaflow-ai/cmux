@@ -46,7 +46,7 @@ public struct AgentPaneShared {
         self.focusLoss = focusLoss
         self.newTabText = newTabText
         self.computerUseState = computerUseState
-        computerUse = AgentPaneComputerUse(read: computerUseState)
+        computerUse = AgentPaneComputerUse(read: computerUseState, sources: eventSources)
     }
 }
 

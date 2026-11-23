@@ -88,12 +88,12 @@ import CmuxNextCompat
     /// Held from `open` until the first frame is sent, then dropped.
     var localAppToken: String?
     var sentFirst = false
-    /// This connection's first frame, person proof and trust barrier went: the host may send requests of its own on it
-    /// (Computer Use's state, ``tellComputerUseState()``; a journal replay, ``replayHeldPrompts()``).
+    /// This connection's first frame, person proof and trust barrier went: the host may replay the journal on it
+    /// (``replayHeldPrompts()``).
     var hostSendsOpen = false
-    /// The app's Computer Use state (``AgentPaneComputerUse``): this connection's acpmux hears it, and a left-over
-    /// prompt that names `@computer-use` is not replayed while it is known and not ready
-    /// (``AgentPanePromptRelay/resend(socket:ids:computerUse:)``). nil (tests, a pane with no shared objects): neither.
+    /// The app's Computer Use state (``AgentPaneComputerUse``): a left-over prompt that names `@computer-use` is not
+    /// replayed while it is known and not ready (``AgentPanePromptRelay/resend(socket:ids:computerUse:)``). nil (tests,
+    /// a pane with no shared objects): no hold.
     weak var computerUse: AgentPaneComputerUse?
     /// The send line (``submit(connection:frames:reply:)``), drained in order by one task at a time.
     var pending: [PendingSend] = []

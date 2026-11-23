@@ -255,8 +255,10 @@ struct AgentPaneUnsentPromptTests {
     }
 
     /// Review round 3 of #48024 (P1): a prompt that names `@computer-use`, admitted before the app ended, is not replayed
-    /// while Computer Use is known and not ready: it stays in the journal, the daemon hears the state first, and the
-    /// prompt goes once Computer Use is ready. A prompt with no mention is replayed at once, as before.
+    /// while Computer Use is known and not ready: it stays in the journal and goes once Computer Use is ready. A prompt
+    /// with no mention is replayed at once, as before. Review round 4: acpmux is not told the state (its gate is gone), so
+    /// the journal is the only hold, and no path drops the held prompt unsent: not a second replay while it is not ready,
+    /// not a change to turned off, not a relaunch.
     @Test func aLeftOverComputerUsePromptWaitsInTheJournalUntilComputerUseIsReady() async throws {
         let url = Self.journalURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -289,22 +291,60 @@ struct AgentPaneUnsentPromptTests {
         await Self.barrier(pane, id: 3)
         let ids = { Self.prompts(daemon, peer: 0).compactMap { Self.mux($0)?["promptId"] as? String } }
         #expect(ids() == ["p-plain"], "the @computer-use prompt went while Computer Use was not set up")
-        await journal.settle()
-        #expect(journal.entries().map(\.promptId).contains("p-cu"), "the held prompt left the journal")
-        let states = {
-            (daemon.peers.first?.frames ?? []).filter { $0.contains("_acpmux/computer_use_state") }
+        let kept = {
+            await journal.settle()
+            // A relaunch reads it from disk too, not only this run's memory.
+            return journal.entries().map(\.promptId).contains("p-cu") && AgentPanePromptJournal(url: url).entries().map(\.promptId).contains("p-cu")
         }
-        #expect(states().count == 1 && states().first?.contains(#""state":"needs_setup""#) == true, "the daemon never heard the state")
+        #expect(await kept(), "the held prompt left the journal")
 
-        // Computer Use is ready: the daemon hears it, then the held prompt goes once, as a resend.
+        // Another replay while it is not ready, and a change to turned off: it stays, unsent.
+        transport.replayHeldPrompts()
+        await Self.barrier(pane, id: 4)
+        follower.set(.disabled)
+        await Self.barrier(pane, id: 5)
+        #expect(ids() == ["p-plain"], "a replay sent the held prompt while Computer Use was not ready")
+        #expect(await kept(), "a replay or a state change dropped the held prompt unsent")
+
+        // Computer Use is ready: the held prompt goes once, as a resend.
         follower.set(.ready)
         #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 2 }, "the held prompt never went once ready")
         #expect(ids() == ["p-plain", "p-cu"])
         #expect(Self.prompts(daemon, peer: 0).last.flatMap(Self.mux)?["resend"] as? Bool == true)
-        #expect(states().last?.contains(#""state":"ready""#) == true)
-        let frames = daemon.peers.first?.frames ?? []
-        let readyAt = frames.firstIndex { $0.contains(#""state":"ready""#) }, promptAt = frames.firstIndex { $0.contains("p-cu") }
-        #expect((readyAt ?? .max) < (promptAt ?? .min), "the prompt went before the daemon heard ready")
+        let frames = daemon.peers.flatMap(\.frames)
+        #expect(!frames.contains { $0.contains("_acpmux/computer_use_state") }, "the host told acpmux the state")
+    }
+
+    /// Review round 4 of #48024: the journal holds a `@computer-use` prompt on disk until a claim sends it or it expires
+    /// (``AgentPanePromptJournal/maximumAge``), whichever connection ends meanwhile; a held claim drops nothing.
+    @Test func aHeldPromptStaysOnDiskUntilItIsSentOrExpires() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let clock = Clock()
+        let journal = AgentPanePromptJournal(url: url, now: { clock.now })
+        let params = #"{"sessionId":"s-1","prompt":[{"type":"text","text":"open Notes with @computer-use"}]}"#
+        let entry = AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: "p-cu", params: params, at: clock.now)
+        let sender = UUID()
+        #expect(journal.record(entry, owner: sender))
+        journal.connectionEnded(owner: sender)
+        #expect(AgentPanePromptRelay.holds(entry, computerUse: .needsSetup))
+        #expect(!AgentPanePromptRelay.holds(entry, computerUse: .ready) && !AgentPanePromptRelay.holds(entry, computerUse: nil))
+        let onDisk = {
+            await journal.settle()
+            return AgentPanePromptJournal(url: url, now: { clock.now }).entries().map(\.promptId)
+        }
+        for _ in 0..<2 {
+            let owner = UUID()
+            #expect(journal.claimLeftovers(daemon: Self.daemon, owner: owner) { AgentPanePromptRelay.holds($0, computerUse: .needsSetup) }.isEmpty)
+            journal.connectionEnded(owner: owner)
+            #expect(await onDisk() == ["p-cu"], "a held claim or a connection's end dropped the prompt")
+        }
+        clock.advance(AgentPanePromptJournal.maximumAge - 60)
+        #expect(journal.claimLeftovers(daemon: Self.daemon, owner: UUID()) { AgentPanePromptRelay.holds($0, computerUse: .starting) }.isEmpty)
+        #expect(await onDisk() == ["p-cu"], "the held prompt expired early")
+        clock.advance(120)
+        #expect(journal.claimLeftovers(daemon: Self.daemon, owner: UUID()) { AgentPanePromptRelay.holds($0, computerUse: .needsSetup) }.isEmpty)
+        #expect(await onDisk().isEmpty, "a held prompt outlived its expiry")
     }
 
     /// A prompt acpmux acknowledged (`_acpmux/prompt_accepted`) is in its session log: the

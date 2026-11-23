@@ -134,29 +134,12 @@ extension AgentPaneTransport {
     /// Replays the journal's left-over prompts on this connection again: Computer Use turned ready, so a prompt that
     /// names `@computer-use` and was held at the connection's first replay goes now (``AgentPaneComputerUse/set(_:)``).
     /// Only once the connection's person proof and trust barrier went (``hostSendsOpen``), and only on an open local
-    /// connection; a prompt another replay claimed meanwhile is not sent twice (the journal holds one claim each).
+    /// connection; a prompt another replay claimed meanwhile is not sent twice (the journal holds one claim each). A
+    /// prompt still held stays in the journal, on disk, until a replay sends it or it expires (``AgentPanePromptJournal/maximumAge``).
     func replayHeldPrompts() {
         guard hostSendsOpen, let socket, !socket.isClosed, let relay = promptRelay, let ids = requestIds else { return }
         let state = computerUse?.state
         // task-owner: one journal replay on this connection; a closed one claims nothing (its relay ended).
         Task { await relay.resend(socket: socket, ids: ids, computerUse: state) }
-    }
-
-    /// Tells this connection's acpmux Computer Use's state on this Mac (`_acpmux/computer_use_state {state}`, null while
-    /// unknown) under a host request id, whose reply never reaches the page. acpmux takes it from the app's own local
-    /// connection only (LocalApp) and holds a prompt that names `@computer-use` while the state is known and not ready.
-    /// Sent once the connection is up (``hostSendsOpen``) and on every change (``AgentPaneComputerUse/set(_:)``); never
-    /// on a remote wire, whose daemon is another machine's. A daemon too old for the method answers method-not-found:
-    /// dropped, as every host reply.
-    func tellComputerUseState() {
-        guard hostSendsOpen, !remoteWire, let computerUse, let socket, !socket.isClosed, let ids = requestIds,
-              let text = Self.computerUseStateFrame(computerUse.state, id: ids.hostID()) else { return }
-        if let error = socket.send(text) { Self.logger.debug("agent pane transport: computer use state not sent: \(error.rawValue, privacy: .public)") }
-    }
-
-    /// The `_acpmux/computer_use_state` request for `state`.
-    nonisolated static func computerUseStateFrame(_ state: AgentPaneComputerUseState?, id: Int) -> String? {
-        AcpmuxRequestIds.encode(["jsonrpc": "2.0", "id": id, "method": "_acpmux/computer_use_state",
-                                 "params": ["state": state.map { $0.rawValue as Any } ?? NSNull()]])
     }
 }

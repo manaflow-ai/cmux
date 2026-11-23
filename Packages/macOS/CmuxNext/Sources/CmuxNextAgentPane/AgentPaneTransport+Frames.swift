@@ -227,8 +227,6 @@ extension AgentPaneTransport {
                 await finishTrustBeforeReplay(socket: socket, ids: ids)
                 if self.socket === socket, !socket.isClosed {
                     hostSendsOpen = true
-                    // acpmux hears Computer Use's state before the replay, whose prompts it checks against it.
-                    tellComputerUseState()
                     await relay?.resend(socket: socket, ids: ids, computerUse: computerUse?.state)
                 }
             }

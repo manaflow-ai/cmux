@@ -195,7 +195,7 @@ extension AgentPaneView {
         // A new page event revokes it, even when posted input cannot grant a fresh witness.
         model.transport.gestures.pageInput()
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
-        model.transport.gestures.record(click: event.type != .keyDown, press: event.type != .keyDown || Self.isReturnKey(event))
+        model.transport.gestures.record(click: event.type != .keyDown, press: event.type != .keyDown || Self.isPressKey(event))
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }
 
@@ -220,7 +220,7 @@ extension AgentPaneView {
         if !model.hostTouch.marked { model.hostTouch.mark(by: event) }
         model.transport.gestures.pageInput()
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
-        model.transport.gestures.record(click: event.type != .keyDown, press: event.type != .keyDown || Self.isReturnKey(event))
+        model.transport.gestures.record(click: event.type != .keyDown, press: event.type != .keyDown || Self.isPressKey(event))
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }
 
@@ -250,5 +250,11 @@ extension AgentPaneView {
     /// Return on the main keyboard is key code 36; the numeric keypad's Enter is 76.
     private static func isReturnKey(_ event: NSEvent) -> Bool {
         event.keyCode == 36 || event.keyCode == 76
+    }
+
+    /// A key that sends or presses a focused button: Return, keypad Enter, or Space (key code 49), which activates the
+    /// focused Send button from the keyboard. The press Set Up takes (``AgentPaneUserGestures/record(click:press:)``).
+    static func isPressKey(_ event: NSEvent) -> Bool {
+        isReturnKey(event) || event.keyCode == 49
     }
 }

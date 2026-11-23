@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextSettings
@@ -64,21 +65,29 @@ public nonisolated enum AgentPaneComputerUseState: String, Sendable, Equatable {
 /// ``AgentPaneShared`` at the composition root and handed to each pane's model. Not an AgentPaneView
 /// extension: that type is at its size limit.
 ///
-/// Each pane's transport follows it too (``follow(_:)``): its local acpmux connection hears the state
-/// (`_acpmux/computer_use_state`) once the connection is up and on every change, so acpmux holds a prompt that names
-/// `@computer-use` while it is not ready; and its prompt journal replays the prompts it held once Computer Use is ready.
+/// Each pane's transport follows it too (``follow(_:)``): its prompt journal keeps a left-over prompt that names
+/// `@computer-use` while Computer Use is known and not ready, and replays it once Computer Use is ready. acpmux is not
+/// told the state: the app's journal is the only hold.
 @MainActor
 public final class AgentPaneComputerUse {
-    /// Follows `read` (the App's Computer Use Setup) for the app's life; nil (tests) follows nothing.
-    init(read: (@MainActor () -> AgentPaneComputerUseState?)? = nil) {
+    /// Follows `read` (the App's Computer Use Setup) for the app's life; nil (tests) follows nothing. `sources`: the
+    /// app's posting-process table, for the person check of a New Tab submit (``holdsSubmit(_:startsRemote:registry:refusal:event:)``);
+    /// `uptime`: the clock events are timed on (tests set it).
+    init(read: (@MainActor () -> AgentPaneComputerUseState?)? = nil, sources: EventSourceProcesses = EventSourceProcesses(),
+         uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.sources = sources
+        self.uptime = uptime
         follow(read)
     }
+
+    private let sources: EventSourceProcesses
+    private let uptime: @MainActor () -> TimeInterval
 
     /// The state now; nil until the App's setup answered (a test host, or before the first view).
     public private(set) var state: AgentPaneComputerUseState?
     /// The pages told so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
-    /// The pane transports that tell their daemon the state and replay held prompts once it is ready, held weakly.
+    /// The pane transports that replay their held prompts once Computer Use is ready, held weakly.
     private let transports = NSHashTable<AgentPaneTransport>.weakObjects()
     /// Follows the App's setup for the app's life once a view brought its reader (idempotent).
     private var following: Task<Void, Never>?
@@ -96,23 +105,19 @@ public final class AgentPaneComputerUse {
         }
     }
 
-    /// Takes `next` and pushes it to every page and every pane connection told so far, a change only. Ready replays
-    /// each transport's held prompts, after its daemon heard the state.
+    /// Takes `next` and pushes it to every page told so far, a change only. Ready replays each transport's held prompts.
     func set(_ next: AgentPaneComputerUseState?) {
         guard next != state else { return }
         state = next
         for view in views.allObjects { send(to: view) }
-        for transport in transports.allObjects {
-            transport.tellComputerUseState()
-            if next == .ready { transport.replayHeldPrompts() }
-        }
+        guard next == .ready else { return }
+        for transport in transports.allObjects { transport.replayHeldPrompts() }
     }
 
     /// `transport` follows the state from now on (``AgentPaneTransport/computerUse``).
     func follow(_ transport: AgentPaneTransport) {
         transports.add(transport)
         transport.computerUse = self
-        transport.tellComputerUseState()
     }
 
     /// The state, read now, as a page host event; `view` then also gets every change.
@@ -138,15 +143,40 @@ public final class AgentPaneComputerUse {
     /// chat it would open could not: its first gesture is gone with the closed page), or, when the organization turned
     /// it off, refuses with `refusal`. The caller keeps the page and its typed text. Unknown (nil) or ready lets it go,
     /// and so does a page whose chat starts on another machine (`startsRemote`, ``AgentPaneNewTab/startsRemote``): this
-    /// Mac's setup is not that machine's.
-    public func holdsSubmit(_ prompt: String, startsRemote: Bool = false, registry: ActionRegistry, refusal: String) -> Bool {
+    /// Mac's setup is not that machine's. Setup runs only when `event` (the event in dispatch) is the person's own submit
+    /// (``personSubmits(_:)``); a submit from posted input, an accessibility press or no event still holds, with the
+    /// not-set-up notice, and never opens setup.
+    public func holdsSubmit(_ prompt: String, startsRemote: Bool = false, registry: ActionRegistry, refusal: String,
+                            event: NSEvent? = NSApp?.currentEvent) -> Bool {
         guard !startsRemote, let state, state != .ready, AgentPaneComputerUseState.isNamed(in: prompt) else { return false }
         if state == .disabled {
             registry.refuse(refusal)
-        } else {
+        } else if let event, personSubmits(event) {
             _ = registry.perform(ActionID(rawValue: AgentPaneComputerUseState.setupAction), invocation: ActionInvocation(origin: .user))
+        } else {
+            registry.refuse(Self.notSetUp)
         }
         return true
+    }
+
+    /// Whether `event` is the person's own submit from just now: a Return or keypad Enter press (not a repeat) or a left
+    /// click, no older than ``AgentPaneUserGestures/answerWindow``, that the pane's person check passes
+    /// (``AgentPanePersonInput/isPerson(_:sources:)``: never input another process posted). The age bound refuses an
+    /// event AppKit still holds as current while it runs an accessibility press, which has no event of its own.
+    func personSubmits(_ event: NSEvent) -> Bool {
+        let submits = switch event.type {
+        case .keyDown: !event.isARepeat && (event.keyCode == 36 || event.keyCode == 76)
+        case .leftMouseDown, .leftMouseUp: true
+        default: false
+        }
+        return submits && abs(uptime() - event.timestamp) <= AgentPaneUserGestures.answerWindow
+            && AgentPanePersonInput.isPerson(event, sources: sources)
+    }
+
+    /// The notice for a held submit that may not open setup: the page's own title for the hold (computerUseSetup.title).
+    static var notSetUp: String {
+        String(localized: "agentPane.computerUse.notSetUp", defaultValue: "Computer use is not set up", bundle: .localizedModule,
+               comment: "Native New Tab: notice when a prompt that names @computer-use is held while Computer Use is not set up")
     }
 
     /// The old host's script for the state (computerUseState.ts `window.cmuxAcpmuxComputerUseState`).
