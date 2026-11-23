@@ -433,6 +433,9 @@ pub mod method {
     /// budgets}`, and the always-on frame tally (`frame_tally.rs`): `{op: frames|tally}`; local app
     /// and unix socket only.
     pub const MUX_PERF: &str = "_acpmux/perf";
+    /// Each caller's requests and bytes over a recent window (`caller_stats.rs`):
+    /// `{sinceSecs?, top?}`; local app and unix socket only.
+    pub const MUX_CALLERS: &str = "_acpmux/callers";
     /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
     /// transport hands the same stream to the framed v2 connection afterward.
     pub const MUX_V2: &str = "_acpmux/v2";
@@ -977,6 +980,19 @@ pub mod method {
     /// Signing in enrolls this machine (`server/machine_enroll.rs`): `{accessToken, hub?, userId?,
     /// buildTag?}` -> `{outcome, relay?}`. Local socket only.
     pub const MUX_MACHINE_ENROLL: &str = "_acpmux/machine_enroll";
+    /// Adds a machine this computer reaches by key-only ssh through the hub join
+    /// (`server/machine_join_ssh.rs`, `cli/ssh_join.rs`): `{host, name?, accessToken, hub?,
+    /// joinId?, confirmed?}` -> `{ok, joinId, host, machine?, platform?, seconds, failure?}`, with
+    /// [`MUX_MACHINE_JOIN_PROGRESS`] while it runs. A host that is not a tailnet node
+    /// this person owns needs `confirmed: true` (else `needs_confirmation`). Local socket and the
+    /// person only.
+    pub const MUX_MACHINE_JOIN_SSH: &str = "_acpmux/machine_join_ssh";
+    /// One step of a [`MUX_MACHINE_JOIN_SSH`]: `{joinId, host, step, state, detail, seconds}`.
+    pub const MUX_MACHINE_JOIN_PROGRESS: &str = "_acpmux/machine_join_progress";
+    /// The machines this computer reaches and has not added (its tailnet, `~/.ssh/config`): `{}`
+    /// -> `{candidates: [{name, address, os, found, online, mine}], tailnet?}`. Local socket and
+    /// the person only.
+    pub const MUX_MACHINE_CANDIDATES: &str = "_acpmux/machine_candidates";
     /// Signing out leaves the hub only when signing in joined this machine for the account signing
     /// out: `{userId?}` -> `{left, kept?, hub?}`. Local socket only.
     pub const MUX_MACHINE_LEAVE_IF_AUTO: &str = "_acpmux/machine_leave_if_auto";
@@ -1008,6 +1024,9 @@ pub mod method {
     pub const MUX_MACHINE_TUNNEL_DETACH: &str = "_acpmux/machine.tunnel.detach";
     pub const MUX_MACHINE_TUNNEL_REKEY: &str = "_acpmux/machine.tunnel.rekey";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
+    // From the owner's peer daemon only: a phone it vouched for (`_meta.acpmux.ownerPhone`) had
+    // its Full-access setting turned off or was removed (`server/remote_guard.rs`).
+    pub const MUX_OWNER_PHONE_CHANGED: &str = "_acpmux/owner_phone_changed";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // The person's vault on this machine (`crate::vault`, `server/vault.rs`).
     pub const MUX_VAULT_PULL: &str = "_acpmux/vault_pull";
