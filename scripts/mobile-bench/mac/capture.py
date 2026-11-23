@@ -154,7 +154,7 @@ class Marker:
         self.process.stdin.flush()
         answer = self.reply(5) or {}
         t = uptime_ns()
-        time.sleep(0.05)
+        time.sleep(0.05)  # sleep-ok: a fixed gap in the recording between the marker's flip and the stimulus
         return t, answer
 
     def quit(self):
@@ -270,8 +270,13 @@ class Run:
             if self.alive(pid):
                 log("KILL", pid, "after 10 s")
                 os.kill(pid, signal.SIGKILL)  # the app process this run launched, by its pid
+        # LaunchServices forgets the quit processes (so the next open starts the app again).
+        gone, end = set(self.pids), time.monotonic() + 10
+        while time.monotonic() < end and gone & set(self.running()):
+            time.sleep(0.1)
+        if gone & set(self.running()):
+            log("WARN LaunchServices still lists", sorted(gone & set(self.running())), "10 s after the quit")
         self.pids = []
-        time.sleep(1.0)
 
     @staticmethod
     def alive(pid):
@@ -293,6 +298,21 @@ class Run:
             time.sleep(0.1)
         return None, None, None
 
+    def window_settled(self, seconds=10.0, quiet=0.5, what="the window"):
+        """Until the app's window (as find_window reads it) is there and keeps one rect for QUIET s; best effort:
+        logs and goes on when it still moves at SECONDS."""
+        end = time.monotonic() + seconds
+        last, since = None, time.monotonic()
+        while time.monotonic() < end:
+            _, rect, _ = self.find_window(1)
+            if rect != last:
+                last, since = rect, time.monotonic()
+            elif rect and time.monotonic() - since >= quiet:
+                return True
+            time.sleep(0.05)
+        log("WARN", what, f"did not hold still within {seconds:g} s (last rect {last})")
+        return False
+
     def place(self, display_w):
         """Puts the window at the profile's phone size, centred near the top; returns its rect as it ended up."""
         pid, rect, wid = self.find_window()
@@ -312,7 +332,7 @@ class Run:
                     route = "cua-driver"
                 except (RuntimeError, subprocess.TimeoutExpired) as error:
                     log("WARN window frame:", str(error)[:300])
-            time.sleep(0.5)
+            self.window_settled(5, 0.3, "the window after its frame was set")
         _, rect, wid = self.find_window(5)
         self.report["routes"]["window_frame"] = route
         log("WINDOW", json.dumps({"pid": pid, "rect": rect, "id": wid, "route": route}))
@@ -465,12 +485,12 @@ class Run:
                 out, err = rec.communicate(timeout=10)
                 meta["error"] = f"the recorder never started: {(err or out).strip()[-300:]}"
                 return self.write_meta(folder, meta)
-            time.sleep(lead)
+            time.sleep(lead)  # sleep-ok: the recording's lead-in before the stimulus (the flow's lead_s)
             if cold:
                 stim_ns, input_route = self.launch(), "launchservices-open"
             else:
                 stim_ns, input_route, uncertainty, input_log = self.send(spec.get("steps") or [], folder, "stimulus")
-            time.sleep(settle)
+            time.sleep(settle)  # sleep-ok: the recorded window after the stimulus (the flow's settle_s clip length)
             out, err = rec.communicate("stop\n", timeout=120)
             summary = next((json.loads(line) for line in reversed(out.splitlines()) if '"done"' in line), {})
             if not summary:
@@ -517,7 +537,7 @@ class Run:
         for after in (spec.get("after") or [],):
             if after:
                 self.send(after, folder, "after")
-                time.sleep(0.8)
+                self.window_settled(5, 0.3, "the window after the flow's after-steps")
         return self.write_meta(folder, meta)
 
     def record_cua(self, folder, clip, spec, cold, rect, lead, settle):
@@ -527,13 +547,13 @@ class Run:
         marker = Marker(os.path.join(self.tools, "tab-switch-tools"), self.pids[0] if self.pids else 0)
         try:
             self.cua_rec.start(raw_dir)
-            time.sleep(lead)
+            time.sleep(lead)  # sleep-ok: the recording's lead-in before the stimulus (the flow's lead_s)
             flip_ns, _ = marker.flip("stimulus")
             if cold:
                 stim_ns, route, unc = self.launch(), "launchservices-open", 0.0
             else:
                 stim_ns, route, unc, _ = self.send(spec.get("steps") or [], folder, "stimulus")
-            time.sleep(settle)
+            time.sleep(settle)  # sleep-ok: the recorded window after the stimulus (the flow's settle_s clip length)
             raw = self.cua_rec.stop(raw_dir)
         finally:
             marker.quit()
@@ -621,7 +641,10 @@ class Run:
                 self.report["already_running"] = already
                 log("WARN the app was already running (pids", already, "); a cold launch needs it quit: leaving it")
             self.launch()
-            time.sleep(float(self.profile.get("launch_settle_s", 3)))
+            # The launched app's window is up and holds one rect before it is placed (launch_settle_s, default 3,
+            # scales the bound).
+            self.window_settled(max(15.0, 5 * float(self.profile.get("launch_settle_s", 3))), 0.5,
+                                "the launched app's window")
             self.place(self.report["display_points_w"])
             for setup in (self.profile.get("setup") or [],):
                 if setup:

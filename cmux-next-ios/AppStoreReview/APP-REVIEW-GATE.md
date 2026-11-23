@@ -37,8 +37,10 @@ The upload job then `needs: [app-source, review-gate]` with `if: always() && ...
 `needs.review-gate.outputs.sha == needs.app-source.outputs.sha`. The gate's
 `blocking` output is the number of blocking findings.
 
-A called or dispatched run (a submission) fails on any blocker. A direct
-feat-cmux-next push or pull request run reports the same ranked list and
+A called or dispatched run (a submission) fails on any blocker. A pull
+request into feat-cmux-next skips the gate unless it is labeled `full-ci`
+(Tier A in `scripts/ci/affected-jobs.json`); the push after the merge runs
+it. A direct feat-cmux-next push or `full-ci` pull request run reports the same ranked list and
 `blocking` output, and fails only on a blocker that is not in
 `known-blockers.json`: the blockers the app already had when this started
 (run 43002601165), each with the fix that owns it. So a change that breaks
@@ -135,7 +137,7 @@ Each launch closes Safari first: after a link hands off to it, Safari stays in
 front of the relaunched app on iPad. `scrollTo` scrolls to the end of the
 content, not a fixed number of swipes, since rows per swipe depend on the screen.
 
-It runs on every feat-cmux-next push and pull request that touches the app
+It runs on every feat-cmux-next push, and on a `full-ci` pull request, that touches the app
 (one macOS job per device, side by side, about 30 minutes; the report fails if any
 device's job left no result). When App Review rejects us anyway, add the rejection and
 its new detector to `rejection-history.json` in the fix's PR.

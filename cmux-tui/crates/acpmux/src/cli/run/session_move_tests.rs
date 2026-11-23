@@ -361,6 +361,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             dry_run: true,
             resume_there: false,
             from: None,
+            from_snapshot: false,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
         assert_eq!(outcome.error_code, expected);
@@ -551,6 +552,7 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         dry_run: false,
         resume_there: false,
         from: None,
+        from_snapshot: false,
     };
     let e = match begin_waiting(&client, "chat", "Chat", None, &args).await {
         Ok(_) => panic!("a turn that outlasts --timeout must not move"),
@@ -756,7 +758,7 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
             {"sessionId": "s1", "peer": "t", "stale": stale, "peerState": state},
         ]})
     };
-    let replies = vec![
+    let replies = [
         json!({"rows": []}),
         row(true, "reconnecting"),
         row(false, "reconnecting"),
