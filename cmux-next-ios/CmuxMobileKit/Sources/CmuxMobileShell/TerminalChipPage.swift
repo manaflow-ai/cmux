@@ -72,9 +72,9 @@ struct TerminalChipPage: View {
     @ViewBuilder private var chip: some View {
         switch variant {
         // A gallery shows each state at once (the quiet bound is the chip's own test).
-        case .a: ConnectionChip(state, heldFor: .zero, retry: state.symbol == nil ? nil : {})
-        case .b: ConnectionChip(state, heldFor: .zero)
-        case .c: ConnectionChip.SymbolOnly(state, heldFor: .zero)
+        case .a: ConnectionChip(state, downSince: nil, retry: state.symbol == nil ? nil : {})
+        case .b: ConnectionChip(state, downSince: nil)
+        case .c: ConnectionChip.SymbolOnly(state, downSince: nil)
         }
     }
 }

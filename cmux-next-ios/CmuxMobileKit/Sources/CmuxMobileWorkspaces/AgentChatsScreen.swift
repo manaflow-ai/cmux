@@ -330,7 +330,7 @@ struct AgentChatsScreen: View {
     private var linkChip: some View {
         Group {
             if model.reconnecting {
-                ConnectionChip((model.stale ? ListStatusRow.State.stale : .reconnecting).chip, heldFor: .zero) // the model held it past the quiet gate
+                ConnectionChip((model.stale ? ListStatusRow.State.stale : .reconnecting).chip, downSince: nil) // the model held it past the quiet gate
                     .padding(.top, 8)
                     .accessibilityIdentifier("agentChats.reconnecting")
                     .transition(.opacity)
