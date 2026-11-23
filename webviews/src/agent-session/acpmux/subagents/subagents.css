@@ -2749,9 +2749,8 @@ button.cv-subagent > :last-child {
   --acpmux-tray-lead-room: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-glyph)) / 2);
 }
 /* The header's glyphs, at the composer's size. */
-.acpmux-running-tray__head :is(.acpmux-lineage__icon, .acpmux-running-tray__kind, .acpmux-running-tray__stack-mark) > svg,
-.acpmux-running-tray__head .acpmux-running-tray__kind > .acpmux-running-tray__stack-mark svg,
-.acpmux-running-tray__head > .acpmux-running-tray__stack svg,
+/* A harness mark (the stack's, a kind's) keeps its own size: its badge and mask cut are drawn for it. */
+.acpmux-running-tray__head :is(.acpmux-lineage__icon, .acpmux-running-tray__kind) > svg,
 .acpmux-running-tray__chevron svg,
 .acpmux-running-tray :is(.acpmux-running-tray__open, .acpmux-running-tray__hide) > svg {
   width: var(--acpmux-tray-glyph);
@@ -2777,7 +2776,11 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) > .acpmux-running-tray__stack-mark {
   margin-inline-end: var(--acpmux-tray-lead-room);
 }
-/* The kinds' header: its first kind's mark in +'s box, the count one lead gap after it. */
+/* The kinds' header: its first kind's mark in +'s box, the count one lead gap after it. With the
+   subagents' faces first (HatFaces.tsx), the first face centres in +'s box. */
+.acpmux-running-tray__kinds > :first-child:not(.acpmux-running-tray__kind) {
+  margin-inline-start: calc((var(--acpmux-tray-lead-box) - 14px) / 2);
+}
 .acpmux-running-tray__kinds > .acpmux-running-tray__kind:first-child > :first-child {
   margin-inline: var(--acpmux-tray-lead-room) calc(var(--acpmux-tray-lead-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
 }

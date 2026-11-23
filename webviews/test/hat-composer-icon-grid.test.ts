@@ -161,7 +161,8 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
           const m = await measure(page);
           const off: string[] = [];
           const near = (what: string, a: number | null | undefined, b: number | null | undefined, slack = 0.5) => {
-            if (a == null || b == null || Math.abs(a - b) > slack) off.push(`${what}: ${a} vs ${b}`);
+            if (a == null || b == null || !Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a - b) > slack)
+              off.push(`${what}: ${a} vs ${b}`);
           };
           // The left column: every leading mark on +'s centre, every row's words at the prompt's start.
           near("header mark on +", m.headLead?.cx, m.plus.cx);

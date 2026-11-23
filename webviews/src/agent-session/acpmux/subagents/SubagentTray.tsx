@@ -845,7 +845,7 @@ export const SubagentTray = memo(function SubagentTray({
           ) : loneEnd?.status === "done" && doneLook === "check" && checkPlace === "leading" ? (
             // The `leading` arm (hatParts.experiment.ts `hatDoneCheckPlace`): a lone finished item's check
             // in the lines' glyph column; its time ends the row alone.
-            <span className="acpmux-lineage__icon" data-state="done" style={{ width: ROW_ICON }} aria-hidden="true">
+            <span className="acpmux-lineage__icon" data-state="done" aria-hidden="true">
               <DoneCheck />
             </span>
           ) : (head === "stack" || lone) && drawnMarks.length > 0 ? (

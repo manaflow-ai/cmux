@@ -517,6 +517,10 @@
   height: var(--acpmux-composer-trail-glyph);
   stroke-width: var(--acpmux-composer-trail-stroke);
 }
+/* Keyboard focus draws the mic's pill, beside the send slot's outline. */
+:is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume:focus-visible {
+  background: var(--acpmux-row-hover);
+}
 /* Its hover is the mic's pill (the quiet controls' rule below). A press keeps it. */
 :is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume:not(:disabled):active {
   background: var(--acpmux-row-hover);

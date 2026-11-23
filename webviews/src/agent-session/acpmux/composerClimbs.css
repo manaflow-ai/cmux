@@ -241,7 +241,7 @@
   color: var(--agent-text);
   font-weight: var(--font-weight-emphasis);
 }
-:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] .acpmux-send {
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] .acpmux-send:not(.acpmux-resume) {
   width: var(--acpmux-composer-control);
   height: var(--acpmux-composer-control);
   border-radius: 50%; /* radius-allow: Send is a true circle (Leo: circles truly round) */
