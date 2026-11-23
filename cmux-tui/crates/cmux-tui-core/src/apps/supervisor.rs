@@ -303,6 +303,8 @@ pub(super) struct Inner {
     pub pages: super::page_calls::Pages,
     /// The widget layout and its replayed edits (`widgets.rs`).
     pub widgets: super::widgets::WidgetState,
+    /// Extension signal sources' last values and floors (`signal_sources.rs`).
+    pub signal_sources: super::signal_sources::SignalSources,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -443,14 +445,19 @@ impl Supervisor {
                 seeded = true;
             }
         }
-        // The user's customization app installs itself the first time it appears.
-        if let Some(next) = catalog
-            .packages
-            .get(catalog::CUSTOMIZE_APP)
-            .and_then(|package| super::local_reload::seed_customize(&mirror, package))
-        {
-            mirror = next;
-            seeded = true;
+        // The user's customization app installs itself the first time it
+        // appears, and so does each setup's views layer (its card was the yes).
+        let folder_apps = std::iter::once(catalog::CUSTOMIZE_APP)
+            .chain(catalog.setup_layers.iter().map(String::as_str));
+        for app in folder_apps {
+            if let Some(next) = catalog
+                .packages
+                .get(app)
+                .and_then(|package| super::local_reload::seed_customize(&mirror, package))
+            {
+                mirror = next;
+                seeded = true;
+            }
         }
         for app in &catalog.defaults {
             let Some(package) = catalog.packages.get(app) else { continue };
@@ -499,6 +506,7 @@ impl Supervisor {
                 ladders: HashMap::new(),
                 pages: Default::default(),
                 widgets: Default::default(),
+                signal_sources: Default::default(),
             }),
             config,
             router,
@@ -697,6 +705,7 @@ impl Supervisor {
                 if let Some(storage) = self.storage().as_ref() {
                     let _ = storage.clear(app);
                 }
+                inner.signal_sources.forget_app(app);
                 self.remove_server_dirs(app);
                 self.remove_server_credential(app);
                 vec![]

@@ -30,6 +30,9 @@ Usage: zoom-close-record.py --socket SOCK --out DIR [--only NAME ...] [--seconds
 """
 import argparse, http.server, json, os, socket, sys, threading, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until, wait_stable
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
 parser.add_argument("--out", required=True)
@@ -99,8 +102,29 @@ def action(name, **params):
     return reply
 
 
-def settle(seconds):
-    time.sleep(seconds)  # test harness: the layout and the pages settle
+GEOMETRY = ("id", "pane", "kind", "focused", "selected_tab", "shown_tab", "cell", "grid", "border", "frame")
+
+
+def surfaces():
+    return [p for w in ((rpc("debug.surfaces") or {}).get("windows") or []) for p in w.get("panes") or []]
+
+
+def settle(what, timeout=10.0):
+    """Until the panes' geometry and focus hold still (debug.surfaces without text: a streaming terminal
+    never does, its geometry does); logged when they never do (the run goes on, as it always did)."""
+    if wait_stable(lambda: json.dumps([{k: p.get(k) for k in GEOMETRY} for p in surfaces()], sort_keys=True, default=str),
+                   what, timeout=timeout, interval=0.05, reads=4, raise_on_timeout=False) is None:
+        print(f"note: {what} did not hold still in {timeout:g} s", flush=True)
+
+
+def pane_focused(pane):
+    return any(p.get("focused") and pane in (p.get("pane"), p.get("id")) for p in surfaces())
+
+
+def page_loaded():
+    """The focused page answers document.readyState complete."""
+    reply = rpc("browser.page.eval", {"script": "document.readyState"}, timeout=5)
+    return isinstance(reply, dict) and reply.get("value") == "complete"
 
 
 def panes():
@@ -137,7 +161,9 @@ def cua(name, args, timeout=60):
 
 def focus_pane(pane):
     reply = action("pane.focus", target=f"pane:{pane}")
-    settle(0.4)
+    if not wait_until(lambda: pane_focused(pane), f"pane {pane} focused", timeout=5, raise_on_timeout=False):
+        print(f"note: pane {pane} not shown focused in 5 s", flush=True)
+    settle(f"the layout after focusing {pane}")
     return reply
 
 
@@ -151,7 +177,7 @@ def paint_terminal(pane, color):
     if isinstance(reply, dict) and reply.get("error"):
         # A pane that opened on a New Tab page: a terminal tab first.
         action("newSurface")
-        settle(0.8)
+        settle("the pane after its new terminal tab")
         reply = action("terminal.sendText", args={"text": text})
     print("paint", color, json.dumps(reply)[:140], flush=True)
 
@@ -167,12 +193,8 @@ def new_pane(before, color):
 
 def await_pane(before, color):
     """The pane a split, a new column or a new workspace made, once `debug.pane_chrome` lists it."""
-    for _ in range(20):
-        settle(0.4)
-        pane = new_pane(before, color)
-        if pane:
-            return pane
-    return None
+    return wait_until(lambda: new_pane(before, color), f"the new {color} pane in debug.pane_chrome", timeout=10,
+                      raise_on_timeout=False)
 
 
 def fill(pane, color, engine=None):
@@ -180,10 +202,12 @@ def fill(pane, color, engine=None):
         focus_pane(pane)
         reply = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": BASE + color}}, timeout=90)
         print("open", engine, color, json.dumps(reply)[:160], flush=True)
-        settle(3.0 if engine == "chromium" else 1.5)
+        if not wait_until(page_loaded, f"the {color} {engine} page loaded", timeout=20, interval=0.1, raise_on_timeout=False):
+            print(f"note: the {color} {engine} page did not report loaded in 20 s", flush=True)
+        settle(f"the layout after the {color} page")
     else:
         paint_terminal(pane, color)
-        settle(0.6)
+        settle(f"the layout after painting {color}")
 
 
 def focus(color):
@@ -213,27 +237,21 @@ def first_terminal(color):
     reply = action("workspace.newAtBottom")
     # Through the socket the new workspace is made but not shown: show it (it is the last).
     action("workspace.selectLast")
-    shown = []
-    for _ in range(25):
-        settle(0.4)
-        shown = [p["pane"] for p in panes()]
-        if shown and not (set(shown) & old):
-            break
+    shown = wait_until(lambda: (lambda s: s if s and not (set(s) & old) else None)([p["pane"] for p in panes()]),
+                       "the new workspace's panes", timeout=10, raise_on_timeout=False) or [p["pane"] for p in panes()]
     print("new workspace", color, len(shown), "panes, shared with the last:", len(set(shown) & old), json.dumps(reply)[:100], flush=True)
     origin = shown[0] if len(shown) == 1 and shown[0] not in old else None
     known = {p["pane"] for p in panes()}
     action("splitRight")
-    pane = None
-    for _ in range(20):
-        settle(0.4)
-        created = [p["pane"] for p in panes() if p["pane"] not in known]
-        if created:
-            pane = created[0]
-            break
+    pane = wait_until(lambda: next((p["pane"] for p in panes() if p["pane"] not in known), None),
+                      "the split's terminal pane", timeout=10, raise_on_timeout=False)
     if pane and origin:
         focus_pane(origin)
         action("closePane")
-        settle(0.8)
+        if not wait_until(lambda: origin not in {p["pane"] for p in panes()}, "the New Tab pane closed", timeout=10,
+                          raise_on_timeout=False):
+            print("note: the New Tab pane still listed 10 s after its close", flush=True)
+        settle("the layout after the New Tab pane closed")
     if not pane:
         print("first_terminal: no terminal pane for", color, flush=True)
         return
@@ -273,18 +291,26 @@ def record(name, trigger, seconds=None, pixels=True):
             json.dump(window_on_screen(), handle)
         started_video = cua("start_recording", {"output_dir": video, "record_video": True})
         print(name, "video", json.dumps(started_video)[:160], flush=True)
-        settle(0.4)
+        # sleep-ok: the display video's still lead before the scenario (the daemon's reply says it started).
+        time.sleep(0.4)
     rpc("debug.motion", {"action": "trace_start", "targets": ["panes", "dividers", "zoom", "strip_edges"]})
     rpc("debug.motion", {"action": "start"})
     t0 = time.monotonic()
     pixels = pixels and not opts.no_pixels
     started = rpc("debug.window_record", {"dir": directory, "seconds": seconds}) if pixels else {"pixels": False}
     t_started = time.monotonic() - t0
-    time.sleep(0.15)  # test harness: still frames before the change
+    time.sleep(0.15)  # sleep-ok: the recording keeps still frames before the change
     t_sent = time.monotonic() - t0
     reply = trigger()
     t_replied = time.monotonic() - t0
-    time.sleep(seconds + 0.5)  # test harness: the recording stops by itself
+    if pixels and not (isinstance(started, dict) and started.get("error")):
+        # frames.json lands when the recording stops by itself.
+        if not wait_until(lambda: os.path.exists(os.path.join(directory, "frames.json")), f"{name}'s recording to finish",
+                          timeout=seconds + 15, interval=0.1, raise_on_timeout=False):
+            print(f"warning: {name} wrote no frames.json {seconds + 15:g} s after the record request", flush=True)
+    else:
+        # sleep-ok: with no window record the trace and frame times are the measurement, over this window.
+        time.sleep(seconds + 0.5)
     trace = rpc("debug.motion", {"action": "trace_stop"}) or {}
     work = rpc("debug.motion", {"action": "stop"}) or {}
     with open(os.path.join(directory, "work.json"), "w") as handle:
@@ -300,7 +326,7 @@ def record(name, trigger, seconds=None, pixels=True):
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
     samples = len(trace.get("samples") or [])
     print(f"{name}: {frames} frames, {samples} trace samples; record={json.dumps(started)[:80]} reply={json.dumps(reply)[:140]}", flush=True)
-    settle(0.5)
+    settle(f"the layout after {name}")
 
 
 def toggle():
@@ -309,13 +335,13 @@ def toggle():
 
 def twice():
     first = toggle()
-    time.sleep(0.12)  # test harness: the second key 120 ms after the first
+    time.sleep(0.12)  # sleep-ok: the scenario is the second key 120 ms after the first
     return [first, toggle()]
 
 
 def then_close():
     first = toggle()
-    time.sleep(0.15)  # test harness: the close lands mid-zoom
+    time.sleep(0.15)  # sleep-ok: the scenario is a close 150 ms into the zoom (mid-animation)
     return [first, action("closePane")]
 
 
@@ -472,7 +498,7 @@ def perf():
     for color in ("red", "green"):
         type_into(color, "seq 1 400 | paste -sd ' ' -\r")
     type_into("yellow", "yes\r")
-    settle(0.5)
+    settle("the layout with yes printing")
     focus("green")
     record("perf-zoom-green", toggle, pixels=False)
     record("perf-unzoom-green", toggle, pixels=False)
@@ -499,7 +525,7 @@ def perf_busy_first():
     for color in ("red", "green"):
         type_into(color, "seq 1 400 | paste -sd ' ' -\r")
     type_into("yellow", "yes\r")
-    settle(0.5)
+    settle("the layout with yes printing")
     focus("yellow")
     record("perf-zoom-busy", toggle, pixels=False)
     record("perf-unzoom-busy", toggle, pixels=False)
@@ -514,7 +540,7 @@ def perf_busy_first():
     focus("green")
     record("perf-close-green", lambda: action("closePane"), pixels=False)
     type_into("yellow", "\x03")
-    settle(2)
+    settle("the layout after ctrl-c")
     focus("red")
     print("after ctrl-c, a focus took", json.dumps(action("pane.focus", target=f"pane:{ids.get('red')}"))[:120], flush=True)
 
@@ -524,11 +550,8 @@ LAYOUTS = {"perf-busy-first": perf_busy_first, "close": close_layouts, "row": ro
 
 def main():
     if not (rpc("debug.windows") or {}).get("windows"):
-        for _ in range(120):
-            settle(0.5)
-            if (rpc("debug.windows") or {}).get("windows"):
-                break
-        else:
+        if not wait_until(lambda: (rpc("debug.windows") or {}).get("windows"), "a window from the app", timeout=60,
+                          interval=0.25, raise_on_timeout=False):
             sys.exit("the app does not answer on " + opts.socket)
     os.makedirs(opts.out, exist_ok=True)
     print("speed", json.dumps(rpc("debug.motion", {"action": "speed", "value": opts.speed}))[:200], flush=True)

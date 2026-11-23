@@ -221,6 +221,10 @@ path = "tests/test_fetch_run_artifact.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_fleet_test_host.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_files_host_dev_only.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Proves cmux Files (dev) never reaches a shipped build (docs/cmux-files-host.md, Production): runs the real embed-files-host-dev.sh for every Release configuration and shipped bundle id against a stub asset, and checks FilesHost's #if DEBUG gate. Run python3 tests/test_files_host_dev_only.py on a fleet Mac after changing the embed phase, FilesHost or the pin (seconds; macOS ditto and codesign, no build)."
@@ -555,10 +559,6 @@ reason = "Static check run by the author on the fleet; kept manual under the 202
 
 [[test]]
 path = "tests/test_poll_notary_submission.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_portable_jobs_bring_their_python.py"
 lane = "linux-guard"
 
 [[test]]
