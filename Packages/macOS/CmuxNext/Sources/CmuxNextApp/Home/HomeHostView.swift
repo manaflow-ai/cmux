@@ -20,7 +20,6 @@ import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
-import ImageIO
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
 /// native AppKit transcript (`HomeNativeTranscriptView`, MessagesLab's code,
@@ -66,6 +65,8 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     private var isWorking = false
     /// The Chief is answering (Esc stops it; the floating Chief panel hides on Esc only when it is not).
     lazy var turnActions = control.services.home.chiefHomes.turnActions(for: transcript)
+    /// What this Home's stop button runs on it; tests watch it.
+    var stopChief: @MainActor (HomeHostView) -> Void = { HomeChiefActions.stop(shown: $0) }
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
     /// The card's Runs On chip, on the Chief that `cmux chief move` moves (the header has none).
@@ -217,6 +218,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
+        transcript.clipboardHistory = service.clipboardHistory  // the + menu's recent copies
 
         spellCheckingWatch = Task { [weak self, weak services] in
             for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
@@ -504,7 +506,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             // Decoded off the main actor: an upload's still or the registry picture.
             let data = avatar.picture
             // task-owner: one decode of the avatar picture; ends when it is shown
-            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(Self.decode) }.value
+            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(HomePictureDecode.firstFrame) }.value
             // A read for the Chief or the character shown before (another came in since) is dropped.
             guard let self, control.brainHome == home,
                   fallback == fallbackPicture else { return }
@@ -516,12 +518,6 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             (control.services.pages.provider(.chiefComputer) as? ChiefComputerPages)?
                 .setAvatar(conversation: control.conversation.rawValue, picture: picture, text: text)
         }
-    }
-
-    /// The first frame of the picture `data` holds, decoded now.
-    private nonisolated static func decode(_ data: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

@@ -63,6 +63,19 @@ cmux customize use ~/.local/state/cmux/customize/recipes/hairline.json
 
 Or ask: "make cmux flat and neutral: gray surfaces, one-pixel lines, one corner radius, a focus ring and no glass"
 
+### Tonal: one seed, every color
+
+Every color from one sage-teal seed, in tonal steps: the sidebar and tab strip a few tones off
+the page, opaque surfaces with no glass or blur, the work in one rounded card, and the primary
+color for selection, focus and Send. It brings Tonal Dark too
+(`cmux settings set appearance.themeFile tonal-dark`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/tonal.json
+```
+
+Or ask: "make cmux one calm tonal theme from a single seed color, opaque, no glass"
+
 ### Ukiyo-e: the Great Wave
 
 Hokusai's Great Wave behind frosted washi paper, Prussian-blue ink, a two-tone window and serif pages. It ships its theme file (`themes/ukiyo-e.json`).
