@@ -277,6 +277,10 @@ pub struct Summary {
     pub offset_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clock_rtt_ms: Option<f64>,
+    /// The most the offset can be wrong by (ms): half the round trip of the sample it came
+    /// from, since that sample's two directions can split the round trip at worst all one way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset_error_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtt_ms: Option<u64>,
     /// The phone's Agent CLI Screen Changes setting when it sent the report.
@@ -298,6 +302,24 @@ pub struct Summary {
     /// hostd read to the phone's paint (needs the offset).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<Part>,
+    /// The newest sample's total (ms): the live number the phone's overlay shows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_total_ms: Option<f64>,
+}
+
+impl Summary {
+    /// The answer hostd sends back on `phone-frames` for a paint report
+    /// (`{"kind":"paint-summary",...}`): this summary without the phone's name, so a DEBUG
+    /// overlay on the phone shows the Mac's join of its own report. A phone that does not read
+    /// answers has closed its channel already; the line is dropped.
+    pub fn answer(&self) -> Vec<u8> {
+        let mut value = serde_json::to_value(self).unwrap_or_default();
+        if let Some(object) = value.as_object_mut() {
+            object.remove("phone");
+            object.insert("kind".into(), "paint-summary".into());
+        }
+        value.to_string().into_bytes()
+    }
 }
 
 /// Joins `report` from `phone` with the stamps `lookup` gives (hostd's ring).
@@ -342,6 +364,7 @@ pub fn summarize(
         }
     }
     let round = |v: f64| (v * 100.0).round() / 100.0;
+    let last_total = total.last().copied().map(round);
     Summary {
         at_ms,
         phone: phone.to_owned(),
@@ -353,6 +376,7 @@ pub fn summarize(
         joined,
         offset_ms: offset.map(round),
         clock_rtt_ms: best.map(|c| round(c.rtt_ms())),
+        offset_error_ms: best.map(|c| round(c.rtt_ms() / 2.0)),
         rtt_ms: report.rtt_ms,
         agent_cli_hybrid: report.agent_cli_hybrid,
         path: None,
@@ -360,6 +384,7 @@ pub fn summarize(
         wire: Part::of(wire),
         phone_paint: Part::of(paint),
         total: Part::of(total),
+        last_total_ms: last_total,
     }
 }
 
@@ -468,6 +493,14 @@ mod tests {
         );
         let total = s.total.unwrap();
         assert_eq!((total.n, total.p50_ms, total.max_ms), (3, 41.0, 57.0), "41, 57 and 8 ms");
+        assert_eq!(s.offset_error_ms, Some(20.0), "half the best probe's 40 ms round trip");
+        assert_eq!(s.last_total_ms, Some(8.0), "the newest joined sample, seq 3");
+        let answer: serde_json::Value = serde_json::from_slice(&s.answer()).unwrap();
+        assert_eq!(answer["kind"], "paint-summary");
+        assert!(answer.get("phone").is_none(), "the phone's own name does not go back to it");
+        assert_eq!(answer["total"]["p95_ms"], 57.0);
+        assert_eq!(answer["offset_error_ms"], 20.0);
+        assert_eq!(answer["last_total_ms"], 8.0);
     }
 
     #[test]

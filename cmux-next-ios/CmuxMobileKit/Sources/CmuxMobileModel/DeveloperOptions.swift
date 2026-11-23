@@ -26,6 +26,10 @@ public enum DeveloperOptions {
     public static let slowApprovalKey = "cmuxMobile.dev.slowApproval"
     /// The key of builds that called it slow mock Face ID; removed with the others.
     static let retiredSlowFaceIDKey = "cmuxMobile.dev.slowFaceID"
+    /// `UserDefaults` key: the terminal shows Mac redraw to iPhone paint, live, with p50/p95
+    /// and the clock error (`-cmuxMobile.dev.paintLatencyOverlay YES`). The same string as
+    /// `TerminalPaintOverlay.key`; read when a terminal opens.
+    public static let paintLatencyOverlayKey = "cmuxMobile.dev.paintLatencyOverlay"
     /// `UserDefaults` key: the terminal demo's phases (`-CmuxMobileTerminalDemoPhases`).
     public static let terminalDemoPhasesKey = "CmuxMobileTerminalDemoPhases"
 
@@ -34,7 +38,7 @@ public enum DeveloperOptions {
     /// same container can never apply.
     public static let storedKeys = [
         mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
-        slowApprovalKey, retiredSlowFaceIDKey, CloudBackendOverride.storedKey,
+        slowApprovalKey, retiredSlowFaceIDKey, paintLatencyOverlayKey, CloudBackendOverride.storedKey,
     ]
 
     /// Removes every stored developer setting (Production launch).

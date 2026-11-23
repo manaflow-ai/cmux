@@ -642,9 +642,14 @@ extension LiveCoordinator {
 
     /// Sends painted redraws to the Mac (`phone-frames` `paint`): a few clock probes first, so
     /// hostd puts the phone's times on its clock (the probe with the shortest round trip).
-    func sendPaint(_ samples: [TerminalPaintTally.Sample], program: String?, macID: String) async {
+    /// With the DEBUG paint-latency overlay on it reads hostd's join back (at most 2 s: a hostd
+    /// from before the answer sends none) and returns it.
+    @discardableResult
+    func sendPaint(_ samples: [TerminalPaintTally.Sample], program: String?, macID: String) async
+        -> TerminalPaintSummary? {
         guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
-              let owner = session(macID: macID), let link = owner.servedLink else { return }
+              let owner = session(macID: macID), let link = owner.servedLink else { return nil }
+        let wantsSummary = TerminalPaintOverlay.enabled
         let rtt: Int? = if case .connected(_, _, let measured) = owner.link.phase {
             measured.map(Int.init)
         } else {
@@ -654,10 +659,10 @@ extension LiveCoordinator {
             timeout: .seconds(10),
             operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
             onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
-        ) else { return }
-        _ = try? await LinkDeadline.run(
+        ) else { return nil }
+        let sent = try? await LinkDeadline.run(
             timeout: .seconds(10),
-            operation: {
+            operation: { () -> Bool in
                 var clock: [[Double]] = []
                 for _ in 0..<4 {
                     try await channel.send(TerminalPaintReport.clockProbe(t0: TerminalPaintReport.nowMs))
@@ -671,11 +676,22 @@ extension LiveCoordinator {
                     program: program, samples: samples, clock: clock, rttMs: rtt,
                     agentCLIHybrid: DaemonTerminalSession.agentCLIHybridEnabled()
                 )
-                if let line = report.line() { try await channel.send(line) }
+                guard let line = report.line() else { return false }
+                try await channel.send(line)
+                return true
             },
             onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }
         )
+        var summary: TerminalPaintSummary?
+        if wantsSummary, sent == true {
+            summary = try? await LinkDeadline.run(
+                timeout: .seconds(2),
+                operation: { try await channel.receive().flatMap(TerminalPaintSummary.init(answer:)) },
+                onCancel: { await channel.close(code: "eof", reason: "paint summary expired") }
+            )
+        }
         await channel.close(code: "eof", reason: "")
+        return summary
     }
 
     /// Whether the phone holds (or is opening) a link to the Mac.

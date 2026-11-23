@@ -984,7 +984,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   with its stamps and appends `{"kind": "paint", "samples", "joined", "offset_ms",
   "clock_rtt_ms", "path", "mac", "wire", "phone_paint", "total"}`, each part
   `{"n", "p50_ms", "p95_ms", "max_ms"}`: (a) `mac` read to socket, (b) `wire` socket to
-  the phone's receive, (c) `phone_paint` receive to present, and `total`.
+  the phone's receive, (c) `phone_paint` receive to present, and `total`. It answers the
+  same join on the channel, as `{"kind": "paint-summary", ...}` with `offset_error_ms` (half
+  the chosen probe's round trip) and `last_total_ms` (the newest sample's total) and without
+  `phone` (2026-11-23). A phone that wants it (the DEBUG paint-latency overlay) reads one
+  line after its report, for at most 2 s; one that does not closes, and the answer is dropped.
 - `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
   Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
   content-addressed blobs. No open args; machines need the View grant. Both ways the

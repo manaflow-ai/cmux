@@ -310,11 +310,14 @@ pub async fn serve_on(
                         }
                     }
                     Some(Line::Clock(_)) => {}
-                    Some(Line::Paint) => {
-                        if let Err(why) = record_paint(&bytes, phone, path, route()) {
-                            tracing::info!(phone, ?why, "phone paint dropped");
+                    Some(Line::Paint) => match record_paint(&bytes, phone, path, route()) {
+                        // The join goes back to the phone (its DEBUG overlay); a phone that
+                        // closed after its report never reads it, and that is not an error.
+                        Ok(summary) => {
+                            let _ = sender.send(bytes::Bytes::from(summary.answer())).await;
                         }
-                    }
+                        Err(why) => tracing::info!(phone, ?why, "phone paint dropped"),
+                    },
                     None => {
                         if let Err(why) = record_on(&bytes, phone, path, route()) {
                             tracing::info!(phone, ?why, "phone frames dropped");
