@@ -26,6 +26,9 @@ public final class WindowOverlayHost {
     /// The parent window; nil for the app host.
     public private(set) weak var window: NSWindow?
     public let panel: OverlayHostPanel
+    /// Where each press in this window went (`cmux app clicks`, #49788): this host's own take and forward, a divider
+    /// catcher's forward and each page focus grant report here.
+    public let clickTrace = ClickTrace()
     let isAppHost: Bool
     var handles: [OverlayHandle] = []
     /// Dialogs still fading out after their removal: the panel stays until they finish.
@@ -115,6 +118,7 @@ public final class WindowOverlayHost {
                 return []
             }
         }
+        if let window { clickTrace.startMonitoring(window: window, panel: panel) }
         if isAppHost {
             // Above the app's own windows while cmux is active; hidden while
             // another app is active, so it never covers other apps.
@@ -153,6 +157,11 @@ public final class WindowOverlayHost {
     /// The host of `window` if one exists (never makes one).
     public static func existingHost(for window: NSWindow) -> WindowOverlayHost? {
         hosts[ObjectIdentifier(window)].flatMap { $0.window === window && !$0.isTearingDown ? $0 : nil }
+    }
+
+    /// Every open window's click trace (`input.clicks` merges them).
+    public static var clickTraces: [ClickTrace] {
+        hosts.values.filter { $0.window != nil && !$0.isTearingDown }.map(\.clickTrace)
     }
 
     /// The app host if one was made (never makes one).
@@ -209,6 +218,7 @@ public final class WindowOverlayHost {
 
     func tearDown() {
         isTearingDown = true
+        clickTrace.stopMonitoring()
         // A detach still waiting for its empty frame is moot: the panel closes below.
         detachGeneration += 1
         detachPending = false

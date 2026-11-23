@@ -294,7 +294,7 @@ fn a_list_not_loaded_has_no_machines_but_keeps_creations() {
         json!([{"creation_id": "c-1", "name": "lane-vm-1", "status": "creating"},
                {"creation_id": "c-2", "name": null, "status": "failed", "reason": "plan cap"}])
     );
-    assert_eq!(fields["account"], json!({"signed_in": true}));
+    assert_eq!(fields["account"], json!({"signed_in": true, "user": null}));
 }
 
 #[test]
@@ -311,8 +311,29 @@ fn a_loaded_list_names_each_machine_its_target_and_owner() {
     assert_eq!(
         fields["machines"][0],
         json!({"machine_id": "vm-1", "target": "machine:vm-1", "title": "box", "status": "paused", "owner": "team",
-               "created_by": "u-1", "created_at": "2023-11-14T22:13:20Z", "error": {"code": "c", "message": "m"}})
+               "created_by": "u-1", "created_at": "2023-11-14T22:13:20Z", "last_active_at": null,
+               "error": {"code": "c", "message": "m"}})
     );
     assert_eq!(fields["machines"][1]["created_at"], Value::Null);
     assert_eq!(fields["machines"][1]["error"], Value::Null);
+}
+
+/// `cmux chat --on cloud` picks the person's most recently used running chat VM: the list says
+/// who is signed in and when each machine was last used.
+#[test]
+fn a_loaded_list_says_who_is_signed_in_and_when_each_machine_was_last_used() {
+    let list: MachineList = serde_json::from_value(json!({
+        "loaded": true, "team": true, "signedIn": true, "user": "user_1",
+        "machines": [{"machineId": "vm-1", "title": "a", "status": "running", "createdBy": "user_1",
+                      "lastApiActivityAt": 1_700_000_100_000.0, "runningSince": 1_700_000_000.0},
+                     {"machineId": "vm-2", "title": "b", "status": "running", "runningSince": 1_700_000_000.0},
+                     {"machineId": "vm-3", "title": "c", "status": "paused"}],
+    }))
+    .unwrap();
+    let fields = machine_list(&list);
+    assert_eq!(fields["account"], json!({"signed_in": true, "user": "user_1"}));
+    // Its last API activity, else when it last started running, else nothing known.
+    assert_eq!(fields["machines"][0]["last_active_at"], json!("2023-11-14T22:15:00Z"));
+    assert_eq!(fields["machines"][1]["last_active_at"], json!("2023-11-14T22:13:20Z"));
+    assert_eq!(fields["machines"][2]["last_active_at"], Value::Null);
 }
