@@ -38,6 +38,8 @@ import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { threadMinimapWave } from "./wave.experiment";
 import { HoverWave, ZipperWave } from "./hoverWave";
+import { RailRevealIntent } from "./railIntent";
+import { threadMinimapReveal } from "./reveal.experiment";
 import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
@@ -492,6 +494,60 @@ function ThreadMinimapView({
       intend(null);
     }, grace);
   };
+  /// What may reveal the occluded rail from the strip (railIntent.ts): a rest of the pointer with no
+  /// button down, never a selection drag that began in the text, which also hides a rail already out.
+  /// The callbacks read the latest closures through `intentCalls`.
+  const intentCalls = useRef({ reveal: () => {}, hide: () => {} });
+  intentCalls.current = {
+    reveal: () => revealAndWarm(),
+    hide: () => {
+      if (railHideTimer.current !== undefined) {
+        clearTimeout(railHideTimer.current);
+        railHideTimer.current = undefined;
+      }
+      setRailRevealed(false);
+    },
+  };
+  /// A press that began in the text is under way (a selection drag): the rail and its strip take no
+  /// pointer until it ends (threadMinimap.css `data-text-press`), so a drag along the edge keeps selecting.
+  const [textPress, setTextPress] = useState(false);
+  /// How the strip treats a resting or dragging pointer (reveal.experiment.ts), read once per pane.
+  const [revealArm] = useState(() => experimentArm(threadMinimapReveal));
+  const revealIntent = useRef<RailRevealIntent | undefined>(undefined);
+  revealIntent.current ??= new RailRevealIntent(
+    () => intentCalls.current.reveal(),
+    () => intentCalls.current.hide(),
+    undefined,
+    revealArm === "intent" ? undefined : 0,
+  );
+  useEffect(() => {
+    const intent = revealIntent.current;
+    const page = typeof window === "undefined" ? undefined : window;
+    if (!intent || !page || revealArm === "immediate") return;
+    const own = (target: EventTarget | null) =>
+      target instanceof Node && (rail.current?.contains(target) || card.current?.contains(target) || false);
+    const press = (event: PointerEvent) => {
+      if (event.button !== 0 || event.target === strip.current || own(event.target)) return;
+      intent.pressOutside();
+      setTextPress(true);
+      setHovered(undefined);
+    };
+    const end = () => {
+      intent.release();
+      setTextPress(false);
+    };
+    page.addEventListener("pointerdown", press, true);
+    page.addEventListener("pointerup", end, true);
+    page.addEventListener("pointercancel", end, true);
+    page.addEventListener("blur", end);
+    return () => {
+      intent.cancel();
+      page.removeEventListener("pointerdown", press, true);
+      page.removeEventListener("pointerup", end, true);
+      page.removeEventListener("pointercancel", end, true);
+      page.removeEventListener("blur", end);
+    };
+  }, [revealArm]);
   /// The row keyboard focus is on.
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
@@ -1658,6 +1714,7 @@ function ThreadMinimapView({
           className="acpmux-minimap__strip"
           aria-hidden="true"
           data-side={side}
+          data-text-press={textPress || undefined}
           // The wheel over the strip scrolls a list that scrolls itself (railWheel.ts), as over the list.
           {...(overflow ? { [RAIL_SCROLLS_ATTRIBUTE]: "" } : {})}
           style={{
@@ -1666,12 +1723,19 @@ function ThreadMinimapView({
             width: railVisible ? placement.left : stripWidth,
             height,
           }}
-          onPointerEnter={() => {
+          onPointerEnter={(event) => {
             overStrip.current = true;
-            revealAndWarm();
+            // Beside the text the rail is already drawn; over it, the pointer must rest, with no
+            // button down, before the rail covers the text (railIntent.ts).
+            if (placement.overlapsText && revealArm !== "immediate") revealIntent.current?.enter(event.buttons);
+            else revealAndWarm();
+          }}
+          onPointerMove={(event) => {
+            if (placement.overlapsText && revealArm !== "immediate") revealIntent.current?.move(event.buttons);
           }}
           onPointerLeave={(event) => {
             overStrip.current = false;
+            revealIntent.current?.leave();
             if (!within(rail.current, event.relatedTarget) && !within(card.current, event.relatedTarget))
               hideRailAfterGrace();
           }}
@@ -1695,6 +1759,7 @@ function ThreadMinimapView({
             } as React.CSSProperties
           }
           data-hovering={hovered !== undefined || undefined}
+          data-text-press={textPress || undefined}
           data-occluded={!railVisible || undefined}
           // The `dimmed` gutter arm (gutter.experiment.ts) draws the occluded rail faint instead of hidden.
           data-dim={(placement.gutterArm === "dimmed" && !railVisible) || undefined}
