@@ -97,11 +97,11 @@ enum BrowserHandlers {
             entry.state.modes.colorScheme = scheme
             (entry.tab as? any BrowserColorSchemeApplying)?.applyColorScheme(scheme)
         })
-        registry.bind("browserPrint", run: { invocation in
-            guard BrowserPagePrint(try context.page(invocation).tab).run() else {
-                throw ActionFailure(message: MiscHandlerStrings.printUnavailable)
-            }
-        })
+        // Print, and Save Page As, Cast, QR code and Translate: the engine's own page panels (cmux_shim_page_command).
+        registry.bindEffect("browserPrint", requires: nil, effect: { BrowserPagePrint(try context.page($0).tab).run() ? .done : .refused(MiscHandlerStrings.printUnavailable) })
+        for (id, command) in BrowserPageCommand.Command.actions {
+            registry.bindEffect(id, requires: nil, effect: { try BrowserPageCommand(context.page($0).tab).run(command) ? .done : .refused(BrowserPageCommand.unavailable) })
+        }
         registry.bind("browserScreenshotPage", run: { invocation in
             let tab = try context.page(invocation).tab
             copyScreenshot(context) { try await tab.snapshot() }
