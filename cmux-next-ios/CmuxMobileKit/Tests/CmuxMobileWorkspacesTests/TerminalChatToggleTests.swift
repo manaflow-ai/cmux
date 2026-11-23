@@ -151,6 +151,11 @@ struct TerminalChatToggleTests {
         #expect(terminal.typed == ["s1: fix the build"])
         #expect(chat.returnedDraft?.text == "and the tests")
         #expect(chat.clientError == AgentChatStore.terminalNotTakingPromptNotice)
+        // The model and mode belong to the terminal's agent: the View Only chat does not change them.
+        chat.setModel("opus")
+        #expect(chat.clientError == AgentChatStore.terminalSettingsNotice)
+        chat.setMode("plan")
+        #expect(chat.clientError == AgentChatStore.terminalSettingsNotice)
     }
 
     @Test func aTerminalWithNoChatAsksTheMacForTheViewOnlyChatOnce() async throws {

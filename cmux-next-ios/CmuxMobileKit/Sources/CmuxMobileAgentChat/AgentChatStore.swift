@@ -320,6 +320,11 @@ public final class AgentChatStore {
     public static let terminalAttachmentsNotice = "Not sent: attach files from the Terminal face."
     /// `/fork` or `/continue` on a terminal's Chat face: the terminal runs the session.
     public static let terminalCommandNotice = "This chat runs in its terminal: fork or continue it from the Terminal face."
+    /// A permission, sudo or other question waiting on a terminal's Chat face: the terminal shows
+    /// it as a menu, where typed text and Return would pick an option, so it is answered there.
+    public static let terminalQuestionNotice = "Answer this in the Terminal face: the terminal is asking it."
+    /// The model, mode or settings on a terminal's Chat face: the terminal's agent owns them.
+    public static let terminalSettingsNotice = "This chat runs in its terminal: change it from the Terminal face."
     /// What the chat says when the Mac refused a send for this phone's Full-access setting
     /// (acpmux `remote.full_access_required`): the mobile host asks for it only for what makes a
     /// chat act without asking first (a message to a chat in such a mode, or a switch to one).
@@ -582,6 +587,12 @@ public final class AgentChatStore {
         clientError = nil
         if let terminalRoute {
             // A terminal's Chat face: the terminal runs the session, so the prompt is typed there.
+            // Not while it asks a question: its menu would take the text and Return as a choice.
+            if pendingPermission != nil || pendingElevation != nil {
+                returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: nil)
+                clientError = Self.terminalQuestionNotice
+                return
+            }
             if !attachments.isEmpty || !terminalRoute.prompt(text) {
                 returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: nil)
                 clientError = attachments.isEmpty ? Self.terminalNotTakingPromptNotice : Self.terminalAttachmentsNotice
@@ -663,6 +674,8 @@ public final class AgentChatStore {
     }
 
     public func respond(to request: ACPPermissionRequest, option: ACPPermissionOption?) {
+        // A View Only chat cannot answer for the terminal that runs the session.
+        if terminalRoute != nil { clientError = Self.terminalQuestionNotice; return }
         // A refusal is about the previous answer ("Approve this on your Mac"):
         // a new answer, such as the decline that follows, replaces it.
         clientError = nil
@@ -678,6 +691,7 @@ public final class AgentChatStore {
     /// Answers the sudo card: Approve with the password (signed with the approval key), or Deny.
     /// The card stays until acpmux records its decision; a failed send says why (``clientError``).
     public func answerElevation(_ ask: AgentElevationAsk, password: String?) {
+        if terminalRoute != nil { clientError = Self.terminalQuestionNotice; return }
         clientError = nil
         sendingElevation = password != nil
         source.send(.answerElevation(ask, password: password.map(AgentSecretText.init)))
@@ -826,7 +840,10 @@ public final class AgentChatStore {
         source.send(.answerQuestion(questionId: question.id, answer: answer))
     }
 
-    public func setModel(_ id: String) { source.send(.setModel(id)) }
+    public func setModel(_ id: String) {
+        if terminalRoute != nil { clientError = Self.terminalSettingsNotice; return }
+        source.send(.setModel(id))
+    }
 
     /// Retry on a finished turn: its prompt goes again with what it attached. An image only
     /// the Mac's record holds is read back first; one that can't be read goes without its
@@ -868,7 +885,10 @@ public final class AgentChatStore {
 
     /// The models Retry with another model offers (the Mac shows it only with two or more).
     public var retryModels: [ACPModelInfo] { models.count > 1 ? models : [] }
-    public func setMode(_ id: String) { source.send(.setMode(id)) }
+    public func setMode(_ id: String) {
+        if terminalRoute != nil { clientError = Self.terminalSettingsNotice; return }
+        source.send(.setMode(id))
+    }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
 
