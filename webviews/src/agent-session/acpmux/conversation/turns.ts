@@ -1184,6 +1184,22 @@ function stackedSteerFooters(turn: readonly AcpmuxRow[]): Set<string> {
   return ids;
 }
 
+/// `footed` without the footers over the person's steers (`stackedSteerFooters`), for the `stacked` arm. The
+/// turn's own footer keeps what it copies and reads aloud: `supersededFooters` takes that from it when the
+/// turn ended right on a steer, since the footer over the steer carried it, and that footer goes here.
+function stackedFooters(
+  footed: AcpmuxRow[],
+  unfooted: readonly AcpmuxRow[],
+  dropped: ReadonlySet<string>,
+): AcpmuxRow[] {
+  return footed.flatMap((row) => {
+    if (dropped.has(row.id)) return [];
+    if (row.kind !== "turnSummary" || row.superseded || row.text || row.turnCopy) return [row];
+    const before = unfooted.find((each) => each.id === row.id);
+    return [before && (before.text || before.turnCopy) ? { ...before, version: row.version * 2 + 1 } : row];
+  });
+}
+
 /// `rows` with each agent reply of a lone "." marked `answersPerson` when `user` is the person's own
 /// prompt, so it still draws (visibleMessage.ts): a reply to the person is theirs to see, however
 /// short (Leo, 2026-11-03, on hiding punctuation-only replies: "well there are cases (rare) that you
@@ -1351,7 +1367,7 @@ function shapedTurn(
     // Stacked, a steer closes no stretch of its own: the footer that would end the stretch before it
     // goes, and the turn's one footer copies the turn.
     const stackedSteers = steeredArm === "stacked" && foldStyle.conclusion ? stackedSteerFooters(turn) : undefined;
-    const body = sinceAboveWorked(stackedSteers?.size ? footed.filter((row) => !stackedSteers.has(row.id)) : footed);
+    const body = sinceAboveWorked(stackedSteers?.size ? stackedFooters(footed, runs, stackedSteers) : footed);
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];

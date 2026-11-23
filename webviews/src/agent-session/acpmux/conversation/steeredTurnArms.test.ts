@@ -93,3 +93,20 @@ for (const arm of ["stacked", "inline"])
     expect(loose(view(arm))).toEqual([]);
     expect(loose(view(arm, twoSteers()))).toEqual([]);
   });
+
+test("stacked: a turn that ends right on a steer still copies the turn from its footer", () => {
+  at = 0;
+  const rows = [
+    row("prompt", "user", { text: "Tidy the footer" }),
+    run("run-1", "git status"),
+    row("ack", "assistant", { text: "Looking." }),
+    row("steer", "user", { text: "also the header", steer: "landed" }),
+    row("s", "turnSummary", { status: "completed", durationMs: 4_000, toolCount: 1 }),
+  ];
+  const inOrder = view(undefined, rows).find((entry) => entry.id === "superseded-steer");
+  const stacked = view("stacked", rows);
+  expect(ids(stacked)).toEqual(["prompt", "steer", "worked-prompt", "ack", "s"]);
+  const footer = stacked.find((entry) => entry.id === "s");
+  expect(inOrder?.turnCopy).toBeTruthy();
+  expect(footer?.turnCopy ?? footer?.text).toBeTruthy();
+});
