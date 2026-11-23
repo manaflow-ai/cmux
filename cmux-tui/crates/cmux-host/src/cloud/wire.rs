@@ -321,6 +321,10 @@ pub struct Activity {
     /// The agent's workload probe (`workload.rs`), while it reads
     /// ([`ACTIVITY_WORKLOAD_CAPABILITY`]).
     pub workload: Option<Value>,
+    /// The machine's idle window from its applied `.cmux/machine.toml` (cmux-cloud-start-core
+    /// `machine_config::idle`; a lane: 300 s): the Cloud pauses it this long after its last
+    /// activity (cmux-platform `domain/Pause.ts`). None: the file declares none.
+    pub idle_window_seconds: Option<u64>,
 }
 
 impl Activity {
@@ -341,6 +345,9 @@ impl Activity {
         }
         if let Some(workload) = &self.workload {
             out.insert("workload".to_owned(), workload.clone());
+        }
+        if let Some(seconds) = self.idle_window_seconds {
+            out.insert("idle_window_seconds".to_owned(), json!(seconds));
         }
         Value::Object(out)
     }
@@ -364,6 +371,7 @@ impl Activity {
             phases: acp_phases,
             last_person_prompt_at: acp_prompt_at,
             workload: self.workload.clone(),
+            idle_window_seconds: self.idle_window_seconds,
         }
     }
 }

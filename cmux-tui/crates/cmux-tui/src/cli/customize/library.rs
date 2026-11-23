@@ -57,15 +57,22 @@ pub(in crate::cli) enum Request {
         on: bool,
     },
     /// Every code entry against what is published (a folder: built again)
-    /// and this build.
-    Refresh,
+    /// and this build. `if_app_changed`: only when the app's commit is not
+    /// the one refresh last ran on (the app runs it at start), and quiet
+    /// when it is.
+    Refresh {
+        if_app_changed: bool,
+    },
+    /// `refresh --wait`: waits in the background for the rebuilds refresh
+    /// asked CI for (rebuild.rs), bounded; refresh starts it.
+    RefreshWait,
     /// Every layer past its bound off: a PR merged or closed, a code layer
     /// on longer than 24 hours, a hand-installed overlay as old (the app
     /// runs it at launch).
     Expire,
 }
 
-const USAGE: &str = "customize library takes list, status, refresh, expire, on NAME, off NAME [--reason TEXT], off --code [--reason TEXT], off --all, reset, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
+const USAGE: &str = "customize library takes list, status, refresh [--if-app-changed], expire, on NAME, off NAME [--reason TEXT], off --code [--reason TEXT], off --all, reset, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
 
 /// Parses the words after `library`.
 pub(super) fn parse(words: &[String]) -> Result<Request, String> {
@@ -76,7 +83,12 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
     let Some((verb, rest)) = words.split_first() else { return Ok(Request::List) };
     match verb.as_str() {
         "list" | "ls" if rest.is_empty() => Ok(Request::List),
-        "refresh" if rest.is_empty() => Ok(Request::Refresh),
+        "refresh" if rest == ["--wait"] => Ok(Request::RefreshWait),
+        "refresh" => match rest {
+            [] => Ok(Request::Refresh { if_app_changed: false }),
+            [flag] if flag == "--if-app-changed" => Ok(Request::Refresh { if_app_changed: true }),
+            _ => Err("customize library refresh takes only --if-app-changed or --wait".to_owned()),
+        },
         "expire" if rest.is_empty() => Ok(Request::Expire),
         "status" if rest.is_empty() => Ok(Request::Status),
         "reset" if rest.is_empty() => Ok(Request::OffAll),
@@ -194,8 +206,15 @@ pub(super) fn execute(
             human.push_str(&expired_lines(&customize.expired(now_ms), expiring.as_ref()));
             Answer::Library { json: json!({ "library": listing }), human }
         }
-        Request::Refresh => {
-            with_no_longer_applies(customize, super::pr::refresh(customize, origin, now_ms)?)
+        Request::RefreshWait => super::rebuild::wait(customize, origin, super::now_ms)?,
+        Request::Refresh { if_app_changed } => {
+            let app = super::pr::App::find().commit;
+            refresh_when(customize, app.as_deref(), if_app_changed, || {
+                Ok(with_no_longer_applies(
+                    customize,
+                    super::pr::refresh(customize, origin, now_ms)?,
+                ))
+            })?
         }
         Request::Expire => super::expire::run(customize, origin, now_ms)?,
         Request::On { name } if name == expire::WEB_DEV_OVERLAY => {
@@ -246,6 +265,13 @@ pub(super) fn execute(
                 }
                 human.push('\n');
             }
+            let entries = customize.library().map(|listing| listing.entries).unwrap_or_default();
+            let still_off =
+                |name: &str| entries.iter().any(|entry| entry.name == name && !entry.on);
+            human.push_str(&super::rebuild::off_lines(
+                &super::rebuild::Rebuilds::load(customize),
+                still_off,
+            ));
             if let Some(overlay) = &layers.overlay {
                 human.push_str(&format!("  web-dev.json overlay: {overlay}\n"));
             }
@@ -316,6 +342,35 @@ pub(super) fn execute(
             answer
         }
     })
+}
+
+/// `refresh`, then the app commit it ran on recorded in the library. With
+/// `if_app_changed` it runs only when [`refresh_due`] says so and there is a
+/// code entry to refresh; else it answers nothing at all, so the app's start
+/// says nothing when nothing changed.
+///
+/// [`refresh_due`]: cmux_customize::library::refresh_due
+fn refresh_when(
+    customize: &Customize,
+    app: Option<&str>,
+    if_app_changed: bool,
+    run: impl FnOnce() -> Result<Answer, Failure>,
+) -> Result<Answer, Failure> {
+    if if_app_changed {
+        let has_code = customize.library()?.entries.iter().any(|entry| entry.code.is_some());
+        let recorded = customize.library_refreshed_on()?;
+        if !has_code || !cmux_customize::library::refresh_due(recorded.as_deref(), app) {
+            return Ok(Answer::Library {
+                json: json!({ "refreshed": [], "app_changed": false }),
+                human: String::new(),
+            });
+        }
+    }
+    let answer = run()?;
+    if let Some(app) = app {
+        customize.library_mark_refreshed(app)?;
+    }
+    Ok(answer)
 }
 
 /// `answer` with one line for each entry that is on with keys this app no

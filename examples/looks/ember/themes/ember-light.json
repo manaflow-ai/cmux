@@ -1,11 +1,11 @@
 // Ember Light: the same floating command surface in its light theme. Light glass: a white window
-// that floats over the desktop, the sidebar a gray inset panel (#F0F0F0) with neutral gray selected
+// that floats over the desktop, the sidebar a white inset panel (#FFFFFF) with neutral gray selected
 // rows (#E3E3E3), near-black titles over gray secondary lines, and the coral red a step deeper
 // (#E5484D) so it still marks focus on white. Compact 32 px rows in a 260 px sidebar, large soft
 // corners, quick spring motion.
 {
   "name": "Ember Light",
-  "description": "A floating command-surface look, Light: light glass, a gray inset sidebar, neutral gray selection, one coral red.",
+  "description": "A floating command-surface look, Light: light glass, a white inset sidebar, neutral gray selection, one coral red.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
@@ -80,10 +80,11 @@
   "appearance.metrics.columnGap": 8,
   "appearance.metrics.dividerThickness": 1,
 
-  // The sidebar: a gray inset panel (#F0F0F0) at 86% over the glass, no edge line, muted grouping
+  // The sidebar: a white inset panel at 86% over the glass (a gray #F0F0F0 left the muted captions
+  // of a selected row under 4.5:1, `cmux theme check`), no edge line, muted grouping
   // labels ("Yesterday", "This Week").
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f0f0f0",
+  "appearance.surfaces.sidebar.color": "#ffffff",
   "appearance.surfaces.sidebar.opacity": 0.86,
   "sidebar.style": "standard",
   "sidebar.border": false,
