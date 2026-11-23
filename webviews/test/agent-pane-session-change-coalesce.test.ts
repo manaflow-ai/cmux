@@ -509,7 +509,10 @@ test("a hidden stream catches up to the same rows as an eager fold", async () =>
         },
       },
     });
-    for (const [seq, status] of [[405, "in_progress"], [406, "completed"]] as const)
+    for (const [seq, status] of [
+      [405, "in_progress"],
+      [406, "completed"],
+    ] as const)
       socket.notify("_acpmux/event", {
         sessionId: SELECTED,
         seq,

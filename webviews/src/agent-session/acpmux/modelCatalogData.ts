@@ -298,6 +298,55 @@ type WorkedBest = ReadonlyMap<string, { time: number; at: number }>;
 /// `noteReplaced`) updates at the replaced entries.
 const workedOf = new WeakMap<readonly Worked[], WorkedBest>();
 
+type PreparedPickerCatalog = {
+  catalog: ModelCatalog;
+  sourceCatalog: ModelCatalog;
+  user: unknown;
+  acpmux: AcpmuxCatalog;
+  sourceAcpmux: AcpmuxCatalog;
+  members: Map<string, AcpmuxHarness[]>;
+  hidden: Set<string>;
+  overrides: Record<string, Record<string, unknown>>;
+  releaseNames: Map<string, string[]>;
+};
+
+// Session-list changes are frequent, while the fetched catalog and local harness probe stay the
+// same between them. Keep the O(catalog + harnesses) join preparation for the next picker build.
+// A single entry is enough because a pane has one active catalog and a catalog replacement simply
+// supersedes it. The picker output still gets rebuilt when its selected session or worked profile changes.
+let preparedPicker: PreparedPickerCatalog | undefined;
+
+function preparePickerCatalog(catalog: ModelCatalog, user: unknown, acpmux: AcpmuxCatalog): PreparedPickerCatalog {
+  if (
+    preparedPicker?.sourceCatalog === catalog &&
+    preparedPicker.user === user &&
+    preparedPicker.sourceAcpmux === acpmux
+  )
+    return preparedPicker;
+  // A chat folder's own profiles stay out of the join, and routers cannot replace a real launcher.
+  const filtered = acpmux.filter((entry) => !entry.folder && !isModelRouterKind(entry.kind));
+  const layered = applyUserLayer(catalog, user);
+  const members = new Map<string, AcpmuxHarness[]>();
+  for (const harness of layered.harnesses)
+    members.set(
+      harness.id,
+      filtered.filter((entry) => harness.families.includes(familyOf(entry))),
+    );
+  const prepared = {
+    catalog: layered,
+    sourceCatalog: catalog,
+    acpmux: filtered,
+    sourceAcpmux: acpmux,
+    members,
+    hidden: hiddenHarnesses(user),
+    overrides: userOverrides(user),
+    releaseNames: releaseNames(catalog),
+    user,
+  };
+  preparedPicker = prepared;
+  return prepared;
+}
+
 /** The profiles of the chats whose last turn completed, most recently updated first, each once. */
 export function workedProfiles(sessions: readonly Worked[]) {
   // A stable sort of the completed chats, newest first, and each profile's first: each profile at
@@ -350,32 +399,27 @@ export function buildPickerCatalog({
   worked = [],
   provisional = false,
 }: PickerInputs): PickerCatalog {
-  // A chat folder's own profiles stay out of the join: the picker lists them on their own, and a
-  // folder profile must never stand in for a catalog harness of its family.
-  // A router can report the same family as a real launcher. Exclude it before choosing that
-  // family's representative, so it cannot replace or hide the actual harness.
-  acpmux = acpmux.filter((entry) => !entry.folder && !isModelRouterKind(entry.kind));
-  const layered = applyUserLayer(catalog, user);
+  const prepared = preparePickerCatalog(catalog, user, acpmux);
+  const { catalog: layered, acpmux: filtered, members, hidden } = prepared;
   const join: Join = {
     catalog: layered,
-    sourceCatalog: catalog,
+    sourceCatalog: prepared.sourceCatalog,
     session,
     worked,
-    overrides: userOverrides(user),
-    releaseNames: releaseNames(catalog),
+    overrides: prepared.overrides,
+    releaseNames: prepared.releaseNames,
   };
-  const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
   const harnesses = layered.harnesses.map((harness) => {
-    const members = acpmux.filter((entry) => harness.families.includes(familyOf(entry)));
-    for (const member of members) covered.add(member.id);
-    return catalogHarness(harness, members, join);
+    const matching = members.get(harness.id) ?? [];
+    for (const member of matching) covered.add(member.id);
+    return catalogHarness(harness, matching, join);
   });
   // A profile whose family a hidden catalog harness covers stays hidden with it.
   for (const harness of catalog.harnesses)
     if (hidden.has(harness.id))
-      for (const entry of acpmux) if (harness.families.includes(familyOf(entry))) covered.add(entry.id);
-  for (const entry of acpmux) {
+      for (const entry of filtered) if (harness.families.includes(familyOf(entry))) covered.add(entry.id);
+  for (const entry of filtered) {
     if (!covered.has(entry.id) && !hidden.has(entry.id)) harnesses.push(uncataloguedHarness(entry, join));
   }
   return { harnesses, provisional };
