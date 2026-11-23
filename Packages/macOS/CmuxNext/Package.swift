@@ -1414,6 +1414,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The memory pressure dispatch source, plus one 15 s timer for load and swap.
         .target(
             name: "CmuxNextHostPressure",
+            dependencies: ["CmuxNextDesignTokens"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
