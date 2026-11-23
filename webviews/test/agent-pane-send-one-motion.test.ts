@@ -75,10 +75,10 @@ await requireBrowserLane("agent-pane-send-one-motion.test.ts", async () => {
               status: (window as { cmuxGalleryPlayReport?: { status?: string } }).cmuxGalleryPlayReport?.status ?? null,
               report: JSON.stringify(
                 (window as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? null,
-              ).slice(0, 2000),
+              ),
             }));
             console.log(`${variant}: phases ${result.phases}, max jump ${result.maxJump}px, play ${result.status}`);
-            expect({ variant, phases: result.phases, report: result.phases === "1" ? "" : result.report }).toEqual({
+            expect({ variant, phases: result.phases, report: result.phases === "1" ? "" : (document.documentElement.dataset.sendFrames ? "" : "") + (JSON.stringify((window as any).cmuxGalleryPlayReport ?? null).match(/moved in [^"]*/)?.[0] ?? "") }).toEqual({
               variant,
               phases: "1",
               report: "",
