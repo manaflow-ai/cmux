@@ -16758,8 +16758,7 @@ class OneJobNameAtThreeCheckRuns(unittest.TestCase):
     verdict to compare with the base; re-run it": a verdict about a check run nobody asked about, and the caller's
     next step was to re-run a check that had passed while the red one was never read. The name's own
     'WORKFLOW / JOB' prefix is the disambiguator the caller already gave: it is read as the workflow of the run each
-    candidate belongs to. With no prefix that names one, the red candidate is what a caller asking why a head is red
-    can mean; two reds, or two of a workflow, are refused naming every candidate, never picked."""
+    candidate belongs to. Without enough identity, candidates remain ambiguous regardless of their verdicts."""
 
     SHA = "eb73df0c6535fb535091e2c36a56de8735b3eb35"
     RUNS = {45101285663: "lane-gh-broker tests", 45101285056: "fleet alert registry",
@@ -16880,16 +16879,11 @@ class OneJobNameAtThreeCheckRuns(unittest.TestCase):
             with self.assertRaisesRegex(excuse.Refused, "unknown"):
                 excuse.named_check(REPO, self.SHA, "tests", checks, gh, {})
 
-class CheckoutNarrowingIsNotAFailure(unittest.TestCase):
-    """A step that did not fail printed 54 error annotations, and they refused a red the base was failing too.
+class CheckoutNarrowingNeedsStepOwnership(unittest.TestCase):
+    """A familiar checkout diagnostic is still evidence unless its step is proven passing.
 
-    2026-11-22, cmuxterm-hq eb73df0c's 'go vet + go test' (job 137452468531): actions/checkout narrowed a sparse
-    checkout in a reused self-hosted workspace and annotated every path it kept, `##[error]error: Path '<path>' not
-    uptodate; will not remove from working tree.`, its own step green. The job ran five more minutes and ended in
-    `FAIL\tcmuxterm-hq/build-fleet/cmd/controller`, the failure main's own 'build-fleet Go tests' was failing at
-    three consecutive heads -- but the 54 paths are that workspace's history, printed by no base run, so compared
-    whole the head had 54 error lines the base did not and the red was refused. They are the workspace's, never the
-    change's: a base can never print them, so a verdict that reads them is a verdict no base can earn.
+    The placed-log cases are covered by FailingStepLogOnly. These unplaced logs must
+    retain the diagnostic instead of globally exempting it by its wording.
     """
 
     STAMP = "2026-11-22T02:37:42.1234567Z "
@@ -16910,13 +16904,12 @@ class CheckoutNarrowingIsNotAFailure(unittest.TestCase):
         return excuse.unplaced_signature(failed_job(1, 10, HEAD, "go vet + go test", "go test (every package)"),
                                          self.log(narrowed=narrowed))
 
-    def test_the_narrowing_annotations_are_no_error_lines_of_the_job(self):
+    def test_unplaced_narrowing_annotations_remain_error_evidence(self):
         said = [error for error in self.signature(narrowed=True).errors if "not uptodate" in error]
-        self.assertEqual(said, [], said)
+        self.assertTrue(said)
 
-    def test_a_narrowed_checkout_reads_as_the_same_red_as_a_clean_one(self):
-        # What a base run of the same red prints: the Go failure, and none of this workspace's paths.
-        self.assertEqual(self.signature(narrowed=True), self.signature(narrowed=False))
+    def test_unplaced_narrowing_errors_do_not_match_a_clean_base(self):
+        self.assertNotEqual(self.signature(narrowed=True), self.signature(narrowed=False))
 
     def test_the_go_failure_is_still_read(self):
         whole = self.signature(narrowed=True)
