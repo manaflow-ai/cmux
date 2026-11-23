@@ -12,6 +12,16 @@
       "title" : "Attachment View",
       "type" : "string"
     },
+    "agentPane.composerLook" : {
+      "default" : "auto",
+      "description" : "Where the mode, model and effort sit: under the box or inside it.",
+      "enum" : [
+        "auto",
+        "studio"
+      ],
+      "title" : "Composer Look",
+      "type" : "string"
+    },
     "agentPane.composerRing" : {
       "default" : "context",
       "description" : "What the ring at the end of the composer shows.",
@@ -325,6 +335,26 @@
       "title" : "Shimmer Speed",
       "type" : "number"
     },
+    "agentPane.display.transcriptLook" : {
+      "default" : "cmux",
+      "description" : "How messages, cards and spacing look.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Transcript Look",
+      "type" : "string"
+    },
+    "agentPane.display.transcriptTokens" : {
+      "default" : {
+
+      },
+      "description" : "Token values that override the transcript look.",
+      "title" : "Transcript Look Tokens",
+      "type" : "string"
+    },
     "agentPane.display.transcriptView" : {
       "default" : "normal",
       "description" : "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -408,6 +438,16 @@
         "never"
       ],
       "title" : "Edited Files Card",
+      "type" : "string"
+    },
+    "agentPane.emptyChatComposerPosition" : {
+      "default" : "bottom",
+      "description" : "Where the message box sits in a chat with no messages yet.",
+      "enum" : [
+        "bottom",
+        "center"
+      ],
+      "title" : "Empty Chat Message Box",
       "type" : "string"
     },
     "agentPane.images.remote" : {
@@ -859,6 +899,12 @@
       "default" : true,
       "description" : "app.warnBeforeClosingTab",
       "title" : "Warn Before Closing a Running Program",
+      "type" : "boolean"
+    },
+    "app.warnBeforeQuitShortcut" : {
+      "default" : true,
+      "description" : "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once.",
+      "title" : "Warn Before Quitting with ⌘Q",
       "type" : "boolean"
     },
     "appearance.accent" : {
@@ -1625,6 +1671,22 @@
       "title" : "Opacity",
       "type" : "number"
     },
+    "appearance.backgroundPlacement" : {
+      "description" : "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+      "properties" : {
+
+      },
+      "title" : "Background Placement",
+      "type" : "object"
+    },
+    "appearance.backgroundRecents" : {
+      "description" : "The backgrounds shown before, newest first, so one click goes back.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Recent Backgrounds",
+      "type" : "array"
+    },
     "appearance.backgroundRotation" : {
       "default" : "daily",
       "description" : "How often a shuffled background changes. Also accepts a number from 1 to 1440 in a raw profile.",
@@ -1907,6 +1969,12 @@
       "minimum" : 0.9,
       "title" : "Interface Size",
       "type" : "number"
+    },
+    "appearance.liquidGlass" : {
+      "default" : false,
+      "description" : "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border.",
+      "title" : "Liquid Glass",
+      "type" : "boolean"
     },
     "appearance.machineColors" : {
       "default" : {
@@ -4228,6 +4296,12 @@
       "title" : "Relay Only",
       "type" : "boolean"
     },
+    "macScreen.onlyPersonStartsViewing" : {
+      "default" : false,
+      "description" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
+      "title" : "Only Your Click Starts Viewing a Screen",
+      "type" : "boolean"
+    },
     "macScreen.shareWithoutAsking" : {
       "default" : false,
       "description" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies.",
@@ -6411,6 +6485,18 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.automatic" : {
+      "default" : "notify",
+      "description" : "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running.",
+      "enum" : [
+        "off",
+        "notify",
+        "download",
+        "idle"
+      ],
+      "title" : "Automatic Updates",
+      "type" : "string"
+    },
     "updates.channel" : {
       "default" : "nightly",
       "description" : "Stable gets builds that ran a week without problems; Canary and Dev get them first.",
@@ -6423,12 +6509,6 @@
       "title" : "Update Channel",
       "type" : "string"
     },
-    "updates.checkAutomatically" : {
-      "default" : true,
-      "description" : "updates.checkAutomatically",
-      "title" : "Check for Updates Automatically",
-      "type" : "boolean"
-    },
     "updates.checkIntervalSeconds" : {
       "default" : 3600,
       "description" : "updates.checkIntervalSeconds",
@@ -6436,12 +6516,6 @@
       "minimum" : 900,
       "title" : "Check Every",
       "type" : "number"
-    },
-    "updates.downloadAutomatically" : {
-      "default" : false,
-      "description" : "Off: cmux asks before downloading. It always asks before restarting.",
-      "title" : "Download Updates Automatically",
-      "type" : "boolean"
     },
     "updates.idleInstallMaxWaitSeconds" : {
       "default" : 600,
@@ -6463,12 +6537,6 @@
       "default" : false,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
       "title" : "Install Updates When Quitting",
-      "type" : "boolean"
-    },
-    "updates.installWhenIdle" : {
-      "default" : false,
-      "description" : "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
-      "title" : "Update When Idle",
       "type" : "boolean"
     },
     "updates.installWhenIdleMinutes" : {
@@ -6669,6 +6737,18 @@
       ],
       "title" : "New Workspace Position",
       "type" : "string"
+    },
+    "worktrees.autoCleanup" : {
+      "default" : true,
+      "description" : "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens.",
+      "title" : "Clean Up Agent Worktrees",
+      "type" : "boolean"
+    },
+    "worktrees.cleanBuildCaches" : {
+      "default" : false,
+      "description" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
+      "title" : "Clean Up Build Caches",
+      "type" : "boolean"
     }
   },
   "title" : "cmux (com.manaflow.cmux)"

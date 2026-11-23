@@ -38,7 +38,8 @@
             "key" : "settings.group.quit",
             "rows" : [
               "app.quitBehavior",
-              "app.confirmQuit"
+              "app.confirmQuit",
+              "app.warnBeforeQuitShortcut"
             ],
             "title" : {
               "key" : "settings.group.quit",
@@ -84,6 +85,17 @@
             "title" : {
               "key" : "settings.group.autoArchive",
               "text" : "Auto-Archive"
+            }
+          },
+          {
+            "key" : "settings.group.storage",
+            "rows" : [
+              "worktrees.autoCleanup",
+              "worktrees.cleanBuildCaches"
+            ],
+            "title" : {
+              "key" : "settings.group.storage",
+              "text" : "Storage"
             }
           },
           {
@@ -165,36 +177,14 @@
             "key" : "settings.group.updates",
             "rows" : [
               "updates.channel",
-              "updates.checkAutomatically",
-              "updates.checkIntervalSeconds",
-              "updates.downloadAutomatically",
-              "updates.oneClickInstall",
-              "updates.whatsNewInstall",
-              "updates.meteredNetwork",
-              "updates.web",
+              "updates.automatic",
               "updates.liveWebReload",
-              "updates.installOnQuit",
-              "updates.installWhenIdle",
-              "updates.installWhenIdleMinutes",
-              "updates.notify",
-              "updates.keepPreviousVersions",
               "updates.showWhatsNew",
               "updates.showFeatureTips"
             ],
             "title" : {
               "key" : "settings.group.updates",
               "text" : "Updates"
-            }
-          },
-          {
-            "key" : "updates.1",
-            "rows" : [
-              "updates.idleInstallMaxWaitSeconds",
-              "updates.idleInstallQuietSeconds"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.updatesAdvanced",
-              "text" : "Updates: Advanced"
             }
           }
         ],
@@ -232,6 +222,7 @@
               "appearance.fontSmoothing",
               "appearance.metrics.sidebarRowHeight",
               "appearance.borders",
+              "appearance.liquidGlass",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
               "ui.animationSpeed",
@@ -1284,6 +1275,8 @@
               "agentPane.dictationSource",
               "agentPane.dictationShortcut",
               "agentPane.spellChecking",
+              "agentPane.composerLook",
+              "agentPane.emptyChatComposerPosition",
               "agentPane.attachmentView",
               "agentPane.scrollToBottomOnSend",
               "agentPane.display.harnessPlacement",
@@ -1351,6 +1344,7 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
+              "agentPane.display.transcriptLook",
               "agentPane.newChatsIn",
               "agentPane.sessionWorktrees",
               "agents.defaultPermissionMode",
@@ -8552,6 +8546,142 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.quit",
+        "text" : "Quitting"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeQuitShortcut.help",
+        "text" : "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeQuitShortcut",
+      "keywords" : [
+        "quit",
+        "cmd-q",
+        "warn",
+        "hold",
+        "accidental",
+        "confirm",
+        "exit"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "warnBeforeQuitShortcut"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:app.warnBeforeQuitShortcut"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.warnBeforeQuitShortcut",
+        "text" : "Warn Before Quitting with ⌘Q"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.1,
         1,
         0.55
@@ -9462,40 +9592,82 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "off",
+        "notify",
+        "download",
+        "idle"
       ],
-      "agent_refusal" : "network",
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.updatesAutomaticOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesAutomaticNotify",
+            "text" : "Notify Only"
+          },
+          "value" : "notify"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesAutomaticDownload",
+            "text" : "Download Automatically"
+          },
+          "value" : "download"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesAutomaticIdle",
+            "text" : "Install When Idle"
+          },
+          "value" : "idle"
+        }
+      ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : "notify",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
         "text" : "Updates"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.updates.automatic.help",
+        "text" : "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running."
+      },
       "kept_on_reset_all" : false,
-      "key" : "updates.checkAutomatically",
+      "key" : "updates.automatic",
       "keywords" : [
         "update",
-        "sparkle",
+        "updates",
+        "automatic",
         "check",
-        "automatic"
+        "download",
+        "install",
+        "idle",
+        "restart",
+        "sparkle",
+        "auto update",
+        "update when idle"
       ],
-      "kind" : "toggle",
+      "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "updates",
-        "checkAutomatically"
+        "automatic"
       ],
       "placeholder" : null,
       "refuses" : [
-        "true",
+        "__not_a_choice__",
         1,
-        null
+        true
       ],
       "section" : "general",
       "summary" : null,
@@ -9550,13 +9722,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
+          "editor" : "options",
           "offered" : true,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
           "reason" : null,
-          "row" : "setting:updates.checkAutomatically"
+          "row" : "setting:updates.automatic"
         },
         "socket" : {
           "aliases" : [
@@ -9583,8 +9755,8 @@
         }
       },
       "title" : {
-        "key" : "settings.updates.checkAutomatically",
-        "text" : "Check for Updates Automatically"
+        "key" : "settings.updates.automatic",
+        "text" : "Automatic Updates"
       },
       "validation" : "portable"
     },
@@ -9616,7 +9788,7 @@
         "daily"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "checkIntervalSeconds"
@@ -9687,13 +9859,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.checkIntervalSeconds"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -9730,137 +9902,6 @@
         true,
         false
       ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
-      },
-      "help" : {
-        "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: cmux asks before downloading. It always asks before restarting."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "updates.downloadAutomatically",
-      "keywords" : [
-        "update",
-        "download",
-        "background",
-        "metered"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "updates",
-        "downloadAutomatically"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:updates.downloadAutomatically"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.updates.downloadAutomatically",
-        "text" : "Download Updates Automatically"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -9886,7 +9927,7 @@
         "one click"
       ],
       "kind" : "toggle",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "oneClickInstall"
@@ -9950,13 +9991,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
-          "reason" : null,
-          "row" : "setting:updates.oneClickInstall"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -10020,7 +10061,7 @@
         "what's new"
       ],
       "kind" : "toggle",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "whatsNewInstall"
@@ -10084,13 +10125,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
-          "reason" : null,
-          "row" : "setting:updates.whatsNewInstall"
+          "reason" : "a feature gate, not a choice (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -10176,7 +10217,7 @@
         "hotspot"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "meteredNetwork"
@@ -10240,13 +10281,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.meteredNetwork"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -10334,7 +10375,7 @@
         "merge"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "web"
@@ -10398,13 +10439,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.web"
+          "reason" : "web UI updates follow the channel and Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -10601,7 +10642,7 @@
         "quit"
       ],
       "kind" : "toggle",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "installOnQuit"
@@ -10665,13 +10706,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
-          "reason" : null,
-          "row" : "setting:updates.installOnQuit"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -10700,138 +10741,6 @@
       "title" : {
         "key" : "settings.updates.installOnQuit",
         "text" : "Install Updates When Quitting"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
-      },
-      "help" : {
-        "key" : "settings.updates.installWhenIdle.help",
-        "text" : "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "updates.installWhenIdle",
-      "keywords" : [
-        "update",
-        "install",
-        "idle",
-        "automatic",
-        "restart"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "updates",
-        "installWhenIdle"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:updates.installWhenIdle"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.updates.installWhenIdle",
-        "text" : "Update When Idle"
       },
       "validation" : "portable"
     },
@@ -10867,7 +10776,7 @@
         "minutes"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "installWhenIdleMinutes"
@@ -10938,13 +10847,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.installWhenIdleMinutes"
+          "reason" : "the idle time of Automatic Updates' Install When Idle (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -11018,7 +10927,7 @@
         "silent"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "notify"
@@ -11084,13 +10993,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.notify"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -11152,7 +11061,7 @@
         "downgrade"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "keepPreviousVersions"
@@ -11223,13 +11132,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.keepPreviousVersions"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -11561,7 +11470,7 @@
         "nightly"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "idleInstallMaxWaitSeconds"
@@ -11632,13 +11541,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.idleInstallMaxWaitSeconds"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -11702,7 +11611,7 @@
         "nightly"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "idleInstallQuietSeconds"
@@ -11773,13 +11682,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.idleInstallQuietSeconds"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -25468,6 +25377,274 @@
         true,
         false
       ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.storage",
+        "text" : "Storage"
+      },
+      "help" : {
+        "key" : "settings.worktrees.autoCleanup.help",
+        "text" : "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "worktrees.autoCleanup",
+      "keywords" : [
+        "disk",
+        "storage",
+        "cleanup",
+        "worktree",
+        "cache",
+        "DerivedData",
+        "free space"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "worktrees",
+        "autoCleanup"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:worktrees.autoCleanup"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.worktrees.autoCleanup",
+        "text" : "Clean Up Agent Worktrees"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.storage",
+        "text" : "Storage"
+      },
+      "help" : {
+        "key" : "settings.worktrees.cleanBuildCaches.help",
+        "text" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "worktrees.cleanBuildCaches",
+      "keywords" : [
+        "disk",
+        "storage",
+        "cleanup",
+        "worktree",
+        "cache",
+        "DerivedData",
+        "free space"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "worktrees",
+        "cleanBuildCaches"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:worktrees.cleanBuildCaches"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.worktrees.cleanBuildCaches",
+        "text" : "Clean Up Build Caches"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -34700,6 +34877,169 @@
     },
     {
       "accepts" : [
+        {
+
+        },
+        {
+          "munch-scream" : "fit"
+        },
+        {
+          "desktop" : "center 0.5 0",
+          "file:/Users/Shared/Harbor.png" : "fill 0.2 0.8 1.5"
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundPlacement.help",
+        "text" : "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundPlacement",
+      "keywords" : [
+        "wallpaper",
+        "background",
+        "position",
+        "fit",
+        "fill",
+        "zoom",
+        "crop"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundPlacement"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "fit",
+        [
+
+        ],
+        {
+          "munch-scream" : "cover"
+        },
+        {
+          "munch-scream" : "fill 2 0"
+        },
+        {
+          "munch-scream" : "fill 0.5"
+        },
+        {
+          "munch-scream" : "fill 0.5 0.5 9"
+        },
+        {
+          "" : "fit"
+        },
+        {
+          "munch-scream" : 1
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundPlacement"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundPlacement",
+        "text" : "Background Placement"
+      },
+      "validation" : "domain:backdrop_placement"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -34872,169 +35212,6 @@
         "text" : "Recent Backgrounds"
       },
       "validation" : "domain:backdrop_recents"
-    },
-    {
-      "accepts" : [
-        {
-
-        },
-        {
-          "munch-scream" : "fit"
-        },
-        {
-          "desktop" : "center 0.5 0",
-          "file:/Users/Shared/Harbor.png" : "fill 0.2 0.8 1.5"
-        }
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : null,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundPlacement.help",
-        "text" : "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundPlacement",
-      "keywords" : [
-        "wallpaper",
-        "background",
-        "position",
-        "fit",
-        "fill",
-        "zoom",
-        "crop"
-      ],
-      "kind" : "string_map",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundPlacement"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "fit",
-        [
-
-        ],
-        {
-          "munch-scream" : "cover"
-        },
-        {
-          "munch-scream" : "fill 2 0"
-        },
-        {
-          "munch-scream" : "fill 0.5"
-        },
-        {
-          "munch-scream" : "fill 0.5 0.5 9"
-        },
-        {
-          "" : "fit"
-        },
-        {
-          "munch-scream" : 1
-        }
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:appearance.backgroundPlacement"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.appearance.backgroundPlacement",
-        "text" : "Background Placement"
-      },
-      "validation" : "domain:backdrop_placement"
     },
     {
       "accepts" : [
@@ -39154,6 +39331,144 @@
       "title" : {
         "key" : "settings.appearance.borders",
         "text" : "Borders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.liquidGlass.help",
+        "text" : "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.liquidGlass",
+      "keywords" : [
+        "glass",
+        "liquid glass",
+        "blur",
+        "frost",
+        "translucent",
+        "transparency",
+        "solid",
+        "plain",
+        "material"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "liquidGlass"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.liquidGlass"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.liquidGlass",
+        "text" : "Liquid Glass"
       },
       "validation" : "portable"
     },
@@ -57159,6 +57474,324 @@
         "text" : "Chat Presentation"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "cmux"
+          },
+          "value" : "cmux"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Claude"
+          },
+          "value" : "claude"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Codex"
+          },
+          "value" : "codex"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Studio"
+          },
+          "value" : "studio"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "cmux",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.transcriptLook.help",
+        "text" : "How messages, cards and spacing look."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.transcriptLook",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "look",
+        "style",
+        "preset",
+        "claude",
+        "codex",
+        "studio",
+        "bubble",
+        "density",
+        "spacing"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "transcriptLook"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.transcriptLook"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.transcriptLook",
+        "text" : "Transcript Look"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.transcriptTokens.help",
+        "text" : "Token values that override the transcript look."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.transcriptTokens",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "look",
+        "token",
+        "theme",
+        "bubble",
+        "radius",
+        "spacing"
+      ],
+      "kind" : "text",
+      "page_hidden" : true,
+      "path" : [
+        "agentPane",
+        "display",
+        "transcriptTokens"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "an object of look tokens, edited in cmux-next.json or a theme file",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.transcriptTokens",
+        "text" : "Transcript Look Tokens"
+      },
+      "validation" : "domain:transcript_tokens"
     },
     {
       "accepts" : [
@@ -112737,6 +113370,315 @@
       "title" : {
         "key" : "settings.agentPane.sessionWorktrees",
         "text" : "Session Worktrees"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "studio"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.composerLookAuto",
+            "text" : "Automatic"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Studio"
+          },
+          "value" : "studio"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.composerLook.help",
+        "text" : "Where the mode, model and effort sit: under the box or inside it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.composerLook",
+      "keywords" : [
+        "composer",
+        "look",
+        "style",
+        "studio",
+        "message box",
+        "model",
+        "mode",
+        "effort",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "composerLook"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.composerLook"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.composerLook",
+        "text" : "Composer Look"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "bottom",
+        "center"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.emptyChatComposerCenter",
+            "text" : "Center"
+          },
+          "value" : "center"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "bottom",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.emptyChatComposerPosition.help",
+        "text" : "Where the message box sits in a chat with no messages yet."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.emptyChatComposerPosition",
+      "keywords" : [
+        "composer",
+        "message box",
+        "empty",
+        "new chat",
+        "center",
+        "centered",
+        "middle",
+        "bottom",
+        "position",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "emptyChatComposerPosition"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.emptyChatComposerPosition"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.emptyChatComposerPosition",
+        "text" : "Empty Chat Message Box"
       },
       "validation" : "portable"
     },
