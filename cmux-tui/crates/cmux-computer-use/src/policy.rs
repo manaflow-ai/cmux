@@ -123,6 +123,11 @@ pub struct PolicyConfig {
     /// background input to a window go on (`computerUse.whileLocked`,
     /// [`crate::locked`]); off, every call but status is refused.
     pub while_locked: bool,
+    /// `list_alerts` and `dismiss_alert` work: system alerts are read through
+    /// accessibility and put off by a known button (`computerUse.alerts`,
+    /// [`crate::alerts`]); off, both are refused. Every other tool refuses
+    /// those processes either way.
+    pub alerts: bool,
 }
 
 impl Default for PolicyConfig {
@@ -139,6 +144,7 @@ impl Default for PolicyConfig {
             menus: crate::menus::MenuMode::Open,
             live_preview: true,
             while_locked: false,
+            alerts: false,
         }
     }
 }
@@ -160,6 +166,7 @@ impl PolicyConfig {
             live_preview: true,
             // A cloud VM never locks (auto-login, lock off).
             while_locked: false,
+            alerts: false,
         }
     }
 }
