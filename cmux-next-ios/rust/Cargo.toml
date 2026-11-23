@@ -38,6 +38,8 @@ cmux-follow-cam = { path = "../../cmux-tui/crates/cmux-follow-cam" }
 cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 # A message's Markdown as one line of words, shared with the daemon's Home rows (the Chief's push body).
 cmux-message-preview = { path = "../../cmux-tui/crates/cmux-message-preview" }
+# Share a Mac from the phone: cmux.share-approval.v1, the approval the target Mac's acpmux admits.
+cmux-share-approval = { path = "../../cmux-tui/crates/cmux-share-approval" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
