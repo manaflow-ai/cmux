@@ -1062,8 +1062,8 @@
 /* Reduce Transparency turns bare text over art solid: the plain strip's queue takes the queue's
    solid fill (--acpmux-queue-fill, composerStates.css), the same as its fold, never clear text over
    the wallpaper with a solid fold under it (queued-glass.test.ts). */
-:root[data-top-strip="plain"][data-reduce-transparency] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="plain"][data-reduce-transparency] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+:root[data-top-strip="plain"]:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"]:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   background: var(--acpmux-queue-fill);
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -1117,7 +1117,7 @@
    Transparency the tray's step goes over the card's glass tint, as Codex's tray does
    (composerLook.css), not over the solid tray tone (accent-glass-invariants). */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-top-strip="tray"]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-strip {
+  :root[data-top-strip="tray"]:not([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-strip {
     background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
   }
 }
@@ -1408,8 +1408,9 @@
    BULLSHIT"): the model's name in the row's muted ink, its effort one step back of it (secondary
    ink, in every theme and on hover), no edge and no capsule at rest. Hover draws the row's soft pill, as the mic's. Keyboard focus
    (a menu closed with Esc hands focus back here) draws the same pill and a hairline in the row's
-   own ink, never the bright shared ring; Increase Contrast keeps the shared ring. */
-.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor 68%, transparent); }
+   own ink, never the bright shared ring; Increase Contrast keeps the shared ring. The step back is 88%, the
+   most it can be and keep 4.5:1 (68% drew "High" at 3.03:1 light, 3.99:1 dark). */
+.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor 88%, transparent); }
 /* The shared ring (pages/shared/desktop.css) draws from these two tokens with !important, so the
    button narrows them on itself. */
 @media not (prefers-contrast: more) {
@@ -1483,7 +1484,11 @@
   --grid-composer-control: calc(28px * var(--acpmux-density));
   --grid-composer-block-inset: calc(10px * var(--acpmux-density));
   --grid-composer-box: calc(48px * var(--acpmux-density));
-  --grid-composer-radius: calc(12px * var(--acpmux-density));
+  /* Concentric with the round controls in it (the mic, Send): half a control plus the inset, 22 at
+     Default (layout-grid.json composer-radius; ask-2351b8cf41, Leo 2026-11-22: "we should consider
+     rounding off our composer and its hat a bit more maybe see chatgpt too"). The hat over it (the
+     running tray), the queue and the trust bar take this corner too. */
+  --grid-composer-radius: calc(var(--grid-composer-control) / 2 + var(--grid-composer-inset));
   --grid-composer-quiet-row-gap: calc(4px * var(--acpmux-density));
   --grid-composer-quiet-row-height: calc(28px * var(--acpmux-density));
   --grid-composer-quiet-row-text: calc(14px * var(--acpmux-density));
@@ -1590,7 +1595,16 @@
 }
 /* The strip and the queue over the box take its corners. */
 .acpmux-composer[data-composer-grid] {
-  --acpmux-strip-radius: 11px;
+  --acpmux-strip-radius: var(--grid-composer-radius);
+}
+/* The gallery's other two roundings (composerRound.gallery.ts, data-composer-round), each still
+   concentric: `moderate` is the + plate's corner plus the inset (16), `pill` half the one-line box
+   (24), so a one-line composer is a full pill. */
+:where(:root[data-composer-round="moderate"]) :is(.acpmux-dock, .acpmux-composer, .nt-composer, .nt-popover) {
+  --grid-composer-radius: calc(8px * var(--acpmux-density) + var(--grid-composer-inset));
+}
+:where(:root[data-composer-round="pill"]) :is(.acpmux-dock, .acpmux-composer, .nt-composer, .nt-popover) {
+  --grid-composer-radius: calc(var(--grid-composer-box) / 2);
 }
 /* The box's corner, which the trust bar in the stack over it shares. */
 .acpmux-composer-box[data-composer-grid],

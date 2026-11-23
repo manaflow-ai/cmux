@@ -59,7 +59,7 @@ impl Hub {
     /// The record at `seq`, read from the end of the records before `seq + 1`: a page of the log,
     /// never the segment that holds it (`Store::scan_back`). `events` from `seq - 1` parsed that
     /// whole segment, as much as a fold of the log the point is there to skip.
-    fn record_at(&self, session: &Session, seq: u64) -> Option<EventRecord> {
+    pub(super) fn record_at(&self, session: &Session, seq: u64) -> Option<EventRecord> {
         let mut found = None;
         self.store
             .scan_back(&session.id, seq - 1, seq + 1, &|_, _| false, &mut |rec| {
