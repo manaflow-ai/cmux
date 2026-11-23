@@ -42,6 +42,10 @@
 //     entangled with the wipe edge being anchored in the view on purpose, so it is a design change with its
 //     own numbers, not this fix (a copy gate tried here measured WORSE: `offscreen-start` 91 -> 101 on the
 //     same seeds, and came out).
+//   CI's own play adds to it (run 45224184844, job 137910423933, 2026-11-23): seed 13 started 2 `clip-path`
+//   wipes off view there, and again on the one-at-a-time replay, where this box's two plays saw none, and seed 10
+//   one `translate`. This residual depends on timing (it starts on a pass after a scroll), so its seed list is the
+//   union of the plays read, as the counts above are their max. A key that a scroll does not change takes it to zero.
 //   - 32 `translate` starts from `tailGlide.ts:378` (`place`, through VirtualTranscript's `current`).
 //   - 7 CSS entrance and shimmer starts (`cv-roll-in-even`, `cv-enter-fade`, the cadenced shimmers): class
 //     changes, which no JS gate in `turnEndFold.ts` can see.

@@ -69,7 +69,7 @@
       "move": 9,
       "resize": 0,
       "off-curve": 58,
-      "offscreen-start": 0,
+      "offscreen-start": 1,
       "scroll-start": 0
     },
     "11": {
@@ -90,7 +90,7 @@
       "move": 41,
       "resize": 0,
       "off-curve": 49,
-      "offscreen-start": 0,
+      "offscreen-start": 2,
       "scroll-start": 0
     },
     "14": {
