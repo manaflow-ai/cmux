@@ -136,6 +136,9 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         controller.send(.resumed(after: .seconds(1)))
         #expect(controller.lastProbeTimeout == LinkController.presenceProbeTimeout)
         #expect(dialer.dials == 1)
+        // The probe's bound goes on the clock when its task runs: settle first, or the advance
+        // lands before that sleep starts and its deadline moves past the advance.
+        try await driver.settle()
         try await driver.advance(by: LinkController.presenceProbeTimeout + LinkController.probeGrace + .milliseconds(100),
                                  until: { dialer.dials == 2 })
         try await eventually { dialer.dials == 2 }
