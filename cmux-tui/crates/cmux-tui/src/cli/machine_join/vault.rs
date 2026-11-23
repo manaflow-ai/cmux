@@ -423,18 +423,15 @@ pub(super) fn run(
         VaultVerb::Grant { machine, granted } => {
             let listed = platform.credentials().map_err(|e| e.failure("the machine list"))?;
             let found = find(&listed, machine)?;
-            let path = format!("/v1/machines/{}/vault", found.machine_id);
-            platform
-                .request(reqwest::Method::PUT, &path, Some(json!({ "granted": granted })))
-                .map_err(|e| match e {
-                    CallError::Status {
-                        status: 403, code: "machine.vault_personal_only", ..
-                    } => Failure::new(
+            platform.vault_grant(&found.machine_id, *granted).map_err(|e| match e {
+                CallError::Status { status: 403, code: "machine.vault_personal_only", .. } => {
+                    Failure::new(
                         "machine_join.vault_personal_only",
                         "the vault goes only to machines of your personal team",
-                    ),
-                    e => vault_failure(&e, "the grant"),
-                })?;
+                    )
+                }
+                e => vault_failure(&e, "the grant"),
+            })?;
             let human = if *granted {
                 format!(
                     "{} may pull your vault now (it does on its next `acpmux host vault pull`).",

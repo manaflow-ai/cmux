@@ -43,6 +43,7 @@ use std::io::{BufRead, IsTerminal as _, Write};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use cmux_cloud_client::raw;
 use cmux_cloud_machine::refusals;
 use serde_json::{Map, Value, json};
 
@@ -54,6 +55,7 @@ use cmux_json::JsonSet as _;
 pub(super) const DEFAULT_ORIGIN: &str = cmux_cloud_environment::PRODUCTION_PLATFORM;
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+const USER_AGENT: &str = concat!("cmux/", env!("CARGO_PKG_VERSION"));
 /// A list merge (`machine list`, `device list`) costs at most this.
 pub(super) const LIST_TIMEOUT: Duration = Duration::from_secs(3);
 /// How often `machine add --wait` reads the credentials list.
@@ -445,6 +447,9 @@ pub(crate) struct Platform {
     credential: String,
     team: Option<String>,
     client: reqwest::Client,
+    /// The generated client for the machine-join routes, made on first use (after
+    /// [`Platform::with_team`]), with the same bearer, team, build space and timeout.
+    cloud: std::sync::OnceLock<raw::Client>,
     runtime: tokio::runtime::Runtime,
     timeout: Duration,
 }
@@ -517,16 +522,34 @@ impl Platform {
         let client = reqwest::Client::builder()
             .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+            .user_agent(USER_AGENT)
             .build()
             .map_err(|e| internal(&e))?;
-        Ok(Self { origin, credential, team: None, client, runtime, timeout })
+        let cloud = std::sync::OnceLock::new();
+        Ok(Self { origin, credential, team: None, client, cloud, runtime, timeout })
     }
 
     /// Pin session-authenticated requests to the team selected by the native app.
     pub(crate) fn with_team(mut self, team: Option<String>) -> Self {
         self.team = team;
+        self.cloud = std::sync::OnceLock::new();
         self
+    }
+
+    /// The generated client (`cmux_cloud_client::raw`) as this caller.
+    fn cloud(&self) -> Result<&raw::Client, CallError> {
+        if let Some(cloud) = self.cloud.get() {
+            return Ok(cloud);
+        }
+        let (base, http) = cmux_cloud_client::http(
+            &self.origin,
+            Some(&self.credential),
+            self.team.as_deref(),
+            USER_AGENT,
+            self.timeout,
+        )
+        .map_err(|e| CallError::Unreachable(e.to_string()))?;
+        Ok(self.cloud.get_or_init(|| raw::Client::new_with_client(&base, http)))
     }
 
     async fn call(
@@ -562,32 +585,13 @@ impl Platform {
             .await
             .map_err(|e| CallError::Unreachable(e.without_url().to_string()))?;
         let status = response.status().as_u16();
-        let retry_after = response
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
+        let retry_after = retry_after(response.headers());
         let bytes = response.bytes().await.map_err(|_| CallError::Unreadable(status))?;
-        let parsed: Option<Value> = if bytes.iter().all(u8::is_ascii_whitespace) {
-            Some(Value::Null)
-        } else {
-            serde_json::from_slice(&bytes).ok()
-        };
-        if (200..300).contains(&status) {
-            return parsed.ok_or(CallError::Unreadable(status));
-        }
-        let parsed = parsed.unwrap_or_default();
-        let code = parsed
-            .get("code")
-            .or_else(|| parsed.get("error").and_then(|e| e.get("code")))
-            .and_then(Value::as_str);
-        let code = known_code(code);
-        let facts = Some(refusals::Facts::read(Some(&parsed), retry_after.as_deref()));
-        Err(CallError::Status { status, code, facts })
+        answer(status, retry_after.as_deref(), &bytes)
     }
 
     async fn credentials_async(&self) -> Result<Vec<Value>, CallError> {
-        let body = self.call(reqwest::Method::GET, "/v1/machines/credentials", None).await?;
+        let body = generated(self.cloud()?.machine_join_list().await).await?;
         entries(body).ok_or(CallError::Unreadable(200))
     }
 
@@ -639,16 +643,35 @@ impl Platform {
     }
 
     fn mint(&self, body: Value) -> Result<Value, CallError> {
-        self.runtime.block_on(self.call(
-            reqwest::Method::POST,
-            "/v1/machines/join-tokens",
-            Some(body),
-        ))
+        let body: raw::types::JoinTokenMint = serde_json::from_value(body)
+            .map_err(|e| CallError::Unreachable(format!("the join token request: {e}")))?;
+        let cloud = self.cloud()?;
+        self.runtime.block_on(async { generated(cloud.machine_join_mint(&body).await).await })
     }
 
-    fn act(&self, machine_id: &str, action: &str) -> Result<Value, CallError> {
-        let path = format!("/v1/machines/credentials/{machine_id}/{action}");
-        self.runtime.block_on(self.call(reqwest::Method::POST, &path, Some(json!({}))))
+    /// `POST /v1/machines/credentials/{id}/revoke`; its answer may say when access ends.
+    fn revoke(&self, machine_id: &str) -> Result<Value, CallError> {
+        let id = machine_id.parse().map_err(machine_id_error)?;
+        let cloud = self.cloud()?;
+        self.runtime.block_on(async { generated(cloud.machine_join_revoke(&id).await).await })
+    }
+
+    /// `POST /v1/machines/credentials/{id}/rotate` with `{}`: no `capabilities`, so the
+    /// machine's recorded list is kept.
+    fn rotate(&self, machine_id: &str) -> Result<Value, CallError> {
+        let id = machine_id.parse().map_err(machine_id_error)?;
+        let body = raw::types::MachineCredentialRotate { capabilities: None };
+        let cloud = self.cloud()?;
+        self.runtime
+            .block_on(async { generated(cloud.machine_join_rotate(&id, &body).await).await })
+    }
+
+    /// `PUT /v1/machines/{id}/vault {granted}` (`machine vault grant|revoke`).
+    pub(super) fn vault_grant(&self, machine_id: &str, granted: bool) -> Result<Value, CallError> {
+        let id = machine_id.parse().map_err(machine_id_error)?;
+        let body = raw::types::MachineVaultGrant { granted };
+        let cloud = self.cloud()?;
+        self.runtime.block_on(async { generated(cloud.machine_join_vault(&id, &body).await).await })
     }
 
     /// Reads the credentials list every `every` until an entry redeemed from
@@ -694,6 +717,64 @@ impl Platform {
             }
         })
     }
+}
+
+/// A machine id the platform's path does not take (never one [`find`] returns).
+fn machine_id_error(e: impl std::fmt::Display) -> CallError {
+    CallError::Unreachable(format!("the machine id: {e}"))
+}
+
+fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    headers.get(reqwest::header::RETRY_AFTER).and_then(|v| v.to_str().ok()).map(str::to_owned)
+}
+
+/// An answer read the way every platform call reads one: the JSON of a 2xx (an empty body
+/// is `null`), else the refusal's status, known code and facts.
+fn answer(status: u16, retry_after: Option<&str>, bytes: &[u8]) -> Result<Value, CallError> {
+    let parsed: Option<Value> = if bytes.iter().all(u8::is_ascii_whitespace) {
+        Some(Value::Null)
+    } else {
+        serde_json::from_slice(bytes).ok()
+    };
+    if (200..300).contains(&status) {
+        return parsed.ok_or(CallError::Unreadable(status));
+    }
+    let parsed = parsed.unwrap_or_default();
+    let code = parsed
+        .get("code")
+        .or_else(|| parsed.get("error").and_then(|e| e.get("code")))
+        .and_then(Value::as_str);
+    let code = known_code(code);
+    let facts = Some(refusals::Facts::read(Some(&parsed), retry_after));
+    Err(CallError::Status { status, code, facts })
+}
+
+/// A generated `raw` call's result, read as [`answer`] reads one.
+async fn generated(
+    result: Result<raw::ResponseValue<raw::ByteStream>, raw::Error<raw::ByteStream>>,
+) -> Result<Value, CallError> {
+    use futures_util::StreamExt as _;
+    let answered = match result {
+        Ok(answered) | Err(raw::Error::ErrorResponse(answered)) => answered,
+        Err(raw::Error::UnexpectedResponse(response)) => {
+            let status = response.status().as_u16();
+            let retry_after = retry_after(response.headers());
+            let bytes = response.bytes().await.map_err(|_| CallError::Unreadable(status))?;
+            return answer(status, retry_after.as_deref(), &bytes);
+        }
+        Err(raw::Error::CommunicationError(e)) => {
+            return Err(CallError::Unreachable(e.without_url().to_string()));
+        }
+        Err(other) => return Err(CallError::Unreachable(other.to_string())),
+    };
+    let status = answered.status().as_u16();
+    let retry_after = retry_after(answered.headers());
+    let mut stream = answered.into_inner().into_inner();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        bytes.extend_from_slice(&chunk.map_err(|_| CallError::Unreadable(status))?);
+    }
+    answer(status, retry_after.as_deref(), &bytes)
 }
 
 #[derive(Debug)]
@@ -1259,7 +1340,7 @@ fn revoke(
     if !yes && !confirm(&question) {
         return Err(Failure::usage("not revoked (pass --yes to revoke without asking)"));
     }
-    let answer = platform.act(&machine.machine_id, "revoke").map_err(|e| match e {
+    let answer = platform.revoke(&machine.machine_id).map_err(|e| match e {
         CallError::Status { status: 404, .. } => {
             Failure::new("machine.not_found", "that machine is no longer listed")
         }
@@ -1305,7 +1386,7 @@ fn rotate(
             "that machine is revoked; join it again with cmux machine add",
         ));
     }
-    platform.act(&machine.machine_id, "rotate").map_err(|e| match e {
+    platform.rotate(&machine.machine_id).map_err(|e| match e {
         CallError::Status { status: 404, .. } => {
             Failure::new("machine.not_found", "that machine is no longer listed")
         }

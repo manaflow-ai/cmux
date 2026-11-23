@@ -10,6 +10,8 @@
 //!   Only the groups `tags.txt` names are generated. A route NEXT needs that the
 //!   spec lacks is a cmux-platform issue (cmux-platform#825), never a type
 //!   written here.
+//! - [`raw`] is the generated client for the machine-join routes with success
+//!   answers as raw JSON bytes, for callers that read fields the spec lacks.
 //! - [`ops`] sends the `cmux.wire/1` ops (`POST /v1/ops`, `POST /v1/read`)
 //!   typed by `cmux-cloud-wire`, the op catalog half of the contract.
 //! - [`ApiError`] reads every refusal the same way (the HTTP status and the
@@ -38,6 +40,27 @@
 #[cfg(feature = "http")]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+}
+
+/// The same client for the groups `build.rs` names in `RAW_TAGS`, with every success
+/// answer as raw bytes ([`ByteStream`]): for callers that read fields the spec does not
+/// name yet, which the generated types would drop. Its request types live in `raw::types`.
+#[allow(
+    clippy::all,
+    clippy::pedantic,
+    unused_imports,
+    unused_mut,
+    unused_qualifications,
+    dead_code,
+    missing_docs
+)]
+#[allow(
+    clippy::unwrap_used,
+    reason = "progenitor's Client::new unwraps a reqwest build with fixed timeouts; callers use new_with_client"
+)]
+#[cfg(feature = "http")]
+pub mod raw {
+    include!(concat!(env!("OUT_DIR"), "/generated_raw.rs"));
 }
 
 #[cfg(feature = "http")]
