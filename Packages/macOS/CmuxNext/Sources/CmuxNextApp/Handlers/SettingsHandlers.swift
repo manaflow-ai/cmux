@@ -54,7 +54,8 @@ enum SettingsHandlers {
         WebPageTab.registerGitHub(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
-                            stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
+                            stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] },
+                            openLink: { [weak services = context.services] url in services.map { SidebarBridge.openUpdateLink(url, services: $0) } })
         // Install an Earlier Nightly…: Settings > Updates at its Channels card, whose Switch installs any
         // recent build (`cmux nightly install` is the CLI form); a new focus each open scrolls back to it.
         registry.bind("updates.installEarlierBuild", unavailable: { [weak services = context.services] in

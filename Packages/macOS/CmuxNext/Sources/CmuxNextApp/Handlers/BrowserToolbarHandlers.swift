@@ -115,11 +115,11 @@ enum BrowserToolbarHandlers {
             guard source == ActionSuggestions.browserToolbarButtons else { return previous?(source) ?? [] }
             return BrowserToolbarButton.pinnable.map { ActionEnumCase(value: $0.rawValue, title: $0.pinTitle) }
         }
-        let managed = { settings().map(BrowserToolbarButtonsSetting.isManaged(in:)) ?? true }
+        let managed = { settings().map(BrowserToolbarButtonsSetting.isManaged(in:)) ?? false }
         registry.bindEffect("browser.toolbar.togglePin", requires: nil, unavailable: { managed() ? RefusalStrings.turnedOffByOrganization : nil }, effect: { invocation in
             let text = invocation["button"]?.stringValue ?? ""
             guard let button = BrowserToolbarButton.pinnable.first(where: { $0.rawValue == text || $0.pinTitle == text }), let settings = settings() else {
-                throw ActionFailure.notFound(text)
+                throw ActionFailure.notFound(RefusalStrings.noToolbarButton)
             }
             BrowserToolbarButtonsSetting.toggle(button.rawValue, in: settings)
             return .done

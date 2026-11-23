@@ -42,6 +42,21 @@ extension AppActions {
         // Cmd-Shift-C (Arc, Chrome extensions): the page's URL, as the
         // omnibar's Copy writes it (the full URL, never the elided text).
         registry.bind("browser.copyURL", isEnabled: { chrome()?.tab.state.url != nil }, invoke: { _ = chrome($0)?.copyPageURL() })
+        // A page of the Back or Forward menu, by its goToEntry offset (-2, 1).
+        let listing = { (invocation: ActionInvocation) in chrome(invocation)?.tab as? any BrowserBackForwardListing }
+        let previous = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            guard source == ActionSuggestions.browserBackForwardEntries else { return previous?(source) ?? [] }
+            guard let list = listing(ActionInvocation())?.navigationList() else { return [] }
+            return (list.back + list.forward).map { ActionEnumCase(value: String($0.offset), title: $0.entry.rowTitle) }
+        }
+        registry.bindEffect("browser.goToHistoryEntry", requires: nil, effect: { invocation in
+            let offset = invocation["entry"]?.stringValue.flatMap { Int($0) } ?? invocation["entry"]?.intValue ?? 0
+            guard offset != 0, let tab = listing(invocation), tab.goToEntry(offset: offset) else {
+                throw ActionFailure(message: RefusalStrings.noHistoryEntry)
+            }
+            return .done
+        })
         // A machine browser tab that is not ready: this Mac's page in its place (cx-2cob).
         registry.bind("browser.openLocally", isEnabled: { chrome()?.tab is MachineBrowserPageTab },
                       invoke: { (chrome($0)?.tab as? MachineBrowserPageTab)?.openLocally() })

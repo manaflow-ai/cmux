@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextRemoteView
+import CmuxNextRemoteViewSessions
 import CmuxNextServer
 import CmuxNextWindowRules
 
@@ -25,6 +27,18 @@ enum RemoteHandlers {
             // Asks through the registry's confirmation sheet (remote.install is destructive).
             _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
         }
+        registry.bindEffect("remote.setQuality", requires: nil, effect: { invocation in
+            // The targeted or selected remote view tab's quality menu (RemoteHoverToolbar).
+            let id = context.scope(invocation).tab?.id.rawValue
+            guard let preset = invocation["quality"]?.stringValue.flatMap(RemoteQualityPreset.init(rawValue:)) else {
+                throw ActionFailure.notFound(invocation["quality"]?.stringValue ?? "")
+            }
+            guard let session = RemoteViewPageTab.live.allObjects.first(where: { $0.id.rawValue == id })?.debugSession else {
+                throw ActionFailure(message: RefusalStrings.noRemoteView)
+            }
+            session.selectQuality(preset)
+            return .done
+        })
         CloudHandlers.bind("remote.connect", registry, reason: available) { invocation in
             // A CLI/MCP run stays headless unless it explicitly requests focus;
             // capture and automation must not steal the person's active window.

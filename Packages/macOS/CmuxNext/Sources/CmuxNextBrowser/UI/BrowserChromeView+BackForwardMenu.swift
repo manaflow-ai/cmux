@@ -30,8 +30,7 @@ extension BrowserChromeView {
         guard !entries.isEmpty else { return nil }
         let menu = NSMenu()
         for (offset, entry) in entries {
-            let title = entry.title.flatMap { $0.isEmpty ? nil : $0 } ?? entry.url?.absoluteString ?? ""
-            let item = NSMenuItem(title: title, action: #selector(goToBackForwardEntry(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: entry.rowTitle, action: #selector(goToBackForwardEntry(_:)), keyEquivalent: "")
             item.target = self
             item.tag = offset
             item.toolTip = entry.url?.absoluteString

@@ -51,8 +51,12 @@ enum BrowserDownloadsMenu {
     /// name (`browserDownloads` lists them, newest first); a row the download does not offer now
     /// refuses with its status.
     static func bind(into registry: ActionRegistry, list: BrowserDownloadList) {
+        // A row runs wherever the keyboard is (the popup opens by itself, over a terminal): the
+        // list stands in for a focused browser, and the click is the choice (Cancel asks nothing).
         list.run = { [weak registry] id, download in
-            _ = registry?.perform(id, invocation: ActionInvocation(arguments: ["download": .string(download.id.uuidString)], origin: .user))
+            guard let registry else { return }
+            _ = registry.perform(id, invocation: ActionInvocation(arguments: ["download": .string(download.id.uuidString)], origin: .user,
+                                                                  keyContext: registry.context.union(.browserFocused)).confirmed())
         }
         let previous = registry.argumentSuggestions
         registry.argumentSuggestions = { [weak list] source in

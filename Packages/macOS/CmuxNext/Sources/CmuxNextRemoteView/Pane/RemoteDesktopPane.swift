@@ -256,14 +256,16 @@ public final class RemoteDesktopPane {
         }
     }
 
+    /// The quality menu's choice (`remote.setQuality` from the palette too): shown at once, sent to the stream.
+    public func selectQuality(_ preset: RemoteQualityPreset) {
+        settings.quality = preset
+        view.render(state: state, settings: settings)
+        handlers.selectQuality(preset)
+    }
+
     private func wireChrome() {
         view.toolbar.onSelectMode = { [weak self] mode in self?.selectMode(mode) }
-        view.toolbar.onSelectQuality = { [weak self] preset in
-            guard let self else { return }
-            settings.quality = preset
-            view.render(state: state, settings: settings)
-            handlers.selectQuality(preset)
-        }
+        view.toolbar.onSelectQuality = { [weak self] in self?.selectQuality($0) }
         view.toolbar.onSelectDisplay = { [weak self] in self?.handlers.selectDisplay($0) }
         view.toolbar.onStop = { [weak self] in self?.stopPressed() }
         view.toolbar.onUpstream = { [weak self] in self?.upstreamPressed($0) }

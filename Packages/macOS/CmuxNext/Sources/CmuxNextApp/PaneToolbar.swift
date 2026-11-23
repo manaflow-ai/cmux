@@ -280,7 +280,7 @@ final class PaneToolbar: PaneControlsRefreshing {
         registry.bindEffect(togglePin, requires: nil, effect: { [weak registry] invocation in
             let text = invocation["button"]?.stringValue ?? ""
             let id = PaneToolbarButtonsSetting.values.first { $0 == text || registry?.descriptor(for: ActionID(rawValue: $0))?.title == text }
-            guard let id, let settings = settings() else { throw ActionFailure.notFound(text) }
+            guard let id, let settings = settings() else { throw ActionFailure.notFound(RefusalStrings.noToolbarButton) }
             let next = PaneToolbarButtonsSetting.current(settings).toggling(id)
             // task-owner: one write; the gesture is the user's (SettingWriter.currentRun)
             Task {

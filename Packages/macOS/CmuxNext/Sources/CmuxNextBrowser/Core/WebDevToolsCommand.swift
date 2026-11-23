@@ -11,6 +11,7 @@
 public nonisolated enum WebDevToolsCommand: String, CaseIterable, Hashable, Sendable {
     // Open and place the tools.
     case openDocked
+    case openDockedLeft
     case openDockedRight
     case openInWindow
     case close
@@ -150,7 +151,7 @@ public nonisolated enum WebDevToolsCommand: String, CaseIterable, Hashable, Send
             return .supported
         case .captureFullPageScreenshot:
             return isBrowserTab ? .supported : .limited(.browserTabOnly)
-        case .openDockedRight: return .limited(.webKitDockSide)
+        case .openDockedLeft, .openDockedRight: return .limited(.webKitDockSide)
         case .takeHeapSnapshot: return .limited(.webKitUseTimelines)
         case .captureNodeScreenshot: return .limited(.webKitUseNodeMenu)
         case .copyConsoleLog: return .limited(.useConsoleSaveAs)

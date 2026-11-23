@@ -9,7 +9,8 @@ import Foundation
 enum UpdateHandlers {
     static func bind(into registry: ActionRegistry, updater: UpdaterService, openWhatsNew: @escaping @MainActor () -> Bool = { false },
                      whatsNewUnavailable: @escaping @MainActor () -> String? = { nil },
-                     stateDirectories: @escaping @MainActor () -> [URL?] = { [nil] }) {
+                     stateDirectories: @escaping @MainActor () -> [URL?] = { [nil] },
+                     openLink: @escaping @MainActor (URL) -> Void = { _ in }) {
         // The What's New top page (WHATS-NEW-AFTER-UPDATE): palette, Help menu, CLI.
         registry.bind("updates.whatsNew", unavailable: whatsNewUnavailable, invoke: { _ in _ = openWhatsNew() })
         // announcements.enabled through the one setting path (palette.toggleSetting).
@@ -36,6 +37,7 @@ enum UpdateHandlers {
                 registry.track(result: result(updater.installAnswer(after: baseline)))
             })
         }
+        bindNoticeRows(into: registry, updater: updater, openLink: openLink)
         // The ring return's rollback check reads the same stores as updates.rollback.
         updater.pulledWatch.stateDirectories = stateDirectories
         // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).
@@ -75,6 +77,28 @@ enum UpdateHandlers {
             case .refused(let reason): .failure(ActionWorkFailure(refusal: .unavailable, reason: reason))
             case .failed(let message): .failure(ActionWorkFailure(message))
             }
+        }
+    }
+
+    /// The update and tip cards' rows (their x menu, Cancel, Details, Release Notes), as the cards'
+    /// own buttons run them (`SidebarBridge.noticeAction`). Release Notes with no found update opens
+    /// What's New, the running build's notes.
+    private static func bindNoticeRows(into registry: ActionRegistry, updater: UpdaterService, openLink: @escaping @MainActor (URL) -> Void) {
+        registry.bindEffect("updates.snooze", requires: nil, effect: { invocation in
+            guard let option = invocation["option"]?.stringValue.flatMap(UpdateCardCloseOption.init(rawValue:)) else { return .done }
+            updater.closeUpdateCard(option)
+            return .done
+        })
+        for (id, action) in [("updates.cancelDownload", UpdateCardAction.cancelDownload), ("updates.showDetails", .details)] {
+            registry.bindEffect(ActionID(rawValue: id), requires: nil, effect: { _ in updater.performCardAction(action); return .done })
+        }
+        registry.bindEffect("updates.releaseNotes", requires: nil, effect: { [weak registry] invocation in
+            guard let url = updater.cardReleaseNotesURL else { _ = registry?.perform("updates.whatsNew", invocation: invocation); return .done }
+            openLink(url)
+            return .done
+        })
+        for (id, option) in [("tips.muteDay", TipMenuOption.muteDay), ("tips.muteWeek", .muteWeek)] {
+            registry.bindEffect(ActionID(rawValue: id), requires: nil, effect: { _ in updater.tipCardAction(updater.tip?.id ?? "", option.rawValue); return .done })
         }
     }
 }

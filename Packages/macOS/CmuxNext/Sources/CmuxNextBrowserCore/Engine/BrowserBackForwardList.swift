@@ -9,6 +9,11 @@ public nonisolated struct BrowserNavigationEntry: Hashable, Sendable {
         self.url = url
         self.title = title
     }
+
+    /// Its row in the Back and Forward menus and the palette: its title, else its address.
+    public var rowTitle: String {
+        title.flatMap { $0.isEmpty ? nil : $0 } ?? url?.absoluteString ?? ""
+    }
 }
 
 /// A tab's back/forward list, oldest first, with the current entry.
