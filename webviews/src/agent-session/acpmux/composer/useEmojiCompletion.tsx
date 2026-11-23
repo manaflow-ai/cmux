@@ -18,7 +18,7 @@ import type { MarkdownFieldHandle } from "../MarkdownField";
 // The `:` emoji list of every prompt that takes a draft (the chat composer, New Tab), one lifecycle:
 // `:` and two letters at a word start, on any line, list emoji by shortcode, and a text emoticon
 // (`:)`, `:DD`, `<3`) lists its face. Return, Tab or a click writes the highlighted row and a space
-// as one undo step; Esc keeps the text until it changes; the `:` that closes a known `:code:`
+// as one undo step; Esc closes it for that token; only the focused prompt shows it; the `:` that closes a known `:code:`
 // writes its emoji; a paste's `:code:`s go in as emoji (emojiShortcodes.ts, emojiTokens.ts). Leo,
 // 2026-11-22: "for some reason i can't do :pleading_face: with the emoji here. we need to actually
 // improve the ergonomics and lifecycle of that."
@@ -45,10 +45,8 @@ export interface EmojiCompletion {
   at: EmojiTrigger | undefined;
   /// The highlighted row's index, for `aria-activedescendant` (`acpmux-emoji-N`).
   selected: number;
-  /// Closes the list until the text changes (Esc, focus leaving).
+  /// Closes the list for the token it shows for (Esc, focus leaving).
   dismiss(): void;
-  /// The text changed: a dismissed list may show again.
-  edited(): void;
   /// The list's keys (arrows, Ctrl-N/P/J/K, Return, Tab, Esc); true when it took the key.
   keyDown(event: ListKey): boolean;
   /// The field's `onBeforeInput` for the closing `:`; true when it wrote the emoji.
@@ -59,14 +57,17 @@ export interface EmojiCompletion {
   menu: ReactNode;
 }
 
+/// Whether the token `closed` (the one Esc closed the list on) is still `now`: the same start, and
+/// what was typed then still all there (typing on keeps it closed; Backspace past it does not).
+export function stillDismissed(closed: EmojiTrigger | undefined, now: EmojiTrigger): boolean {
+  return closed !== undefined && closed.start === now.start && now.token.startsWith(closed.token);
+}
+
 export function useEmojiCompletion({
   field,
-  text,
   off = false,
 }: {
   field: RefObject<MarkdownFieldHandle | null>;
-  /// The prompt's value: Esc closes the list for this text.
-  text: string;
   /// Another list or mode owns the prompt's keys (the `/` or `@` list, shell mode).
   off?: boolean;
 }): EmojiCompletion {
@@ -74,33 +75,53 @@ export function useEmojiCompletion({
   const dataNow = useRef(data);
   const requested = useRef(false);
   const [active, setActive] = useState<string | undefined>();
-  const [dismissed, setDismissed] = useState<string | undefined>();
   const [recents, setRecents] = useState(loadRecentEmoji);
   const toneNow = useRef(recents.tone);
   // The token the field reads at its caret, on whichever line it is (MarkdownField `onEmoji`).
   const [caret, setCaret] = useState<EmojiTrigger | undefined>();
-  const textNow = useRef(text);
-  // What the field's callbacks and the window's blur read, written as the render commits.
+  // The token Esc closed the list on: it stays closed for that token, more letters typed on it and
+  // the caret off it and back included; another token, or one shortened (Backspace), opens it again.
+  const [dismissed, setDismissed] = useState<EmojiTrigger | undefined>();
+  // Only the prompt with the keyboard shows a list. A pane whose draft ends in `:plead` drew its
+  // list while the person typed in the next pane (Leo's two panes, 2026-11-22): the list belongs to
+  // the caret being typed at, so a field without focus shows none.
+  const [focused, setFocused] = useState(false);
+  // What the field's callbacks read, written as the render commits.
   useInsertionEffect(() => {
     dataNow.current = data;
     toneNow.current = recents.tone;
-    textNow.current = text;
   });
-  const typed = !off && dismissed !== text ? caret : undefined;
+  const typed = !off && focused && caret && !stillDismissed(dismissed, caret) ? caret : undefined;
   const key = typed ? `${typed.start}:${typed.token}` : undefined;
   const rows = useMemo(() => (typed && data ? emojiMatches(data, typed, recents) : []), [typed, data, recents]);
   const at = rows.length > 0 ? typed : undefined;
   const chosen = active === undefined ? -1 : rows.findIndex((row) => row.key === active);
   const selected = rows.length === 0 ? -1 : Math.max(0, chosen);
   useEffect(() => setActive(undefined), [key]);
-  // Another pane's web view taking the keyboard blurs this window, never the prompt (WebKit keeps
-  // the element focused), so the list stayed up over a prompt that no longer took its keys: Leo's
-  // `:plead` list in the next pane while he typed here (2026-11-22). Closed as Esc closes it.
+  // Focus in and out of the field. Another pane's web view taking the keyboard blurs this window,
+  // never the prompt (WebKit keeps the element focused), so the window's blur counts as leaving
+  // too. Back in the field with the caret on the token, the list shows again.
   useEffect(() => {
-    const away = () => setDismissed(textNow.current);
+    const inside = (node: EventTarget | null) => {
+      const element = field.current?.element();
+      return Boolean(element && node instanceof Node && element.contains(node));
+    };
+    const away = () => setFocused(false);
+    const focusIn = (event: FocusEvent) => setFocused(inside(event.target));
+    const focusOut = (event: FocusEvent) => {
+      if (inside(event.target) && !inside(event.relatedTarget)) away();
+    };
+    const focusedNow = () => inside(document.activeElement);
+    setFocused(focusedNow());
+    document.addEventListener("focusin", focusIn);
+    document.addEventListener("focusout", focusOut);
     window.addEventListener("blur", away);
-    return () => window.removeEventListener("blur", away);
-  }, []);
+    return () => {
+      document.removeEventListener("focusin", focusIn);
+      document.removeEventListener("focusout", focusOut);
+      window.removeEventListener("blur", away);
+    };
+  }, [field]);
   const look = experimentArm(emojiShortcodeLook);
 
   const pick = (match: EmojiMatch) => {
@@ -115,7 +136,11 @@ export function useEmojiCompletion({
   // Stable for the field's props (MarkdownField compares them).
   const stable = useMemo(
     () => ({
-      onEmoji: (trigger: EmojiTrigger | undefined) => setCaret(trigger),
+      onEmoji: (trigger: EmojiTrigger | undefined) => {
+        setCaret(trigger);
+        // Another token, or this one shortened, ends what Esc closed.
+        setDismissed((closed) => (!trigger || stillDismissed(closed, trigger) ? closed : undefined));
+      },
       transformPaste: (pasted: string) => {
         const table = dataNow.current;
         return table ? replaceShortcodes(table, pasted, toneNow.current) : pasted;
@@ -139,14 +164,13 @@ export function useEmojiCompletion({
     ...stable,
     at,
     selected,
-    dismiss: () => setDismissed(text),
-    edited: () => setDismissed(undefined),
+    dismiss: () => setDismissed(at),
     keyDown: (event) => {
       if (!at) return false;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        setDismissed(text);
+        setDismissed(at);
         return true;
       }
       const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;

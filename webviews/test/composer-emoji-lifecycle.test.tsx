@@ -136,6 +136,9 @@ async function composer(typed: string, others: AcpmuxSessionEntry[] = []) {
   await settle();
   const field = host.querySelector<HTMLElement>("[role=combobox]")!;
   const prompt = host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
+  // The person is typing here: only the prompt with the keyboard shows a list.
+  await act(async () => prompt.focus());
+  await settle();
   return { field, prompt, sent };
 }
 
@@ -233,18 +236,51 @@ test("skin tones: `:skin-tone-N:` after a toned emoji re-tones it, and the tone 
   expect(rows()[0]).toBe("👋🏽 :wave:");
 });
 
-test("Esc closes the list for that text; typing again brings it back", async () => {
-  const { field, prompt } = await composer("hey");
+test("Esc closes the list for that token: typing on and the caret away and back keep it closed", async () => {
+  const { field, prompt, sent } = await composer("hey");
   await type(prompt, " :smi");
   expect(rows().length).toBeGreaterThan(0);
   await press(field, "Escape", { keyCode: 27 });
   expect(rows()).toEqual([]);
-  // Return now sends the text as typed.
+  // More letters on the same token: still closed, and Return sends the text as typed.
   await type(prompt, "l");
-  expect(rows().length).toBeGreaterThan(0);
+  expect(rows()).toEqual([]);
+  await act(async () => prompt.setCaret(1));
+  await act(async () => prompt.setCaret("hey :smil".length));
+  await settle();
+  expect(rows()).toEqual([]);
+  await press(field, "Enter", { keyCode: 13 });
+  expect(sent).toEqual(["hey :smil"]);
 });
 
-test("the list closes when another pane takes the keyboard, and stays closed until the next edit", async () => {
+test("after Esc, Backspace on the token or a new token opens the list again", async () => {
+  const { field, prompt } = await composer("hey");
+  await type(prompt, " :smil");
+  await press(field, "Escape", { keyCode: 27 });
+  expect(rows()).toEqual([]);
+  // Backspace (jsdom has no native deletion: the same edit, one character off the token).
+  await act(async () => void prompt.replaceBeforeCaret(1, ""));
+  await settle();
+  expect(prompt.plainText()).toBe("hey :smi");
+  expect(rows().length).toBeGreaterThan(0);
+  await press(field, "Escape", { keyCode: 27 });
+  await type(prompt, " :sob");
+  expect(rows()[0]).toBe("😭 :sob:");
+});
+
+test("the caret moved off the token closes the list; back on it, the list shows", async () => {
+  const { prompt } = await composer("hey there");
+  await type(prompt, " :plead");
+  expect(rows()[0]).toBe("🥺 :pleading_face:");
+  await act(async () => prompt.setCaret(2));
+  await settle();
+  expect(rows()).toEqual([]);
+  await act(async () => prompt.setCaret("hey there :plead".length));
+  await settle();
+  expect(rows()[0]).toBe("🥺 :pleading_face:");
+});
+
+test("the list closes when another pane takes the keyboard, and shows again back in the prompt", async () => {
   const { prompt } = await composer("hey");
   await type(prompt, " :plead");
   expect(rows()[0]).toBe("🥺 :pleading_face:");
@@ -252,6 +288,13 @@ test("the list closes when another pane takes the keyboard, and stays closed unt
     window.dispatchEvent(new window.Event("blur"));
   });
   expect(rows()).toEqual([]);
+  // Back in this prompt, its caret still on the token.
+  await act(async () => prompt.focus());
+  await act(async () => {
+    host
+      .querySelector(".acpmux-md-field [contenteditable]")!
+      .dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+  });
   await type(prompt, "i");
   expect(rows().length).toBeGreaterThan(0);
 });
@@ -319,4 +362,77 @@ test("@ inside a code span opens no list", async () => {
   await act(async () => prompt.setCaret("run @relea".length));
   await settle();
   expect(mentionRows()).toEqual([]);
+});
+
+// Leo's two panes (2026-11-22): he typed `:plead` at the end of a long draft in the left pane; the
+// right pane, whose own draft also ended in `:plead`, drew the list, and Return in the left pane
+// wrote nothing. The list belongs to the prompt with the keyboard, at its own caret.
+test("two panes: only the focused prompt lists, and Return writes there, on the last line of a long draft", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Composer } = await import("../src/agent-session/acpmux/Composer");
+  root ??= createRoot(host);
+  const left = chat();
+  const right = chat();
+  const handles: Record<string, ComposerHandle> = {};
+  const sent: string[] = [];
+  const pane = (snapshot: AcpmuxSnapshot, name: string) => (
+    <div data-pane={name}>
+      <Composer
+        handle={(value) => void (value && (handles[name] = value))}
+        snapshot={snapshot}
+        sessionId={snapshot.sessionId}
+        chips={Chips}
+        onSend={(text) => {
+          sent.push(text);
+          return true;
+        }}
+        onStop={() => {}}
+        localName="studio"
+      />
+    </div>
+  );
+  await act(async () =>
+    root!.render(
+      <>
+        {pane(left, "left")}
+        {pane(right, "right")}
+      </>,
+    ),
+  );
+  const long = [
+    "ios. 1, a message that should never be shown to me. figure out the right behaviour we want, perfect it.",
+    "",
+    "2. claude code has such a nice animation on startup... it's so smooth and nice...",
+    "",
+    ":plea",
+  ].join("\n");
+  await act(async () => handles.right!.restore(":plead", []));
+  await act(async () => handles.left!.restore(long, []));
+  await settle();
+  const promptOf = (name: string) =>
+    host.querySelector<MarkdownFieldElement>(`[data-pane=${name}] .acpmux-md-field`)!.acpmuxMarkdownField!;
+  // Nothing focused yet: the right pane's restored `:plead` draws no list.
+  expect(host.querySelectorAll("#acpmux-emoji-menu").length).toBe(0);
+  const leftPrompt = promptOf("left");
+  await act(async () => leftPrompt.focus());
+  await type(leftPrompt, "d");
+  const menus = [...host.querySelectorAll<HTMLElement>("#acpmux-emoji-menu")];
+  expect(menus.length).toBe(1);
+  expect(menus[0]!.closest("[data-pane]")!.getAttribute("data-pane")).toBe("left");
+  expect(rows()[0]).toBe("🥺 :pleading_face:");
+  const field = host.querySelector<HTMLElement>("[data-pane=left] [role=combobox]")!;
+  await press(field, "Enter", { keyCode: 13 });
+  expect(sent).toEqual([]);
+  expect(leftPrompt.plainText().endsWith("\n🥺 ")).toBe(true);
+  expect(promptOf("right").plainText()).toBe(":plead");
+  // The keyboard to the right pane: the left list stays shut, and the right one opens once typed on.
+  await type(leftPrompt, ":sob");
+  expect(rows()[0]).toBe("😭 :sob:");
+  const rightPrompt = promptOf("right");
+  await act(async () => rightPrompt.focus());
+  await settle();
+  expect(host.querySelector("[data-pane=left] #acpmux-emoji-menu")).toBeNull();
+  await type(rightPrompt, "i");
+  expect(host.querySelectorAll("#acpmux-emoji-menu").length).toBe(1);
+  expect(host.querySelector("[data-pane=right] #acpmux-emoji-menu")).not.toBeNull();
 });

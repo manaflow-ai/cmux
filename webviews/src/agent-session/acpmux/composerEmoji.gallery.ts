@@ -119,6 +119,39 @@ export default agentPaneEntry({
           throw new Error(`no row highlighted after typing back: ${prompt.getAttribute("aria-activedescendant")}`);
       },
     ),
+    // Leo, 2026-11-22: "we need to actually improve the ergonomics and lifecycle of that".
+    "escape-sticky": variant(
+      "Play: Esc on `:smi`, then `l`: the list stays closed for that token; Esc never changes the text.",
+      async (ctx) => {
+        await typeToMenu(ctx, "Hey :smi");
+        await ctx.press("Escape");
+        await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
+        await ctx.type("l");
+        await ctx.waitFor(() => promptText(ctx).endsWith(":smil"));
+        if (ctx.document.querySelector(ROW)) throw new Error("the list came back on the token Esc closed");
+      },
+    ),
+    "caret-away": variant(
+      "Play: the caret moved to the line's start closes the list; End brings it back.",
+      async (ctx) => {
+        await typeToMenu(ctx, "aw :plead");
+        await ctx.press("Home");
+        await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
+        await ctx.press("End");
+        await ctx.waitFor(() => ctx.document.querySelector(ROW) !== null);
+      },
+    ),
+    "focus-away": variant(
+      "Play: focus leaving the prompt closes the list; back in it, the list shows again.",
+      async (ctx) => {
+        await typeToMenu(ctx, "aw :plead");
+        (ctx.document.activeElement as HTMLElement | null)?.blur();
+        await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
+        await ctx.focus({ selector: PROMPT });
+        await ctx.type("i");
+        await ctx.waitFor(() => ctx.document.querySelector(ROW) !== null);
+      },
+    ),
     "type-past": variant("Play: typing on past `:pl` (a space) closes the menu and keeps the text.", async (ctx) => {
       await typeToMenu(ctx, "aw :pl");
       await ctx.type(" ok");

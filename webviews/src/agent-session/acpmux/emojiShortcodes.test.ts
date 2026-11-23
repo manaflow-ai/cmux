@@ -155,6 +155,19 @@ describe("emojiMatches", () => {
     expect(rows(":thumbsu")[0]?.emoji).toBe("👍");
     expect(rows(":cat").some((row) => row.code === "joy_cat")).toBe(true);
   });
+  test("a prefix finds its code: `:plead`, `:cry`, `:+1`", () => {
+    expect(rows(":plead")[0]?.code).toBe("pleading_face");
+    expect(rows(":cry")[0]?.emoji).toBe("😢");
+    expect(at("so :+1")).toMatchObject({ token: ":+1" });
+    expect(rows(":+1")[0]?.emoji).toBe("👍");
+  });
+  test("an emoji picked lately comes first for a prefix it matches", () => {
+    const now = 1_000_000;
+    const before = rows(":smi", undefined, now).map((row) => row.emoji);
+    const last = before.at(-1)!;
+    const prefs = recordUse({ tone: 0, recents: [] }, last, now);
+    expect(rows(":smi", prefs, now)[0]?.emoji).toBe(last);
+  });
   test("a half-remembered code finds its emoji by its letters in order (`:thup`)", () => {
     expect(rows(":thup")[0]?.emoji).toBe("👍");
     // Two letters never go loose: too many codes hold them in order.
