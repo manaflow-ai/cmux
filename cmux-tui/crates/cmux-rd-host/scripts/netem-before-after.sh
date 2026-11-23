@@ -36,8 +36,19 @@ build() { # build DIR TARGET -> path of cmux-rd
   echo "$2/release/cmux-rd"
 }
 
-git -C "$repo" fetch -q origin "${BASE#origin/}" 2>/dev/null
-base_sha="$(git -C "$repo" merge-base HEAD "$BASE")" || { echo "no merge base with $BASE" >&2; exit 2; }
+# BASE_SHA names the base commit outright. Otherwise the merge base with BASE; a shallow CI
+# checkout has none, so fetch BASE and deepen until there is one.
+base_sha="${BASE_SHA:-}"
+if [[ -z $base_sha ]]; then
+  git -C "$repo" fetch -q origin "+refs/heads/${BASE#origin/}:refs/remotes/$BASE" 2>/dev/null
+  for depth in 200 2000 20000; do
+    base_sha="$(git -C "$repo" merge-base HEAD "$BASE" 2>/dev/null)" && break
+    git -C "$repo" fetch -q --deepen="$depth" origin HEAD "${BASE#origin/}" 2>/dev/null
+  done
+fi
+[[ -n $base_sha ]] && git -C "$repo" cat-file -e "$base_sha^{commit}" 2>/dev/null ||
+  git -C "$repo" fetch -q origin "$base_sha" 2>/dev/null ||
+  { echo "no merge base with $BASE (set BASE_SHA)" >&2; exit 2; }
 base_dir="$(mktemp -d)/base"
 git -C "$repo" worktree add -q --detach "$base_dir" "$base_sha" || exit 2
 # cmux-rd-host is its own workspace, so its default target is the crate's own.
@@ -53,7 +64,8 @@ for row in $ROWS; do
     file="$out/$side-$rtt-$loss-$rate.jsonl"
     sudo -n python3 -I "$here/screen-share-netem.py" "$bin" --rtt "$rtt" --loss "$loss" --rate "$rate" \
       --workload "$WORKLOAD" --attempts "$ATTEMPTS" --samples "$SAMPLES" "${serve_args[@]}" --out "$file" >"$file.log" 2>&1
-    echo "$side rtt=${rtt}ms loss=${loss}% rate=${rate}Mbit exit=$?: $(tail -n 3 "$file.log" | tr '\n' ' ')"
+    echo "$side rtt=${rtt}ms loss=${loss}% rate=${rate}Mbit exit=$?: $(tail -n 3 "$file.log" | tr '\n' ' ')" |
+      tee -a "$out/summary.txt"
   done
 done
 git -C "$repo" worktree remove --force "$base_dir"
