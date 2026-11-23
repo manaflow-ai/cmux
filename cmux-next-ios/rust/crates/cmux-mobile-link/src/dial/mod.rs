@@ -645,6 +645,7 @@ pub(crate) fn run_dialed(
         link,
         transport,
         path: dialed.path,
+        peer: dialed.peer,
         session_id: uuid::Uuid::new_v4().to_string(),
         webrtc_media: false,
     }

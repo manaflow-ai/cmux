@@ -104,6 +104,9 @@ pub async fn start(
                 session_id: connected.session_id.clone(),
                 video: None,
                 session_exposure: session_exposure.clone(),
+                // serve_link fills both from the link.
+                route: None,
+                path: None,
             };
             tracing::info!(phone = peer.device_id, session_id = peer.session_id, "LAN link up");
             tokio::spawn(crate::host::serve_link(

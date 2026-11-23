@@ -378,10 +378,13 @@ impl LanHost {
                 let dialed = Dialed {
                     stream: Box::new(stream),
                     path,
+                    // The mesh does not say which LAN address the phone's packets came from.
+                    peer: watch::channel(None).1,
                     guard,
                     lane: Some(lane_rx),
                     media: None,
                     webrtc_media: false,
+                    liveness: None,
                 };
                 if tx.send(LanAccepted { device_id, dialed }).await.is_err() {
                     return;
@@ -741,10 +744,13 @@ async fn dial_one(
     Ok(Dialed {
         stream: Box::new(stream),
         path,
+        // The Mac's LAN address this tunnel goes to (a direct-lan route).
+        peer: watch::channel(Some(address.ip())).1,
         guard: Box::new((net, path_tx)),
         lane: Some(lane_rx),
         media: None,
         webrtc_media: false,
+        liveness: None,
     })
 }
 

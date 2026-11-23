@@ -875,7 +875,19 @@ async fn connect_on(
         connected.transport,
         connected.path.clone(),
         timeline.clone(),
-        current_signaling(pool, &signaling),
+        match &signaling {
+            Some(socket) => current_signaling(pool, socket),
+            // A LAN direct link (lan.rs) has no socket of its own: the pool's, when one is open.
+            None => pooled_signaling(
+                pool,
+                SocketKey {
+                    base_url: request.base_url.clone(),
+                    team_id: request.team_id.clone(),
+                    device_id: request.device_id.clone(),
+                    build_space: build_space(),
+                },
+            ),
+        },
     );
     Ok(Arc::new(LinkHandle {
         link: connected.link,
@@ -908,6 +920,17 @@ fn current_signaling(
                 None => (fallback.closed_reason().is_none()).then_some(fallback),
             }
         })
+    })
+}
+
+/// The pool's current signaling socket for `key`, if one is open (a LAN direct link's path
+/// report, which has no socket of its own).
+fn pooled_signaling(pool: &Arc<Warm>, key: SocketKey) -> cmux_mobile_link::hybrid::SignalingSource {
+    let pool = Arc::clone(pool);
+    Arc::new(move || {
+        let key = key.clone();
+        let pool = Arc::clone(&pool);
+        Box::pin(async move { pool.pooled(&key).await.map(|socket| socket.client.clone()) })
     })
 }
 
