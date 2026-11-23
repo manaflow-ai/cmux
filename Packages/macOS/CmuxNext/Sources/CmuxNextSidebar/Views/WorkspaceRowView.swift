@@ -33,6 +33,8 @@ final class WorkspaceRowView: SidebarRowView {
     var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
     /// The state a waiting row's glow stands in for, and its halo (WorkspaceRowView+NeedsYouGlow).
     var needsYouTone: StatusIndicatorState?, needsYouGlowLayer: CALayer?
+    /// The glow cleared the marks (`hideMarksForNeedsYouGlow`): the layout brings them back once it stops.
+    var marksHiddenForGlow = false
     /// The window is on screen and not covered, as the list tracks it for the rows' indicators
     /// (`SidebarListView.setWindowVisible`): the glow breathes only then.
     var isNeedsYouWindowVisible = true {
@@ -52,7 +54,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
-    /// A workspace on a Cloud machine (``WorkspaceRowContent/runsInCloud``): a small cloud right after its name.
+    /// A workspace on a Cloud machine (``WorkspaceRowContent/runsInCloud``): a small muted cloud in the trailing status cluster.
     let cloudMark = DecorativeImageView()
     /// A runaway agent chat in the workspace (`SidebarWorkspace.usageWarnings`: no autocompact
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
@@ -96,6 +98,12 @@ final class WorkspaceRowView: SidebarRowView {
     /// Classic's status block under the name (`WorkspaceRowContent.status`).
     let statusBlock = WorkspaceStatusView()
     internal(set) var statusHeight: CGFloat = 0
+    /// Its chats' subagents under the name and status block (`WorkspaceRowContent.subagents`), and their height.
+    let subagentsView = SidebarSubagentsView()
+    internal(set) var subagentsHeight: CGFloat = 0
+    /// The selection and hover fill while subagent lines hang under the row: the name's part only, so the lines
+    /// below take no fill (the Code tab's children under a selected chat).
+    let headFill = CALayer()
     var hasSubtitle = false, isExpanded = false, timeText: String?
     /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab, an inherited chat): calm
     /// mode's tooltip says it, since no hover card opens there.
@@ -184,7 +192,9 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
         [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
-         treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
+         treeLine, pullRequests, keycap, rollUp, subagentsView].forEach(addSubview)
+        headFill.isHidden = true
+        layer?.insertSublayer(headFill, at: 0)
         setUpSessionTree()
         tabCount.isHidden = true
         prBadge.isHidden = true
@@ -201,7 +211,9 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] {
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator] as [NSView?]).compactMap(\.self)
+        // The subagent lines take their own presses (`SidebarSubagentsView`); the rest of the row selects it.
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator,
+          subagentsView.pressable.isEmpty ? nil : subagentsView] as [NSView?]).compactMap(\.self)
     }
     override var hoverPaintedControls: [NSView] {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
@@ -241,6 +253,7 @@ final class WorkspaceRowView: SidebarRowView {
         (onPin, isPinned) = (nil, nil)
         onSelect = nil
         onToggleTree = nil
+        subagentsView.onOpen = nil
         onToggleAudio = nil
         title.stopMarquee()
         title.cancelRoll()
@@ -308,12 +321,11 @@ final class WorkspaceRowView: SidebarRowView {
         // `experiments.agentBadges`: the row's one status pill stands in for its status mark (the badge, the status
         // glyph, an agent mark in the status's place); nil (off, idle, failed) keeps the shipped mark.
         let pill = content.agentBadges.showsPills && !isPlaceholderRow && !isShowingPlaceholder ? SidebarAgentPill.of(ws) : nil
-        // A Cloud row with no icon of its own leads with the cloud, in the icon column Home's glyph sits in
-        // (Austin, 2026-11-12); a row that has its own icon keeps it and shows the cloud after its name.
-        let leadsWithCloud = shown.icon == nil && shown.runsInCloud && !isShowingPlaceholder
-        let leadingIcon = leadsWithCloud ? WorkspaceIcon.symbol("cloud") : shown.icon
-        icon.configure(icon: leadingIcon)
-        iconKind = leadingIcon
+        // The leading slot is the row's own icon and its state only, never where it runs: a Cloud row's cloud is a
+        // small muted mark in the trailing status cluster (Leo 2026-11-22: "im not sure we want the cloud icon at the
+        // left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon").
+        icon.configure(icon: shown.icon)
+        iconKind = shown.icon
         configureColor(shown)
         let priorTitle = lastTitle
         if titleArrivalPending || titleArrivalScheduled || titleArrivalActive {
@@ -327,10 +339,11 @@ final class WorkspaceRowView: SidebarRowView {
         }
         // The name the row draws (`sidebar.rowTitle`): the workspace's, else a breadcrumb to its focused tab.
         // A started session named like its parent says whose it is (`WorkspaceRowContent.subagentOf`).
-        let shownTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        let nativeTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        let shownTitle = shown.displayedTitle(nativeTitle)
         title.stringValue = shownTitle
         lastTitle = shownTitle
-        hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
+        hiddenWorkspaceName = ws.namesWorkspace(nativeTitle) ? nil : ws.title
         isArchived = ws.isArchived
         icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
         // Roll is for renames: a first name over the loading bar arrives at once, as under instant.
@@ -366,7 +379,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
-        cloudMark.image = shown.runsInCloud && !leadsWithCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
+        cloudMark.image = shown.runsInCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
         cloudMark.isHidden = cloudMark.image == nil
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound. The row's hover card
         // and its accessibility label say it (a1315's cut 3: rows carry no tooltips).
@@ -386,6 +399,9 @@ final class WorkspaceRowView: SidebarRowView {
         statusBlock.isHidden = shown.status == nil || isShowingPlaceholder
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
+        // Keyed by subagent id: a line keeps its view as others start and finish, so none jumps.
+        subagentsView.configure(isShowingPlaceholder ? nil : shown.subagents)
+        subagentsHeight = subagentsView.isHidden ? 0 : SidebarLayoutMetrics.standard.subagentsHeight(shown)
         rowBadgeStyle = content.rowBadge
         configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
         if pill != nil {
