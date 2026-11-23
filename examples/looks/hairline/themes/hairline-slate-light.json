@@ -64,7 +64,7 @@
   "layout.cornerPadding": 2,
   "layout.paneBorderWidth": 1,
   "ui.reducedBackgrounds": true,
-  "appearance.surfaces.sidebar.color": "#f8fafc",
+  "appearance.surfaces.sidebar.color": "#fdffff",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.agentPane.color": "#ffffff",
   "appearance.surfaces.agentPane.opacity": 1,
