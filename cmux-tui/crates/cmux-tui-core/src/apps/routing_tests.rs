@@ -145,6 +145,21 @@ fn chat_list_and_agent_chat_list_answer_the_same_chats() {
             ["code"],
         "validation.invalid"
     );
+    // A New Tab look's recent chats: chat.list's fields, read from the index's order.
+    let recent = router
+        .route("a/b", "agent_chat.list", json!({"limit": 3, "state": "idle"}), None, Origin::Script)
+        .unwrap();
+    assert_eq!(recent["value"]["chats"].as_array().map(Vec::len), Some(1));
+    let none = router
+        .route("a/b", "chat.list", json!({"limit": 3, "state": "input"}), None, Origin::Script)
+        .unwrap();
+    assert_eq!(none["value"], json!([]));
+    assert_eq!(
+        router
+            .route("a/b", "agent_chat.list", json!({"limit": 0}), None, Origin::Script)
+            .unwrap_err()["code"],
+        "validation.invalid"
+    );
     assert_eq!(
         streams(&MuxEvent::ChatsChanged { revision: 1 }),
         ["chat.changed", "agent_chat.changed"]
