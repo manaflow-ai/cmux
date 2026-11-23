@@ -7,6 +7,7 @@ runner. Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.
 """
 from __future__ import annotations
 
+import re
 import contextlib
 import datetime as dt
 import importlib.util
@@ -66,7 +67,7 @@ class CapturedOutput(unittest.TestCase):
             self.addCleanup(redirect.__exit__, None, None, None)
 
 
-def run(sha, conclusion="success", status="completed", minutes_ago=60, run_id=1):
+def run(sha, conclusion="success", status="completed", minutes_ago=4 * 60, run_id=1):
     created = (NOW - dt.timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")
     return {"id": run_id, "sha": sha, "status": status, "conclusion": conclusion, "created_at": created}
 
@@ -169,7 +170,8 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(decision.build)
 
     def test_a_newer_head_replaces_the_pending_one(self):
-        decision = self.plan(runs=[run(B, status="in_progress", conclusion=None, minutes_ago=5, run_id=3), run(A, run_id=2)])
+        # Past the upload gap (a build that has run 3 h): a newer head still queues behind it.
+        decision = self.plan(runs=[run(B, status="in_progress", conclusion=None, minutes_ago=3 * 60 + 5, run_id=3), run(A, run_id=2)])
         self.assertTrue(decision.build, decision.reason)
 
     def test_does_not_replace_a_waiting_submittable_build(self):
@@ -180,7 +182,7 @@ class PlanTests(unittest.TestCase):
         self.assertIn("submittable build run 4", decision.reason)
 
     def test_a_running_submittable_build_does_not_hold_the_next_head(self):
-        running = dict(run(B, status="in_progress", conclusion=None, minutes_ago=5, run_id=3), submittable=True)
+        running = dict(run(B, status="in_progress", conclusion=None, minutes_ago=3 * 60 + 5, run_id=3), submittable=True)
         decision = self.plan(runs=[running, run(A, run_id=2)])
         self.assertTrue(decision.build, decision.reason)
 
@@ -196,6 +198,19 @@ class PlanTests(unittest.TestCase):
     def test_cancelled_runs_do_not_count(self):
         decision = self.plan(runs=[run(C, conclusion="cancelled", minutes_ago=30, run_id=3), run(A, run_id=2)])
         self.assertTrue(decision.build, decision.reason)
+
+    def test_one_upload_per_gap(self):
+        """2026-11-22: eight cmux INTERNAL uploads in five hours, one App Store Connect email each."""
+        recent = self.plan(runs=[run(A, minutes_ago=60, run_id=2)])
+        self.assertFalse(recent.build)
+        self.assertIn("next upload waits until", recent.reason)
+        in_flight = self.plan(runs=[run(B, status="in_progress", conclusion=None, minutes_ago=5, run_id=3), run(A, run_id=2)])
+        self.assertFalse(in_flight.build)
+        self.assertTrue(self.plan(runs=[run(A, minutes_ago=3 * 60, run_id=2)]).build)
+        # A person's dispatch skips the gap.
+        self.assertTrue(self.plan(runs=[run(A, minutes_ago=60, run_id=2)], force=True).build)
+        # A failure does not start the gap.
+        self.assertTrue(self.plan(runs=[run(B, conclusion="failure", minutes_ago=30, run_id=3), run(A, run_id=2)]).build)
 
     def test_base_is_the_newest_success(self):
         decision = self.plan(runs=[run(B, conclusion="failure", run_id=3), run(A, minutes_ago=120, run_id=2)])
@@ -250,11 +265,11 @@ class FailureBackoffTests(unittest.TestCase):
         self.assertFalse(decision.build)
         self.assertIn("still running", decision.reason)
         # healthy builder: a newer head still replaces the waiting one (unchanged)
-        self.assertTrue(self.plan(runs=[run(B, status="in_progress", conclusion=None, minutes_ago=5, run_id=3),
+        self.assertTrue(self.plan(runs=[run(B, status="in_progress", conclusion=None, minutes_ago=3 * 60 + 5, run_id=3),
                                         run(A, run_id=2)]).build)
 
     def test_a_success_resets_the_backoff(self):
-        runs = [run(B, minutes_ago=5, run_id=300)] + failing(10, newest_minutes_ago=60)
+        runs = [run(B, minutes_ago=3 * 60 + 5, run_id=300)] + failing(10, newest_minutes_ago=4 * 60)
         self.assertTrue(self.plan(runs=runs, since_failure=None).build)
 
     def test_cancelled_runs_neither_count_nor_reset(self):
@@ -644,13 +659,13 @@ class PackagesLiveInTheAppTests(unittest.TestCase):
 
 
 class TriggerRunnerTests(unittest.TestCase):
-    def test_push_decision_reads_the_linux_pool(self):
+    def test_push_decision_takes_the_one_linux_label(self):
         workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
         runs_on = next(line.strip() for line in workflow.splitlines()
                        if line.strip().startswith("runs-on:"))
         self.assertIn("'ubuntu-24.04'", runs_on)
-        # The reconciled Linux pool, never a fixed Blacksmith size that can stall
-        # (tests/test_ci_linux_single_size.py).
+        # The one Linux label (scripts/ci/one_linux_label.py), an owned pool sized by load, never a fixed
+        # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
         self.assertNotIn("32vcpu", runs_on)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ
