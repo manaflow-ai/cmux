@@ -51,7 +51,16 @@ final class MacScreenRdConnection: BrowserStreamConnection, @unchecked Sendable 
                     case let .answer(text):
                         guard !connected else { continue }
                         connected = true
-                        _ = try rd.connect(sessionId: sessionID, answer: text, ice: ice, relayOnly: false, observer: observer)
+                        do {
+                            _ = try rd.connect(sessionId: sessionID, answer: text, ice: ice, relayOnly: false,
+                                               observer: observer)
+                        } catch {
+                            // An answer this phone can't use (a WebRTC answer, a bad key) fails the
+                            // same way on every ticket: end the session instead of reattaching forever.
+                            rd.close()
+                            closer.close(code: "refused", reason: String(describing: error))
+                            return
+                        }
                     case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
                         rd.addRemoteCandidate(candidate: candidate.candidate)
                     case .bye:

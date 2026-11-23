@@ -334,17 +334,21 @@ public final class ScreenSharingViewer: Identifiable {
     private func acceptRd(_ ticket: SessionTicket, target: MacScreenRdTarget) {
         guard let signaling = takeSignaling() else { return }
         pendingRd = MacScreenRdPending(signaling: signaling, sessionID: ticket.sessionId)
-        if let rdScreen {
+        // A view-scope grant never sends input, whatever the link asked.
+        let control = target.control && ticket.scope == .full
+        // A reattach reuses the model only while the grant is the same: a ticket that narrows the
+        // scope gets a new view-only model, never the old control surface.
+        if let rdScreen, rdControl == control {
             rdScreen.reconnect()
             return
         }
-        // A view-scope grant never sends input, whatever the link asked.
-        let control = target.control && ticket.scope == .full
+        let signalingKept = pendingRd
         let displayID = target.displayID
         let model = StreamedBrowserModel(tab: "mac-screen", url: nil) { [weak self] sink, _, _ in
             try await Self.openRd(self, sink: sink, control: control, displayID: displayID)
         }
         stopStream()
+        pendingRd = signalingKept
         rdControl = control
         rdScreen = model
     }

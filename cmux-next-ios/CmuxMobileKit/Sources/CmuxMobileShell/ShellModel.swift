@@ -115,6 +115,9 @@ final class ShellModel {
     }
     /// A Mac screen link being opened: Screen Sharing as a sheet, that device's share asked for.
     var macScreenLink: MacScreenLinkPresentation?
+    /// The ``macScreenLink`` Screen Sharing already opened: the sheet's page appears again when
+    /// the viewer's full-screen cover closes, and that must not ask the Mac again.
+    @ObservationIgnored var macScreenLinkOpened: UUID?
 
     struct MacScreenLinkPresentation: Identifiable {
         let id = UUID()

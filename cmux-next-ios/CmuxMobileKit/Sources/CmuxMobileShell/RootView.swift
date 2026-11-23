@@ -655,6 +655,8 @@ struct ShellView: View {
                             }
                         }
                         .onAppear {
+                            guard shell.macScreenLinkOpened != item.id else { return }
+                            shell.macScreenLinkOpened = item.id
                             service.open(deviceID: item.link.device, name: item.link.name,
                                          scope: item.link.control ? .full : .view, display: item.link.display)
                         }
