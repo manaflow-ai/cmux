@@ -43,6 +43,7 @@ impl Hub {
                         state: super::app_exit::row_status(s, m.status),
                         stuck_reason: None,
                         cwd: crate::mesh::heartbeat_cwd(&m.cwd.to_string_lossy()),
+                        handle: crate::mesh::heartbeat_handle(m.handle.as_deref(), &s.id),
                         team_address: team_enabled
                             .then(|| {
                                 m.tags

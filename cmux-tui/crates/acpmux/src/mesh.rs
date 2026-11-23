@@ -37,10 +37,28 @@ pub struct SessionRow {
     /// refuses a whole heartbeat over one long field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// The session's given handle ("Mango", `acpmux rename --handle`), so another machine shows the
+    /// name people call it by. Left out when the handle is the one derived from the id: any reader
+    /// derives that itself (`session_handle::display`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
 }
 
 /// The longest `cwd` (UTF-16 units, as the hub counts) a heartbeat lists (`MeshSessionAnnouncement`).
 pub const MAX_CWD_UNITS: usize = 1024;
+
+/// The longest handle (UTF-16 units) a heartbeat lists: a handle is a short spoken name, and the
+/// hub keeps session metadata only up to 1,024 units.
+pub const MAX_HANDLE_UNITS: usize = 128;
+
+/// A session's handle as a heartbeat lists it: only a given one, never the one derived from its id,
+/// and none past [`MAX_HANDLE_UNITS`].
+pub fn heartbeat_handle(handle: Option<&str>, session_id: &str) -> Option<String> {
+    let handle = handle.map(str::trim).filter(|h| !h.is_empty())?;
+    (handle != crate::session_handle::default_handle(session_id)
+        && handle.encode_utf16().count() <= MAX_HANDLE_UNITS)
+        .then(|| handle.to_owned())
+}
 
 /// `cwd` as a heartbeat may list it: none when the hub would refuse its length.
 pub fn heartbeat_cwd(cwd: &str) -> Option<String> {
@@ -99,6 +117,9 @@ pub struct BookSession {
     pub agent_session_id: Option<String>,
     #[serde(default)]
     pub host_build: Option<String>,
+    /// The session's given handle, when its daemon sent one (`SessionRow::handle`).
+    #[serde(default)]
+    pub handle: Option<String>,
 }
 
 /// A heartbeat: it replaces this daemon's sessions in the address book.

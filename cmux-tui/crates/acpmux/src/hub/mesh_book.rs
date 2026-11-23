@@ -77,6 +77,7 @@ struct Fields<'a> {
     model: Option<&'a str>,
     agent_session_id: Option<&'a str>,
     host_build: Option<&'a str>,
+    handle: Option<&'a str>,
 }
 
 impl<'a> Fields<'a> {
@@ -92,6 +93,7 @@ impl<'a> Fields<'a> {
             model: s.model.as_deref().filter(|m| !m.is_empty()),
             agent_session_id: s.agent_session_id.as_deref().filter(|a| !a.is_empty()),
             host_build: s.host_build.as_deref().filter(|b| !b.is_empty()),
+            handle: s.handle.as_deref().filter(|h| !h.is_empty()),
         }
     }
 }
@@ -111,6 +113,7 @@ struct Bare {
     model: Option<String>,
     agent_session_id: Option<String>,
     host_build: Option<String>,
+    handle: Option<String>,
     read: u64,
 }
 
@@ -128,6 +131,7 @@ impl Bare {
             model: own(fields.model),
             agent_session_id: own(fields.agent_session_id),
             host_build: own(fields.host_build),
+            handle: own(fields.handle),
             read,
         }
     }
@@ -144,6 +148,7 @@ impl Bare {
             model: self.model.as_deref(),
             agent_session_id: self.agent_session_id.as_deref(),
             host_build: self.host_build.as_deref(),
+            handle: self.handle.as_deref(),
         }
     }
 
@@ -213,8 +218,9 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         model,
         agent_session_id,
         host_build,
+        handle,
     } = *fields;
-    json!({
+    let mut row = json!({
         "sessionId": session_id,
         "name": name,
         // Unknown unless the hub says: the name came from its machine, given or derived there.
@@ -231,7 +237,13 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         "pendingPermissions": u64::from(state == "waiting"),
         "via": "hub",
         "stale": false,
-    })
+    });
+    // Only a given handle rides, as on a local row (`list_tee/summary.rs` `derived_handle`): the
+    // name cmux shows for the chat and a send reaches ("Mango", not "Honey-703bf916b9a6").
+    if let Some(handle) = handle {
+        row["handle"] = json!(handle);
+    }
+    row
 }
 
 impl Hub {

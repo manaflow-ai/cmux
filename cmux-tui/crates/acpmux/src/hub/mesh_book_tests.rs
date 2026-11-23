@@ -172,6 +172,7 @@ async fn a_hub_row_lists_every_key_a_local_row_does() {
     b.model = Some("opus".into());
     b.agent_session_id = Some("agent-b".into());
     b.host_build = Some("build-b".into());
+    b.handle = Some("Mango".into());
     hub.apply_mesh_book(full, "person-1", Some("d-a"));
 
     let all = hub.all_session_summaries();
@@ -193,6 +194,37 @@ async fn a_hub_row_lists_every_key_a_local_row_does() {
     assert_eq!(rich["agentSessionId"], "agent-b");
     assert_eq!(rich["sessionReceipt"]["agentSessionId"], "agent-b");
     assert_eq!(rich["hostBuild"], "build-b");
+    assert_eq!(rich["handle"], "Mango", "a given handle is what cmux shows: {rich}");
+    assert!(bare.get("handle").is_none(), "no handle sent, none listed: {bare}");
+}
+
+/// A hub row's handle changing (a rename on its machine) builds it again and tells clients.
+#[tokio::test]
+async fn a_hub_rows_handle_change_is_announced() {
+    let hub = hub();
+    let mut events = hub.events.subscribe();
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    let _ = notices(&mut events);
+    let mut renamed = book();
+    renamed.sessions[1].handle = Some("Mochi".into());
+    hub.apply_mesh_book(renamed, "person-1", Some("d-a"));
+    let changed = notices(&mut events);
+    assert_eq!(changed.len(), 1, "{changed:?}");
+    assert_eq!(changed[0].1["handle"], "Mochi");
+}
+
+/// A heartbeat lists only a given handle: the one derived from the id, an empty one or one past
+/// the cap stays off it.
+#[test]
+fn a_heartbeat_lists_only_a_given_handle() {
+    use crate::mesh::{MAX_HANDLE_UNITS, heartbeat_handle};
+    let id = "01a18ded-b0a1-7261-9fb7-dc1fd9ba1ce0";
+    assert_eq!(heartbeat_handle(Some("Ash"), id).as_deref(), Some("Ash"));
+    assert_eq!(heartbeat_handle(None, id), None);
+    assert_eq!(heartbeat_handle(Some("  "), id), None);
+    let derived = crate::session_handle::default_handle(id);
+    assert_eq!(heartbeat_handle(Some(&derived), id), None);
+    assert_eq!(heartbeat_handle(Some(&"x".repeat(MAX_HANDLE_UNITS + 1)), id), None);
 }
 
 /// A hub row's folder or title changing builds it again and tells clients; the same book again
