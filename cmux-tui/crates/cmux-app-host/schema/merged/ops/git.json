@@ -94,7 +94,13 @@
     "git.worktree.setup": {
       "source": "local",
       "class": "read",
-      "digest": "f22381c0a96c02f7"
+      "digest": "99f7056e2577a447"
+    },
+    "git.worktree.setup.run": {
+      "source": "local",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "e9e56df69334262e"
     }
   }
 }
