@@ -39,26 +39,33 @@ final class ComposerTypingLagUITests: XCTestCase {
     @MainActor func testTyping5000CharactersAfterAttachments() throws { try typing(chars: 5_000) }
     @MainActor func testTyping500CharactersAfterAttachments() throws { try typing(chars: 500) }
     @MainActor func testTyping20000CharactersAfterAttachments() throws { try typing(chars: 20_000) }
-    /// The same flows with the old measure (`-cmux-mobile-composer-measure-whole`): the before
-    /// rows, reported, not asserted.
+    /// Controls for Leo's trigger: no photos attached and removed; Low Power path off.
+    @MainActor func testTyping5000CharactersNoAttachments() throws { try typing(chars: 5_000, attachments: false) }
+    @MainActor func testTyping5000CharactersNotLowPower() throws { try typing(chars: 5_000, lowPower: false) }
+    /// The same flows with base's measure (`-cmux-mobile-composer-measure-whole`, which runs
+    /// base's code path: the whole draft through the view's own sizeThatFits, one answer
+    /// kept): the before rows, reported, not asserted.
     @MainActor func testBefore5000Characters() throws { try typing(chars: 5_000, wholeDraft: true) }
     @MainActor func testBefore500Characters() throws { try typing(chars: 500, wholeDraft: true) }
     @MainActor func testBefore20000Characters() throws { try typing(chars: 20_000, wholeDraft: true) }
+    @MainActor func testBefore5000CharactersNoAttachments() throws { try typing(chars: 5_000, wholeDraft: true, attachments: false) }
+    @MainActor func testBefore5000CharactersNotLowPower() throws { try typing(chars: 5_000, wholeDraft: true, lowPower: false) }
 
     @MainActor
-    private func typing(chars: Int, wholeDraft: Bool = false) throws {
+    private func typing(chars: Int, wholeDraft: Bool = false, attachments: Bool = true, lowPower: Bool = true) throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_INPUT_LATENCY"] = "1"
-        app.launchEnvironment["CMUX_MOBILE_DEMO_COMPOSER"] = "chars:\(chars)"
+        app.launchEnvironment["CMUX_MOBILE_DEMO_COMPOSER"] = attachments ? "chars:\(chars)" : "chars:\(chars):bare"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-composer",
-                                "-cmux-mobile-low-power", "-cmux-mobile-term-no-intro"]
+                                "-cmux-mobile-term-no-intro"]
+        if lowPower { app.launchArguments.append("-cmux-mobile-low-power") }
         if wholeDraft { app.launchArguments.append("-cmux-mobile-composer-measure-whole") }
         app.launch()
         let field = app.textViews[Self.field]
         XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal composer\n\(app.debugDescription)")
         // Two pictures attached, then removed (each with its badge).
-        for name in ["Photo 1.png", "Photo 2.png"] {
+        for name in attachments ? ["Photo 1.png", "Photo 2.png"] : [] {
             let remove = app.buttons["Remove \(name)"]
             XCTAssertTrue(remove.waitForExistence(timeout: 15), "the remove badge of \(name)\n\(app.debugDescription)")
             remove.tap()
@@ -68,19 +75,25 @@ final class ComposerTypingLagUITests: XCTestCase {
         if !app.keyboards.firstMatch.exists { field.tap() }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard\n\(app.debugDescription)")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
+        let resizesBefore = stats(summary(app), "terminal_resize_sent")["n"] ?? 0
+        let relayoutsBefore = stats(summary(app), "terminal_composer_relayout")["n"] ?? 0
         app.typeText(Self.keys)
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
 
-        let summary = summary(app)
-        let line = #"TYPINGLAG {"chars":\#(chars),"before":\#(wholeDraft),"summary":\#(app.staticTexts["debug.input-latency"].label)}"#
+        let board = summary(app)
+        // A keystroke sends the Mac no resize, and relays out the page only when the line count changes.
+        let resizes = (stats(board, "terminal_resize_sent")["n"] ?? 0) - resizesBefore
+        let relayouts = (stats(board, "terminal_composer_relayout")["n"] ?? 0) - relayoutsBefore
+        let line = #"TYPINGLAG {"chars":\#(chars),"before":\#(wholeDraft),"attachments":\#(attachments),"lowPower":\#(lowPower),"resizes_while_typing":\#(Int(resizes)),"relayouts_while_typing":\#(Int(relayouts)),"summary":\#(app.staticTexts["debug.input-latency"].label)}"#
         print(line)
+        let name = "\(chars)\(wholeDraft ? "-before" : "")\(attachments ? "" : "-bare")\(lowPower ? "" : "-nolpm")"
         let attachment = XCTAttachment(string: line)
-        attachment.name = "typing-lag-\(chars)"
+        attachment.name = "typing-lag-\(name)"
         attachment.lifetime = .keepAlways
         add(attachment)
         if let file = InputLatencyUITests.traceFile(), let text = try? String(contentsOf: file, encoding: .utf8) {
             let log = XCTAttachment(string: text)
-            log.name = "typing-lag-\(chars).jsonl"
+            log.name = "typing-lag-\(name).jsonl"
             log.lifetime = .keepAlways
             add(log)
             for row in text.split(separator: "\n").filter({ $0.contains(#""type":"hitch""#) }).prefix(6) {
@@ -89,8 +102,9 @@ final class ComposerTypingLagUITests: XCTestCase {
         }
 
         guard !wholeDraft else { return }
-        let commit = stats(summary, "\(Self.field)_key_commit")
-        let units = stats(summary, "\(Self.field)_key_layout_units")
+        XCTAssertEqual(resizes, 0, "resizes sent to the Mac while typing: \(line)")
+        let commit = stats(board, "\(Self.field)_key_commit")
+        let units = stats(board, "\(Self.field)_key_layout_units")
         XCTAssertGreaterThanOrEqual(commit["n"] ?? 0, 30, "keys measured: \(line)")
         XCTAssertLessThan(commit["p95"] ?? .infinity, 16, "key to frame committed, p95 (ms), \(chars) characters: \(line)")
         XCTAssertLessThanOrEqual(units["max"] ?? .infinity, Self.maxLayoutUnitsPerKey,
