@@ -4,7 +4,7 @@
 // we build?", its project picker and the lists under it). Leo, 2026-11-22 14:14Z: "why teh fuck would a
 // disconnection make it show up... and we wanted the plain one didnt we? without the chatter intro".
 // The stand-in daemon holds its answers to the reconnect's watch and attach (support/papercutChat.ts
-// `stall`) past the pane's Reconnecting line, then answers. Every painted frame from before the drop to
+// `stall`) past the pane's reconnecting chip, then answers. Every painted frame from before the drop to
 // after the reconnect is read, for an empty chat and for a chat with turns:
 // - no frame draws the builder question, the hero's picker or the home lists;
 // - the empty chat shows the plain new chat (EmptyState.tsx) before, during and after;
@@ -17,7 +17,7 @@ import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 
-type Frame = { t: number; builder: boolean; plain: boolean; rows: number; line: string };
+type Frame = { t: number; builder: boolean; plain: boolean; rows: number; recovering: boolean; line: string };
 
 await requireBrowserLane("agent-pane-reconnect-no-builder-screen.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -46,7 +46,9 @@ await requireBrowserLane("agent-pane-reconnect-no-builder-screen.test.ts", async
               Boolean(document.querySelector(".acpmux-empty-title, .acpmux-empty-choose, .acpmux-home-area")),
             plain: Boolean(document.querySelector("[data-plain-new-chat]")),
             rows: document.querySelectorAll("[data-row-id]").length,
-            line: document.querySelector(".acpmux-host-line-message")?.textContent ?? "",
+            // The drop's sign: the connection chip (HostError.tsx ConnectionChip, #49415) or a host line.
+            recovering: Boolean(document.querySelector("[data-host-recovering]")),
+            line: document.querySelector(".acpmux-host-chip-words, .acpmux-host-line-message")?.textContent ?? "",
           });
           if (performance.now() - start < until) return true;
           resolve();
@@ -67,11 +69,11 @@ await requireBrowserLane("agent-pane-reconnect-no-builder-screen.test.ts", async
       const page = await pane.open({ width: 900, height: 700 });
       try {
         const before = await sample(page, 300);
-        // The drop, held past the pane's Reconnecting line (10 s), then the daemon answers.
+        // The drop, held past the pane's reconnecting chip (10 s), then the daemon answers.
         pane.stall(["_acpmux/watch", "_acpmux/attach"]);
         pane.drop();
         const during = await sample(page, 11_500);
-        const reconnecting = during.some((frame) => frame.line.startsWith("Reconnecting"));
+        const reconnecting = during.some((frame) => frame.recovering || frame.line.startsWith("Reconnecting"));
         pane.stall([]);
         const after = await sample(page, 3_000);
         const all = [...before, ...during, ...after];
