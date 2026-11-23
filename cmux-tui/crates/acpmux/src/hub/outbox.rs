@@ -38,7 +38,7 @@
 //! agent's step ends), so the forwarding daemon passes the peer's `_acpmux/prompt_accepted` on to
 //! the connection that sent the prompt as soon as it arrives ([`PeerAccepts`]).
 
-const MUTATION_NO_DEDUPE: bool = false;
+const MUTATION_NO_DEDUPE: bool = true;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex as StdMutex;
