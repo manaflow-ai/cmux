@@ -111,7 +111,9 @@ export async function classicScript({ outdir, outputs, staticOut, entryOut, maps
     platform: "browser",
     target: "es2022",
     logLevel: "warning",
-    minifyWhitespace: true,
+    // Full minify: the merged scope renames what the first pass had shortened (whitespace alone grew the pane
+    // by 1.35 MB). Export names survive: the registry keys and the lazy chunks' exports are strings to esbuild.
+    minify: true,
     sourcemap: maps ? "external" : false,
     legalComments: "none",
     absWorkingDir: outdir,
