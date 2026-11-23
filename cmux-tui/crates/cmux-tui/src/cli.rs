@@ -88,6 +88,8 @@ mod cloud_environment;
 mod cloud_hands;
 mod cloud_help;
 #[cfg(unix)]
+mod cloud_journey;
+#[cfg(unix)]
 mod cloud_machine_auth;
 #[cfg(unix)]
 mod cloud_machine_io;
@@ -141,6 +143,9 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod hosts;
+mod hosts_check;
+mod hosts_edit;
 #[cfg(unix)]
 mod inference_gateway;
 #[cfg(unix)]
@@ -171,6 +176,8 @@ mod start_stages;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
+mod vm_bootstrap;
+#[cfg(unix)]
 mod vm_cleanup;
 mod vm_gcp;
 #[cfg(unix)]
@@ -183,7 +190,43 @@ mod vnc;
 #[cfg(unix)]
 pub(crate) use app::spawn_daemon_updates;
 #[cfg(unix)]
-pub(crate) use auth_token::app_token;
+pub(crate) use auth_token::{app_token, app_token_in};
+
+/// The app's Cloud machines (`cloud.machines` rows), best effort: `None` with no app or a failed
+/// read (`cmux spill`'s Cloud place).
+pub(crate) fn app_cloud_machines() -> Option<Vec<serde_json::Value>> {
+    cloud_workspaces::read(&GlobalArgs::default())
+}
+
+/// The Cloud machine `selector` names among `machines` (its id, `machine:` target or exact
+/// title); `Err` when a title is ambiguous (`cmux spill --to cloud:NAME`).
+pub(crate) fn find_cloud_machine<'a>(
+    machines: &'a [serde_json::Value],
+    selector: &str,
+) -> Result<Option<&'a serde_json::Value>, String> {
+    cloud_workspaces::find(machines, selector).map_err(|error| {
+        error.get("message").and_then(serde_json::Value::as_str).unwrap_or("ambiguous").to_owned()
+    })
+}
+
+/// A short-lived access token from the signed-in cmux app this CLI belongs to (`auth.token`), for
+/// a command run in a terminal with no `CMUX_CLOUD_ACCESS_TOKEN` (`cmux device add HOST --yes`).
+#[cfg(unix)]
+pub(crate) fn app_access_token() -> Result<String, String> {
+    chat_start::joined::app_token(&GlobalArgs::default())
+}
+
+/// `cmux acp WORDS` (this binary's acpmux, with no cmux credential in its environment) with
+/// `stdin`, for at most `limit`: its JSON answer, or the failure (`cmux device add` joins the
+/// Mac that ran it with `acp host enroll-self`).
+#[cfg(unix)]
+pub(crate) fn acp_json(
+    words: &[&str],
+    stdin: Option<&str>,
+    limit: std::time::Duration,
+) -> Result<serde_json::Value, serde_json::Value> {
+    chat_start::joined::acp_json(words, stdin, limit)
+}
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
@@ -232,6 +275,8 @@ mod pane_identify;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
+#[cfg(unix)]
+mod remote_host_agent;
 #[cfg(unix)]
 mod remote_host_grants;
 mod resolve;
@@ -981,6 +1026,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| hosts::run_if_requested(args))
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
@@ -990,6 +1036,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
+        .or_else(|| cloud_journey::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))

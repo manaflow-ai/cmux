@@ -19,7 +19,26 @@ from pathlib import Path
 # Add the directory containing cmux.py to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cmux import cmux, cmuxError
+from cmux import cmux, cmuxError, wait_until
+
+
+def _started(marker: Path) -> Path:
+    """A file the shell touches right before it runs the foreground process under test."""
+    path = marker.with_name(marker.name + "_started")
+    path.unlink(missing_ok=True)
+    return path
+
+
+def _type_until(client: cmux, marker: Path, attempts: int = 3, timeout_s: float = 3.0) -> bool:
+    """Type `touch marker` until it appears; between tries send another Ctrl+C in
+    case the process swallowed the first one."""
+    for attempt in range(attempts):
+        client.send(f"touch {marker}\n")
+        if wait_until(marker.exists, timeout_s):
+            return True
+        if attempt + 1 < attempts:
+            client.send_ctrl_c()
+    return False
 
 
 class TestResult:
@@ -60,32 +79,23 @@ def test_ctrl_c(client: cmux) -> TestResult:
     result = TestResult("Ctrl+C (SIGINT)")
 
     marker = Path(tempfile.gettempdir()) / f"ghostty_ctrlc_{os.getpid()}"
+    started = _started(marker)
 
     try:
         marker.unlink(missing_ok=True)
 
-        # Start a long sleep
-        client.send("sleep 30\n")
-        time.sleep(0.8)
+        # Start a long sleep, and wait until the shell is running it.
+        client.send(f"touch {started} && sleep 30\n")
+        if not wait_until(started.exists, 10.0):
+            result.failure("Shell never started the sleep")
+            return result
+        started.unlink(missing_ok=True)
 
         # Send Ctrl+C to interrupt
         client.send_ctrl_c()
-        time.sleep(0.8)
 
         # If Ctrl+C worked, shell should accept new command
-        for attempt in range(3):
-            client.send(f"touch {marker}\n")
-            for _ in range(10):
-                if marker.exists():
-                    break
-                time.sleep(0.2)
-            if marker.exists():
-                break
-            # try another Ctrl+C in case the process swallowed the signal
-            client.send_ctrl_c()
-            time.sleep(0.6)
-
-        if marker.exists():
+        if _type_until(client, marker):
             result.success("Ctrl+C interrupted sleep, shell responsive")
             marker.unlink(missing_ok=True)
         else:
@@ -108,26 +118,23 @@ def test_ctrl_d(client: cmux) -> TestResult:
     result = TestResult("Ctrl+D (EOF)")
 
     marker = Path(tempfile.gettempdir()) / f"ghostty_ctrld_{os.getpid()}"
+    started = _started(marker)
 
     try:
         marker.unlink(missing_ok=True)
 
-        # Run cat (waits for input)
-        client.send("cat\n")
-        time.sleep(0.6)
+        # Run cat (waits for input), and wait until the shell is running it.
+        client.send(f"touch {started} && cat\n")
+        if not wait_until(started.exists, 10.0):
+            result.failure("Shell never started cat")
+            return result
+        started.unlink(missing_ok=True)
 
         # Send Ctrl+D (EOF)
         client.send_ctrl_d()
-        time.sleep(0.4)
 
         # If Ctrl+D worked, cat should exit and we can run another command
-        client.send(f"touch {marker}\n")
-        for _ in range(10):
-            if marker.exists():
-                break
-            time.sleep(0.2)
-
-        if marker.exists():
+        if _type_until(client, marker, attempts=1):
             result.success("Ctrl+D sent EOF, cat exited")
             marker.unlink(missing_ok=True)
         else:
@@ -147,32 +154,27 @@ def test_ctrl_c_python(client: cmux) -> TestResult:
     result = TestResult("Ctrl+C in Python")
 
     marker = Path(tempfile.gettempdir()) / f"ghostty_pyctrlc_{os.getpid()}"
+    started = _started(marker)
 
     try:
         marker.unlink(missing_ok=True)
 
-        # Start Python that loops forever
-        client.send("python3 -c 'import time; [time.sleep(1) for _ in iter(int, 1)]'\n")
-        time.sleep(1.5)  # Give Python time to start
+        # Start Python that loops forever; it touches `started` once it is running.
+        client.send(
+            f"python3 -c 'import pathlib, time; pathlib.Path(\"{started}\").touch(); "
+            "[time.sleep(1) for _ in iter(int, 1)]'\n"
+        )
+        if not wait_until(started.exists, 10.0):
+            result.failure("Python never started")
+            return result
+        started.unlink(missing_ok=True)
 
         # Send Ctrl+C
         client.send_ctrl_c()
-        time.sleep(0.8)
 
         # If Ctrl+C worked, shell should accept new command. This can race with
         # Python process teardown, so retry with additional Ctrl+C if needed.
-        for attempt in range(3):
-            client.send(f"touch {marker}\n")
-            for _ in range(15):
-                if marker.exists():
-                    break
-                time.sleep(0.2)
-            if marker.exists():
-                break
-            client.send_ctrl_c()
-            time.sleep(0.6)
-
-        if marker.exists():
+        if _type_until(client, marker):
             result.success("Ctrl+C interrupted Python process")
             marker.unlink(missing_ok=True)
         else:
@@ -208,19 +210,11 @@ def test_environment_paths(client: cmux) -> TestResult:
             env_path.unlink(missing_ok=True)
             # Reset any partial prompt state (e.g., unmatched quotes) before retrying.
             client.send_ctrl_c()
-            time.sleep(0.2)
+            time.sleep(0.2)  # keep: the shell's SIGINT handling can flush input typed right behind ^C
             client.send(command + "\n")
 
-            for _ in range(20):
-                if env_path.exists():
-                    break
-                time.sleep(0.2)
-
-            if env_path.exists():
+            if wait_until(env_path.exists, 4.0):
                 break
-
-            # Small backoff before retrying send in case the surface isn't ready yet.
-            time.sleep(0.3 * (attempt + 1))
 
         if not env_path.exists():
             result.failure("Env dump file was not created")
@@ -300,10 +294,11 @@ def run_tests():
             # Ensure we start from a focused terminal surface (tests can be run
             # after other scripts that leave focus in a browser panel).
             try:
-                client.new_workspace()
-                time.sleep(0.6)
+                workspace = client.new_workspace()
+                client.select_workspace(workspace)
+                wait_until(lambda: client.current_workspace() == workspace and client.list_surfaces(), 5.0)
                 client.focus_surface(0)
-                time.sleep(0.2)
+                wait_until(lambda: any(focused for index, _sid, focused in client.list_surfaces() if index == 0), 3.0)
             except Exception as e:
                 # Continue; individual tests will report a clearer failure.
                 print(f"  ⚠️  Setup warning (could not focus terminal): {e}")
@@ -316,8 +311,6 @@ def run_tests():
             print(f"  {status} {results[-1].message}")
             print()
 
-            time.sleep(0.5)
-
             # Test Ctrl+D
             print("Testing Ctrl+D (EOF)...")
             results.append(test_ctrl_d(client))
@@ -325,16 +318,12 @@ def run_tests():
             print(f"  {status} {results[-1].message}")
             print()
 
-            time.sleep(0.5)
-
             # Test Ctrl+C in Python
             print("Testing Ctrl+C in Python process...")
             results.append(test_ctrl_c_python(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
             print()
-
-            time.sleep(0.5)
 
             # Test environment paths
             print("Testing TERMINFO/XDG_DATA_DIRS paths...")
