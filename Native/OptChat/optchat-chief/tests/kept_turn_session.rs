@@ -114,6 +114,31 @@ fn consecutive_turns_reuse_one_claude_code_session_and_send_only_the_new_message
 }
 
 #[test]
+fn a_rebuilt_view_with_only_tail_growth_reuses_the_kept_session() {
+    let mut h = harness();
+    fill(&h.chat, 120);
+    h.brain
+        .set_trace(optchat_chief::trace::Trace::open(&h.dir.path().join("traces"), false).unwrap());
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    // Force the next frozen view to rebuild past the delta threshold while
+    // leaving the first turn's parts as its stable prefix.
+    fill(&h.chat, 500);
+    h.say("user_local", "two");
+    h.settle();
+    let starts: Vec<Value> = traces(&h)
+        .into_iter()
+        .filter(|e| e["ev"] == "turn.start")
+        .collect();
+    assert_eq!(starts.len(), 2);
+    assert_eq!(starts[1]["layout"]["delta"]["rendered"], true);
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompt_sessions, vec!["s1", "s1"]);
+    assert!(!inner.ended.contains(&"s1".to_owned()));
+}
+
+#[test]
 fn a_failed_turn_ends_its_session_and_the_next_turn_starts_fresh_with_the_view() {
     let mut h = harness();
     fill(&h.chat, 120);

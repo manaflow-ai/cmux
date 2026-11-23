@@ -671,22 +671,26 @@ impl Brain {
             ),
         };
         // The kept session, when this turn has the same session shape and
-        // keeps the frozen view: only what it has not read goes to it. The
+        // keeps the frozen view's prefix: only what it has not read goes to it. The
         // policy is part of the shape: an approve-all session never serves a
         // turn another person started. An `ask` one serves only `ask` turns:
         // one that carries another person's text, or a Manual owner turn,
         // which sets `default` on it again before its prompt (turn.rs).
+        let view_identity = view_identity(&input.frozen);
+        let kept = self.kept.take();
+        let view_prefix = kept.as_ref().map_or(view_identity.as_slice(), |k| {
+            common_view_prefix(&k.view_identity, &view_identity)
+        });
         let sig = keep.then(|| {
             keep_sig(
                 &engine,
                 &preset,
                 system_prompt.as_deref(),
-                &view.text,
+                view_prefix,
                 ttl,
                 &policy,
             )
         });
-        let kept = self.kept.take();
         let stale = self
             .state
             .kept_session
@@ -694,10 +698,7 @@ impl Brain {
             .filter(|s| kept.as_ref().is_none_or(|k| &k.kept.session != s));
         let reuse = match (&kept, sig) {
             (Some(k), Some(sig))
-                if k.sig == sig
-                    && !input.rerendered
-                    && first_new >= k.seen_end
-                    && k.tokens < KEEP_MAX_TOKENS =>
+                if k.sig == sig && first_new >= k.seen_end && k.tokens < KEEP_MAX_TOKENS =>
             {
                 crate::prompt::delta_from(&input.delta, k.seen_end).map(|text| {
                     let mut blocks = vec![serde_json::json!({"type": "text", "text": text})];
@@ -732,7 +733,7 @@ impl Brain {
             _ => None,
         }
         .or(stale);
-        self.keep_pending = sig.map(|sig| (key.clone(), sig));
+        self.keep_pending = sig.map(|sig| (key.clone(), sig, view_identity));
         let image_count = image_blocks.len();
         if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
@@ -2666,6 +2667,9 @@ pub(super) struct KeptTurn {
     pub kept: turn::Kept,
     /// The session's shape (`keep_sig`): a turn of another shape starts fresh.
     pub sig: u64,
+    /// The stable identity of the frozen view's parts at the end of the turn.
+    /// A later view may append parts without changing this prefix.
+    pub view_identity: Vec<(optchat_core::NodeId, bool)>,
     /// The log length when the kept turn ended: the session has read
     /// everything before it.
     pub seen_end: u64,
@@ -2691,13 +2695,93 @@ const KEEP_MAX_TOKENS: u64 = 160_000;
 /// Code's caching off (a pooled process started for our marks): not kept.
 const UNCACHED_LIMIT: u64 = 10_000;
 
+type ViewPart = (optchat_core::NodeId, bool);
+
+/// The stable identity of a frozen view. Node ids do not change when a view is
+/// rebuilt, while the unbuilt bit distinguishes a placeholder from its built
+/// content.
+fn view_identity(frozen: &optchat_core::Frozen) -> Vec<ViewPart> {
+    frozen
+        .parts
+        .iter()
+        .map(|part| (*part, frozen.unbuilt.contains(part)))
+        .collect()
+}
+
+fn common_view_prefix<'a>(previous: &[ViewPart], current: &'a [ViewPart]) -> &'a [ViewPart] {
+    let len = previous
+        .iter()
+        .zip(current)
+        .take_while(|(a, b)| a == b)
+        .count();
+    &current[..len]
+}
+
+#[cfg(test)]
+mod keep_sig_tests {
+    use super::{common_view_prefix, keep_sig};
+    use crate::engine::TurnEngine;
+    use crate::prompt::CacheTtl;
+    use optchat_core::NodeId;
+
+    fn part(n: u64) -> (NodeId, bool) {
+        (NodeId::new(1, n), false)
+    }
+
+    #[test]
+    fn a_rebuilt_view_keeps_the_previous_prefix_when_only_the_tail_changes() {
+        let previous = vec![part(1), part(2)];
+        let current = vec![part(1), part(2), part(3)];
+        assert_eq!(common_view_prefix(&previous, &current), previous);
+    }
+
+    #[test]
+    fn a_changed_view_prefix_is_shorter_and_cannot_keep_the_session_shape() {
+        let previous = vec![part(1), part(2)];
+        let current = vec![part(1), part(9), part(3)];
+        assert_eq!(common_view_prefix(&previous, &current), vec![part(1)]);
+    }
+
+    #[test]
+    fn a_changed_view_prefix_changes_the_keep_signature() {
+        let engine = TurnEngine {
+            harness: "claude-sr".into(),
+            model: Some("model".into()),
+            effort: Some("medium".into()),
+            speed: None,
+        };
+        let preset = Some("preset".into());
+        let previous = vec![part(1), part(2)];
+        let appended = vec![part(1), part(2), part(3)];
+        let changed = vec![part(1), part(9), part(3)];
+        let same = |view: &[super::ViewPart]| {
+            keep_sig(
+                &engine,
+                &preset,
+                Some("system"),
+                view,
+                CacheTtl::OneHour,
+                "approve-all",
+            )
+        };
+        assert_eq!(
+            same(&previous),
+            same(common_view_prefix(&previous, &appended))
+        );
+        assert_ne!(
+            same(&previous),
+            same(common_view_prefix(&previous, &changed))
+        );
+    }
+}
+
 /// The shape of a turn session: a kept one serves only a turn of the same
-/// harness, model, effort, preset, system prompt, frozen view and TTL.
+/// harness, model, effort, preset, system prompt, view prefix and TTL.
 fn keep_sig(
     engine: &crate::engine::TurnEngine,
     preset: &Option<String>,
     system: Option<&str>,
-    view: &str,
+    view_prefix: &[ViewPart],
     ttl: CacheTtl,
     policy: &str,
 ) -> u64 {
@@ -2709,7 +2793,7 @@ fn keep_sig(
         &engine.effort,
         preset,
         system,
-        view,
+        view_prefix,
         ttl.as_str(),
         policy,
     )
@@ -2722,7 +2806,7 @@ impl Brain {
     /// it should not serve one (its first request ran uncached, or its
     /// context is too large).
     fn keep_turn_session(&mut self, key: &str, outcome: &mut TurnOutcome) {
-        let pending = self.keep_pending.take().filter(|(k, _)| k == key);
+        let pending = self.keep_pending.take().filter(|(k, _, _)| k == key);
         let Some(kept) = outcome.kept.take() else {
             return;
         };
@@ -2757,11 +2841,14 @@ impl Brain {
         // ending the session would kill that work and its promised report.
         let moved = self.moved.as_deref() == Some(key);
         match pending {
-            Some((_, sig)) if !uncached && !steer_left && tokens < KEEP_MAX_TOKENS => {
+            Some((_, sig, view_identity))
+                if !uncached && !steer_left && tokens < KEEP_MAX_TOKENS =>
+            {
                 self.state.kept_session = Some(kept.session.clone());
                 self.kept = Some(KeptTurn {
                     kept,
                     sig,
+                    view_identity,
                     seen_end: self.chat.status().messages,
                     tokens,
                     conversation,
