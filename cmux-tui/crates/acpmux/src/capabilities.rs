@@ -43,6 +43,12 @@ pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
 
+/// `_acpmux/process/census` answers the census `acpmux ps --json` prints (`server/processes.rs`).
+pub const PROCESS_CENSUS: &str = "process-census-v1";
+
+/// Pre-copy for a chat move (`hub/transfer_precopy.rs`).
+pub const TRANSFER_PRECOPY: &str = "transfer-precopy-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -159,6 +165,12 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-enroll-v1",
         wire: &[method::MUX_MACHINE_ENROLL, method::MUX_MACHINE_LEAVE_IF_AUTO],
     },
+    // Door A: a machine this computer reaches by ssh joins through the hub in one call, and the
+    // ones it reaches but has not added are listed (`server/machine_join_ssh.rs`).
+    Capability {
+        id: crate::cli::ssh_join::CAPABILITY,
+        wire: &[method::MUX_MACHINE_JOIN_SSH, method::MUX_MACHINE_CANDIDATES],
+    },
     // The app reports only who is signed in; acpmux decides the enroll, its retry and the leave
     // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
     Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
@@ -248,6 +260,10 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_PROCESS_UPDATE,
         ],
     },
+    // Every process and lock acpmux owns on this machine, with acpmux's own judgment of each
+    // (`_acpmux/process/census`, what `acpmux ps --json` prints). Read-only; this machine's
+    // clients only. Without it, a client asks `acpmux ps --json`, never guesses from argv.
+    Capability { id: PROCESS_CENSUS, wire: &[method::MUX_PROCESS_CENSUS] },
     // Agent CLI health (`hub/health_view.rs`).
     Capability { id: "harness-health-v1", wire: &[method::MUX_HARNESS_HEALTH] },
     // The mode a new chat starts in, and its changes (`hub/start_mode.rs`).
@@ -343,6 +359,22 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
     Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
+    // Pre-copy for a chat move (`hub/transfer_precopy.rs`): `transfer_prepare` exports the log
+    // without a freeze, a target stages it (`transfer_stage`, `transfer_stage_finish`), and
+    // `transfer_begin {prepareId, afterSeq}` freezes the chat for only what followed. A client
+    // pre-copies only between two daemons that both list it; `transfer_base` names the copy a
+    // target still holds from the chat's last move, for a prepare of only what came after.
+    Capability {
+        id: TRANSFER_PRECOPY,
+        wire: &[
+            "_acpmux/transfer_base",
+            "_acpmux/transfer_prepare",
+            "_acpmux/transfer_stage",
+            "_acpmux/transfer_stage_finish",
+            "_acpmux/transfer_begin",
+            "_acpmux/transfer_receive",
+        ],
+    },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",
