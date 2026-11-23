@@ -20,6 +20,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use cmux_cloud_start_core::hybrid::{self, Account, Cloud, Effect, Event, State};
+use cmux_cloud_start_core::hybrid_show;
 use serde_json::{Value, json};
 
 use super::super::agents::chat;
@@ -256,10 +257,12 @@ pub(super) fn drive_words(
     words
 }
 
+fn sessions_dir() -> Result<PathBuf, String> {
+    cmux_tui_core::platform::workspace_state_dir().ok_or_else(|| "no state folder".to_owned())
+}
+
 fn root() -> Result<PathBuf, String> {
-    let sessions = cmux_tui_core::platform::workspace_state_dir()
-        .ok_or_else(|| "no state folder".to_owned())?;
-    Ok(sessions.parent().map(PathBuf::from).unwrap_or(sessions).join("hybrid-start"))
+    Ok(hybrid_show::folder(&sessions_dir()?))
 }
 
 fn fresh_folder() -> Result<PathBuf, String> {
@@ -268,13 +271,18 @@ fn fresh_folder() -> Result<PathBuf, String> {
     Ok(folder)
 }
 
-/// The driver's log: its `Log` lines and `Show` states, one per line.
+/// The driver's log: its `Log` lines and `Show` states, one per line ([`hybrid_show::log_file`]).
 fn log_path(session: &str) -> Result<PathBuf, String> {
-    let safe: String = session
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '-' })
-        .collect();
-    Ok(root()?.join(format!("{safe}.log")))
+    Ok(hybrid_show::log_file(&sessions_dir()?, session))
+}
+
+/// Replaces the session's `.show` file with `line` by a rename: the change the app's watch on the
+/// folder wakes on to read the start again ([`hybrid_show`]). A failure costs only that wake.
+fn signal_show(session: &str, line: &str) -> Result<(), String> {
+    let path = hybrid_show::show_file(&sessions_dir()?, session);
+    let next = path.with_extension("show.next");
+    std::fs::write(&next, format!("{line}\n")).map_err(|error| error.to_string())?;
+    std::fs::rename(&next, &path).map_err(|error| error.to_string())
 }
 
 fn spawn(
@@ -655,14 +663,20 @@ impl Drive for Live {
     }
 
     fn show(&mut self, cloud: Cloud, reason: Option<&str>) {
-        let mut show = json!({"show": {"cloud": cloud, "session": self.session}});
-        if let Some(reason) = reason {
-            show["show"]["reason"] = json!(reason);
-        }
-        if let Some(machine) = &self.machine {
-            show["show"]["machine"] = json!(machine);
-        }
+        let show = hybrid_show::show_line(
+            cloud,
+            &self.session,
+            reason,
+            self.machine.as_deref(),
+            unix_ms(),
+        )
+        .to_string();
+        // The log first, then the signal: a watcher woken by the rename reads this Show.
         println!("{show}");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        if let Err(error) = signal_show(&self.session, &show) {
+            println!("{}", json!({"log": format!("no show signal: {error}")}));
+        }
     }
 
     fn log(&mut self, line: &str) {
