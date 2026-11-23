@@ -97,6 +97,34 @@ const rejectedBrowse: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-status button"));
 };
 
+const remoteTree = new Map<string, { path: string; parent: string | null; home: string; directories: string[] }>([
+  ["", { path: "/home/dev", parent: "/home", home: "/home/dev", directories: ["/home/dev/api", "/home/dev/web"] }],
+  [
+    "/home/dev/api",
+    { path: "/home/dev/api", parent: "/home/dev", home: "/home/dev", directories: ["/home/dev/api/db"] },
+  ],
+]);
+
+const remote = {
+  ...base,
+  machine: "lab-box",
+  host: { list: async (path: string) => remoteTree.get(path) ?? remoteTree.get("")! },
+};
+
+const remoteListed: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-item"));
+};
+
+const remoteOpened: Play = async (ctx) => {
+  await remoteListed(ctx);
+  await ctx.click({ text: "api" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-item"));
+};
+
+const remoteFailed: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-status button"));
+};
+
 export default componentEntry({
   id: "agent-pane.add-project-panel",
   title: "Add project panel",
@@ -153,6 +181,28 @@ export default componentEntry({
       note: "Arrow keys and Enter move through the command panel without stacked dialogs.",
       props: base,
       play: keyboardBrowse,
+    },
+    "remote-machine": {
+      note: "A chat on another machine opens straight in that machine's own folders, named in the title; no this-Mac Finder action.",
+      props: remote,
+      play: remoteListed,
+    },
+    "remote-subfolder": {
+      note: "A folder on the other machine opens in place, listed by that machine's daemon.",
+      props: remote,
+      play: remoteOpened,
+    },
+    "remote-error": {
+      note: "A machine that does not answer shows why beside Retry; the chooser stays open.",
+      props: {
+        ...remote,
+        host: {
+          list: async () => {
+            throw new Error("lab-box did not answer");
+          },
+        },
+      },
+      play: remoteFailed,
     },
     "browse-error": {
       note: "A rejected native folder chooser stays in the panel with its error and Retry action; cancellation still closes it.",

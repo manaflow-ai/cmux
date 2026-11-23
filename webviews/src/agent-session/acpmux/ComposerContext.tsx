@@ -160,6 +160,7 @@ export function ComposerContext({
   projectChoices,
   machineFolders,
   onBrowseProject,
+  onBrowseMachine,
   onNewWorktree,
   onGitHubHere,
   onNewProject,
@@ -227,6 +228,9 @@ export function ComposerContext({
   /// folder menu while the chat's own machine is picked; a pick there is this chat's folder.
   machineFolders?: Project[];
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
+  /// A new chat on its own other machine: Add folder… lists that machine's folders (RemoteFolderChooser.tsx),
+  /// not this Mac's panel. Named by the machine's label; answers the picked path.
+  onBrowseMachine?(machine: string): Promise<string | undefined>;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
   /// A GitHub repository (`owner/name`) picked for a new chat on this Mac: the host finds this Mac's checkout of
@@ -670,12 +674,17 @@ export function ComposerContext({
   // A new chat's Add folder…: the host's folder panel, then the chat's folder. As Add project's dialog
   // did, the panel only answers (deferPick) and the pick commits here, so a folder picked while the
   // panel was open wins over its late answer; a refused or failed panel says why beside a Retry.
-  const browseProject = onBrowseProject
+  const browseMachine =
+    onBrowseMachine && !readOnly && selectedComputer !== "local" && selectedComputer === initialComputer
+      ? () => onBrowseMachine(currentComputer?.label ?? selectedComputer)
+      : undefined;
+  const browseSource = browseMachine ?? (onBrowseProject ? () => onBrowseProject({ deferPick: true }) : undefined);
+  const browseProject = browseSource
     ? (): Promise<BrowseResult> => {
         const picks = folderPicks.current;
         setBrowseError(undefined);
         return Promise.resolve()
-          .then(() => onBrowseProject({ deferPick: true }) ?? undefined)
+          .then(() => browseSource() ?? undefined)
           .then((cwd) => {
             if (picks === folderPicks.current && typeof cwd === "string" && cwd) pickFolder(cwd);
             return cwd;

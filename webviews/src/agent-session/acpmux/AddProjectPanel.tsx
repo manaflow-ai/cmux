@@ -178,12 +178,7 @@ export function AddProjectPanel({
     <KeyboardScope handleKeyDown={command}>
       <div className="acpmux-add-project" data-add-project-step={step}>
         <div className="acpmux-add-project-heading">
-          <button
-            type="button"
-            onClick={back}
-            disabled={step === stepBack || (machine !== undefined && step === "directory")}
-            aria-label={t("project.back")}
-          >
+          <button type="button" onClick={back} disabled={step === stepBack} aria-label={t("project.back")}>
             ←
           </button>
           <strong>{machine ? `${title} · ${machine}` : title}</strong>
