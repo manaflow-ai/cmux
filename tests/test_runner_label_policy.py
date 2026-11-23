@@ -195,7 +195,13 @@ HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 # RUNNER_POOLS is a JSON map of pool -> label, read as fromJSON(vars.RUNNER_POOLS).<pool>; its labels are
 # checked by scripts/ci/runner_pools.py --check (ci-repo-variables.yml), not by the label policy.
 # CI_RUNNER_STATE is compressed discovery metadata, not a runs-on label.
-NON_LABEL_RUNNER_VARIABLES = {"CI_RUNNER_STATE", "CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS"}
+# RUNNER_ADMISSION_CONTROLLER is the build controller's URL that expected_wait.py reads, not a runs-on label.
+NON_LABEL_RUNNER_VARIABLES = {
+    "CI_RUNNER_STATE",
+    "CI_SEED_KEEP_LOCAL_RUNNERS",
+    "RUNNER_ADMISSION_CONTROLLER",
+    "RUNNER_POOLS",
+}
 
 
 def reported_runner_variables() -> set[str]:
@@ -435,16 +441,23 @@ class MainNightlyBootstrapGuard(unittest.TestCase):
 class OwnedPoolLabels(unittest.TestCase):
     OWNED = ("glaeda-std-xcode-26.6", "glaeda-light-xcode-26.6", "glaeda-xl-xcode-26")
 
-    def test_no_runner_variable_may_hold_an_owned_label(self) -> None:
-        # MACOS_RUNNER_PR would send every lane, forks' fallbacks included, to
-        # the fleet; only the picker may hand one out.
-        for label in self.OWNED:
+    def test_a_macos_runner_variable_may_hold_an_owned_pull_request_pool(self) -> None:
+        # Owned Macs first is the settled routing; every pull request job reading one keeps forks off it with its
+        # own guard. The workflow guard still refuses the label in a workflow file.
+        for label in (*self.OWNED, "glaeda-gui-std-xcode-26.6", "glaeda-ios-sim"):
             with self.subTest(label=label):
                 self.assertIsNotNone(forbidden_reason(label))
-                self.assertEqual(
-                    [name for name, _, _ in drifted_runner_variables({"MACOS_RUNNER_PR": label})],
-                    ["MACOS_RUNNER_PR"],
-                )
+                self.assertEqual(drifted_runner_variables({"MACOS_RUNNER_PR": label}), [])
+
+    def test_other_runner_variables_and_other_owned_labels_still_drift(self) -> None:
+        for name, label in (("WINDOWS_RUNNER", "glaeda-std-xcode-26.6"), ("CI_TRUSTED_RUNNER", "glaeda-std-xcode-26.6"),
+                            ("MACOS_RUNNER_PR", "glaeda-runner-cmux15-glaeda"),
+                            ("MACOS_RUNNER_PR", "glaeda-side-std-xcode-26.6"),
+                            ("MACOS_RUNNER_PR", "glaeda-trusted-std-xcode-26.6"),
+                            ("MACOS_RUNNER_PR", "glaeda-mini-xcode-26.6"),
+                            ("MACOS_RUNNER_PR", "Glaeda-std-xcode-26.6")):
+            with self.subTest(name=name, label=label):
+                self.assertEqual([found for found, _, _ in drifted_runner_variables({name: label})], [name])
 
     def test_the_pool_order_may_name_owned_and_cloud_pools(self) -> None:
         order = "glaeda-std-xcode-26.6, glaeda-aws-std-xcode-26.3, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
