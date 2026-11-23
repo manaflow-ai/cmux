@@ -408,7 +408,11 @@ exit 1"#,
         std::fs::write(&gate, "").unwrap();
         let done = first.wait_for(|run| run.exit.is_some()).await.unwrap().clone();
         assert_eq!(done.exit, Some(3));
-        assert_eq!(Vec::from(done.lines.clone()), vec!["installing #7", "try: installed"]);
+        // A login shell's profile may print first; the script's lines come last, stderr too.
+        assert!(
+            Vec::from(done.lines.clone())
+                .ends_with(&["installing #7".to_owned(), "try: installed".to_owned()])
+        );
         assert_eq!(installs.last().unwrap(), done);
         // Done, so the next PR may start.
         let mut next = installs.start(&runner, 8).unwrap();
