@@ -97,9 +97,13 @@ pub struct Summary {
     pub bytes_in: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes_per_s: Option<u64>,
-    /// and the link's round trip (ms).
+    /// and the link's round trip (ms),
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtt_ms: Option<u64>,
+    /// on the link's route (`direct-lan`, `direct-wan`, `direct`, `relay`, `none`: hostd's own
+    /// [`cmux_mobile_link::dial::route_name`], never the phone's word).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<&'static str>,
 }
 
 /// Why a pan line was dropped.
@@ -161,6 +165,7 @@ pub fn summarize(pan: Pan, phone: &str, at_ms: i64) -> Result<Summary, Invalid> 
             .filter(|_| duration > 0.0)
             .map(|b| (b as f64 / (duration / 1000.0)).round() as u64),
         rtt_ms: pan.rtt_ms,
+        path: None,
     })
 }
 
@@ -174,7 +179,7 @@ pub fn percentile(sorted: &[f64], p: f64) -> f64 {
 }
 
 /// A name from the phone, safe for a log line: control characters become spaces, at most 64.
-fn label(text: &str) -> String {
+pub(crate) fn label(text: &str) -> String {
     text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(64).collect::<String>().trim().to_owned()
 }
 
@@ -188,8 +193,19 @@ static WRITE: Mutex<()> = Mutex::new(());
 
 /// Records one pan line from `phone`: the summary to `path` and to hostd's log.
 pub fn record(line: &[u8], phone: &str, path: &Path) -> Result<Summary, Invalid> {
+    record_on(line, phone, path, None)
+}
+
+/// [`record`], on the link route `route` ([`Summary::path`]).
+pub fn record_on(
+    line: &[u8],
+    phone: &str,
+    path: &Path,
+    route: Option<&'static str>,
+) -> Result<Summary, Invalid> {
     let pan: Pan = serde_json::from_slice(line).map_err(|_| Invalid::Json)?;
-    let summary = summarize(pan, phone, crate::activity::now_ms())?;
+    let mut summary = summarize(pan, phone, crate::activity::now_ms())?;
+    summary.path = route;
     tracing::info!(
         phone,
         kind = summary.kind.as_str(),
@@ -203,6 +219,7 @@ pub fn record(line: &[u8], phone: &str, path: &Path) -> Result<Summary, Invalid>
         rows = summary.rows,
         bytes_per_s = summary.bytes_per_s,
         rtt_ms = summary.rtt_ms,
+        route = summary.path.unwrap_or("-"),
         "phone frames"
     );
     let _guard = WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -212,14 +229,69 @@ pub fn record(line: &[u8], phone: &str, path: &Path) -> Result<Summary, Invalid>
     Ok(summary)
 }
 
+/// Clock probes one `phone-frames` channel answers (the phone sends a handful per report).
+pub const MAX_CLOCK_PROBES: usize = 32;
+
+pub use crate::paint_latency::Line;
+
+/// Records one paint report from `phone`, joined with hostd's stamps, to `path`.
+pub fn record_paint(
+    line: &[u8],
+    phone: &str,
+    path: &Path,
+    route: Option<&'static str>,
+) -> Result<crate::paint_latency::Summary, Invalid> {
+    let mut report: crate::paint_latency::Report = serde_json::from_slice(line).map_err(|_| Invalid::Json)?;
+    report.samples.truncate(crate::paint_latency::MAX_SAMPLES);
+    let mut summary = crate::paint_latency::summarize(
+        report,
+        phone,
+        crate::activity::now_ms(),
+        crate::paint_latency::lookup,
+    );
+    summary.path = route;
+    let part = |p: &Option<crate::paint_latency::Part>| p.map(|p| format!("{}/{}", p.p50_ms, p.p95_ms));
+    tracing::info!(
+        phone,
+        samples = summary.samples,
+        joined = summary.joined,
+        offset_ms = summary.offset_ms,
+        route = summary.path.unwrap_or("-"),
+        rtt_ms = summary.rtt_ms,
+        agent_cli_hybrid = summary.agent_cli_hybrid,
+        mac_p50_p95 = part(&summary.mac).as_deref().unwrap_or("-"),
+        wire_p50_p95 = part(&summary.wire).as_deref().unwrap_or("-"),
+        phone_p50_p95 = part(&summary.phone_paint).as_deref().unwrap_or("-"),
+        total_p50_p95 = part(&summary.total).as_deref().unwrap_or("-"),
+        "phone paint"
+    );
+    let _guard = WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Err(error) = crate::activity::append(path, &summary, ROTATE_AT) {
+        tracing::warn!(path = %path.display(), %error, "could not write phone paint");
+    }
+    Ok(summary)
+}
+
 /// The `phone-frames` service: reads pan lines until the phone closes or [`MAX_PANS`] came.
 pub async fn serve(
     phone: &str,
     path: &Path,
-    _sender: &ChannelSender,
+    sender: &ChannelSender,
+    receiver: ChannelReceiver,
+) -> Result<(), Refusal> {
+    serve_on(phone, path, &|| None, sender, receiver).await
+}
+
+/// [`serve`], each record tagged with the link's route as `route` reads it then.
+pub async fn serve_on(
+    phone: &str,
+    path: &Path,
+    route: &(dyn Fn() -> Option<&'static str> + Send + Sync),
+    sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    for _ in 0..MAX_PANS {
+    let mut clocks = 0;
+    for _ in 0..MAX_PANS + MAX_CLOCK_PROBES {
         match receiver.recv().await {
             Some(ChannelEvent::Data(bytes)) => {
                 if bytes.len() > MAX_FRAME_BYTES {
@@ -228,8 +300,26 @@ pub async fn serve(
                         format!("a pan line is at most {MAX_FRAME_BYTES} bytes"),
                     ));
                 }
-                if let Err(why) = record(&bytes, phone, path) {
-                    tracing::info!(phone, ?why, "phone frames dropped");
+                match crate::paint_latency::kind_of(&bytes) {
+                    Some(Line::Clock(t0)) if clocks < MAX_CLOCK_PROBES => {
+                        clocks += 1;
+                        let t1 = cmux_mobile_link::frame::epoch_us() as f64 / 1000.0;
+                        let answer = crate::paint_latency::clock_answer(t0, t1);
+                        if sender.send(bytes::Bytes::from(answer)).await.is_err() {
+                            return Ok(());
+                        }
+                    }
+                    Some(Line::Clock(_)) => {}
+                    Some(Line::Paint) => {
+                        if let Err(why) = record_paint(&bytes, phone, path, route()) {
+                            tracing::info!(phone, ?why, "phone paint dropped");
+                        }
+                    }
+                    None => {
+                        if let Err(why) = record_on(&bytes, phone, path, route()) {
+                            tracing::info!(phone, ?why, "phone frames dropped");
+                        }
+                    }
                 }
             }
             Some(ChannelEvent::Closed(_)) | None => return Ok(()),
@@ -324,5 +414,21 @@ mod tests {
         assert_eq!(rows[0]["bytes_in"], 8340);
         assert_eq!(rows[0]["bytes_per_s"], 100_000);
         assert_eq!(rows[0]["rtt_ms"], 41);
+        assert!(rows[0].get("path").is_none(), "off a dialed link no route is claimed");
+    }
+
+    #[test]
+    fn a_record_carries_the_route_hostd_read_not_one_the_phone_sent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("phone-frames.jsonl");
+        let pan = br#"{"kind":"tui","expected_ms":16.67,"intervals_ms":[16.6],"rtt_ms":3,"path":"relay"}"#;
+        record_on(pan, "phone-1", &path, Some("direct-lan")).unwrap();
+        let paint = br#"{"kind":"paint","samples":[],"clock":[],"path":"relay"}"#;
+        record_paint(paint, "phone-1", &path, Some("direct-wan")).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let rows: Vec<serde_json::Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(rows[0]["path"], "direct-lan");
+        assert_eq!(rows[0]["rtt_ms"], 3);
+        assert_eq!(rows[1]["path"], "direct-wan");
     }
 }
