@@ -11,6 +11,7 @@ import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import type { AgentHookRow, AgentHooksRun, AgentHooksState } from "../ops";
 import { t } from "../strings";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** Product names, never translated. */
 const AGENT_NAMES = { claude: "Claude Code", codex: "Codex" } as const;
@@ -86,9 +87,13 @@ function HookRow({
               </span>
             )}
           </div>
-          <div className="row-help selectable font-mono" id={commandId} data-hook-command="" title={hook.file}>
-            {hook.command}
-          </div>
+          <WithFacts facts={[{ value: hook.file, code: true }]}>
+            {(facts) => (
+              <div {...facts} className="row-help selectable font-mono" id={commandId} data-hook-command="">
+                {hook.command}
+              </div>
+            )}
+          </WithFacts>
           <div className="row-help">{tags.join(" · ")}</div>
         </div>
         <span className="row-control keys-control">

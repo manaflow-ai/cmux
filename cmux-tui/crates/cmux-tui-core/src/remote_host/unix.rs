@@ -44,6 +44,7 @@ const QUIT_REASON: &str = "cmux Remote was quit; it starts again with `cmux remo
 const QUIT_INTENT: &str = "person quit cmux Remote";
 
 /// What the person turned on (`config.json`, kept for the next daemon start).
+/// The app sends its switches at every launch; until then this file is the last word.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RemoteConfig {
     #[serde(default)]
@@ -248,6 +249,13 @@ impl RemoteHostSupervisor {
         }
         if let Some(value) = update.get("headless").and_then(Value::as_bool) {
             config.headless = value;
+        }
+        if previous.computer_use && !config.computer_use {
+            // Only the app turns it off (its Computer Use mode `off`, or a managed
+            // setting): never silent, so a switch nobody meant to flip shows in the log.
+            eprintln!(
+                "cmux-tui: cmux Remote: Computer Use turned off by the app (Settings > Computer Use mode is off, or a managed setting)"
+            );
         }
         *lock(&self.inner.config) = config.clone();
         if let Some(paths) = lock(&self.inner.paths).clone() {
@@ -949,11 +957,27 @@ fn mint_secret() -> Result<String, String> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
+/// The saved switches. No file is the defaults (nothing on until the app sends its
+/// switches); a file that cannot be read or parsed is said in the log, never
+/// turned into everything off with nothing shown.
 fn read_config(path: &Path) -> RemoteConfig {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+            eprintln!(
+                "cmux-tui: cmux Remote: {} is not valid ({error}); nothing on until the app sends its switches",
+                path.display()
+            );
+            RemoteConfig::default()
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => RemoteConfig::default(),
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: cmux Remote: cannot read {} ({error}); nothing on until the app sends its switches",
+                path.display()
+            );
+            RemoteConfig::default()
+        }
+    }
 }
 
 fn write_config(path: &Path, config: &RemoteConfig) {

@@ -80,18 +80,14 @@ struct CmuxToastAvoidanceTests {
         CmuxToastAvoidance.unregister(host, from: window)
     }
 
-    /// A toast's floor is above every shown avoided view under it, a gap clear; a view beside it,
-    /// a hidden one or none leaves it at the bottom.
-    @Test func theFloorClearsTheAvoidedViewsUnderTheToast() throws {
+    /// A toast's floor is above every shown avoided view in the window, a gap clear; a hidden one or
+    /// none leaves it at the bottom.
+    @Test func theFloorClearsTheAvoidedViews() throws {
         let window = Self.window()
         defer { window.closeAfterTest() }
         let content = try #require(window.contentView)
         let bounds = content.bounds
         #expect(CmuxToastAvoidance.floor(width: 200, in: bounds, window: window) == bounds.minY)
-
-        let beside = AvoidedView(frame: NSRect(x: 0, y: 0, width: 80, height: 300))
-        content.addSubview(beside)
-        #expect(CmuxToastAvoidance.floor(width: 200, in: bounds, window: window) == bounds.minY, "a view beside the toast lifted it")
 
         let composer = AvoidedView(frame: NSRect(x: 100, y: 0, width: 400, height: 60))
         content.addSubview(composer)
@@ -99,6 +95,28 @@ struct CmuxToastAvoidanceTests {
 
         composer.isHidden = true
         #expect(CmuxToastAvoidance.floor(width: 200, in: bounds, window: window) == bounds.minY, "a hidden view lifted the toast")
+    }
+
+    /// The floor does not follow the layout across the window (Leo 2026-11-21: "it's also affected by
+    /// layout. which makes it shift"): a chat's composer that a divider drag or a sidebar toggle slides
+    /// from under the toast to beside it, or to the window's other edge, leaves the toast where it was.
+    @Test func theFloorStaysWhenTheLayoutMovesAnAvoidedViewAcross() throws {
+        let window = Self.window()
+        defer { window.closeAfterTest() }
+        let content = try #require(window.contentView)
+        let bounds = content.bounds
+        let composer = AvoidedView(frame: NSRect(x: bounds.midX - 150, y: 0, width: 300, height: 90))
+        content.addSubview(composer)
+        let under = CmuxToastAvoidance.floor(width: 300, in: bounds, window: window)
+        #expect(under == 90 + CmuxToastAvoidance.avoidanceGap)
+
+        for x in [bounds.minX, bounds.maxX - 120, bounds.midX + 40] {
+            composer.frame = NSRect(x: x, y: 0, width: 120, height: 90)
+            #expect(CmuxToastAvoidance.floor(width: 300, in: bounds, window: window) == under, "the toast moved when the composer slid to x \(x)")
+        }
+        for width in [120.0, 300, 640] {
+            #expect(CmuxToastAvoidance.floor(width: width, in: bounds, window: window) == under, "a toast's width changed where it rests")
+        }
     }
 
     /// Every reserving view in the window is found, a hidden one too (it still hears the toasts went).

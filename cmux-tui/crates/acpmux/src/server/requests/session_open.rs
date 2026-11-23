@@ -12,7 +12,16 @@ use super::*;
 /// history. A peer link forwards a resume only to a peer that lists it (`peer_forward.rs`).
 pub const FEATURE: &str = "sessionResume";
 
-/// `session/load`: replay the history as ACP updates, then answer.
+/// The most records one `session/load` replays, the newest ones, so a long chat's transcript
+/// ends where the chat is now. The log is never held whole: a replay reads its records one at a
+/// time from where the newest `REPLAY_LIMIT` start (`Hub::newest_window`). It replayed the
+/// oldest 100,000 and stopped with no word of it, so a chat past them showed a transcript that
+/// ended days back (8 of 175 chats on one lane, 22 of 557 on a Mac's daemon, 2026-11-18).
+pub(crate) const REPLAY_LIMIT: u64 = 100_000;
+
+/// `session/load`: replay the history as ACP updates, then answer. A chat past
+/// [`REPLAY_LIMIT`] records replays its newest ones, and the answer says what it left out
+/// (`_meta.acpmux.replayTruncated`).
 pub(super) fn load(
     hub: &Hub,
     conn: &Conn,
@@ -24,11 +33,21 @@ pub(super) fn load(
     // replayed again, nor one replayed sent live (`MessageNotices`).
     conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).reopen(None, &s.id);
     attach(hub, conn, &s.id);
-    // One record at a time, the first 100,000 as before: the log is never held whole.
-    let mut left = 100_000usize;
+    let window =
+        hub.newest_window(&s.id, REPLAY_LIMIT).map_err(|e| RpcError::internal(e.to_string()))?;
+    if window.after > 0 {
+        tracing::warn!(
+            session = %s.id,
+            skipped = window.after,
+            total = window.newest,
+            limit = REPLAY_LIMIT,
+            "session/load replays the newest {REPLAY_LIMIT} records; {} older of {} not replayed",
+            window.after,
+            window.newest,
+        );
+    }
     // The replay reads the log from disk: off the runtime's workers (`qos::off_worker`).
-    crate::qos::off_worker(|| hub.scan_events(&s.id, 0, &mut |rec| {
-        left -= 1;
+    crate::qos::off_worker(|| hub.scan_events(&s.id, window.after, &mut |rec| {
         if rec.dir == "mux" && rec.kind == "user_message" {
             let text = rec.msg.get("text").and_then(Value::as_str).unwrap_or("");
             conn.send(&Message::notification(
@@ -66,10 +85,24 @@ pub(super) fn load(
             );
             conn.send(&Message::notification(method::SESSION_UPDATE, p));
         }
-        left > 0
+        true
     }))
     .map_err(|e| RpcError::internal(e.to_string()))?;
-    Ok(opened(hub, &s))
+    let mut answer = opened(hub, &s);
+    if window.after > 0
+        && let Some(meta) = answer.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+    {
+        meta.insert("replayTruncated".to_owned(), truncated(window));
+    }
+    Ok(answer)
+}
+
+/// The answer's word that the replay left out the chat's older records: `skipped` of `total`
+/// (the chat's records are numbered from 1: the records through seq `skipped`), for a client to
+/// show as one line above the transcript ("Older messages not loaded: N of M"). Seqs count every
+/// record the chat logged, some of which log retention may have since dropped (`store/compact.rs`).
+fn truncated(window: crate::store::NewestWindow) -> Value {
+    json!({"skipped": window.after, "total": window.newest, "limit": REPLAY_LIMIT})
 }
 
 /// `session/resume`: attach and answer, with no history ("the Agent MUST NOT

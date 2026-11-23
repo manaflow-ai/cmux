@@ -39,10 +39,10 @@ const MOVED_LOOK_KEYS: readonly string[] = [
  * set still applies, so Reset to Defaults resets it too, the only way Settings can put it back. */
 const RETIRED_APPEARANCE_KEYS: readonly string[] = ["appearance.glassTransparency", "appearance.backdropArt"];
 
-/** Appearance keys that are no look of their own: what each background mode last showed, kept so
- * switching modes can go back. Undo, Restore How It Was and Reset to Defaults leave it alone, and a
+/** Appearance keys that are no look of their own: what each background mode last showed and the
+ * backgrounds shown before, kept so switching can go back. Undo, Restore How It Was and Reset to Defaults leave it alone, and a
  * write to it is no step of the stack. */
-const UNTRACKED_KEYS: ReadonlySet<string> = new Set(["appearance.backgroundMemory"]);
+const UNTRACKED_KEYS: ReadonlySet<string> = new Set(["appearance.backgroundMemory", "appearance.backgroundRecents"]);
 
 let tracked: ReadonlySet<string> | null = null;
 function trackedKeys(): ReadonlySet<string> {
