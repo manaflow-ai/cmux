@@ -1,0 +1,10 @@
+{
+  "caption": "One ⌘Q asks \"Quit cmux?\": press it again to quit.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "⌘Q once: the question shows and cmux keeps running", "rpc": {"method": "debug.key", "params": {"key": "q", "modifiers": ["command"]}}, "wait": 2.5, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.15, 0.15, 0.7, 0.7]
+}
