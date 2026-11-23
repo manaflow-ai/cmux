@@ -1198,7 +1198,7 @@ BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A job a feat-cmux-next pull request runs as a ci/steps.toml step instead (pr-pipeline.yml): it skips only there, and
 # its rollup counts that skip as fine, so it has no route input and every other run is judged as an unrouted job's.
-STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}"
+STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}"
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
@@ -2699,6 +2699,20 @@ OTHER_PR_HOURS = 24
 OTHER_PR_LIST = 50
 OTHER_PR_RUNS = 8
 OTHER_PR_LOGS = 4
+# A pull request's run comes from `pull_request` or from `pull_request_target`, and a workflow triggered by one has no
+# run of the other anywhere: every listing of another PR's runs of the workflow names the red run's own event
+# (2026-11-22, cmux#50878: cla-policy-guard.yml is triggered by pull_request_target alone, so `event=pull_request`
+# listed none of its runs, no other PR could ever be found, and its red was refused here on every PR, for ever;
+# handoff cmux#51045, leo-workspace#8742 fixes the same gap in land-judge's pr_only_peer_excuse).
+PR_EVENTS = ("pull_request", "pull_request_target")
+
+
+def peer_event(run: dict) -> str:
+    """The event another PR's run of RUN's workflow must have: RUN's own when it is a pull request's (PR_EVENTS)."""
+    event = str(run.get("event") or "")
+    return event if event in PR_EVENTS else "pull_request"
+
+
 TEST_STEP_NAME = re.compile(r"(?i)\b(?:tests?|testing|e2e|specs?|suites?)\b")
 # A test runner a step's script starts (runs_tests), read word by word so no pattern rescans a script: a runner by
 # name, a build tool's test verb, or a script whose file name says it tests.
@@ -2899,7 +2913,8 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
         return False, "its failed setup steps print no error line to match, or its run names no branch"
     own_commits = {str(commit.get("sha")) for commit in commits if isinstance(commit, dict)}
     shared = 0
-    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?event=pull_request&status=failure"
+    event = peer_event(workflow_info)
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?event={event}&status=failure"
                          f"&per_page={OTHER_PR_LIST}")
     now, window = datetime.now().astimezone(), timedelta(hours=OTHER_PR_HOURS)
     runs = sorted((run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
@@ -2907,7 +2922,7 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
     reads = logs = 0
     for run in runs:
         theirs = {pull.get("number") for pull in run.get("pull_requests") or [] if isinstance(pull, dict)}
-        if (run.get("event") != "pull_request" or run.get("id") == job.get("run_id")
+        if (run.get("event") != event or run.get("id") == job.get("run_id")
                 or run.get("head_branch") in (None, branch) or not theirs or theirs & numbers):
             continue  # this PR's own run, or one that names no other PR
         if reads >= OTHER_PR_RUNS or logs >= OTHER_PR_LOGS:
@@ -2958,9 +2973,11 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
 # pr_only_peer_excuse (leo-workspace tools/land_judge/engine.py) let the same red through. One rule for both judges,
 # with land-judge's constants and path patterns:
 # - a red job is the workflow's, not this PR's, when the same job failed at the same first failed step (or at none on
-#   both) on PR_ONLY_PEERS other PRs' heads into the same base, each in its newest completed pull_request run of the
-#   workflow, completed in the last OTHER_PR_HOURS. Any failed step counts, not only a setup step: a PR that breaks
-#   the app fails a later step (the tests) than an outage (a tailnet, a brew install), so the two do not match;
+#   both) on PR_ONLY_PEERS other PRs' heads into the same base, each in its newest completed run of the workflow under
+#   the red run's own event (pull_request, or pull_request_target: a workflow triggered by the latter alone has no
+#   pull_request run anywhere), completed in the last OTHER_PR_HOURS. Any failed step counts, not only a setup step:
+#   a PR that breaks the app fails a later step (the tests) than an outage (a tailnet, a brew install), so the two do
+#   not match;
 # - the workflow's files are its .yml and every repo path its text at the head names (workflow_files: WORKFLOW_PATH,
 #   under .github/ or scripts/, or a script or config file by its extension; a named directory stands for every file
 #   under it). A PR that changes one of them is never excused this way: it must be green on the workflow. A peer that
@@ -2969,10 +2986,10 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
 #   shares a commit with this PR beyond the base (shares_commits) is no witness, nor one whose changed files cannot
 #   be read in full from one compare with the base (COMPARE_FILES_CAP);
 # - the reads are bounded as land-judge's are: one list of the workflow's PR_ONLY_PEER_RUNS newest completed
-#   pull_request runs, at most PR_ONLY_PEER_READS job lists (base_run_jobs, its disk cache), and the compares only
-#   once PR_ONLY_PEERS heads have matched on the job lists. No log and no PR text is read.
+#   runs of the red run's event, at most PR_ONLY_PEER_READS job lists (base_run_jobs, its disk cache), and the
+#   compares only once PR_ONLY_PEERS heads have matched on the job lists. No log and no PR text is read.
 PR_ONLY_PEERS = 3  # other PRs' heads that must fail the same job at the same step
-PR_ONLY_PEER_RUNS = 30  # the workflow's newest completed pull_request runs listed
+PR_ONLY_PEER_RUNS = 30  # the workflow's newest completed runs of the red run's event listed
 PR_ONLY_PEER_READS = 10  # job lists read among them at most
 PR_ONLY_RED = frozenset({"failure", "timed_out", "startup_failure"})
 # A repo path a workflow names: two or more segments, not a variable's ($RUNNER_TEMP/x), a URL's or another path's
@@ -3043,7 +3060,8 @@ def other_pr_peer_verdict(repo: str, base: str, name: str, job: dict, workflow_i
     said = f"at step '{step}'" if step is not None else "at no step"
     branch = workflow_info.get("head_branch")
     numbers = {str(pull.get("number")) for pull in workflow_info.get("pull_requests") or [] if isinstance(pull, dict)}
-    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?event=pull_request&status=completed"
+    event = peer_event(workflow_info)
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?event={event}&status=completed"
                          f"&per_page={PR_ONLY_PEER_RUNS}")
     runs = sorted((run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
                    if isinstance(run, dict)), key=lambda run: run.get("created_at") or "", reverse=True)
@@ -3059,7 +3077,7 @@ def other_pr_peer_verdict(repo: str, base: str, name: str, job: dict, workflow_i
         theirs = [str(pull.get("number")) for pull in run.get("pull_requests") or [] if isinstance(pull, dict)
                   and ((pull.get("base") or {}).get("ref")) == base]
         tested = str(run.get("head_sha") or "")
-        if (run.get("event") != "pull_request" or run.get("id") == job.get("run_id") or tested == sha
+        if (run.get("event") != event or run.get("id") == job.get("run_id") or tested == sha
                 or run.get("head_branch") in (None, branch) or not theirs or set(theirs) & numbers
                 or theirs[0] in seen or not re.fullmatch(r"[0-9a-f]{40}", tested)):
             continue  # this PR's own run, one into another base or naming no PR, or a PR already read
@@ -6162,6 +6180,14 @@ def receipt_grammar():
     return risk_tier
 
 
+def actions_check_runs(runs, name: str) -> list[dict]:
+    """The GitHub Actions check runs called NAME in a check-runs answer: a check of the same name from another app
+    (a status bot, a third-party CI) is not the job's verdict, so its red excuses nothing."""
+    return [run for run in (runs or {}).get("check_runs") or []
+            if isinstance(run, dict) and run.get("name") == name
+            and (run.get("app") or {}).get("slug") == "github-actions"]
+
+
 def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: str, github) -> str:
     """The pull request whose head is SHA, when (1)-(4) above hold for the red job NAME; raises Refused otherwise."""
     pulls = [p for p in github.json(f"repos/{repo}/commits/{sha}/pulls?per_page=100") or []
@@ -6186,7 +6212,7 @@ def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: st
     if not receipt_grammar().signed_off(comments, reviews, sha, author, pull):
         raise Refused(f"#{number} has no independent SHIP at its exact head {sha[:12]}")
     runs = github.json(f"repos/{repo}/commits/{merge_base}/check-runs?check_name={urllib.parse.quote(name, safe='')}&filter=latest&per_page=100")
-    seen = [run for run in (runs or {}).get("check_runs") or [] if isinstance(run, dict) and run.get("name") == name]
+    seen = actions_check_runs(runs, name)
     if not any(run.get("status") == "completed" and run.get("conclusion") in ("failure", "timed_out") for run in seen):
         raise Refused(f"'{name}' has no red verdict at the merge-base {merge_base[:12]} "
                       f"({', '.join(sorted({str(r.get('conclusion') or r.get('status')) for r in seen})) or 'none'}): "

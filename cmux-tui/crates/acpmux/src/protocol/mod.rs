@@ -79,6 +79,9 @@ pub struct MessageEvent {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageSender {
+    /// The sender's given name (`session_handle.rs`), shown first: "Mango · HOST/NAME".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
     pub name: String,
@@ -270,6 +273,16 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GITHUB_APP_LEASE, Request),
         keyed::<params::BookmarkGetParams>(method::MUX_BOOKMARK_GET, Request),
         keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
+        // Saved prompts (`prompts.rs`).
+        keyed::<params::PromptsListParams>(method::MUX_PROMPTS_LIST, Request),
+        keyed::<params::PromptsSaveParams>(method::MUX_PROMPTS_SAVE, Request),
+        keyed::<params::PromptsDeleteParams>(method::MUX_PROMPTS_DELETE, Request),
+        // Stashed drafts (`stash.rs`).
+        keyed::<params::StashListParams>(method::MUX_STASH_LIST, Request),
+        keyed::<params::StashPushParams>(method::MUX_STASH_PUSH, Request),
+        keyed::<params::StashGetParams>(method::MUX_STASH_GET, Request),
+        keyed::<params::StashDropParams>(method::MUX_STASH_DROP, Request),
+        keyed::<params::StashMoveParams>(method::MUX_STASH_MOVE, Request),
         keyed::<params::MemoryResolveParams>(method::MUX_MEMORY_RESOLVE, Request),
         keyed::<params::PromptCoachParams>(method::MUX_PROMPT_COACH, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
@@ -287,6 +300,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::ProcessListParams>(method::MUX_PROCESS_LIST, Request),
         keyed::<params::ProcessTailParams>(method::MUX_PROCESS_TAIL, Request),
         keyed::<params::ProcessKillParams>(method::MUX_PROCESS_KILL, Request),
+        untyped(method::MUX_PROCESS_CENSUS, Request),
         untyped(method::MUX_BG_START, Request),
         untyped(method::MUX_BG_LIST, Request),
         untyped(method::MUX_BG_OUTPUT, Request),
@@ -433,6 +447,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
         untyped("_acpmux/chats_search", Request),
+        untyped("_acpmux/chats_warm", Request),
         untyped("_acpmux/chat_fork", Request),
         untyped("_acpmux/chat_projects", Request),
         untyped("_acpmux/chat_changed", Notification),
@@ -443,12 +458,16 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chats_window_changed", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).
         untyped("_acpmux/transfer_abort", Request),
+        untyped("_acpmux/transfer_base", Request),
         untyped("_acpmux/transfer_begin", Request),
         untyped("_acpmux/transfer_commit", Request),
         untyped("_acpmux/transfer_finish", Request),
         untyped("_acpmux/transfer_forget", Request),
+        untyped("_acpmux/transfer_prepare", Request),
         untyped("_acpmux/transfer_read", Request),
         untyped("_acpmux/transfer_receive", Request),
+        untyped("_acpmux/transfer_stage", Request),
+        untyped("_acpmux/transfer_stage_finish", Request),
         untyped("_acpmux/transfer_write", Request),
         // Handoff.
         keyed::<params::HandoffPrepareParams>(method::MUX_HANDOFF_PREPARE, Request),
@@ -569,6 +588,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<MessageEvent>(method::MUX_MESSAGE),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
+        notification::<SessionPatch>(method::MUX_SESSION_PATCH),
         notification::<PeerRowsChanged>(method::MUX_PEER_ROWS_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),
