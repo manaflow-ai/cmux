@@ -1,7 +1,7 @@
 // The chat's place controls and move card (place/): they draw what `pane.tabState`'s `place` says and
 // call the app; every decision (when a move starts, what it carries, whether Cancel is offered) is the
 // app's. Leo, 2026-11-23: "buttons for cloud/auto/evacuate aka move/teleport is necessary."
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -224,12 +224,16 @@ test("a failure says why, where the chat still runs, and offers Retry; Cancel an
 });
 
 test("a finished move shows and then goes", async () => {
+  jest.useFakeTimers();
   const container = await draw(
     <MoveProgress move={MOVES.live} look="line" linger={20} onCancel={noop} onRetry={noop} />,
   );
   expect(text(container)).toContain("Now running on swift-otter");
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+  await act(async () => void jest.advanceTimersByTime(19));
+  expect(container.querySelector(".acpmux-move")).not.toBeNull();
+  await act(async () => void jest.advanceTimersByTime(1));
   expect(container.querySelector(".acpmux-move")).toBeNull();
+  jest.useRealTimers();
 });
 
 test("every look draws the move and its state", async () => {
