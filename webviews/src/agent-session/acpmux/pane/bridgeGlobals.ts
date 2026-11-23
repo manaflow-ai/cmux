@@ -71,6 +71,8 @@ declare global {
       applyNowPlaying?(track: unknown): void;
       /// The app's read-aloud state (conversation/readAloud.ts): `{id}`, the message it reads or null.
       applyReadAloud?(state: unknown): void;
+      /// Host-owned desktop voice relay snapshot.
+      voice?(state: unknown): void;
       /// The tabs agents marked as needing the person, for Needs you (needsYou/attentionTabs.ts).
       applyAttentionTabs?(tabs: unknown): void;
       /// The workspaces, panes and tabs a pasted cmux link names (chips/cmuxLinkPlaces.ts).

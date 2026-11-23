@@ -57,7 +57,8 @@ public final class AgentPaneReadAloud {
     public var isReading: Bool { current != nil }
 
     /// Reads `text` as message `id` for `owner`'s chat, stopping whatever read before.
-    func speak(_ text: String, id: String, language: String?, owner: AnyObject) {
+    func speak(_ text: String, id: String, language: String?, owner: AnyObject, finished: (@MainActor () -> Void)? = nil) {
+        AgentPaneVoiceRelay.stopForManualReadAloud(owner: owner)
         if current != nil { voice.stop() }
         utterances += 1
         let utterance = utterances
@@ -67,6 +68,7 @@ public final class AgentPaneReadAloud {
             guard let self, self.current?.utterance == utterance else { return }
             self.current = nil
             self.changed()
+            finished?()
         }
         changed()
     }

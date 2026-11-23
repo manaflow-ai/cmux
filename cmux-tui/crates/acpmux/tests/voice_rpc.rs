@@ -215,6 +215,7 @@ async fn voice_methods_follow_the_settings() {
     assert_eq!(r["result"]["keyAccount"], format!("localServer@http://127.0.0.1:{port}"), "{r}");
     assert_eq!(r["result"]["model"], "parakeet-tdt");
     assert_eq!(r["result"]["hasKey"], false);
+    let captured_settings = r["result"]["settings"].clone();
     let r =
         call(&hub, local, "_acpmux/voice/transcribe", json!({"path": wav, "language": "en-US"}))
             .await;
@@ -226,6 +227,28 @@ async fn voice_methods_follow_the_settings() {
         assert!(last.contains("name=\"model\"\r\n\r\nparakeet-tdt\r\n"), "{last}");
         assert!(!last.to_ascii_lowercase().contains("authorization:"), "{last}");
     }
+
+    // A live voice session retains its provider when Settings changes. A new session uses
+    // the new settings, and malformed snapshots never silently fall back to on-device.
+    set(&settings, json!({}));
+    let r = call(
+        &hub,
+        local,
+        "_acpmux/voice/transcribe",
+        json!({"path": wav, "settings": captured_settings}),
+    )
+    .await;
+    assert_eq!(r["result"], json!({"text": "heard"}), "{r}");
+    let r = call(&hub, local, "_acpmux/voice/transcribe", json!({"path": wav})).await;
+    assert_eq!(code(&r), "not_configured");
+    let r = call(
+        &hub,
+        local,
+        "_acpmux/voice/transcribe",
+        json!({"path": wav, "settings": {"engine": "localServer"}}),
+    )
+    .await;
+    assert_eq!(r["error"]["code"], -32602);
 
     // A provider that needs a key, with none saved: key_missing, and no connection.
     let before = server.connections.load(Ordering::SeqCst);
@@ -251,7 +274,9 @@ async fn voice_methods_follow_the_settings() {
 
     // Only the unix socket.
     for origin in [Origin::LocalApp, Origin::Web] {
-        let r = call(&hub, origin, "_acpmux/voice/state", json!({})).await;
-        assert!(r.get("error").is_some(), "{origin:?}: {r}");
+        for method in ["_acpmux/voice/state", "_acpmux/voice/relay", "_acpmux/voice/transcribe"] {
+            let r = call(&hub, origin, method, json!({"settings": captured_settings})).await;
+            assert!(r.get("error").is_some(), "{origin:?}: {r}");
+        }
     }
 }

@@ -847,6 +847,7 @@ pub mod method {
     pub const MUX_VOICE_STATE: &str = "_acpmux/voice/state";
     pub const MUX_VOICE_TRANSCRIBE: &str = "_acpmux/voice/transcribe";
     pub const MUX_VOICE_CHECK: &str = "_acpmux/voice/check";
+    pub const MUX_VOICE_RELAY: &str = "_acpmux/voice/relay";
     /// Create a fix chat from a GitHub issue URL (`{url, cwd?}`).
     pub const CHAT_FIX_FROM_LINK: &str = "chat.fix_from_link";
     pub const CHAT_FIX_FROM_LINK_PREPARE: &str = "chat.fix_from_link.prepare";

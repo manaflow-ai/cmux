@@ -27,6 +27,8 @@ pub mod endpoint;
 pub mod error;
 pub mod multipart;
 pub mod provider;
+pub mod relay;
+pub mod speech;
 pub mod state;
 
 pub use audio::{Audio, AudioError, MAX_AUDIO_BYTES};
@@ -34,6 +36,11 @@ pub use catalog::{Capability, KeyUse, Kind, PROVIDERS, Provider, Wire};
 pub use endpoint::{Endpoint, Resolved, Settings, key_account, resolve};
 pub use error::{ErrorCode, VoiceError};
 pub use provider::{BatchRequest, DictationProvider, Http, Transcript, provider_for};
+pub use relay::{
+    Effect as RelayEffect, Phase as RelayPhase, RelayEvent, RelayState,
+    Transition as RelayTransition, reduce as reduce_relay,
+};
+pub use speech::{is_noise, speakable};
 pub use state::{State, check_reply, state, transcribe_reply};
 
 /// The Keychain service every dictation key is saved under (a generic password).

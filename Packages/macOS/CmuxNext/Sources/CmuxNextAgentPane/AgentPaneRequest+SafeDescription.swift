@@ -123,6 +123,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .launchSettle: "launchSettle"
         case .painted(let fromKeptTail, let settled):
             settled ? (fromKeptTail ? "painted(settled,keptTail)" : "painted(settled)") : fromKeptTail ? "painted(keptTail)" : "painted"
+        case .voice: "voice"
         case .dictation: "dictation"
         case .dictationHandoff: "dictationHandoff"
         case .dictationSources: "dictationSources"

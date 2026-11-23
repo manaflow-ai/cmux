@@ -89,11 +89,15 @@ public final class SettingsDictation: PageProvider {
                                 message: "this dictation engine takes no key here; pick one that does, or set its server URL first")
             }
             try await keys.store(key, service: service, account: account)
+            AgentPaneVoiceKeys.changed(account: account, removed: false)
             return try await daemon(.voiceState)
         case "removeKey":
             try Self.requirePerson(context)
             let (service, account) = try Self.keyItem(try await daemon(.voiceState))
-            if let account { await keys.delete(service: service, account: account) }
+            if let account {
+                await keys.delete(service: service, account: account)
+                AgentPaneVoiceKeys.changed(account: account, removed: true)
+            }
             return try await daemon(.voiceState)
         default:
             throw PageError.invalidParams("cmux.settings.dictation.run needs an action: state, setKey, removeKey or check")

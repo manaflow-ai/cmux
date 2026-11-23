@@ -25,9 +25,9 @@ public protocol DictationAudioCapturing: Sendable {
 /// ``SFSpeechDictationTranscriber`` does, reopened when the device or its
 /// format changes.
 public actor MicrophoneDictationCapture: DictationAudioCapturing {
-    private let tap = DictationInputTap()
+    private let tap: DictationInputTap
 
-    public init() {}
+    public init(voiceProcessing: Bool = false) { tap = DictationInputTap(voiceProcessing: voiceProcessing) }
 
     public func start(
         onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void,

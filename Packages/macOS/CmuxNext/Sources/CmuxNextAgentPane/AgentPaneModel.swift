@@ -262,6 +262,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onTabRowToolInvoked: ((String, String?) -> Void)?
     @ObservationIgnored public var onTabRowToolMenuRequested: ((String, String?) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
+    @ObservationIgnored public var onVoice: ((AgentPaneVoiceCommand) -> Void)?
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
     /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
@@ -909,6 +910,13 @@ public final class AgentPaneModel {
         case .editShortcut(let kind): guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }; onEditShortcut(kind); return AgentPaneReply.success()
         case .externalAccessOpenSettings(let kind):
             return AgentPaneExternalAccess().open(kind, remoteChat: remoteChat, gestures: transport.gestures)
+        case .voice(let command):
+            guard let onVoice else { return AgentPaneReply.failure(code: "unsupported", message: "Voice is unavailable") }
+            if command == .toggle || command == .restart {
+                guard transport.gestures.consumeAnswerClick() else { return Self.transportFailure(.gestureRequired) }
+            }
+            onVoice(command)
+            return AgentPaneReply.success()
         case .dictation(let command):
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)

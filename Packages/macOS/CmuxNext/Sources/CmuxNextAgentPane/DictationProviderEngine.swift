@@ -19,6 +19,7 @@ public struct DictationProviderEngine {
         claims: DictationMicrophoneClaims = .shared,
         environment: @escaping @MainActor () -> AcpmuxEnvironment?
     ) {
+        AgentPaneVoiceRelay.environment = environment
         claims.providerTranscription = { [weak settings] in
             guard let settings,
                   settings.snapshot.agentPaneComposer.dictationEngine != .onDevice,
@@ -29,8 +30,9 @@ public struct DictationProviderEngine {
 
     /// One recording through acpmux: its bytes inline (or its file's path), the language as BCP 47;
     /// the answer is `{text}` or `{error: {code, detail}}`, a failure is ``DictationFailure/providerFailed(code:detail:)``.
-    nonisolated static func transcribe(_ audio: DictationAudio, locale: Locale, environment: AcpmuxEnvironment) async throws -> String {
+    nonisolated static func transcribe(_ audio: DictationAudio, locale: Locale, environment: AcpmuxEnvironment, settings: [String: String]? = nil) async throws -> String {
         var params: [String: any Sendable] = ["language": locale.identifier(.bcp47)]
+        if let settings { params["settings"] = settings }
         if let data = audio.data {
             params["audio"] = data.base64EncodedString()
         } else if let file = audio.file {

@@ -302,6 +302,7 @@ import { useComposerSettings } from "./composerSettings";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import { useDictation, type DictationField } from "./dictation";
 import { DictationMic } from "./DictationMic";
+import { VoiceControl } from "./VoiceControls";
 import { useComposerView } from "./composer/composerView";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import { agentNames, agentViews } from "./conversation/agentNames";
@@ -6120,7 +6121,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     elsewhere: () => notices.transient(translate("dictation.recordingOtherChat")),
   });
   // The composer's mic, the same element while the dictation is (dictation.ts keeps it while its state is).
-  const composerMic = useMemo(() => <DictationMic dictation={dictation} strip={false} />, [dictation]);
+  const composerMic = useMemo(
+    () => (
+      <>
+        <VoiceControl />
+        <DictationMic dictation={dictation} strip={false} />
+      </>
+    ),
+    [dictation],
+  );
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();

@@ -1002,6 +1002,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Only the person enables continuous microphone input and spoken replies for a chat.",
+      "keys": [
+        "agentPane.voiceButton"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.",
       "keys": [
         "agentPane.dictationShortcut"

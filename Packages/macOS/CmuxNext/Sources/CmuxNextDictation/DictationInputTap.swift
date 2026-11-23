@@ -13,6 +13,9 @@ final class DictationInputTap: Sendable {
     typealias Sink = @Sendable (AVAudioPCMBuffer) -> Void
     typealias Report = @Sendable (DictationFailure) async -> Void
 
+    private let voiceProcessing: Bool
+    init(voiceProcessing: Bool = false) { self.voiceProcessing = voiceProcessing }
+
     private struct State {
         var engine: AVAudioEngine?
         var sink: Sink?
@@ -33,7 +36,7 @@ final class DictationInputTap: Sendable {
             state.sink = onBuffer
             state.report = onFailure
             do {
-                try Self.open(&state)
+                try Self.open(&state, voiceProcessing: voiceProcessing)
             } catch {
                 Self.close(&state)
                 throw error
@@ -67,7 +70,7 @@ final class DictationInputTap: Sendable {
             engine.stop()
             state.engine = nil
             do {
-                try Self.open(&state)
+                try Self.open(&state, voiceProcessing: voiceProcessing)
                 return nil
             } catch {
                 let report = state.report
@@ -78,10 +81,11 @@ final class DictationInputTap: Sendable {
         }
     }
 
-    private static func open(_ state: inout State) throws {
+    private static func open(_ state: inout State, voiceProcessing: Bool) throws {
         guard let sink = state.sink else { return }
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
+        if voiceProcessing { try inputNode.setVoiceProcessingEnabled(true) }
         let format = inputNode.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw DictationFailure.audioCaptureFailed("no audio input device")

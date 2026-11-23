@@ -504,6 +504,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_VOICE_STATE, Request),
         untyped(method::MUX_VOICE_TRANSCRIBE, Request),
         untyped(method::MUX_VOICE_CHECK, Request),
+        untyped(method::MUX_VOICE_RELAY, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),

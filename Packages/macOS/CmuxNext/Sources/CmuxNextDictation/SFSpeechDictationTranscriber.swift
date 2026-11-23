@@ -48,7 +48,7 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     private let requestBox = RequestBox()
     private var recognizer: SFSpeechRecognizer?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private let tap = DictationInputTap()
+    private let tap: DictationInputTap
     private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
     private var retryTask: Task<Void, Never>?
     private var isFinishing = false
@@ -67,7 +67,8 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     /// Creates an engine for one session.
     ///
     /// - Parameter levelMeter: Receives input levels for the dictation meter.
-    public init(levelMeter: DictationAudioLevelMeter? = nil) {
+    public init(levelMeter: DictationAudioLevelMeter? = nil, voiceProcessing: Bool = false) {
+        tap = DictationInputTap(voiceProcessing: voiceProcessing)
         retryClock = ContinuousClock()
         retryDelay = .milliseconds(100)
         self.levelMeter = levelMeter
@@ -75,6 +76,7 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
 
     /// Creates an engine with caller-supplied retry timing.
     init(retryClock: any Clock<Duration>, retryDelay: Duration) {
+        tap = DictationInputTap()
         self.retryClock = retryClock
         self.retryDelay = retryDelay
         levelMeter = nil

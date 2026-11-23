@@ -25,6 +25,7 @@ extension AgentPaneComposerSetting {
     @MainActor public func push(to view: AgentPaneView) {
         guard Self.lookChanging || self != view.model.composer else { return }
         view.model.composer = self
+        view.voice.settingsChanged(self)
         view.deliver([.composer(self)], scripts: [pageScript])
     }
 

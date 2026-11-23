@@ -169,6 +169,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
 import { composerShellLook } from "./composer/shellLook.experiment";
+import { VoiceStatus } from "./VoiceControls";
 import { composerFooterControls } from "./composer/footerControls.experiment";
 import { composerEmptyHeight } from "./composer/emptyHeight.experiment";
 // The composer look climbs' arms (composer/*.experiment.ts): gallery-only; the default arms add nothing.
@@ -3218,6 +3219,7 @@ function ComposerFrame({
           <PromptFocusProvider focus={focusPrompt}>
             <Chips snapshot={snapshot} />
             <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
+            <VoiceStatus />
           </PromptFocusProvider>
         }
         // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).

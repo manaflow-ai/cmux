@@ -61,6 +61,7 @@ import CmuxNextDesign
 public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var showContextUsage = Self.showContextUsageDefault
     public var composerRing = Self.composerRingDefault
+    public var voiceButton = Self.voiceButtonDefault
     public var showDictation = Self.showDictationDefault
     public var dictationSource = Self.dictationSourceDefault
     public var dictationEngine = Self.dictationEngineDefault
@@ -89,6 +90,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
         [
             "showContextUsage": .bool(showContextUsage),
             "composerRing": .string(composerRing.rawValue),
+            "voiceButton": .bool(voiceButton),
             "showDictation": .bool(showDictation),
             "dictationSource": .string(dictationSource.rawValue),
             "dictationShortcut": .string(dictationShortcut),
@@ -204,6 +206,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                 continue
             }
             if descriptor.path == showContextUsagePath { setting.showContextUsage = flag }
+            if descriptor.path == voiceButtonPath { setting.voiceButton = flag }
             if descriptor.path == showDictationPath { setting.showDictation = flag }
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }
             if descriptor.path == scrollToBottomOnSendPath { setting.scrollToBottomOnSend = flag }

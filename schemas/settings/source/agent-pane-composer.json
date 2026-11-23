@@ -311,6 +311,27 @@
           ]
         },
         {
+          "key": "agentPane.voiceButton",
+          "title": {
+            "key": "settings.agentPane.voiceButton",
+            "text": "Show Voice Mode Button"
+          },
+          "help": {
+            "key": "settings.agentPane.voiceButton.help",
+            "text": "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "voice",
+            "speech",
+            "agent",
+            "microphone",
+            "read aloud"
+          ],
+          "note": "Desktop cascade relay; off until the person opts in. The local host owns the microphone, prompt relay and playback."
+        },
+        {
           "key": "agentPane.dictationShortcut",
           "note": "The chord the mic sends for an app source, such as ctrl+opt+space, when the person bound the app to one other than its default; empty uses the app's. AgentPaneDictationShortcut parses it.",
           "title": {

@@ -108,6 +108,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case voiceTranscribe = "_acpmux/voice/transcribe"
     /// `{}`: the cheapest call proving the endpoint and key, no audio; `{ok}` or `{ok: false, error}`.
     case voiceCheck = "_acpmux/voice/check"
+    /// Native-owned relay state and one event; pure Rust transition, no microphone or network I/O.
+    case voiceRelay = "_acpmux/voice/relay"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -130,7 +132,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .chatgptWait: .seconds(35)
         // The daemon's own limit for one read is 15 s, after a wait for a free read.
         case .accountUsage: .seconds(40)
-        case .voiceState: .seconds(10)
+        case .voiceState, .voiceRelay: .seconds(10)
         // The daemon allows the provider 60 s for the whole request (10 s to connect).
         case .voiceTranscribe, .voiceCheck: .seconds(65)
         }

@@ -20,8 +20,12 @@ use serde_json::Value;
 use super::Origin;
 use crate::rpc::{RpcError, method};
 
-pub(super) const METHODS: &[&str] =
-    &[method::MUX_VOICE_STATE, method::MUX_VOICE_TRANSCRIBE, method::MUX_VOICE_CHECK];
+pub(super) const METHODS: &[&str] = &[
+    method::MUX_VOICE_STATE,
+    method::MUX_VOICE_TRANSCRIBE,
+    method::MUX_VOICE_CHECK,
+    method::MUX_VOICE_RELAY,
+];
 
 /// The longest `state` waits on the Keychain, so a Settings page never hangs on it.
 const STATE_KEY_WAIT: Duration = Duration::from_secs(3);
@@ -133,13 +137,47 @@ pub(super) async fn handle(origin: Origin, m: &str, params: &Value) -> Result<Va
     if origin != Origin::Local {
         return Err(RpcError::invalid_params("dictation: only the unix socket may ask"));
     }
-    let resolved = cmux_voice::resolve(&blocking(read_settings).await?);
+    // Reducer state belongs to the native microphone owner, never the page. This call does
+    // no I/O, key lookup, prompt sending or playback; the host executes its returned effects.
+    if m == method::MUX_VOICE_RELAY {
+        let state = match params.get("state").filter(|v| !v.is_null()) {
+            Some(value) => serde_json::from_value(value.clone())
+                .map_err(|_| RpcError::invalid_params("invalid voice relay state"))?,
+            None => cmux_voice::relay::RelayState::default(),
+        };
+        let event = serde_json::from_value(params.get("event").cloned().unwrap_or(Value::Null))
+            .map_err(|_| RpcError::invalid_params("invalid voice relay event"))?;
+        return serde_json::to_value(cmux_voice::relay::reduce(state, event))
+            .map_err(|e| RpcError::internal(e.to_string()));
+    }
+    // A voice session captures these values once. The key is still looked up for the captured
+    // origin on each use, so changing the global URL cannot redirect an in-flight recording.
+    let settings = match params.get("settings") {
+        Some(snapshot) if m != method::MUX_VOICE_STATE => snapshot_settings(snapshot)?,
+        _ => blocking(read_settings).await?,
+    };
+    let resolved = cmux_voice::resolve(&settings);
     match m {
-        method::MUX_VOICE_STATE => state(resolved).await,
+        method::MUX_VOICE_STATE => {
+            let mut result = state(resolved).await?;
+            result["settings"] = serde_json::json!({
+                "engine": settings.engine, "url": settings.url, "model": settings.model,
+            });
+            Ok(result)
+        }
         method::MUX_VOICE_TRANSCRIBE => transcribe(resolved, params).await,
         method::MUX_VOICE_CHECK => Ok(check(resolved).await),
         _ => Err(RpcError::method_not_found(m)),
     }
+}
+
+fn snapshot_settings(value: &Value) -> Result<Settings, RpcError> {
+    let field = |name| {
+        value.get(name).and_then(Value::as_str).map(str::to_owned).ok_or_else(|| {
+            RpcError::invalid_params("voice settings require engine, url and model strings")
+        })
+    };
+    Ok(Settings { engine: field("engine")?, url: field("url")?, model: field("model")? })
 }
 
 #[cfg(test)]

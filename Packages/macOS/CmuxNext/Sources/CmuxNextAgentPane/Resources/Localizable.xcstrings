@@ -1,6 +1,102 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.voice.restartRequired": {
+      "comment": "Desktop voice relay: current state or recovery message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice provider changed. Restart to use it."
+          }
+        }
+      }
+    },
+    "agentPane.voice.connecting": {
+      "comment": "Desktop voice relay: current state or recovery message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting"
+          }
+        }
+      }
+    },
+    "agentPane.voice.listening": {
+      "comment": "Desktop voice relay: current state or recovery message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening"
+          }
+        }
+      }
+    },
+    "agentPane.voice.thinking": {
+      "comment": "Desktop voice relay: current state or recovery message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent is working"
+          }
+        }
+      }
+    },
+    "agentPane.voice.speaking": {
+      "comment": "Desktop voice relay: current state or recovery message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaking"
+          }
+        }
+      }
+    },
+    "agentPane.voice.stopped": {
+      "comment": "Desktop voice relay: current state or recovery message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice stopped. Try again."
+          }
+        }
+      }
+    },
+    "agentPane.voice.failed": {
+      "comment": "Desktop voice relay: current state or recovery message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice stopped. Check your voice provider and try again."
+          }
+        }
+      }
+    },
+    "agentPane.voice.sendFailed": {
+      "comment": "Desktop voice relay: current state or recovery message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice could not send your message. Try again."
+          }
+        }
+      }
+    },
     "agentPane.dictation.provider.keyMissing": {
       "comment": "Dictation with the person's own provider failed: no API key is saved for it.",
       "extractionState": "manual",
