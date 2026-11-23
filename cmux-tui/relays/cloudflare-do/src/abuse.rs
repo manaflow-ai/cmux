@@ -3,10 +3,14 @@ use std::collections::BTreeMap;
 use cmux_remote_protocol::LaneToken;
 use serde::{Deserialize, Serialize};
 
-pub(crate) const MAX_SLOT_SOCKETS: usize = 8;
+/// Sockets on one slot that are not inline circuit sockets: a registration, `MAX_STANDBY_SOCKETS_PER_SLOT`
+/// standbys and up to `MAX_CLIENT_CONTROL_SOCKETS` clients mid-Connect. An inline circuit's two sockets are bounded
+/// by `MAX_CIRCUITS_PER_SLOT` instead and are not counted here (`RelaySlot::socket_counts`).
+pub(crate) const MAX_SLOT_SOCKETS: usize = 12;
 pub(crate) const MAX_SLOT_PENDING_SOCKETS: usize = 4;
 pub(crate) const MAX_CLIENT_CONTROL_SOCKETS: usize = 6;
-pub(crate) const MAX_DAEMON_PENDING_SOCKETS: usize = 1;
+/// A daemon upgrade is Pending until its first message: a registration and a standby it opens beside it can overlap.
+pub(crate) const MAX_DAEMON_PENDING_SOCKETS: usize = 2;
 pub(crate) const MAX_CIRCUIT_SOCKETS: usize = 4;
 pub(crate) const MAX_CIRCUIT_PENDING_SOCKETS: usize = 2;
 pub(crate) const MAX_PENDING_CIRCUITS_PER_SLOT: usize = 16;
@@ -99,6 +103,14 @@ enum CircuitLease {
     },
 }
 
+/// What the slot's inline circuits (`crate::inline`) already take of the ledger's limits: the live ones, and
+/// those allocated inside the current allocation window.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct InlineLoad {
+    pub live: usize,
+    pub allocations_in_window: usize,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CircuitLedger {
     entries: BTreeMap<String, CircuitLease>,
@@ -128,12 +140,26 @@ impl CircuitLedger {
     }
 
     /// Reserves a pending circuit allocated for `route`.
+    #[cfg(test)]
     pub fn reserve_for(
         &mut self,
         circuit: String,
         deadline_ms: u64,
         now_ms: u64,
         route: Option<PendingRoute>,
+    ) -> bool {
+        self.reserve_beside(circuit, deadline_ms, now_ms, route, InlineLoad::default())
+    }
+
+    /// `reserve_for` with the slot's inline circuits (`crate::inline`) counted against the same total and
+    /// allocation-rate limits as the ledger's own.
+    pub fn reserve_beside(
+        &mut self,
+        circuit: String,
+        deadline_ms: u64,
+        now_ms: u64,
+        route: Option<PendingRoute>,
+        inline: InlineLoad,
     ) -> bool {
         self.prune(now_ms);
         let pending = self
@@ -143,8 +169,9 @@ impl CircuitLedger {
             .count();
         if deadline_ms <= now_ms
             || pending >= MAX_PENDING_CIRCUITS_PER_SLOT
-            || self.entries.len() >= MAX_CIRCUITS_PER_SLOT
-            || self.allocations_in_window >= MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW
+            || self.entries.len().saturating_add(inline.live) >= MAX_CIRCUITS_PER_SLOT
+            || self.allocations_in_window.saturating_add(inline.allocations_in_window)
+                >= MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW
         {
             return false;
         }
@@ -225,6 +252,29 @@ impl CircuitLedger {
             .collect()
     }
 
+    /// Whether one more inline circuit fits beside the ledger's: the same total and allocation-rate limits
+    /// `reserve_beside` applies, read without writing the ledger.
+    pub fn admits_inline(&self, now_ms: u64, inline: InlineLoad) -> bool {
+        let live = self
+            .entries
+            .values()
+            .filter(|lease| {
+                !matches!(lease, CircuitLease::Pending { deadline_ms, .. } | CircuitLease::Active { deadline_ms } if *deadline_ms <= now_ms)
+            })
+            .count();
+        let in_window = if self.allocations_in_window > 0
+            && now_ms
+                < self.allocation_window_started_ms.saturating_add(CIRCUIT_ALLOCATION_WINDOW_MS)
+        {
+            self.allocations_in_window
+        } else {
+            0
+        };
+        live.saturating_add(inline.live) < MAX_CIRCUITS_PER_SLOT
+            && in_window.saturating_add(inline.allocations_in_window)
+                < MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty() && self.allocations_in_window == 0
     }
@@ -241,5 +291,149 @@ impl CircuitLedger {
 }
 
 #[cfg(test)]
-#[path = "abuse_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slot_admission_reserves_daemon_and_bounds_pending_clients() {
+        assert!(admit_slot_socket(SlotSocketCounts::default(), SlotEndpoint::Daemon));
+        assert!(!admit_slot_socket(
+            SlotSocketCounts {
+                daemon_pending: MAX_DAEMON_PENDING_SOCKETS,
+                ..SlotSocketCounts::default()
+            },
+            SlotEndpoint::Daemon,
+        ));
+        assert!(!admit_slot_socket(
+            SlotSocketCounts { pending: MAX_SLOT_PENDING_SOCKETS, ..SlotSocketCounts::default() },
+            SlotEndpoint::Client,
+        ));
+        assert!(!admit_slot_socket(
+            SlotSocketCounts { client: MAX_CLIENT_CONTROL_SOCKETS, ..SlotSocketCounts::default() },
+            SlotEndpoint::Client,
+        ));
+    }
+
+    #[test]
+    fn closing_websockets_do_not_consume_capacity() {
+        assert!(websocket_counts_toward_capacity(1, 200, 100));
+        assert!(!websocket_counts_toward_capacity(2, 200, 100));
+        assert!(!websocket_counts_toward_capacity(3, 200, 100));
+        assert!(!websocket_counts_toward_capacity(1, 100, 100));
+    }
+
+    #[test]
+    fn circuit_admission_allows_two_peers_but_bounds_pending_upgrades() {
+        assert!(admit_circuit_socket(0, 0));
+        assert!(admit_circuit_socket(1, 1));
+        assert!(!admit_circuit_socket(2, MAX_CIRCUIT_PENDING_SOCKETS));
+        assert!(!admit_circuit_socket(MAX_CIRCUIT_SOCKETS, 0));
+    }
+
+    #[test]
+    fn pending_circuit_ledger_is_bounded_and_recovers_after_expiry() {
+        let mut ledger = CircuitLedger::default();
+        for index in 0..MAX_PENDING_CIRCUITS_PER_SLOT {
+            assert!(ledger.reserve(format!("circuit-{index}"), 200, 100));
+        }
+        assert!(!ledger.reserve("overflow".into(), 200, 100));
+        assert_eq!(ledger.len(), MAX_PENDING_CIRCUITS_PER_SLOT);
+        assert!(ledger.reserve("after-expiry".into(), 300, 200));
+        assert_eq!(ledger.len(), 1);
+        assert_eq!(ledger.next_deadline_ms(), Some(300));
+        assert_eq!(ledger.pending_count(200), 1);
+        assert_eq!(ledger.pending_count(300), 0);
+        assert!(ledger.release("after-expiry"));
+        assert_eq!(ledger.next_deadline_ms(), Some(100 + CIRCUIT_ALLOCATION_WINDOW_MS));
+    }
+
+    #[test]
+    fn active_circuits_remain_counted_until_explicit_release() {
+        let mut ledger = CircuitLedger::default();
+        assert!(ledger.reserve("active".into(), 200, 100));
+        assert!(ledger.activate("active", 100));
+        ledger.prune(100 + CIRCUIT_ALLOCATION_WINDOW_MS);
+        assert_eq!(ledger.len(), 1);
+        assert_eq!(ledger.active(), 1);
+        assert_eq!(ledger.next_deadline_ms(), Some(100 + ACTIVE_CIRCUIT_LEASE_MS));
+        assert!(ledger.renew("active", 200));
+        assert_eq!(ledger.next_deadline_ms(), Some(200 + ACTIVE_CIRCUIT_LEASE_MS));
+        ledger.prune(200 + ACTIVE_CIRCUIT_LEASE_MS);
+        assert_eq!(ledger.len(), 0);
+        assert!(!ledger.release("active"));
+    }
+
+    #[test]
+    fn active_circuit_release_removes_lease_before_expiry() {
+        let mut ledger = CircuitLedger::default();
+        assert!(ledger.reserve("active".into(), 200, 100));
+        assert!(ledger.activate("active", 100));
+        assert!(ledger.release("active"));
+        assert_eq!(ledger.len(), 0);
+    }
+
+    #[test]
+    fn active_circuits_enforce_the_total_per_slot_limit() {
+        let mut ledger = CircuitLedger::default();
+        for index in 0..MAX_CIRCUITS_PER_SLOT {
+            let circuit = format!("circuit-{index}");
+            assert!(ledger.reserve(circuit.clone(), 200, 100));
+            assert!(ledger.activate(&circuit, 100));
+        }
+        assert!(!ledger.reserve("overflow".into(), 200, 100));
+    }
+
+    fn route(lane: &str) -> Option<PendingRoute> {
+        Some(PendingRoute { lane: LaneToken(lane.into()), generation: 7 })
+    }
+
+    #[test]
+    fn unjoined_lists_pending_circuits_with_routes_until_joined_or_expired() {
+        let mut ledger = CircuitLedger::default();
+        assert!(ledger.reserve_for("waiting".into(), 300, 100, route("lane-a")));
+        assert!(ledger.reserve_for("joined".into(), 300, 100, route("lane-b")));
+        assert!(ledger.reserve("no-route".into(), 300, 100));
+        assert!(ledger.activate("joined", 150));
+
+        let unjoined = ledger.unjoined(200);
+        assert_eq!(
+            unjoined,
+            vec![UnjoinedCircuit {
+                circuit: "waiting".into(),
+                route: route("lane-a").unwrap(),
+                deadline_ms: 300,
+            }]
+        );
+        assert!(ledger.unjoined(300).is_empty());
+    }
+
+    #[test]
+    fn ledger_from_before_routes_reads_without_them() {
+        let stored = br#"{"entries":{"old":{"phase":"pending","deadline_ms":300}}}"#;
+        let ledger: CircuitLedger = serde_json::from_slice(stored).unwrap();
+        assert_eq!(ledger.pending_count(200), 1);
+        assert!(ledger.unjoined(200).is_empty());
+
+        let mut current = CircuitLedger::default();
+        assert!(current.reserve_for("new".into(), 300, 100, route("lane-a")));
+        let round_trip: CircuitLedger =
+            serde_json::from_slice(&serde_json::to_vec(&current).unwrap()).unwrap();
+        assert_eq!(round_trip, current);
+    }
+
+    #[test]
+    fn allocation_window_bounds_sequential_create_and_release_churn() {
+        let mut ledger = CircuitLedger::default();
+        for index in 0..MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW {
+            let circuit = format!("circuit-{index}");
+            assert!(ledger.reserve(circuit.clone(), 1_000_000, 100));
+            assert!(ledger.release(&circuit));
+        }
+        assert!(!ledger.reserve("rate-limited".into(), 1_000_000, 100));
+        assert!(ledger.reserve(
+            "next-window".into(),
+            2_000_000,
+            100 + CIRCUIT_ALLOCATION_WINDOW_MS,
+        ));
+    }
+}

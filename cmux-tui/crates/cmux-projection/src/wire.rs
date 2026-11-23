@@ -4,7 +4,9 @@
 //!
 //! - ask:    `op u8, ask u32`, then for [`OP_READ`] `entry u32, offset u64, len u32`; for
 //!   [`OP_BATCH`] `count u32, entry u32 * count` (whole files, answered in that order); for
-//!   [`OP_PING`] nothing.
+//!   [`OP_PING`] nothing; for [`OP_STORED`] `since u32` (which files the Mac has put in the store,
+//!   from the `since`-th on: answered with an epoch part, `u64`, then one part per file, `entry u32`
+//!   and its blob id in hex; asked only of a Mac whose store is configured).
 //! - answer: `ask u32, count u32`, then `count` times `status u8, len u32, bytes`.
 //!
 //! Asks carry their own number, so several are in flight at once and answers may come in any
@@ -15,6 +17,7 @@ use std::io::{self, Read, Write};
 pub const OP_READ: u8 = 1;
 pub const OP_BATCH: u8 = 2;
 pub const OP_PING: u8 = 3;
+pub const OP_STORED: u8 = 4;
 
 /// The bytes asked for.
 pub const OK: u8 = 0;
@@ -38,13 +41,17 @@ pub enum Ask {
     Read { ask: u32, entry: u32, offset: u64, len: u32 },
     Batch { ask: u32, entries: Vec<u32> },
     Ping { ask: u32 },
+    Stored { ask: u32, since: u32 },
 }
 
 impl Ask {
     #[must_use]
     pub fn number(&self) -> u32 {
         match self {
-            Self::Read { ask, .. } | Self::Batch { ask, .. } | Self::Ping { ask } => *ask,
+            Self::Read { ask, .. }
+            | Self::Batch { ask, .. }
+            | Self::Ping { ask }
+            | Self::Stored { ask, .. } => *ask,
         }
     }
 
@@ -70,6 +77,11 @@ impl Ask {
             Self::Ping { ask } => {
                 bytes.push(OP_PING);
                 bytes.extend_from_slice(&ask.to_le_bytes());
+            }
+            Self::Stored { ask, since } => {
+                bytes.push(OP_STORED);
+                bytes.extend_from_slice(&ask.to_le_bytes());
+                bytes.extend_from_slice(&since.to_le_bytes());
             }
         }
         out.write_all(&bytes)
@@ -103,6 +115,7 @@ impl Ask {
                 Self::Batch { ask, entries }
             }
             OP_PING => Self::Ping { ask },
+            OP_STORED => Self::Stored { ask, since: u32_of(input)? },
             _ => return Err(bad("unknown ask")),
         }))
     }
@@ -190,5 +203,39 @@ fn bad(why: &str) -> io::Error {
 }
 
 #[cfg(test)]
-#[path = "wire_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn asks_and_answers_round_trip() {
+        let asks = [
+            Ask::Read { ask: 1, entry: 9, offset: 1 << 33, len: 4096 },
+            Ask::Batch { ask: 2, entries: vec![3, 4, 5] },
+            Ask::Ping { ask: 3 },
+            Ask::Stored { ask: 4, since: 1025 },
+        ];
+        let mut bytes = Vec::new();
+        for ask in &asks {
+            ask.write(&mut bytes).unwrap();
+        }
+        let mut input = bytes.as_slice();
+        for ask in &asks {
+            assert_eq!(Ask::read(&mut input).unwrap().as_ref(), Some(ask));
+        }
+        assert_eq!(Ask::read(&mut input).unwrap(), None);
+
+        let parts = vec![Part::ok(b"abc".to_vec()), Part::status(CHANGED)];
+        let mut bytes = Vec::new();
+        write_answer(&mut bytes, 7, &parts).unwrap();
+        let mut input = bytes.as_slice();
+        assert_eq!(read_answer(&mut input).unwrap(), Some((7, parts)));
+        assert_eq!(read_answer(&mut input).unwrap(), None);
+    }
+
+    #[test]
+    fn an_oversized_ask_is_refused() {
+        let mut bytes = Vec::new();
+        Ask::Read { ask: 1, entry: 0, offset: 0, len: MAX_READ + 1 }.write(&mut bytes).unwrap();
+        assert!(Ask::read(&mut bytes.as_slice()).is_err());
+    }
+}

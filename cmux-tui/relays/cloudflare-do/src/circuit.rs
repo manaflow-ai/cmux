@@ -15,8 +15,11 @@ use crate::abuse::{
     CIRCUIT_IDLE_TIMEOUT_MS, admit_circuit_socket, websocket_counts_toward_capacity,
     websocket_is_open,
 };
-use crate::attachment::{CircuitAttachment, CircuitPhase, OutboundQueue};
+use crate::attachment::{CircuitAttachment, CircuitPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, verify_ticket};
+use crate::forward::{
+    CLOSE_UNSUPPORTED, outbound_queue_close, persist_peer_before_forward, reserve_outbound_frame,
+};
 use crate::wire::{
     close, decode_control, send_control, upgrade_required, valid_opaque_identifier,
     websocket_upgrade,
@@ -25,100 +28,9 @@ use crate::wire::{
 const PEER_TAG: &str = "circuit-peer";
 const MAX_SLOT_ID_BYTES: usize = 128;
 const MAX_LANE_TOKEN_BYTES: usize = 128;
-const MAX_OUTBOUND_QUEUE_FRAMES: usize = 128;
-const MAX_OUTBOUND_QUEUE_BYTES: u32 = 2 * 1024 * 1024;
 const ACTIVE_CIRCUIT_STORAGE_KEY: &str = "active-circuit-v1";
 const RELEASE_RETRY_MS: u64 = 5_000;
 const CLOSE_POLICY: u16 = 1008;
-const CLOSE_UNSUPPORTED: u16 = 1003;
-const CLOSE_OVERLOADED: u16 = 1013;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OutboundQueueError {
-    EmptyFrame,
-    FrameLimit,
-    ByteLimit,
-}
-
-fn outbound_queue_close(error: OutboundQueueError) -> (u16, &'static str, &'static str) {
-    match error {
-        OutboundQueueError::EmptyFrame => (
-            CLOSE_UNSUPPORTED,
-            "circuit frames must not be empty",
-            "circuit peer sent an empty frame",
-        ),
-        OutboundQueueError::FrameLimit | OutboundQueueError::ByteLimit => (
-            CLOSE_OVERLOADED,
-            "circuit peer is backpressured",
-            "circuit outbound queue limit exceeded",
-        ),
-    }
-}
-
-fn reserve_outbound_frame(
-    queue: &mut OutboundQueue,
-    buffered_bytes: u32,
-    frame_bytes: usize,
-) -> std::result::Result<(), OutboundQueueError> {
-    // Worker WebSocket sends are synchronous but not backpressured. Keep the
-    // runtime's byte count and our per-frame ledger in the socket attachment
-    // so the limits survive Durable Object hibernation.
-    if frame_bytes == 0 {
-        return Err(OutboundQueueError::EmptyFrame);
-    }
-
-    if buffered_bytes == 0 {
-        queue.untracked_bytes = 0;
-        queue.frame_bytes.clear();
-    } else if buffered_bytes < queue.observed_bytes {
-        let mut drained = queue.observed_bytes - buffered_bytes;
-        let untracked_drained = drained.min(queue.untracked_bytes);
-        queue.untracked_bytes -= untracked_drained;
-        drained -= untracked_drained;
-        while drained > 0 {
-            let Some(front) = queue.frame_bytes.front_mut() else {
-                break;
-            };
-            let frame_drained = drained.min(*front);
-            *front -= frame_drained;
-            drained -= frame_drained;
-            if *front == 0 {
-                queue.frame_bytes.pop_front();
-            }
-        }
-    } else if buffered_bytes > queue.observed_bytes {
-        queue.untracked_bytes =
-            queue.untracked_bytes.saturating_add(buffered_bytes - queue.observed_bytes);
-    }
-    queue.observed_bytes = buffered_bytes;
-
-    if queue.frame_bytes.len() >= MAX_OUTBOUND_QUEUE_FRAMES {
-        return Err(OutboundQueueError::FrameLimit);
-    }
-    let frame_bytes = u32::try_from(frame_bytes).map_err(|_| OutboundQueueError::ByteLimit)?;
-    let projected = buffered_bytes
-        .checked_add(frame_bytes)
-        .filter(|bytes| *bytes <= MAX_OUTBOUND_QUEUE_BYTES)
-        .ok_or(OutboundQueueError::ByteLimit)?;
-    queue.frame_bytes.push_back(frame_bytes);
-    queue.observed_bytes = projected;
-    Ok(())
-}
-
-fn persist_peer_before_forward<E>(
-    now_ms: u64,
-    peer: &mut CircuitAttachment,
-    persist_peer: impl FnOnce(&CircuitAttachment) -> std::result::Result<(), E>,
-    forward: impl FnOnce() -> std::result::Result<(), E>,
-) -> std::result::Result<(), E> {
-    // The latest deadline across the ready pair is the shared circuit idle
-    // deadline. Persisting only the destination attachment also durably saves
-    // its outbound FIFO ledger, while avoiding a second attachment write on
-    // every interactive frame.
-    peer.idle_deadline_ms = now_ms.saturating_add(CIRCUIT_IDLE_TIMEOUT_MS);
-    persist_peer(peer)?;
-    forward()
-}
 
 fn has_live_ready_pair(
     sockets: impl IntoIterator<Item = (u16, CircuitPhase, u64)>,
@@ -788,5 +700,171 @@ impl DurableObject for RelayCircuit {
 }
 
 #[cfg(test)]
-#[path = "circuit_tests.rs"]
-mod tests;
+mod tests {
+    use std::cell::{Cell, RefCell};
+
+    use super::*;
+    use crate::attachment::OutboundQueue;
+    use crate::forward::{
+        CLOSE_OVERLOADED, MAX_OUTBOUND_QUEUE_BYTES, MAX_OUTBOUND_QUEUE_FRAMES, OutboundQueueError,
+    };
+
+    #[test]
+    fn active_release_record_survives_hibernation_and_retry() {
+        let active = ActiveCircuit {
+            slot: "slot".into(),
+            circuit: CircuitId("ab".repeat(32)),
+            releasing: true,
+            renew_at_ms: 500,
+            lease_expires_ms: 1_000,
+        };
+        let encoded = serde_json::to_vec(&active).unwrap();
+        let decoded: ActiveCircuit = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded.slot, active.slot);
+        assert_eq!(decoded.circuit, active.circuit);
+        assert!(decoded.releasing);
+        assert_eq!(decoded.renew_at_ms, 500);
+        assert_eq!(decoded.lease_expires_ms, 1_000);
+    }
+
+    #[test]
+    fn forwarded_activity_persists_one_peer_deadline_before_payload() {
+        let mut peer = CircuitAttachment::pending(CircuitId("peer".into()), 2);
+        let operations = RefCell::new(Vec::new());
+
+        persist_peer_before_forward(
+            10_000,
+            &mut peer,
+            |_| {
+                operations.borrow_mut().push("peer");
+                Ok::<_, &'static str>(())
+            },
+            || {
+                operations.borrow_mut().push("forward");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        let expected = 10_000 + CIRCUIT_IDLE_TIMEOUT_MS;
+        assert_eq!(peer.idle_deadline_ms, expected);
+        assert_eq!(&*operations.borrow(), &["peer", "forward"]);
+    }
+
+    #[test]
+    fn peer_attachment_failure_prevents_payload() {
+        let mut peer = CircuitAttachment::pending(CircuitId("peer".into()), 2);
+        let forwarded = Cell::new(false);
+
+        let result = persist_peer_before_forward(
+            10_000,
+            &mut peer,
+            |_| Err("peer serialization failed"),
+            || {
+                forwarded.set(true);
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("peer serialization failed"));
+        assert!(!forwarded.get());
+    }
+
+    #[test]
+    fn outbound_queue_reconciles_runtime_drain_before_reserving() {
+        let mut queue = OutboundQueue::default();
+        reserve_outbound_frame(&mut queue, 20, 100).unwrap();
+        assert_eq!(queue.untracked_bytes, 20);
+        assert_eq!(queue.frame_bytes.iter().copied().collect::<Vec<_>>(), vec![100]);
+        assert_eq!(queue.observed_bytes, 120);
+
+        reserve_outbound_frame(&mut queue, 50, 10).unwrap();
+        assert_eq!(queue.untracked_bytes, 0);
+        assert_eq!(queue.frame_bytes.iter().copied().collect::<Vec<_>>(), vec![50, 10]);
+        assert_eq!(queue.observed_bytes, 60);
+
+        reserve_outbound_frame(&mut queue, 0, 1).unwrap();
+        assert_eq!(queue.frame_bytes.iter().copied().collect::<Vec<_>>(), vec![1]);
+        assert_eq!(queue.observed_bytes, 1);
+    }
+
+    #[test]
+    fn outbound_queue_rejects_slow_consumers_by_frame_and_byte_budget() {
+        let mut frames = OutboundQueue::default();
+        for _ in 0..MAX_OUTBOUND_QUEUE_FRAMES {
+            let buffered = frames.observed_bytes;
+            reserve_outbound_frame(&mut frames, buffered, 1).unwrap();
+        }
+        let buffered = frames.observed_bytes;
+        assert_eq!(
+            reserve_outbound_frame(&mut frames, buffered, 1),
+            Err(OutboundQueueError::FrameLimit)
+        );
+
+        let mut bytes = OutboundQueue::default();
+        reserve_outbound_frame(&mut bytes, 0, MAX_RELAY_BATCH_BYTES).unwrap();
+        reserve_outbound_frame(&mut bytes, MAX_RELAY_BATCH_BYTES as u32, MAX_RELAY_BATCH_BYTES)
+            .unwrap();
+        assert_eq!(
+            reserve_outbound_frame(&mut bytes, MAX_OUTBOUND_QUEUE_BYTES, MAX_RELAY_BATCH_BYTES,),
+            Err(OutboundQueueError::ByteLimit)
+        );
+        assert_eq!(
+            reserve_outbound_frame(&mut OutboundQueue::default(), 0, 0),
+            Err(OutboundQueueError::EmptyFrame)
+        );
+    }
+
+    #[test]
+    fn outbound_queue_close_reasons_match_the_failure() {
+        assert_eq!(
+            outbound_queue_close(OutboundQueueError::EmptyFrame),
+            (
+                CLOSE_UNSUPPORTED,
+                "circuit frames must not be empty",
+                "circuit peer sent an empty frame",
+            )
+        );
+        for error in [OutboundQueueError::FrameLimit, OutboundQueueError::ByteLimit] {
+            assert_eq!(
+                outbound_queue_close(error),
+                (
+                    CLOSE_OVERLOADED,
+                    "circuit peer is backpressured",
+                    "circuit outbound queue limit exceeded",
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn maximum_outbound_queue_fits_the_hibernation_attachment_limit() {
+        let mut attachment = CircuitAttachment::pending(CircuitId("ab".repeat(32)), 1_000);
+        attachment.outbound.observed_bytes = MAX_OUTBOUND_QUEUE_BYTES;
+        attachment.outbound.frame_bytes =
+            std::iter::repeat_n(MAX_RELAY_BATCH_BYTES as u32, MAX_OUTBOUND_QUEUE_FRAMES).collect();
+
+        let encoded = serde_json::to_vec(&attachment).unwrap();
+        assert!(encoded.len() <= 2_048, "attachment used {} bytes", encoded.len());
+    }
+
+    #[test]
+    fn ready_pair_uses_the_latest_shared_activity_deadline() {
+        let ready = |state| (state, CircuitPhase::Ready, 200);
+        assert!(has_live_ready_pair([ready(1), ready(1)], 100));
+        assert!(!has_live_ready_pair([ready(1)], 100));
+        assert!(!has_live_ready_pair([ready(1), ready(2)], 100));
+        assert!(has_live_ready_pair(
+            [(1, CircuitPhase::Ready, 200), (1, CircuitPhase::Ready, 100)],
+            100,
+        ));
+        assert!(!has_live_ready_pair(
+            [(1, CircuitPhase::Ready, 100), (1, CircuitPhase::Ready, 100)],
+            100,
+        ));
+        assert!(!has_live_ready_pair(
+            [(1, CircuitPhase::Ready, 200), (1, CircuitPhase::Joined, 200)],
+            100,
+        ));
+    }
+}

@@ -34,6 +34,12 @@ public struct HomeContact: Hashable, Sendable, Identifiable {
         return result
     }
 
+    /// How many of `contacts` the user has no direct conversation with (`debug.home` `page`).
+    public static func withoutDM(_ contacts: [HomeContact], rows: [InboxRow]) -> Int {
+        let peers = Set(rows.filter { $0.kind == .direct }.flatMap { $0.summary.participants.map(\.id) })
+        return contacts.filter { !peers.contains($0.id) }.count
+    }
+
     /// Team members first (by name), then connections not in the team,
     /// then the user's Chiefs (`agents`) not listed yet.
     public static func merged(team: [HomeContact], connections: [HomeContact], agents: [HomeContact] = []) -> [HomeContact] {
