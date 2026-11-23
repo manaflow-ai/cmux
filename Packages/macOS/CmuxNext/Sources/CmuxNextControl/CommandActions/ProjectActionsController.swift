@@ -11,6 +11,7 @@ import Foundation
 /// Trust: a repository's actions file is text from whoever wrote the repository, and cmux has no
 /// trust prompt. So nothing runs one unasked: an action only shows in the palette under the
 /// project's name, and it runs when the person picks it, in the project's folder.
+@MainActor
 public final class ProjectActionsController {
     /// The id prefix of a project's actions.
     public static let actionIDPrefix = "cmuxProject."
