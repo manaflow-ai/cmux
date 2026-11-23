@@ -52,22 +52,24 @@ import Testing
     /// Leo 2026-11-23 ("the end bit the text has a weird rewritten thing"): a crowded "New Tab" read "New" and a
     /// faint tick, the left end of the T's crossbar under the end of the fade. At every crowded width, no tab's fade
     /// ends inside the T: the title ends on "New" (or shows the T whole).
-    @Test(arguments: [CGFloat(360), 520, 760, 1116])
-    func aCrowdedNewTabNeverShowsAFragmentOfItsT(width: CGFloat) throws {
+    @Test func aCrowdedNewTabNeverShowsAFragmentOfItsT() throws {
         DesignSettings.shared.tabOverflow = .shrink
         DesignSettings.shared.setOverride(.tabMinInactiveWidth, nil)
-        let harness = Harness(count: 26, width: width, titles: ["New Tab"])
-        defer { harness.window.closeAfterTest() }
-        var clipped = 0
-        for (id, cell) in harness.strip.cells where cell.visibility.showsTitle {
-            let t = try #require(cell.titleLayer.wordStarts.first, "\"New Tab\" has no word after its space")
-            guard let geometry = cell.titleFade.geometry, geometry.isTruncated else { continue }
-            clipped += 1
-            #expect(!(geometry.fadeEnd > t.x + 0.01 && geometry.fadeEnd < t.firstGlyphEnd - 0.01),
-                    "\(id.rawValue) (\(cell.frame.width) pt): the fade ends at \(geometry.fadeEnd), inside the T (\(t.x)–\(t.firstGlyphEnd))")
-            #expect(geometry.wordStarts == cell.titleLayer.wordStarts, "\(id.rawValue) lays its fade out without its word starts")
+        // From roomy to crowded: every tab width between (Leo's strip: about 77 pt tabs).
+        var cutInsideT = 0
+        for count in 8...30 {
+            let harness = Harness(count: count, titles: ["New Tab"])
+            defer { harness.window.closeAfterTest() }
+            for (id, cell) in harness.strip.cells where cell.visibility.showsTitle {
+                let t = try #require(cell.titleLayer.wordStarts.first, "\"New Tab\" has no word after its space")
+                guard let geometry = cell.titleFade.geometry, geometry.isTruncated else { continue }
+                if geometry.clearEdge > t.x + 0.01, geometry.clearEdge < t.firstGlyphEnd - 0.01 { cutInsideT += 1 }
+                #expect(!(geometry.fadeEnd > t.x + 0.01 && geometry.fadeEnd < t.firstGlyphEnd - 0.01),
+                        "\(count) tabs, \(id.rawValue) (\(cell.frame.width) pt): the fade ends at \(geometry.fadeEnd), inside the T (\(t.x)–\(t.firstGlyphEnd))")
+                #expect(geometry.wordStarts == cell.titleLayer.wordStarts, "\(id.rawValue) lays its fade out without its word starts")
+            }
         }
-        if width <= 520 { #expect(clipped > 0, "SETUP: no \"New Tab\" clips at \(width) pt, so this proves nothing") }
+        #expect(cutInsideT > 0, "SETUP: no tab width put the clear edge inside the T, so this proves nothing")
     }
 
     /// A title that appears while its tab opens shows once, as it rests: never at the widths in between, where
