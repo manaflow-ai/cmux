@@ -3205,8 +3205,8 @@ async fn dispatch_request_with_identity(
                     .ok_or_else(|| RpcError::invalid_params("authorization is required"))?,
             )
             .map_err(|_| RpcError::invalid_params("authorization is malformed"))?;
-            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
-                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            let origin = cmux_cloud_client::backend::platform_origin_env()
+                .ok_or_else(|| RpcError::invalid_params("Cloud platform is not configured"))?;
             let preparation = async {
                 crate::cloud_rewind::verify_preparation(
                     &origin,
@@ -3831,6 +3831,21 @@ async fn dispatch_request_with_identity(
                 tracing::warn!("{why}");
                 return Err(RpcError::new(-32000, why)
                     .with_data(json!({"reason": "shutdown.refused_client"})));
+            }
+            // `swapIfReplaced` (the app, for a daemon whose bundle an update replaced): swap to the
+            // installed build make-before-break instead of stopping, so this daemon serves until
+            // the new one asks for the home, and serves on if it never does. A stop here left
+            // every chat without a daemon until the app's next one started (2026-11-22 23:44Z).
+            // A daemon from before this ignores the flag and stops, as the app asked before.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            if params.get("swapIfReplaced").and_then(Value::as_bool) == Some(true)
+                && let Some(why) = crate::daemon::exe_swap::request_swap()
+            {
+                tracing::warn!(
+                    reason = %shutdown_reason(&params),
+                    "a client asked this daemon to stop; {why}: swapping make-before-break instead of stopping"
+                );
+                return Ok(json!({"swapping": true, "why": why}));
             }
             // Name who stopped it and why: the log's "a client asked it to" alone cannot tell an
             // app's update from another build's or a script's stop. `reason` is the client's own

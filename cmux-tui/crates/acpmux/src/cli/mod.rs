@@ -104,10 +104,12 @@ pub mod shutdown;
 pub(crate) use crate::slow_notice;
 #[cfg(test)]
 mod skill_coverage_tests;
+pub mod ssh_join;
 pub mod stdio;
 pub(crate) mod steer_reply;
 pub mod task;
 pub(crate) mod tools_mcp;
+pub mod trigger;
 pub mod trigger_chat;
 pub mod uniichat_agent;
 pub mod uniichat_login;

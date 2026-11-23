@@ -549,6 +549,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_ROUTE_PROBE, Request),
         untyped(method::MUX_SHARE_HOST_STATUS, Request),
         untyped(method::MUX_MACHINE_ENROLL, Request),
+        untyped(method::MUX_MACHINE_JOIN_SSH, Request),
+        untyped(method::MUX_MACHINE_CANDIDATES, Request),
         untyped(method::MUX_MACHINE_LEAVE_IF_AUTO, Request),
         untyped(method::MUX_MACHINE_SIGNED_IN, Request),
         untyped(method::MUX_DEVICE_HELLO, Request),
@@ -579,6 +581,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CANCEL_REFUSED, Notification),
         untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
+        untyped(method::MUX_MACHINE_JOIN_PROGRESS, Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]
 }

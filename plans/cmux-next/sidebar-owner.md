@@ -7,6 +7,7 @@
   sidebar does not change; Add to Sidebar and the App Store's "Machines in Sidebar" card add it, and removing it gives
   back the sidebar as it was. Picked over a Machines section and a Settings > Devices list (gallery
   `sidebar.machines-placement`, design/machines-section.md "Where it lives"). Regression: `MachinesEntryTests`.
+- 2026-11-22 (sidebar-group-looks): Sidebar-Look: Leo, 2026-11-22: "if we're willing to push in directions, we might as well push harder into what we believe", of the Folders look. `sidebar.groupHeader.background` gains three opt-in values, no default change (Folders stays the default): Chips (`chip`: Chromium's tab group, a slim colored chip hugging the name, a colored rail beside the members, no indent), Tree (`tree`: the folder glyph and indent with a thin guide line under the glyph, the group's color held to 3:1) and Cards (`card`: one rounded tinted card around the whole group, the members on the loose rows' x inside it, a folded group its header's card). Each respects light and dark, a group with no color, folding, hover and drops; the tab strip's chips keep the automatic look. Regression: `SidebarGroupLooksTests`. Capture tour: `sidebar-group-looks`.
 - 2026-11-22 (lane/sidebar-text-tokens): Sidebar-Look: Leo, 2026-10-27: "5 different font colors in sidebar (opacity?)". Text on the sidebar's own background takes three inks, `SidebarStyle.TextInk`: `title` (a workspace's, an item's and a folder group's name: `titleInk`, so a folder's name no longer reads in the brighter `textPrimary`), `secondary` (a section header's or a quiet group's name) and `tertiary` (every detail, count and machine word). No label carries an opacity of its own: an archived name drops to `tertiary` instead of its ink at 45%, and a group's member count drops to `tertiary` instead of the name's ink at 70% (`groupHeaderCountInkAlpha` is gone). On a group's colored fill (band, glass, tinted) the count and machine words take the name's readable ink at full strength. Icons, bars and pills still dim by `archivedAlpha`. Regression: `SidebarTextInkCountTests` (counts the distinct resolved text colors of a section, folder group, member, loose and archived row; prints `INKS|`).
 - 2026-11-22 (lane/split-preview-menus, ask-890db939a2): Sidebar-Look: Leo, 2026-11-22: "i dont think the shaped preview of the splits has merged/been written yet. like, e.g. i have this layout. so. the preview should be able to depict that." A workspace's hover card draws its shown screen's splits under the title (`WorkspacePaneShapeView`, 64 pt tall, the text column's width): one rounded tile per pane at its real share of the screen (the daemon's split ratios, and scrolling columns at their widths), the front tab's kind mark (agent, terminal, page) centered where it fits with room, the focused pane outlined in the accent. The shape is read in the row mapping (`SidebarMapping.paneShape`, ratios to hundredths) as `SidebarWorkspace.paneShape`; a one-pane or zoomed workspace has none and its card is unchanged. VoiceOver reads "Panes: N". Regression: `SidebarPaneShapeTests`.
 - 2026-11-22 (lane/split-preview-menus, ask-890db939a2): Sidebar-Look: Leo "pick a fucking option" / "why is there even a remove from top option. just move it yourself. you can drag it anywhere you want." The + button's right-click and chooser show only the rows that make something (the background keeps its view rows); a top row's menu (the Chief's too) has no Remove from Top and a workspace row's has no Add to Top: drag in and out. Regression: `TopRowMenuDragTests`.
@@ -2575,6 +2576,15 @@ Sidebar-Look: no visual change. Tests: `SidebarSwitchPressKeepsPageKeyTests`, `S
   padding.
 - Test: `WorkspaceHoverCardEvenInsetTests.aFillAtTheTopOrBottomIsAsFarFromThatEdgeAsFromTheSides`, every density, red
   commit first.
+
+## The Priority view folds archived chats under Archived, with Restore (2026-11-20, #46896)
+
+- Leo, verbatim (ask-2844c2f890): "there's the archived/settled chats for it, etc" (the Claude app's archived chats).
+- `ba4bd76b218` adds the Archived fold below the ranked rows: one sidebar row per archived chat, newest first, in
+  the quieter ink an archived workspace row uses, its folder and archive age at the right; the pointer swaps that
+  label for Restore, a click opens the chat, Show More pages the rest. A row's Archive shows the sidebar's Undo
+  toast, as auto-archive does. It reached the branch before this check's trailer; logged here as the look commit.
+- Test: `SidebarPriorityArchivedTests`.
 
 ## Reviewed behavior-only commits
 
