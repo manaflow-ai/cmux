@@ -259,14 +259,17 @@ function stopStream() {
   if (streamTimer) clearInterval(streamTimer);
   streamTimer = undefined;
 }
-/// A finished turn arriving in `sessionId` (the workspace-switch arm: what changed while the page was hidden).
+/// A turn arriving in `sessionId` while the page is hidden (the workspace-switch arm). Idle: a finished turn. Running
+/// (the stream arm): the running turn ends and a new one starts and stays open, so the stream that follows is that
+/// turn's reply, as acpmux sends it; a chunk after a turn's result opens no turn there.
 let extraTurns = 0;
-const newTurn = (sessionId: string) => {
+const newTurn = (sessionId: string, running = false) => {
   extraTurns += 1;
+  if (running) append(sessionId, "mux", "turn_result", { status: "completed" });
   append(sessionId, "mux", "user_message", { text: `Follow-up ${extraTurns}` });
   append(sessionId, "mux", "turn_started", {});
   chunk(sessionId, `Follow-up answer ${extraTurns}: done, the branch is pushed and the checks are queued.`);
-  append(sessionId, "mux", "turn_result", { status: "completed" });
+  if (!running) append(sessionId, "mux", "turn_result", { status: "completed" });
 };
 
 const releases: (() => unknown)[] = [];
@@ -712,7 +715,7 @@ try {
           (window as unknown as { __hidden: boolean }).__hidden = true;
           document.dispatchEvent(new Event("visibilitychange"));
         });
-        newTurn(target);
+        newTurn(target, arm === "stream");
         await settleIdle(page);
         if (arm === "stream") startStream();
         await page.evaluate(() => {
