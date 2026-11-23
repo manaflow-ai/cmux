@@ -511,14 +511,16 @@ class LinuxReleasePoint(unittest.TestCase):
         self.ptr = pointer
 
     def payload(self, commit=RELEASE_COMMIT, committed_at=COMMITTED_AT, published_at=1794208000, sha="d" * 64,
-                purpose="cmux-linux-release"):
-        stamp = time.strftime("%Y%m%d%H%M%S", time.gmtime(committed_at))
+                purpose="cmux-linux-release", sequence=None):
+        stamp = str(sequence) if sequence else time.strftime("%Y%m%d%H%M%S", time.gmtime(committed_at))
         value = {"schema": 1, "purpose": purpose, "channel": "feat-cmux-next",
                  "version": f"1.0.0+{stamp}.{commit[:12]}", "commit": commit, "committed_at": committed_at,
                  "published_at": published_at, "expires_at": int(time.time()) + 86400,
                  "targets": {target: {n: {"url": f"https://files.cmux.com/cmux-tui/{commit}/{n}-{target}",
                                           "sha256": sha, "size": 5} for n in channel.NAMES}
                              for target in channel.LINUX_RELEASE_TARGETS}}
+        if sequence:
+            value["sequence"] = sequence
         if purpose == "cmux-cloud-machine-update":
             value.update(channel="cloud-machine", key="e" * 64)
             del value["version"]
@@ -562,6 +564,20 @@ class LinuxReleasePoint(unittest.TestCase):
         self.assert_ok(result)
         self.assertEqual(self.served(self.RELEASE), first)
         self.assertEqual(self.served(self.POINTER), first)  # same commit time: the pointer is current
+
+    def test_a_retry_after_the_release_file_gives_the_channel_that_file(self):
+        # The first run wrote the per-commit file and stopped before the channel; the retry signs another
+        # sequence (and so another version). The channel must name the version the commit's file holds.
+        if type(self) is not LinuxReleasePoint:
+            self.skipTest("a Linux release file's sequence")
+        self.assert_ok(self.point(self.payload(sequence=20261109080000)))
+        first = self.served(self.RELEASE)
+        (self.r2 / self.POINTER).unlink()
+        result = self.point(self.payload(published_at=1794209999, sequence=20261109090000), run_id="2")
+        self.assert_ok(result)
+        self.assertEqual(self.served(self.RELEASE), first)
+        self.assertEqual(self.served(self.POINTER), first)
+        self.assertEqual(self.verified(self.POINTER)["sequence"], 20261109080000)
 
     def test_another_build_of_a_published_commit_fails_loud(self):
         self.assert_ok(self.point(self.payload()))
