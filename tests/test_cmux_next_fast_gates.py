@@ -82,14 +82,6 @@ def job(doc: dict, key: str = "fast-gates") -> dict:
     return doc["jobs"][key]
 
 
-def runner_text(job_body: dict) -> str:
-    """The job's runs-on, every matrix cell on its own line; a matrix nothing resolves fails."""
-    cells = workflow_jobs.runs_on_cells(job_body)
-    if cells is None:
-        raise AssertionError("runs-on reads a matrix value nothing resolves")
-    return "\n".join(cells)
-
-
 def step_named(steps: list[dict], fragment: str) -> dict:
     found = [s for s in steps if fragment in s.get("name", "")]
     if len(found) != 1:
@@ -97,53 +89,41 @@ def step_named(steps: list[dict], fragment: str) -> dict:
     return found[0]
 
 
+
+
 class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(list(doc["jobs"]), ["portable-placement", "resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet", "post"])
+        self.assertEqual(list(doc["jobs"]), ["resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet", "post"])
         self.assertEqual(job(doc)["name"], "fast gates")
-        # The reconciled Linux pool is the default for every trusted job; fork
-        # pull requests retain their ephemeral Blacksmith branch, and reruns
-        # accept bounded overflow explicitly.
-        guards_runner = runner_text(workflow_jobs.jobs(GUARDS)["own-change-checks"])
-        self.assertNotEqual(runner_text(doc["jobs"]["resolve"]), guards_runner)
-        self.assertNotEqual(runner_text(doc["jobs"]["post"]), guards_runner)
-        fast_runner = runner_text(doc["jobs"]["fast-gates"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", fast_runner)
-        self.assertIn("inputs.runner", fast_runner)
-        self.assertNotIn("macos", fast_runner.lower())
-        # resolve and post are light jobs: the reconciled Blacksmith pool on every attempt. They took
-        # hosted Ubuntu on attempt 1 until 2026-11-18, when GitHub-hosted runners left them queued
-        # for hours (cmux#45735).
-        light = {"resolve", "receipt", "post"}
+        # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): every job names cmux-linux past the
+        # fork branches, with no placement job and no dispatch runner input. Fork pull requests keep their ephemeral
+        # Blacksmith branch. The light jobs never took hosted Ubuntu again after it left them queued for hours
+        # (cmux#45735).
+        self.assertNotIn("runner", doc[True]["workflow_dispatch"]["inputs"])
         declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
-        for key in light:
-            with self.subTest(light=key):
-                runner = runner_text(doc["jobs"][key])
-                self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", declared)
-                self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runner)
-                self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runner)
-                self.assertNotIn("vars.LINUX_RUNNER", runner)
-        # Never a mini for them: an owned Mac's runner setup and teardown (20-60 s) dwarfs their ~5 s of work
-        # (2026-11-11: resolve on a mini 41 s p50, hosted Ubuntu 5 s), on the fast gate's critical path.
-        place = step_named(job(doc, "portable-placement")["steps"], "Place")["env"]
-        self.assertEqual(set(place["LINUX_ONLY"].split()), light)
-        self.assertEqual(set(place["JOBS"].split()), light)
         for key, each in doc["jobs"].items():
             # fast-check-route is held to the 2-vCPU pool by fast_check_route.py check (the decision takes no pool runner).
-            if key in light or key in ("portable-placement", "fast-check-route"):
+            if key == "fast-check-route":
                 continue
             with self.subTest(runner=key):
-                # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+                self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", declared)
                 cells = workflow_jobs.runs_on_cells(each)
                 self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
                 for runner in cells:
-                    self.assertIn("cmux-fleet-linux-x64", runner)
-                    self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
-                    self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
-                                    "a stalled literal fleet label must not bypass the reconciled live pool")
-                    self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
+                    self.assertTrue(runner.startswith(
+                        "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
+                        "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
+                        "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || "), runner)
+                    self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runner)
+                    self.assertNotIn("needs.", runner)
+                    self.assertNotIn("inputs.", runner)
+                    # #48644 (2026-11-23): every own-branch Linux job, the write-token ones too, takes the one
+                    # cmux-linux label; only the fork branch reads a variable.
+                    self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
+                    self.assertNotIn("vars.RUNNER_POOLS", runner)
+                    self.assertNotIn("macos", runner.lower())
                     self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):
@@ -369,7 +349,7 @@ class WorkflowShape(unittest.TestCase):
     def test_receipt_job_runs_only_the_base_verifier_and_only_when_named(self):
         doc = workflow()
         receipt = job(doc, "receipt")
-        self.assertEqual(receipt["needs"], ["resolve", "portable-placement"])
+        self.assertEqual(receipt["needs"], ["resolve", "fast-check-route"])
         # No runner and no API call unless a same-repository pull request names a receipt in its body.
         for fragment in ("github.event_name == 'pull_request'",
                          "github.event.pull_request.head.repo.full_name == github.repository",
@@ -395,7 +375,7 @@ class WorkflowShape(unittest.TestCase):
     def test_status_context_and_description(self):
         doc = workflow()
         poster = job(doc, "post")
-        self.assertEqual(poster["needs"], ["resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet", "portable-placement"])
+        self.assertEqual(poster["needs"], ["resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet"])
         # A valid receipt posted the status itself; post judges only runs the gates ran (an audit included).
         self.assertIn("needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' "
                       "|| needs.receipt.outputs.audit == 'true'", poster["if"])
@@ -559,13 +539,13 @@ class WorkflowShape(unittest.TestCase):
     def test_a_dispatch_never_saves_a_cache(self):
         # A dispatch runs on feat-cmux-next's ref after pull request code ran: a cache it saved would be the base's.
         steps = job(workflow())["steps"]
+        # #51100 (2026-11-23): restore only, on pull requests and dispatches alike; cmux-next-web-lint.yml's web-lint
+        # job saves the key on each feat-cmux-next push. So no step here saves a cache at all.
         for step in steps:
-            if step.get("uses", "").startswith("actions/cache@"):
-                self.assertIn("github.event_name == 'pull_request'", step["if"], step.get("name"))
+            self.assertFalse(step.get("uses", "").startswith("actions/cache@"), step.get("name"))
         for name in ("Restore the Bun package cache", "Restore the pinned lint tools"):
             restore = step_named(steps, name)
             self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
-            self.assertIn("github.event_name == 'workflow_dispatch'", restore["if"], name)
 
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
@@ -582,6 +562,16 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("check:fixed-waits", module.CHECKS)
         self.assertIn("check:effect-cleanup", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
+        # The type check is its own job (ci-self-heal 0c, Leo 2026-11-19): a type error is a red of its own and
+        # never the test shard's; the same per-error base comparison runs there.
+        self.assertIn("--skip typecheck", steps[0]["run"])
+        typecheck = doc["jobs"]["webviews-typecheck"]
+        run = "\n".join(s.get("run", "") for s in typecheck["steps"])
+        self.assertIn('--base "$BASE_REF" --only typecheck', run)
+        self.assertEqual(typecheck["steps"][0]["with"]["fetch-depth"],
+                         "${{ github.event_name == 'pull_request' && '2' || '1' }}")
+        with self.assertRaises(SystemExit):
+            module.main(["--only", "not-a-check", "--no-install"])
 
     def test_no_web_check_waits_on_an_earlier_red(self):
         # #23763 (2026-10-21): the bundle build was red on the base, so `Build the web bundles` failed and every
@@ -600,8 +590,11 @@ class WorkflowShape(unittest.TestCase):
                 self.assertIs(step.get("continue-on-error"), True)
         # A red that keeps going must still fail the job: every continue-on-error step, an action's too, has an id
         # whose outcome the last step reads.
+        # The same-input receipt steps (#49946) are the exception: they fail open by design (an error runs the shard
+        # in full) and the last two run after the gate, so none of them is a verdict.
+        receipt_steps = ("same-input receipt", "the receipt's results")
         for step in steps:
-            if step.get("continue-on-error") is True:
+            if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
                     self.assertIn("id", step)
                     self.assertIn(f"${{{{ steps.{step['id']}.outcome }}}}", gated)
@@ -652,6 +645,29 @@ def commit(repo: Path, files: dict[str, str], message: str) -> str:
         git(repo, "add", rel)
     git(repo, "commit", "-q", "-m", message)
     return git(repo, "rev-parse", "HEAD")
+
+
+def commits(repo: Path, changes: list[tuple[dict[str, str], str]]) -> list[str]:
+    """Make one commit per (files, message) on the checked-out branch with a single `git fast-import`, then sync the
+    work tree, and return their shas. A loop of `git commit` costs a process per commit (three with `commit`), and the
+    deepen fixtures need hundreds: 250 of them took about 70 s on a CI runner and pushed tooling-tests past its bound."""
+    branch = git(repo, "symbolic-ref", "HEAD")
+    when = int(time.time())
+    stream = [f"reset {branch}", f"from {git(repo, 'rev-parse', 'HEAD')}", ""]
+    for mark, (files, message) in enumerate(changes, start=1):
+        data = message.encode()
+        stream += [f"commit {branch}", f"mark :{mark}", f"author t <t@example.com> {when} +0000",
+                   f"committer t <t@example.com> {when} +0000", f"data {len(data)}", message]
+        for rel, text in files.items():
+            stream += [f"M 100644 inline {rel}", f"data {len(text.encode())}", text]
+        stream.append("")
+    marks = Path(git(repo, "rev-parse", "--absolute-git-dir")) / "fast-import-marks"
+    subprocess.run(["git", "-C", str(repo), "fast-import", "--quiet", f"--export-marks={marks}"],
+                   input="\n".join(stream).encode() + b"\n", check=True, capture_output=True)
+    shas = dict(line.split() for line in marks.read_text().splitlines())
+    marks.unlink()
+    git(repo, "reset", "-q", "--hard", branch)
+    return [shas[f":{mark}"] for mark in range(1, len(changes) + 1)]
 
 
 # A stand-in for each gate script: records its argv (and, for the crash ratchet, the base tree it
@@ -783,8 +799,7 @@ class ScriptBehavior(unittest.TestCase):
         git(seed, "checkout", "-q", "pr")
         git(seed, "merge", "-q", "--no-edit", "feat-cmux-next")
         git(seed, "checkout", "-q", "feat-cmux-next")
-        for n in range(module.FETCH_DEPTH + 10):
-            git(seed, "commit", "-q", "--allow-empty", "-m", f"base moves on {n}")
+        commits(seed, [({}, f"base moves on {n}") for n in range(module.FETCH_DEPTH + 10)])
         git(seed, "checkout", "-q", "-b", "side", self.root)
         commit(seed, {"side.txt": "side\n"}, "an old branch")
         git(seed, "checkout", "-q", "feat-cmux-next")
@@ -815,8 +830,7 @@ class ScriptBehavior(unittest.TestCase):
         def tip(branch: str, files: dict[str, str]) -> None:
             git(seed, "checkout", "-q", "-B", branch, a)
             commit(seed, files, f"{branch} after A")
-            for n in range(module.FETCH_DEPTH - 3):
-                git(seed, "commit", "-q", "--allow-empty", "-m", f"{branch} moves on {n}")
+            commits(seed, [({}, f"{branch} moves on {n}") for n in range(module.FETCH_DEPTH - 3)])
             git(seed, "merge", "-q", "--no-ff", "--no-edit", f"side-{branch}")
 
         side("side-pr")
@@ -983,12 +997,10 @@ class ScriptBehavior(unittest.TestCase):
         # in one --deepen=200 that brought every blob of 200 commits a side; the gates needed none of them.
         seed = self.seed
         git(seed, "checkout", "-q", "feat-cmux-next")
-        for n in range(60):  # history past the first step
-            commit(seed, {"old.txt": f"old {n}\n"}, f"old base {n}")
-        for n in range(40):  # within it: each commit's blob is one a deepen with blobs would bring
-            within = commit(seed, {"old.txt": f"newer {n}\n"}, f"newer base {n}")
-            if n == 20:
-                old_commit, old = within, git(seed, "rev-parse", "HEAD:old.txt")
+        commits(seed, [({"old.txt": f"old {n}\n"}, f"old base {n}") for n in range(60)])  # history past the first step
+        # within it: each commit's blob is one a deepen with blobs would bring
+        old_commit = commits(seed, [({"old.txt": f"newer {n}\n"}, f"newer base {n}") for n in range(40)])[20]
+        old = git(seed, "rev-parse", f"{old_commit}:old.txt")
         fork = git(seed, "rev-parse", "HEAD")
         git(seed, "checkout", "-q", "-b", "pr10", fork)
         heads = [commit(seed, {"pr10.txt": f"{n}\n"}, f"the pull request's change {n}") for n in range(5)]
@@ -1031,16 +1043,15 @@ class ScriptBehavior(unittest.TestCase):
         git(seed, "checkout", "-q", "-b", "pr9", self.root)
         first = commit(seed, {"pr9.txt": "one\n"}, "the pull request's first change")
         git(seed, "checkout", "-q", "feat-cmux-next")
-        for n in range(250):  # past the first deepen step, so the base's cut lands between M and the fork
-            git(seed, "commit", "-q", "--allow-empty", "-m", f"base moves on {n}")
+        # past the first deepen step, so the base's cut lands between M and the fork
+        commits(seed, [({}, f"base moves on {n}") for n in range(250)])
         merged_in = commit(seed, {"shared.txt": "two\n"}, "M: the tip the pull request merges in")
         git(seed, "checkout", "-q", "pr9")
         git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit",
             merged_in)
         second = commit(seed, {"pr9.txt": "two\n"}, "the pull request's second change")
         git(seed, "checkout", "-q", "feat-cmux-next")
-        for n in range(10):
-            git(seed, "commit", "-q", "--allow-empty", "-m", f"base moves on after M {n}")
+        commits(seed, [({}, f"base moves on after M {n}") for n in range(10)])
         base = git(seed, "rev-parse", "HEAD")
         git(seed, "checkout", "-q", "--detach", base)
         git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit",
@@ -1097,7 +1108,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertIn("not the pull request head", result.stderr)
 
     def test_a_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
-        # ci-web runs them only for a webviews/ change; check:catalog-keys and acpmux-protocol:check read these.
+        # ci-web runs them only for a webviews/ change; check:catalog-keys and typecheck read these.
         seed = self.seed
         for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"):
             with self.subTest(path=path):
@@ -1187,21 +1198,26 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(len(list(barrier.glob("started-*"))), 4)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
 
-    def test_no_gate_started_has_a_critical_path_fallback(self):
+    def test_a_zero_budget_stops_every_started_gate_and_still_names_a_critical_path_gate(self):
+        # Gates start side by side (#50061), so a spent budget no longer leaves every gate unstarted: each lane's first
+        # gate starts and is stopped as stalled, and a gate queued behind another in its lane (webviews checks behind
+        # web lint) never starts. The summary still names a critical-path gate, never "no gate ran".
         work, _ = self.prepared()
         summary = self.tmp / "summary.md"
-        result = self.script(work, "run", "--base", self.tip, "--web", "false", "--checks", "false",
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
                              budget=0, summary=summary)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Critical-path gate: **no gate ran**", summary.read_text())
+        text = summary.read_text()
+        self.assertRegex(text, r"Critical-path gate: \*\*(?!no gate ran)[^*]+\*\* \(")
+        self.assertIn("failed (no time left)", text)
 
     def test_gate_logs_are_named_per_gate_across_batches(self):
         module = load(SCRIPT)
         with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
             log_dir = Path(tmp)
-            first = module.run_gate_batch([("crash ratchet", [sys.executable, "-c", "pass"])],
+            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "pass"])]],
                                           Path(tmp), None, log_dir)
-            second = module.run_gate_batch([("webviews checks", [sys.executable, "-c", "pass"])],
+            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "pass"])]],
                                            Path(tmp), None, log_dir)
             self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
             self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
@@ -1221,6 +1237,28 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"webviews checks"})
         self.assertIn("webviews checks: skipped", result.stdout)
+
+    def test_a_change_outside_the_ratchets_inputs_skips_the_crash_ratchet_only(self):
+        work, out = self.prepared()
+        before = git(work, "rev-parse", "HEAD")
+        commit(work, {"docs/note.md": "note\n", "cmux-tui/README.md": "readme\n"}, "no ratchet input")
+        result = self.script(work, "run", "--base", before, "--web", "true", "--checks", "true")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"crash ratchet"})
+        self.assertIn("crash ratchet: skipped (no change under Packages", result.stdout)
+
+    def test_every_ratchet_input_runs_the_crash_ratchet(self):
+        module = load(SCRIPT)
+        work, _ = self.prepared()
+        for path in ("Packages/A/x.swift", "cmux-tui/crates/c/lib.rs", "scripts/cmux-next/crash-safety-baseline.json",
+                     "scripts/ci/crash_ratchet_compare.py"):
+            with self.subTest(path=path):
+                before = git(work, "rev-parse", "HEAD")
+                commit(work, {path: f"{path}\n"}, f"change {path}")
+                self.assertTrue(module.ratchet_inputs_changed(work, before, git(work, "rev-parse", "HEAD")))
+        before = git(work, "rev-parse", "HEAD")
+        commit(work, {"Packages-notes.md": "x\n", "scripts/cmux-next-other/a.py": "x\n"}, "look-alike paths")
+        self.assertFalse(module.ratchet_inputs_changed(work, before, git(work, "rev-parse", "HEAD")))
 
     def test_run_refuses_a_base_that_is_not_a_commit(self):
         work, _ = self.prepared()
@@ -1348,7 +1386,7 @@ class BunInstallScriptWithoutGnuTimeout(BunInstallScript):
     """The same bun-install.sh tests through scripts/ci/timeout.sh's perl watchdog, the path a Mac runner takes.
 
     2026-11-11: bun-install.sh called GNU `timeout` bare; tooling-tests passed on Linux and failed on the Macs
-    portable-placement sends it to ("timeout: command not found") on #40892, #41288, #41299 and #41305.
+    it then ran on ("timeout: command not found") on #40892, #41288, #41299 and #41305.
     """
 
     def install(self, fake_bun: str, **env: str) -> subprocess.CompletedProcess:

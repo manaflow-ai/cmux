@@ -58,6 +58,52 @@ fn every_recipe_has_a_unique_name_and_every_group_a_recipe() {
     }
 }
 
+/// CMUX-642, Leo: "make customization for codex, [another agent app], claude code app
+/// (everything)", "sidebar, gui, everything". Each look-alike is one profile
+/// that turns on the theme file it carries, restyles the chat with its own
+/// stylesheet and sets the sidebar and chat settings.
+#[test]
+fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() {
+    for name in ["codex-app", "claude-code-app"] {
+        let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
+        assert_eq!(recipe.group, Group::Apps, "{name}");
+        let profile = recipe.profile().unwrap();
+        assert_eq!(
+            profile.settings.get("appearance.themeFile"),
+            Some(&serde_json::json!(name)),
+            "{name} turns on a theme file of its own name"
+        );
+        let theme = profile
+            .files
+            .get(&format!("themes/{name}.json"))
+            .unwrap_or_else(|| panic!("{name} carries no theme file"));
+        assert!(cmux_config::jsonc::parse(theme).is_ok(), "{name}: its theme file is not JSONC");
+        let chat = profile
+            .files
+            .get("agent-pane/theme.css")
+            .unwrap_or_else(|| panic!("{name} carries no chat stylesheet"));
+        assert!(chat.contains("--cv-bubble"), "{name}: the stylesheet leaves the prompt alone");
+        for key in ["sidebar.groupBy", "agentPane.display.width", "tabs.hideLoneChatTab"] {
+            assert!(profile.settings.contains_key(key), "{name} does not set {key}");
+        }
+        assert_eq!(recipe.parts(), ["settings", "themes", "styles"], "{name}");
+    }
+}
+
+/// Leo, 2026-11-22: "should we tuck it in a bit more like claude code? hm. well, we'd better at
+/// least do this for our claude code customization repo". The Claude Code look starts the
+/// transcript's rows on the composer's + column, derived from the composer's lead token.
+#[test]
+fn the_claude_code_look_tucks_the_transcript_to_the_composers_plus() {
+    let profile = find("claude-code-app").expect("no claude-code-app recipe").profile().unwrap();
+    let chat = profile.files.get("agent-pane/theme.css").expect("no chat stylesheet");
+    assert!(chat.contains(":root .acpmux-row"), "the rows keep the composer's edge");
+    assert!(
+        chat.contains("var(--grid-composer-lead-center)"),
+        "the tuck is not derived from the composer's + column"
+    );
+}
+
 #[test]
 fn every_shortcut_a_recipe_binds_is_an_action_cmux_has() {
     for recipe in RECIPES {
@@ -149,4 +195,29 @@ fn a_folder_with_shell_characters_stays_one_argument_in_every_run_command() {
             .unwrap();
         assert_eq!(String::from_utf8(out.stdout).unwrap(), format!("{path}\n"), "{line}");
     }
+}
+
+/// c-07be086806, Leo: "we know you can change colours. im saying the big stuff". The layout and
+/// behaviour looks are recipes too, and none of them sets a color or a theme. The leader keys all
+/// start with Command-J, cmux's own leader, so none takes a key a terminal or a chat types.
+#[test]
+fn the_layout_and_behaviour_looks_change_layout_and_keys_not_colors() {
+    for name in ["review-desk", "bottom-deck", "workspace-tabs", "leader"] {
+        let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
+        let profile = recipe.profile().unwrap();
+        for key in profile.settings.keys() {
+            assert!(
+                !key.starts_with("appearance.") && !key.contains("color") && !key.contains("Color"),
+                "{name} sets {key}, a look key"
+            );
+        }
+    }
+    let leader = find("leader").unwrap().profile().unwrap();
+    let parsed = cmux_config::keybindings::parse(&leader.files["keybindings.json"]);
+    assert!(parsed.entries.len() >= 20, "{} leader keys", parsed.entries.len());
+    for entry in &parsed.entries {
+        assert_eq!(entry.keys[0], "cmd+j", "{} does not start with the leader", entry.command);
+        assert!(entry.keys.len() >= 2, "{} is the bare leader", entry.command);
+    }
+    assert_eq!(find("review-desk").unwrap().parts(), ["settings", "keybindings"]);
 }

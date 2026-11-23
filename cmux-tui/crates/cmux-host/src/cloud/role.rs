@@ -259,6 +259,17 @@ impl Http for PosterHttp {
         self.via(url, |poster, url| poster.post_empty(url, bearer))
     }
 
+    fn send(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
+        self.via(url, |poster, url| poster.send_with_headers(method, url, body, bearer, headers))
+    }
+
     fn request_with_deadline(
         &self,
         url: &str,
@@ -669,6 +680,10 @@ struct Worker {
     trajectories: Option<Trajectories<PosterHttp>>,
     /// This machine's inference gateway bearer, while the person made it their gateway (gateway_token.rs).
     gateway_token: Option<super::gateway_token::GatewayToken>,
+    /// The person's usage-sharing choice and the idle edge, from the status report replies
+    /// (`additions.rs`), and the thread that lists and sends their additions at that edge.
+    additions_gate: super::additions::Gate,
+    additions: Option<super::additions_thread::Additions>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     /// A carrier bind waiting for the session host's Noise key (its
@@ -741,6 +756,8 @@ impl Worker {
             keyset,
             trajectories,
             gateway_token: None,
+            additions_gate: super::additions::Gate::default(),
+            additions: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             noise_key_wait: None,
@@ -957,7 +974,7 @@ impl Worker {
                 client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
                 continue;
             }
-            if let Some(ask) = agent_ask(&line) {
+            if let Some(ask) = agent_ask(&line, &self.paths) {
                 asks.push((i, ask));
                 continue;
             }
@@ -1088,7 +1105,9 @@ impl Worker {
         );
         drop(carrier_held);
         let Some(result) = result else {
-            log("bind: a restart of this service is pending; the restarted service binds");
+            log(
+                "bind: waits for the restart gate (a restart of this service is pending, or the gate failed)",
+            );
             self.bind_retry_at = Some(self.now() + 30_000);
             return;
         };
@@ -1199,6 +1218,24 @@ impl Worker {
                         .ok();
             }
             Err(e) => log(&format!("inference gateway token: {e}")),
+        }
+        // A new binding knows no choice yet: off until a report's reply says on.
+        self.additions_gate = super::additions::Gate::default();
+        self.additions = None;
+        match github_client(&bound, &key) {
+            Ok(client) => {
+                let store = FileStore::new(self.paths.clone());
+                self.additions = super::additions_thread::Additions::spawn(
+                    client,
+                    self.paths.clone(),
+                    store,
+                    wall_ms,
+                    log,
+                )
+                .map_err(|e| log(&format!("additions: {e}")))
+                .ok();
+            }
+            Err(e) => log(&format!("additions: {e}")),
         }
         // The first report carries the updater's block: after an update's restart, its swap.
         // After a flip's or a rollback's restart, degraded until the restarted session host
@@ -1358,6 +1395,11 @@ impl Worker {
         let reqs = live.session.updater(crate::updater::look::report(&self.paths), now);
         self.drive(reqs);
         let Some(live) = self.live.as_mut() else { return };
+        // And the applied machine.toml's idle window (a lane: 300 s), read on the same tick.
+        let window = cmux_cloud_start_core::machine_config::idle::read(self.paths.root());
+        let reqs = live.session.idle_window(window, now);
+        self.drive(reqs);
+        let Some(live) = self.live.as_mut() else { return };
         let seen = match super::workload::read_snapshot(self.paths.root(), now) {
             // The first probe has no CPU baseline yet: it changes nothing.
             Some(snapshot) => match self.workload.observe(&snapshot, wall_ms()) {
@@ -1385,6 +1427,13 @@ impl Worker {
             }
             if req.op == super::wire::STATUS_REPORT_OP {
                 self.write_state(&req, &answer);
+                // At the edge into idle with the person's choice on (never otherwise): list and
+                // send on the additions thread.
+                if self.additions_gate.report_answered(&req.params, &answer)
+                    && let Some(additions) = &self.additions
+                {
+                    additions.collect();
+                }
             }
             queue.extend(next);
         }
@@ -1479,7 +1528,7 @@ fn carrier_keyset_ask(line: &str) -> Option<Result<String, String>> {
 
 /// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
 /// line (checked), or `None` for every other line (the session's).
-fn agent_ask(line: &str) -> Option<Ask> {
+fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     let msg: Value = serde_json::from_str(line).ok()?;
     if let Some(ask) = msg.get(github::REQUEST_KEY) {
         return Some(github::TokenAsk::from_json(ask).into());
@@ -1492,6 +1541,22 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::carrier_ticket::REQUEST_KEY) {
         return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));
+    }
+    if let Some(ask) = msg.get(super::apps_call::CALL_KEY) {
+        return Some(Ask::AppsCall(Box::new(super::apps_call::check_call(ask))));
+    }
+    if let Some(ask) = msg.get(super::apps_call::LISTENER_KEY) {
+        // The machine's own `proc`, as the workload probe reads it (`workload.rs`).
+        let proc_root = paths.root().join("proc");
+        return Some(Ask::AppsListener(super::apps_call::check_listener(ask), proc_root));
+    }
+    use super::apps_spawn::{RUN_ROOT, RunPaths, SPAWN_KEY, STATUS_KEY, STOP_KEY, check_run};
+    for key in [SPAWN_KEY, STATUS_KEY, STOP_KEY] {
+        if let Some(ask) = msg.get(key) {
+            let run =
+                RunPaths { proc_root: paths.root().join("proc"), run_root: paths.at(RUN_ROOT) };
+            return Some(Ask::AppsRun(Box::new((check_run(key, ask), run))));
+        }
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

@@ -6,6 +6,55 @@ fn words(text: &str) -> Vec<String> {
 }
 
 #[test]
+fn screen_verbs_go_to_the_share_host_and_chat_links_stay_the_apps() {
+    assert_eq!(
+        screen_verb(&words("share move 5e55 --to Studio --json")),
+        Some(words("share-host move 5e55 --to Studio --json"))
+    );
+    assert_eq!(screen_verb(&words("share screens")), Some(words("share-host screens")));
+    assert_eq!(
+        screen_verb(&words("share list --screens --json")),
+        Some(words("share-host screens --json"))
+    );
+    assert_eq!(
+        screen_verb(&words("share start --to Laptop --view-only")),
+        Some(words("share-host start --to Laptop --view-only"))
+    );
+    assert_eq!(screen_verb(&words("share stop 5e55")), Some(words("share-host stop 5e55")));
+    // The chat-link verbs are untouched.
+    assert_eq!(screen_verb(&words("share list --json")), None);
+    assert_eq!(screen_verb(&words("share chat")), None);
+    assert_eq!(screen_verb(&words("share revoke s1")), None);
+    assert_eq!(screen_verb(&words("host share move")), None);
+}
+
+#[test]
+fn a_json_before_the_verb_still_routes_to_the_share_host() {
+    // `--json` goes anywhere: before `share` (main does not hoist it for `share`) or right after it.
+    assert_eq!(
+        screen_verb(&words("--json share screens")),
+        Some(words("share-host screens --json"))
+    );
+    assert_eq!(
+        screen_verb(&words("share --json screens")),
+        Some(words("share-host screens --json"))
+    );
+    assert_eq!(
+        screen_verb(&words("--json share --json move 5e55 --to Studio --json")),
+        Some(words("share-host move 5e55 --to Studio --json"))
+    );
+    assert_eq!(
+        screen_verb(&words("share --json list --screens")),
+        Some(words("share-host screens --json"))
+    );
+    // The chat-link verbs stay the app's, wherever `--json` is.
+    assert_eq!(screen_verb(&words("--json share list")), None);
+    assert_eq!(screen_verb(&words("share --json chat")), None);
+    assert_eq!(screen_verb(&words("--json share")), None);
+}
+
+#[test]
+#[test]
 fn revoke_and_kick_name_their_ids() {
     assert_eq!(
         action(&words("share revoke s1 --json")),
