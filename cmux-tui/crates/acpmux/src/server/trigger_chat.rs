@@ -373,7 +373,7 @@ async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Valu
     let hub_for_task = hub.clone();
     let session_for_task = session.clone();
     let options = crate::hub::PromptOptions {
-        prompt_id: None, // TEMP mutation: proves the guard, reverted next commit
+        prompt_id: Some(delivery.clone()),
         resend: true,
         control: crate::hub::Control::Web,
         trust_gate: true,
