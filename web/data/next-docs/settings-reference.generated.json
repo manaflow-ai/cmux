@@ -1702,7 +1702,7 @@
           "title": "Download Updates Automatically",
           "help": "Off: cmux asks before downloading. It always asks before restarting.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
