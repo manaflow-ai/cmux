@@ -5,8 +5,12 @@
 set -euo pipefail
 tries=$(( ${RETRY:-0} + 1 ))
 if [ "$tries" -gt 2 ]; then
+  # The owner hears it: a comment on the nightly-next-feed-stale issue with the head, the failing step and its
+  # error line, not only a warning nobody reads (2026-11-18/19: the feed went 24 h stale behind four such runs).
   echo "::warning::nightly-next failed after two retries in a row; the next push starts the loop again"
-  exit 0
+  python3 "$(dirname "${BASH_SOURCE[0]}")/../nightly_next_retry_exhausted.py" \
+    --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID" --attempt "$RUN_ATTEMPT" --sha "$SHA"
+  exit $?
 fi
 head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha)
 if [ "$head" != "$SHA" ]; then
