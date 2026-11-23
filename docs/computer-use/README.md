@@ -206,9 +206,93 @@ the agent's words.
 - `computerUse.allowForeground` (default off; on for cloud VMs): whether
   `delivery: "foreground"` may raise a window and use system-wide input.
 
+- `computerUse.alerts` (default off, also on cloud VMs): see System alerts below.
+
+### System alerts
+
+An unattended Mac collects system dialogs nobody is there to answer: a crash
+notice, an iCloud sign-in reminder, "Keychain Not Found", a privacy ask. Their
+owners are protected targets, so no tool could see or answer them. With
+`computerUse.alerts` on (the person's setting; no Computer Use tool changes a
+`computerUse.*` key, see Trust) two tools can, and only this far:
+
+- `list_alerts` (observe) reads the on-screen dialogs of the system's agents
+  (SecurityAgent, CoreServicesUIAgent, UserNotificationCenter, coreautha,
+  universalAccessAuthWarn, tccd, akd, AuthKitUIService, and loginwindow's
+  panels below its lock-screen shields). For each: `alert_id`, `owner`,
+  `bundle_id`, `pid`, `layer`, `title`, `text`, `buttons`, a `class` and
+  `put_off`, the buttons `dismiss_alert` would press. Text and button titles
+  come from accessibility; no picture is taken, and a password field is only
+  noted (`secure_field`), never read; no button of an alert with one is
+  ever pressed.
+- `dismiss_alert` (act) presses one button of one listed alert with an
+  accessibility press: no pointer, no focus change. The button must be in the
+  alert's `put_off`. The alert is read again first and the press is refused if
+  it changed.
+
+Classes are the build fleet's (`icloud-sign-in`, `apple-password`,
+`crash-report`, `damaged`, `cant-be-opened`, `not-responding`,
+`protected-folder`, `screen-picker`, `vpn-configuration`, `local-network`,
+`screen-recording`, `automation`, `accessibility`, `privacy-access`,
+`gatekeeper`, `keychain-not-found`, `keychain`, `password`, `out-of-memory`,
+`other`, `unreadable`). The table of who may be put off with what is
+`alerts::put_off_titles`:
+
+| Class | Put off with |
+| --- | --- |
+| `icloud-sign-in` | Later |
+| `apple-password` (not shown by SecurityAgent or coreautha, no password field) | Not Now, Cancel, Later |
+| `crash-report` | Ignore, OK |
+| `cant-be-opened`, `damaged` | OK, Cancel |
+| `not-responding` | OK |
+| `gatekeeper` | Cancel, OK (Cancel only on "downloaded from the Internet", whose other button opens the app) |
+| `out-of-memory` | Cancel, Close |
+| `keychain-not-found` | Cancel |
+| privacy asks (`protected-folder`, `local-network`, `screen-recording`, `automation`, `accessibility`, `privacy-access`) | Don't Allow, Deny |
+| `keychain`, `password`, `screen-picker`, `vpn-configuration`, anything of Tailscale's, `other`, `unreadable` | nothing: a person answers |
+
+What it cannot do, whatever the arguments: press a button that allows, grants,
+opens Settings or an app, reports, relaunches, force quits, resets a keychain
+("Reset To Defaults") or submits a password. Such a title is refused before the
+alert's class is even looked at (`alerts::never`), a title outside the eight
+put-off titles is refused, and a test holds every row of the table inside
+those eight. Refusals are typed and name the alert, so an alert nobody has a
+rule for becomes an issue instead of a guess: `alerts_off` (the setting is off;
+names it), `alert_not_found`, `alert_unknown` (no put-off rule for this alert),
+`alert_button_refused`.
+
+The protected list is unchanged by the setting: `click`, `type_text`,
+`get_ui_tree`, `screenshot` and every other tool still refuse those processes.
+Linux and Windows list no alerts.
+
 Grants, saved approvals and every acting call (recorded before it acts and again
 with its result) live in the worker's state dir, so a worker restart keeps them
 and a retried call never acts twice.
+
+## Displays and the doctor
+
+`list_displays` (a Discover call: no grant, no prompt, answered while the screen
+is locked) lists each display with `id`, `frame` (points), `scale` (pixels per
+point), `main`, and `builtin`/`virtual` where the OS says. The `id` is the
+string `screenshot`'s `display` argument takes: the decimal CGDirectDisplayID on
+macOS (`CGGetActiveDisplayList`; `builtin` from `CGDisplayIsBuiltin`, `virtual`
+never set, macOS has no public call for it), the RandR monitor name on X11 (or
+`root`, the whole screen, when RandR lists none; `virtual` on a headless X
+server), the output name on wlroots (`virtual` for headless outputs), and `0`
+on the in-memory test desktop. Windows and the portal desktop answer
+`unsupported` for now. From a shell: `cmux computer-use displays` and
+`cmux computer-use screenshot --display ID --out FILE`.
+
+`cmux computer-use doctor [--machine M] [--json]` reads, in order, the daemon's
+worker endpoint (skipped with `--machine`), the engine's `status` and
+`list_displays`, and prints one line per check (daemon, worker, helper, each
+grant, lock screen, mode, displays) with a fix line for each failure. It exits 0
+only when capture and input would work. It never shows an OS prompt (grants are
+the preflight reads `status` already does) and needs no app window. `helper`
+names the worker's executable (`status.worker.executable`); on macOS a
+`cmux-screen-sharing` outside the staging root
+(`~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`)
+fails with the staging fix.
 
 ## Trust
 
