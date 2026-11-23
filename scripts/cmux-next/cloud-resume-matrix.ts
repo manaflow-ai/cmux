@@ -16,6 +16,14 @@
  *   platform   cmux's resume (`cloud.machine.start` on the cmux API, CloudDO and cmux-platform), as the app's Resume
  *   send       no resume call: the prompt alone, sent to the paused machine (the app's wake on message)
  *
+ * The three main arms send exactly as the app does: one client dial held through the pause, the prompt sent at the
+ * event. Two extra arms, labelled, are not the app's path:
+ *
+ *   reattach   platform's resume, but the harness ends its dial before the pause and redials and reattaches the chat
+ *              before it sends (a harness reattach; it tells a dial fault from a resume one)
+ *   resume     POST /v1/machines/{id}/resume, the route that answers Server-Timing (provider, vmapi, pre, finish,
+ *              total; cmux-platform ResumeTiming.ts); cloud.machine.start, the app's call, sends none
+ *
  * In every arm the chat's prompt goes out at the event, as a person's Send does, and is held until the machine takes
  * it (feltAfterSend: retried with the same prompt id, which the daemon takes once).
  *
@@ -31,8 +39,19 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { ChatClient, feltAfterSend, feltBoundary, feltMarker, turnOutcome, type ChaosContext } from "./cloud-chaos.ts";
 
-export type ResumeArm = "direct" | "platform" | "send";
-export const RESUME_ARMS: ResumeArm[] = ["direct", "platform", "send"];
+export type ResumeArm = "direct" | "platform" | "send" | "reattach" | "resume";
+export const RESUME_ARMS: ResumeArm[] = ["direct", "platform", "send", "reattach", "resume"];
+/** Arms that are not the app's own path, labelled so in the table. */
+export const EXTRA_ARMS: ResumeArm[] = ["reattach", "resume"];
+
+/**
+ * A failure the harness does not cause and that two helpers are checking as product bugs: the chat was not attached
+ * when the prompt went, or the agent lost its Claude login across the pause (cmux#45776). Kept as failed samples,
+ * counted apart from harness causes.
+ */
+export function productSuspect(text: string): boolean {
+  return /agent_session\.not_attached|not logged in/i.test(text);
+}
 export const RESUME_POINTS = ["answered", "running", "registered", "first_byte"] as const;
 /** Measured beside the points, not from the event: the fill's page-in walk after the wake. */
 export const RESUME_EXTRAS = ["page_in"] as const;
@@ -52,6 +71,12 @@ export type ResumeSample = {
   ack_ms: number | null;
   /** cmux-platform's Server-Timing on the resume answer, when it sends one (provider, vmapi, total). */
   server_timing?: Record<string, number>;
+  /** The resume answer's Server-Timing header as sent; null when the answer had none (cloud.machine.start sends none). */
+  server_timing_header?: string | null;
+  /** The client dial's events from the event to the reply (the send path's own timeline: no HTTP answer on it). */
+  dial_after_wake?: string[];
+  /** The failure is product-suspect (productSuspect), not a harness cause. */
+  product_suspect?: boolean;
   direct_mode?: "start" | "exec";
   /** The direct arm's client session was minted after the hold, on the paused machine: a pause longer than a
    * session lives (CLIENT_SESSION_MAX_S). Minting one may wake the machine, so such a sample's direct times read late. */
@@ -86,7 +111,10 @@ export type ResumeDeps = {
   /** Pause through the platform and resolve once it reads `paused`. */
   pause: () => Promise<void>;
   /** cmux's resume (the app's): resolves when the call answers; its Server-Timing when there is one. */
-  platformResume: () => Promise<{ serverTiming?: Record<string, number> }>;
+  platformResume: () => Promise<{ serverTiming?: Record<string, number>; serverTimingHeader?: string | null }>;
+  /** The resume arm's POST /v1/machines/{id}/resume; an answer that says the route does not take this machine throws
+   * `unavailable here: ...`. Absent: the arm is unavailable. */
+  resumeRoute?: () => Promise<{ serverTiming?: Record<string, number>; serverTimingHeader?: string | null }>;
   /** After a direct or send arm: tell the platform the machine runs (its own read), so the next pause is real. */
   platformSync: () => Promise<void>;
   /** The platform's status read of the machine (`paused`, `running`, ...): the pause is checked to hold before a wake. */
@@ -170,7 +198,7 @@ export function parseAgents(stdout: string): string[] | null {
 
 /** Whether a provider's answer says the arm cannot run on this machine at all (not a failed sample of it). */
 export function armUnavailable(error: string): boolean {
-  return /cloud\.provider\.unsupported|has no client sessions/.test(error);
+  return /cloud\.provider\.unsupported|has no client sessions|^unavailable here:/.test(error);
 }
 
 /** One exec after a wake: the guest's clock now, the ticker's gaps and the journal's relay and resume lines since `sinceS`. */
@@ -331,9 +359,10 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             }
             await chat.caughtUp(chat.held, 30_000);
             const before = parseAgents((await ctx.exec(`${ctx.guest}${AGENT_PIDS_COMMAND}`, 60_000).catch(() => ({ stdout: "" }))).stdout);
-            // The client's dial ends before the pause and stays down through the hold: a held dial freezes with the
-            // machine, and a redial may wake it (run 45177970049: `not_paused (state running)` after a 5 s hold).
-            chat.suspend();
+            // Only the reattach arm (labelled, not the app's path) ends the client's dial before the pause; every main
+            // arm holds its dial through the pause, as the app does.
+            const reattach = arm === "reattach";
+            if (reattach) chat.suspend();
             try { await deps.pause(); } catch (e) { s.cause = "pause"; throw new Error(`pause: ${(e as Error).message}`); }
             const pausedAt = now();
             await sleep(pause_s * 1000);
@@ -350,8 +379,16 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             s.paused_ms = t0 - pausedAt;
             const marker = feltMarker(`${safe(ctx.tag)}-rm-${pause_s}-${arm}-${i}`);
             let wakeError = "";
-            const wake = arm === "platform"
-              ? deps.platformResume().then((r) => { s.answered_ms = now() - t0; s.server_timing = r.serverTiming; })
+            const timed = (r: { serverTiming?: Record<string, number>; serverTimingHeader?: string | null }) => {
+              s.answered_ms = now() - t0;
+              s.server_timing = r.serverTiming;
+              s.server_timing_header = r.serverTimingHeader ?? null;
+            };
+            const dialMark = (chat.dial.events ?? []).length;
+            const wake = arm === "platform" || reattach
+              ? deps.platformResume().then(timed)
+              : arm === "resume"
+                ? (deps.resumeRoute ? deps.resumeRoute().then(timed) : Promise.reject(new Error("unavailable here: no resume route given")))
               : arm === "direct"
                 ? directWake(session!, direct, deps.fetchImpl).then((r) => {
                     s.answered_ms = now() - t0;
@@ -359,19 +396,20 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
                     if (r.status < 200 || r.status >= 300) throw new Error(`direct ${r.mode}: HTTP ${r.status}`);
                   })
                 : Promise.resolve();
-            // The app's reconnect after a wake: a new dial at the event, the chat attached again on it, and the send
-            // held until then; the reply's clock runs from the event (send: the redial and the prompt are the wake).
-            chat.wake();
+            // Main arms: the prompt goes out at the event on the dial held through the pause, as the app's Send does.
+            // The reattach arm first redials and waits, bounded, for the chat to attach again on the new dial.
             const until = t0 + FIRST_BYTE_DEADLINE_MS;
+            if (reattach) chat.wake();
             const [felt] = await Promise.all([
-              chat.waitAttached(until).then((ok) => ok
+              (reattach ? chat.waitAttached(until) : Promise.resolve(true)).then((ok) => ok
                 ? feltAfterSend(chat, `${marker} back.`, FIRST_BYTE_DEADLINE_MS, floor ?? chat.held, t0)
                 : { felt_ms: null, ack_ms: null, tries: 0, error: `the client's new dial did not attach the chat within ${FIRST_BYTE_DEADLINE_MS / 1000} s${chat.lastError ? ` (last: ${chat.lastError})` : ""}; dial: ${(chat.dial.events ?? []).slice(-4).join("; ")}`, attachFailed: true }),
               wake.catch((e: Error) => { wakeError = e.message; }),
             ]);
+            s.dial_after_wake = (chat.dial.events ?? []).slice(dialMark).slice(0, 12);
             s.first_byte_ms = felt.felt_ms;
             s.ack_ms = felt.ack_ms;
-            if (wakeError) { s.error = wakeError; s.cause = "wake"; }
+            if (wakeError) { s.error = wakeError; s.cause = armUnavailable(wakeError) ? "unavailable" : "wake"; }
             if (felt.felt_ms === null) {
               s.error ||= `no reply within ${FIRST_BYTE_DEADLINE_MS / 1000} s${felt.error ? ` (${felt.error})` : ""}`;
               s.cause ??= "attachFailed" in felt ? "attach" : "reply";
@@ -393,13 +431,14 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             if (!outcome.ok && s.first_byte_ms !== null) { s.error ||= `turn: ${outcome.text}`; s.cause ??= "turn"; }
             s.restored = s.agent_same_process === null ? null : s.agent_same_process && outcome.ok && s.first_byte_ms !== null;
             floor = await feltBoundary(ctx, chat.session, floor ?? chat.held, outcome.ok);
-            if (arm !== "platform") await deps.platformSync();
+            if (arm === "direct" || arm === "send") await deps.platformSync();
           } catch (e) {
             s.error ||= (e as Error).message;
             s.cause ??= "read";
             chat.wake();
             await deps.platformSync().catch(() => undefined);
           }
+          if (s.error) s.product_suspect = productSuspect(`${s.error} ${s.turn ?? ""}`);
           log(`resume matrix: pause ${pause_s} s ${arm} #${i}: ${RESUME_POINTS.map((p) => `${p} ${s[`${p}_ms` as const] ?? "-"}`).join(", ")}${s.server_timing ? ` (server ${JSON.stringify(s.server_timing)})` : ""}${s.direct_mode ? ` [${s.direct_mode}]` : ""}${s.error ? ` ERROR ${s.error}` : ""}`);
           taken += 1;
           longest = Math.max(longest, now() - sampleStart);
@@ -460,6 +499,22 @@ export function resumeCells(samples: ResumeSample[]): ResumeCell[] {
 
 const sec = (ms: number | null) => (ms === null ? "-" : (ms / 1000).toFixed(2));
 
+/** The most common largest Server-Timing phase (not total) over the samples' resume answers: `vmapi 0.81 (6/8)`. */
+export function largestPhase(samples: ResumeSample[]): string {
+  const asked = samples.filter((x) => x.server_timing !== undefined || x.server_timing_header !== undefined);
+  if (!asked.length) return "-";
+  const tops = new Map<string, number[]>();
+  for (const x of asked) {
+    const phases = Object.entries(x.server_timing ?? {}).filter(([k]) => k !== "total");
+    if (!phases.length) continue;
+    const [name, ms] = phases.reduce((a, b) => (b[1] > a[1] ? b : a));
+    tops.set(name, [...(tops.get(name) ?? []), ms]);
+  }
+  if (!tops.size) return `none sent (0/${asked.length})`;
+  const [name, xs] = [...tops].sort((a, b) => b[1].length - a[1].length)[0];
+  return `${name} ${sec(percentile(xs, 50))} (${xs.length}/${asked.length})`;
+}
+
 /**
  * The table: one row per pause length and arm, p50 / p95 seconds per point, n, and the gap the stop condition judges:
  * the arm's first-byte p95 less the direct arm's answered p95 (our whole path over the provider's own resume).
@@ -468,8 +523,8 @@ export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { m
   const cells = resumeCells(samples);
   const get = (pause_s: number, arm: ResumeArm, point: ResumePoint) => cells.find((c) => c.pause_s === pause_s && c.arm === arm && c.point === point);
   const lines = [
-    "| pause | arm | n | failed | restored | answered p50 / p95 | running p50 / p95 | registered p50 / p95 | first byte p50 / p95 | first byte p95 - direct answered p95 | page-in p50 / p95 |",
-    "|---|---|---|---|---|---|---|---|---|---|---|",
+    "| pause | arm | n | failed | of them product-suspect | restored | answered p50 / p95 | running p50 / p95 | registered p50 / p95 | first byte p50 / p95 | first byte p95 - direct answered p95 | page-in p50 / p95 | largest server phase p50 |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
   for (const pause_s of [...new Set(cells.map((c) => c.pause_s))]) {
     const floor = get(pause_s, "direct", "answered")?.p95 ?? null;
@@ -483,7 +538,8 @@ export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { m
       const mine = samples.filter((x) => x.pause_s === pause_s && x.arm === arm);
       const judged = mine.filter((x) => typeof x.restored === "boolean");
       const restored = judged.length ? `${judged.filter((x) => x.restored).length}/${judged.length}` : "-";
-      lines.push(`| ${pause_s} s | ${arm} | ${total} | ${fb.failed} | ${restored} | ${pts.join(" | ")} | ${gap} | ${pin.length ? `${sec(percentile(pin, 50))} / ${sec(percentile(pin, 95))}` : "-"} |`);
+      const suspect = mine.filter((x) => x.error && x.product_suspect).length;
+      lines.push(`| ${pause_s} s | ${EXTRA_ARMS.includes(arm) ? `${arm} (extra)` : arm} | ${total} | ${fb.failed} | ${suspect} | ${restored} | ${pts.join(" | ")} | ${gap} | ${pin.length ? `${sec(percentile(pin, 50))} / ${sec(percentile(pin, 95))}` : "-"} | ${largestPhase(mine)} |`);
     }
   }
   const stopped = stops.map((x) => `- ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""}${x.machine ? ` (${x.machine})` : ""}: stopped after ${x.after} sample(s): ${x.reason}`);
@@ -492,7 +548,7 @@ export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { m
   for (const pause_s of [...new Set(samples.map((x) => x.pause_s))].sort((a, b) => a - b)) {
     for (const arm of RESUME_ARMS) {
       const counts = new Map<string, number>();
-      for (const x of samples) if (x.pause_s === pause_s && x.arm === arm && x.error) { const k = `${x.cause ? `[${x.cause}] ` : ""}${x.error}`; counts.set(k, (counts.get(k) ?? 0) + 1); }
+      for (const x of samples) if (x.pause_s === pause_s && x.arm === arm && x.error) { const k = `${x.product_suspect ? "[product-suspect] " : x.cause ? `[${x.cause}] ` : ""}${x.error}`; counts.set(k, (counts.get(k) ?? 0) + 1); }
       for (const [e, c] of [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3)) errs.push(`- ${pause_s} s ${arm}: ${c}x ${e.slice(0, 300)}`);
     }
   }
@@ -502,7 +558,7 @@ export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { m
   const turnLines = [...turns].map(([t, c]) => `- ${t} (${c}x)`);
   const fill = [...new Set(samples.map((x) => x.fill_mib).filter((x): x is number => typeof x === "number"))];
   const head = `${providers.length ? `Provider: ${[...new Set(providers)].join(", ")}. ` : ""}${fill.length ? `Resident through each pause: ${fill.join(", ")} MiB (--resume-fill). ` : ""}`;
-  return `${head ? `${head}\n\n` : ""}${lines.join("\n")}${extra}${turnLines.length ? `\n\nTurns that did not complete:\n\n${turnLines.join("\n")}` : ""}\n\nrestored: samples whose agent processes were the same before the pause and after the wake and whose turn completed, of those read. Causes: pause (did not land or hold), unavailable, wake (the resume call), attach (the client's new dial did not attach the chat), reply, turn, read.\n\nSeconds from the wake's event. answered: the resume call's answer (send: none). running: the guest's first tick after the pause. registered: the relay registration line. first byte: the agent reply's first record on the client. page-in: with --resume-fill, the guest's walk over its held memory after the reply (cold pages load on first touch; about 0.85 s per GiB in hq#17877). n counts samples; a point's p50/p95 uses the samples that reached it.\n`;
+  return `${head ? `${head}\n\n` : ""}${lines.join("\n")}${extra}${turnLines.length ? `\n\nTurns that did not complete:\n\n${turnLines.join("\n")}` : ""}\n\nArms marked (extra) are not the app's path: reattach redials and reattaches the chat before it sends, resume calls POST /v1/machines/{id}/resume for its Server-Timing. product-suspect: a failure the harness does not cause (agent_session.not_attached, a lost Claude login), counted apart until it is judged. largest server phase: the resume answer's largest Server-Timing phase other than total, the most common one, with its p50 and how many answers sent a split; none sent: the answers had no Server-Timing header.\n\nrestored: samples whose agent processes were the same before the pause and after the wake and whose turn completed, of those read. Causes: pause (did not land or hold), unavailable, wake (the resume call), attach (the client's new dial did not attach the chat), reply, turn, read.\n\nSeconds from the wake's event. answered: the resume call's answer (send: none). running: the guest's first tick after the pause. registered: the relay registration line. first byte: the agent reply's first record on the client. page-in: with --resume-fill, the guest's walk over its held memory after the reply (cold pages load on first touch; about 0.85 s per GiB in hq#17877). n counts samples; a point's p50/p95 uses the samples that reached it.\n`;
 }
 
 if (import.meta.main && process.argv[2] === "aggregate") {

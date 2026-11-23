@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { cliExecResult } from "./cloud-journey.ts";
-import { armOrder, armUnavailable, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
+import { armOrder, armUnavailable, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
   test("takes the gap spanning the event and the first relay line after it, guest clock corrected", () => {
@@ -42,8 +42,8 @@ test("percentile is nearest rank", () => {
 test("resumeMarkdown judges first byte p95 against the direct answer's p95", () => {
   const s = (arm: ResumeSample["arm"], answered: number | null, fb: number): ResumeSample => ({ pause_s: 30, arm, i: 0, machine: "m", at: "", paused_ms: 30_000, answered_ms: answered, running_ms: null, registered_ms: null, first_byte_ms: fb, ack_ms: null, clock_offset_ms: 0, error: "" });
   const md = resumeMarkdown([s("direct", 800, 1500), s("platform", 1200, 2300), s("send", null, 2600)]);
-  expect(md).toContain("| 30 s | platform | 1 | 0 | - | 1.20 / 1.20 | - / - | - / - | 2.30 / 2.30 | 1.50 | - |");
-  expect(md).toContain("| 30 s | send | 1 | 0 | - | - / - | - / - | - / - | 2.60 / 2.60 | 1.80 | - |");
+  expect(md).toContain("| 30 s | platform | 1 | 0 | 0 | - | 1.20 / 1.20 | - / - | - / - | 2.30 / 2.30 | 1.50 | - | - |");
+  expect(md).toContain("| 30 s | send | 1 | 0 | 0 | - | - / - | - / - | - / - | 2.60 / 2.60 | 1.80 | - |");
 });
 
 test("the fill holder ships its python as base64, so no shell or printf reads its % or quotes", () => {
@@ -144,8 +144,36 @@ describe("run 45177970049's causes", () => {
       { ...base, i: 2, answered_ms: null, first_byte_ms: null, cause: "pause", error: "pause did not hold: the machine read running after the 5 s hold" },
     ], [], ["vmapi"]);
     expect(md).toContain("Provider: vmapi.");
-    expect(md).toMatch(/\| 5 s \| platform \| 3 \| 1 \| 1\/2 \|/);
+    expect(md).toMatch(/\| 5 s \| platform \| 3 \| 1 \| 0 \| 1\/2 \|/);
     expect(md).toContain("- 5 s platform: 1x [pause] pause did not hold: the machine read running after the 5 s hold");
     expect(md).toContain("- 5 s platform: Not logged in (1x)");
+  });
+});
+
+describe("the dictator's two changes (2026-11-23)", () => {
+  const base: ResumeSample = { pause_s: 5, arm: "platform", i: 0, machine: "m", at: "", paused_ms: 5_000, answered_ms: 900, running_ms: 800, registered_ms: null, first_byte_ms: 2_000, ack_ms: null, clock_offset_ms: 0, error: "" };
+  test("not_attached and a lost login are product-suspect, counted apart; a harness cause is not", () => {
+    expect(productSuspect("agent-session-send: agent_session.not_attached")).toBe(true);
+    expect(productSuspect("turn: Not logged in · Please run /login")).toBe(true);
+    expect(productSuspect("the client has no dial")).toBe(false);
+    const md = resumeMarkdown([
+      { ...base, first_byte_ms: null, error: "agent_session.not_attached", product_suspect: true },
+      { ...base, i: 1, first_byte_ms: null, error: "the client has no dial", cause: "read", product_suspect: false },
+    ]);
+    expect(md).toContain("| 5 s | platform | 2 | 2 | 1 |");
+    expect(md).toContain("1x [product-suspect] agent_session.not_attached");
+    expect(md).toContain("1x [read] the client has no dial");
+  });
+  test("the largest Server-Timing phase is named with its p50; an answer with no header reads none sent", () => {
+    expect(largestPhase([{ ...base, server_timing_header: null }, { ...base, server_timing_header: null }])).toBe("none sent (0/2)");
+    expect(largestPhase([
+      { ...base, server_timing: { vmapi: 800, pre: 120, total: 1000 }, server_timing_header: "x" },
+      { ...base, server_timing: { vmapi: 1200, pre: 90, total: 1400 }, server_timing_header: "x" },
+      { ...base, server_timing_header: null },
+    ])).toBe("vmapi 0.80 (2/3)");
+    expect(largestPhase([base])).toBe("-");
+  });
+  test("extra arms are labelled", () => {
+    expect(resumeMarkdown([{ ...base, arm: "reattach" }])).toContain("| 5 s | reattach (extra) |");
   });
 });

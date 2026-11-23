@@ -5375,10 +5375,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       else {
         const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
         let k = 0;
-        const platformStart = async (): Promise<{ serverTiming?: Record<string, number> }> => {
+        const platformStart = async (): Promise<{ serverTiming?: Record<string, number>; serverTimingHeader: string | null }> => {
           const r = await api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: `${tag}-rm-start-${k++}` }, 180_000);
           if (r.status !== 200 || r.body?.ok !== true) throw new Error(`cloud.machine.start: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
-          return { serverTiming: parseServerTiming(r.headers?.get("server-timing")) };
+          const h = r.headers?.get("server-timing") ?? null;
+          return { serverTiming: parseServerTiming(h), serverTimingHeader: h };
+        };
+        // The resume arm: the person's resume route, which answers Server-Timing (cmux-platform ResumeTiming.ts).
+        const resumeRoute = async (): Promise<{ serverTiming?: Record<string, number>; serverTimingHeader: string | null }> => {
+          const r = await api.raw("POST", `/v1/machines/${created.id}/resume`, {}, 180_000);
+          const h = r.headers?.get("server-timing") ?? null;
+          if ([400, 404, 405, 501].includes(r.status)) throw new Error(`unavailable here: POST /v1/machines/{id}/resume answered HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+          if (r.status < 200 || r.status >= 300) throw new Error(`resume route: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+          return { serverTiming: parseServerTiming(h), serverTimingHeader: h };
         };
         // The CLI processes the matrix starts (its chat dial, each exec) read the token from here, so a new sign-in
         // reaches every one started after it.
@@ -5416,6 +5425,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             await waitMachine(api, created.id, (x) => x.status === "paused", 180_000);
           },
           platformResume: platformStart,
+          resumeRoute,
           platformSync: async () => {
             await platformStart();
             await waitMachine(api, created.id, (x) => x.status === "running", 180_000);

@@ -67,7 +67,7 @@ jobs:
           if full:
               plan += [(900, 4, 5), (3600, 20, 1)]
           # Each shard's wall budget, minutes: 1.5 x (3 arms x n x (pause + 60 s)), within 20..290 (step timeout 300).
-          budget = lambda p, n: max(20, min(290, round(1.5 * 3 * n * (p + 60) / 60)))
+          budget = lambda p, n: max(20, min(290, round(1.5 * 4 * n * (p + 60) / 60)))
           shards = [{"pause": p, "shard": k, "n": n, "budget": budget(p, n)} for p, m, n in plan for k in range(m)]
           print("shards=" + json.dumps(shards))
           PY
