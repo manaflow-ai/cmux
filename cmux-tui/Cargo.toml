@@ -153,6 +153,7 @@ members = [
     "crates/cmux-mobile-core",
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
+    "crates/cmux-tab-snapshots",
     "crates/cmux-palette-ranker",
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",

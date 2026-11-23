@@ -9,7 +9,7 @@ import WebKit
 public import Observation
 
 extension PageDescriptor {
-    /// Home's Set Up cmux card (webviews/src/pages/setup-card, the React card home-messages/cards/setup), shown
+    /// Home's Set Up cmux card (webviews/src/pages/setup-card), shown
     /// in the native Home's Chief chat (``SetupCardHost``).
     public static let setupCard = PageDescriptor(
         id: "cmux.setup-card", resource: "setup-card", namespaces: [SetupCardPageProvider.prefix],
