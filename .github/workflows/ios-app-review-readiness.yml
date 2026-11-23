@@ -200,9 +200,9 @@ jobs:
     environment: release
     permissions:
       contents: read
-    # It holds the App Store Connect key, so it takes an ephemeral machine by
-    # its fixed label, as ios-app-store.yml's key-holding job did.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    # It holds the App Store Connect key, so it takes an ephemeral Linux
+    # machine, as ios-asc-ops.yml's key-holding job does; nothing here needs a Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     env:
       ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
@@ -218,7 +218,18 @@ jobs:
             cmux-next-ios/AppStoreReview
           sparse-checkout-cone-mode: false
       - name: Install asc
-        run: brew list asc >/dev/null 2>&1 || brew install asc
+        env:
+          ASC_CLI_VERSION: 7.2.0
+          ASC_CLI_SHA256: b77872625ba50d95a3a92b3d289d28617e1ccec6d9ae80206ef1956bcb6121ba
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"; mkdir -p "$bin"
+          curl -fsSL --retry 3 -o "$bin/asc" \
+            "https://github.com/rudrankriyam/App-Store-Connect-CLI/releases/download/$ASC_CLI_VERSION/asc_${ASC_CLI_VERSION}_linux_amd64"
+          echo "$ASC_CLI_SHA256  $bin/asc" | sha256sum -c -
+          chmod +x "$bin/asc"
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/asc" --version
       - name: Read-only App Store Connect checks
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
