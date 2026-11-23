@@ -520,7 +520,8 @@ fn an_incomplete_frame_behind_a_keyframe_does_not_drop_it() {
     assert!(push_all(&mut r, &next[1..], 20_000).is_empty());
     assert!(r.tick(20_000 + 400_000).is_empty());
     assert!(r.take_losses().is_empty(), "a P-frame's deadline dropped the keyframe");
+    assert!(key.len() > 1 && next.len() > 1, "both frames span several shards");
     let released = push_all(&mut r, &key[..1], 600_000);
-    assert_eq!(released, vec![1], "the repaired keyframe");
+    assert_eq!(released, vec![1], "the repaired keyframe; losses {:?}", r.take_losses());
     assert_eq!(push_all(&mut r, &next[..1], 610_000), vec![2], "then its P-frame");
 }
