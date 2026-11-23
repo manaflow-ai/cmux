@@ -680,28 +680,33 @@ class SignerTests(unittest.TestCase):
 
 
 class FleetStepTests(unittest.TestCase):
-    def test_a_stale_ffi_pin_builds_the_mac_app_on_a_mac(self):
-        # At a head whose FFI sources are ahead of app-ffi-pin.json, `--builder auto` sent the Mac build
-        # to the Linux pool, which cannot build the FFI from source: job 9fa436759cd7bb0f72e3e928 failed
-        # "stale FFI" in 2.5 s at 0e6e7019af (2026-11-19). An up-to-date pin keeps the default builder.
-        for pin_ok, want_mac in ((False, True), (True, False)):
+    def test_a_stale_ffi_pin_keeps_the_default_builder(self):
+        # review.sh sent every head whose FFI sources were ahead of app-ffi-pin.json to `--builder mac`
+        # (#47722, after pool job 9fa436759cd7bb0f72e3e928 failed "stale FFI" at 0e6e7019af, 2026-11-19).
+        # The pool has built such heads since hq#16145/#16334/#16431 (2026-11-21): it links the newest
+        # published release with the head's FFI inputs, or cross-builds the library, or the whole
+        # xcframework when the headers changed. With FFI commits landing every half hour the pin is behind
+        # nearly always (f85c0754cb on 2026-11-23, 198 files behind), so every hand-off queued for the few
+        # Macs, for hours, and a Mac fails a head whose headers changed ("the FFI headers at 9edfda1061
+        # drop or change declarations of the pinned f85c0754", job cb3e5fa3159ea9806ae980fe). A stale pin
+        # and a fresh one submit the same build, and the pin check is not run at all.
+        for pin_ok in (False, True):
             with self.subTest(pin_ok=pin_ok), tempfile.TemporaryDirectory() as temp:
                 ci = Path(temp) / 'cmux-ci'
                 ci.write_text('#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "%s/args"\necho \'{"id": "job123"}\'\n' % temp)
                 ci.chmod(0o755)
                 pin = Path(temp) / 'pin'
-                pin.write_text('#!/bin/sh\nexit %d\n' % (0 if pin_ok else 1))
+                pin.write_text('#!/bin/sh\ntouch "%s/pin-checked"\nexit %d\n' % (temp, 0 if pin_ok else 1))
                 pin.chmod(0o755)
                 r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{temp}" WORKSPACE=w CMUX_CI="{ci}"
 fleet_submit_mac; echo "JOB=$MAC_JOB"''', {'CMUX_CI': str(ci), 'CNX_REVIEW_FFI_PIN_CHECK': str(pin)})
                 self.assertIn('JOB=job123', r.stdout, r.stderr)
                 args = (Path(temp) / 'args').read_text().splitlines()
                 self.assertEqual(args[:2], ['build', 'cmux'])
-                if want_mac:
-                    self.assertEqual(args[args.index('--builder') + 1], 'mac')
-                    self.assertTrue(args[args.index('--reason') + 1])
-                else:
-                    self.assertNotIn('--builder', args)
+                self.assertNotIn('--builder', args)
+                self.assertNotIn('--reason', args)
+                self.assertFalse((Path(temp) / 'pin-checked').exists())
+                self.assertNotIn('builds on a Mac', r.stdout)
 
     def test_sim_step_arguments(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1459,6 +1464,104 @@ main --tag t {' '.join(flags)}""")
         receipt = (ROOT / 'cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/DogfoodReadiness.swift').read_text()
         self.assertTrue(receipt.startswith('#if DEBUG'))
 
+
+
+TRY = ROOT / 'cmux-next-ios/scripts/try.sh'
+
+
+class TryScriptTests(unittest.TestCase):
+    """cmux-next-ios/scripts/try.sh: any PR, branch or commit on the phone as cmux Dev (dev.cmux.mobile.dev)."""
+
+    def test_try_mode_takes_no_arguments_and_tag_dev_is_reserved(self):
+        for args, want in ((['try', 'x'], 'try takes no further arguments'),
+                           (['handoff', 'tag=dev'], 'tag dev is the cmux Dev app'),
+                           (['shots', 'handoff=dev'], 'tag dev is the cmux Dev app')):
+            with self.subTest(args=args):
+                r = subprocess.run(['bash', str(SIM), *args], capture_output=True, text=True,
+                                   env=dict(os.environ, CMUX_CI_STEP_KEY='test'), timeout=30)
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn(want, r.stderr)
+
+    def test_try_mode_builds_the_dev_app_with_no_build_space(self):
+        text = SIM.read_text()
+        # The controller's shots form reaches it until the controller lists try.
+        self.assertIn('"${2:-}" == try=dev', text)
+        block = text[text.index('if [[ "$mode" == try ]]; then\n  # The cmux Dev app'):]
+        block = block[:block.index('\nfi\n')]
+        self.assertIn('"CMUX_MOBILE_TAG=.dev" "CMUX_MOBILE_DISPLAY_NAME=cmux Dev"', block)
+        # No dev tag: the person's real data, as the shared Demo build.
+        settings = [l for l in block.splitlines() if 'build_settings+=' in l]
+        self.assertEqual(len(settings), 1)
+        self.assertNotIn('CMUX_MOBILE_DEV_TAG', settings[0])
+        self.assertIn("-destination 'generic/platform=iOS'", block)
+        self.assertIn('CODE_SIGNING_ALLOWED=NO', block)
+        self.assertIn('CmuxMobileApp-Dev-device-unsigned.app.zip', block)
+
+    def test_resolves_a_commit_and_a_branch(self):
+        r = bash(f'CNX_TRY_HOME=/tmp/x "{TRY}" {SHA} --dry-run')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f'commit {SHA[:12]} on every connected iPhone as cmux Dev (dev.cmux.mobile.dev)', r.stdout)
+        r = bash(f'"{TRY}" --dry-run')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('name a PR, branch or commit', r.stderr)
+        r = bash(f'"{TRY}" {SHA} {SHA}')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('one target at a time', r.stderr)
+
+    def test_fleet_step_arguments(self):
+        for mode, scene in (('try', 'try=dev'), ('handoff', 'handoff=dev')):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+                ci = Path(temp) / 'cmux-ci'
+                ci.write_text('#!/bin/sh\n[ "$1" = run ] && echo "$@" > "%s/args"\n'
+                              'echo "cmux-ci: step 0123456789abcdef01234567 (simulator, key k)" >&2\n' % temp)
+                ci.chmod(0o755)
+                r = bash(f'''source "{TRY}"; SHA={SHA} STATE="{temp}" TRY_LABEL=x CMUX_CI="{ci}"; try_fleet {mode}; echo rc=$?''',
+                         {'CMUX_CI': str(ci)})
+                self.assertIn('rc=0', r.stdout, r.stderr)
+                args = (Path(temp) / 'args').read_text().split()
+                self.assertEqual(args[:7], ['run', '--class', 'simulator', '--script', 'scripts/ci/cmux-next-ios-sim.sh',
+                                            '--ref', SHA])
+                self.assertEqual(args[args.index('shots') + 2], scene)
+                self.assertIn(f'cnx-ios-try-{mode}-{SHA[:12]}', args)
+                self.assertIn('--no-supersede', args)
+                # No session: cmux Dev keeps the person's own sign-in; nothing is sealed to the worker.
+                self.assertNotIn('--sign-in', args)
+                self.assertNotIn('--urgent', args)
+
+    def test_urgent_puts_the_step_first_with_a_reason(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text('#!/bin/sh\n[ "$1" = run ] && for a in "$@"; do echo "$a"; done > "%s/args"\n' % temp)
+            ci.chmod(0o755)
+            bash(f'source "{TRY}"; SHA={SHA} STATE="{temp}" TRY_LABEL="PR #1" TRY_URGENT=1 CMUX_CI="{ci}"; try_fleet try',
+                 {'CMUX_CI': str(ci)})
+            args = (Path(temp) / 'args').read_text().splitlines()
+            self.assertIn('--urgent', args)
+            self.assertIn('PR #1', args[args.index('--reason') + 1])
+
+    def test_a_script_without_the_try_mode_builds_through_handoff(self):
+        with tempfile.TemporaryDirectory() as temp:
+            gh = Path(temp) / 'gh'
+            gh.write_text('#!/bin/sh\necho "case \\"$mode\\" in build|handoff) ;; esac"\n')
+            gh.chmod(0o755)
+            r = bash(f'source "{TRY}"; SHA={"b" * 40} REPO_ROOT="{temp}"; try_script_mode',
+                     {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.stdout.strip(), 'handoff', r.stderr)
+            gh.write_text('#!/bin/sh\necho "try=dev"\n')
+            r = bash(f'source "{TRY}"; SHA={"b" * 40} REPO_ROOT="{temp}"; try_script_mode',
+                     {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.stdout.strip(), 'try', r.stderr)
+
+    def test_status_reads_the_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            rows = [{'at': '2026-11-21T12:00:00Z', 'result': 'ok', 'sha': SHA, 'target': 'PR #1', 'how': h,
+                     'total_s': t, 'build_s': b, 'phones': 1}
+                    for h, t, b in (('cached on this Mac (fleet)', 40, 1), ('fleet step s (try mode)', 600, 560))]
+            Path(temp, 'history.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
+            r = bash(f'CNX_TRY_HOME="{temp}" "{TRY}" status')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn('built ahead or cached: n=1 p50=40 s', r.stdout)
+            self.assertIn('cold (fleet build): n=1 p50=600 s', r.stdout)
 
 if __name__ == '__main__':
     unittest.main()

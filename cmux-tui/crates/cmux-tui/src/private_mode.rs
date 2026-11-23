@@ -25,12 +25,20 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
                 1
             }
         }),
+        // cmux NEXT NIGHTLY's install check after an update: whether this
+        // build is due its canary chat, and what its result decides
+        // (cmux-install-check).
+        Some("__install-check") => Some(install_check(args.get(1..).unwrap_or_default())),
         // cmux NEXT's one-time adoption of its pre-isolation homes, run by the
         // app before it starts acpmux or the Chief owner (build_adopt.rs).
         #[cfg(unix)]
         Some("__adopt-build-homes") => Some(crate::build_adopt::run(&args[1..])),
         #[cfg(unix)]
         Some(terminal_paste::MODE) => Some(terminal_paste::run()),
+        // The Files pane's folder reads, which a DEV build runs under cmux Files (dev)
+        // (files_lister.rs).
+        #[cfg(unix)]
+        Some(crate::files_lister::MODE) => Some(crate::files_lister::run()),
         // The machine side of `cmux link machine update` (cx-rppd.13).
         #[cfg(unix)]
         Some(crate::link::machine_update::apply::MODE) => {
@@ -43,6 +51,13 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         #[cfg(not(target_os = "macos"))]
         Some(cmux_tui_core::computer_use_host::WORKER_MODE) => {
             Some(crate::computer_use_worker::run(args.get(1..).unwrap_or_default()))
+        }
+        // The terminal scroll-integrity probe (scroll_probe.rs) against any
+        // daemon socket: local, SSH or Cloud
+        // (scripts/measure/terminal-scroll-stress-linux.sh).
+        #[cfg(unix)]
+        Some(crate::scroll_probe::MODE) => {
+            Some(crate::scroll_probe::run(args.get(1..).unwrap_or_default()))
         }
         _ => None,
     }
@@ -82,3 +97,23 @@ fn render_capabilities(json: bool) -> String {
 #[cfg(test)]
 #[path = "private_mode_tests.rs"]
 mod tests;
+
+fn install_check(args: &[String]) -> i32 {
+    let mut stdin = String::new();
+    if args.first().map(String::as_str) == Some("decide")
+        && let Err(error) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin)
+    {
+        client_log::stderr_log!("startup", "{BIN}: install check: {error}");
+        return 1;
+    }
+    match cmux_install_check::run(args, &stdin) {
+        Ok(json) => {
+            println!("{json}");
+            0
+        }
+        Err(error) => {
+            client_log::stderr_log!("startup", "{BIN}: install check: {error}");
+            1
+        }
+    }
+}

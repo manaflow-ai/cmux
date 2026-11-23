@@ -57,6 +57,43 @@ DAEMON_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|terminal-host|optchat-chief
 SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|optchat-chief)$")
 
 
+# The bench's Chromium runs without its component updater. A fresh home (every run's) downloads and unpacks every
+# Chromium component in its first minutes; on one build on cmux20-bench, 2 runs with it and 2 without, it was about
+# half the app's idle CPU (0.47-0.54 % against 0.24-0.28 %) and of the renderer's (0.37-0.45 % against 0.13-0.18 %),
+# and runs of one build varied with it. 'none' turns it back on.
+BENCH_CEF_SWITCHES = "disable-component-update"
+
+
+def with_cef_switches(prepare, switches: str):
+    """`prepare` (the launch smoke's PREPARE_HOME), then the extra Chromium switches into the launch env."""
+    def run(env: dict) -> None:
+        prepare(env)
+        if switches and switches != "none":
+            env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = switches
+            log(f"idle-cpu: CMUX_NEXT_CEF_EXTRA_SWITCHES={switches}")
+    return run
+
+
+def chromium_dirs(home: Path) -> list[dict]:
+    """Each top-level entry of the app's Chromium root cache (`<Application Support>/<bundle id>/Chromium`, its
+    components among them) with its size in bytes, biggest first: what the component updater put on disk."""
+    rows: dict = {}
+    for root in (home / "Library/Application Support").glob("*/Chromium"):
+        for entry in root.iterdir():
+            size = 0
+            if entry.is_symlink() or not entry.is_dir():
+                size = entry.lstat().st_size
+            else:
+                for folder, _, files in os.walk(entry):
+                    for name in files:
+                        try:
+                            size += os.lstat(os.path.join(folder, name)).st_size
+                        except OSError:
+                            pass
+            rows[entry.name] = rows.get(entry.name, 0) + size
+    return [{"name": name, "bytes": size} for name, size in sorted(rows.items(), key=lambda item: (-item[1], item[0]))]
+
+
 def log(message: str) -> None:
     print(message, flush=True)
 
@@ -119,10 +156,111 @@ def switches(pid: int) -> int | None:
     return int(buf[20])
 
 
-def measure(app_pid: int, bundle: str, windows: int, window: float, each=None) -> list[dict]:
+def app_threads(before: dict, after: dict, seconds: float) -> list[dict]:
+    """The app's threads that ran in one window, grouped by name, busiest first: how many threads, CPU ms per second.
+    The kernel counts wakeups per process only; a thread's CPU time names which threads woke (a thread that never runs
+    never wakes). Unnamed threads (dispatch workers) group as "?"."""
+    groups: dict = {}
+    for row in bench_memory.thread_deltas(before, after, seconds, top=4096):
+        entry = groups.setdefault(row["name"], {"name": row["name"], "threads": 0, "cpu_ms_per_s": 0.0})
+        entry["threads"] += 1
+        entry["cpu_ms_per_s"] = round(entry["cpu_ms_per_s"] + row["cpu_ms_per_s"], 4)
+    return sorted(groups.values(), key=lambda entry: -entry["cpu_ms_per_s"])
+
+
+# What a shown cmux page does while nobody touches it: its running animations (an infinite CSS animation or a
+# blinking caret keeps Chromium drawing frames), what holds focus, and the page's own work per second.
+PAGE_PROBE = """(() => {
+  const anims = document.getAnimations().filter(a => a.playState === "running").map(a => {
+    const t = a.effect && a.effect.target, timing = a.effect && a.effect.getTiming ? a.effect.getTiming() : {};
+    const name = a.animationName || a.transitionProperty || a.constructor.name;
+    const where = t ? (t.tagName || "") + (t.id ? "#" + t.id : "") + (typeof t.className === "string" && t.className ? "." + t.className.trim().split(/\\s+/).slice(0, 3).join(".") : "") : "";
+    return {name, where, iterations: String(timing.iterations), duration: timing.duration};
+  });
+  const el = document.activeElement;
+  return JSON.stringify({visibility: document.visibilityState, focus: document.hasFocus(), ready: document.readyState,
+    active: el ? el.tagName + (el.isContentEditable ? "[contenteditable]" : "") : null, animations: anims.slice(0, 20),
+    animation_count: anims.length});
+})()"""
+IDLE_PROBE = """(async () => {
+  const debug = window.cmuxAcpmuxDebug;
+  if (!debug || typeof debug.idleProbe !== "function") return JSON.stringify({error: "no cmuxAcpmuxDebug.idleProbe"});
+  return JSON.stringify(await debug.idleProbe({ms: 3500}));
+})()"""
+PAGE_METRICS = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "LayoutCount",
+                "RecalcStyleCount")
+
+
+def page_activity(call, seconds: float = 10.0) -> list[dict]:
+    """After the measured windows (its DevTools calls wake the pages): per cmux page, shown or hidden (`debug.cef_pages`), the
+    PAGE_PROBE reply and Chromium's page metrics per second over `seconds`. `call(method, params)` is the app's
+    control socket. A page whose DevTools call fails keeps its error."""
+    def devtools(browser, method, params=None):
+        reply = call("debug.cef_page_devtools", {"browser": browser, "method": method, "params": params or {}})
+        if not isinstance(reply, dict) or reply.get("error") or not isinstance(reply.get("result"), str):
+            return {"error": (reply or {}).get("error") if isinstance(reply, dict) else "no reply"}
+        try:
+            return json.loads(reply["result"])
+        except ValueError as error:
+            return {"error": str(error)}
+
+    def metrics(browser):
+        reply = devtools(browser, "Performance.getMetrics")
+        return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else None
+
+    every = (call("debug.cef_pages") or {}).get("pages") or []
+    # Every page's load state, browser tabs and blank pages too: a page whose load never ends keeps Chrome's tab icon
+    # spinning (a compositor animation in the app at idle: "CompositorAnimationObserver is active for too long ...
+    # TabIcon" in the app log).
+    log("IDLE-CPU-LOADING " + json.dumps([{"browser": p.get("browser"), "origin": p.get("origin"), "path": p.get("path"),
+                                           "hidden": p.get("hidden"), "loading": p.get("loading")} for p in every]))
+    # Hidden pages too: a hidden page's script runs on its renderer's main thread as a shown one's does.
+    pages = [page for page in every if str(page.get("origin", "")).startswith("cmux-page://")]
+    out = []
+    for page in pages:
+        devtools(page["browser"], "Performance.enable")
+        entry = {"browser": page["browser"], "origin": page.get("origin"), "path": page.get("path"),
+                 "hidden": bool(page.get("hidden")), "loading": page.get("loading"),
+                 "renderer_clients": page.get("renderer_clients")}
+        probe = devtools(page["browser"], "Runtime.evaluate", {"expression": PAGE_PROBE, "returnByValue": True})
+        try:
+            entry.update(json.loads(probe["result"]["value"]))
+        except (KeyError, TypeError, ValueError):
+            entry["probe_error"] = probe
+        out.append(entry)
+    # An agent page's own probe (idleProbe.ts): every timer, frame and mutation it asks for in 3.5 s, by call site.
+    for entry in out:
+        if "cmux.agent" not in str(entry.get("origin")):
+            continue
+        reply = devtools(entry["browser"], "Runtime.evaluate", {
+            "expression": IDLE_PROBE, "awaitPromise": True, "returnByValue": True, "timeout": 4500})
+        try:
+            entry["idle_probe"] = json.loads(reply["result"]["value"])
+        except (KeyError, TypeError, ValueError):
+            entry["idle_probe"] = {"error": reply}
+    before = {entry["browser"]: metrics(entry["browser"]) for entry in out}
+    time.sleep(seconds)  # sleep-ok: the measured window: the pages run with no call into them
+    for entry in out:
+        first, last = before[entry["browser"]], metrics(entry["browser"])
+        if first and last:
+            entry["metrics_per_s"] = {key: round((last.get(key, 0) - first.get(key, 0)) / seconds, 4)
+                                      for key in PAGE_METRICS if key in last}
+        devtools(entry["browser"], "Performance.disable")
+    return out
+
+
+def renderer_pids(procs: dict) -> list[int]:
+    """The Chromium renderers among the app's processes (by the kind `bench_memory.owned` gives them)."""
+    return [pid for pid, (kind, _cmd) in procs.items() if kind.startswith("cef-renderer")]
+
+
+def measure(app_pid: int, bundle: str, windows: int, window: float, each=None, threads=None,
+            renderer_threads=None) -> list[dict]:
     """Per process: kind, command and each window's CPU %, wakeups/s, switches/s, then the medians. `each(rows, index)`,
     if given, runs after each window with that window's rows (busiest first); a new window starts after it returns, so
-    its own work (a `sample`) is never inside a measured window."""
+    its own work (a `sample`) is never inside a measured window. `threads`, if given, gets one `app_threads` list per
+    window (proc_pidinfo reads from outside the app: no call into it); `renderer_threads` gets one {pid: groups} per
+    window for every Chromium renderer (a renderer's CPU with no page script names its compositor or IO threads)."""
     procs = bench_memory.owned(app_pid, bundle)
 
     def mark():
@@ -130,9 +268,18 @@ def measure(app_pid: int, bundle: str, windows: int, window: float, each=None) -
 
     spans = []
     for index in range(windows):
+        before_threads = bench_memory.thread_times(app_pid) if threads is not None else None
+        before_renderers = {pid: bench_memory.thread_times(pid) for pid in renderer_pids(procs)} \
+            if renderer_threads is not None else None
         start = mark()
         time.sleep(window)  # the measured idle window: no call into the app or its processes
         spans.append((start, mark()))
+        seconds = spans[-1][1][0] - start[0]
+        if threads is not None:
+            threads.append(app_threads(before_threads, bench_memory.thread_times(app_pid), seconds))
+        if renderer_threads is not None:
+            renderer_threads.append({pid: app_threads(before, bench_memory.thread_times(pid), seconds)
+                                     for pid, before in before_renderers.items()})
         if each is not None:
             each(rows_of(procs, spans[-1:]), index)
     return rows_of(procs, spans)
@@ -362,7 +509,7 @@ def bench_line(rows: list[dict], samples: dict) -> dict:
     return line
 
 
-def main(argv: list[str] | None = None) -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--artifact", help="sha256:HEX of a fleet build's app zip (cmux-ci status JOB: artifact)")
@@ -384,8 +531,19 @@ def main(argv: list[str] | None = None) -> int:
                         help="after each window: one IDLE-CPU-WINDOW line per daemon and `sample` of the busiest process")
     parser.add_argument("--budget-cpu", type=float, default=1.0, help="CPU %% of one core per daemon process")
     parser.add_argument("--budget-wakeups", type=float, default=1.0, help="wakeups per second per daemon process")
+    parser.add_argument("--cef-switches", default=BENCH_CEF_SWITCHES,
+                        help="extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES; development "
+                             f"bundles of DEBUG builds); default {BENCH_CEF_SWITCHES} (see BENCH_CEF_SWITCHES), "
+                             "'none' for none (the component updater on, as a person's app runs)")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
+    args.parser = parser
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    parser = args.parser
     if (args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0 or args.history < 0
             or not math.isfinite(args.writers) or not math.isfinite(args.window) or not math.isfinite(args.minutes)
             or args.writers < 0 or args.history_prompt_kb < 0 or (args.writers > 0 and args.history <= 0)):
@@ -419,7 +577,7 @@ def main(argv: list[str] | None = None) -> int:
                 return []
         result["chats_made"] = made
         log(f"idle-cpu: idle {args.minutes:g} min from now, no call into the app")
-        time.sleep(args.minutes * 60)  # the idle period itself
+        time.sleep(args.minutes * 60)  # sleep-ok: the idle period itself (--minutes, no call into the app)
         if process.poll() is not None:
             verdict.update(status=1, why=f"the app exited during the idle period (status {process.returncode})")
             return [verdict["why"]]
@@ -434,9 +592,26 @@ def main(argv: list[str] | None = None) -> int:
                 log(f"IDLE-CPU-WINDOW {index + 1}/{args.windows} busiest {top['kind']} pid={top['pid']} "
                     f"cpu_pct={top['cpu_pct']} top_frame={top_frame(text)!r}")
 
+        threads: list = []
+        renderer_threads: list = []
         rows = measure(process.pid, bundle, args.windows, args.window,
-                       each if args.sample_each_window and not args.no_sample else None)
+                       each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
         result["processes"] = rows
+        result["app_threads"] = threads
+        result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
+        result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
+        for entry in result["pages"]:
+            log("IDLE-CPU-PAGE " + json.dumps(entry, sort_keys=True))
+        result["chromium_dirs"] = chromium_dirs(Path(env["HOME"]))
+        log("IDLE-CPU-CHROMIUM-DIRS " + json.dumps(result["chromium_dirs"][:24]))
+        for index, groups in enumerate(threads):
+            log(f"IDLE-CPU-THREADS {index + 1}/{args.windows} app " + " ".join(
+                f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
+        for index, window in enumerate(renderer_threads):
+            for pid, groups in window.items():
+                if groups and sum(entry["cpu_ms_per_s"] for entry in groups) >= 0.5:  # quiet renderers: no line
+                    log(f"IDLE-CPU-THREADS {index + 1}/{args.windows} cef-renderer pid={pid} " + " ".join(
+                        f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
         for row in rows:
             log(f"IDLE-CPU {row['kind']} pid={row['pid']} cpu_pct={row['cpu_pct']} wakeups_per_s={row['wakeups_per_s']} "
                 f"switches_per_s={row['switches_per_s']} windows={json.dumps([[w['cpu_pct'], w['wakeups_per_s']] for w in row['windows']])}")
@@ -488,10 +663,10 @@ def main(argv: list[str] | None = None) -> int:
     state: dict = {}
     writer_dir = (out or Path(tempfile.mkdtemp(prefix="idle-cpu-"))) / "writers"
     # A person's home has a login keychain: without one Chromium's Safe Storage dialog sits there (cmuxterm-hq#11994).
-    smoke.PREPARE_HOME = smoke.login_keychain
+    smoke.PREPARE_HOME = with_cef_switches(smoke.login_keychain, args.cef_switches)
     if args.history > 0:
         def prepare(env):
-            smoke.login_keychain(env)
+            with_cef_switches(smoke.login_keychain, args.cef_switches)(env)
             result["history"] = seed_history(Path(env["HOME"]), args.history, args.history_prompt_kb)
             log(f"idle-cpu: home seeded: {json.dumps(result['history'])}")
             if args.writers > 0:

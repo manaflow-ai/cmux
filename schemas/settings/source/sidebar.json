@@ -390,6 +390,35 @@
           }
         },
         {
+          "key": "sidebar.nav",
+          "note": "The nav block a look puts at the top of the sidebar: plain icon and label rows that run cmux actions. Rust validates it (cmux-layout-reducer sidebar_nav.rs); empty draws no block.",
+          "title": {
+            "key": "settings.sidebar.nav",
+            "text": "Sidebar Nav Rows"
+          },
+          "help": {
+            "key": "settings.sidebar.nav.help",
+            "text": "Rows at the top of the sidebar that run cmux actions, by action id, optionally \"id | Title | symbol\". Empty shows none."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "sidebar",
+            "nav",
+            "navigation",
+            "actions",
+            "new chat",
+            "search",
+            "pull requests",
+            "look"
+          ],
+          "page_hidden": "action ids; cmux.json, setups and theme files only",
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showSpaces",
           "title": {
             "key": "settings.sidebar.showSpaces",
@@ -690,6 +719,62 @@
           }
         },
         {
+          "key": "sidebar.look",
+          "name": "sidebarLook",
+          "title": {
+            "key": "settings.sidebar.look",
+            "text": "Sidebar Look"
+          },
+          "help": {
+            "key": "settings.sidebar.look.help",
+            "text": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cmux",
+              "title": {
+                "key": "settings.choice.sidebarLookCmux",
+                "text": "cmux"
+              }
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": "settings.choice.sidebarLookClaude",
+                "text": "Claude"
+              }
+            },
+            {
+              "value": "codex",
+              "title": {
+                "key": "settings.choice.sidebarLookCodex",
+                "text": "Codex"
+              }
+            },
+            {
+              "value": "studio",
+              "title": {
+                "key": "settings.choice.sidebarLookStudio",
+                "text": "Studio"
+              }
+            }
+          ],
+          "default": "cmux",
+          "keywords": [
+            "sidebar",
+            "look",
+            "preset",
+            "style",
+            "claude",
+            "codex",
+            "studio",
+            "like",
+            "app"
+          ],
+          "swift_owner": "SidebarLookPreset"
+        },
+        {
           "key": "sidebar.style",
           "title": {
             "key": "settings.sidebar.style",
@@ -950,6 +1035,37 @@
           }
         },
         {
+          "key": "sidebar.showAutomaticSessions",
+          "note": "Sessions no person started and no chat's subagent (the daemon recorded created_by kind script at the create: a script, an automation, a launcher) fold behind an Automatic (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer automatic). Off by default: they fold; on draws them in place.",
+          "title": {
+            "key": "settings.sidebar.showAutomaticSessions",
+            "text": "Show Automatic Sessions"
+          },
+          "help": {
+            "key": "settings.sidebar.showAutomaticSessions.help",
+            "text": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "automatic",
+            "auto",
+            "script",
+            "automation",
+            "background",
+            "hidden",
+            "hide",
+            "fold",
+            "sessions",
+            "tidy"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showColors",
           "title": {
             "key": "settings.sidebar.showColors",
@@ -1167,6 +1283,27 @@
                 "key": "settings.choice.groupBackgroundSections",
                 "text": "Sections"
               }
+            },
+            {
+              "value": "chip",
+              "title": {
+                "key": "settings.choice.groupBackgroundChip",
+                "text": "Chips"
+              }
+            },
+            {
+              "value": "tree",
+              "title": {
+                "key": "settings.choice.groupBackgroundTree",
+                "text": "Tree"
+              }
+            },
+            {
+              "value": "card",
+              "title": {
+                "key": "settings.choice.groupBackgroundCard",
+                "text": "Cards"
+              }
             }
           ],
           "default": "folder",
@@ -1185,7 +1322,14 @@
             "sections",
             "section",
             "heading",
-            "plain"
+            "plain",
+            "chip",
+            "chromium",
+            "rail",
+            "tree",
+            "guide",
+            "card",
+            "cards"
           ],
           "swift_enum": {
             "name": "SidebarGroupBackgroundStyle",
@@ -1860,6 +2004,56 @@
             "type": "SidebarNavigationSetting",
             "prefixed": true
           }
+        },
+        {
+          "key": "sidebar.sections.hidden",
+          "name": "sectionsHidden",
+          "note": "Sidebar sections to leave out, by section id or stable key (cmux-layout-reducer sidebar_section_customization.rs plans the projection; SidebarProjectionCustomizationResolver reads it; docs/cmux-next/sidebar-customization.md).",
+          "title": {
+            "key": "settings.sidebar.sections.hidden",
+            "text": "Hidden Sections"
+          },
+          "help": {
+            "key": "settings.sidebar.sections.hidden.help",
+            "text": "Sidebar sections to hide, by id. The section of the selected workspace always shows."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "sidebar",
+            "section",
+            "hide",
+            "hidden"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionIDsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.sections.order",
+          "name": "sectionsOrder",
+          "note": "Sidebar sections first in their region (top, middle, bottom), by section id or stable key; never across regions (sidebar_section_customization.rs).",
+          "title": {
+            "key": "settings.sidebar.sections.order",
+            "text": "Section Order"
+          },
+          "help": {
+            "key": "settings.sidebar.sections.order.help",
+            "text": "Sidebar sections to show first in their part of the sidebar, in this order, by id."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "sidebar",
+            "section",
+            "order",
+            "sort"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionIDsSetting",
+            "prefixed": true
+          }
         }
       ]
     },
@@ -2236,6 +2430,210 @@
             "order",
             "subtitle"
           ],
+          "swift_owner": {
+            "type": "WorkspaceRowSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.workspaceRow.lines",
+          "title": {
+            "key": "settings.workspaceRow.lines",
+            "text": "Row Layout"
+          },
+          "help": {
+            "key": "settings.workspaceRow.lines.help",
+            "text": "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line."
+          },
+          "kind": "json",
+          "shape": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "icon",
+                  "name",
+                  "working",
+                  "progress",
+                  "notification",
+                  "directory",
+                  "branch",
+                  "process",
+                  "agentStatus",
+                  "tabCount",
+                  "ports",
+                  "lastActivity",
+                  "pullRequest",
+                  "log"
+                ]
+              }
+            }
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.workspaceRow.lines.default",
+            "text": "Item switches"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "layout",
+            "lines",
+            "customize",
+            "tokens"
+          ],
+          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "swift_owner": {
+            "type": "WorkspaceRowSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.workspaceRow.linesByKind",
+          "title": {
+            "key": "settings.workspaceRow.linesByKind",
+            "text": "Row Layout by Kind"
+          },
+          "help": {
+            "key": "settings.workspaceRow.linesByKind.help",
+            "text": "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout."
+          },
+          "kind": "json",
+          "shape": {
+            "type": "object",
+            "propertyNames": {
+              "enum": [
+                "terminal",
+                "agent",
+                "browser",
+                "mixed"
+              ]
+            },
+            "additionalProperties": {
+              "type": "array",
+              "maxItems": 3,
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "icon",
+                    "name",
+                    "working",
+                    "progress",
+                    "notification",
+                    "directory",
+                    "branch",
+                    "process",
+                    "agentStatus",
+                    "tabCount",
+                    "ports",
+                    "lastActivity",
+                    "pullRequest",
+                    "log"
+                  ]
+                }
+              }
+            }
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.workspaceRow.lines.default",
+            "text": "Item switches"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "layout",
+            "lines",
+            "customize",
+            "tokens",
+            "kind",
+            "terminal",
+            "agent",
+            "browser"
+          ],
+          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "swift_owner": {
+            "type": "WorkspaceRowSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.workspaceRow.linesByAgent",
+          "title": {
+            "key": "settings.workspaceRow.linesByAgent",
+            "text": "Row Layout by Agent"
+          },
+          "help": {
+            "key": "settings.workspaceRow.linesByAgent.help",
+            "text": "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts."
+          },
+          "kind": "json",
+          "shape": {
+            "type": "object",
+            "maxProperties": 32,
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "additionalProperties": {
+              "type": "array",
+              "maxItems": 3,
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "icon",
+                    "name",
+                    "working",
+                    "progress",
+                    "notification",
+                    "directory",
+                    "branch",
+                    "process",
+                    "agentStatus",
+                    "tabCount",
+                    "ports",
+                    "lastActivity",
+                    "pullRequest",
+                    "log"
+                  ]
+                }
+              }
+            }
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.workspaceRow.lines.default",
+            "text": "Item switches"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "layout",
+            "lines",
+            "customize",
+            "tokens",
+            "agent",
+            "claude",
+            "codex"
+          ],
+          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
