@@ -66,6 +66,8 @@ enum RemoteHandlers {
             }
         })
         bindOpenRemote(into: registry, context: context)
+        bindPortActions(into: registry, context: context, reason: hasMachine)
+        bindSwitchHost(into: registry, context: context)
         CloudHandlers.bind("remote.newWorkspace", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
             guard session.daemon.connection != nil else { throw ActionFailure(message: RemoteStrings.notConnected(session.host.label)) }
