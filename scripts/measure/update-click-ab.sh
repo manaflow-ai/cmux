@@ -25,7 +25,7 @@ main() {
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   # The harness and summary as of this commit, whatever the sides' trees hold.
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" && cp scripts/measure/update-click-ab.py "$tools/" \
-    && cp scripts/cmux-next/tag_teardown.py "$tools/"  # run.py imports it from its parent folder
+    && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/"  # run.py imports them from its parent folder
   local base="" head rounds=3 delay=3 stress=0 arg rc=0 i side
   head="$(git rev-parse HEAD)"
   local checkout="$head"
