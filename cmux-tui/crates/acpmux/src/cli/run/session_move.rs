@@ -534,7 +534,8 @@ async fn move_steps(
         None => 0,
     };
     let harness = info.get("harness").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let target = waiting(&o.name, "choosing the machine", targets.pick(src, &group, need, &harness)).await?;
+    let target =
+        waiting(&o.name, "choosing the machine", targets.pick(src, &group, need, &harness)).await?;
     o.host = Some(target.name.clone());
     let remote = match target.probed.clone() {
         Some(r) => r,
