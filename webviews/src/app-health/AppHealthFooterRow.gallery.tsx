@@ -96,9 +96,9 @@ export default componentEntry<Props>({
       import("./AppHealth"),
       import("./model"),
       import("../pages/shared/i18n"),
-      import("../pages/server-cards/generated/strings.json"),
+      import("./galleryStrings"),
     ]);
-    const strings = createStrings(table.default);
+    const strings = createStrings(table.appHealthGalleryTable());
     // The row as the native footer lays it out (SidebarFooterBand): the avatar at the leading inset, the
     // spaces strip centered on the sidebar, the update button and Search at the trailing end.
     function Row({ line }: { line?: { text: string; tone: "danger" | "attention" | "muted" } | null }) {

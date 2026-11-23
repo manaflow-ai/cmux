@@ -180,9 +180,9 @@ export default componentEntry<Props>({
     const [views, { createStrings }, table] = await Promise.all([
       import("./AppHealth"),
       import("../pages/shared/i18n"),
-      import("../pages/server-cards/generated/strings.json"),
+      import("./galleryStrings"),
     ]);
-    const strings = createStrings(table.default);
+    const strings = createStrings(table.appHealthGalleryTable());
     const actions = { open: () => {}, repair: () => {} };
     return function GalleryAppHealth({ snapshot, treatment }: Props) {
       return (
