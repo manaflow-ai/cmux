@@ -96,7 +96,7 @@
 .signin-sheet {
   width: min(380px, calc(100vw - 48px));
   padding: var(--ds-space-5);
-  border-radius: var(--ds-radius-card);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-5));
 }
 
 .signin[data-look="sheet"] {
