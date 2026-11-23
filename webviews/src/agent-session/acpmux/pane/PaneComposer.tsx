@@ -27,7 +27,7 @@ import { SurgeHoldRow } from "../SurgeHoldRow";
 import { surgeShows } from "../conversation/surgeHold";
 import { githubFolder } from "../githubRepos";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../AddProjectPanel";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -215,6 +215,10 @@ export type PaneComposerDeps = {
   hideManaged: (sessionId: string) => void;
   goalAtFoot: boolean;
   goalNode: React.JSX.Element | null;
+  /** The approved plan's band (ApprovedPlanBand.tsx), drawn under the goal; null with none. */
+  approvedPlanNode?: React.JSX.Element | null;
+  /** The approved plan sits at the hat's foot, over the composer (approvedPlan.experiment.ts). */
+  approvedPlanAtFoot?: boolean;
   hatQuestionList: readonly HatQuestion[];
   NO_HAT_QUESTIONS: readonly HatQuestion[];
   hatQuestionActions: HatQuestionActions;
@@ -431,6 +435,8 @@ export function drawPaneComposer({
   hideManaged,
   goalAtFoot,
   goalNode,
+  approvedPlanNode = null,
+  approvedPlanAtFoot = false,
   hatQuestionList,
   NO_HAT_QUESTIONS,
   hatQuestionActions,
@@ -817,6 +823,7 @@ export function drawPaneComposer({
           />
         )}
         {!goalAtFoot && goalNode}
+        {!approvedPlanAtFoot && approvedPlanNode}
         <HatQuestions
           key={shownSessionId}
           questions={hatShows(hatQuestionList) ? hatQuestionList : NO_HAT_QUESTIONS}
@@ -834,6 +841,7 @@ export function drawPaneComposer({
             trayNode
           ))}
         {goalAtFoot && goalNode}
+        {approvedPlanAtFoot && approvedPlanNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
@@ -856,6 +864,7 @@ export function drawPaneComposer({
             stackAbove={
               (trayPlacement === "tray" && trayNode !== null) ||
               goalNode !== null ||
+              approvedPlanNode !== null ||
               (!showNewTab && surgeShows(snapshot.surge)) ||
               statusCardOpen ||
               hatShows(hatQuestionList)
