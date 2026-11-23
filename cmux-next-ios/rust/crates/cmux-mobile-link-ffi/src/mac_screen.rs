@@ -233,7 +233,7 @@ impl MacScreenRd {
         self.input(InputEvent::Scroll { dx, dy, precise });
     }
 
-    /// A key by full HID usage, `page << 16 | id` (page 7 for keys: `0x0007_0028` is Return).
+    /// A key by HID usage (page 7).
     pub fn key(&self, usage: u32, down: bool) {
         self.input(InputEvent::Key { usage, down });
     }
