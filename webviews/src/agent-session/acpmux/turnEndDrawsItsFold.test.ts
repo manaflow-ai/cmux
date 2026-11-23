@@ -91,7 +91,13 @@ test("a turn's end alone draws the fold its result draws", async () => {
     daemon.emit(id, { mux: "user_message", msg: { text: "Fold the retry work", promptId: `p-${turnId}` } });
     daemon.emit(id, { mux: "turn_started", msg: { turnId, promptId: `p-${turnId}` } });
     daemon.emit(id, {
-      update: { sessionUpdate: "tool_call", toolCallId: "c1", kind: "execute", title: "run tests", status: "completed" },
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "c1",
+        kind: "execute",
+        title: "run tests",
+        status: "completed",
+      },
     });
     daemon.emit(id, {
       update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done: the tests pass." } },
