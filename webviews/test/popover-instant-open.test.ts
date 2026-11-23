@@ -250,12 +250,16 @@ const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=
 /// keyframes are built.
 const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/VirtualTranscript.tsx": {
-    count: 5,
-    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943); the rows ride the composer field's growth spring",
+    count: 6,
+    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943); the rows ride the composer field's growth spring and slide by the room a change above them took",
   },
   "src/agent-session/acpmux/composer/fieldGrowth.ts": {
     count: 2,
     what: "the composer field grows and shrinks on one spring as a draft gains or loses lines; the field, never a menu",
+  },
+  "src/agent-session/acpmux/composer/composerHandover.ts": {
+    count: 3,
+    what: "a started chat's composer, its card and its field glide from where New Tab's drew to their place at the bottom; the composer, never a menu",
   },
   "src/agent-session/acpmux/chatSwitch.ts": {
     count: 1,
@@ -290,14 +294,17 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "a prompt sent while scrolled up arcs over the composer and tucks behind it",
   },
   "src/agent-session/acpmux/conversation/turnEndFold.ts": {
-    count: 1,
+    count: 2,
     what: "a turn's end folds its work in one motion: the rows that stay slide to their place, copies of the rows it took away fade where they were",
   },
   "src/agent-session/acpmux/conversation/tailGlide.ts": {
     count: 2,
     what: "the rows under a change in a running turn (the live line, a steer, the footer) glide to their new place, and the row above one that glides down shows its new part as the room opens (a clip on the same clock); transcript rows, never a menu",
   },
-  "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
+  "src/agent-session/acpmux/conversation/turnFold.ts": {
+    count: 2,
+    what: "a turn folds: the rows that stay move, and copies of the rows it took away fade on the lead",
+  },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/session-info/foldMotion.ts": {
     count: 2,
@@ -321,6 +328,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/ui/motion/useTextSwap.ts": {
     count: 4,
     what: "a running call's words on the Working and activity lines change: the old rise out, the new rise in, the clock slides",
+  },
+  "src/ui/noticeMorph.ts": {
+    count: 1,
+    what: "a toast that changes in place (working, then done) moves its box from the old size to the new; a toast, never a menu",
   },
 };
 
