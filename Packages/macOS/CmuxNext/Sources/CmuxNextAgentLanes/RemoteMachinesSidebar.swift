@@ -110,6 +110,7 @@ public final class RemoteMachinesSidebar {
     /// Bumped by each push (`peerStateChanged`): a read in flight then may answer from before it, so
     /// its answer is dropped and the list read again.
     @ObservationIgnored private var peerPushes = 0
+    @ObservationIgnored private let connectionPresentation = RemoteMachinesConnectionPresentation()
 
     public init(lanes: AgentLaneStore = .shared) {
         self.lanes = lanes
@@ -156,6 +157,7 @@ public final class RemoteMachinesSidebar {
         (laneWatch, peerRead) = (nil, nil)
         olderReads.values.forEach { $0.cancel() }
         olderReads = [:]
+        connectionPresentation.stop()
         host = nil
         peers = nil
         machines = []
@@ -262,8 +264,9 @@ public final class RemoteMachinesSidebar {
         guard laneWatch != nil else { return } // stopped: a fire queued before `stop()` does nothing
         askForPeers()
         // Captures run no peers: the sample machines stand in (`sidebar.laneFixture`, Debug, off).
-        let next = SidebarTunables.laneFixture.value ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
+        let current = SidebarTunables.laneFixture.value ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
             : Self.machines(lanes: lanes.lanes.values, peers: peers)
+        let next = connectionPresentation.update(current) { [weak self] in self?.rebuild() }
         if machines != next { machines = next }
     }
 
