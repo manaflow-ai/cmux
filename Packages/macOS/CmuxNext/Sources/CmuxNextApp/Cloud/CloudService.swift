@@ -127,6 +127,10 @@ final class CloudService {
     @ObservationIgnored let moveRetries = CloudMoveRetries(key: "cmux.cloud.moveRetries")
     /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
+    /// Where each chat runs, its place mode and its move's progress (``CloudPlaceFlows``).
+    @ObservationIgnored let place = CloudPlaceFlows()
+    /// Reads this computer's signals for Auto and runs its moves (started once, with the move actions).
+    @ObservationIgnored var autoMonitor: CloudAutoMonitor?
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
     /// Agents' asks to move their chats, and the cards they raise in chats.

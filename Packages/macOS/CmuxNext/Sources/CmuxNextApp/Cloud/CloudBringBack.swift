@@ -55,7 +55,7 @@ struct CloudBringBack {
     func start(_ invocation: ActionInvocation, context: AppActionContext, toMachine asked: Bool = false) throws {
         guard let (tab, _) = context.daemonTab(invocation) else { return }
         if !asked, case .show(let shown) = services.cloud.bringBackRetries[tab.id] {
-            return perform(tab: tab, action: Self.action) { try await reshow(shown, tab: tab) }
+            return perform(tab: tab, action: Self.action, session: shown.movedSession ?? shown.session) { try await reshow(shown, tab: tab) }
         }
         guard let record = tab.agentSession, record.host.hasPrefix(MachineRegistry.registryHostPrefix),
               let session = record.session ?? services.agentTabs.sessions[services.agentTabs.tabKey(of: tab)],
@@ -66,7 +66,7 @@ struct CloudBringBack {
         if let back = entry.broughtBack {
             // Brought back already: only its tab here opens, never a move on from a machine it left.
             guard !asked else { throw ActionFailure(message: CloudBringBackStrings.notFromMove) }
-            return perform(tab: tab, action: Self.action) { try await reshow(entry.shown(back), tab: tab) }
+            return perform(tab: tab, action: Self.action, session: entry.session) { try await reshow(entry.shown(back), tab: tab) }
         }
         // A move to another machine that may have landed there (its pin, ``run(tab:entry:cli:askFirst:update:toMachine:invocation:)``)
         // finishes first, whichever of the two ran: a bring back would drop the pin, and a later move would seed over what the
@@ -89,7 +89,7 @@ struct CloudBringBack {
         // Only the person's "Update Machine" updates the machine first (``CloudMachineUpdate``).
         let update = CloudMachineUpdate.requested(invocation)
         // The person's Bring Back updates a machine too old for it first (``CloudMove/updatingFirst(_:_:)``).
-        perform(tab: tab, action: action) {
+        perform(tab: tab, action: action, session: toMachine ? nil : entry.session) {
             try await CloudMove.updatingFirst(invocation) { invocation in
                 try await run(tab: tab, entry: entry, cli: cli, askFirst: askFirst, update: update || CloudMachineUpdate.requested(invocation),
                               toMachine: toMachine, invocation: invocation)
@@ -99,23 +99,34 @@ struct CloudBringBack {
 
     /// Runs `body` (which returns the machine's name) behind the toasts. A stop records its retry
     /// for `tab` and offers it; success clears it.
-    private func perform(tab: TabModel, action: ActionID, _ body: @escaping @MainActor () async throws -> String) {
+    private func perform(tab: TabModel, action: ActionID, session: String?, _ body: @escaping @MainActor () async throws -> String) {
         let toastID = "cloud-bring-back-" + tab.id
         let tabID = tab.id, toMachine = action == Self.toMachine
         let retries = services.cloud.bringBackRetries, cloud = services.cloud
         cloud.movingBack.insert(tabID)
         CloudMove.toast(services, toastID, toMachine ? CloudMoveStrings.moving : CloudBringBackStrings.bringing, duration: CloudMove.working)
+        let place = cloud.place
         let work: ActionWork = Task { @MainActor in
-            defer { cloud.movingBack.remove(tabID) }
+            defer { cloud.movingBack.remove(tabID); if let session { place.finished(session) } }
             do {
                 let machine = try await body()
                 retries[tabID] = nil
+                if let session { place.live(session) }
                 CloudMove.toast(services, toastID, toMachine ? CloudMoveStrings.moved(machine) : CloudBringBackStrings.broughtBack, duration: .seconds(6))
                 return nil
             } catch {
-                return stopped(error, tab: tabID, toast: toastID, action: action)
+                // Cancel stopped it (the reducer's Cancelled): the chat stays on the machine, with no failure and no Retry.
+                if let session, place.wasCancelled(session) {
+                    retries[tabID] = nil
+                    CmuxToastCenter.shared.close(id: toastID)
+                    return nil
+                }
+                let failure = stopped(error, tab: tabID, toast: toastID, action: action)
+                if let session { place.failed(session, reason: failure.message) }
+                return failure
             }
         }
+        if let session { place.onCancel(session) { work.cancel() } }
         services.registry.track(work)
     }
 
@@ -164,6 +175,12 @@ struct CloudBringBack {
         var pinned: String?
         if toMachine, case .move(let id)? = services.cloud.bringBackRetries[tab.id], id != entry.machineID { pinned = id }
         var again = CloudMoveRetries.Retry.move(machineID: pinned ?? entry.machineID)
+        // The flow the chat's header draws (``CloudPlaceFlows``): each step below reports itself.
+        let place = services.cloud.place, flow = toMachine ? nil : entry.session
+        if let flow {
+            place.begin(session: flow, toCloud: false, trigger: .init(argument: invocation["trigger"]?.stringValue), from: services.machines.machineName(entry.machineID) ?? "",
+                        to: CloudPlaceFlows.thisMac, cargo: CloudPlaceCargo.read(tab: tab, session: entry.session, services: services))
+        }
         guard let machine = services.machines.session(entry.machineID) else {
             // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
             if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted, retry: pinned.map { _ in again }) }
@@ -178,6 +195,7 @@ struct CloudBringBack {
         let connected = { [again] (session: CloudMachineSession) async throws -> CloudMachineSession in
             do { return try await CloudMove.connected(session, invocation) } catch let failure as Failure { throw Failure(message: failure.message, retry: again) }
         }
+        if let flow { try place.advance(flow, "machine") }
         _ = try await connected(machine)
         let pending: CloudMachineSession?
         if let id = pinned {
@@ -195,6 +213,7 @@ struct CloudBringBack {
             try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: toastID, retry: again.updating)
             CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
         }
+        if let flow { try place.advance(flow, "sync") }
         let pulled: CloudMoveCLI.Answer
         if pending != nil || toMachine { pulled = CloudMoveCLI.Answer(ok: true) } else { do {
             pulled = try await cli.bringBackPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
@@ -230,6 +249,10 @@ struct CloudBringBack {
             again = .move(machineID: target.machineID)
             services.cloud.bringBackRetries[tab.id] = again
         }
+        if let flow {
+            try Task.checkCancellation()
+            try place.advance(flow, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
+        }
         var moved = CloudMoveCLI.Answer(ok: false), landing = onto?.remotes.first
         do {
             // A running turn goes on where the chat lands with its last changes (to another machine: relayed; a refused work root, the next).
@@ -252,6 +275,7 @@ struct CloudBringBack {
             if target != nil, failure.retry == nil { failure.retry = again }
             throw failure
         }
+        if let flow { place.step(flow, "commit") }
         if let target, let landing { return try await landed(on: target, landing, session: session, entry: entry, key: moved.transferID, tab: tab) }
         // The move committed: from here Retry only opens the chat's tab on this Mac. The ledger
         // keeps that (not only memory) until the tab opened.
@@ -293,12 +317,16 @@ struct CloudBringBack {
 
     /// A Retry of a bring back that committed: opens the chat's tab here, nothing else.
     private func reshow(_ shown: CloudMoveRetries.Shown, tab: TabModel) async throws -> String {
+        services.cloud.place.begin(session: shown.movedSession ?? shown.session, toCloud: false, trigger: .person, from: services.machines.machineName(shown.machineID) ?? "",
+                                   to: CloudPlaceFlows.thisMac, cargo: .init())
         try await finish(shown, tab: tab)
         return services.machines.machineName(shown.machineID) ?? shown.machineID
     }
 
     /// Opens the chat's tab on this Mac, then closes the machine's tab, whose chat closed with the move.
     private func finish(_ shown: CloudMoveRetries.Shown, tab: TabModel) async throws {
+        let flow = shown.movedSession ?? shown.session
+        services.cloud.place.step(flow, "attach")
         do {
             try await CloudMove.open(shown, host: services.agentTabs.localHost, hostName: services.agentTabs.localHostName, on: services.daemon,
                                      repair: services.emptyWorkspaces, mutation: "cloud-bring-back-", leaving: tab, services: services)
@@ -306,6 +334,7 @@ struct CloudBringBack {
             throw Failure(message: CloudBringBackStrings.tabFailed(CloudStrings.errorText(error)), retry: .show(shown))
         }
         if let host = shown.host, let moved = shown.movedSession { services.cloud.movedChats.forget(host: host, session: moved) }
+        services.cloud.place.step(flow, "release")
         // Reopen Closed never offers it.
         do {
             let daemon = services.machines.daemon(forTab: tab)

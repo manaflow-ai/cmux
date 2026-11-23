@@ -27,6 +27,11 @@ extension AgentPaneModel {
     /// tab, so it spends the person's gesture.
     static let terminalSwitchActions: Set<String> = ["palette.toggleTerminalChat"]
 
+    /// The chat header's place controls (cloud/auto/evacuate): Local, Cloud and Auto (`chatPlace.set` with a `mode`), Cancel and Retry of the
+    /// move the chat shows (`chatMove.cancel`, `chatMove.retry`) and Evacuate to Cloud. The app's Rust decides each; they move chats, so
+    /// they need the person's gesture.
+    static let placeActions: Set<String> = ["chatPlace.set", "chatMove.cancel", "chatMove.retry", "cloudEvacuate"]
+
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
     /// path (``UpgradeToPro``) as the model router's paywall, with its fixed `source`. webviews
@@ -45,10 +50,10 @@ extension AgentPaneModel {
     /// is an `unavailable` failure, so the page can say so, with the app's reason when it gave one
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
-    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil) -> [String: Any] {
+    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, mode: String? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
-            || Self.terminalSwitchActions.contains(id) || screenShare
+            || Self.terminalSwitchActions.contains(id) || Self.placeActions.contains(id) || screenShare
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -58,7 +63,8 @@ extension AgentPaneModel {
         }
         if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
-        if screenShare, let session { arguments["session"] = session }
+        if screenShare || Self.placeActions.contains(id), let session { arguments["session"] = session }
+        if let mode { arguments["mode"] = mode }
         if let environment { arguments["environment"] = environment }
         if let handoff { arguments["handoff"] = handoff }
         switch onRunAction(id, arguments) {

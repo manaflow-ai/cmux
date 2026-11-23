@@ -654,11 +654,14 @@ extension AgentPaneRequest {
             let environment = params?["environment"].map { $0 as? String }
             // A `handoff` is New Cloud Chat's only, and a token; any other is refused, never dropped.
             let handoff = params?["handoff"].map { $0 as? String }
+            // A `mode` is Chat Place's only (`chatPlace.set`): where the chat runs (local, cloud or auto); any other is refused.
+            let mode = params?["mode"].map { $0 as? String }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
                environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
-               handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true {
-                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil)
+               handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true,
+               mode.map({ $0.map { id == "chatPlace.set" && ["local", "cloud", "auto"].contains($0) } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, mode: mode ?? nil)
             } else {
                 self = .unsupported(method)
             }

@@ -30899,6 +30899,17 @@
         }
       }
     },
+    "argument.chatPlaceMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Place"
+          }
+        }
+      }
+    },
     "argument.environment": {
       "comment": "cloud new-machine argument: the Cloud environment (a saved setup of repository and script) the new machine boots in.",
       "extractionState": "manual",

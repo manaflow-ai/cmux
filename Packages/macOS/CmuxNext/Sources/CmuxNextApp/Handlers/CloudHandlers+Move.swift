@@ -60,6 +60,26 @@ extension CloudHandlers {
             try CloudBringBack(services: services).start(invocation, context: context, toMachine: true)
         }
         bindSSHMove(into: registry, context: context)
+        // The chat's place controls (cloud/auto/evacuate): Swift calls and draws, Rust decides (``CloudPlaceFlows``, ``CloudPlaceRun``).
+        // The page runs them on the chat's tab (`action.run`); an agent never moves a chat this way.
+        let place = CloudPlaceRun(services: services)
+        for id in [CloudPlaceRun.set, CloudPlaceRun.retry, CloudPlaceRun.evacuate] {
+            bind(id, registry, reason: reason) { invocation in
+                guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
+                switch id {
+                case CloudPlaceRun.set: try place.setMode(invocation, context: context)
+                case CloudPlaceRun.retry: place.retryMove(invocation, context: context)
+                default: place.evacuate(invocation)
+                }
+            }
+        }
+        bind(CloudPlaceRun.cancel, registry, reason: { nil }) { invocation in place.cancelMove(invocation, context: context) }
+        // Auto reads this computer's sleep, battery, memory, disk and idle time and asks Rust about each Auto chat.
+        if services.cloud.autoMonitor == nil {
+            let monitor = CloudAutoMonitor(services: services)
+            services.cloud.autoMonitor = monitor
+            monitor.start()
+        }
         // A chat that cannot move now (no first message yet) shows its rows disabled with why, and every run refuses with it.
         let refusal: @MainActor (ActionInvocation) -> String? = { CloudMove(services: services).refusal($0, context: context) }
         context.setTargetReason(CloudMove.action, refusal)
