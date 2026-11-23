@@ -1721,6 +1721,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         label.layer.masksToBounds = true
         label.isUserInteractionEnabled = false
         label.accessibilityIdentifier = "terminal.paintLatencyOverlay"
+        label.numberOfLines = 2
         label.text = TerminalPaintSummary().overlayText
         label.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(label)

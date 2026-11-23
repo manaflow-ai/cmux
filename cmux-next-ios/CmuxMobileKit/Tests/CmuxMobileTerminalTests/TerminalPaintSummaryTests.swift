@@ -21,7 +21,7 @@ import Testing
         #expect(summary.phonePaint?.p50 == 4)
         #expect(summary.offsetMs == -500)
         #expect(summary.offsetErrorMs == 20)
-        #expect(summary.overlayText == "Δ  8 p50 12 p95 57 ±20.0")
+        #expect(summary.overlayText == "Δ  8 p50 12 p95 57 ±20.0\nmac  2 net 40 app 15")
     }
 
     @Test func anythingElseOnTheChannelIsNotASummary() {
@@ -34,8 +34,8 @@ import Testing
         let empty = TerminalPaintSummary().overlayText
         let full = TerminalPaintSummary(lastTotalMs: 123, total: .init(n: 1, p50: 45, p95: 678, max: 678),
                                         offsetErrorMs: 1.5).overlayText
-        #expect(empty == "Δ  – p50  – p95  – ±?")
-        #expect(full == "Δ123 p50 45 p95678 ±1.5")
+        #expect(empty == "Δ  – p50  – p95  – ±?\nmac  – net  – app  –")
+        #expect(full == "Δ123 p50 45 p95678 ±1.5\nmac  – net  – app  –")
     }
 
     @Test func theOverlayReportsEachSecondNotEachFive() {

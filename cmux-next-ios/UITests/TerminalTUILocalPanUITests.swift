@@ -87,7 +87,7 @@ final class TerminalTUILocalPanUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
             demo = probe.label
         }
-        // The overlay's line (Δ newest, p50, p95, ± clock error), as the person reads it.
+        // The overlay (Δ newest, p50, p95, ± clock error; then each hop's p95), as the person reads it.
         let overlay = app.staticTexts["terminal.paintLatencyOverlay"]
         let overlayText = overlay.exists ? overlay.label : "missing"
         // The readout as a text attachment: a UI test's print never reaches

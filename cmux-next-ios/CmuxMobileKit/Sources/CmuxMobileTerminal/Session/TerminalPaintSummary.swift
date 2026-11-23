@@ -59,15 +59,18 @@ public struct TerminalPaintSummary: Sendable, Equatable {
                   offsetErrorMs: number("offset_error_ms", in: object))
     }
 
-    /// The overlay's one line: symbols, fixed width, so it never shifts the layout.
-    /// `Δ` the newest redraw-to-paint, then p50/p95 over the last report, `±` the clock error.
+    /// The overlay's two lines: symbols, fixed width, so it never shifts the layout.
+    /// Line 1: `Δ` the newest redraw-to-paint, then p50/p95 over the last report, `±` the clock error.
+    /// Line 2: each hop's p95, so the dominant one is a number: `mac` Mac redraw to socket write,
+    /// `net` socket write to phone receive, `app` phone receive to the present that showed it.
     public var overlayText: String {
         func ms(_ value: Double?) -> String {
             guard let value else { return "  –" }
             return String(format: "%3.0f", value.rounded())
         }
         let error = offsetErrorMs.map { String(format: "±%.1f", $0) } ?? "±?"
-        return "Δ\(ms(lastTotalMs)) p50\(ms(total?.p50)) p95\(ms(total?.p95)) \(error)"
+        return "Δ\(ms(lastTotalMs)) p50\(ms(total?.p50)) p95\(ms(total?.p95)) \(error)\n"
+            + "mac\(ms(mac?.p95)) net\(ms(wire?.p95)) app\(ms(phonePaint?.p95))"
     }
 
     /// Posted by a session with the summary of its last paint report; the object is the session
