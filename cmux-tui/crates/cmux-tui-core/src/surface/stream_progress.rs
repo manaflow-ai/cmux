@@ -186,7 +186,12 @@ impl TerminalStreamProgress {
 
     /// A resource subscriber waits on this terminal now.
     pub(super) fn has_resource_waiters(&self) -> bool {
-        !self.state.lock().unwrap().resource_waiters.is_empty()
+        !self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .resource_waiters
+            .is_empty()
     }
 
     #[cfg(test)]

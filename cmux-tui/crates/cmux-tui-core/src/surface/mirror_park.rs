@@ -111,7 +111,7 @@ impl TerminalMirror {
         else {
             return false;
         };
-        *self.parked.lock().unwrap() = Some(ParkedMirror {
+        *self.parked.lock().unwrap_or_else(PoisonError::into_inner) = Some(ParkedMirror {
             replay,
             colors,
             geometry: park.geometry,
@@ -131,7 +131,7 @@ impl TerminalMirror {
         if !self.is_parked() {
             return;
         }
-        let Some(parked) = self.parked.lock().unwrap().take() else {
+        let Some(parked) = self.parked.lock().unwrap_or_else(PoisonError::into_inner).take() else {
             self.is_parked.store(false, Ordering::Release);
             return;
         };
