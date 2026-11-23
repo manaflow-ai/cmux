@@ -122,6 +122,10 @@ final class TerminalKeyOutbox {
             if attached == current { settle(next.seq, .lost) }
             return
         }
+        // A reply from an older connection must not settle an entry that the current connection
+        // has already resent. The keyed daemon makes either attempt safe, and the current attempt
+        // owns the result once the connection changes.
+        guard attached == current else { return }
         let object = (try? JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:]
         if object["ok"] as? Bool == false {
             // The daemon says nothing was written, or says nothing: it may have typed it.
