@@ -193,6 +193,10 @@ path = "tests/test_edge_feed.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_egress_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ensure_ghosttykit_zig.py"
 lane = "linux-guard"
 
