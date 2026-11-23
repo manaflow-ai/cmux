@@ -3,6 +3,14 @@
 // acpmux with its cmux sign-in (`_acpmux/team_audit`). A team admin sees every teammate; anyone
 // else their own turns. Counts and times only; a cost is shown as time (agent and machine time).
 import { intl } from "../../../ui/intl";
+import {
+  USAGE_EXPORT_GROUPS,
+  USAGE_PRIVACY_LEVELS,
+  type UsageExportMeasures,
+  type UsageExportTotals,
+  type UsageGroup,
+  type UsagePrivacy,
+} from "./usageExport";
 
 export const TEAM_AUDIT_METHOD = "_acpmux/team_audit";
 
@@ -17,7 +25,7 @@ export type TeamAuditGroup = (typeof TEAM_AUDIT_GROUPS)[number];
 /// The platform's key for turns from a client that does not send the field a grouping reads.
 export const TEAM_AUDIT_NONE = "none";
 
-export type TeamAuditTotals = {
+export type TeamAuditTotals = UsageExportMeasures & {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -37,9 +45,12 @@ export type TeamAuditRow = TeamAuditTotals & { key: string; label?: string };
 export type TeamAuditReply = {
   scope: "team" | "self";
   range: { since: string; until: string };
-  groupBy: TeamAuditGroup;
-  totals: TeamAuditTotals;
+  /// An audit's grouping, or an export's (usageExport.ts).
+  groupBy: UsageGroup;
+  totals: TeamAuditTotals & UsageExportTotals;
   rows: TeamAuditRow[];
+  /// The team's privacy level, with an export answer only.
+  privacy?: UsagePrivacy;
 };
 
 /// What one read answered: the audit, or why there is none.
@@ -56,18 +67,21 @@ export type TeamAuditSaved = { kind: "saved"; path: string } | Exclude<TeamAudit
 const DAY_MS = 86_400_000;
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-/// The read for `range` ending today (UTC) grouped by `group`; `csv` asks for the file instead.
+/// The read for `range` ending today (UTC) grouped by `group`; `csv` asks for the file instead. A
+/// drill-down's slice goes as `where` (an export read only: usageExport.ts).
 export function teamAuditParams(
   range: TeamAuditRange,
-  group: TeamAuditGroup,
+  group: UsageGroup,
   now: number,
   format: "json" | "csv" = "json",
+  where?: Record<string, string>,
 ): Record<string, unknown> {
   return {
     since: utcDay(now - (RANGE_DAYS[range] - 1) * DAY_MS),
     until: utcDay(now),
     groupBy: group,
     format,
+    ...(where && Object.keys(where).length > 0 ? { where } : {}),
   };
 }
 
@@ -76,7 +90,29 @@ const record = (value: unknown) =>
 const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
 const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 
-function readTotals(value: unknown): TeamAuditTotals {
+/// The export's optional measures (usageExport.ts), each kept only when it is a real count.
+const EXPORT_MEASURES = [
+  "agentMinutes",
+  "ciMinutes",
+  "prsLanded",
+  "vmVcpuSeconds",
+  "vmGibSeconds",
+  "costAsTimeMinutes",
+  "foldedPeople",
+  "minutesPerPr",
+] as const;
+
+function readExportMeasures(body: Record<string, unknown>): UsageExportTotals {
+  const out: UsageExportTotals = {};
+  for (const name of EXPORT_MEASURES) {
+    const value = body[name];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) out[name] = value;
+  }
+  if (body.outlier === true) out.outlier = true;
+  return out;
+}
+
+function readTotals(value: unknown): TeamAuditTotals & UsageExportTotals {
   const body = record(value) ?? {};
   const rate = body.cacheHitRate;
   return {
@@ -92,6 +128,7 @@ function readTotals(value: unknown): TeamAuditTotals {
     ...(typeof body.machineMs === "number" && Number.isFinite(body.machineMs) && body.machineMs >= 0
       ? { machineMs: body.machineMs }
       : {}),
+    ...readExportMeasures(body),
   };
 }
 
@@ -116,7 +153,8 @@ export function readTeamAudit(value: unknown): TeamAuditAnswer {
   const audit = record(body.audit);
   if (body.status !== "ok" || !audit) return readStatus(body);
   const range = record(audit.range) ?? {};
-  const groupBy = TEAM_AUDIT_GROUPS.find((group) => group === audit.groupBy) ?? "person";
+  const groupBy = [...TEAM_AUDIT_GROUPS, ...USAGE_EXPORT_GROUPS].find((group) => group === audit.groupBy) ?? "person";
+  const privacy = USAGE_PRIVACY_LEVELS.find((level) => level === audit.privacy);
   const rows = (Array.isArray(audit.rows) ? audit.rows : []).flatMap((raw): TeamAuditRow[] => {
     const row = record(raw);
     const key = text(row?.key);
@@ -132,6 +170,7 @@ export function readTeamAudit(value: unknown): TeamAuditAnswer {
       groupBy,
       totals: readTotals(audit.totals),
       rows,
+      ...(privacy ? { privacy } : {}),
     },
   };
 }
@@ -154,7 +193,7 @@ export function formatHitRate(rate: number | null, locale?: string): string {
 
 /// What a row's key reads as: a day as a date, a machine that is the person's own as its label, the
 /// platform's `none` as `none` (localized by the screen), anything else as the key.
-export function auditRowLabel(group: TeamAuditGroup, row: TeamAuditRow, locale?: string): string {
+export function auditRowLabel(group: UsageGroup, row: TeamAuditRow, locale?: string): string {
   if (group === "day" && /^\d{4}-\d{2}-\d{2}$/.test(row.key)) {
     return intl
       .DateTimeFormat(locale, {

@@ -68,6 +68,12 @@ experiments.cmuxExperiments = { ...experiments.cmuxExperiments, "subagent-tray-f
 afterAll(() => {
   if (experiments.cmuxExperiments) delete experiments.cmuxExperiments["subagent-tray-fold-head"];
 });
+// The hat names the longest-running command (trayFoldHead.experiment.ts `two`; its default is now `kinds`).
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "subagent-tray-fold-head": "two" };
+afterAll(() => {
+  if (globalThis.cmuxExperiments)
+    delete (globalThis.cmuxExperiments as Record<string, string>)["subagent-tray-fold-head"];
+});
 
 const now = Date.now();
 const plan: AcpmuxPlanEntry[] = [

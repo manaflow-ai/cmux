@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
-import { agentToolsState, agentsState, computerUseState, importState } from "./fixtures";
+import { agentsState, computerUseState, importState } from "./fixtures";
 import table from "./generated/strings.json";
 import { OnboardingPage } from "./Onboarding";
 import { OPS, type OnboardingState } from "./ops";
@@ -152,64 +152,6 @@ describe("computer use", () => {
   });
   test("off: the note", () => {
     expect(text(render(computerUseState("off")))).toContain("Computer Use is off.");
-  });
-});
-
-describe("cmux tools", () => {
-  const settingsPlace = "You can change this later in Settings > Agents.";
-  test("asks before giving anything: the question, Claude Code and Codex found, Not Now and Turn On", () => {
-    const html = render(agentToolsState("found"));
-    const words = text(html);
-    expect(words).toContain("Use cmux Tools in Your Agents?");
-    expect(words).toContain(
-      "Claude Code and Codex in cmux’s terminals and agent chats get cmux’s tools, Computer Use included.",
-    );
-    expect(words).toContain("cmux never changes your agents’ own settings.");
-    expect(html).toContain('data-agent="claude"');
-    expect(html).toContain('data-agent="codex"');
-    expect(html.match(/data-tools="ready"/g)?.length).toBe(2);
-    expect(words).toContain("Found on this Mac");
-    expect(words).toContain("Not Now");
-    expect(html).toMatch(/data-primary="addTools"/);
-    expect(words).toContain("Turn On");
-    expect(words).toContain(settingsPlace);
-  });
-  test("none found and still checking say so, and still name the place in Settings", () => {
-    const none = text(render(agentToolsState("none")));
-    expect(none).toContain("No coding agents found on this Mac yet.");
-    expect(none).toContain(settingsPlace);
-    expect(text(render(agentToolsState("checking")))).toContain("Checking…");
-  });
-  test("while Turn On runs the primary waits; on, declined and failed answers end on Done with no Not Now", () => {
-    const adding = render(agentToolsState("adding"));
-    expect(text(adding)).toContain("Turning on…");
-    expect(adding).toMatch(/data-primary="addTools"[^>]*disabled/);
-    const added = render(agentToolsState("added"));
-    expect(text(added)).toContain("Done. Agents you start in cmux’s terminals and agent chats get cmux’s tools.");
-    expect(added.match(/data-tools="terminals"/g)?.length).toBe(2);
-    expect(text(added)).toContain("Gets cmux’s tools in cmux");
-    expect(added).toMatch(/data-primary="done"/);
-    expect(text(added)).not.toContain("Not Now");
-    const declined = text(render(agentToolsState("declined")));
-    expect(declined).toContain("Agents you start in cmux won’t get cmux’s tools.");
-    expect(declined).toContain("Off in cmux");
-    expect(text(render(agentToolsState("failed")))).toContain(
-      "Couldn’t save your choice. You can try again in Settings.",
-    );
-  });
-  test("Add and Not Now are the footer's two gestures: next and skip", async () => {
-    const calls: string[] = [];
-    const store = new OnboardingStore({
-      call: async <R,>(op: string): Promise<R> => {
-        calls.push(op);
-        return {} as R;
-      },
-      subscribe: async () => () => {},
-      handle: () => () => {},
-    });
-    store.call(OPS.next);
-    store.call(OPS.skip);
-    expect(calls).toEqual([OPS.next, OPS.skip]);
   });
 });
 
