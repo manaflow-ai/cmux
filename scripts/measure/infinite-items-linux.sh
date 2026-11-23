@@ -16,6 +16,8 @@
 #     every chat keeps its agent) and no simulated day (LIVE lines): what an item costs live, beside what it costs
 #     hibernated, from one build on one runner in one job. live_counts=50,200 gives the live pass its own counts
 #     (each live chat holds an agent host and an agent, so 1,000 of them need tens of GB).
+#   infinite-items-linux.sh freed=1 ...: last, runs the same build with every tab parked after the open and each day
+#     (--park-idle, FREED lines): what an item costs once the app's freeing tier (workspaces.freeing, a day idle) took it.
 #   infinite-items-linux.sh musl=1 ...: builds the shipped musl flavor (cargo-zigbuild, x86_64-unknown-linux-musl) and
 #     measures those binaries (not with before=ref:, which builds REF for the host).
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
@@ -30,6 +32,7 @@ musl=0
 repeat=1
 live=0
 live_counts=""
+freed=0
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -42,6 +45,7 @@ for arg in "$@"; do
     repeat=*) repeat="${arg#repeat=}" ;;
     live=*) live="${arg#live=}" ;;
     live_counts=*) live_counts="${arg#live_counts=}" ;;
+    freed=*) freed="${arg#freed=}" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -169,6 +173,10 @@ elif [ -n "$before" ]; then
 fi
 python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
   --counts "$counts" --days "$days" --out "$out/infinite-items.json" ${extra[@]+"${extra[@]}"} || status=$?
+if [[ "$freed" == 1 ]]; then
+  python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+    --counts "$counts" --days "$days" --park-idle ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/FREED /' || status=$?
+fi
 if [[ "$pages" == 1 ]]; then
   cd "$root/webviews"
   if command -v bun >/dev/null; then
