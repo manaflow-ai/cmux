@@ -1,5 +1,6 @@
 public import CmuxNextAgentPane
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// A design mode comment on a browser page as the session host keeps it (`comment-threads-v1`,
@@ -90,7 +91,7 @@ public final class BrowserCommentThreads {
     private var homes: [String: (store: any DiffCommentsStoring, root: String)] = [:]
     /// Nil: no polling of its own (tests call ``refresh()``).
     private let pollInterval: Duration?
-    private var polling: Task<Void, Never>?
+    private let polling = DemandTimer(owner: "browser-comment-threads.poll")
 
     public init(pollInterval: Duration? = .seconds(2)) {
         self.pollInterval = pollInterval
@@ -182,16 +183,13 @@ public final class BrowserCommentThreads {
         onChange?(key, thread)
     }
 
-    /// Reads the list every `pollInterval` while any thread is sent, then stops.
+    /// Reads the list `pollInterval` from now, and again after each read while any thread is sent.
     private func poll() {
-        guard let pollInterval, polling == nil else { return }
-        polling = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: pollInterval)
-                guard let self, threads.values.contains(where: { $0.state == .sent }) else { break }
-                await refresh()
-            }
-            self?.polling = nil
+        guard let pollInterval, threads.values.contains(where: { $0.state == .sent }) else { return }
+        polling.scheduleIfIdle(after: pollInterval) { @MainActor [weak self] in
+            guard let self else { return }
+            await refresh()
+            poll()
         }
     }
 }
