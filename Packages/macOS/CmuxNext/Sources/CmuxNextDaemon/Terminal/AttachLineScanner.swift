@@ -69,6 +69,24 @@ struct AttachLineScanner {
             }
             return nil
         }
+        /// Index of the closing quote of an escape-free string body starting at `start`, found with `memchr`
+        /// (the `data` payload is the bulk of a line); nil when there is a backslash or no closing quote.
+        func plainStringEnd(from start: Int) -> Int? {
+            guard start <= n else { return nil }
+            let p = b.base.advanced(by: start)
+            guard let q = memchr(p, Int32(quote), n - start) else { return nil }
+            let len = q.assumingMemoryBound(to: UInt8.self) - p
+            if len > 0, memchr(p, Int32(backslash), len) != nil { return nil }
+            return start + len
+        }
+        /// A string body for `data`: no escapes, byte range without quotes. Control bytes are left to the base64
+        /// decoder, which refuses them.
+        func dataString() -> Range<Int>? {
+            guard b.at(i) == quote, let end = plainStringEnd(from: i + 1) else { return nil }
+            let r = (i + 1)..<end
+            i = end + 1
+            return r
+        }
         func unsigned() -> UInt64? {
             var value: UInt64 = 0
             var digits = 0
@@ -89,6 +107,7 @@ struct AttachLineScanner {
             guard i < n else { return false }
             switch b.at(i) {
             case quote:
+                if let end = plainStringEnd(from: i + 1) { i = end + 1; return true }
                 while i + 1 < n {
                     i += 1
                     if b.at(i) == backslash { i += 1 } else if b.at(i) == quote { i += 1; return true }
@@ -134,7 +153,7 @@ struct AttachLineScanner {
             if b.equals(name, "data") {
                 guard mark(1) else { return nil }
                 if decodeData {
-                    guard let r = plainString(), let decoded = decodeBase64(b, r) else { return nil }
+                    guard let r = dataString(), let decoded = decodeBase64(b, r) else { return nil }
                     fields.data = decoded
                 } else {
                     guard skipValue() else { return nil }
@@ -180,7 +199,12 @@ struct AttachLineScanner {
         }
     }
 
+    /// Sextet per byte, 0xFF for a non-alphabet byte: one load per input byte in the bulk loop.
+    private static let sextetTable: [UInt8] = (0..<256).map { sextet(UInt8($0)) }
+
     /// Standard padded base64 straight from the line's bytes (no `String`); nil for anything else.
+    /// Every quad but the last runs a table-driven loop with no per-byte bounds checks; the last (which may
+    /// carry padding) takes the checked path.
     private static func decodeBase64(_ b: Bytes, _ r: Range<Int>) -> Data? {
         let count = r.count
         if count == 0 { return Data() }
@@ -190,33 +214,42 @@ struct AttachLineScanner {
         if b.at(r.upperBound - 1) == equals { pad = 1 }
         if pad == 1, b.at(r.upperBound - 2) == equals { pad = 2 }
         let outCount = count / 4 * 3 - pad
-        var out = Data(count: outCount)
-        let ok: Bool = out.withUnsafeMutableBytes { dst -> Bool in
-            var o = 0
-            var p = r.lowerBound
-            while p < r.upperBound {
-                let last = p + 4 == r.upperBound
-                let c2 = b.at(p + 2), c3 = b.at(p + 3)
-                let q0 = sextet(b.at(p)), q1 = sextet(b.at(p + 1))
-                let q2 = (last && pad == 2) ? 0 : sextet(c2)
-                let q3 = (last && pad >= 1) ? 0 : sextet(c3)
+        var ok = false
+        let out = Data(unsafeUninitializedCapacity: outCount) { dst, initialized in
+            initialized = 0
+            let table = sextetTable
+            let done: Bool = table.withUnsafeBufferPointer { lut -> Bool in
+                let src = b.base
+                var o = 0
+                var p = r.lowerBound
+                let lastQuad = r.upperBound - 4
+                while p < lastQuad {
+                    let q0 = lut[Int(src[p])], q1 = lut[Int(src[p + 1])]
+                    let q2 = lut[Int(src[p + 2])], q3 = lut[Int(src[p + 3])]
+                    if (q0 | q1 | q2 | q3) == invalid { return false }  // 0xFF only from an invalid byte (valid are < 64)
+                    let v = UInt32(q0) << 18 | UInt32(q1) << 12 | UInt32(q2) << 6 | UInt32(q3)
+                    dst[o] = UInt8(truncatingIfNeeded: v >> 16)
+                    dst[o + 1] = UInt8(truncatingIfNeeded: v >> 8)
+                    dst[o + 2] = UInt8(truncatingIfNeeded: v)
+                    o += 3
+                    p += 4
+                }
+                // The last quad, possibly padded.
+                let c2 = src[p + 2], c3 = src[p + 3]
+                let q0 = lut[Int(src[p])], q1 = lut[Int(src[p + 1])]
+                let q2 = pad == 2 ? 0 : lut[Int(c2)]
+                let q3 = pad >= 1 ? 0 : lut[Int(c3)]
                 if q0 == invalid || q1 == invalid || q2 == invalid || q3 == invalid { return false }
-                if last && pad == 2 && (c2 != equals || c3 != equals) { return false }
-                if last && pad == 1 && c3 != equals { return false }
-                let v = UInt32(truncatingIfNeeded: q0) << 18 | UInt32(truncatingIfNeeded: q1) << 12 | UInt32(truncatingIfNeeded: q2) << 6 | UInt32(truncatingIfNeeded: q3)
-                guard o < dst.count else { return false }
-                dst.storeBytes(of: UInt8(truncatingIfNeeded: v >> 16), toByteOffset: o, as: UInt8.self); o += 1
-                if !(last && pad == 2) {
-                    guard o < dst.count else { return false }
-                    dst.storeBytes(of: UInt8(truncatingIfNeeded: v >> 8), toByteOffset: o, as: UInt8.self); o += 1
-                }
-                if !(last && pad >= 1) {
-                    guard o < dst.count else { return false }
-                    dst.storeBytes(of: UInt8(truncatingIfNeeded: v), toByteOffset: o, as: UInt8.self); o += 1
-                }
-                p += 4
+                if pad == 2 && (c2 != equals || c3 != equals) { return false }
+                if pad == 1 && c3 != equals { return false }
+                let v = UInt32(q0) << 18 | UInt32(q1) << 12 | UInt32(q2) << 6 | UInt32(q3)
+                dst[o] = UInt8(truncatingIfNeeded: v >> 16); o += 1
+                if pad < 2 { dst[o] = UInt8(truncatingIfNeeded: v >> 8); o += 1 }
+                if pad < 1 { dst[o] = UInt8(truncatingIfNeeded: v); o += 1 }
+                return o == outCount
             }
-            return o == outCount
+            if done { initialized = outCount }
+            ok = done
         }
         return ok ? out : nil
     }
