@@ -17,6 +17,7 @@ enum TerminalHandlers {
         bindKeep(registry, ctx)
         bindCopyMode(registry, ctx)
         TextBoxHandlers.bind(into: registry, context: ctx)
+        TerminalCommentHandlers.bind(into: registry, context: ctx)
     }
 
     /// Runs a Ghostty binding action on the targeted or focused terminal.
