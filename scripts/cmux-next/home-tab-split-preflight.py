@@ -21,12 +21,14 @@ With --expected-account the app signs in as that account first
 Usage: home-tab-split-preflight.py --tag T --app PATH --out DIR
          [--profile personal|agent --expected-account EMAIL] [--credentials-file FILE]
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, time
+import argparse, hashlib, json, os, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dev_account_guard  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -87,6 +89,25 @@ def shot(name):
     print(name, rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}.png")}).get("ok"), flush=True)
 
 
+def settled_shot(name, timeout=15):
+    """The window snapshot once two in a row are the same picture (what the window draws stopped changing)."""
+    path = os.path.join(opts.out, f"{name}.png")
+
+    def frame():
+        rpc("debug.window_snapshot", {"path": path})
+        return hashlib.sha256(open(path, "rb").read()).hexdigest()
+
+    if wait_stable(frame, f"the window picture for {name}", timeout=timeout, interval=0.2, reads=2,
+                   raise_on_timeout=False) is None:
+        print(name, False, flush=True)
+        return
+    print(name, True, flush=True)
+
+
+def surfaces():
+    return (rpc("debug.surfaces").get("result") or {}).get("windows")
+
+
 def home():
     return rpc("debug.home").get("result") or {}
 
@@ -128,7 +149,7 @@ try:
         env["CMUX_AUTH_CREDENTIALS_FILE"] = opts.credentials_file
     log = open(os.path.join(opts.out, f"app-{opts.tag}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("ok"), 180):
         sys.exit("the tagged app did not come up")
     if not home_classic.require(lambda m: rpc(m).get("result") or {}):  # classic Home: these checks drive the native transcript
@@ -138,28 +159,31 @@ try:
         wait(lambda: (rpc("debug.surfaces").get("result") or {}).get("windows"), 30)
     if opts.expected_account:
         account = dev_account_guard.require_account(lambda m, p: rpc(m, p).get("result") or {}, opts.expected_account, timeout=120)
-        print("signed in as", dev_account_guard.mask(account.get("email")), flush=True)
+        safe_print("signed in as", dev_account_guard.mask(account.get("email")), flush=True)
     wait(lambda: home().get("available"), 90)
 
     # 1. The channels Home as a tab in the first pane.
     channels = run("home.channels")
     step("home.channels opens a tab", True if ran(channels) else None, channels)
-    time.sleep(3)
-    shot("01-channels-tab")
+    # The channels tab is in the window's tab list (it stops changing), and its React page has drawn.
+    wait_stable(surfaces, "the window's panes and tabs after home.channels", timeout=15, interval=0.2, raise_on_timeout=False)
+    settled_shot("01-channels-tab")
 
     # 2-3. A second pane, then the native Home as a tab in it; a second Home tab.
     step("splitRight", ran(run("splitRight")))
     # The CLI's path (`cmux home tab` sends action.run with the CLI name).
     first = rpc("action.run", {"action": "home tab", "cli": True, "focus": True, "wait": True}, timeout=90)
-    print("cli home tab ->", json.dumps(first)[:400], flush=True)
+    safe_print("cli home tab ->", json.dumps(first)[:400], flush=True)
     opened = wait(lambda: len(tabs()) >= 1, 30)
     step("home.tab opens a Home tab", ran(first) and opened, {"reply": first, "tabs": tabs()})
     if not opened:
         failed = True
         raise SystemExit
     wait(lambda: tabs()[0].get("shown"), 60)
-    time.sleep(2)
-    shot("02-channels-and-home-tab-split")
+    # The Home tab's transcript is listed and stops changing, then the window picture settles.
+    wait_stable(lambda: tabs()[0].get("transcript_tail"), "the Home tab's transcript", timeout=15, interval=0.2,
+                raise_on_timeout=False)
+    settled_shot("02-channels-and-home-tab-split")
     second = run("home.tab")
     two = wait(lambda: len(tabs()) >= 2, 30)
     step("a second home.tab opens a second Home tab", ran(second) and two, tabs())
@@ -184,11 +208,12 @@ try:
     in_others = wait(lambda: all(TEXT in (t.get("transcript_tail") or []) for t in tabs() if t.get("key") in others), 30)
     step("the other Home tab shows the message", in_others, tabs())
     failed |= not (same and in_store and in_others)
-    time.sleep(2)
-    shot("03-message-in-both-homes")
+    settled_shot("03-message-in-both-homes")
     rpc("action.run", {"id": "home.show", "focus": True})
-    time.sleep(2)
-    shot("04-top-page-home-unchanged")
+    # The top page shows (debug.home page.shown), then the window picture settles.
+    wait_until(lambda: (home().get("page") or {}).get("shown") is not None, "home.show's top page", timeout=15,
+               raise_on_timeout=False)
+    settled_shot("04-top-page-home-unchanged")
     step("home.show still shows the top page", (home().get("page") or {}).get("shown") is not None, None)
     # The channels tab shows the message on the screenshot only (no debug read verb for the React page).
     step("channels tab shows the message", None, "screenshot 03-message-in-both-homes.png")
@@ -202,5 +227,5 @@ finally:
             app.wait(20)
         except subprocess.TimeoutExpired:
             app.kill()
-    print("RESULT", "FAIL" if failed else "PASS", flush=True)
+    safe_print("RESULT", "FAIL" if failed else "PASS", flush=True)
     sys.exit(1 if failed else 0)

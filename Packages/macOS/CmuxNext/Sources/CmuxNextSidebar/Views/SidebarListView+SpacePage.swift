@@ -45,7 +45,8 @@ struct SidebarSpacePage {
     /// collapsed group or a fold hides, and a row of a group that leaves for the Archive are drawn only while active.
     private func keepsRows(selecting id: WorkspaceID?, _ o: SidebarLayoutOptions) -> Bool {
         guard let id, let ws = workspaces[id] else { return true }
-        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done) else { return false }
+        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done), !o.settled.contains(id),
+              !o.automatic.contains(id) else { return false }
         guard let row = layout.row(for: .workspace(id)) else { return false }
         var group = row.group
         var seen: Set<GroupID> = []
@@ -138,7 +139,7 @@ extension SidebarListViewComponents {
     /// the layout (`SidebarSpacePages.cachesTookChange`): the list then keeps no page until its next full layout.
     private func spacePage() -> SidebarSpacePage? {
         guard let base = spliceBase, let metrics = spacePages.shownMetrics, !holdsModelChange, drag == nil, settling == nil,
-              landing == nil, external == nil, rowHold.isEmpty, leaving.isEmpty, !displayed.rows.isEmpty,
+              landing == nil, external == nil, leaving.isEmpty, !displayed.rows.isEmpty,
               appliedSections.count == sections.count else { return nil }
         var ordered: [SidebarSection] = []
         ordered.reserveCapacity(appliedSections.count)
@@ -158,7 +159,7 @@ extension SidebarListViewComponents {
     /// doubt: the reload then lays the space out in full.
     func takeSpacePage() -> (layout: SidebarLayout, options: SidebarLayoutOptions)? {
         guard let space = spacePages.entering, let page = spacePages.take(space) else { return nil }
-        guard drag == nil, settling == nil, landing == nil, external == nil, rowHold.isEmpty, leaving.isEmpty,
+        guard drag == nil, settling == nil, landing == nil, external == nil, leaving.isEmpty,
               model.filterText.isEmpty, metrics == page.metrics else { return nil }
         let now = options(includeGap: true)
         // One compare per row of the space, no layout (the compare the model's own row patch path makes).
@@ -168,7 +169,9 @@ extension SidebarListViewComponents {
             guard !model.groupsByStatus, !model.grouping.groupsByRecents, SidebarSessionTree.shared.drawn == nil else { return nil }
             for change in changes {
                 guard model.listedPaths(of: change.new.id).count == 1,
-                      !SidebarModel.movesRows(from: change.old, to: change.new, groupsByFolder: model.groupsByFolder),
+                      !SidebarModel.movesRows(from: change.old, to: change.new, groupsByFolder: model.groupsByFolder,
+                                              settles: model.settlesFinished,
+                                              automates: !model.showsAutomaticSessions),
                       change.old.title == change.new.title || !page.isSoleMember(change) else { return nil }
             }
         }

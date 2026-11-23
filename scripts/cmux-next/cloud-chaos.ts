@@ -29,7 +29,7 @@
  * And whether the person lost output. A second dial is the person's chat as the app holds it (ChatClient: a chat tab
  * on the machine's store, `agent-session-start`, `agent-session-prompt`, `agent-session-attach` and its live records,
  * attached again from the newest seq held after a redial or a close). Each fault's turn is a counting turn: the model
- * stub's turn script (countingTurnScript) makes COUNT_STEPS numbered shell calls, and the fault goes in once the client
+ * stub's turn script (countingTurnScript) makes COUNT_STEPS numbered file reads, and the fault goes in once the client
  * has seen a third of them. A guest terminal prints 1..SEQ_LINES across the same span, tee'd to a file, and the client
  * reads it with `terminal.output_read` from offsets (SeqTerminal). After the turn, judgeLoss compares what the client
  * received with the machine's own journal (`acp tail --since`), and judgeTerminal compares its terminal reads with the
@@ -63,6 +63,12 @@ export type ChaosContext = {
   session: string;
   /** The harness the client's chat runs (`agent-session-start`), as the journey's `--agent`. */
   harness?: string;
+  /**
+   * The person's model connection, which the app gives each chat's agent at its start (`agent-session-start`'s
+   * `credentials`, cmux#40159: the machine holds no login). The journey's launch credential; none when the machine has
+   * a login of its own.
+   */
+  credentials?: { env: Record<string, string> };
   tag: string;
   log?: (line: string) => void;
 };
@@ -89,7 +95,7 @@ export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
   {
     name: "agent daemon restart",
     secs: 0,
-    command: 'p=$("$c" acp --json daemon status 2>/dev/null | sed -n \'s/.*"pid": *\\([0-9]*\\).*/\\1/p\' | head -1); [ -n "$p" ] && kill -KILL "$p" && echo "@@ok $p"',
+    command: `p=$("$c" acp --json daemon status 2>/dev/null | sed -n 's/.*"pid": *\\([0-9]*\\).*/\\1/p' | head -1); [ -n "$p" ] && kill -KILL "$p" && echo "@@ok $p" && ${restartStatusSampler()}`,
   },
 ];
 
@@ -258,6 +264,8 @@ function answerOf(msg: any): any {
 /** What the chat and the guest terminal need of a carrier dial (ClientDial; a fake in the tests). */
 export type DialLike = {
   dials: number;
+  /** What the dial went through (ClientDial.events); none for a fake. */
+  events?: string[];
   start(): void;
   request(frame: Record<string, unknown>, timeoutMs?: number): Promise<any>;
   stop(): void;
@@ -270,6 +278,12 @@ export type DialLike = {
  */
 class ClientDial implements DialLike {
   dials = 0;
+  /**
+   * The dial's own story, oldest first: each `cloud.connect` route line (a resume, a fresh session) and each exit, with
+   * its time. The chat rides this dial, not the pinged one, so a chat stream that stops while the pinged dial resumed
+   * is told from these.
+   */
+  events: string[] = [];
   private child: ReturnType<typeof spawn> | null = null;
   private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private n = 0;
@@ -306,16 +320,24 @@ class ClientDial implements DialLike {
     });
     let err = "";
     let said = false;
+    let rest = "";
     child.stderr!.setEncoding("utf8").on("data", (chunk: string) => {
-      err += chunk;
+      rest += chunk;
+      for (let at = rest.indexOf("\n"); at >= 0; at = rest.indexOf("\n")) {
+        const line = rest.slice(0, at);
+        rest = rest.slice(at + 1);
+        if (line.startsWith("cloud.connect ")) this.note(line.slice(0, 300));
+      }
       if (said) return;
+      err += chunk;
       const first = err.split("\n")[0];
       if (!err.includes("\n")) return;
       said = true;
       try { if (JSON.parse(first).ok === true && this.child === child) this.onDial(); } catch { /* not the reply line */ }
     });
-    child.on("exit", () => {
+    child.on("exit", (code) => {
       if (this.child === child) this.child = null;
+      if (!this.stopped) this.note(`exit ${code}`);
       for (const [id, w] of this.pending) {
         clearTimeout(w.timer);
         w.reject(new Error("the client's dial ended"));
@@ -325,6 +347,12 @@ class ClientDial implements DialLike {
       // At once, as the app's redial; a dial that cannot connect yet ends again and comes back here.
       setTimeout(() => this.dial(), 250);
     });
+  }
+
+  /** Keeps the newest 40 of the dial's events. */
+  private note(text: string): void {
+    this.events.push(`${new Date().toISOString().slice(11, 23)}Z dial ${this.dials}: ${text}`);
+    if (this.events.length > 40) this.events.shift();
   }
 
   /** One request on the current dial; rejects when it is not answered within `timeoutMs` or the dial ends. */
@@ -415,6 +443,8 @@ export class ChatClient {
   }
   private stopped = false;
   private reattaching = false;
+  /** Each re-attach's tries: when each failed (and why) and when one took, epoch ms, for a fault's timeline. */
+  reattachLog: { at: number; text: string }[] = [];
   readonly dial: DialLike;
   private ready: Promise<void>;
   private readyNow!: () => void;
@@ -426,6 +456,15 @@ export class ChatClient {
 
   /** Dial, make the chat tab and start the chat in it; the first attach sets the baseline seq. */
   async open(harness: string): Promise<void> {
+    await this.openTab(harness);
+    const started = answerOf(await this.start(harness));
+    this.session = String(started.session ?? "");
+    if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
+    await this.attach(undefined);
+  }
+
+  /** Dial and make the chat tab for `harness`, as the app does for a new Cloud chat, before any start. */
+  async openTab(harness: string): Promise<void> {
     this.dial.start();
     await Promise.race([this.ready, sleep(90_000).then(() => { throw new Error("the client's dial never connected"); })]);
     const id = answerOf(await this.dial.request({ cmd: "identify" }));
@@ -436,10 +475,17 @@ export class ChatClient {
     if (typeof tab.surface !== "number") throw new Error(`new-conversation-tab gave no surface: ${JSON.stringify(tab).slice(0, 200)}`);
     this.surface = tab.surface;
     this.tab = typeof tab.tab_resource_id === "string" ? tab.tab_resource_id : "";
-    const started = answerOf(await this.dial.request({ cmd: "agent-session-start", surface: tab.surface, harness, vm_kind: "owner" }, 120_000));
-    this.session = String(started.session ?? "");
-    if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
-    await this.attach(undefined);
+  }
+
+  /**
+   * The app's start of the tab's chat with `harness` on the caller's own machine (`vm_kind: "owner"`), the daemon's
+   * answer as it came: `ok` with `data.session`, or a refusal with its `error_code` and `data` (a signed-out agent:
+   * `agent_session.sign_in_required` with `data.harness`, hq#11225).
+   */
+  async start(harness: string): Promise<any> {
+    if (this.surface === null) throw new Error("start before openTab");
+    const credentials = this.ctx.credentials ? { credentials: this.ctx.credentials } : {};
+    return this.dial.request({ cmd: "agent-session-start", surface: this.surface, harness, vm_kind: "owner", ...credentials }, 120_000);
   }
 
   /**
@@ -465,12 +511,43 @@ export class ChatClient {
     return this.held >= seq;
   }
 
+  /**
+   * Why a catch-up wait timed out, as a clause for the verdict. It asks `agent-session-events` past the seq held
+   * (the mux Bulk lane, as the chat's own pushes) and then `identify` (the Control lane), and keeps nothing either
+   * answers: the client's view, and so the verdict, stays what the product delivered.
+   */
+  async stallDiagnosis(eventsMs = 10_000, identifyMs = 5_000): Promise<string> {
+    const held = this.held;
+    const asked = async (frame: Record<string, unknown>, ms: number): Promise<{ answer?: any; error?: string }> => {
+      try {
+        return { answer: answerOf(await this.dial.request(frame, ms)) };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    };
+    const events = await asked({ cmd: "agent-session-events", surface: this.surface, after_seq: held, limit: 500 }, eventsMs);
+    const identify = await asked({ cmd: "identify" }, identifyMs);
+    const timedOut = (r: { error?: string }) => /^no answer within/.test(r.error ?? "");
+    const seqs: number[] = (events.answer?.events ?? []).map((e: any) => Number(e?.seq)).filter((s: number) => s > held);
+    const eventsText = events.answer
+      ? seqs.length ? `events answered from seq ${Math.min(...seqs)} (${seqs.length} records)` : "events answered with nothing past it"
+      : timedOut(events) ? `events timed out (${eventsMs / 1000} s)` : `events failed: ${events.error}`;
+    const identifyText = identify.answer ? "identify answered" : timedOut(identify) ? `identify timed out (${identifyMs / 1000} s)` : `identify failed: ${identify.error}`;
+    const verdict = seqs.length ? "attachment dead, transport fine"
+      : timedOut(events) && identify.answer ? "bulk lane stalled"
+      : timedOut(events) && timedOut(identify) ? "carrier dead"
+      : "no conclusion";
+    return `after seq ${held}: ${eventsText}, ${identifyText}: ${verdict}`;
+  }
+
   private onLine(m: any): void {
     if (m?.surface !== this.surface) return;
     if (m.event === "agent-session-record" && m.record && typeof m.record.seq === "number") {
-      if (!this.attached) return;
       if (this.paging) this.stash.push({ record: m.record, at: Date.now() });
-      else this.live(m.record);
+      else {
+        if (!this.attached) return;
+        this.live(m.record);
+      }
     } else if (m.event === "agent-session-closed") {
       this.attached = false;
       this.lastError = `closed: ${String(m.reason ?? "")}`;
@@ -511,11 +588,14 @@ export class ChatClient {
     this.reattaching = true;
     try {
       while (!this.stopped && !this.attached) {
+        const tried = Date.now();
         try {
           await this.resolveSurface();
           await this.attach(this.held);
+          this.reattachLog.push({ at: Date.now(), text: `attached (try of ${Date.now() - tried} ms)` });
         } catch (e) {
           this.lastError = (e as Error).message;
+          this.reattachLog.push({ at: Date.now(), text: `${this.lastError.slice(0, 120)} (try of ${Date.now() - tried} ms)` });
           await sleep(1_000);
         }
       }
@@ -594,6 +674,7 @@ export class SeqTerminal {
   terminal = "";
   error = "";
   private offset = 0;
+  private recovery = "";
   private stopped = false;
   private loop: Promise<void> | null = null;
 
@@ -628,10 +709,11 @@ export class SeqTerminal {
   private async poll(): Promise<void> {
     while (!this.stopped) {
       try {
-        const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), max_bytes: 1_048_576 } }, 10_000));
-        const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, text: String(r.text ?? "") };
+        const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), recovery: this.recovery, max_bytes: 1_048_576 } }, 10_000));
+        const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, snapshot: r.snapshot === true, text: String(r.text ?? "") };
         this.reads.push(read);
         this.offset = read.next;
+        this.recovery = typeof r.recovery === "string" ? r.recovery : "";
       } catch (e) {
         this.error = (e as Error).message;
       }
@@ -665,7 +747,22 @@ export function isReply(record: any): boolean {
 /** The felt chat's prompt marker: a prompt the stub answers with its short reply, never the counting turn. */
 export const feltMarker = (tag: string) => `[chaos-felt ${tag}]`;
 
-export type Felt = { felt_ms: number | null; ack_ms: number | null; tries: number; error: string };
+export type Felt = { felt_ms: number | null; ack_ms: number | null; tries: number; error: string; trail?: string };
+
+/**
+ * Each refusal a send met, in order, as `first-last ms: text (n)` runs of the same text: where a slow take spent its
+ * time (the daemon down, the session not restored, the agent not started), not only the last refusal's text.
+ */
+export function refusalTrail(refusals: { at: number; text: string }[]): string {
+  const runs: { from: number; to: number; text: string; n: number }[] = [];
+  for (const r of refusals) {
+    const text = r.text.replace(/\s+/g, " ").slice(0, 160);
+    const last = runs[runs.length - 1];
+    if (last && last.text === text) { last.to = r.at; last.n += 1; }
+    else runs.push({ from: r.at, to: r.at, text, n: 1 });
+  }
+  return runs.map((r) => `${r.from === r.to ? `${r.from}` : `${r.from}-${r.to}`} ms: ${r.text} (${r.n})`).join("; ");
+}
 
 /**
  * The person's felt time: `text` sent on `chat` now, and the time until the client receives the first record of the
@@ -685,11 +782,13 @@ export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: 
   let ack: number | null = null;
   let tries = 0;
   let error = "";
+  const refusals: { at: number; text: string }[] = [];
+  const done = (felt_ms: number | null): Felt => ({ felt_ms, ack_ms: ack, tries, error, ...(refusals.length ? { trail: refusalTrail(refusals) } : {}) });
   for (const until = sentAt + deadlineMs; ;) {
     // The earliest arrival of any reply record, a live push still held behind a loading page included.
     const times = chat.arrivals(from).filter((r) => r.seq > held && r.at >= sentAt && r.at <= until && isReply(r.record)).map((r) => r.at);
-    if (times.length) return { felt_ms: Math.min(...times) - sentAt, ack_ms: ack, tries, error };
-    if (Date.now() > until) return { felt_ms: null, ack_ms: ack, tries, error };
+    if (times.length) return done(Math.min(...times) - sentAt);
+    if (Date.now() > until) return done(null);
     if (ack === null) {
       tries += 1;
       try {
@@ -697,6 +796,7 @@ export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: 
         ack = Date.now() - sentAt;
       } catch (e) {
         error = (e as Error).message;
+        refusals.push({ at: Date.now() - sentAt, text: error });
         await sleep(500);
       }
       continue;
@@ -763,6 +863,11 @@ export function journalCommand(session: string, baseline: number): string {
     "    k = str(e.get('kind', ''))",
     "    out = {'seq': e['seq'], 'kind': k}",
     "    if k in ('tool_call', 'tool_call_update'): out['msg'] = {'params': {'update': ((e.get('msg') or {}).get('params') or {}).get('update')}}",
+    // A permission ask: only its tool's kind and a cut title, so the job log names what waited without its arguments.
+    "    if k == 'permission_request':",
+    "        r = (e.get('msg') or {}).get('request') or {}",
+    "        c = r.get('toolCall') or (r.get('params') or {}).get('toolCall') or {}",
+    "        out['ask'] = {'kind': str(c.get('kind', ''))[:20], 'title': str(c.get('title', ''))[:60]}",
     "    print(json.dumps(out))",
   ].join("\n");
   // `acp tail` writes to a file first, so its own failure is the exit the line reports (sh has no pipefail).
@@ -770,17 +875,37 @@ export function journalCommand(session: string, baseline: number): string {
     `python3 -I -c ${shq(py)} < "$t"; py=$?; rm -f "$t"; [ "$rc" -eq 0 ] || py=$rc; echo "@@exit $py"; }`;
 }
 
-async function readJournal(ctx: ChaosContext, tag: string, session: string, baseline: number): Promise<SeqEvent[] | string> {
+/** What a turn's journal holds besides its steps: how many records of each kind, and each permission ask. */
+export type JournalNotes = { kinds: Record<string, number>; asks: string[] };
+
+async function readJournal(ctx: ChaosContext, tag: string, session: string, baseline: number, notes?: JournalNotes): Promise<SeqEvent[] | string> {
   const r = await ctx.exec(`${ctx.guest}${journalCommand(session, baseline)}`, 120_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
   if (!/@@exit 0/.test(r.stdout)) return `the machine's journal could not be read: ${(r.stdout + r.stderr).slice(-200)}`;
   const events: SeqEvent[] = [];
   for (const line of r.stdout.split("\n")) {
     try {
-      const e = journalEvent(tag, JSON.parse(line));
+      const raw = JSON.parse(line);
+      const e = journalEvent(tag, raw);
       if (e) events.push(e);
+      if (notes) noteJournalLine(notes, raw);
     } catch { /* the @@exit line */ }
   }
   return events;
+}
+
+/** Adds one journalCommand line to `notes`. */
+export function noteJournalLine(notes: JournalNotes, line: any): void {
+  if (typeof line?.seq !== "number") return;
+  const kind = String(line.kind ?? "");
+  notes.kinds[kind] = (notes.kinds[kind] ?? 0) + 1;
+  if (kind === "permission_request") notes.asks.push(`seq ${line.seq}: ${String(line.ask?.kind ?? "") || "?"} ${JSON.stringify(String(line.ask?.title ?? ""))}`);
+}
+
+/** The notes as one clause for a verdict: the record kinds, then the permission asks, if any. */
+export function journalNotesText(notes: JournalNotes): string {
+  const kinds = Object.entries(notes.kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k || "?"} ${n}`).join(", ");
+  const asks = notes.asks.length ? `; ${notes.asks.length} permission ask${notes.asks.length > 1 ? "s" : ""}: ${notes.asks.slice(0, 3).join("; ")}` : "; no permission ask";
+  return `the turn's journal records: ${kinds || "none"}${asks}`;
 }
 
 /**
@@ -795,18 +920,118 @@ async function feltBoundary(ctx: ChaosContext, session: string, after: number, e
 }
 
 /** The loss verdict for one fault's counting turn: the client's view from `from` against the machine's journal. */
-async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, baseline: number, from: number, interrupted: boolean): Promise<LossVerdict> {
-  const journal = await readJournal(ctx, tag, chat.session, baseline);
+async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, baseline: number, from: number, interrupted: boolean, injection: { step: number; running: boolean }): Promise<LossVerdict> {
+  const notes: JournalNotes = { kinds: {}, asks: [] };
+  const journal = await readJournal(ctx, tag, chat.session, baseline, notes);
   if (typeof journal === "string") return { ok: false, text: journal };
+  // A turn whose machine ran no step lost nothing in transit: say what its journal holds instead (a permission ask
+  // that waits for a person, run 43578005170), in the job log, which outlives a full artifact store.
+  const ranNone = !journal.some((e) => e.ks.length);
+  if (ranNone || notes.asks.length) ctx.log?.(`chaos: ${tag}: ${journalNotesText(notes)}`);
   const last = journal.length ? journal[journal.length - 1].seq : baseline;
   const caught = await chat.caughtUp(last, 30_000);
   const slice = chat.received.slice(from);
   const client = slice.map((r) => journalEvent(tag, r.record) ?? { seq: r.seq, ks: [] });
   const reconnects = chat.reconnects.filter((i) => i >= from).map((i) => i - from);
-  const verdict = judgeLoss({ n: COUNT_STEPS, journal, client, reconnects, interrupted });
-  const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""})`;
+  const verdict = judgeLoss({ n: COUNT_STEPS, journal, client, reconnects, interrupted, injection });
+  // A stalled client is asked why before the verdict is written; the diagnosis never changes the verdict.
+  const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""}; ${await chat.stallDiagnosis()})`;
   const pages = slice.filter((r) => r.via === "page").length;
-  return { ok: verdict.ok, text: `${verdict.text}${lag}; ${slice.length} records to the client (${pages} from re-attach pages, ${chat.overlaps} live overlaps dropped)` };
+  const why = ranNone ? `; ${journalNotesText(notes)}` : "";
+  if (!verdict.ok || !caught) {
+    // In the job log (it outlives a full artifact store): when the client's stream last moved, and what the chat's
+    // own dial went through (its resumes, fresh sessions and exits), so a stall is told from a lost push.
+    const lastAt = slice.length ? new Date(slice[slice.length - 1].at).toISOString().slice(11, 23) + "Z" : "never";
+    ctx.log?.(`chaos: ${tag}: the client's last record came at ${lastAt}; its dial: ${(chat.dial.events ?? []).slice(-12).join(" | ") || "no route line or exit"}`);
+    if (!caught) ctx.log?.(`chaos: ${tag}: the machine at the stall: ${await machineAtStall(ctx)}`);
+  }
+  return { ok: verdict.ok, text: `${verdict.text}${lag}; ${slice.length} records to the client (${pages} from re-attach pages, ${chat.overlaps} live overlaps dropped)${why}` };
+}
+
+/**
+ * What the machine says while a chat attachment that still answers pages pushes nothing ("attachment dead, transport
+ * fine", run 18:40Z 2026-11-15): acpmux's outbound queues (`gauges.queues`: a link whose queue grows holds its pushes),
+ * and the last 5 minutes of acpmux's and the host daemon's warnings and attachment lines, which tell acpmux that stopped
+ * fanning out from a daemon that stopped forwarding. For the job log only; it never changes a verdict.
+ */
+export const STALL_FACTS_COMMAND = [
+  `echo "@@queues $("$c" acp --json daemon status 2>&1 | tr -d '\\n' | grep -oE '"queues":\\{.{0,1500}' | head -c 1500)"`,
+  `for u in acpmux.service cmux-host.service; do echo "@@$u"; { sudo -n journalctl -u "$u" --since '5 min ago' --no-pager -o cat 2>/dev/null || journalctl -u "$u" --since '5 min ago' --no-pager -o cat 2>/dev/null; } | grep -iE 'warn|error|lag|overrun|overflow|attach|subscri|peer|fanout|closed|too.slow' | tail -n 15 | cut -c1-300; done`,
+  `echo "@@daemon.log"; tail -n 400 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -iE 'warn|error|lag|overrun|attach|subscri|peer|fanout|too.slow' | tail -n 15 | cut -c1-300`,
+].join("; ");
+
+/** Where the restart fault's status sampler writes on the machine (a function: the fault list reads it first). */
+export function restartStatusFile(): string {
+  return "/tmp/crn-restart-status.txt";
+}
+
+/**
+ * Started right after the kill, in the background: asks the restarted acpmux for its status every 250 ms for 30 s
+ * and writes one `unix.secs status ...` line each time the answer changes (no answer, then each loading phase, then
+ * ready), so the restart timeline shows how long each startup phase held the chat.
+ */
+export function restartStatusSampler(): string {
+  const file = restartStatusFile();
+  const ask = `timeout 2 "$c" acp --json daemon status 2>&1 | tr -d '\\n' | grep -oE '"(phase|state|ready|loading)": *("[^"]*"|true|false|null|[0-9]+)' | tr '\\n' ' '`;
+  return `( s=""; for i in $(seq 120); do t=$(${ask}); [ -n "$t" ] || t="no answer"; [ "$t" = "$s" ] || echo "$(date +%s.%N) sampler status: $t"; s=$t; sleep 0.25; done ) </dev/null >${file} 2>&1 &`;
+}
+
+/**
+ * acpmux's own record of a restart from `sinceMs` (epoch ms): systemd's lines for the user unit acpmux.service (the
+ * kill, the restart) and the daemon's own `daemon.log` lines (each with its time: the lock, the ready line, "agents
+ * may start", "startup complete", a host replay that stalled, each warning). acpmux.service is a user unit, so the
+ * journal is read with `--user`; a machine whose user journal is off still has the daemon's file.
+ */
+export function restartTimelineCommand(sinceMs: number): string {
+  const since = `@${Math.floor(sinceMs / 1000) - 1}`;
+  const journal = `journalctl --user -u acpmux.service --since ${since} --no-pager -o short-unix 2>/dev/null | grep -vE ' (DEBUG|TRACE) ' | grep -viE 'model probe failed' | head -n 60`;
+  const kept = `tail -n 600 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' | grep -vE ' (DEBUG|TRACE) '`;
+  return `echo "@@now $(date +%s%3N)"; ${journal}; ${kept}; cat ${restartStatusFile()} 2>/dev/null; ${startupPhasesCommand()}`;
+}
+
+/**
+ * The new daemon's startup phases (`gauges.startup` in its status: each phase's start from the daemon's birth, and how
+ * long it took), each as a timeline line at the time it started: which phase held "startup complete" back.
+ */
+export function startupPhasesCommand(): string {
+  const py = [
+    "import json,sys,time",
+    "d=json.load(sys.stdin)",
+    "f=lambda v:v if isinstance(v,dict) and isinstance(v.get(\"startup\"),list) and \"uptimeMs\" in v else next((r for x in (v.values() if isinstance(v,dict) else v if isinstance(v,list) else []) for r in [f(x)] if r),None)",
+    "g=f(d)",
+    "b=time.time()-g[\"uptimeMs\"]/1000 if g else 0",
+    "[print(\"%.3f startup phase: %s %sms\"%(b+p[\"atMs\"]/1000,p[\"name\"],p.get(\"ms\"))) for p in (g or {}).get(\"startup\",[])]",
+  ].join("; ");
+  return `timeout 5 "$c" acp --json daemon status 2>/dev/null | python3 -c '${py}' 2>/dev/null`;
+}
+
+/**
+ * The timeline's lines as `+ms text`, from `zeroMs` (the kill, on this runner's clock), in time order, at most `max`
+ * of them: the journal's `short-unix` lines and daemon.log's RFC 3339 ones. The machine's `@@now` against `readAtMs`
+ * (when this runner got the answer) corrects for the two clocks' skew.
+ */
+export function restartTimeline(stdout: string, zeroMs: number, readAtMs = Number.NaN, max = 90): string {
+  const now = Number(/@@now (\d+)/.exec(stdout)?.[1]);
+  const skew = Number.isFinite(now) && Number.isFinite(readAtMs) ? now - readAtMs : 0;
+  zeroMs += skew;
+  const rows: { at: number; text: string }[] = [];
+  for (const raw of stdout.split("\n")) {
+    const line = raw.replace(/\x1b\[[0-9;]*m/g, "").trim();
+    const unix = /^(\d+\.\d+)\s+\S+\s+(.*)$/.exec(line);
+    const iso = unix ? null : /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$/.exec(line);
+    const ms = unix ? Number(unix[1]) * 1000 : iso ? Date.parse(iso[1]) : Number.NaN;
+    if (!Number.isFinite(ms)) continue;
+    const at = Math.round(ms - zeroMs);
+    if (at < -1000 || at > 120_000) continue;
+    rows.push({ at, text: (unix ?? iso)![2].replace(/\s+/g, " ").slice(0, 200) });
+  }
+  rows.sort((a, b) => a.at - b.at);
+  return rows.slice(0, max).map((r) => `+${r.at} ms ${r.text}`).join(" | ");
+}
+
+async function machineAtStall(ctx: ChaosContext): Promise<string> {
+  const r = await ctx.exec(`${ctx.guest}${STALL_FACTS_COMMAND}`, 45_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+  return r.stdout.trim().split("\n").join(" | ").slice(0, 8000) || "nothing read";
 }
 
 async function terminalVerdict(ctx: ChaosContext, term: SeqTerminal | null, startError: string): Promise<LossVerdict> {
@@ -864,6 +1089,9 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       else ctx.log?.(`chaos: the felt chat's warm-up reply began after ${warm.felt_ms} ms`);
     }
     if (!chatError) ctx.log?.(`chaos: the client's chat ${chat.session} is open on surface ${chat.surface}, its felt chat ${felt.session} on ${felt.surface}, each over its own carrier dial`);
+    // The chat's folder holds each counting turn's files (countingTurnScript); its policy and mode go to the job log.
+    const facts = chatError ? { cwd: "", text: "" } : await chatFacts(ctx, chat.session);
+    if (!chatError) ctx.log?.(`chaos: the client's chat: ${facts.text}`);
     for (const [i, f] of FAULTS.entries()) {
       if (chatError) {
         out.push(failed(f.name, `the client's chat could not be opened over the carrier: ${chatError}`));
@@ -880,10 +1108,21 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const baseline = chat.held;
       const from = chat.received.length;
       // The guest terminal printing 1..SEQ_LINES across the fault, read by the client over the carrier.
+      // The counting turn's files, in the chat's folder (countingTurnScript reads them), before the terminal starts.
+      if (!facts.cwd) {
+        out.push(failed(f.name, `the counting files have no folder: the chat's folder could not be read (${facts.text})`));
+        continue;
+      }
+      const wrote = await ctx.exec(`${ctx.guest}${countingFilesCommand(facts.cwd, tag)}`, 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+      const dir = /@@dir (\S+)/.exec(wrote.stdout)?.[1];
+      if (!dir) {
+        out.push(failed(f.name, `the counting files could not be written in ${facts.cwd}: ${(wrote.stdout + wrote.stderr).trim().slice(-200)}`));
+        continue;
+      }
       const seq = new SeqTerminal(chat.dial, SEQ_LINES, `/tmp/cmux-chaos-seq-${tag}.txt`);
       const seqError = await seq.start(tag).then(() => "", (e: Error) => e.message);
-      // The counting turn: COUNT_STEPS numbered tool calls (the model stub's counting script, countingTurnScript).
-      const sent = await chat.prompt(`${marker} ${f.name}: run the counting steps.`).then(() => "", (e: Error) => e.message);
+      // The counting turn: COUNT_STEPS numbered reads (the model stub's counting script, countingTurnScript).
+      const sent = await chat.prompt(countingPrompt(tag, f.name, dir)).then(() => "", (e: Error) => e.message);
       if (sent) {
         out.push(failed(f.name, `the turn did not start: ${sent}`));
         continue;
@@ -897,12 +1136,15 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         if (reached >= third) break;
       }
       const state = await turnState(ctx, marker, chat.session).catch(() => ({ started: 0, running: false, status: "", detail: "" }));
+      // History is a remote read: output may have finished while it was in flight.
+      reached = chat.reached(tag, from);
       if (state.started === 0) {
         out.push(failed(f.name, `the turn was sent but never showed in the chat's history (the client saw step ${reached})`));
         continue;
       }
-      const when = reached >= third ? `mid-turn at step ${reached} of ${COUNT_STEPS}`
-        : state.running ? `mid-turn, but the client had seen only step ${reached} of ${COUNT_STEPS}` : `after the turn (${state.status})`;
+      const when = !state.running || reached >= COUNT_STEPS ? `after the counting output (${state.status}, step ${reached} of ${COUNT_STEPS})`
+        : reached >= third ? `mid-turn at step ${reached} of ${COUNT_STEPS}`
+        : `mid-turn, but the client had seen only step ${reached} of ${COUNT_STEPS}`;
       const dialsBefore = carrier.dials;
       const movesBefore = chat.surfaceMoves;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
@@ -929,12 +1171,12 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const resumed = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length > resumesBefore;
       const how = carrier.dials > dialsBefore ? `new dial (${carrier.dials - dialsBefore})` : resumed ? "resumed the session" : "unbroken";
       const turn = await turnOutcome(ctx, marker, chat.session);
-      const loss = await lossVerdict(ctx, chat, tag, baseline, from, turn.interrupted === true);
+      const loss = await lossVerdict(ctx, chat, tag, baseline, from, turn.interrupted === true, { step: reached, running: state.running });
       const terminal = await terminalVerdict(ctx, seqError ? null : seq, seqError);
       const ok = feel.felt_ms !== null && feltTurn.ok && recover !== null && turn.ok && loss.ok && terminal.ok;
       const feltText = feel.felt_ms === null
         ? `no reply within ${RECOVER_DEADLINE_MS / 1000} s of a send at the cause's end (${feel.tries} tries${feel.error ? `; last error ${feel.error}` : ""})`
-        : `the reply began ${feel.felt_ms} ms after a send at the cause's end (taken at ${feel.ack_ms} ms, ${feel.tries} ${feel.tries === 1 ? "try" : "tries"})`;
+        : `the reply began ${feel.felt_ms} ms after a send at the cause's end (taken at ${feel.ack_ms} ms, ${feel.tries} ${feel.tries === 1 ? "try" : "tries"}${feel.trail ? `; refused ${feel.trail}` : ""})`;
       const result: ChaosResult = {
         fault: f.name,
         outcome: ok ? "ok" : "fail",
@@ -944,6 +1186,13 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         turn: turn.text,
         detail: `injected ${when}; ${feltText}, its turn ${feltTurn.text}; ${recover === null ? `the carrier gave no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `the carrier answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}`,
       };
+      // A daemon restart: where the time to the take went, from the machine's own journal.
+      if (f.name === "agent daemon restart") {
+        const tl = await ctx.exec(`${ctx.guest}${restartTimelineCommand(injectedAt)}`, 45_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+        const tries = felt.reattachLog.filter((r) => r.at >= injectedAt).map((r) => ({ at: r.at - injectedAt, text: r.text.replace(/ \(try of \d+ ms\)$/, "") }));
+        ctx.log?.(`chaos: ${f.name}: the felt chat's re-attach from the kill: ${tries.length ? refusalTrail(tries) : "none"}; tries: ${felt.reattachLog.filter((r) => r.at >= injectedAt).map((r) => `+${r.at - injectedAt} ${/try of (\d+) ms/.exec(r.text)?.[1] ?? "?"} ms`).join(", ")}`);
+        ctx.log?.(`chaos: ${f.name}: the machine's acpmux journal from the kill: ${restartTimeline(tl.stdout, injectedAt, Date.now()) || `nothing read (${tl.stdout.trim().slice(-200)})`}`);
+      }
       ctx.log?.(`chaos: ${f.name}: ${result.detail}`);
       out.push(result);
       // Let the carrier settle before the next fault.
@@ -958,25 +1207,60 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
   return out;
 }
 
-/** How many numbered tool calls the counting turn makes, and the pause in each (about 100 x (0.2 s + a round trip)). */
+/** How many numbered tool calls the counting turn makes, and the stub's pause before each (about 100 x (0.2 s + a round trip)). */
 export const COUNT_STEPS = 100;
-const COUNT_SLEEP_S = 0.2;
+const COUNT_PAUSE_S = 0.2;
 
 /** The counting turn's prompt marker; the stub's turn script matches it, and its group is the turn's tag. */
 export const countMarker = (tag: string) => `[chaos-count ${tag}]`;
 
+/** The felt chat's warm-up and reply prompts: a text-only turn so measuring felt time cannot wait on a tool round. */
+export function feltTurnScript(): { match: string; steps: Array<Record<string, string>> } {
+  return { match: "\\[chaos-felt \\S+\\]", steps: [{ text: "Felt reply {{prompt}}." }] };
+}
+
 /**
- * The model stub's turn script for the counting turn (model_stub.py "turns"): steps 1..n each run one shell call that
- * prints `chaos-<tag>-K` (printf joins it, so the call's own command text never carries it and only its result
- * counts), then a reply. The stub counts steps from the turn's own prompt, so the session's earlier tool calls do not
- * move it.
+ * The model stub's turn script for the counting turn (model_stub.py "turns"): steps 1..n each Read one file, `K.txt`
+ * in the folder the prompt names (countingPrompt), whose text is `chaos-<tag>-K` (countingFilesCommand wrote it; the
+ * path never carries that text, so only the read's result counts), then a reply. The stub counts steps from the turn's
+ * own prompt, so the session's earlier tool calls do not move it.
+ *
+ * A Read, not a shell call: the chat runs under policy `ask` (agent-session-start), where acpmux's tool gate makes
+ * every shell call, a read-only one too, wait for a person (acpmux hub/policy_gate.rs), and only the person's app may
+ * answer it (hub/person.rs). A Read in the chat's own folder asks nobody, so the turn runs as a person's would. Each
+ * step's stub pause keeps the turn about as long as it was with shell calls, so each fault still lands mid-turn.
  */
-export function countingTurnScript(n = COUNT_STEPS): { match: string; steps: Array<Record<string, string>> } {
+export function countingTurnScript(n = COUNT_STEPS): { match: string; steps: Array<Record<string, unknown>> } {
   const tag = "{{prompt~\\[chaos-count (\\S+)\\]}}";
-  const steps: Array<Record<string, string>> = [];
-  for (let k = 1; k <= n; k++) steps.push({ shell: `sleep ${COUNT_SLEEP_S}; printf '%s-%s-%s\\n' chaos ${tag} ${k}` });
+  const dir = "{{prompt~ files in (/\\S+?)/ in order}}";
+  const steps: Array<Record<string, unknown>> = [];
+  for (let k = 1; k <= n; k++) steps.push({ tool: { name: "Read", input: { file_path: `${dir}/${k}.txt` } }, pause: COUNT_PAUSE_S });
   steps.push({ text: `Counted ${n} steps for ${tag}.` });
   return { match: "\\[chaos-count \\S+\\]", steps };
+}
+
+/** The counting turn's prompt: its marker, and the folder of its files (countingTurnScript reads it from here). */
+export const countingPrompt = (tag: string, fault: string, dir: string) => `${countMarker(tag)} ${fault}: read the counting files in ${dir}/ in order.`;
+
+/**
+ * The guest command that writes the counting turn's files, `<cwd>/chaos-count/<tag>/K.txt` holding `chaos-<tag>-K`
+ * for K in 1..n, in the chat's own folder (`cwd`, from `acp session info`), and prints `@@dir <folder>`.
+ */
+export function countingFilesCommand(cwd: string, tag: string, n = COUNT_STEPS): string {
+  const dir = `${cwd}/chaos-count/${tag}`;
+  return `d=${shq(dir)}; mkdir -p "$d" && k=0 && while [ "$k" -lt ${n} ]; do k=$((k+1)); ` +
+    `printf '%s-%s-%s\\n' chaos ${shq(tag)} "$k" > "$d/$k.txt" || exit 1; done && echo "@@dir $d"`;
+}
+
+/**
+ * The chat's folder, policy and mode on the machine (`acp session info --fields`), for the counting files and for the
+ * job log, so a turn that waits on a permission names why without an artifact.
+ */
+async function chatFacts(ctx: ChaosContext, session: string): Promise<{ cwd: string; text: string }> {
+  const r = await ctx.exec(`${ctx.guest}"$c" acp session info ${shq(session)} --fields cwd,policy,currentModeId 2>&1`, 45_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+  const field = (name: string) => new RegExp(`^${name}\\t(.*)$`, "m").exec(r.stdout)?.[1]?.trim() ?? "";
+  const cwd = field("cwd");
+  return { cwd: cwd.startsWith("/") ? cwd : "", text: `cwd ${cwd || "?"}, policy ${field("policy") || "?"}, mode ${field("currentModeId") || "?"}${cwd ? "" : ` (${r.stdout.trim().slice(-160)})`}` };
 }
 
 /** One event of a session's journal, as the machine has it or as a client received it. */
@@ -989,6 +1273,8 @@ export type SeqEvent = {
    * update, so a step counts once per call, and twice only when two calls printed it.
    */
   call?: string;
+  /** The record's kind (`tool_call`, `agent_message_chunk`, ...), so a seq the client skipped can be named. */
+  kind?: string;
 };
 
 export type LossVerdict = { ok: boolean; text: string };
@@ -1013,6 +1299,7 @@ export function journalEvent(tag: string, line: unknown): SeqEvent | null {
     seq,
     ks: tool ? [...new Set(countedSteps(tag, JSON.stringify(update ?? e)))] : [],
     ...(tool && typeof update?.toolCallId === "string" ? { call: update.toolCallId } : {}),
+    ...(kind ? { kind } : {}),
   };
 }
 
@@ -1034,8 +1321,10 @@ export function countedSteps(tag: string, text: string): number[] {
  *   machine's event of that seq;
  * - every step K in 1..n shows exactly once in the journal and exactly once in what the client received. A turn a
  *   restart cut short (`interrupted`) ran only to some step M: then every step in 1..M, M the journal's highest.
+ * - at least one counting step ran. The live leg also supplies its pre-injection observation: the turn was running,
+ *   the client had reached the one-third trigger, and counting output remained.
  */
-export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEvent[]; reconnects?: number[]; interrupted?: boolean }): LossVerdict {
+export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEvent[]; reconnects?: number[]; interrupted?: boolean; injection?: { step: number; running: boolean } }): LossVerdict {
   const problems: string[] = [];
   const { journal, client } = input;
   const reached = Math.max(0, ...journal.flatMap((e) => e.ks));
@@ -1043,6 +1332,11 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
   const range = (xs: number[]) => xs.length > 6 ? `${xs.slice(0, 6).join(",")},... (${xs.length})` : xs.join(",");
   if (!journal.length) return { ok: false, text: "the machine's journal has no events for the turn" };
   if (!client.length) return { ok: false, text: "the client received no events for the turn" };
+  if (reached === 0) return { ok: false, text: "the turn produced no counting steps" };
+  const injection = input.injection;
+  if (injection && (!injection.running || injection.step < Math.ceil(input.n / 3) || injection.step >= input.n)) {
+    problems.push(`the fault was not armed during counting output (step ${injection.step} of ${input.n}, running=${injection.running})`);
+  }
   // The machine's journal.
   const bySeq = new Map<number, SeqEvent>();
   const jGaps: number[] = [];
@@ -1064,7 +1358,11 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
     if (seen.has(e.seq)) cRepeats.push(e.seq);
     else if (i > 0 && e.seq !== client[i - 1].seq + 1) {
       const at = input.reconnects?.includes(i) ? " (a replay after a reconnect)" : "";
-      cGaps.push(`${client[i - 1].seq}->${e.seq}${at}`);
+      // What the skipped seqs were on the machine: a kind that is never pushed live is a different bug from a lost push.
+      const skipped: string[] = [];
+      for (let s = client[i - 1].seq + 1; s < e.seq && skipped.length < 3; s++) skipped.push(bySeq.get(s)?.kind || "?");
+      const what = e.seq > client[i - 1].seq + 1 ? ` [${skipped.join(",")}${e.seq - client[i - 1].seq - 1 > 3 ? ",..." : ""}]` : "";
+      cGaps.push(`${client[i - 1].seq}->${e.seq}${at}${what}`);
     }
     seen.add(e.seq);
   }
@@ -1111,7 +1409,7 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
 }
 
 /** One `terminal.output_read` answer: the offset asked for and what came back. */
-export type TerminalRead = { after: number; start: number; next: number; complete: boolean; text: string };
+export type TerminalRead = { after: number; start: number; next: number; complete: boolean; snapshot?: boolean; text: string };
 
 /**
  * The terminal's text as the client holds it after `reads` (each asked from the last one's `next_offset`), and what was
@@ -1131,7 +1429,10 @@ export function assembleTerminal(reads: TerminalRead[]): { text: string; problem
     const want = i === 0 ? 0 : reads[i - 1].next;
     if (r.after !== want) problems.push(`read ${i} asked from ${r.after}, not the last read's end ${want}`);
     if (!r.complete) problems.push(`read ${i} from ${r.after} was not complete (output past retention)`);
-    if (r.start === r.after) {
+    if (r.snapshot === true) {
+      if (!r.complete || r.start !== 0 || r.next < 0) problems.push(`read ${i} returned an invalid snapshot projection`);
+      else { snapshots += 1; text = r.text; }
+    } else if (r.start === r.after) {
       text += r.text;
     } else if (r.start === 0 && r.after > 0 && r.complete && r.next >= r.after) {
       snapshots += 1;
@@ -1168,7 +1469,7 @@ export function judgeTerminal(input: { n: number; reads: TerminalRead[]; machine
   const sha = input.sha256(text);
   if (sha !== input.machineSha256) problems.push(`sha256 ${sha.slice(0, 12)} differs from the machine copy's ${input.machineSha256.slice(0, 12)}`);
   if (problems.length) return { ok: false, text: `terminal output lost: ${problems.slice(0, 4).join("; ")}` };
-  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} after the terminal ended taken in place of what was held` : "";
+  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} taken in place of what was held` : "";
   return { ok: true, text: `terminal: all ${n} lines over ${reads.length} reads, offsets contiguous${snap}, sha256 matches the machine copy` };
 }
 

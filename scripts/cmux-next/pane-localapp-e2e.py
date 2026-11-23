@@ -132,13 +132,13 @@ def main():
             "no origin + token": initialize_origin(web.port, dashboard, None, local_token),
         }
         for name, value in results.items():
-            print("%-34s %s" % (name, value))
+            safe_print("%-34s %s" % (name, value))
         dev_flags = [a.decode() for a in cmdline if a in (b"--dev", b"--allow-dev-origin")]
-        print("daemon dev flags: %s" % (dev_flags or "none"))
+        safe_print("daemon dev flags: %s" % (dev_flags or "none"))
         ok = (results["host (pane origin + token)"] == "local"
               and all(v != "local" for k, v in results.items() if not k.startswith("host"))
               and not dev_flags)
-        print("PASS" if ok else "FAIL")
+        safe_print("PASS" if ok else "FAIL")
         return 0 if ok else 1
     finally:
         daemon.terminate()

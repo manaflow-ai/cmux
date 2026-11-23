@@ -12,6 +12,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-push.sh"
 tmp="$(mktemp -d)"
 git_fixture_trap_exit 'rm -rf "$tmp"'
+# shellcheck source=scripts/cmux-next/tests/lib/action-parity-stub.sh
+source "$here/lib/action-parity-stub.sh"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 # No background git: a push or a commit starts a detached `git gc --auto` / maintenance run in
 # the repository, and one still writing there made the next `rm -rf "$tmp/remote.git"` fail with
@@ -57,6 +59,43 @@ setup
 repair="$(git -C "$tmp/bot" rev-parse HEAD)"
 run > "$tmp/out" || fail "an unmoved branch did not take the repair: $(cat "$tmp/out")"
 [[ "$(remote_tip)" == "$repair" ]] || fail "the remote is not at the repair commit"
+
+# Catalog parity is checked on the exact candidate before any automatic push.
+setup
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then
+  fail "a catalog parity failure published the repair"
+fi
+[[ "$(remote_tip)" == "$before" ]] || fail "the parity failure moved the remote"
+grep -q 'swift_parity' "$tmp/out" || fail "the refusal does not name the failing parity check"
+setup
+lane_push source.txt "moved before parity"
+STUB_ACTION_PARITY_LOG="$tmp/parity-heads" run > "$tmp/out" 2>&1 || fail "a parity-checked repair failed: $(cat "$tmp/out")"
+[[ "$(tail -1 "$tmp/parity-heads")" == "$(remote_tip)" ]] || fail "parity checked an older head than the pushed candidate"
+
+setup
+lane_push source.txt "moved before failed parity"
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then fail "a moved candidate ignored failed parity"; fi
+[[ "$(remote_tip)" == "$before" ]] || fail "a moved candidate published despite failed parity"
+
+# Cargo receives no publication credentials; the push still gets its own Git header.
+setup
+mkdir -p "$tmp/bot/.git/hooks"
+cat > "$tmp/bot/.git/hooks/pre-push" <<'HOOK'
+#!/usr/bin/env bash
+git config --get http.https://example.invalid/.extraheader > "$STUB_PUSH_AUTH"
+HOOK
+chmod +x "$tmp/bot/.git/hooks/pre-push"
+git -C "$tmp/bot" config core.hooksPath "$tmp/bot/.git/hooks"
+auth_index="${GIT_CONFIG_COUNT:-0}"
+(cd "$tmp/bot" && env "GIT_CONFIG_COUNT=$((auth_index + 1))" \
+  "GIT_CONFIG_KEY_$auth_index=http.https://example.invalid/.extraheader" \
+  "GIT_CONFIG_VALUE_$auth_index=AUTHORIZATION: basic fixture-token" \
+  TOKEN=fixture-token GH_TOKEN=fixture-token GITHUB_TOKEN=fixture-token STUB_PUSH_AUTH="$tmp/push-auth" \
+  bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1 \
+  || fail "credentials were not isolated from parity: $(cat "$tmp/out")"
+[[ "$(cat "$tmp/push-auth")" == 'AUTHORIZATION: basic fixture-token' ]] || fail "the push lost its own credentials"
 
 # 2. The branch moved in files the repair does not write: the repair lands on the new tip.
 setup
@@ -169,6 +208,16 @@ lane_commit() { # <subject> <file> <text> [<file> <text>]...
 }
 settings_files=(schemas/settings/settings-schema.json docs/mdm/com.manaflow.cmux.plist docs/mdm/com.manaflow.cmux.json)
 
+# A mixed settings/action repair cannot salvage the settings half when parity fails.
+setup_next
+(cd "$tmp/bot" && mkdir -p plans/cmux-next && echo 'new surface' > plans/cmux-next/action-surfaces.json \
+  && echo 'new dump' > plans/cmux-next/action-catalog.json && git add plans/cmux-next \
+  && git commit -q --amend --no-edit)
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then fail "mixed exports ignored failed parity"; fi
+[[ "$(remote_tip)" == "$before" ]] || fail "mixed exports partially published despite failed parity"
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema old" ]] || fail "settings were salvaged from a failed candidate"
+
 # 7. feat-cmux-next moved during the ten-minute Mac export and the move touched CmuxNextSettings,
 #    the exports' inputs (a revert, say). The exports made at BASE_SHA could be wrong at the tip,
 #    so none of them lands, nor what is built from them or the same Packages/ inputs; the run
@@ -248,9 +297,10 @@ git update-ref refs/heads/feat "$moved"
 exit 1
 HOOK
 chmod +x "$tmp/remote.git/hooks/pre-receive"
-if (cd "$tmp/bot" && CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS=2 timeout 60 bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1; then
-  fail "a refused push passed the run"
-fi
+rc=0
+(cd "$tmp/bot" && CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS=2 timeout 60 bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1 || rc=$?
+# 75: kept moving, which base-autofix-land.sh passes (the newest push's run repairs it).
+[[ "$rc" == 75 ]] || fail "a branch that kept moving exited $rc, not 75: $(cat "$tmp/out")"
 grep -q "attempt 2 of 2" "$tmp/out" || fail "the run did not stop after its attempts: $(cat "$tmp/out")"
 grep -q "kept moving" "$tmp/out" || fail "the run does not say the branch kept moving: $(cat "$tmp/out")"
 
@@ -267,7 +317,8 @@ setup_next
 lane_commit "lane edits a doc" README.md "lane"
 moved="$(remote_tip)"
 mkdir -p "$tmp/fakebin"
-real_git="$(command -v git)"
+# The git binary, never a wrapper on PATH that would exec this fake again (tests/real_git.py).
+real_git="$(python3 "$here/../../../tests/real_git.py")" || exit 2
 printf '#!/bin/sh\n[ "$1" = log ] && [ -n "$FAIL_GIT_LOG" ] && exit 128\nexec "%s" "$@"\n' "$real_git" > "$tmp/fakebin/git"
 chmod +x "$tmp/fakebin/git"
 if (cd "$tmp/bot" && PATH="$tmp/fakebin:$PATH" FAIL_GIT_LOG=1 bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1; then

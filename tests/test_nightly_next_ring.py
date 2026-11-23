@@ -13,7 +13,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 import yaml
-from nightly_workflow_text import nightly_text
+from nightly_workflow_text import nightly_text, write_out_step_aliases
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/nightly_next_ring.py"
@@ -24,6 +24,7 @@ import nightly_next_ring as ring  # noqa: E402
 
 GUARD = ROOT / "scripts/ci/nightly-next-guard.py"
 NIGHTLY_YML = ROOT / ".github/workflows/nightly.yml"
+REPUBLISH_DELTAS = ROOT / "scripts" / "ci" / "nightly-steps" / "republish-deltas-and-appcasts.sh"
 VERDICT_YML = ROOT / ".github/workflows/nightly-next-verdict.yml"
 BASE = "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
@@ -430,20 +431,21 @@ class WorkflowTests(unittest.TestCase):
         text = nightly_text()
         ring_expr = "vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next'"
         tags = re.findall(r"^\s+SPARKLE_CHANNEL: (.*)$", text, re.MULTILINE)
-        # First publication, its deltas and a recovered build follow the switch.
-        self.assertEqual(sum(ring_expr in tag for tag in tags), 3, tags)
+        # First publication, its deltas, a recovered build and nightly-next-one's after-feed deltas (#49094)
+        # follow the switch.
+        self.assertEqual(sum(ring_expr in tag for tag in tags), 4, tags)
         self.assertEqual(tags.count("cmux-next"), 0, tags)
 
     def test_the_delta_feed_is_retagged_from_verdicts_before_it_is_published(self):
         text = nightly_text()
-        job = text[text.index("\n  republish-nightly-deltas:"):text.index("\n  published-in:")]
+        job = REPUBLISH_DELTAS.read_text(encoding="utf-8")
         retag = job.index("nightly_next_ring.py retag")
         self.assertLess(retag, job.index('python3 "$publisher"'))
 
     def test_the_next_feed_keeps_its_newest_nightly_item_before_it_goes_live(self):
         # 2026-10-27: the /next/ feed held only the newest build, on cmux-next-dev, so a
         # Nightly-ring app was offered nothing for hours while no verdict was written.
-        text = nightly_text()
+        text = write_out_step_aliases(nightly_text())
         job = text[text.index("\n  publish-nightly:"):text.index("\n  publish-nightly-next-github:")]
         keep = job.index("- name: Keep the live feed's newest Nightly item beside the new build")
         step = job[keep:job.index("\n      - ", keep + 1)]
@@ -456,10 +458,13 @@ class WorkflowTests(unittest.TestCase):
                       "- name: Upload nightly-next appcasts to R2"):
             self.assertLess(keep, job.index(later), later)
         # The delta republish keeps it too, before its retag and its same-build write.
+        # Its run block lives in scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh.
         deltas = text[text.index("\n  republish-nightly-deltas:"):text.index("\n  published-in:")]
-        merge = deltas.index("publish-next-feed-keep-nightly.sh nightly-deltas/appcast*.xml")
-        self.assertLess(merge, deltas.index("nightly_next_ring.py retag --feed \"$feed\""))
+        script = REPUBLISH_DELTAS.read_text(encoding="utf-8")
+        merge = script.index("publish-next-feed-keep-nightly.sh nightly-deltas/appcast*.xml")
+        self.assertLess(merge, script.index("nightly_next_ring.py retag --feed \"$feed\""))
         self.assertIn("scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh\n", deltas)
+        self.assertIn("scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh\n", deltas)
 
     def test_a_new_dev_build_leaves_the_nightly_ring_its_newest_item(self):
         # What the step above publishes: the new Dev build beside the live feed's Nightly item,

@@ -31,6 +31,25 @@ public nonisolated struct RemoteViewGeometry: Sendable, Equatable {
         self.scaling = scaling
     }
 
+    /// The geometry of a stream whose decoded picture may be smaller than the stream
+    /// (`cmux.rd/1` cap `video.scaled`: the host's resolution ladder). Input, the cursor and the
+    /// image rect are in stream pixels (`streamPixels`, the welcome's width and height); the
+    /// picture is drawn scaled into the same rect whatever its own size. With no stream size
+    /// (zero or nil: before a welcome, or a host that gave none) the picture's size is used.
+    public init(streamPixels: CGSize?, picturePixels: CGSize, bounds: CGRect, backingScale: CGFloat, scaling: Scaling = .native) {
+        let stream = streamPixels.flatMap { $0.width >= 1 && $0.height >= 1 ? $0 : nil }
+        self.init(framePixels: stream ?? picturePixels, bounds: bounds, backingScale: backingScale, scaling: scaling)
+    }
+
+    /// Whether a decoded picture of `picturePixels` lands on the image rect one picture pixel per
+    /// device pixel (within half a pixel): such a picture needs no filtering (nearest neighbor).
+    public func showsOneToOne(picturePixels: CGSize) -> Bool {
+        let rect = imageRect
+        guard picturePixels.width >= 1, picturePixels.height >= 1, rect.width > 0, rect.height > 0 else { return false }
+        return abs(rect.width * backingScale - picturePixels.width) < 0.5
+            && abs(rect.height * backingScale - picturePixels.height) < 0.5
+    }
+
     /// The image's frame in pane points, origins on device pixels.
     public var imageRect: CGRect {
         if scaling == .fit, framePixels.width >= 1, framePixels.height >= 1, bounds.width > 0, bounds.height > 0 {
@@ -69,6 +88,15 @@ public nonisolated struct RemoteViewGeometry: Sendable, Equatable {
     public func panePoint(forStreamPixel x: Double, _ y: Double) -> CGPoint {
         let rect = imageRect
         return CGPoint(x: rect.minX + x / pixelsPerPoint(rect), y: rect.minY + y / pixelsPerPoint(rect))
+    }
+
+    /// Pane points per stream pixel: how large a stream-pixel image (the remote
+    /// cursor's shape) shows so it matches the picture under it.
+    public var pointsPerStreamPixel: CGFloat { 1 / pixelsPerPoint(imageRect) }
+
+    /// Whether stream pixel (x, y) is inside the frame.
+    public func containsStreamPixel(_ x: Double, _ y: Double) -> Bool {
+        x >= 0 && y >= 0 && x < framePixels.width && y < framePixels.height
     }
 
     /// Stream pixels per pane point: the backing scale for `.native`.

@@ -18,34 +18,44 @@ extension ScreenContentView {
                       height: max(0, geometry.uncoveredMaxY - geometry.uncoveredMinY))
     }
 
-    /// What docked columns hide of the strip (local coordinates; a dock growing in, up to its moving
-    /// edge): strip rings and highlights are clipped out of these.
-    var coverRects: [CGRect] { PaneArrival.covers(geometry, docks: growingDocks) }
+    /// What docked columns hide of the strip (local coordinates): strip rings and highlights are clipped out of these.
+    var coverRects: [CGRect] { geometry.dock.map(\.cover) }
+
+    /// The range strip panes show in beside docked columns (local coordinates); nil without any.
+    var stripClip: CGRect? {
+        guard !geometry.dock.isEmpty else { return nil }
+        return CGRect(x: geometry.clipMinX, y: geometry.clipMinY, width: max(0, geometry.clipMaxX - geometry.clipMinX),
+                      height: max(0, geometry.clipMaxY - geometry.clipMinY))
+    }
 
     /// For each shown pane host, the frames of shown panes stacked above it
     /// that overlap it (local coordinates), from one walk of the subviews
-    /// front to back. Overlaps happen only mid-motion (an unzoom's pane
-    /// springing back over the panes it uncovers, a zoom's growing over the
-    /// others) and under docked columns; their headers are see-through, so
-    /// what is under them is masked out. Computed once per presentation
-    /// pass, not once per host (which walked every subview per host).
+    /// front to back. Overlaps happen under docked columns and on a canvas;
+    /// their headers are see-through, so what is under them is masked out.
+    /// Computed once per presentation pass, not once per host (which walked
+    /// every subview per host).
+    ///
+    /// A pane that a close or a zoom took out (`isLeaving`) covers nothing: it shows under every other pane until the
+    /// change's motion ends (`PaneCommitMotion.keepUnder`), whatever its place among the subviews, and then hides with
+    /// no pass to clip again. A docked Home's pane, stacked above the strip, cut the pane zoomed beside it to the part
+    /// outside the dock for good (Lawrence 2026-11-19).
     func panesAbove() -> [ObjectIdentifier: [CGRect]] {
         var covers: [ObjectIdentifier: [CGRect]] = [:]
         var front: [CGRect] = []
         for case let host as PaneHostView in subviews.reversed() {
             let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
-            guard !host.isHidden && host.alphaValue > 0.99 else { continue }
-            front.append(host.frame)
+            guard !host.isHidden, !host.isLeaving, host.alphaValue > 0.99 else { continue }
+            // A floating pane covers what is under its whole card (the card, not the resize band around it).
+            front.append(floatState.cards[host.pane]?.cardFrame ?? host.frame)
         }
         return covers
     }
 
     /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane,
     /// and the panes in front of it (`above`, from `panesAbove()`).
-    /// The zooming pane is above the docks (`rank`): they hide none of it.
     func ringCovers(of host: PaneHostView, docks: [CGRect], above: [ObjectIdentifier: [CGRect]]) -> [CGRect] {
-        (isStripHost(host) && host.pane != zoomMotion.pane ? docks : []) + (above[ObjectIdentifier(host)] ?? [])
+        (isStripHost(host) ? docks : []) + (above[ObjectIdentifier(host)] ?? [])
     }
 
     /// True when the scroll moves this divider or column edge.
@@ -69,10 +79,9 @@ extension ScreenContentView {
     /// the uncovered range beside a docked column and up to the glass rim's
     /// outer edge beside an overlay (under the rim and the column the strip
     /// stays, so the glass has content to refract).
-    /// `clip` is that range (`PaneArrival.stripClip`, which follows a dock
-    /// growing in).
+    /// `clip` is that range (``stripClip``).
     /// Any part under a pane in front (`above`, from `panesAbove()`) is cut off too: a pane over one
-    /// whole side narrows the clip; one over a corner or the middle (a zoom growing over a grid) is a
+    /// whole side narrows the clip; one over a corner or the middle is a
     /// cutout the mask leaves out (the pane in front has transparent padding) and a Chromium page
     /// reads (its child window draws above every view).
     /// Returns true when the host's clip changed. A host whose frame, clip range, area window and
@@ -82,7 +91,7 @@ extension ScreenContentView {
         // A pane scrolled partly out of its scroll area shows only inside the area's window.
         let areaWindow = displayedAreaWindow(of: host.pane)
         let input = StripClipInput(frame: host.frame, clip: scrolls ? clip : nil, areaWindow: areaWindow,
-                                   covers: above[ObjectIdentifier(host)] ?? [])
+                                   covers: floatState.contentCovers(above[ObjectIdentifier(host)] ?? []))
         guard force || host.stripClipInput != input else { return false }
         host.stripClipInput = input
         stripClipsComputed += 1
@@ -114,7 +123,7 @@ extension ScreenContentView {
 
     /// Glass backdrops for overlay columns and the stacking order: strip
     /// hosts, strip dividers, backdrops, docked hosts, docked dividers,
-    /// then the scrollbar.
+    /// then the scrollbar. Runs in the pass that shows a layout change (`beginShowingChange`), not in the change's turn.
     func reconcileDock() {
         let overlays = geometry.dock.filter { $0.dock.mode == .overlay }
         let live = Set(overlays.map(\.column))
@@ -131,22 +140,17 @@ extension ScreenContentView {
             }()
             view.place(cover: entry.glass, column: entry.frame, paneCornerRadius: context.style.paneCornerRadius)
         }
+        reconcileFloatingCards()
         ensureStacking()
     }
 
     /// Strip hosts and dividers, then the docks that do not own the corners
     /// (backdrop, hosts, dividers), then the docks that do, then the scrollbar
     /// (layout-model.md F4: column-major side docks draw above bands,
-    /// row-major bands above side docks). A zooming or unzooming pane is above
-    /// all of them until it lands (DESIGN Z2, Z4).
+    /// row-major bands above side docks).
     private func rank(_ view: NSView) -> Int {
         switch view {
         case let host as PaneHostView:
-            if host.pane == zoomMotion.pane { return 10 }
-            // A zoom's covered panes stay under every pane.
-            if covered.contains(host.pane) { return -1 }
-            // A closing pane keeps the rank it had when it closed (FRAME OWNER S3c; under that rank's live hosts, `ensureStacking`).
-            if let closing = closingPanes.entries[host.pane] { return closing.rank }
             return liveRank(of: host.pane, in: geometry)
         case let divider as DividerHandleView:
             guard !scrolls(divider.kind) else { return 1 }
@@ -155,13 +159,17 @@ extension ScreenContentView {
         case let backdrop as DockBackdropView:
             return 2 + cornerRank(backdrops.first { $0.value === backdrop }.flatMap { entry in geometry.dock.first { $0.column == entry.key } })
         case is StripScrollbarView: return 9
+        // A floating pane's card is one rank under its pane, so above the floating panes behind it.
+        case let card as FloatingPaneCardView: return liveRank(of: card.pane, in: geometry) - 1
         default: return 0
         }
     }
 
-    /// A live pane host's rank in `layout`: a strip pane's, or a docked one's.
+    /// A live pane host's rank in `layout`: a strip pane's, or a docked one's; a floating pane's is above every
+    /// other view, in the order of the list, with one free rank under it for its card.
     func liveRank(of pane: PaneID, in layout: ScreenGeometry) -> Int {
-        layout.scrolls(pane: pane) ? 0 : 3 + cornerRank(layout.dockFrame(containing: pane), in: layout)
+        if let index = layout.floating.firstIndex(of: pane) { return 12 + 2 * index }
+        return layout.scrolls(pane: pane) ? 0 : 3 + cornerRank(layout.dockFrame(containing: pane), in: layout)
     }
 
     /// 3 for a dock that owns the frame's corners, else 0.
@@ -177,13 +185,8 @@ extension ScreenContentView {
     /// Reorders subviews only when the order is wrong. `sortSubviews`
     /// keeps every view in the window (no detach), so terminal surfaces and
     /// page windows are not torn down.
-    /// A closing pane's host (FRAME OWNER S3c) goes under every live view of its rank: a live pane that moves over its
-    /// place draws above its ground.
     func ensureStacking() {
-        let ranks = subviews.enumerated().map { index, view in
-            let closing = (view as? PaneHostView).map { closingPanes.entries[$0.pane] != nil } ?? false
-            return (rank(view) * 2 + (closing ? 0 : 1)) * 100_000 + index
-        }
+        let ranks = subviews.enumerated().map { index, view in rank(view) * 100_000 + index }
         guard ranks != ranks.sorted() else { return }
         let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(subviews.map(ObjectIdentifier.init), ranks)))
         withExtendedLifetime(table) {
@@ -196,27 +199,13 @@ extension ScreenContentView {
     /// hidden under it: a layer mask does not change hit testing.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        guard !isHidden, geometry.dock.contains(where: { $0.cover.contains(local) }) else {
-            // A zoom's covered panes have left the layout: a click there goes to this view.
-            let hit = super.hitTest(point)
-            guard !covered.isEmpty, let hit, coveredHost(containing: hit) != nil else { return hit }
-            return self
-        }
+        guard !isHidden, geometry.dock.contains(where: { $0.cover.contains(local) }) else { return super.hitTest(point) }
         for view in subviews.reversed() where !view.isHidden {
-            if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) || covered.contains(host.pane) { continue }
+            if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) { continue }
             if let divider = view as? DividerHandleView, scrolls(divider.kind) { continue }
             if let hit = view.hitTest(local) { return hit }
         }
         return self
-    }
-
-    private func coveredHost(containing view: NSView) -> PaneHostView? {
-        var current: NSView? = view
-        while let candidate = current, candidate !== self {
-            if let host = candidate as? PaneHostView, covered.contains(host.pane) { return host }
-            current = candidate.superview
-        }
-        return nil
     }
 
     /// Pane frames for directional focus in one logical line: the left

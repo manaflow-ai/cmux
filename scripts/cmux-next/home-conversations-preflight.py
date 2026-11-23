@@ -19,10 +19,12 @@ Usage: home-conversations-preflight.py --tag T --app PATH --out DIR
          --profile personal|agent --expected-account EMAIL --invite-base EMAIL
          [--credentials-file FILE]
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, time
+import argparse, hashlib, json, os, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dev_account_guard  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -81,6 +83,20 @@ def wait(predicate, seconds, step=0.5):
     return False
 
 
+def settle(read, what, timeout=10):
+    """Best effort: wait until `read()` gives the same value 4 times 0.25 s apart (the state the next step reads)."""
+    return wait_stable(read, what, timeout=timeout, interval=0.25, reads=4, raise_on_timeout=False)
+
+
+def window_pixels():
+    """A hash of a fresh window snapshot (for changes no socket state reports, such as the appearance)."""
+    path = os.path.join(SCRATCH, "settle.png")
+    if not rpc("debug.window_snapshot", {"path": path}).get("ok"):
+        return None
+    with open(path, "rb") as handle:
+        return hashlib.sha1(handle.read()).hexdigest()
+
+
 def shot(name):
     print(name, rpc("debug.window_snapshot", {"path": os.path.join(OUT, f"{name}.png")}).get("ok"), flush=True)
 
@@ -121,7 +137,9 @@ def visual():
     """Appearance, divider and scoped-shortcut checks on the never-key test window."""
     for mode in ("dark", "light"):
         print("appearance", mode, rpc("debug.appearance", {"mode": mode}).get("ok"), flush=True)
-        time.sleep(1.5)
+        # The appearance has no state on the socket: wait until two snapshots in a row are identical.
+        wait_stable(window_pixels, f"the window in {mode} appearance", timeout=15, interval=0.25, reads=2,
+                    raise_on_timeout=False)
         shot(f"10-home-{mode}")
     rpc("debug.appearance", {"mode": "dark"})
     # The divider as the app reports it (debug.home sidebar: window id, divider frame in window points).
@@ -132,45 +150,58 @@ def visual():
     y = divider.get("y", 0) + divider.get("height", 800) / 2
     print("divider", json.dumps({"window": win, "frame": divider, "width": start}), flush=True)
     drag = rpc("debug.mouse", {"window": win, "x": x, "y": y, "action": "drag", "to_x": x + 120, "to_y": y, "steps": 12})
-    time.sleep(1)
-    dragged = sidebar().get("width")
+    # Wait until the sidebar width moved off the start and holds.
+    wait_until(lambda: sidebar().get("width") != start, "the sidebar width to change after the drag", timeout=10,
+               raise_on_timeout=False)
+    dragged = settle(lambda: sidebar().get("width"), "the sidebar width after the drag")
     shot("11-divider-dragged")
     moved_x = (sidebar().get("divider") or {}).get("x", x) + divider.get("width", 1) / 2
     reset = rpc("debug.mouse", {"window": win, "x": moved_x, "y": y, "action": "double_click"})
-    time.sleep(1)
-    after = sidebar().get("width")
+    # Wait until the width left the dragged value (the reset) and holds.
+    wait_until(lambda: sidebar().get("width") != dragged, "the sidebar width to reset on double click", timeout=10,
+               raise_on_timeout=False)
+    after = settle(lambda: sidebar().get("width"), "the sidebar width after the double click")
     results["divider"] = {"window": win, "start": start, "dragged": dragged, "after_double_click": after,
                           "drag_ok": drag.get("ok"), "reset_ok": reset.get("ok")}
     reset_x = (sidebar().get("divider") or {}).get("x", x) + divider.get("width", 1) / 2
     rpc("debug.mouse", {"window": win, "x": reset_x, "y": y, "action": "drag", "to_x": 20, "to_y": y, "steps": 12})
-    time.sleep(1)
-    results["divider"]["narrowest"] = sidebar().get("width")
+    # Wait until the width left the reset value and holds.
+    wait_until(lambda: sidebar().get("width") != after, "the sidebar width to change after the drag to compact",
+               timeout=10, raise_on_timeout=False)
+    results["divider"]["narrowest"] = settle(lambda: sidebar().get("width"), "the compact sidebar width")
     shot("12-divider-compact")
     compact_x = (sidebar().get("divider") or {}).get("x", 76) + divider.get("width", 1) / 2
     rpc("debug.mouse", {"window": win, "x": compact_x, "y": y, "action": "double_click"})
-    time.sleep(1)
-    results["divider"]["restored"] = sidebar().get("width")
+    # Wait until the width left the compact value and holds.
+    narrowest = results["divider"]["narrowest"]
+    wait_until(lambda: sidebar().get("width") != narrowest, "the sidebar width to restore on double click",
+               timeout=10, raise_on_timeout=False)
+    results["divider"]["restored"] = settle(lambda: sidebar().get("width"), "the restored sidebar width")
     print("divider", json.dumps(results["divider"]), flush=True)
     # Cmd-Shift-] / [ move between conversations on Home only.
     before = page().get("shown")
     nxt = rpc("debug.key", {"window": win, "key": "]", "modifiers": ["cmd", "shift"]})
-    time.sleep(1.5)
-    moved = page().get("shown")
+    # Wait until the shown conversation changed and holds (best effort: the results record it).
+    wait_until(lambda: page().get("shown") != before, "Cmd-Shift-] to show another conversation", timeout=10,
+               raise_on_timeout=False)
+    moved = settle(lambda: page().get("shown"), "the conversation after Cmd-Shift-]")
     rpc("debug.key", {"window": win, "key": "[", "modifiers": ["cmd", "shift"]})
-    time.sleep(1.5)
-    back = page().get("shown")
+    wait_until(lambda: page().get("shown") != moved, "Cmd-Shift-[ to show another conversation", timeout=10,
+               raise_on_timeout=False)
+    back = settle(lambda: page().get("shown"), "the conversation after Cmd-Shift-[")
     shot("13-home-after-shortcuts")
     run("workspace.selectFirst")
-    time.sleep(1.5)
+    # Off Home there is no event for the switch: wait until the Home page state holds still.
+    settle(page, "the Home page state after leaving Home")
     rpc("debug.key", {"window": win, "key": "]", "modifiers": ["cmd", "shift"]})
-    time.sleep(1.5)
-    off_home = page().get("shown")
+    # Negative check (the shortcut must do nothing off Home): wait until the shown conversation holds for 1 s.
+    off_home = settle(lambda: page().get("shown"), "the conversation after Cmd-Shift-] off Home")
     shot("14-off-home-after-shortcut")
     results["shortcuts"] = {"before": before, "after_next": moved, "after_previous": back,
                             "off_home_shown": off_home, "next_ok": nxt.get("ok")}
     print("shortcuts", json.dumps(results["shortcuts"]), flush=True)
     run("home.show")
-    time.sleep(1)
+    settle(page, "the Home page after home.show")
 
 
 app = None
@@ -186,22 +217,24 @@ try:
         env["CMUX_AUTH_CREDENTIALS_FILE"] = opts.credentials_file
     log = open(os.path.join(OUT, f"app-{TAG}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("ok"), 180):
         sys.exit("the tagged app did not come up")
-    time.sleep(5)
-    print("windows:", (rpc("debug.surfaces").get("result") or {}).get("windows"), flush=True)
+    # Wait until the launch's window list holds still.
+    settle(lambda: (rpc("debug.surfaces").get("result") or {}).get("windows"), "the launch's windows", timeout=20)
+    safe_print("windows:", (rpc("debug.surfaces").get("result") or {}).get("windows"), flush=True)
     run("newWindow")
     wait(lambda: (rpc("debug.surfaces").get("result") or {}).get("windows"), 30)
-    print("windows:", (rpc("debug.surfaces").get("result") or {}).get("windows"), flush=True)
+    safe_print("windows:", (rpc("debug.surfaces").get("result") or {}).get("windows"), flush=True)
     run("home.show")
     # No write before the app is signed in as the expected account.
     account = dev_account_guard.require_account(lambda m, p: rpc(m, p).get("result") or {}, opts.expected_account, timeout=120)
-    print("signed in as", dev_account_guard.mask(account.get("email")), flush=True)
+    safe_print("signed in as", dev_account_guard.mask(account.get("email")), flush=True)
     signed_in = wait(lambda: page().get("online") and page().get("me"), 90)
-    print("online:", signed_in, json.dumps(page())[:600], flush=True)
+    safe_print("online:", signed_in, json.dumps(page())[:600], flush=True)
     wait(lambda: len(rows()) > 0, 60)
-    time.sleep(3)
+    # Wait until the list's lines (rows, headers) hold still before the shot.
+    settle(lambda: page().get("lines"), "the Home page list", timeout=20)
     shot("01-home-page-list")
     if opts.read_only:
         if opts.visual:
@@ -210,17 +243,19 @@ try:
         sys.exit(0)
     # New Message sheet (no arguments: the sheet over the Home page).
     run("home.newMessage")
-    time.sleep(1.5)
+    wait(lambda: page().get("sheet") is not None, 15)  # the New Message sheet is up
     shot("02-new-message-sheet")
     screen("02-new-message-sheet")
     # A DM invite to a plus-address of the expected account (each address once).
     run("home.newMessage", to=f"{LOCAL}+hmdm-invite-{STAMP}@{DOMAIN}")
     wait(lambda: "invited" in headers(), 30)
-    time.sleep(1)
+    settle(lambda: page().get("lines"), "the list with the invite")
     shot("03-dm-invite-in-invited-section")
     # A group of two plus-addresses.
     run("home.newMessage", to=f"{LOCAL}+hmdm-a-{STAMP}@{DOMAIN}, {LOCAL}+hmdm-b-{STAMP}@{DOMAIN}", title=f"Preflight group {STAMP}")
-    time.sleep(4)
+    # Wait until the group's row is listed and the list holds still.
+    wait(lambda: any(r.get("title") == f"Preflight group {STAMP}" for r in rows()), 30)
+    settle(lambda: page().get("lines"), "the list with the group")
     shot("04-group-created")
     # Someone the account cannot reach: the owner refuses (not_reachable), the caller hears why.
     run("home.newMessage", to="user_hmdmnobody000000000000000")
@@ -229,22 +264,22 @@ try:
     run("home.newChief", name=f"Research {STAMP}")
     wait(lambda: any(c.get("name") == f"Research {STAMP}" for c in page().get("chiefs", [])), 30)
     wait(lambda: any(r.get("title") == f"Research {STAMP}" for r in rows()), 60)
-    time.sleep(2)
+    settle(lambda: page().get("lines"), "the list with the new Chiefs")
     shot("05-new-chief")
     chief = next((c for c in page().get("chiefs", []) if c.get("name") == f"Research {STAMP}"), None)
     if chief:
         run("home.archiveChief", chief=chief["id"])
         wait(lambda: not any(r.get("title") == f"Research {STAMP}" for r in rows()), 30)
-        time.sleep(1)
+        settle(lambda: page().get("lines"), "the list after the archive")
         shot("06-chief-archived")
     # Invite sheet with the pending invites.
     run("home.invite")
-    time.sleep(1.5)
+    wait(lambda: page().get("sheet") is not None, 15)  # the Invite sheet is up
     shot("07-invite-sheet")
     screen("07-invite-sheet")
     final = page()
     json.dump({"page": final, "results": results}, open(os.path.join(OUT, "preflight.json"), "w"), indent=1)
-    print("headers:", headers(), flush=True)
+    safe_print("headers:", headers(), flush=True)
 finally:
     if app:
         app.terminate()
@@ -252,4 +287,4 @@ finally:
             app.wait(10)
         except subprocess.TimeoutExpired:
             app.kill()
-        print(f"stopped {app.pid}", flush=True)
+        safe_print(f"stopped {app.pid}", flush=True)

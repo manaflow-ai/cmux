@@ -10,8 +10,13 @@ mod input_records;
 mod kitty_file_media;
 mod launch_codec;
 mod output_path;
+mod owner_backpressure;
 mod parser_failure;
 mod parser_order;
+mod parser_queue_memory;
+mod paste_submit;
+mod pty_reader_frames;
+mod pty_reader_stack;
 mod smart_viewer_exit;
 mod terminal_queries;
 use super::super::shared::control_responses::ControlResponseWaiter;
@@ -139,6 +144,7 @@ fn exited_host_fixture_with_parser_at(
         master: Mutex::new(Box::new(TestHostMaster {
             size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)),
         })),
+        paste_pacer: Mutex::default(),
         killer: Mutex::new(Box::new(TestHostKiller)),
         pid: None,
         command: Vec::new(),
@@ -174,6 +180,7 @@ fn exited_host_fixture_with_parser_at(
         exit_published: AtomicBool::new(false),
         exit_record_path,
         exit_publish_requests,
+        exit_publisher: Mutex::new(None),
         force_pty_drain: AtomicBool::new(false),
         pty_drain_waker: Mutex::new(pty_drain_waker),
         termination_started: AtomicBool::new(false),
@@ -213,7 +220,7 @@ fn exited_host_fixture_with_parser() -> (Arc<HostShared>, Receiver<ParserCommand
     exited_host_fixture_with_parser_at(root)
 }
 
-fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
+pub(crate) fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
     let root = std::env::temp_dir().join(format!(
         "cmux-host-record-{name}-{}-{}",
         std::process::id(),

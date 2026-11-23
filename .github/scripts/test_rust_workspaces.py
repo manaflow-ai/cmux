@@ -21,7 +21,10 @@ import unittest
 SCRIPT = Path(__file__).with_name("rust-workspaces.py")
 FAKE_CARGO = """#!/usr/bin/env bash
 printf '%s|%s\\n' "$PWD" "$*" >> "$CARGO_LOG"
-[[ "$1" == "${FAIL_SUBCOMMAND:-none}" ]] && exit 101
+if [[ "$1" == "${FAIL_SUBCOMMAND:-none}" ]]; then
+  [[ -n "${STALE_LOCK:-}" ]] && echo "error: cannot update the lock file $PWD/Cargo.lock because --locked was passed to prevent this" >&2
+  exit 101
+fi
 exit 0
 """
 LIST = """
@@ -246,6 +249,46 @@ class RustWorkspacesTests(unittest.TestCase):
                 self.change(path, "{\"v\": 2}\n")
                 self.assertEqual(self.planned(), planned)
 
+    def test_a_dependencys_own_tests_reads_are_not_its_users_inputs(self) -> None:
+        # cmux-action-catalog's tests join CARGO_MANIFEST_DIR with "../../.." (the repository root) and then a path:
+        # read as a read of the whole tree, every change planned cmux-app-ffi, the cloud server and three more
+        # workspaces that use it by path, whose `cargo test --workspace` never builds a dependency's tests.
+        self.write("ws/crates/a/tests/root.rs", 'let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");\n'
+                   'let menu = root.join("menus/main.json");\n')
+        self.write("ws/crates/a/benches/b.rs", 'const B: &str = include_str!("../../../../bench/data.json");\n')
+        self.write("bench/data.json", "{}\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a reads the tree in its own tests and benches")
+        for path in ("docs/other.md", "bench/data.json"):
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, "changed\n")
+                self.assertEqual(self.planned(), [])
+        # A dependency's own sources and build script still count: they are built into the workspace.
+        self.base = self.head()
+        self.write("ws/crates/a/src/lib.rs", 'const D: &str = include_str!("../../../../bench/data.json");\n')
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a embeds the file")
+        self.base = self.head()
+        self.change("bench/data.json", "{\"v\": 3}\n")
+        self.assertEqual(self.planned(), ["ws/crates/own", "solo"])
+
+    def test_a_root_reference_reads_what_its_comment_lists(self) -> None:
+        # CARGO_MANIFEST_DIR/../../.. is the repository root: unannotated, every path reaches its reader (five
+        # workspaces ran on 325 of 327 merged PRs, 2026-11-17); `// affected-reads:` names what it reads.
+        root = 'let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");\n'
+        cases = (("", "README.md", ["ws/crates/own"]),
+                 ("// affected-reads: fixtures/f.json\n", "README.md", []),
+                 ("// affected-reads: fixtures/f.json\n", "fixtures/f.json", ["ws/crates/own"]),
+                 ("// affected-reads: none\n", "README.md", []),
+                 ("// affected-reads: fixtures/gone.json\n", "README.md", ["ws/crates/own"]))  # stale: every path
+        for i, (note, path, planned) in enumerate(cases):
+            with self.subTest(note=note, path=path):
+                self.change("ws/crates/own/tests/t.rs", f"// case {i}\n{note}{root}")
+                self.base = self.head()
+                self.change(path, f"changed {i}\n")
+                self.assertEqual(self.planned(), planned)
+
     def test_no_usable_base_or_a_list_change_plans_every_run_entry(self) -> None:
         everything = ["ws/crates/own", "solo", "term", "vws", "solo/tool", "vws/side"]
         for base in ("", "0" * 40, "f" * 40):
@@ -322,6 +365,37 @@ class RustWorkspacesTests(unittest.TestCase):
                                                                      else "// changed\n"))
                 self.assertEqual(self.planned(), planned)
 
+    def test_a_member_beside_the_root_plans_the_root(self) -> None:
+        # As cmux-app-ffi's workspace takes in ../cmux-rd-ffi: a member named with "../" and no path dependency on it.
+        self.write("sib/root/Cargo.toml", '[package]\nname = "root"\n\n[workspace]\nmembers = ["../mem"]\n')
+        self.write("sib/mem/Cargo.toml", '[package]\nname = "mem"\nworkspace = "../root"\n')
+        self.write("sib/mem/src/lib.rs", "pub fn mem() {}\n")
+        self.write(".github/rust-workspaces.toml", (self.repo / ".github/rust-workspaces.toml").read_text()
+                   + '\n[[workspace]]\nroot = "sib/root"\nrun = true\n')
+        self.git("add", ".")
+        self.git("commit", "-qm", "sibling member")
+        self.base = self.head()
+        self.change("sib/mem/src/lib.rs")
+        self.assertEqual(self.planned(), ["sib/root"])
+        self.assertEqual(self.script("check").returncode, 0)
+
+    def test_a_member_beside_the_root_inherits_its_path_dependencies(self) -> None:
+        # cmux#42082 review F1: mem sits under ws's tree, but names sib/root as its workspace; its
+        # `{ workspace = true }` dependency resolves from sib/root's [workspace.dependencies], not ws's.
+        self.write("sib/root/Cargo.toml", '[package]\nname = "root"\n\n[workspace]\nmembers = ["../../ws/crates/mem"]\n\n'
+                   '[workspace.dependencies]\nlib = { path = "../lib" }\n')
+        self.write("sib/lib/Cargo.toml", '[package]\nname = "lib"\n\n[workspace]\n')
+        self.write("sib/lib/src/lib.rs", "pub fn lib() {}\n")
+        self.write("ws/crates/mem/Cargo.toml", '[package]\nname = "mem"\nworkspace = "../../../sib/root"\n\n'
+                   '[dependencies]\nlib = { workspace = true }\n')
+        self.write(".github/rust-workspaces.toml", (self.repo / ".github/rust-workspaces.toml").read_text()
+                   + '\n[[workspace]]\nroot = "sib/root"\nrun = true\n\n[[workspace]]\nroot = "sib/lib"\nskip = "test"\n')
+        self.git("add", ".")
+        self.git("commit", "-qm", "inherited path")
+        self.base = self.head()
+        self.change("sib/lib/src/lib.rs")
+        self.assertIn("sib/root", self.planned())
+
     def test_a_nested_workspaces_reads_are_not_the_outer_ones(self) -> None:
         # solo/tool's source reads tokens/t.json; solo does not.
         self.change("tokens/t.json", "{\"v\": 3}\n")
@@ -360,6 +434,21 @@ class RustWorkspacesTests(unittest.TestCase):
         self.assertEqual([args.split()[0] for _, args in self.calls()], ["clippy", "test"])
         self.assertIn("::error title=solo clippy::", result.stdout)
         self.assertIn("solo: red (clippy)", result.stdout)
+
+    def test_a_stale_lock_is_named_as_the_cause_and_an_ordinary_red_is_not(self) -> None:
+        stale = self.script("run", "ws/crates/own", env={**self.env, "FAIL_SUBCOMMAND": "clippy", "STALE_LOCK": "1"})
+        self.assertEqual(stale.returncode, 1)
+        self.assertIn("--locked was passed", stale.stderr)  # cargo's own line still reaches the log
+        said = stale.stdout + stale.stderr
+        self.assertIn("stale Cargo.lock: ws/crates/own/Cargo.lock does not match its manifests on this ref", said)
+        self.assertIn("scripts/cmux-next/cargo-locks.py fix", said)
+        self.assertIn("::error title=ws/crates/own clippy::a stale Cargo.lock in ws/crates/own", stale.stdout)
+        self.assertNotIn("` failed in ws/crates/own", stale.stdout)
+        self.assertEqual([args.split()[0] for _, args in self.calls()], ["clippy", "test"])
+        red = self.script("run", "ws/crates/own", env={**self.env, "FAIL_SUBCOMMAND": "clippy"})
+        self.assertEqual(red.returncode, 1)
+        self.assertIn("` failed in ws/crates/own", red.stdout)
+        self.assertNotIn("stale Cargo.lock", red.stdout + red.stderr)
 
     def test_run_refuses_a_root_that_is_not_a_run_entry(self) -> None:
         result = self.script("run", "ws")

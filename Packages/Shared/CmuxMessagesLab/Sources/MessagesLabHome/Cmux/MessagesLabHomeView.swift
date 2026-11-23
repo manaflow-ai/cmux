@@ -20,10 +20,15 @@ public final class MessagesLabHomeView: NSView {
         get { projection.approvals }
         set { projection.approvals = newValue }
     }
+    /// A message field took the keyboard (its `becomeFirstResponder` succeeded), with the field: the host app's
+    /// launch mark for "the window takes keys" (cmux NEXT's `window_usable`). Nil: nothing is told.
+    public var onComposerFocused: ((NSView) -> Void)?
     private var warmed = false
     private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
     private var appliedPalette = -1
+    /// The strings bundle this view's text was last drawn with (useStrings).
+    private var appliedStrings = ObjectIdentifier(MessagesLabLocalization.bundle)
 
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
@@ -65,6 +70,8 @@ public final class MessagesLabHomeView: NSView {
     private var openKeyboardWaits = false
     private weak var openKeyboardFrom: NSResponder?
     private var opensOnInstall = false
+    /// DEBUG drive `swipe_trail`: the last played swipe's events, each as the swipe took or passed it.
+    var debugSwipeTrail: [String] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -123,8 +130,13 @@ public final class MessagesLabHomeView: NSView {
     /// The bounds that draw the host at `zoom`: the frame's size over the zoom, from the origin.
     private func applyZoomBounds() {
         let size = NSSize(width: frame.width / zoom, height: frame.height / zoom)
-        if bounds.size != size { setBoundsSize(size) }
-        if bounds.origin != .zero { setBoundsOrigin(.zero) }
+        guard bounds.size != size || bounds.origin != .zero else { return }
+        // A new scale realigns the transcript's clip view to the new pixels: the model's move, not the reader's
+        // scroll (TranscriptScrollView.placing; first-run audit row 8).
+        controller.host.scrollView.placing {
+            if bounds.size != size { setBoundsSize(size) }
+            if bounds.origin != .zero { setBoundsOrigin(.zero) }
+        }
     }
 
     public override func layout() {
@@ -251,15 +263,18 @@ public final class MessagesLabHomeView: NSView {
     public func applyTheme(active: HomePalette, measuredAccent: Bool = false) {
         let theme = FixtureTheme(active: active, measuredAccent: measuredAccent)
         let box = PaletteScope.box(for: theme)
+        // The new palette first: the appearance change below redraws every row, and in the old palette it drew each
+        // row once more in the old colours, a bitmap that could land after the new one (the light welcome in dark).
+        controller.demo?.setPalette(box)
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
         if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
         let focused = (controller.host.window?.firstResponder as? NSView)?.isDescendant(of: controller.host) ?? false
         if PaletteScope.process == nil || focused { PaletteScope.claimProcess(box) }
-        controller.demo?.setPalette(box)
         PaletteScope.with(box) {
             controller.host.headerBackdrop.setTint(Fixture.background)
             controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge)
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge,
+                                                    fill: theme.active.fieldFill)
             controller.host.paneHeader.light = theme.active.isLight
         }
         // This view draws again whenever its rows were made with another palette (its own applied generation).
@@ -272,6 +287,34 @@ public final class MessagesLabHomeView: NSView {
         }
         controller.intents?.rowsPlaced()  // layers over rows (table skeleton shimmers) take the new colours
     }
+
+    /// This package's own strings bundle (every MessagesLab catalog: Localizable, AppKitNative, CmuxHome).
+    /// A host that picks the language itself hands ``useStrings(_:)`` that bundle's `.lproj`
+    /// (CmuxNext: `Bundle.inAppLanguage`, the `app.language` setting).
+    public static var packageStrings: Bundle { .module }
+
+    /// Every MessagesLab string (the composer's placeholder, receipts, day separators, menus, Home's
+    /// own rows) from `bundle` from now on, and this view's drawn text again in it: a host's language
+    /// switch, live. The strings bundle is one for the process; each view redraws once per bundle.
+    public func useStrings(_ bundle: Bundle) {
+        let id = ObjectIdentifier(bundle)
+        guard id != appliedStrings else { return }
+        appliedStrings = id
+        if MessagesLabLocalization.bundle !== bundle {
+            MessagesLabLocalization.bundle = bundle
+            RowBitmaps.shared.removeAll()  // row bitmaps hold the old language's words (receipts, separators)
+        }
+        guard let demo = controller.demo else { return }
+        demo.scope {
+            demo.compose.stringsChanged()
+            demo.chrome.setNeedsDisplay()
+            demo.chrome.subviews.forEach { $0.setNeedsDisplay() }
+            demo.refreshVisibleCells()
+        }
+    }
+
+    /// The composer's placeholder, as its field's accessibility label (drawn and labelled together; tests).
+    var composerPlaceholder: String? { controller.demo?.compose.textView.view.accessibilityLabel() }
 
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
     /// opens it in the app (`link.open`). Nil: the link opens nothing.
@@ -372,6 +415,20 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: how far the rows are scrolled from the top of their range, in this view's points; 0 at the oldest row.
+    public var scrolledFromTop: CGFloat {
+        controller.demo.map { max(0, $0.collection.contentOffset.y - $0.minOffset) * zoom } ?? 0
+    }
+
+    /// cmux: runs when the rows' scroll position changes (what scrolls with them, Home's Set Up cmux card).
+    public var onScrolled: (() -> Void)? {
+        get { controller.onScrolled }
+        set { controller.onScrolled = newValue }
+    }
+
+    /// cmux: a wheel event over something that scrolls with the rows scrolls the rows.
+    public func scrollRows(with event: NSEvent) { controller.host.scrollView.scrollWheel(with: event) }
+
     /// cmux: room kept clear under the newest message, in this view's points (Home's toasts over the
     /// chat, CmuxToastReserving): pinned to its newest message, the transcript rests its last row above
     /// it; scrolled up, the rows stay where they are and only the scroll range grows. 0: none.
@@ -395,13 +452,6 @@ public final class MessagesLabHomeView: NSView {
             // With no header the rows' top follows the accessory (`HostView.bareRowsTop`).
             controller.host.needsLayout = true
         }
-    }
-
-    /// cmux: a small control right after the header's name pill, on its line (Home's Chief location
-    /// chip); it takes its own clicks. Sized by its `intrinsicContentSize`. Nil: none.
-    public var headerPillAccessory: NSView? {
-        get { controller.host.paneHeader.pillAccessory }
-        set { controller.host.paneHeader.pillAccessory = newValue }
     }
 
     /// cmux: who else has the conversation open, as faces beside the header's name pill (chat
@@ -590,6 +640,21 @@ public final class MessagesLabHomeView: NSView {
         return true
     }
 
+    /// Chooses `title` in the menu of the red "!" beside my Not Delivered bubble showing `text`
+    /// (the click's own path, `failedMarkMenu(at:)`); false when there is no mark or no such row.
+    public func debugChooseFailedMarkItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text),
+              let menu = controller.failedMarkMenu(at: CGPoint(x: hit.body.minX - 14, y: hit.body.midY)),
+              let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized titles of a failed send's Try Again and Delete rows.
+    public static var tryAgainMenuTitle: String { CmuxStrings.tryAgain }
+    public static var deleteFailedMenuTitle: String { CmuxStrings.deleteFailed }
+
     /// The localized title of a bubble's Forward… row.
     public static var forwardMenuTitle: String { CmuxStrings.forward }
 
@@ -600,6 +665,17 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onPickAttachments }
         set { projection.onPickAttachments = newValue }
     }
+    /// The "+" button's menu (the host builds and shows it at `anchor`, the button). Nil: the "+"
+    /// opens ``onPickAttachments`` at once.
+    public var onPlusMenu: ((_ anchor: NSView) -> Void)? {
+        get { projection.onPlusMenu }
+        set { projection.onPlusMenu = newValue }
+    }
+    /// Text from the + menu (a clipboard row): the message box takes the keyboard and the text
+    /// goes in at its caret, replacing a selection, as typing it would (the end of the draft
+    /// when the box did not hold the keyboard).
+    /// - Parameter text: The text to insert.
+    public func insertIntoPrimaryInput(_ text: String) { controller.insertIntoCompose(text) }
     /// A paste in the field: true when the host's intake took the pasteboard.
     public var onAttachmentPasteboard: (NSPasteboard) -> Bool {
         get { projection.onAttachmentPasteboard }
@@ -643,6 +719,12 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
     }
+    /// The ids of the field's chips (``draftAttachmentIDs``), in order, each time they change: a
+    /// chip added or removed, or the draft sent.
+    public var onDraftAttachmentsChange: ([String]) -> Void {
+        get { projection.onDraftAttachmentsChange }
+        set { projection.onDraftAttachmentsChange = newValue }
+    }
     /// Cancel Upload in a bubble's menu (`HomeStoreBinding.cancelSend`).
     public var onCancelSend: (IdempotencyKey) -> Bool {
         get { projection.onCancelSend }
@@ -666,9 +748,13 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's attachments, in the order they arrived.
     public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
+    /// The field's chips' ids, in the order of `draftAttachments`: a chip's content hash, or
+    /// `hash#N` for another copy of the same picture (each paste is its own chip, #50984).
+    public var draftAttachmentIDs: [String] { projection.draftAttachmentIDs }
     public var isRestoringDraftAttachments: Bool { projection.isRestoringDraftAttachments }
 
-    public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
+    /// Takes chip `id` out of the field: its content hash, or `hash#N` for another copy of it.
+    public func removeDraftAttachment(_ id: String) { projection.removeDraft(id) }
 
     /// The field's text.
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }

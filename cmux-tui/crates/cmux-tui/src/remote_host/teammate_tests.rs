@@ -216,6 +216,8 @@ fn agent_proxy_refuses_every_non_chat_entrypoint() {
         "agent-session-start",
         "agent-session-trust",
         "agent-session-children",
+        "agent-session-fork",
+        "agent-session-side",
         "agent-session-media",
         "agent-session-proxy-bind",
         "composer_set",
@@ -577,7 +579,9 @@ fn every_config_write_goes_through_commit() {
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if !name.ends_with(".rs") || name == "config.rs" || name == "teammate_tests.rs" {
+        // config.rs owns the writes; a `_tests.rs` file is tests, not a verb (#48016 moved
+        // config.rs's own tests, which pass Listener::Caller, to config_commit_tests.rs).
+        if !name.ends_with(".rs") || name == "config.rs" || name.ends_with("_tests.rs") {
             continue;
         }
         let source = std::fs::read_to_string(&path).unwrap();

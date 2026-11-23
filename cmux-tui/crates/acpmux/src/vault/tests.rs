@@ -716,7 +716,9 @@ fn a_credential_replaced_during_a_blocked_store_write_gets_nothing() {
         pull::settle(&path, "https://hub.test", CRED, answer, worker_store.as_ref(), &current, 1)
     });
     // The write is in progress: `machine join --replace` lands now.
-    entered_rx.recv().unwrap();
+    entered_rx
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the store write never reached its gate");
     *credential.lock().unwrap() = ("cmm_synthetic-replacement".to_owned(), false);
     gate_tx.send(()).unwrap();
     let error = worker.join().unwrap().unwrap_err();
@@ -1393,4 +1395,31 @@ fn a_base_url_in_a_state_saved_before_is_never_delivered_and_is_removed_at_load(
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(!text.contains("ANTHROPIC_BASE_URL"), "{text}");
     assert!(!super::loaded_names().iter().any(|n| n == "ANTHROPIC_BASE_URL"));
+}
+
+/// A refusal that stays until someone acts (a join in a shared team, no grant, a lapsed grant)
+/// names its cause and next step; a passing failure names none, so it keeps warning each time.
+#[test]
+fn a_standing_vault_refusal_names_its_cause_and_next_step() {
+    let forbidden = super::standing_refusal("vault.forbidden").unwrap();
+    assert!(
+        forbidden.contains("personal team") && forbidden.contains("doctor --here"),
+        "{forbidden}"
+    );
+    assert!(super::standing_refusal("vault.not_granted").unwrap().contains("grant"));
+    assert!(super::standing_refusal("vault.grant_expired").unwrap().contains("renews"));
+    assert_eq!(super::standing_refusal("vault.unavailable"), None);
+    assert_eq!(super::standing_refusal("vault.revoked"), None);
+}
+
+/// Said once while it stays, again once something else failed or a pull went through.
+#[test]
+fn a_standing_refusal_is_explained_once_per_streak() {
+    let mut said = None;
+    super::log_pull_failure("vault.forbidden", 1, &mut said);
+    assert_eq!(said.as_deref(), Some("vault.forbidden"));
+    super::log_pull_failure("vault.forbidden", 2, &mut said);
+    assert_eq!(said.as_deref(), Some("vault.forbidden"));
+    super::log_pull_failure("vault.unavailable", 3, &mut said);
+    assert_eq!(said, None);
 }

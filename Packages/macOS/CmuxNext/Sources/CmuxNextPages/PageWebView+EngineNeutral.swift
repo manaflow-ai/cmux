@@ -26,10 +26,65 @@ extension PageWebView {
     /// multi-megabyte base64 string) is parsed and decoded off the main actor.
     public func snapshot() async -> NSImage? {
         guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
+        // Out of sight, the page draws for its picture (a parked spare's cover).
+        let heldAway = holdAwayDrawing()
+        defer { if heldAway { releaseAwayDrawing() } }
         guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
               let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
         image.size = bounds.size
         return image
+    }
+
+    /// A picture of the page as it draws now with its clear areas kept clear, at the view's size in points; nil when
+    /// there is none. In Chromium it is a fast-mode PNG of the whole viewport (no clip: a clip with a scale lays the page
+    /// out again), which costs the main thread more than ``snapshot()``'s JPEG: it is for a cover of a page the pane shows
+    /// through (a New Tab page), taken at a quiet moment (a parked New Tab spare), once per size and content.
+    public func clearAreaSnapshot() async -> NSImage? {
+        guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
+        guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.clearAreaSnapshotParams),
+              let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
+        // The viewport: the page window lays its web contents one point under its top edge (``chromiumFrameBand``).
+        image.size = NSSize(width: bounds.width, height: max(0, bounds.height - Self.chromiumFrameBand))
+        return image
+    }
+
+    /// `Page.captureScreenshot` for ``clearAreaSnapshot()``.
+    nonisolated static var clearAreaSnapshotParams: [String: any Sendable] { ["format": "png", "optimizeForSpeed": true] }
+
+    /// A small picture of the page as it last drew, at most `maxPixelWidth` pixels wide, its clear
+    /// areas kept clear; nil when there is none. For a hover card: it does not wait for the next
+    /// screen update (a parked page makes none), and Chromium scales it down before it encodes it.
+    ///
+    /// Chromium's is a PNG, not ``snapshot()``'s JPEG: a JPEG has no alpha, so a page's clear areas came
+    /// out black and a light Markdown page's card showed a dark page (capture of 2026-11-11). Scaled
+    /// down first, the PNG is small and quick to encode.
+    ///
+    /// - Parameter maxPixelWidth: The widest the picture may be, in pixels.
+    /// - Returns: The picture, or nil when the page has no size or the engine gave none.
+    public func picture(maxPixelWidth: CGFloat) async -> CGImage? {
+        let size = bounds.size
+        guard size.width >= 1, size.height >= 1 else { return nil }
+        guard let page = chromiumSession?.page else {
+            let configuration = WKSnapshotConfiguration()
+            configuration.afterScreenUpdates = false
+            configuration.snapshotWidth = NSNumber(value: Double(min(size.width, maxPixelWidth)))
+            return (try? await webView.takeSnapshot(configuration: configuration))?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+        let params = Self.pictureParams(viewSize: size, zoom: pageZoom, maxPixelWidth: maxPixelWidth)
+        guard let json = try? await page.devTools("Page.captureScreenshot", params: params),
+              let data = await Self.screenshotData(json),
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    /// `Page.captureScreenshot` for ``picture(maxPixelWidth:)``: a PNG of the viewport (CSS pixels:
+    /// points over the page zoom), scaled so it is at most `maxPixelWidth` pixels wide.
+    nonisolated static func pictureParams(viewSize: CGSize, zoom: Double, maxPixelWidth: CGFloat) -> [String: any Sendable] {
+        let zoom = zoom > 0 ? zoom : 1
+        let width = Double(viewSize.width) / zoom, height = Double(viewSize.height) / zoom
+        let scale = min(1, Double(maxPixelWidth) / max(width, 1))
+        let clip: [String: any Sendable] = ["x": 0.0, "y": 0.0, "width": width, "height": height, "scale": scale]
+        return ["format": "png", "clip": clip, "optimizeForSpeed": true]
     }
 
     /// Whether ``snapshot()`` keeps the page's clear areas the color the pane shows under them. A
@@ -50,10 +105,13 @@ extension PageWebView {
     /// (WebKit) the next presentation update the window shows. Now when the page is gone.
     public func afterNextFrame(_ body: @escaping () -> Void) {
         let wait = "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));"
+        // Out of sight, the page draws for the wait (PageWebView+AwayDrawing).
+        let heldAway = holdAwayDrawing()
         // task-owner: one frame wait; ends with the page's answer (or at once when the page is gone)
         Task { @MainActor [weak self] in
             guard let self else { return body() }
             _ = await self.callPageFunction(wait)
+            defer { if heldAway { self.releaseAwayDrawing() } }
             guard self.chromiumSession == nil else { return body() }
             Self.afterPresentationUpdate(of: self.webView, body)
         }
@@ -72,10 +130,13 @@ extension PageWebView {
         await new Promise((done) => setTimeout(done, 0));
         """
         let zoom = max(pageZoom, 0.01)
+        // Out of sight, the page draws for the wait (PageWebView+AwayDrawing).
+        let heldAway = holdAwayDrawing()
         // task-owner: bounded frame wait (at most 61 frames of 50 ms); ends with the page's answer (or at once when the page is gone)
         Task { @MainActor [weak self] in
             guard let self else { return body() }
             _ = await self.callPageFunction(wait, arguments: ["width": Double(size.width) / zoom, "height": Double(size.height) / zoom])
+            defer { if heldAway { self.releaseAwayDrawing() } }
             guard self.chromiumSession == nil else { return body() }
             Self.afterPresentationUpdate(of: self.webView, body)
         }

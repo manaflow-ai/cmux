@@ -79,6 +79,7 @@ FILES = {
 # What each job's workflow step passes (the real values come from the runner).
 TOOLCHAIN = {
     "fast-tier": {
+        "suite_scope": "all",
         "xcode": "Xcode 26.0 Build version 17A324",
         "macos": "26.0.1",
         "macos_build": "25A362",
@@ -207,6 +208,10 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertNotEqual(base, self.key("fast-tier", macos="26.0.2"))
         self.assertNotEqual(base, self.key("fast-tier", macos_build="25A363"))
         self.assertNotEqual(base, self.key("fast-tier", arch="x86_64"))
+
+    def test_a_handler_only_pass_cannot_stand_in_for_every_swift_suite(self):
+        self.assertNotEqual(self.key("fast-tier", suite_scope="handlers"),
+                            self.key("fast-tier", suite_scope="all"))
 
     def test_the_runner_pool_counts(self):
         # Owned minis, Blacksmith and hosted Macs differ in settings such as Reduce Motion/Transparency.

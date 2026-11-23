@@ -30,20 +30,25 @@
 //!     and one writer pass, plus bytes that changed nothing the content
 //!     digest sees (text, size, screen, history, cursor position: a cursor
 //!     redrawn in place, a color-only change), which wait in memory up to
-//!     [`TAIL_IDLE_BYTES`] so an idle TUI writes nothing. An OS crash can
-//!     lose up to [`TAIL_SYNC_INTERVAL`] more.
+//!     [`TAIL_IDLE_BYTES`] so an idle TUI writes nothing. An OS crash or a
+//!     power loss can lose up to [`TAIL_SYNC_INTERVAL`] more: the tail files
+//!     are synced together at that interval, and each at quit.
 //!   - `full`: the snapshot plus every output byte in per-terminal
 //!     compressed segment files (see `output_store/segments.rs`).
 //!
 //! The append path (each PTY read) only copies bytes into memory under a
 //! per-terminal lock. Disk work happens on one background writer thread
 //! that sleeps until a terminal has new output, then waits out the interval,
-//! so an idle session wakes nothing.
+//! so an idle session wakes nothing (tails written since their last sync
+//! wake it once more, for that sync).
 
 mod memory_budget;
 mod parked_trim;
+mod recovery;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
+pub(crate) use recovery::RecoveryCut;
+mod start;
 mod tail;
 mod writer;
 
@@ -75,9 +80,16 @@ pub(crate) const FULL_FLUSH_INTERVAL: Duration = Duration::from_secs(3);
 /// Snapshot mode: how long new output waits before it goes to the tail
 /// file. The most output a kill of the daemon and its hosts loses.
 pub(crate) const TAIL_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
-/// Snapshot mode: a tail file written since is fsynced at most this often
-/// (the most an OS crash adds to [`TAIL_FLUSH_INTERVAL`]).
-pub(crate) const TAIL_SYNC_INTERVAL: Duration = Duration::from_secs(1);
+/// Snapshot mode: the tail files written since their last sync are synced
+/// together, this long after the first such write (`snapshot.rs`
+/// `sync_due_tails`). The most output an OS crash or a power loss adds to
+/// [`TAIL_FLUSH_INTERVAL`]; a kill of every process loses none of it (the
+/// page cache keeps what write(2) took), and the quit pass syncs at once.
+/// It was 1 s per tail with an F_FULLFSYNC each: 40 of 45 sampled file
+/// system calls of the writer thread, and on scratch files 1.7 MiB/min of
+/// physical writes for 0.19 MiB/min of output, against 0.2 MiB/min at 30 s
+/// (`output_store/tail_sync_tests.rs`).
+pub(crate) const TAIL_SYNC_INTERVAL: Duration = Duration::from_secs(30);
 /// Snapshot mode: tail bytes past which a snapshot is written (the
 /// compaction), so a restore replays about this much over it; at most once
 /// per [`TAIL_COMPACT_SPACING`], so a flood captures its screen under the
@@ -301,13 +313,17 @@ struct LogState {
     tail_bytes: u64,
     /// Snapshot mode: content digest at the last stored byte.
     tail_digest: Option<u64>,
-    /// Snapshot mode: when the tail file was last fsynced, and whether a
-    /// write followed.
-    tail_synced_at: Option<Instant>,
+    /// Snapshot mode: the tail file was written since its last sync.
     tail_unsynced: bool,
     /// The next pass writes a snapshot whether or not the content changed
     /// (a gap in the tail, cleared history, a mode change).
     force_snapshot: bool,
+    /// Snapshot mode: a flood outran the tail ([`TAIL_FLOOD_MAX_BYTES`] of it
+    /// inside one compaction spacing). Its bytes are neither written to the
+    /// tail nor kept in memory: the snapshot, at most once per
+    /// [`TAIL_COMPACT_SPACING`], covers them. Cleared by the snapshot that
+    /// ends where the stream ends.
+    flooded: bool,
     /// A snapshot or tail write failed and was reported; cleared by the next
     /// success (one report per failing stretch, not one per pass).
     store_error: bool,
@@ -320,6 +336,11 @@ struct LogState {
     /// snapshot whose capture saw an older count does not hold the screen
     /// after the gap, so it does not clear the request for one.
     gaps: u64,
+    /// A discontinuity requires a recovery cursor; numeric offsets alone
+    /// cannot describe output written while no daemon tap existed.
+    gap_pending: bool,
+    recovery_epoch: Arc<str>,
+    recovery_cut: Arc<Mutex<Option<Arc<RecoveryCut>>>>,
     /// Snapshot mode: the size the last capture saw and since when; a
     /// resized terminal is snapshotted once its size has held for
     /// [`RESIZE_SETTLE`] (a divider drag does not write a snapshot per pass).
@@ -350,13 +371,16 @@ impl LogState {
             tail_end: None,
             tail_bytes: 0,
             tail_digest: None,
-            tail_synced_at: None,
             tail_unsynced: false,
             force_snapshot: false,
+            flooded: false,
             store_error: false,
             retry_at: None,
             retry_delay: Duration::ZERO,
             gaps: 0,
+            gap_pending: false,
+            recovery_epoch: Arc::from(crate::workspace_registry::new_uuid_v4()),
+            recovery_cut: Arc::new(Mutex::new(None)),
             size_seen: None,
         }
     }
@@ -384,9 +408,10 @@ impl LogState {
         let resized = !new_generation
             && self.size_seen.is_some_and(|(size, _)| self.snapshot_size != Some(size));
         if !(self.force_snapshot || new_generation || resized) {
-            // A tail past its cap that waits out the compaction spacing: the
-            // pass after it compacts, whether or not the terminal prints.
-            return (self.tail_bytes >= TAIL_MAX_BYTES).then(|| {
+            // A tail past its cap that waits out the compaction spacing (or a
+            // flood the snapshot covers): the pass after it compacts, whether
+            // or not the terminal prints.
+            return (self.tail_bytes >= TAIL_MAX_BYTES || self.flooded).then(|| {
                 TAIL_FLUSH_INTERVAL
                     .max(self.retry_wait().unwrap_or_default())
                     .max(self.compaction_wait())
@@ -397,6 +422,16 @@ impl LogState {
             .filter(|_| resized)
             .map_or(Duration::ZERO, |(_, since)| RESIZE_SETTLE.saturating_sub(since.elapsed()));
         Some(TAIL_FLUSH_INTERVAL.max(self.retry_wait().unwrap_or_default()).max(settle))
+    }
+
+    /// A flood in snapshot mode: drop the unwritten bytes (the snapshot, once
+    /// its spacing has passed, covers them) and stop keeping new ones.
+    fn start_flood_hold(&mut self) {
+        self.flooded = true;
+        self.pending = Vec::new();
+        self.pending_start = self.next_offset();
+        self.tail_end = None;
+        self.tail_digest = None;
     }
 
     /// The time left before a tail-cap compaction may be written.
@@ -580,6 +615,7 @@ pub(crate) struct OutputStore {
     /// The policy the writer read last (the quit pass has no settings owner
     /// handle).
     policy: Mutex<Option<PersistencePolicy>>,
+    recovery_bytes: Arc<std::sync::atomic::AtomicU64>,
     /// Held by each write pass: the writer thread, a checkpoint and the quit
     /// pass never write the same file at once.
     pass: Mutex<()>,
@@ -612,6 +648,14 @@ pub(crate) struct OutputStore {
     /// not ask the registry again. A terminal never moves between an
     /// incognito and a normal workspace.
     public: Mutex<HashSet<TerminalPublicId>>,
+    /// Snapshot mode: when the tail files written since their last sync
+    /// are synced (`snapshot.rs` `sync_due_tails`); `None`: none was.
+    tail_sync_due: Mutex<Option<Instant>>,
+    /// Tail file fsyncs since this store was made (`snapshot.rs`).
+    tail_syncs: std::sync::atomic::AtomicU64,
+    /// A test's clock for [`Self::now`]; `None`: the real one.
+    #[cfg(test)]
+    test_clock: Mutex<Option<Instant>>,
 }
 
 impl OutputStore {
@@ -629,6 +673,7 @@ impl OutputStore {
             last_enforce: Mutex::new(None),
             snapshot_interval,
             policy: Mutex::new(None),
+            recovery_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
             memory_budget: memory_budget::MemoryBudget::default(),
@@ -638,52 +683,15 @@ impl OutputStore {
             segment_resume: Mutex::new(HashMap::new()),
             private: Mutex::new(HashSet::new()),
             public: Mutex::new(HashSet::new()),
+            tail_sync_due: Mutex::new(None),
+            tail_syncs: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(test)]
+            test_clock: Mutex::new(None),
         }
     }
 
     pub(crate) fn directory(&self) -> Option<&Path> {
         self.directory.as_deref()
-    }
-
-    /// Start the background writer. Without a directory there is nothing to
-    /// write and no thread starts.
-    ///
-    /// The mode is applied here, before any terminal is adopted or
-    /// respawned: memory mode removes what an earlier mode left, the other
-    /// modes drop the files of terminals no longer in the session, and each
-    /// terminal's stream continues at the offset its snapshot recorded.
-    pub(crate) fn start(&self, mux: &Arc<Mux>) -> anyhow::Result<()> {
-        let Some(directory) = self.directory.as_deref() else { return Ok(()) };
-        let policy = PersistencePolicy::current(mux);
-        eprintln!(
-            "cmux-tui: terminal output store: mode {}, at most {} bytes per terminal, {} in total",
-            policy.mode.as_str(),
-            policy.max_bytes_per_terminal,
-            policy.max_total_bytes
-        );
-        self.cache_policy(policy);
-        self.set_resident_trigger(memory_budget::effective(policy.memory_total_bytes));
-        self.full.set_enabled(policy.mode == PersistenceMode::Full);
-        self.set_tail_enabled(policy.mode == PersistenceMode::Snapshot);
-        {
-            let _pass = self.lock_pass();
-            snapshot::prune(mux, self, policy);
-        }
-        let mut resume = snapshot::stream_ends(directory);
-        // A tail reaches past its snapshot: a re-adopted terminal's stream
-        // continues after it, so no stored offset is used twice.
-        for (terminal_id, (generation, end)) in tail::stream_ends(directory) {
-            let known = resume.entry(terminal_id).or_insert_with(|| (generation.clone(), end));
-            if known.0 == generation {
-                known.1 = known.1.max(end);
-            }
-        }
-        *self.resume.lock().unwrap_or_else(PoisonError::into_inner) = resume;
-        if policy.mode == PersistenceMode::Full {
-            *self.segment_resume.lock().unwrap_or_else(PoisonError::into_inner) =
-                segments::all_stream_ends(directory);
-        }
-        self.writer.start(Arc::downgrade(mux))
     }
 
     fn log(&self, terminal_id: &TerminalPublicId, generation: &Arc<str>) -> Arc<TerminalLog> {
@@ -798,6 +806,7 @@ impl OutputStore {
             state.tail.clear();
             state.pending.clear();
             state.pending_start = 0;
+            state.invalidate_recovery();
         }
         let keep = bytes.len().min(OUTPUT_TAIL_BYTES);
         let skipped = (bytes.len() - keep) as u64;
@@ -807,7 +816,10 @@ impl OutputStore {
         state.tail_start += overflow as u64 + skipped;
         state.tail.extend(bytes.get(bytes.len().saturating_sub(keep)..).unwrap_or_default());
         state.last_output = Instant::now();
-        if self.full.enabled() || self.tail_enabled() {
+        if self.tail_enabled() && !self.full.enabled() && state.flooded {
+            // A flood the next snapshot covers: no copy into `pending`.
+            state.pending_start = state.next_offset();
+        } else if self.full.enabled() || self.tail_enabled() {
             if state.pending.is_empty() {
                 state.pending_start = state.next_offset() - bytes.len() as u64;
             }
@@ -879,6 +891,22 @@ impl OutputStore {
         Some((state.generation.clone(), state.next_offset()))
     }
 
+    /// The current stream cursor, including a persisted snapshot/tail that has
+    /// not created an in-memory log yet (the first read after host adoption).
+    pub(crate) fn stream_cursor(&self, terminal_id: &TerminalPublicId) -> Option<(Arc<str>, u64)> {
+        if let Some(log) =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        {
+            let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            return Some((state.generation.clone(), state.next_offset()));
+        }
+        self.resume
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(terminal_id)
+            .map(|(generation, end)| (Arc::from(generation.as_str()), *end))
+    }
+
     /// Retained output at or after `after`, at most `max_bytes` (never less
     /// than one byte when any exists). A cursor older than what is kept
     /// starts at the oldest kept byte. Full mode: bytes before the unflushed
@@ -948,29 +976,34 @@ impl OutputStore {
 
     /// The daemon's terminal was replaced from its host's snapshot (a host
     /// reconnect): bytes the host wrote while the daemon had no tap never
-    /// came through [`Self::append`]. Snapshot mode: the tail must not
-    /// continue across that gap; its unwritten bytes fall back to a snapshot
-    /// of the replaced terminal, asked for at the next pass. (Full mode's
-    /// segment files never had the gap's bytes either, and their offsets stay
-    /// contiguous, so a full-mode rebuild after a reconnect lacks them: not
-    /// changed here.)
-    pub(crate) fn stream_gap(&self, terminal_id: &TerminalPublicId) {
-        if !self.tail_enabled() {
-            return;
-        }
-        let Some(log) =
-            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
-        else {
-            return;
-        };
+    /// came through [`Self::append`]. The next output read projects the
+    /// replaced terminal from offset zero; this applies to every persistence
+    /// mode and also creates a log for a re-adopted terminal with no tail yet.
+    pub(crate) fn stream_gap(&self, terminal_id: &TerminalPublicId, generation: &Arc<str>) {
+        // Re-adopted terminals may not have an in-memory log yet. Creating it
+        // here consumes the persisted cursor, so an idle terminal's screen is
+        // still recoverable even before its first post-adoption append.
+        let log = self.log(terminal_id, generation);
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.fall_back_to_snapshot();
+        if state.generation != *generation {
+            state.generation = generation.clone();
+            state.tail_start = 0;
+            state.tail.clear();
+            state.pending.clear();
+            state.pending_start = 0;
+        }
+        if self.tail_enabled() {
+            state.fall_back_to_snapshot();
+        }
         state.gaps += 1;
+        state.invalidate_recovery();
         let wait = state.retry_wait();
         drop(state);
-        match wait {
-            Some(wait) => self.mark_log_dirty_after(&log, wait),
-            None => self.mark_log_dirty(&log),
+        if self.tail_enabled() {
+            match wait {
+                Some(wait) => self.mark_log_dirty_after(&log, wait),
+                None => self.mark_log_dirty(&log),
+            }
         }
     }
 
@@ -1007,6 +1040,7 @@ impl OutputStore {
             let end = state.next_offset();
             state.tail.clear();
             state.tail_start = end;
+            state.invalidate_recovery();
             state.pending.clear();
             state.snapshot_digest = None;
             state.snapshot_at = None;
@@ -1232,6 +1266,67 @@ impl OutputStore {
         }
         *last = Some(Instant::now());
         true
+    }
+
+    /// The time the tail sync is measured against: the real clock, or the
+    /// one a test stopped and moves itself (`advance_clock`), so no test
+    /// sleeps.
+    fn now(&self) -> Instant {
+        #[cfg(test)]
+        {
+            let stopped = *self.test_clock.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(now) = stopped {
+                return now;
+            }
+        }
+        Instant::now()
+    }
+
+    /// Stop [`Self::now`] (at the first call) and move it ahead by `by`.
+    #[cfg(test)]
+    fn advance_clock(&self, by: Duration) {
+        let mut clock = self.test_clock.lock().unwrap_or_else(PoisonError::into_inner);
+        *clock = Some(clock.unwrap_or_else(Instant::now) + by);
+    }
+
+    /// A tail file was written without a sync: the tails' next sync is due
+    /// [`TAIL_SYNC_INTERVAL`] from now, unless one is already due.
+    fn tail_written(&self) {
+        let mut due = self.tail_sync_due.lock().unwrap_or_else(PoisonError::into_inner);
+        if due.is_none() {
+            *due = Some(self.now() + TAIL_SYNC_INTERVAL);
+        }
+    }
+
+    /// How long until the tails written since their last sync are synced
+    /// (zero: now); `None`: no sync is due.
+    fn tail_sync_wait(&self) -> Option<Duration> {
+        let due = (*self.tail_sync_due.lock().unwrap_or_else(PoisonError::into_inner))?;
+        Some(due.saturating_duration_since(self.now()))
+    }
+
+    /// The logs whose tail file was written since its last sync. Their flags
+    /// are cleared, and no sync is due until the next tail write.
+    fn take_unsynced_tails(&self) -> Vec<Arc<TerminalLog>> {
+        *self.tail_sync_due.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        let logs = self.logs.lock().unwrap_or_else(PoisonError::into_inner);
+        logs.values()
+            .filter(|log| {
+                let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                std::mem::replace(&mut state.tail_unsynced, false)
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// One tail file was fsynced.
+    fn count_tail_sync(&self) {
+        self.tail_syncs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn tail_syncs(&self) -> u64 {
+        self.tail_syncs.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn lock_pass(&self) -> std::sync::MutexGuard<'_, ()> {

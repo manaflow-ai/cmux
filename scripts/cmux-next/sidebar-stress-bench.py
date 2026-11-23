@@ -19,12 +19,22 @@ Per size it measures:
                 (the selection is applied and drawn by then) and the frame intervals
   drag          a row dragged over the list (`debug.mouse` down, then one dragged event per RPC):
                 main-thread time per mouse-move (Time Profiler) and frame intervals
-Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames.
+  theme_scroll  (sidebar customization) the theme switched --theme-switches times during one trackpad gesture
+                (`settings.set appearance.appTheme`), against the same gesture with no switch: per window around
+                each switch, debug.frames and the debug.sidebar_perf deltas (rebuilds, list_reloads, layout_rows).
+                A switch restyles drawn rows; it must not rebuild or reload the whole list
+  custom_sections (--custom-sections 1,10,50) N sidebar sections of the launched app's own customize app
+                (CMUX_CUSTOMIZE_DIR, scratch): time to install, then scroll and switch as above, then
+                --section-saves saves of main.js, each timed to the window's mirror showing the new headline
+                (`apps.views`), with the sidebar counter deltas of the save
+Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames, and its
+`table` (also printed as `SIDEBAR_STRESS {json}` lines) one row per scenario and size.
+Fleet entry: scripts/measure/sidebar-stress.sh (1x and scale, customization included).
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-stress-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/stress" [--sizes 100,500,1000]
 """
-import argparse, glob, json, math, os, shutil, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, math, os, re, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -38,6 +48,13 @@ parser.add_argument("--scenarios", default="ticks,scroll,scroll_ticking,switch,d
                     help="which scenarios to run per size; add switch_matrix for the workspace switch matrix")
 parser.add_argument("--switches", type=int, default=16, help="switch_matrix: switches per input and kind")
 parser.add_argument("--target-hz", type=float, help="count lost refresh slots against this target instead of display cadence")
+parser.add_argument("--theme-switches", type=int, default=6, help="theme_scroll: theme switches during the scroll gesture")
+parser.add_argument("--themes", default="GitHub Light Default,GitHub Dark Default",
+                    help="theme_scroll: the appearance.appTheme values it alternates between")
+parser.add_argument("--custom-sections", default="",
+                    help="custom_sections: comma list of sidebar section counts (e.g. 1,10,50) the customize app "
+                         "contributes, measured in turn at each size (scroll, switch, save to rendered section)")
+parser.add_argument("--section-saves", type=int, default=5, help="custom_sections: timed saves per section count")
 parser.add_argument("--no-trace", action="store_true")
 parser.add_argument("--stop", action="store_true", help="quit the launched app at the end (jobs without $NX_APP_STOP)")
 opts = parser.parse_args()
@@ -48,11 +65,15 @@ os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_idle import usage  # noqa: E402
-from bench_launch import launch_app  # noqa: E402
+from bench_launch import launch_app, pinned_tiles, unlisted_workspaces, wait_for_count  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbstress-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
+# The launched app's customize folder (`CMUX_CUSTOMIZE_DIR`, the daemon's `local/customize` app): empty until the
+# custom_sections scenario writes a manifest, never the account's own folder.
+CUSTOMIZE = os.path.join(SCRATCH, "customize")
 GHOSTTY = os.path.join(SCRATCH, "ghostty")
 FLAG = os.path.join(SCRATCH, "ticking")
 DEBUG_CLI = os.path.join(HERE, "..", "cmux-debug-cli.sh")
@@ -138,6 +159,39 @@ def topology():
     return snap.get("topology") or snap
 
 
+def row_layout():
+    """The workspace rows' keys, titles and frames: unchanged across reads once a scroll, move or pin has landed."""
+    return [(r.get("key"), r.get("title"), r.get("window_frame")) for r in workspace_rows()]
+
+
+def settle_rows(what, timeout=15):
+    """Waits until the sidebar's rows stop moving (`row_layout` the same for ~0.5 s); notes it when they never do."""
+    if wait_stable(row_layout, what, timeout=timeout, interval=0.25, raise_on_timeout=False) is None:
+        note(f"the sidebar rows did not settle in {timeout} s ({what})")
+
+
+def tick_marks():
+    """What a ticker's tick changes: the row feed's invalidation counter and the ticking rows' state."""
+    return (sidebar_perf().get("row_invalidations"),
+            [r.get("row_state") for r in workspace_rows() if "tick" in str(r.get("title", ""))])
+
+
+def ticks_on():
+    """ticking(True), then waits for a tick to land in the sidebar (a counter or a ticking row changed)."""
+    start = tick_marks()
+    ticking(True)
+    if not wait_until(lambda: tick_marks() != start, "a ticker's tick in the sidebar", timeout=15, interval=TICK_S / 2,
+                      raise_on_timeout=False):
+        note("no tick showed in the sidebar 15 s after ticking was turned on")
+
+
+def ticks_off():
+    """ticking(False), then waits until no tick lands for ~1 s (4 tick periods)."""
+    ticking(False)
+    if wait_stable(tick_marks, "the tickers to stop", timeout=20, interval=TICK_S, reads=5, raise_on_timeout=False) is None:
+        note("the sidebar still changed 20 s after ticking was turned off")
+
+
 def percentiles(values):
     if not values:
         return {}
@@ -149,7 +203,7 @@ def percentiles(values):
 
 def cpu_share(pid, seconds):
     before, t0 = usage(pid), time.monotonic()
-    time.sleep(seconds)  # the measurement window itself
+    time.sleep(seconds)  # sleep-ok: the CPU measurement window itself
     after, wall = usage(pid), time.monotonic() - t0
     if not before or not after:
         return None
@@ -173,13 +227,27 @@ class Trace:
         self.proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", self.template, "--attach", str(self.pid),
                                       "--time-limit", f"{self.seconds}s", "--output", self.path, "--no-prompt"],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        time.sleep(4)  # the recorder attaches
+        # The recorder attached once it prints that it started (as bench_hover_preload.py reads xctrace).
+        self.lines, self.started = [], threading.Event()
+        self.reader = threading.Thread(target=self.read, daemon=True)
+        self.reader.start()
+        if not self.started.wait(60):
+            note(f"xctrace {self.template}: no 'Starting recording' in 60 s: {self.lines[-3:]}")
         return self
+
+    def read(self):
+        for line in self.proc.stdout or []:
+            self.lines.append(line.rstrip())
+            if "Starting recording" in line or "Ctrl-C to stop" in line:
+                self.started.set()
+        self.started.set()  # the recorder ended (an error): nothing more to wait for
 
     def __exit__(self, *exc):
         if self.proc:
             try:
-                out, _ = self.proc.communicate(timeout=self.seconds + 180)
+                self.proc.wait(timeout=self.seconds + 180)
+                self.reader.join(10)
+                out = "\n".join(self.lines)
             except subprocess.TimeoutExpired:
                 self.proc.terminate()
                 out = "timeout"
@@ -282,7 +350,7 @@ def main_thread_profile(trace):
 
 
 # ---------------------------------------------------------------- building the sidebar
-made = {"workspaces": [], "tickers": [], "groups": [], "pinned": []}
+made = {"workspaces": [], "tickers": [], "groups": [], "pinned": [], "create_failures": []}
 LOOP = ("while :; do for p in 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95; do "
         f"[ -e '{FLAG}' ] && printf '\\033]7501;state=working:progress=%d\\033\\\\' $p; sleep {TICK_S}; done; done")
 
@@ -290,11 +358,15 @@ LOOP = ("while :; do for p in 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 
 def create_plain(name):
     """A workspace with no terminal (`workspace create --empty`: no PTY)."""
     done = cli("workspace", "create", "--empty", "--name", name)
+    if done.returncode != 0:
+        made["create_failures"].append(name)
     return done.stdout.strip() or None
 
 
 def create_ticker(name):
     done = cli("workspace", "create", "--name", name, "--shell", LOOP)
+    if done.returncode != 0:
+        made["create_failures"].append(name)
     return done.stdout.strip() or name
 
 
@@ -313,9 +385,11 @@ def grow(target):
             ref = create_plain(name)
         made["workspaces"].append({"name": name, "ref": ref})
     note(f"created {target - have} workspaces in {time.monotonic() - t0:.1f} s")
-    wait(lambda: len(workspace_rows()) >= target * 0.95 or None, 60, 1.0)
+    # Every row: the rows the run started with and the `target` it made. The headline count
+    # (workspace-scaling-bench.py's expected_rows) is that sum, so 95% of it is not the topology measured.
+    wait_for_count(lambda: len(workspace_rows()), results["baseline"]["rows"] + target, settle=60, step=1.0)
     rows = workspace_rows()
-    note(f"sidebar workspace rows: {len(rows)} (target {target})")
+    note(f"sidebar workspace rows: {len(rows)} (target {target}; creates failed: {len(made['create_failures'])})")
     # Groups: the first 80% of the new workspaces go round-robin into --groups groups.
     t0 = time.monotonic()
     if not made["groups"]:
@@ -345,7 +419,7 @@ def grow(target):
         if ws_id:
             action("palette.toggleWorkspacePin", target=f"workspace:{ws_id}")
             made["pinned"].append(ws_id)
-    time.sleep(3)  # the sidebar settles
+    settle_rows("the sidebar after the pins", timeout=30)
 
 
 def close_scratch(why):
@@ -453,15 +527,28 @@ def scroll_gesture(events=150, dy=-40.0):
 
 
 def scroll_to_top():
+    """Wheel events with no phase: the scroll view clamps them at the top. A trackpad gesture (began, ended) this
+    large left the list stretched far past its top, the first row near the window's bottom (first row at y 779 of
+    900 on the bench Mac, 2026-11-13), so the switch scenario found no row to click."""
     x, y = list_point()
     for _ in range(3):
-        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": 100000, "phase": "began"})
-        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": 0, "phase": "ended"})
+        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": 100000})
+
+
+def visible_rows(wait_s=5.0):
+    """The workspace rows inside the window, once at least two are (the list may still settle after a scroll)."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        rows = [r for r in workspace_rows()
+                if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+        if len(rows) >= 2 or time.monotonic() >= deadline:
+            return rows
+        time.sleep(0.25)
 
 
 def scenario_scroll(pid, size, label, trace=True):
     scroll_to_top()
-    time.sleep(1)
+    settle_rows("the list after the scroll")
     frames("start")
     handle = []
     tr = Trace(pid, f"{size}-{label}", 22) if trace else None
@@ -479,36 +566,48 @@ def scenario_scroll(pid, size, label, trace=True):
 
 
 def scenario_ticks(pid, size):
-    ticking(False)
-    time.sleep(2)
+    ticks_off()
     idle = cpu_share(pid, 10)
-    ticking(True)
-    time.sleep(2)
+    ticks_on()
     busy = cpu_share(pid, 10)
     frames("start")
+    before = sidebar_perf()
     tr = Trace(pid, f"{size}-ticks", 12)
     tr.__enter__()
     t0 = time.monotonic()
+    if opts.no_trace:
+        time.sleep(12)  # sleep-ok: the measured window the recording would take; the counters and frames measure it
     tr.__exit__(None, None, None)
     wall = time.monotonic() - t0
+    work = perf_delta(before, sidebar_perf())
     stats = frames("stop")
     profile = main_thread_profile(tr.path)
     ticks = len(made["tickers"]) * (min(wall, 12) / TICK_S)
     per_tick = None
     if profile and profile.get("main_samples"):
         per_tick = round(profile["main_samples"] / ticks, 3) if ticks else None  # 1 ms per Time Profiler sample
+    # Rows the feed mapped per tick (`SidebarRowFeed`): one ticking workspace's change maps its own row, so this stays
+    # at or under 1 at 100 workspaces as at 1,000; a read every row shares (a global observable) shows as N per tick.
+    rows = {k: round(work[k] / ticks, 3) if ticks and k in work else None for k in ROW_KEYS}
     return {"tickers": len(made["tickers"]), "tick_hz_each": 1 / TICK_S, "idle": idle, "ticking": busy,
             "trace_window_s": 12, "ticks_in_trace": round(ticks), "main_ms_per_tick": per_tick,
             "main_ms_per_s": round(profile["main_samples"] / 12, 1) if profile and profile.get("main_samples") else None,
+            "sidebar_work": work, "per_tick": rows,
+            "feed_ms_per_s": round(work["main_ns"] / 1e6 / wall, 2) if work.get("main_ns") is not None and wall else None,
             "frames_while_ticking": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
 
 
 def scenario_switch(pid, size, count=24):
     scroll_to_top()
-    time.sleep(1)
-    rows = [r for r in workspace_rows() if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+    settle_rows("the list after the scroll")
+    rows = visible_rows()
     if len(rows) < 2:
-        return {"error": "fewer than two visible rows"}
+        listed = sidebar().get("rows") or []
+        error = {"error": "fewer than two visible rows",
+                 "listed_rows": len(listed), "workspace_rows": len(workspace_rows()),
+                 "first_rows": [{"key": str(r.get("key", ""))[:60], "frame": r.get("window_frame")} for r in listed[:12]]}
+        note(f"switch: {json.dumps(error)[:1500]}")
+        return error
     a, b = rows[2] if len(rows) > 2 else rows[0], rows[-2]
     lat = []
     frames("start")
@@ -528,6 +627,37 @@ def scenario_switch(pid, size, count=24):
     return {"clicks": count, "click_to_idle_ms": percentiles(lat), "noop_rpc_ms": noop_ms(), "frames": stats,
             "selected_after": selected[:3], "trace": os.path.relpath(tr.path, OUT), "profile": main_thread_profile(tr.path)}
 
+
+class SwitchStop(Exception):
+    """The switch matrix cannot measure the cells it names. main() keeps the size's other rows and the cells that
+    ended (`cells`), writes them, and ends the run with exit 1 and this text."""
+
+    cells = None
+
+
+def switch_target(name):
+    """Makes the workspace `name` and gives its id. The CLI prints what it made as a record (rows of `key value`),
+    never a bare id: the id is the record's `value.workspace_id` row, as tab-switch-matrix.py reads it. The whole
+    record went to the app as the id before (2026-10-21 to 2026-11-13), and every call that named it answered
+    `not_found`. The id is given when the app lists the workspace: the CLI's answer can come before that."""
+    done = cli("workspace", "create", "--name", name)
+    found = re.search(r"value\.workspace_id\s+(\S+)", done.stdout)
+    if not found:
+        raise SwitchStop(f"switch matrix: `workspace create --name {name}` gave no value.workspace_id: {(done.stdout + done.stderr).strip()[-300:]}")
+    ref = found.group(1)
+    if not wait(lambda: any(w.get("id") == ref for w in topology().get("workspaces") or []), 30):
+        raise SwitchStop(f"switch matrix: the app does not list workspace {name} ({ref}) 30 s after the CLI made it")
+    return ref
+
+
+def accepted(what, reply):
+    """`reply` to a call that sets up a measured cell (select a workspace, open its page, move its row). An error
+    answer stops the matrix with that answer: the cell would measure another workspace under this cell's name."""
+    if isinstance(reply, dict) and reply.get("error"):
+        raise SwitchStop(f"switch matrix: {what}: the app answered {json.dumps(reply['error'], default=str)[:400]}")
+    return reply
+
+
 def switch_targets():
     """Two terminal and two Chromium workspaces at the top of the sidebar (Cmd-1..4), made once:
     positions 1-2 Chromium (a page each), 3-4 terminal (a shell each)."""
@@ -535,29 +665,58 @@ def switch_targets():
         return made["switch_targets"]
     refs = {}
     for name in ("sw term b", "sw term a"):
-        refs[name] = cli("workspace", "create", "--name", name).stdout.strip() or name
+        refs[name] = switch_target(name)
     for index, name in enumerate(("sw chromium b", "sw chromium a")):
-        refs[name] = cli("workspace", "create", "--name", name).stdout.strip() or name
+        refs[name] = switch_target(name)
         path = os.path.join(SCRATCH, f"switch-page-{index}.html")
         open(path, "w").write("<!doctype html><title>p</title><body style='font:14px system-ui'>" +
                               "".join(f"<p>row {i} <b>bold</b> <code>code</code></p>" for i in range(400)) + "</body>")
-        action("goToWorkspace", {"workspace": refs[name]}, focus=True)
-        time.sleep(0.5)
-        reply = action("openBrowser.chromium", {"url": "file://" + path}, focus=True)
-        if isinstance(reply, dict) and reply.get("error"):
-            note(f"switch matrix: openBrowser.chromium: {reply['error']}")
-        time.sleep(2)
+        accepted(f"goToWorkspace {name}", action("goToWorkspace", {"workspace": refs[name]}, focus=True))
+        if not wait(lambda: selected_title() == name, 15, step=0.05):
+            raise SwitchStop(f"switch matrix: {name} is not the selected workspace 15 s after goToWorkspace")
+        accepted(f"openBrowser.chromium in {name}", action("openBrowser.chromium", {"url": "file://" + path}, focus=True))
+        if not wait(lambda: "browser" in workspace_tab_kinds(refs[name]), 30, step=0.1):
+            raise SwitchStop(f"switch matrix: no browser tab in {name} 30 s after openBrowser.chromium "
+                             f"(its tabs: {workspace_tab_kinds(refs[name])})")
     # Move to top in reverse so the order is chromium a, chromium b, term a, term b.
     for name in ("sw term b", "sw term a", "sw chromium b", "sw chromium a"):
-        action("palette.moveWorkspaceToTop", target={"kind": "workspace", "id": refs[name]})
+        accepted(f"palette.moveWorkspaceToTop {name}", action("palette.moveWorkspaceToTop", target={"kind": "workspace", "id": refs[name]}))
         time.sleep(0.3)
     made["switch_targets"] = refs
-    time.sleep(2)
+    settle_rows("the moved switch targets")
     return refs
+
+
+def workspace_tab_kinds(ref):
+    for w in topology().get("workspaces") or []:
+        if w.get("id") == ref:
+            return [t.get("kind") for sc in w.get("screens") or [] for p in sc.get("panes") or [] for t in p.get("tabs") or []]
+    return []
 
 
 def selected_title():
     return next((r.get("title") for r in workspace_rows() if r.get("selected")), None)
+
+
+def cell_mark(asked, sent, switched, wrong=0):
+    """Why a cell of the switch matrix is no measure of what it names, or None. `switched` is the count of switches
+    that the app's own timer kept for the cell (None: an old build with no timer). The selection check inside a cell
+    cannot say this: it runs after each 4th input, which always goes back to the workspace the cell started from, so
+    it passes when no input switched anything. `wrong` is the count of those checks that found another workspace:
+    then each input can switch (the count is whole) and the cell still measures a pair that it does not name."""
+    done = sent if switched is None else min(sent, switched)
+    if done < asked:
+        return f"invalid: {done} of {asked} inputs switched"
+    return f"invalid: {wrong} of {sent // 4} selection checks found another workspace" if wrong else None
+
+
+def cmd_digits(side):
+    """The Cmd-digit of each workspace row of the sidebar report `side`, by title. The app's default numbering counts
+    the shown top items (Home, the App Store) before the workspaces, so the first workspace is not Cmd-1. A top item
+    that the sidebar does not draw has no frame and takes no number. Only 1 to 8: Cmd-9 can be "the last item"."""
+    top = sum(1 for item in side.get("items") or [] if item.get("region") == "top" and item.get("window_frame"))
+    listed = [r.get("title") for r in side.get("rows") or [] if str(r.get("key", "")).startswith("workspace(")]
+    return {title: top + place + 1 for place, title in enumerate(listed) if top + place + 1 <= 8}
 
 
 def scenario_switch_matrix(pid, size):
@@ -566,23 +725,29 @@ def scenario_switch_matrix(pid, size):
     Chromium page) while the tickers tick. Old builds answer every call it makes."""
     refs = switch_targets()
     scroll_to_top()
-    time.sleep(1)
-    ticking(True)
-    time.sleep(2)
+    settle_rows("the list after the scroll")
+    ticks_on()
     out = {"tickers": len(made["tickers"])}
+    digits = cmd_digits(sidebar())
     rows = {r.get("title"): r for r in workspace_rows()}
     order = [r.get("title") for r in workspace_rows()[:4]]
     out["top_rows"] = order
-    pairs = {"chromium": ("sw chromium a", "sw chromium b", 1), "terminal": ("sw term a", "sw term b", 3)}
+    out["top_digits"] = [digits.get(title) for title in order]
+    pairs = {"chromium": ("sw chromium a", "sw chromium b"), "terminal": ("sw term a", "sw term b")}
     probe = rpc("debug.workspace_switch", {"action": "stop"})  # an older build answers with an error
     timed = isinstance(probe, dict) and "recording" in probe
     out["app_timer"] = timed
     tr = Trace(pid, f"{size}-switch-matrix", 4 + 3 * 2 * opts.switches * 0.45 + 10)
     tr.__enter__()
-    for kind, (a, b, first) in pairs.items():
+    for kind, (a, b) in pairs.items():
         for how in ("click", "cmd_digit", "next_prev"):
             lat, longest, wrong = [], [], 0
-            action("goToWorkspace", {"workspace": refs[a]}, focus=True)
+            try:
+                accepted(f"{kind} {how}: goToWorkspace {a}", action("goToWorkspace", {"workspace": refs[a]}, focus=True))
+            except SwitchStop as stop:
+                tr.__exit__(None, None, None)  # the recorder ends with the matrix
+                stop.cells = out  # the cells that ended are measured: they keep their rows
+                raise
             time.sleep(0.6)
             if timed:
                 rpc("debug.workspace_switch", {"action": "start"})
@@ -595,7 +760,9 @@ def scenario_switch_matrix(pid, size):
                         break
                     send = lambda: rpc("debug.mouse", {"action": "click", "x": f["x"] + 60, "y": f["y"] + f["height"] / 2})  # noqa: E731
                 elif how == "cmd_digit":
-                    digit = str(first + (1 if to_b else 0))
+                    if target not in digits:
+                        break  # the workspace has no digit: no key is sent, the cell's count says it
+                    digit = str(digits[target])
                     send = lambda: rpc("debug.key", {"key": digit, "modifiers": ["command"]})  # noqa: E731
                 else:
                     key = "]" if to_b else "["
@@ -612,10 +779,20 @@ def scenario_switch_matrix(pid, size):
                 if i % 4 == 3 and selected_title() != target:
                     wrong += 1
                 time.sleep(0.2)
+            # The timer's stop is the first call after the cell's last input: no call goes between 2 inputs.
+            samples = ((rpc("debug.workspace_switch", {"action": "stop"}) or {}).get("switches") or []) if timed else None
+            mark = cell_mark(opts.switches, len(lat), None if samples is None else len(samples), wrong)
+            if mark:
+                # A fact of the run, not a row: the cell keeps its counts and no latency key (perf-budgets.py makes
+                # rows only from a cell with input_to_idle_ms), and the matrix goes on.
+                out[f"{kind}.{how}"] = {"invalid": mark, "switches": len(lat), "app_switches": None if samples is None else len(samples),
+                                        "wrong_selection_checks": wrong, "app_samples": samples}
+                note(f"switch matrix {kind} {how}: {mark}")
+                continue
             entry = {"switches": len(lat), "input_to_idle_ms": percentiles(lat),
                      "longest_frame_ms": percentiles(longest), "wrong_selection_checks": wrong}
             if timed:
-                samples = (rpc("debug.workspace_switch", {"action": "stop"}) or {}).get("switches") or []
+                entry["app_switches"] = len(samples)
                 entry["app_samples"] = samples
                 commit = [x["commit_ms"] + x.get("input_ms", 0) for x in samples if isinstance(x.get("commit_ms"), (int, float))]
                 entry["input_to_commit_ms"] = percentiles(commit)
@@ -634,7 +811,7 @@ def scenario_switch_matrix(pid, size):
 
 def scenario_drag(pid, size, moves=180):
     scroll_to_top()
-    time.sleep(1)
+    settle_rows("the list after the scroll")
     rows = [r for r in workspace_rows() if r["window_frame"]["y"] > 80 and r["window_frame"]["y"] < WINDOW[3] - 120]
     if len(rows) < 4:
         return {"error": "fewer than four visible rows"}
@@ -666,7 +843,9 @@ def scenario_drag(pid, size, moves=180):
     tr.__exit__(None, None, None)
     profile = main_thread_profile(tr.path)
     per_move = round(profile["main_samples"] / moves, 3) if profile and profile.get("main_samples") else None
-    time.sleep(1)
+    if not wait(lambda: not sidebar().get("dragging"), 10, step=0.1):
+        note("drag: the sidebar still reports a drag 10 s after the mouse-up")
+    settle_rows("the drop")
     action("undo")  # a drop may have moved the row; put it back
     return {"moves": moves, "drag_engaged": dragging, "post_rpc_ms": percentiles(times), "main_ms_per_move_upper_bound": per_move,
             "frames": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
@@ -710,6 +889,307 @@ def scenario_hitches(pid, size):
     return {"frames": stats, "trace": os.path.relpath(tr.path, OUT), "hitches": hitches}
 
 
+# ---------------------------------------------------------------- customization: theme and extension sections
+# The row feed's own counters (rows marked dirty, rows mapped, rows mapped from their stores, flushes): per tick in the
+# ticks scenario.
+ROW_KEYS = ("row_invalidations", "row_maps", "rows_made", "row_maps_unchanged", "row_flushes", "row_patches")
+PERF_KEYS = ("rebuilds", "section_sets", "list_reloads", "layout_rows", "row_configures", "row_patches", "band_updates",
+             "scroll_realizes", "rows_walked", "main_ns", *ROW_KEYS[:-1])
+
+
+def sidebar_perf():
+    """The sidebar's work counters (`debug.sidebar_perf`), only the named ones; {} on a build without them."""
+    reply = rpc("debug.sidebar_perf", {"reset": False}, timeout=20)
+    if not isinstance(reply, dict) or reply.get("error"):
+        return {}
+    return {k: reply.get(k, 0) for k in PERF_KEYS}
+
+
+def perf_delta(before, after):
+    return {k: after.get(k, 0) - before.get(k, 0) for k in PERF_KEYS} if before and after else {}
+
+
+def frame_window(stats):
+    """The numbers of one debug.frames window that the table reads: interval percentiles and lost slots."""
+    intervals = stats.get("intervals_ms") if isinstance(stats, dict) else None
+    metrics = (stats or {}).get("frame_metrics") or {}
+    return {"intervals_ms": percentiles(intervals or []), "dropped_slots": metrics.get("dropped_slots"),
+            "complete": metrics.get("complete")}
+
+
+def scroll_event(x, y, dy, phase):
+    t0 = time.perf_counter()
+    ms, _ = timed_rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": dy, "phase": phase})
+    rest = 1 / 60 - (time.perf_counter() - t0)
+    if rest > 0:
+        time.sleep(rest)  # sleep-ok: rate pacing, 60 events per second as a trackpad sends them
+    return ms
+
+
+def windowed_gesture(switch, count, gap=10, window=40, dy=-30.0):
+    """One trackpad gesture of count*(gap+window) events at 60 Hz. Before each of `count` windows `switch(i)` runs
+    (None: the baseline gesture, the same windows with nothing switched). Each window is its own debug.frames
+    recording and its own sidebar counter delta, so a switch's frames and work are read apart from the rest."""
+    x, y = list_point()
+    total = count * (gap + window)
+    events, windows, sent = [], [], 0
+
+    def phase():
+        return "began" if sent == 0 else ("ended" if sent == total - 1 else "changed")
+
+    for i in range(count):
+        for _ in range(gap):
+            events.append(scroll_event(x, y, dy, phase()))
+            sent += 1
+        before = sidebar_perf()
+        frames("start")
+        call_ms = switch(i) if switch else None
+        for _ in range(window):
+            events.append(scroll_event(x, y, dy, phase()))
+            sent += 1
+        stats = frames("stop")
+        windows.append({"switch_rpc_ms": call_ms, "frames": frame_window(stats),
+                        "max_frame_ms": stats.get("max_ms") if isinstance(stats, dict) else None,
+                        "perf": perf_delta(before, sidebar_perf())})
+    return {"events": len(events), "event_rpc_ms": percentiles(events), "windows": windows}
+
+
+def summarize_windows(windows):
+    """Frames of every window together, and the counter deltas summed and per window (max)."""
+    intervals, maxes = [], []
+    for w in windows:
+        if isinstance(w.get("max_frame_ms"), (int, float)):
+            maxes.append(w["max_frame_ms"])
+    perf_sum = {k: sum((w.get("perf") or {}).get(k, 0) for w in windows) for k in PERF_KEYS}
+    perf_max = {k: max(((w.get("perf") or {}).get(k, 0) for w in windows), default=0) for k in PERF_KEYS}
+    return {"max_frame_ms": percentiles(maxes), "perf_sum": perf_sum, "perf_max_per_window": perf_max,
+            "dropped_slots": sum(w["frames"].get("dropped_slots") or 0 for w in windows)}
+
+
+def scenario_theme_scroll(pid, size):
+    """Theme switches during a trackpad scroll (`settings.set appearance.appTheme`, alternating --themes), against
+    the same gesture with no switch. The rule: a switch restyles the drawn rows; it never rebuilds the sidebar or
+    reloads the whole list (rebuilds, list_reloads, layout_rows per switch stay 0 or constant at any size), and the
+    frames of a switch window stay within the scroll baseline's windows."""
+    themes = [t.strip() for t in opts.themes.split(",") if t.strip()]
+    count = opts.theme_switches
+    scroll_to_top()
+    settle_rows("the list after the scroll")
+    baseline = windowed_gesture(None, count)
+    scroll_to_top()
+    settle_rows("the list after the scroll")
+    replies = []
+
+    def switch(i):
+        t0 = time.perf_counter()
+        reply = rpc("settings.set", {"path": "appearance.appTheme", "value": themes[i % len(themes)]})
+        replies.append(reply if isinstance(reply, dict) and reply.get("error") else None)
+        return round((time.perf_counter() - t0) * 1000, 3)
+
+    tr = Trace(pid, f"{size}-theme-scroll", 4 + count * 50 / 60 + 6)
+    tr.__enter__()
+    switched = windowed_gesture(switch, count)
+    tr.__exit__(None, None, None)
+    rpc("settings.set", {"path": "appearance.appTheme", "value": themes[-1]})
+    errors = [r for r in replies if r]
+    return {"themes": themes, "switches": count, "switch_errors": errors[:3],
+            "baseline": dict(baseline, summary=summarize_windows(baseline["windows"])),
+            "switched": dict(switched, summary=summarize_windows(switched["windows"])),
+            "trace": os.path.relpath(tr.path, OUT), "profile": main_thread_profile(tr.path)}
+
+
+def section_manifest(count):
+    """The customize app (`local/customize`, manifest v1) contributing `count` sidebar sections in the scrolling
+    area after the list (`defaultRegion: middle`), each its own render export."""
+    sections = [{"id": f"s{i:02d}", "title": f"Bench section {i:02d}", "symbol": "bolt.horizontal",
+                 "defaultRegion": "middle", "render": f"render{i:02d}", "maxRows": 4} for i in range(count)]
+    return {"manifestVersion": 1, "id": "local/customize", "name": "Sidebar stress", "version": "1.0.0",
+            "description": "Sidebar sections the sidebar stress bench writes.", "engines": {"cmux": "^1.0"},
+            "main": "main.js", "contributes": {"sidebarSections": sections},
+            "activation": [f"onSidebarSection:{s['id']}" for s in sections]}
+
+
+def section_headline(index, revision):
+    return f"section {index:02d} rev {revision}"
+
+
+def section_script(count, revision, edited=0):
+    """main.js: section `edited` shows `revision` in its headline, every other section revision 0."""
+    lines = ["// Written by scripts/cmux-next/sidebar-stress-bench.py (custom_sections).", "const exportsByName = {}"]
+    for i in range(count):
+        headline = section_headline(i, revision if i == edited else 0)
+        lines.append(f"exportsByName.render{i:02d} = function () {{ return VStack({{ spacing: 2 }}, ["
+                     f"Text({json.dumps(headline)}).font(\"headline\"), "
+                     + ", ".join(f"Row({{ title: {json.dumps(f'row {i:02d}.{r}')}, symbol: \"circle\" }})" for r in range(3))
+                     + "]) }")
+    lines.append("globalThis.__cmuxAppExports = exportsByName")
+    return "\n".join(lines) + "\n"
+
+
+def write_sections(count, revision, edited=0):
+    os.makedirs(CUSTOMIZE, exist_ok=True)
+    with open(os.path.join(CUSTOMIZE, "main.js"), "w") as f:  # main.js first: the manifest appearing installs the app
+        f.write(section_script(count, revision, edited))
+    with open(os.path.join(CUSTOMIZE, "cmux-app.json"), "w") as f:
+        json.dump(section_manifest(count), f, indent=1)
+
+
+def section_views():
+    """The customize app's section views as the window's mirror holds them (`apps.views`), as edit-repaint.py reads."""
+    reply = rpc("apps.views", {"app": "local/customize"}, timeout=10)
+    views = reply.get("views") if isinstance(reply, dict) else None
+    return [v for v in views or [] if "section" in str(v.get("interface", ""))]
+
+
+def views_show(views, text):
+    return any(text in (v.get("texts") or []) for v in views)
+
+
+def mounted_indexes(views):
+    """Which bench sections the mounted views are (from their headline `section NN rev R`)."""
+    found = set()
+    for v in views:
+        for text in v.get("texts") or []:
+            m = re.match(r"section (\d+) rev \d+$", str(text))
+            if m:
+                found.add(int(m.group(1)))
+    return sorted(found)
+
+
+def settled_views(seconds, quiet=3.0):
+    """The section views once their count has not changed for `quiet` s (a sidebar may mount only the sections it
+    shows: the window first), or after `seconds`."""
+    end, last, since = time.monotonic() + seconds, None, time.monotonic()
+    views = []
+    while time.monotonic() < end:  # bounded wait for the live app
+        views = section_views()
+        if len(views) != last:
+            last, since = len(views), time.monotonic()
+        elif views and time.monotonic() - since >= quiet:
+            break
+        time.sleep(0.25)
+    return views
+
+
+def scroll_to_bottom():
+    x, y = list_point()
+    for _ in range(3):
+        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": -100000})
+
+
+def scenario_custom_sections(pid, size, count):
+    """`count` customize-app sidebar sections installed, then the same scroll and switch, then `--section-saves`
+    saves of main.js (an editor's in-place save) that change section 0's headline: each timed from the write to
+    the poll of `apps.views` that shows the new headline (the window's mirror of the section: an upper bound to its
+    render, polled every ~10 ms), with the sidebar counter deltas of the save."""
+    t0 = time.monotonic()
+    write_sections(count, 0)
+    first = wait(lambda: section_views() or None, 60)  # the first view: the app installed and mounted a section
+    first_s = round(time.monotonic() - t0, 2) if first else None
+    views = settled_views(30) if first else []
+    where = "top"
+    if not views:  # the sections draw after the list: a long list may mount none until they are scrolled to
+        scroll_to_bottom()
+        views, where = settled_views(30), "bottom"
+    install_s = round(time.monotonic() - t0, 2)
+    entry = {"sections": count, "first_view_s": first_s, "settled_s": install_s if views else None,
+             "views_mounted": len(views), "mounted_at": where, "mounted_sections": mounted_indexes(views)[:60],
+             "sidebar_rows": len(sidebar().get("rows") or []), "statuses": sorted({str(v.get("status")) for v in views})}
+    note(f"custom sections {count}: {len(views)} views mounted ({where}), first after {first_s} s, settled {install_s} s")
+    if not views:
+        entry["error"] = f"no section view of {count} mounted 60 s after the write and 30 s after a scroll to the end"
+        return entry
+    settle_rows("the sidebar with the sections mounted")
+    before = sidebar_perf()
+    entry["scroll"] = scenario_scroll(pid, size, f"sections{count}-scroll", trace=count == max(section_counts()))
+    entry["scroll"]["perf"] = perf_delta(before, sidebar_perf())
+    entry["switch"] = scenario_switch(pid, f"{size}-sections{count}")
+    # The saves edit a section the sidebar has mounted (scrolled to where it mounted them).
+    if where == "bottom":
+        scroll_to_bottom()
+    else:
+        scroll_to_top()
+    settle_rows("the list after the scroll")
+    shown = mounted_indexes(settled_views(10))
+    edited = shown[0] if shown else 0
+    entry["edited_section"] = edited
+    saves = []
+    for rnd in range(1, opts.section_saves + 1):
+        want = section_headline(edited, rnd)
+        before = sidebar_perf()
+        t_write = time.perf_counter()
+        with open(os.path.join(CUSTOMIZE, "main.js"), "w") as f:
+            f.write(section_script(count, rnd, edited))
+        seen = None
+        deadline = time.perf_counter() + 20
+        while time.perf_counter() < deadline:  # bounded poll of the live app's mirror
+            if views_show(section_views(), want):
+                seen = (time.perf_counter() - t_write) * 1000
+                break
+            time.sleep(0.01)
+        time.sleep(0.5)  # the redraw after the mirror settles before the counters are read
+        saves.append({"round": rnd, "save_to_mirror_ms": round(seen, 1) if seen else None,
+                      "perf": perf_delta(before, sidebar_perf())})
+        time.sleep(0.5)
+    shown = [s["save_to_mirror_ms"] for s in saves if s["save_to_mirror_ms"] is not None]
+    entry["saves"] = saves
+    entry["save_to_mirror_ms"] = percentiles(shown)
+    entry["save_missed"] = len(saves) - len(shown)
+    entry["save_perf_max"] = {k: max((s["perf"].get(k, 0) for s in saves if s["perf"]), default=0) for k in PERF_KEYS}
+    return entry
+
+
+def section_counts():
+    return [int(n) for n in opts.custom_sections.split(",") if n.strip()]
+
+
+def remove_sections():
+    for name in ("cmux-app.json", "main.js"):
+        path = os.path.join(CUSTOMIZE, name)
+        if os.path.exists(path):
+            os.unlink(path)
+
+
+def table(results):
+    """One row per scenario and size: what the PR's table shows (scenario | size | p50 | p95 | p99/max | work)."""
+    rows = []
+
+    def add(scenario, size, unit, stats, work):
+        stats = stats or {}
+        rows.append({"scenario": scenario, "size": size, "unit": unit, "p50": stats.get("p50"), "p95": stats.get("p95"),
+                     "p99": stats.get("p99"), "max": stats.get("max"), "n": stats.get("n"), "work": work})
+
+    for size, entry in (results.get("sizes") or {}).items():
+        label = f"{size} ws / {opts.groups} groups"
+        for key, name in (("scroll", "scroll"), ("scroll_while_ticking", "scroll_ticking")):
+            if (entry.get(key) or {}).get("frames"):
+                add(name, label, "frame ms", entry[key]["frames"].get("intervals_ms") and percentiles(entry[key]["frames"]["intervals_ms"]),
+                    {"dropped_slots": (entry[key]["frames"].get("frame_metrics") or {}).get("dropped_slots")})
+        if (entry.get("switch") or {}).get("click_to_idle_ms"):
+            add("switch", label, "click-to-idle ms", entry["switch"]["click_to_idle_ms"], {})
+        theme = entry.get("theme_scroll") or {}
+        for arm in ("baseline", "switched"):
+            if theme.get(arm):
+                s = theme[arm]["summary"]
+                add(f"theme_scroll.{arm}", label, "window max frame ms", s["max_frame_ms"],
+                    {"rebuilds": s["perf_sum"].get("rebuilds"), "list_reloads": s["perf_sum"].get("list_reloads"),
+                     "layout_rows": s["perf_sum"].get("layout_rows"), "dropped_slots": s["dropped_slots"],
+                     "windows": theme.get("switches")})
+        for sec in entry.get("custom_sections") or []:
+            n = sec.get("sections")
+            if sec.get("error"):
+                add(f"sections{n}", label, "error", {}, {"error": sec["error"]})
+                continue
+            fr = (sec.get("scroll") or {}).get("frames") or {}
+            add(f"sections{n}.scroll", label, "frame ms", percentiles(fr.get("intervals_ms") or []),
+                dict((sec["scroll"].get("perf") or {}), dropped_slots=(fr.get("frame_metrics") or {}).get("dropped_slots")))
+            add(f"sections{n}.switch", label, "click-to-idle ms", (sec.get("switch") or {}).get("click_to_idle_ms"), {})
+            add(f"sections{n}.save", label, "save-to-mirror ms", sec.get("save_to_mirror_ms"),
+                dict(sec.get("save_perf_max") or {}, missed=sec.get("save_missed"), first_view_s=sec.get("first_view_s"),
+                     settled_s=sec.get("settled_s"), views_mounted=sec.get("views_mounted"), mounted_at=sec.get("mounted_at")))
+    return rows
+
+
 def main():
     global SOCKET
     sizes = [int(s) for s in opts.sizes.split(",")]
@@ -721,7 +1201,9 @@ def main():
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
-           "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW))}
+           "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)),
+           "CMUX_CUSTOMIZE_DIR": CUSTOMIZE}
+    os.makedirs(CUSTOMIZE, exist_ok=True)
     results["load_at_start"] = os.getloadavg()
     # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
     app, SOCKET = launch_app(opts.app, env, os.path.join(OUT, "app.log"), timeout=180)
@@ -732,9 +1214,12 @@ def main():
             cli("workspace", "create", "--name", "bench start")
             if not wait(workspace_rows, 60):
                 sys.exit(f"the sidebar lists no workspace row: {json.dumps(sidebar())[:600]}")
-        time.sleep(3)
+        settle_rows("the first rows after launch", timeout=30)
         results["stale_closed"] = close_scratch("before")
-        time.sleep(2)
+        if not wait(lambda: not any(str(w.get("name") or w.get("title") or "").startswith("ws ")
+                                    for w in topology().get("workspaces") or []), 60):
+            note("scratch workspaces still listed 60 s after the close")
+        settle_rows("the sidebar after the scratch close", timeout=30)
         results["baseline"] = {"rows": len(workspace_rows()), "cpu": cpu_share(app.pid, 5), "noop_rpc_ms": noop_ms()}
         for size in sizes:
             note(f"== size {size} (load {os.getloadavg()})")
@@ -746,7 +1231,14 @@ def main():
             action("showMainWindow")
             rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})
             time.sleep(2)
-            entry = {"rows_listed": len(workspace_rows()), "load": os.getloadavg(), "noop_rpc_ms": noop_ms()}
+            rows, topo = workspace_rows(), topology()
+            # The topology's workspaces the list leaves out: what decides a rows_listed short of the size.
+            unlisted, unlisted_names = unlisted_workspaces(topo, rows)
+            entry = {"rows_listed": len(rows), "topology_workspaces": len(topo.get("workspaces") or []),
+                     "unlisted": unlisted, "unlisted_names": unlisted_names,
+                     # Pinned workspaces drawn as tiles over the list: listed, but not as rows.
+                     "pinned_tiles": pinned_tiles(topo, rows, made["pinned"]),
+                     "create_failures": list(made["create_failures"]), "load": os.getloadavg(), "noop_rpc_ms": noop_ms()}
             entry["memory"] = cpu_share(app.pid, 3)
             want = set(opts.scenarios.split(","))
             if "ticks" in want:
@@ -761,22 +1253,50 @@ def main():
                 ticking(False)
             if "switch" in want:
                 entry["switch"] = scenario_switch(app.pid, size)
+            stopped = None
             if "switch_matrix" in want:
-                entry["switch_matrix"] = scenario_switch_matrix(app.pid, size)
+                try:
+                    entry["switch_matrix"] = scenario_switch_matrix(app.pid, size)
+                except SwitchStop as stop:
+                    # No row for a cell whose workspaces the matrix did not make, select, fill or move. The rows
+                    # this size measured stay (the scenarios before and after, the cells that ended); the run ends
+                    # with exit 1 when they are written.
+                    stopped = str(stop)
+                    entry["switch_matrix"] = dict(stop.cells or {}, error=stopped)
+                    note(stopped)
+                    ticking(False)
             if "drag" in want:
                 entry["drag"] = scenario_drag(app.pid, size)
             if "hitches" in want:
                 entry["hitches"] = scenario_hitches(app.pid, size)
+            if "theme_scroll" in want:
+                entry["theme_scroll"] = scenario_theme_scroll(app.pid, size)
+                note(f"theme_scroll: {json.dumps(entry['theme_scroll']['switched']['summary'])[:600]}")
+            if "custom_sections" in want or section_counts():
+                entry["custom_sections"] = []
+                for count in section_counts():
+                    entry["custom_sections"].append(scenario_custom_sections(app.pid, size, count))
+                    with open(os.path.join(OUT, "results.json"), "w") as f:
+                        json.dump(dict(results, partial_size=entry), f, indent=1, default=str)
+                remove_sections()
+                time.sleep(3)
             entry["hangs"] = rpc("debug.hangs", {})
-            entry["measurement_complete"] = scrolls_complete(entry, want)
+            cells = (entry.get("switch_matrix") or {}).values()
+            entry["measurement_complete"] = (scrolls_complete(entry, want) and not stopped
+                                             and not any(isinstance(c, dict) and c.get("invalid") for c in cells))
             results["sizes"][str(size)] = entry
             with open(os.path.join(OUT, "results.json"), "w") as f:
                 json.dump(results, f, indent=1, default=str)
+            if stopped:
+                sys.exit(stopped)
             note(f"size {size}: done")
         # A second window: does a status tick cost scale with windows?
         if not opts.no_trace:
+            windows_before = len((rpc("debug.sidebar_rows") or {}).get("windows") or [])
             action("newWindow")
-            time.sleep(3)
+            if not wait(lambda: len((rpc("debug.sidebar_rows") or {}).get("windows") or []) > windows_before, 30):
+                note("newWindow: no second sidebar window 30 s after the action")
+            settle_rows("the sidebar after the new window")
             ticking(True)
             tr = Trace(app.pid, f"{sizes[-1]}-ticks-2windows", 12)
             tr.__enter__()
@@ -792,6 +1312,9 @@ def main():
         results["measurement_complete"] = all((results["sizes"].get(str(size)) or {}).get("measurement_complete") is True for size in sizes)
         results["target_hz"] = opts.target_hz
         results["made"] = {k: len(v) for k, v in made.items()}
+        results["table"] = table(results)
+        for row in results["table"]:
+            print("SIDEBAR_STRESS " + json.dumps(row, default=str), flush=True)
         with open(os.path.join(OUT, "results.json"), "w") as f:
             json.dump(results, f, indent=1, default=str)
         if opts.stop:

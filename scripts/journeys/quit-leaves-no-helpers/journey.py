@@ -39,6 +39,15 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tag_teardown  # noqa: E402  (shipped beside this file by run.py)
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 RPC_TIMEOUT = 30.0
 
@@ -160,8 +169,9 @@ def main(argv=None):
 
         # 1. Use a terminal: a new tab, a command typed key by key.
         nonce = str(int(time.time()))[-6:]
-        rpc(a.socket, "action.run", {"action": "newTab", "args": {"name": "jr-quit", "focus": True}})
-        time.sleep(1.0)
+        # "wait": the action answers once the new tab and its terminal are made and focused.
+        rpc(a.socket, "action.run", {"action": "newTab", "args": {"name": "jr-quit", "focus": True}, "wait": True},
+            timeout=60)
         for char in f"echo quit-{nonce}":
             rpc(a.socket, "debug.key", {"key": char, "modifiers": []})
         rpc(a.socket, "debug.key", {"key": "return", "modifiers": []})
@@ -189,7 +199,9 @@ def main(argv=None):
         if a.quit == "applescript":
             quitter = subprocess.Popen(["/usr/bin/osascript", "-e", f'tell application id "{bundle_id}" to quit'],
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            time.sleep(2.0)
+            # Until osascript answers (a refusal exits non-zero at once) or the app is gone, at most 5 s; a
+            # quit question keeps osascript waiting, and the loop below answers it.
+            wait_for(lambda: quitter.poll() is not None or not alive(app_pid), 5, 0.1)
             if quitter.poll() not in (None, 0):
                 step("applescript quit refused", stderr=quitter.stderr.read()[-300:])
                 quitter, how = None, "menu"
@@ -219,7 +231,7 @@ def main(argv=None):
             return 1
 
         # 4. Settle, then every process of the app bundle.
-        time.sleep(a.settle)
+        time.sleep(a.settle)  # sleep-ok: the check is defined as what still runs --settle s after the app exited
         after = teardown.processes()
         rows = {pid: {"command": command, **table_row(pid)} for pid, command in after}
         survivors = []
@@ -247,7 +259,7 @@ def main(argv=None):
         with open(os.path.join(a.out, "result.json"), "w") as f:
             json.dump(result, f, indent=1, default=str)
             f.write("\n")
-        print(f"journey quit-leaves-no-helpers: {result['status']} {result['reason']}", flush=True)
+        safe_print(f"journey quit-leaves-no-helpers: {result['status']} {result['reason']}", flush=True)
 
 
 if __name__ == "__main__":

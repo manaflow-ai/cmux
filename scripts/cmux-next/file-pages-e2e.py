@@ -15,6 +15,8 @@ keeps cmux-tui, acpmux and their hosts running after a quit, and they hold PTYs.
 Usage: file-pages-e2e.py --tag <tag> [--app <path to cmux DEV <tag>.app>] [--out DIR]
 """
 import argparse, glob, hashlib, json, os, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -30,6 +32,7 @@ if not APP:
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown, pty_count
+from state_wait import wait_until, wait_stable  # noqa: E402
 TEARDOWN = TagTeardown(APP)
 TEARDOWN.install()
 PTYS_BEFORE = pty_count()
@@ -88,8 +91,17 @@ def key(name, modifiers=None, target=None):
     if target:
         params["target"] = target
     reply = rpc("debug.key", params) or {}
-    time.sleep(0.12)  # test harness: let the key land
+    if target == "palette":
+        # The palette's search and listing land after the key: wait for its report to settle.
+        settle_palette()
+    # Other keys (Cmd-Shift-P, Cmd-S, Cmd-W): each caller waits on the key's outcome.
     return reply
+
+
+def settle_palette(timeout=5):
+    """The palette's report once it stops changing, read with a no-op key (forward delete at the end of the query)."""
+    return wait_stable(lambda: rpc("debug.key", {"key": "forwarddelete", "modifiers": [], "target": "palette"}) or {},
+                       "the palette's listing", timeout=timeout, interval=0.05, raise_on_timeout=False)
 
 
 def type_text(text, target=None):
@@ -112,9 +124,13 @@ def page_state(page):
 def type_into(page, text, selector=None):
     """Types `text` into the page as input events (`debug.page type`): the GUI host has no
     Accessibility grant for real keystrokes, and synthetic key events do not reach web content."""
+    before = page_state(page).get("text")
     reply = rpc("debug.page", {"page": page, "action": "type", "text": text, **({"selector": selector} if selector else {})}) or {}
     print(f"type {page} {text!r}: {reply}", flush=True)
-    time.sleep(0.3)  # test harness: the edit lands
+    # The edit lands: the page's text changes.
+    if not wait_until(lambda: page_state(page).get("text") != before, f"the {page} text to change after typing",
+                      timeout=5, raise_on_timeout=False):
+        print(f"type {page}: the page's text did not change within 5 s", flush=True)
     return reply.get("inserted") is True
 
 
@@ -128,7 +144,8 @@ def focus_page(page, selector):
     """Clicks into the page's editor (the first responder is the page's web view)."""
     reply = rpc("debug.page", {"page": page, "action": "click", "selector": selector}) or {}
     print(f"click {page} {selector}: {reply}", flush=True)
-    time.sleep(0.3)  # test harness: the caret lands
+    # The caret lands: the app's focus report stops changing.
+    wait_stable(lambda: rpc("debug.focus"), "the focus after the click", timeout=5, raise_on_timeout=False)
 
 
 def snapshot(name, page=None):
@@ -152,10 +169,13 @@ def open_file(path):
         return False
     type_text("Open File", target="palette")
     key("return", target="palette")
-    time.sleep(0.6)  # test harness: the picker's first listing
+    # The picker's first listing: its report settles.
+    settle_palette(timeout=10)
     type_text(path, target="palette")
     key("return", target="palette")
-    time.sleep(1)  # test harness: the chosen file's tab opens
+    # The chosen file's tab opens and the palette closes (callers then wait for the page to render).
+    if not wait_until(lambda: not palette_open(), "the palette to close on the chosen file", timeout=10, raise_on_timeout=False):
+        print("the palette is still open after Return on the path", flush=True)
     return True
 
 
@@ -185,16 +205,19 @@ try:
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1300,850"}
     app = subprocess.Popen([BINARY], env=env, stdout=open(os.path.join(SCRATCH, "app.log"), "a"),
                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, cwd=FIXTURE)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90):
         sys.exit("FAIL the tagged app did not come up")
-    time.sleep(2)  # test harness: let the window settle
+    # The first workspace settles: its surfaces stop changing.
+    wait_stable(lambda: rpc("debug.surfaces"), "the first workspace's surfaces", timeout=15, interval=0.2)
     # A workspace with a terminal in the fixture (its git root is the workspace root, so saves are allowed).
     made = rpc("action.run", {"action": "workspace new", "args": {"cwd": FIXTURE, "focus": True}, "origin": "script"})
-    print(f"workspace new in the fixture: {json.dumps(made)[:300]}", flush=True)
+    safe_print(f"workspace new in the fixture: {json.dumps(made)[:300]}", flush=True)
     focus = wait("a terminal has the keyboard", lambda: (lambda f: f if "terminal" in json.dumps(f) else None)(rpc("debug.focus") or {}), 20)
     expect("the terminal has the keyboard", focus is not None, json.dumps(rpc("debug.focus"))[:300])
-    time.sleep(2)  # test harness: the shell starts
+    # The shell starts in the new workspace: its surfaces stop changing.
+    wait_stable(lambda: rpc("debug.surfaces"), "the fixture workspace's surfaces", timeout=15, interval=0.2,
+                raise_on_timeout=False)
     snapshot("workspace")
 
     # 1. Markdown: Open File..., the markdown page, an edit, Cmd-S.
@@ -239,32 +262,42 @@ try:
 
     # 4. A large file opens in the large-file mode (the conflicted tab closes first, so the
     # editor page `debug.page` reads is the large file's).
+    surfaces_before = rpc("debug.surfaces")
     key("w", ["command"])
-    time.sleep(1)  # test harness: the closed tab's flush
+    # The conflicted tab closes: the surfaces change, then settle.
+    wait_until(lambda: rpc("debug.surfaces") != surfaces_before, "the conflicted tab to close", timeout=10,
+               raise_on_timeout=False)
+    wait_stable(lambda: rpc("debug.surfaces"), "the surfaces after the tab closed", timeout=10, interval=0.2,
+                raise_on_timeout=False)
     started = time.time()
     open_file(BIG)
     state = wait("the large file renders", lambda: (lambda s: s if "export const value" in (s.get("text") or "") else None)(page_state("cmux.editor")), 60) or {}
-    print(f"large file shown after {time.time() - started:.1f} s", flush=True)
+    safe_print(f"large file shown after {time.time() - started:.1f} s", flush=True)
     expect("Open File... opens big.ts (10 MB) in the editor page", bool(state), json.dumps(page_state("cmux.editor"))[:400])
     snapshot("editor-large")
     snapshot("editor-large-page", page="cmux.editor")
 
-    print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
+    safe_print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
 finally:
     if app and app.poll() is None:
-        print(f"debug.quit: {rpc('debug.quit', {'open': True})}", flush=True)
-        time.sleep(1)  # test harness: the quit sheet, if any
-        sheet = rpc("debug.quit") or {}
+        safe_print(f"debug.quit: {rpc('debug.quit', {'open': True})}", flush=True)
+        # The quit sheet, if any: wait until it asks or the app has exited (best-effort; no sheet is fine).
+        def quit_sheet():
+            if app.poll() is not None:
+                return {"exited": True}
+            reply = rpc("debug.quit") or {}
+            return reply if reply.get("asking") else None
+        sheet = wait_until(quit_sheet, "the quit sheet or the app's exit", timeout=5, raise_on_timeout=False) or {}
         if sheet.get("asking"):
-            print(f"debug.quit press: {rpc('debug.quit', {'press': 'quit'})}", flush=True)
+            safe_print(f"debug.quit press: {rpc('debug.quit', {'press': 'quit'})}", flush=True)
         try:
             app.wait(timeout=20)
-            print(f"quit {app.pid} exit {app.returncode}", flush=True)
+            safe_print(f"quit {app.pid} exit {app.returncode}", flush=True)
         except subprocess.TimeoutExpired:
             app.send_signal(signal.SIGKILL)  # the PID launched above, never a pattern
-            print(f"killed {app.pid} (did not quit)", flush=True)
+            safe_print(f"killed {app.pid} (did not quit)", flush=True)
     if app and app.returncode not in (None, 0):
-        print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
+        safe_print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
     TEARDOWN.end()
-    print(f"PTYs open before: {PTYS_BEFORE}, after: {pty_count()}", flush=True)
+    safe_print(f"PTYs open before: {PTYS_BEFORE}, after: {pty_count()}", flush=True)
 sys.exit(1 if failures else 0)

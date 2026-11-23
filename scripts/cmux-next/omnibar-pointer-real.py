@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from bench_idle import usage  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -260,9 +261,21 @@ def idle_report(engine, text):
     """The app's CPU share and wakeups per second while the pointer rests on the omnibar text and the
     page has the keyboard (proc_pid_rusage at the start and end, as bench_idle.py)."""
     move(center(text))
-    time.sleep(3.0)  # settle: the move's own work ends
+    # The move's own work ended: the app used under 10% of a core in two 0.5 s windows in a row.
+    last, quiet = [usage(app.pid), time.monotonic()], [0]
+
+    def app_quiet():
+        now, at = usage(app.pid), time.monotonic()
+        if not (now and last[0]):
+            return True  # the app is gone: the usage check below says so
+        share = (now[0] - last[0][0]) / ((at - last[1]) * 1e9)
+        last[:] = [now, at]
+        quiet[0] = quiet[0] + 1 if share < 0.10 else 0
+        return quiet[0] >= 2
+    if not wait_until(app_quiet, "the app quiet after the pointer move", timeout=15, interval=0.5, raise_on_timeout=False):
+        print(f"   {engine}: the app never went under 10% CPU after the move in 15 s; sampling anyway", flush=True)
     start, began = usage(app.pid), time.monotonic()
-    time.sleep(opts.idle_seconds)
+    time.sleep(opts.idle_seconds)  # sleep-ok: the idle measurement window itself (--idle-seconds)
     end, elapsed = usage(app.pid), time.monotonic() - began
     if not (start and end):
         return check(False, f"{engine}: the idle sample reads the app's usage")
@@ -276,14 +289,22 @@ def still_pointer_checks(engine, text):
     """The pointer rests on the omnibar text and does not move while the page reloads, and while
     the page sets its own cursor."""
     got = cursor_at(center(text), "iBeam")
-    call("browser.page.eval", {"script": "location.reload(); 1"})
-    time.sleep(2.0)  # the reload's own cursor changes land while the pointer stays still
-    now = probe("cursor")
+    call("browser.page.eval", {"script": "window.__beforeReload = 1; location.reload(); 1"})
+    # The reload is done (a new document, loaded) and the screen cursor reads the same for 1 s and more (10 reads).
+    if not wait_until(lambda: page_eval("window.__beforeReload === undefined && document.readyState === 'complete'") is True,
+                      "the page reloaded", timeout=15, interval=0.1, raise_on_timeout=False):
+        print(f"   {engine}: the page did not finish its reload in 15 s", flush=True)
+    now = wait_stable(lambda: probe("cursor"), "the screen cursor after the reload", timeout=15, interval=0.1, reads=10,
+                      raise_on_timeout=False) or probe("cursor")
     print(f"   t={time.monotonic():.3f} screen cursor {now} (still pointer, after a reload)", flush=True)
     check(now == "iBeam", f"{engine} at rest, still pointer over the text while the page reloads: iBeam (screen shows {now})")
     call("browser.page.eval", {"script": "document.documentElement.style.cursor='progress'; 1"})
-    time.sleep(1.0)
-    now = probe("cursor")
+    # The page's cursor is set and the screen cursor reads the same for 1 s and more (10 reads).
+    wait_until(lambda: page_eval("getComputedStyle(document.documentElement).cursor === 'progress'") is True,
+               "the page's own cursor set", timeout=5, interval=0.05, raise_on_timeout=False)
+    now = wait_stable(lambda: probe("cursor"), "the screen cursor after the page set its cursor", timeout=15, interval=0.1,
+                      reads=10,
+                      raise_on_timeout=False) or probe("cursor")
     check(now == "iBeam", f"{engine} at rest, still pointer over the text while the page sets its cursor: iBeam (screen shows {now})")
     call("browser.page.eval", {"script": "document.documentElement.style.cursor=''; 1"})
 
@@ -347,17 +368,17 @@ try:
     # Low on the screen, clear of the top right where notification banners show over the toolbar's end.
     rpc("debug.window_frame", {"window": WINDOW, "frame": [40, 40, 1100, 680]})
     activate()
-    print("app active:", app_active(), "main window:", (main_window() or {}).get("frame"), flush=True)
+    safe_print("app active:", app_active(), "main window:", (main_window() or {}).get("frame"), flush=True)
     PAGE_URL = serve()
     for engine in ("chromium", "webkit"):
-        print(f"--- {engine} tab", rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": PAGE_URL},
+        safe_print(f"--- {engine} tab", rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": PAGE_URL},
                                                     "focus": True}), flush=True)
         def laid_out():  # the toolbar laid out at the window's top (not a zero frame at the origin)
             got = (omnibar().get("pointer") or {}).get("frames") or {}
             bar_now = got.get("bar") or [0, 999, 0, 0]
             return got.get("text_area") and bar_now[2] > 200 and bar_now[1] < 120 and got
         frames = quiet_wait(laid_out, 90) or {}
-        print(f"{engine}: frames {json.dumps(frames)}", flush=True)
+        safe_print(f"{engine}: frames {json.dumps(frames)}", flush=True)
         quiet_wait(lambda: omnibar().get("text"), 30)
         bar, text, area = frames.get("bar"), frames.get("text"), frames.get("text_area")
         if not (bar and text and area):
@@ -366,7 +387,7 @@ try:
         page = (bar[0] + bar[2] / 2, bar[1] + bar[3] + 250)
         click(page)
         quiet_wait(lambda: not omnibar().get("has_focus"), 3)
-        print(f"{engine}: windows after a click on the page (class, kind, key): {windows_report()}", flush=True)
+        safe_print(f"{engine}: windows after a click on the page (class, kind, key): {windows_report()}", flush=True)
         points = {
             "the text": (center(text), "iBeam"),
             "the bar above the text": ((text[0] + text[2] / 2, bar[1] + 1.5), "iBeam"),
@@ -395,9 +416,9 @@ try:
             real_move(*to_screen((bar[0] + (i % 12) * bar[2] / 12, bar[1] + bar[3] / 2 if i < 12 else page[1])))
         after = (omnibar().get("pointer") or {}).get("move_hook") or {}
         calls = (after.get("calls") or 0) - (before.get("calls") or 0)
-        print(f"{engine}: move hook past its first check: {calls} calls in a 24-move sweep; mean over the run "
-              f"{after.get('mean_ns', 0):.0f} ns (key window {'a child page window' if engine == 'chromium' else 'top-level: early return'})",
-              flush=True)
+        safe_print(f"{engine}: move hook past its first check: {calls} calls in a 24-move sweep; mean over the run "
+                   f"{after.get('mean_ns', 0):.0f} ns (key window {'a child page window' if engine == 'chromium' else 'top-level: early return'})",
+                   flush=True)
         for name in ("back", "forward", "reload"):
             ident = next((n for n in frames if n.endswith("." + name)), None)
             if ident:
@@ -407,7 +428,7 @@ try:
         overflow = next((n for n in frames if n.endswith("overflow")), None)
         if overflow:
             move(center(frames[overflow]))
-            print(f"{engine}: tooltip over More (the control, kept): {bool(quiet_wait(tooltip_shown, 1.5))}", flush=True)
+            safe_print(f"{engine}: tooltip over More (the control, kept): {bool(quiet_wait(tooltip_shown, 1.5))}", flush=True)
         click(center(text))
         check(bool(quiet_wait(lambda: omnibar().get("has_focus"), 3)), f"{engine}: a real click on the text focuses the omnibar")
         for name in ("the text", "the bar above the text"):
@@ -417,7 +438,7 @@ try:
         rpc("debug.key", {"window": WINDOW, "key": "escape"})
         rpc("debug.key", {"window": WINDOW, "key": "escape"})
         check(alive(), f"{engine}: the app answers after the editing checks")
-    print("--- New Tab page", rpc("action.run", {"action": "newTab.page", "focus": True}), flush=True)
+    safe_print("--- New Tab page", rpc("action.run", {"action": "newTab.page", "focus": True}), flush=True)
     for point in ((600, 20), (600, 44), (300, 44), (600, 300), (40, 400)):
         move(point)
     check(alive(), "New Tab page: the app answers after the pointer moves over it")

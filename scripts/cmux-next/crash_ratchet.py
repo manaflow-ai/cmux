@@ -109,6 +109,7 @@ Exit 1 when a module or crate gained a hit or a waived hit; with --update-baseli
 a row stays above the baseline; with --baseline-against, when a counted row rose.
 """
 import argparse
+import functools
 import subprocess
 import json
 import os
@@ -620,11 +621,37 @@ RUST_PATH_ATTR = re.compile(r'#\[path\s*=\s*"(?P<path>[^"]+)"\s*\]')
 UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
 
 
+@functools.lru_cache(maxsize=1 << 18)
 def swift_code(line):
     """LINE without its comments and with string literal text blanked (quotes and
     interpolated code kept), so `"Hello! world"` or `// x!` never count and
     `"\\(value!)"` still does. One line at a time: the inside of a multi-line string
-    literal is read as code."""
+    literal is read as code. Cached: several scans strip the same lines (each tree's
+    scan_swift, scan_env_writes and the declaration reads)."""
+    if '"' not in line:
+        # No string literal: only comments to drop, the same as the walk below does.
+        if "/" not in line:
+            return line
+        out, i = [], 0
+        while True:
+            line_comment, block = line.find("//", i), line.find("/*", i)
+            if line_comment < 0 and block < 0:
+                out.append(line[i:])
+                break
+            if block < 0 or 0 <= line_comment < block:
+                out.append(line[i:line_comment])
+                break
+            out.append(line[i:block])
+            end = line.find("*/", block + 2)
+            if end < 0:
+                break
+            out.append(" " * (end + 2 - block))
+            i = end + 2
+        return "".join(out)
+    return _swift_code_walk(line)
+
+
+def _swift_code_walk(line):
     out, i, n = [], 0, len(line)
     in_string, depth = False, 0  # depth > 0: inside \( ... ) of a string
     while i < n:
@@ -1019,7 +1046,7 @@ def rust_test_modules(paths):
         text = open(path, encoding="utf-8", errors="replace").read()
         if "mod " not in text:
             continue
-        here, name = os.path.split(path)
+        here, name = os.path.split(os.path.normpath(path))
         # A mod.rs, lib.rs or main.rs owns its folder; any other file foo.rs owns foo/.
         owner = here if name in ("mod.rs", "lib.rs", "main.rs") else os.path.join(here, name[:-3])
         for decl in TEST_MOD_DECL.finditer(text):
@@ -1047,7 +1074,10 @@ def scan_rust(repo, scan, exported):
             continue
         if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
             continue
-        if path in test_files or any(path.startswith(folder + os.sep) for folder in test_folders):
+        # rust_test_modules normalises its targets, so compare the normalised path: with a relative
+        # `--repo .` the scanned paths start with `./` and a `#[path]` test module never matched.
+        norm = os.path.normpath(path)
+        if norm in test_files or any(norm.startswith(folder + os.sep) for folder in test_folders):
             continue
         rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
         text = open(path, encoding="utf-8", errors="replace").read()

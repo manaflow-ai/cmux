@@ -13,6 +13,8 @@ import {
   NATIVE_WIDTHS,
   PSEUDO_LOCALES,
   SCALES,
+  SHELL_DEFAULT_BACKGROUND,
+  TITLE_AREA_TONES,
   WIDTHS,
   widthPx,
   withColorScheme,
@@ -384,12 +386,19 @@ export function Stage({
   );
 }
 
-/** The background axis (env.ts BACKGROUNDS): an opaque window, or a picture behind the glass. */
+/** The background axis (env.ts BACKGROUNDS): a picture behind the glass, or an opaque window. */
 const BACKGROUND_LABELS: Record<(typeof BACKGROUNDS)[number], string> = {
+  painting: "Background: painting (Monet)",
   none: "Background: none (opaque)",
   light: "Background: light picture",
   dark: "Background: dark picture",
   busy: "Background: busy picture",
+};
+
+/** The title area tone axis (env.ts TITLE_AREA_TONES): the chrome in the content's colour, or a shade apart. */
+const TONE_LABELS: Record<(typeof TITLE_AREA_TONES)[number], string> = {
+  "one-color": "Title area: one color",
+  "subtle-tone": "Title area: subtle tone",
 };
 
 /** The load axis (env.ts LOADS, frame/load.ts): an idle machine, or one doing other work. */
@@ -420,6 +429,7 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
   ];
   const backgroundOptions = BACKGROUNDS.map((value) => ({ value, label: BACKGROUND_LABELS[value] }));
   const loadOptions = LOADS.map((value) => ({ value, label: LOAD_LABELS[value] }));
+  const toneOptions = TITLE_AREA_TONES.map((value) => ({ value, label: TONE_LABELS[value] }));
   const frameOptions = [
     { value: "window", label: "Window" },
     { value: "component", label: "Component" },
@@ -454,10 +464,17 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
       />
       <Select
         className={selectClass}
-        value={env.background ?? "none"}
+        value={env.background ?? SHELL_DEFAULT_BACKGROUND}
         options={backgroundOptions}
         onChange={(value) => set("background", value as GalleryEnv["background"])}
         label="Background"
+      />
+      <Select
+        className={selectClass}
+        value={env.titleAreaTone ?? "one-color"}
+        options={toneOptions}
+        onChange={(value) => set("titleAreaTone", value as GalleryEnv["titleAreaTone"])}
+        label="Title area tone"
       />
       <Select
         className={selectClass}
@@ -670,7 +687,11 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
             />
             Increase contrast
           </label>
-          <button type="button" className="gallery-more-reset" onClick={() => onChange(DEFAULT_ENV)}>
+          <button
+            type="button"
+            className="gallery-more-reset"
+            onClick={() => onChange({ ...DEFAULT_ENV, background: SHELL_DEFAULT_BACKGROUND })}
+          >
             Reset
           </button>
         </div>

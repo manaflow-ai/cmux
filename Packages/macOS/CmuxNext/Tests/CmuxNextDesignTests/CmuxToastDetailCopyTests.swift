@@ -20,7 +20,8 @@ struct CmuxToastDetailCopyTests {
     }
 
     @Test func everyMappedCodeHasWords() {
-        for code in ["fs.no_space", "disk_full", "fs.read_only", "fs.permission_denied", "fs.too_large"] {
+        for code in ["fs.no_space", "disk_full", "fs.read_only", "fs.permission_denied", "fs.permission", "fs.too_large",
+                     "fs.not_found", "fs.exists", "fs.not_a_directory", "fs.io", "fs.revision_mismatch"] {
             let copy = CmuxToastDetailCopy.plain("push failed: \(code).")
             #expect(copy.code == code, "\(code)")
             #expect(copy.text.isEmpty == false && copy.text != "push failed: \(code).")
@@ -29,10 +30,16 @@ struct CmuxToastDetailCopyTests {
 
     @Test func anUnknownCodeOrNoneKeepsTheRawDetail() {
         for raw in ["Bootstrap failed: 125: Domain does not support specified action (launchctl bootstrap gui/501)",
-                    "the machine answered fs.something_new: who knows",
                     "acpmux exited without a status", ""] {
             #expect(CmuxToastDetailCopy.plain(raw) == CmuxToastDetailCopy(text: raw))
         }
+    }
+
+    /// An `fs.*` code with no words of its own (one the daemon adds later) still reads as a plain line, with the code.
+    @Test func anUnknownFileCodeReadsAsAPlainLine() {
+        let copy = CmuxToastDetailCopy.plain("the machine answered fs.something_new: who knows")
+        #expect(copy == CmuxToastDetailCopy(text: CmuxToastDetailCopy.fileFailed, code: "fs.something_new"))
+        #expect(!copy.text.contains("fs."))
     }
 
     /// Several lines are several machines' reasons: one sentence would hide all but one.
@@ -63,7 +70,7 @@ struct CmuxToastDetailCopyTests {
         #expect(detail.stringValue == "The machine is out of disk space.")
         #expect(code.stringValue == "Error code: fs.no_space")
         #expect(code.isSelectable && !code.isHidden)
-        #expect(code.themedToolTip == Self.noSpace, "the raw reason is gone")
+        #expect(code.accessibilityHelp() == Self.noSpace, "the raw reason is gone")
         #expect((code.font?.pointSize ?? 0) < (detail.font?.pointSize ?? 0), "the code is not secondary")
         #expect(button.accessibilityLabel() == CmuxToastStrings.hideDetails)
         #expect(view.frame.width >= CmuxToastView.expandedMinWidth - 0.5)
@@ -74,7 +81,7 @@ struct CmuxToastDetailCopyTests {
         // One title line: Hide Details and close on it, at the trailing edge.
         #expect(abs(buttonFrame.midY - closeFrame.midY) < 0.5)
         #expect(abs(buttonFrame.midY - titleFrame.midY) < 1, "\(buttonFrame) \(titleFrame)")
-        #expect(view.bounds.maxX - closeFrame.maxX <= Metrics.space4 + 0.5, "close left the trailing edge: \(closeFrame)")
+        #expect(abs(view.bounds.maxX - closeFrame.maxX - view.geometry.padding) <= 0.5, "close left the trailing inset: \(closeFrame)")
         #expect(buttonFrame.maxX <= closeFrame.minX)
         // The plain words under the title, the code under them (the view is not flipped).
         #expect(detailFrame.maxY <= titleFrame.minY - Metrics.space2 + 0.5, "\(detailFrame) \(titleFrame)")

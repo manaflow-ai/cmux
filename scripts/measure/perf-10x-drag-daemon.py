@@ -13,11 +13,22 @@ Usage: perf-10x-drag-daemon.py --bin PATH [--n 360]
 import argparse
 import json
 import os
+import signal
 import socket
 import subprocess
 import tempfile
 import threading
 import time
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 
 class Conn:
@@ -77,18 +88,24 @@ def pct(values, p):
     return s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
 
 
-def drain(path, stop):
+def drain(path, stop, subscribed):
+    """Subscribes on a second connection and reads its events until `stop`; sets `subscribed` once the daemon
+    answered the subscribe (or it failed)."""
     try:
         c = Conn(path)
         c.sock.settimeout(0.5)
         c.send({"id": 1, "cmd": "subscribe"})
         while not stop.is_set():
             try:
-                c.read()
+                msg = c.read()
+                if msg.get("id") == 1:
+                    subscribed.set()
             except socket.timeout:
                 pass
     except Exception:  # noqa: BLE001 (a missing subscribe command only drops the fan-out)
         pass
+    finally:
+        subscribed.set()
 
 
 def main():
@@ -112,10 +129,17 @@ def main():
             if daemon.poll() is not None or time.time() > deadline:
                 raise RuntimeError("daemon did not start: " + open(os.path.join(root, "daemon.log")).read()[-2000:])
             time.sleep(0.1)
-        time.sleep(0.2)
-        c = Conn(sock)
-        ident = c.call("identify")
-        print(f"DRAG-DAEMON version={ident.get('version')} protocol={ident.get('protocol')}")
+        # The socket file exists before the daemon accepts on it: connect and identify until it answers.
+        while True:
+            try:
+                c = Conn(sock)
+                ident = c.call("identify")
+                break
+            except (OSError, ValueError):
+                if daemon.poll() is not None or time.time() > deadline:
+                    raise RuntimeError("daemon did not answer identify: " + open(os.path.join(root, "daemon.log")).read()[-2000:])
+                time.sleep(0.1)
+        safe_print(f"DRAG-DAEMON version={ident.get('version')} protocol={ident.get('protocol')}")
         panes, _ = layout(c)
         if not panes:
             c.call("new-workspace", name="drag")
@@ -125,10 +149,12 @@ def main():
         try:
             c.call("new-pane-right", pane=panes[-1])
         except RuntimeError as error:
-            print(f"DRAG-DAEMON new-pane-right failed: {error}")
+            safe_print(f"DRAG-DAEMON new-pane-right failed: {error}")
         panes, splits = layout(c)
-        threading.Thread(target=drain, args=(sock, stop), daemon=True).start()
-        time.sleep(0.3)
+        subscribed = threading.Event()
+        threading.Thread(target=drain, args=(sock, stop, subscribed), daemon=True).start()
+        if not subscribed.wait(10):  # the daemon answered the subscribe: its fan-out is in the cost
+            safe_print("DRAG-DAEMON subscribe got no answer in 10 s; measuring anyway")
         cases = [("set-split-ratio", lambda i: {"split": splits[0], "ratio": 0.3 + 0.4 * (i % 50) / 50, "transaction": 7001})]
         cases.append(("set-viewport-pane-width",
                       lambda i: {"pane": panes[-1], "width": 0.4 + 0.4 * (i % 50) / 50, "transaction": 7002}))
@@ -143,19 +169,26 @@ def main():
                 except RuntimeError as error:
                     errors += 1
                     if errors == 1:
-                        print(f"DRAG-DAEMON {name} error: {error}")
+                        safe_print(f"DRAG-DAEMON {name} error: {error}")
                 times.append(time.perf_counter() - t0)
             total = time.perf_counter() - start
             ms = lambda v: f"{v * 1000:.3f}"
-            print(f"DRAG-DAEMON cmd={name} n={len(times)} rtt_p50_ms={ms(pct(times, 0.5))} rtt_p95_ms={ms(pct(times, 0.95))}"
-                  f" rtt_max_ms={ms(max(times))} per_s={len(times) / total:.1f} errors={errors}")
+            safe_print(f"DRAG-DAEMON cmd={name} n={len(times)} rtt_p50_ms={ms(pct(times, 0.5))} rtt_p95_ms={ms(pct(times, 0.95))}"
+                       f" rtt_max_ms={ms(max(times))} per_s={len(times) / total:.1f} errors={errors}")
     finally:
         stop.set()
-        daemon.terminate()
-        try:
-            daemon.wait(10)
-        except subprocess.TimeoutExpired:
-            daemon.kill()
+        # The daemon's group, whatever the daemon's state: a child can outlive it (cmux#41767 review F1).
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(daemon.pid, sig)
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                pass
+            try:
+                daemon.wait(10)
+            except subprocess.TimeoutExpired:
+                pass
 
 
 if __name__ == "__main__":

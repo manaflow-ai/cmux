@@ -30,6 +30,8 @@ final class TopHomePageView: NSView {
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
     private(set) var shown: ConversationID?
+    /// New Chief's create is running: another click waits for it (one Chief per click, not per bounce).
+    private var creatingChief = false
     /// The New Message page (Messages' New Message: a page, not a sheet).
     /// Kept while hidden when the person typed something, with its row in the list.
     private(set) var newMessage: HomeNewMessageView?
@@ -110,8 +112,8 @@ final class TopHomePageView: NSView {
             sidebar.place(id, at: index)
             self?.list.update(sidebar.model())
         }
-        let home = services.home
-        let registry = services.registry
+        let home = services.home, registry = services.registry
+        list.setDragOut(LinkDragSession.chiefDragOut(services) { [weak home] in home.flatMap(Self.chief) })
         // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
         list.onMarkRead = { id in
             sidebar.setMarkedUnread(false, id)
@@ -129,13 +131,11 @@ final class TopHomePageView: NSView {
                 HomeSidebarView.menuItem(entry.title) { entry.perform(in: registry, window: nil) }
             }
         }
-        // Delete Conversation… and a row's left swipe: asks as Messages does, then takes it off the list
-        // (`home.hideConversation`; a newer message or Show Hidden Conversations lists it again).
-        list.onDelete = { [weak self] id in
+        // Delete Conversation and a row's left swipe: off the list at once, with Undo in its toast
+        // (`home.hideConversation`; a newer message or Show Hidden Conversations lists it again too).
+        list.onDelete = { id in
             guard id != HomeSidebarView.draftRowID, home.homeStore.rows.contains(where: { $0.id == id }) else { return }
-            HomeListActions.confirmDelete(in: self?.window) {
-                _ = registry.perform("home.hideConversation", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
-            }
+            _ = registry.perform("home.hideConversation", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
         }
         // Search: teammates with no DM yet, under the conversations; choosing one starts the DM.
         list.teammates = { [weak sidebar] query in
@@ -151,6 +151,7 @@ final class TopHomePageView: NSView {
             }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
+        list.onNewChief = { [weak self] in self?.startChiefConversation() }
         list.onCloseDraft = { [weak self] in self?.performCloseNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
@@ -383,7 +384,7 @@ final class TopHomePageView: NSView {
             return
         }
         shown = id
-        host?.removeFromSuperview()
+        host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
         let view = HomeHostView(services: services, conversation: id.rawValue)
         view.isHidden = isComposingNewMessage
         view.frame = transcriptColumn.bounds
@@ -417,13 +418,13 @@ final class TopHomePageView: NSView {
     }
 
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
-    func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomePageTab.transcript(in: host)?.reveal(message: m) } }
+    func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomeNativeTranscriptView.first(in: host)?.reveal(message: m) } }
 
     /// Home's primary input (the message box; To: on the New Message page) takes the keyboard:
     /// the message box at once or, while the shown conversation's first page loads, once it exists.
     func focusPrimaryInput() {
         if isComposingNewMessage {
-            if let target = newMessage?.focusTarget { window?.makeFirstResponder(target) }
+            if let target = newMessage?.focusTarget { FocusRoute(.system, "Home's new message field").moveKeyboard(in: window, to: target) }
             return
         }
         host?.takeKeyboardOnOpen()
@@ -451,7 +452,7 @@ final class TopHomePageView: NSView {
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
         page.layoutSubtreeIfNeeded()
-        window?.makeFirstResponder(page.focusTarget)
+        FocusRoute(.system, "Home's primary input").moveKeyboard(in: window, to: page.focusTarget)
     }
 
     private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {
@@ -532,11 +533,32 @@ final class TopHomePageView: NSView {
         requests.refresh()
     }
 
+    /// The New Chief button, as classic cmux's Chief list (ChiefHomeView.newConversation, #21063): another Chief
+    /// at once, under the next free name ("Chief 2"), its conversation shown with the message box
+    /// focused so the person can ask it something; a refusal says why. New Chief… (the sheet) names
+    /// one first.
+    func startChiefConversation() {
+        guard !creatingChief, let services else { return }
+        let home = services.home, registry = services.registry
+        // The names the list shows (records and pending renames) and the Chief rows' titles.
+        let taken = Set(home.chiefNames.values).union(home.homeStore.rows.filter { $0.kind == .chief }.map(\.title))
+        creatingChief = true
+        // task-owner: one create; ends with the owner's answer
+        Task { [weak self] in
+            let outcome = await home.createChief(named: HomeChiefName.next(taken: taken))
+            self?.creatingChief = false
+            guard case .opened(let id) = outcome else { return registry.refuse(outcome.message ?? "") }
+            // Its message box takes the keyboard when it shows: now when listed, else once the inbox lists it.
+            self?.openWhenListed(id)
+        }
+    }
+
     func presentNewChief() {
         guard let services else { return }
-        let home = services.home
-        let sheet = HomeNewChiefSheet()
+        let home = services.home, sheet = HomeNewChiefSheet()
         sheet.onCreate = { name, backend in await home.createChief(named: name, backend: backend) }
+        sheet.onCreateOnMachine = HomeMachineChiefStart(cli: services.bundledCLI, auth: services.cloud.auth, socket: { [weak services] in await services?.machines.local.connection?.endpoint?.socketPath }).create(opened: { [weak home] in home?.pendingSelection = $0 })
+        sheet.onCreateOnThisMac = { name, backend in await home.createChief(named: name, backend: backend, onThisMac: true) }
         present(sheet)
     }
 

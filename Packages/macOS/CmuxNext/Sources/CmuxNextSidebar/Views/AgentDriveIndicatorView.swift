@@ -68,8 +68,10 @@ final class AgentDriveIndicatorView: ClickableButton {
         nameLabel.setString(variant == .capsule ? shown.map { Self.shortName($0.name) } ?? "" : "")
         nameLabel.isHidden = variant != .capsule
         let summary = drivers.map(Strings.presenceLine).joined(separator: "\n")
-        themedToolTip = drivers.isEmpty ? nil : summary + "\n" + Strings.driveClickHint
+        // No tooltip: it sits on a workspace row, whose hover card names who drives what (a1315's cut 3: rows carry
+        // no tooltips). VoiceOver hears who drives and what a click does.
         setAccessibilityLabel(drivers.isEmpty ? nil : summary)
+        setAccessibilityHelp(drivers.isEmpty ? nil : Strings.driveClickHint)
         setAccessibilityRole(.button)
         needsLayout = true
         needsDisplay = true
@@ -119,7 +121,7 @@ final class AgentDriveIndicatorView: ClickableButton {
         switch variant {
         case .capsule:
             fill.frame = b
-            fill.cornerRadius = b.height / 2
+            fill.cornerRadius = b.height / 2 // radius-allow: the agent-drive status capsule, a status mark
             glyph.frame = CGRect(x: Metrics.space1 * 1.5, y: (b.height - g) / 2, width: g, height: g)
             let size = nameLabel.naturalSize
             nameLabel.frame = NSRect(x: glyph.frame.maxX + Metrics.space1, y: (b.height - ceil(size.height)) / 2,
@@ -130,14 +132,14 @@ final class AgentDriveIndicatorView: ClickableButton {
         case .badge:
             let d = min(b.width, b.height)
             fill.frame = CGRect(x: (b.width - d) / 2, y: (b.height - d) / 2, width: d, height: d)
-            fill.cornerRadius = d / 2
+            fill.cornerRadius = d / 2 // radius-allow: a round status badge
             let inner = g - 3
             glyph.frame = CGRect(x: (b.width - inner) / 2, y: (b.height - inner) / 2, width: inner, height: inner)
         case .dot:
             let d = SidebarStyle.dotSize
             // Width equals height and the radius is half of it: a true circle.
             fill.frame = CGRect(x: (b.width - d) / 2, y: (b.height - d) / 2, width: d, height: d)
-            fill.cornerRadius = d / 2
+            fill.cornerRadius = d / 2 // radius-allow: a status dot
             glyph.frame = .zero
         }
     }

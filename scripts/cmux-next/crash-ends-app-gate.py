@@ -185,8 +185,8 @@ def run(kind):
         if process.poll() is None:
             text = sample(pid, os.path.join(opts.out, f"frozen-{kind}.txt"), seconds=2)
             main = text.split("com.apple.main-thread", 1)[-1][:1600] if text else ""
-            print(f"crash-ends-app-gate: {kind}: the app still runs {elapsed:.0f} s after the crash; "
-                  f"main thread:\n{main}", flush=True)
+            safe_print(f"crash-ends-app-gate: {kind}: the app still runs {elapsed:.0f} s after the crash; "
+                       f"main thread:\n{main}", flush=True)
             return f"{kind}: the crash froze the app instead of ending it within {limit:.0f} s"
         if result.returncode != 0:
             return f"{kind}: exception-report-e2e.py exited {result.returncode}"
@@ -203,7 +203,7 @@ def run(kind):
                 path = os.path.join(folder, name)
                 if not os.path.exists(path) or os.path.getmtime(path) < started - 300:
                     return f"suspended: no fresh {name} in {folder}"
-        print(f"crash-ends-app-gate: {kind}: ended in {elapsed:.1f} s (exit status {process.returncode})", flush=True)
+        safe_print(f"crash-ends-app-gate: {kind}: ended in {elapsed:.1f} s (exit status {process.returncode})", flush=True)
         return None
     finally:
         if process.poll() is None:

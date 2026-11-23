@@ -58,7 +58,7 @@ async fn closed_activity_keeps_preview_parent_and_newest_session_precedence() {
     assert_eq!(
         chat,
         json!({"key": "claude-code:chat", "attention": null,
-        "preview": "new reply", "parent": "claude-code:root"})
+        "preview": "new reply", "parent": "claude-code:root", "displayName": null, "icon": null})
     );
     assert!(activity.has_parent("claude-code:chat"));
     let mut missing = json!({"key": "claude-code:missing", "attention": "unread"});
@@ -299,22 +299,43 @@ fn activity_batch_does_not_keep_expired_parent_relationship() {
 fn closed_snapshot_does_not_publish_a_session_reopened_during_build() {
     let hub =
         make_hub(vec![row("closed", json!({"status": "closed", "preview": "before reopen"}))]);
-    let entered = Arc::new(std::sync::Barrier::new(2));
-    let release = Arc::new(std::sync::Barrier::new(2));
-    hub.chat_activity_cache.test_pause_next_build(entered.clone(), release.clone());
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    hub.chat_activity_cache.test_pause_next_build(entered_tx, release_rx);
     hub.chat_activity_cache.test_reset_builds();
 
     let building = {
         let hub = hub.clone();
         thread::spawn(move || hub.chat_activity())
     };
-    entered.wait();
+    entered
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the activity build never reached its pause");
     assert!(hub.test_reopen("closed"));
-    release.wait();
+    release.send(()).unwrap();
     let _stale = building.join().unwrap();
 
     assert_eq!(hub.chat_activity_cache.test_builds(), 1);
     assert!(!hub.chat_activity_cache.test_cached_closed("closed"));
     let _fresh = hub.chat_activity();
     assert_eq!(hub.chat_activity_cache.test_builds(), 2);
+}
+
+/// A chat list names a chat as the session list does: the name its session was given, and its
+/// icon; a chat whose session has neither gets nulls (the coordinator's chat-index gap, Leo
+/// 2026-11-23: "the renaming paradigm still hasn't hit yet").
+#[tokio::test]
+async fn a_chat_carries_its_sessions_given_name_and_icon() {
+    let hub = make_hub(vec![
+        row("named", json!({"handle": "Mango"})),
+        row("plain", json!({})),
+        row("bad", json!({"handle": "not a handle"})),
+    ]);
+    let named = decorated(&hub, "claude-code:named");
+    assert_eq!(named["displayName"], "Mango", "{named}");
+    let plain = decorated(&hub, "claude-code:plain");
+    assert_eq!(plain["displayName"], Value::Null, "{plain}");
+    assert_eq!(plain["icon"], Value::Null, "{plain}");
+    assert_eq!(decorated(&hub, "claude-code:bad")["displayName"], Value::Null);
+    assert_eq!(decorated(&hub, "claude-code:nobody")["displayName"], Value::Null);
 }

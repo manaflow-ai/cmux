@@ -22,7 +22,10 @@
 //! `symlink_metadata`, `read`, `read_to_string`, `read_dir`, `read_link`, `exists` or
 //! `try_exists`; `File::open`; `.open(path)` on an `OpenOptions` that only reads; and a path's
 //! `.exists()`, `.try_exists()`, `.is_file()`, `.is_dir()`, `.is_symlink()`, `.metadata()`,
-//! `.symlink_metadata()`, `.read_dir()` or `.read_link()`. A read by path decides by what a
+//! `.symlink_metadata()`, `.read_dir()` or `.read_link()`, also as `Path::exists(&p)`. A path
+//! keeps its shape through a method that gives back its own value (`clone`, `to_owned`,
+//! `to_path_buf`, `as_path`, `as_ref`, `borrow`, `deref`, `*`, `&`; #41721 review F1), while a
+//! `File`'s or a `Metadata`'s `.metadata()` stays no read by path. A read by path decides by what a
 //! replacement home holds, not the held one the writes that follow change. Reads are checked in
 //! [`READ_CHECKED`] only (`no_read_under_the_home_goes_by_path`).
 //!
@@ -137,6 +140,22 @@ const PATH_MAKERS: &[&str] = &[
     "as_path",
     "cold_path",
     "dir",
+];
+
+/// Methods that give back their receiver's own value (a copy, a borrow, a deref), so a path when
+/// the receiver is one (#41721 review F1: `self.cold_path(id).clone()` lost its shape). Taken
+/// only on a known path, so a `File`'s or a `Metadata`'s `.clone()` or `.borrow()` stays no path.
+/// Also read in their associated-function form (`Clone::clone(&p)`, `Path::to_path_buf(&p)`).
+const SAME_VALUE: &[&str] = &[
+    "clone",
+    "to_owned",
+    "to_path_buf",
+    "as_path",
+    "as_ref",
+    "borrow",
+    "deref",
+    "into",
+    "into_boxed_path",
 ];
 
 /// The files whose reads by path from the home are checked: a read there decides a write in the
@@ -996,19 +1015,28 @@ fn builder_root(scope: &Scope<'_, '_>, mut expr: &syn::Expr) -> Option<(bool, Ha
 
 impl Scope<'_, '_> {
     /// Whether `expr` is a path by its shape: a path-making method (`join`, `parent`, ...),
-    /// `Path::new` or `PathBuf::from`, or a local or parameter that holds one.
+    /// `Path::new` or `PathBuf::from`, a local or parameter that holds one, or a known path
+    /// through a [`SAME_VALUE`] method, `*` or `&`.
     fn path_shaped(&self, expr: &syn::Expr) -> bool {
         match expr {
             syn::Expr::Reference(r) => self.path_shaped(&r.expr),
             syn::Expr::Paren(p) => self.path_shaped(&p.expr),
-            syn::Expr::MethodCall(m) => PATH_MAKERS.contains(&m.method.to_string().as_str()),
+            syn::Expr::Group(g) => self.path_shaped(&g.expr),
+            syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Deref(_)) => self.path_shaped(&u.expr),
+            syn::Expr::MethodCall(m) => {
+                let method = m.method.to_string();
+                PATH_MAKERS.contains(&method.as_str())
+                    || (SAME_VALUE.contains(&method.as_str()) && self.path_shaped(&m.receiver))
+            }
             syn::Expr::Call(c) => {
                 let syn::Expr::Path(p) = &*c.func else { return false };
                 let segments = path_segments(&p.path);
-                let n = segments.len();
-                let tail: Vec<&str> =
-                    segments[n.saturating_sub(2)..].iter().map(String::as_str).collect();
-                matches!(tail.as_slice(), ["Path", "new"] | ["PathBuf", "from"])
+                let Some((name, qualifier)) = segments.split_last() else { return false };
+                let name = name.as_str();
+                let on_path = qualifier.last().is_some_and(|ty| ty == "Path" || ty == "PathBuf");
+                (on_path && (matches!(name, "new" | "from") || PATH_MAKERS.contains(&name)))
+                    || (SAME_VALUE.contains(&name)
+                        && c.args.first().is_some_and(|a| self.path_shaped(a)))
             }
             syn::Expr::Path(p) => {
                 p.path.get_ident().is_some_and(|i| self.paths.contains(&i.to_string()))
@@ -1265,6 +1293,8 @@ impl<'ast> Visit<'ast> for Walk<'_, '_, '_> {
             let read = match tail.as_slice() {
                 ["fs", op] if by_path && FS_READS.contains(op) => Some(format!("fs::{op}")),
                 ["File", "open"] if by_path => Some("File::open".to_owned()),
+                // A path's read in its associated-function form (`Path::exists(&p)`).
+                ["Path" | "PathBuf", op] if PATH_READS.contains(op) => Some(format!("Path::{op}")),
                 _ => None,
             };
             if let Some(read) = read
@@ -1640,6 +1670,57 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
                     Ok(())
                 }
             }
+            // #41721 review F1: a known path keeps its shape through a method (or its
+            // associated-function form) that gives back the same path, so a read on what it
+            // gives is a read by path. One function a row.
+            impl LocalStore {
+                fn cold_path(&self, id: &str) -> PathBuf { self.dir(id).join("cold.zst") }
+                fn via_clone(&self, id: &str) {
+                    let archive = self.cold_path(id).clone();
+                    let _ = archive.metadata();
+                }
+                fn via_to_owned(&self, id: &str) {
+                    let archive = self.cold_path(id);
+                    let _ = archive.to_owned().is_file();
+                }
+                fn via_to_path_buf(&self, id: &str) {
+                    let archive = self.cold_path(id);
+                    let _ = Path::to_path_buf(&archive).metadata();
+                }
+                fn via_as_path(&self, id: &str) {
+                    let archive = PathBuf::as_path(&self.cold_path(id));
+                    let _ = archive.is_dir();
+                }
+                fn via_as_ref(&self, id: &str) {
+                    let archive: &Path = self.cold_path(id).as_ref();
+                    let _ = archive.is_symlink();
+                }
+                fn via_borrow(&self, id: &str) {
+                    let _ = self.cold_path(id).borrow().is_dir();
+                }
+                fn via_deref(&self, id: &str) {
+                    let archive = self.cold_path(id);
+                    let _ = (&*archive).metadata();
+                }
+                fn via_clone_trait(&self, id: &str) {
+                    let archive = Clone::clone(&self.cold_path(id));
+                    let _ = archive.is_file();
+                }
+                fn via_path_call(&self, id: &str) {
+                    let _ = Path::exists(&self.cold_path(id));
+                }
+                // A file's or a metadata's own value through the same methods stays no path:
+                // no row.
+                fn not_a_path(&self, id: &str) -> std::io::Result<()> {
+                    let meta = crate::home_fs::metadata(self.cold_path(id))?;
+                    let _ = meta.clone().is_file();
+                    let file = crate::home_fs::open(self.cold_path(id))?;
+                    let _ = file.borrow().metadata();
+                    let _ = (&*file).metadata();
+                    let _ = file.as_ref().metadata();
+                    Ok(())
+                }
+            }
             "#,
         ),
         // #41462 review F2: fields whose names another struct shares (`path`, `tmp`), read
@@ -1740,6 +1821,15 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
         "src/store/cold.rs LocalStore::rehydrate: Path::is_file",
         "src/store/cold.rs LocalStore::rehydrate: fs::read_dir",
         "src/store/cold.rs LocalStore::rehydrate: fs::symlink_metadata",
+        "src/store/cold.rs LocalStore::via_as_path: Path::is_dir",
+        "src/store/cold.rs LocalStore::via_as_ref: Path::is_symlink",
+        "src/store/cold.rs LocalStore::via_borrow: Path::is_dir",
+        "src/store/cold.rs LocalStore::via_clone: Path::metadata",
+        "src/store/cold.rs LocalStore::via_clone_trait: Path::is_file",
+        "src/store/cold.rs LocalStore::via_deref: Path::metadata",
+        "src/store/cold.rs LocalStore::via_path_call: Path::exists",
+        "src/store/cold.rs LocalStore::via_to_owned: Path::is_file",
+        "src/store/cold.rs LocalStore::via_to_path_buf: Path::metadata",
         "src/workflow_runs.rs read: OpenOptions::open (read)",
     ];
     let mut reads = reads;

@@ -359,3 +359,245 @@ fn two_asks_that_do_not_wait_share_one_chat() {
     assert_eq!(calls[0][..3], words(&["--json", "chat", "--name"])[..]);
     assert_eq!(calls[1][..6], words(&["--json", "chat", "send", "sess-9", "--on", "here"])[..]);
 }
+
+/// Records the words it was run with and answers as `cmux open` does.
+struct Opener {
+    calls: RefCell<Vec<Vec<String>>>,
+}
+
+impl Chat for Opener {
+    fn run(&self, words: &[String]) -> Result<ChatResult, String> {
+        self.calls.borrow_mut().push(words.to_vec());
+        Ok(ChatResult { ok: true, stdout: String::new(), stderr: String::new() })
+    }
+}
+
+/// `recipes` writes each recipe as a profile `use` previews, and `--open`
+/// shows the guide in cmux; trying one is `use`, a draft like any other.
+#[test]
+fn recipes_are_profiles_to_use_and_open_shows_their_guide() {
+    assert_eq!(parse(&words(&["recipes"])), Ok(Request::Recipes { open: false }));
+    assert_eq!(parse(&words(&["recipes", "--open"])), Ok(Request::Recipes { open: true }));
+    assert!(parse(&words(&["recipes", "glass"])).is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let opener = Opener { calls: RefCell::new(Vec::new()) };
+    let answer =
+        execute(&customize, Request::Recipes { open: true }, "cli", 1_000, &opener).ok().unwrap();
+    let json = answer.json();
+    let recipes = json["recipes"].as_array().unwrap();
+    assert_eq!(recipes.len(), cmux_customize_recipes::RECIPES.len());
+    let guide = json["guide"].as_str().unwrap().to_owned();
+    assert_eq!(json["opened"], true);
+    assert_eq!(*opener.calls.borrow(), vec![vec!["open".to_owned(), guide.clone()]]);
+    assert!(fs::read_to_string(&guide).unwrap().contains("cmux customize use "));
+    let human = answer.human(1_000);
+    assert!(human.contains("compact-sidebar"), "{human}");
+    assert!(human.contains("the guide is open in cmux"), "{human}");
+
+    let compact = recipes.iter().find(|recipe| recipe["name"] == "compact-sidebar").unwrap();
+    let path = compact["path"].as_str().unwrap().to_owned();
+    assert_eq!(compact["try"], format!("cmux customize use '{path}'"));
+    let used = execute(
+        &customize,
+        Request::Use { source: path, watch: false },
+        "cli",
+        2_000,
+        &super::ask::NoChat,
+    )
+    .ok()
+    .unwrap();
+    assert_eq!(used.json()["profile"], "compact-sidebar");
+    let settings = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert!(settings.contains("sidebarRowHeight"), "{settings}");
+    execute(&customize, Request::Discard, "cli", 3_000, &super::ask::NoChat).ok().unwrap();
+    let back = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert_eq!(back, "{}\n");
+}
+
+#[test]
+fn use_takes_a_recipe_by_name_and_a_saved_profile_of_that_name_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let run =
+        |request, at| execute(&customize, request, "cli", at, &super::ask::NoChat).ok().unwrap();
+
+    // No `recipes` first: the name alone finds the recipe, theme file included.
+    let used = run(Request::Use { source: "ukiyo-e".to_owned(), watch: false }, 1_000);
+    assert_eq!(used.json()["profile"], "ukiyo-e");
+    let settings = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert!(settings.contains("\"ukiyo-e\""), "{settings}");
+    run(Request::Discard, 2_000);
+
+    // A saved profile called the same wins over the recipe.
+    run(Request::Save { name: "ukiyo-e".to_owned(), note: "mine".to_owned() }, 3_000);
+    let used = run(Request::Use { source: "ukiyo-e".to_owned(), watch: false }, 4_000);
+    assert_eq!(used.json()["profile"], "ukiyo-e");
+    let settings = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert!(!settings.contains("themeFile"), "{settings}");
+    run(Request::Discard, 5_000);
+
+    // Neither a profile nor a recipe: the profile error stands.
+    assert!(
+        execute(
+            &customize,
+            Request::Use { source: "no-such-look".to_owned(), watch: false },
+            "cli",
+            6_000,
+            &super::ask::NoChat
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn try_parses_a_profile_and_minutes_and_keep_and_revert_take_nothing() {
+    let tried = |source: Option<&str>, ms: u64| {
+        Ok(Request::Try { source: source.map(str::to_owned), duration_ms: ms })
+    };
+    assert_eq!(parse(&words(&["try"])), tried(None, 600_000));
+    assert_eq!(parse(&words(&["try", "night.json"])), tried(Some("night.json"), 600_000));
+    assert_eq!(parse(&words(&["try", "night", "--minutes", "2"])), tried(Some("night"), 120_000));
+    assert_eq!(parse(&words(&["try", "-m", "0.5"])), tried(None, 30_000));
+    assert_eq!(parse(&words(&["keep"])), Ok(Request::Keep));
+    assert_eq!(parse(&words(&["revert"])), Ok(Request::Revert));
+    assert_eq!(parse(&words(&["settle", "--wait"])), Ok(Request::Settle { wait: true }));
+    // Code to try on: the same words `use` takes, timed.
+    assert_eq!(parse(&words(&["try", "pr:43496", "-m", "5"])), tried(Some("pr:43496"), 300_000));
+    assert_eq!(parse(&words(&["try", "dir:~/src/cmux"])), tried(Some("dir:~/src/cmux"), 600_000));
+    assert_eq!(parse(&words(&["settle", "--wait", "--code"])), Ok(Request::SettleCode));
+    for bad in [
+        &["try", "--minutes"][..],
+        &["try", "--minutes", "0"],
+        &["try", "--minutes", "soon"],
+        &["try", "a", "b"],
+        &["try", "--bogus"],
+        &["keep", "it"],
+        &["revert", "now"],
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad:?}");
+    }
+}
+
+/// A try-on from the CLI shows the time left and the two ways out, and the
+/// first verb after its time reverts it, whatever that verb is.
+#[test]
+fn a_try_on_says_its_time_and_reverts_at_the_first_look_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let recipe = dir.path().join("night.json");
+    fs::write(
+        &recipe,
+        r#"{"cmuxProfile":1,"name":"night","title":"Night","category":"look",
+            "files":{"themes/night.json":"{ \"name\": \"night\" }\n"}}"#,
+    )
+    .unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let run =
+        |request: Request, now: u64| execute(&customize, request, "cli", now, &super::ask::NoChat);
+    let source = Some(recipe.display().to_string());
+    let tried = run(Request::Try { source, duration_ms: 120_000 }, 1_000).ok().unwrap();
+    let json = tried.json();
+    assert_eq!(json["try_on"]["expires_ms"], 121_000);
+    assert_eq!(json["try_on"]["revert_to"], 1);
+    let text = tried.human(1_000);
+    assert!(
+        text.starts_with("trying on: profile night (generation 2), 2 minutes left\n"),
+        "{text}"
+    );
+    assert!(text.contains("cmux customize keep") && text.contains("cmux customize revert"));
+    let status = run(Request::Status, 31_000).ok().unwrap();
+    assert!(status.human(31_000).contains("trying on: profile night, 2 minutes left"));
+    assert_eq!(status.json()["try_on"]["generation"], 2);
+    assert!(dir.path().join("config/themes/night.json").exists());
+
+    // Nothing ran at 121 s; the next verb, at 200 s, is the look that reverts.
+    let after = run(Request::Generations, 200_000).ok().unwrap();
+    assert_eq!(after.json()["current"], 1);
+    assert!(!dir.path().join("config/themes/night.json").exists());
+    let nothing = run(Request::Keep, 201_000).ok().unwrap().human(201_000);
+    assert_eq!(nothing, "nothing is being tried on\n");
+    let none = run(Request::Try { source: None, duration_ms: 60_000 }, 202_000).err().unwrap();
+    assert_eq!(none.code, "customize.nothing_to_try");
+}
+
+#[test]
+fn schema_lists_what_can_change_and_needs_no_store() {
+    use super::SchemaFormat;
+    use cmux_customize::schema::Section;
+    assert_eq!(
+        parse(&words(&["schema"])),
+        Ok(Request::Schema { section: None, format: SchemaFormat::Schema })
+    );
+    assert_eq!(
+        parse(&words(&["schema", "views"])),
+        Ok(Request::Schema { section: Some(Section::Views), format: SchemaFormat::Schema })
+    );
+    assert_eq!(
+        parse(&words(&["schema", "--typescript"])),
+        Ok(Request::Schema { section: None, format: SchemaFormat::TypeScript })
+    );
+    assert!(parse(&words(&["schema", "colours"])).unwrap_err().contains("settings, theme"));
+    assert!(parse(&words(&["schema", "views", "--rust"])).is_err());
+    assert!(parse(&words(&["schema", "--yaml"])).is_err());
+
+    // The MCP path answers from this build's tables before it opens the store.
+    let views =
+        super::run_json(&crate::cli::GlobalArgs::default(), &words(&["schema", "views"]), "mcp")
+            .expect("views");
+    let slots = views["views"].as_array().expect("a list of view slots");
+    assert!(slots.iter().any(|slot| slot["interface"] == "cmux.section/1"));
+    assert!(views.get("settings").is_none());
+    let all = super::run_json(&crate::cli::GlobalArgs::default(), &words(&["schema"]), "mcp")
+        .expect("the whole schema");
+    let accent = all["settings"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["key"] == "appearance.accent"))
+        .expect("appearance.accent is listed");
+    assert!(accent.get("default").is_some() && accent.get("schema").is_some());
+    let ts = super::run_json(
+        &crate::cli::GlobalArgs::default(),
+        &words(&["schema", "--typescript"]),
+        "mcp",
+    )
+    .expect("typescript");
+    assert!(ts["source"].as_str().is_some_and(|s| s.contains("export interface CmuxSettings")));
+
+    let human = Answer::Schema(
+        cmux_customize::schema::Schema::current(),
+        Some(Section::Views),
+        SchemaFormat::Schema,
+    )
+    .human(0);
+    assert!(human.starts_with("View slots"), "{human}");
+    assert!(human.contains("cmux.section/1") && human.contains("defaultRegion: top|middle|bottom"));
+    assert!(human.contains("\nNext:\n"));
+}
+
+#[test]
+fn doctor_reads_by_default_and_a_fix_names_its_finding_and_kind() {
+    use super::doctor::Request as Doctor;
+    use cmux_customize::library::doctor::FixKind;
+    assert_eq!(parse(&words(&["doctor"])), Ok(Request::Doctor(Doctor::Report { announce: false })));
+    assert_eq!(
+        parse(&words(&["doctor", "--announce"])),
+        Ok(Request::Doctor(Doctor::Report { announce: true }))
+    );
+    assert_eq!(
+        parse(&words(&["doctor", "fix", "layer-on:pr-7", "off"])),
+        Ok(Request::Doctor(Doctor::Fix { id: "layer-on:pr-7".to_owned(), kind: FixKind::Off }))
+    );
+    assert_eq!(
+        parse(&words(&["doctor", "dismiss", "unknown-key:mystery"])),
+        Ok(Request::Doctor(Doctor::Dismiss { id: "unknown-key:mystery".to_owned() }))
+    );
+    assert!(parse(&words(&["doctor", "fix", "layer-on:pr-7", "delete"])).is_err());
+    assert!(parse(&words(&["doctor", "fix", "--all", "off"])).is_err());
+    assert!(parse(&words(&["doctor", "dismiss"])).is_err());
+}

@@ -20,7 +20,7 @@ pre-push gate refuses it rather than pass a file it could not judge.
   python3 scripts/cmux-next/check-test-redefinitions.py [--root DIR] [FILE ...]
 
 The pre-push gate (prepush-gate.py, "Test redefinitions") runs it on the tests/ files a push changes, at the base and
-the head, and refuses only a redefinition the push adds. Local only, like SwiftFormat: no new CI gate.
+the head, and refuses only a redefinition the push adds. Local only, like SwiftFormat (built under the 2026-10-23 no-new-CI rule, since lifted).
 """
 from __future__ import annotations
 
@@ -88,11 +88,13 @@ def scan_source(source: str, path: str) -> list[str]:
             if not isinstance(node, DEFINITIONS) or _reuses_its_name(node):
                 continue
             if node.name in first:
-                hits.append(f"{path}:{node.lineno}: {scope}{node.name} redefines line {first[node.name]}; "
-                            "Python keeps only this one, so the first is dead code. Keep one.")
+                hits.append((node.lineno, f"{path}:{node.lineno}: {scope}{node.name} redefines line {first[node.name]}; "
+                             "Python keeps only this one, so the first is dead code. Keep one."))
             else:
                 first[node.name] = node.lineno
-    return sorted(hits, key=lambda hit: (hit.split(":")[0], int(hit.split(":")[1])))
+    # Sorted by line before it is text: a path may hold `:` (`tests/a:b.py`), so a line number is never read back out
+    # of a hit (#41827 review: that read crashed the checker on such a path).
+    return [hit for _, hit in sorted(hits)]
 
 
 def test_files(root: Path) -> list[Path]:

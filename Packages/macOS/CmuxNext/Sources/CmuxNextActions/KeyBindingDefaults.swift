@@ -120,21 +120,13 @@ public nonisolated struct KeyBindingDefaults {
         .equals(KeyContext.surfaceKind, .string("home-dock")),
     ])
 
-    /// The `topPage` of a window that shows Bring your history on top (the first-run import over Home).
-    public static let historyImportTopPage = "import-history"
-
-    /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms), and Bring your history
-    /// (`cmux.import-history`) as the window's top page or with the keyboard in a pane, whose page
-    /// zooms with the Chief chat (`PageWebView.followsChatZoom`; issue 38049: Cmd-= / Cmd-- did
-    /// nothing on the first-run import). As on Home, the top page takes the zoom keys wherever the
-    /// window's keyboard is (a sidebar click leaves it shown). One flat `or`, the tree its text
-    /// parses back to, so the Rust catalog's text form (`bindings.rs`) gives this clause.
+    /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms). As on Home, the top page takes the zoom keys
+    /// wherever the window's keyboard is (a sidebar click leaves it shown). One flat `or`, the tree its text parses back
+    /// to, so the Rust catalog's text form (`bindings.rs`) gives this clause.
     public static let onChiefZoom = WhenClause.or([
         .equals(KeyContext.topPage, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home-dock")),
-        .equals(KeyContext.topPage, .string(historyImportTopPage)),
-        .equals(KeyContext.pageID, .string("cmux.import-history")),
     ])
 
     /// The arrow aliases for pane resize. These are defaults in addition to
@@ -163,7 +155,8 @@ public nonisolated struct KeyBindingDefaults {
     public static let focusHistoryAliases: [KeyBinding] = RustActionCatalog.shared.bindings["focus_history_aliases"] ?? []
     /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
     /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
-    /// browser page never loses the key to it.
+    /// browser page never loses the key to it. The diff viewer's Zoom In takes it too, only in a focused
+    /// diff tab (`diffViewerFocused`).
     public static let zoomAliases: [KeyBinding] = RustActionCatalog.shared.bindings["zoom_aliases"] ?? []
 
     /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.
@@ -208,9 +201,14 @@ public nonisolated struct KeyBindingDefaults {
     /// on many sites; the checklist toggle took it first and refused "no todo items".
     public static let yieldsToWebContent: Set<ActionID> = Set(RustActionCatalog.shared.idLists["yields_to_web_content"] ?? [])
 
-    /// Not an agent chat (`agent`, the acpmux page) and not a web page (`page`).
+    /// Not an agent chat (`agent`, the acpmux page; `home` and `home-dock`, Home's chat, its
+    /// conversation view and the docked Home, ``onHome``'s surfaces) and not a web page (`page`).
+    /// Home's composer is the same chat composer: without it, Cmd-Return there ran the checklist
+    /// toggle and toasted "the workspace checklist has no item to do" (Leo, 2026-11-12: "the
+    /// bottom pill is weird and probably unnecessary").
     public static let notWebContent = WhenClause.and([
-        .notEquals(KeyContext.surfaceKind, .string("agent")), .notEquals(KeyContext.surfaceKind, .string("page")),
+        .notEquals(KeyContext.surfaceKind, .string("agent")), .notEquals(KeyContext.surfaceKind, .string("home")),
+        .notEquals(KeyContext.surfaceKind, .string("home-dock")), .notEquals(KeyContext.surfaceKind, .string("page")),
     ])
 
     /// The keys a focused text field or composer uses itself (Leo, 2026-10-20): Return sends and

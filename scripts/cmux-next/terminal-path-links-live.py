@@ -29,6 +29,7 @@ import argparse, glob, json, os, plistlib, socket, subprocess, sys, tempfile, ti
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -98,15 +99,49 @@ def page_texts(page):
 TERMINAL = None
 
 
-def click(text):
-    """Activates `text` in the fixture terminal; the link opens recorded since the last click."""
+def recorded_opens():
+    opened = tuple(rpc("debug.terminal.links").get("opened") or [])
+    if not opened:
+        raise LookupError("nothing opened yet")
+    return opened
+
+
+def click(text, expect_open=False):
+    """Activates `text` in the fixture terminal; the link opens recorded since the last click.
+
+    expect_open: the click opens something outside the app (Finder, the browser): wait until it is recorded and no
+    more follow. Otherwise the open, if any, would be an in-app page or nothing at all."""
     global TERMINAL
     rpc("debug.terminal.links", {"clear": True})
     reply = rpc("debug.terminal.links", {"open": text, **({"tab": TERMINAL} if TERMINAL else {})})
     print(f"click {text!r}: {reply}", flush=True)
     TERMINAL = TERMINAL or reply.get("tab")
-    time.sleep(1.5)  # test harness: the open runs after the click returns, off the main thread
+    if expect_open:
+        wait_stable(recorded_opens, f"the open from {text!r}", timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
+    else:
+        # sleep-ok: an observation window; the checks after it assert that no web or other-app open is recorded,
+        # and an open runs after the click returns, off the main thread.
+        time.sleep(1.5)
     return rpc("debug.terminal.links").get("opened") or []
+
+
+def terminal_text():
+    """The viewport text of the pane showing TERMINAL (debug.surfaces)."""
+    for window in rpc("debug.surfaces", {"text": True}).get("windows") or []:
+        for pane in window.get("panes") or []:
+            if pane.get("selected_tab") == TERMINAL:
+                return pane.get("text") or (pane.get("surface") or {}).get("text") or ""
+    return ""
+
+
+def terminal_cwd():
+    for listed in (rpc("snapshot.get").get("topology") or {}).get("workspaces") or []:
+        for screen in listed.get("screens") or []:
+            for pane in screen.get("panes") or []:
+                for tab in pane.get("tabs") or []:
+                    if tab.get("id") == TERMINAL and tab.get("cwd"):
+                        return os.path.realpath(tab["cwd"])
+    return None
 
 
 def web(opened):
@@ -158,7 +193,7 @@ try:
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     wait_for(lambda: rpc("debug.focus").get("windows"), "a window", 60)
     made = rpc("action.run", {"action": "workspace new", "args": {"cwd": os.path.join(REPO, "sub"), "focus": True}, "origin": "script"})
-    print(f"workspace new: {json.dumps(made)[:300]}", flush=True)
+    safe_print(f"workspace new: {json.dumps(made)[:300]}", flush=True)
     # The new workspace's terminal by tab id (`snapshot.get`), not by focus: a mini's restored
     # state can leave a chat page or a text field focused. Its view exists once its workspace
     # shows, so the workspaces are selected in turn until it answers.
@@ -183,8 +218,10 @@ try:
             if quiet_wait(fixture_terminal, 3):
                 break
     if not wait_for(fixture_terminal, "the new workspace's terminal", 30):
-        print(f"snapshot.get: {json.dumps(rpc('snapshot.get'))[:1500]}", flush=True)
-    time.sleep(2)  # test harness: the shell starts and reports its cwd
+        safe_print(f"snapshot.get: {json.dumps(rpc('snapshot.get'))[:1500]}", flush=True)
+    # The shell starts (its prompt draws) and the terminal's cwd is the workspace's folder: relative paths resolve there.
+    wait_until(lambda: terminal_text().strip() and terminal_cwd() == os.path.join(REPO, "sub"),
+               "the shell's prompt and cwd", timeout=20, raise_on_timeout=False)
 
     # 1. The reported case: a repo-relative path printed with a trailing period.
     opened = click("build-fleet/ORG-BACKUP.md.")
@@ -203,7 +240,7 @@ try:
     if not check(bool(quiet_wait(lambda: "const c" in page_texts("cmux.editor"), 30)), "../src/app.ts:3:5 opens the code editor page"):
         listed = rpc("debug.page", {"page": "cmux.editor", "action": "list"})
         state = rpc("debug.page", {"page": "cmux.editor", "action": "state"})
-        print(f"editor pages: {json.dumps(listed)[:600]}\neditor state: {json.dumps(state)[:1500]}", flush=True)
+        safe_print(f"editor pages: {json.dumps(listed)[:600]}\neditor state: {json.dumps(state)[:1500]}", flush=True)
 
     # 7. A Markdown file with a line opens the Markdown page, not the code editor.
     opened = click("notes/todo.md:2")
@@ -212,7 +249,7 @@ try:
     check("todo marker" not in page_texts("cmux.editor"), "notes/todo.md:2 opens no code editor page")
 
     # 4. A folder opens in Finder.
-    opened = click("build-fleet/")
+    opened = click("build-fleet/", expect_open=True)
     folder = os.path.join(REPO, "build-fleet")
     shown = [os.path.realpath(entry[len("finder:"):]) for entry in opened if entry.startswith("finder:")]
     check(shown == [folder] and len(opened) == 1, f"build-fleet/ opens in Finder ({opened})")
@@ -224,7 +261,7 @@ try:
     check(page_texts("cmux.markdown") == markdown_before, "missing/nowhere.md opens no page")
 
     # 6. host:port is a web link, not a scheme.
-    opened = click("localhost:3000/docs")
+    opened = click("localhost:3000/docs", expect_open=True)
     check(opened == ["browser:http://localhost:3000/docs"], f"localhost:3000/docs opens the browser at http://localhost:3000/docs ({opened})")
 
     # 8. Cmd-hover (cx-do47.1): a path that names a file is a link; one that names nothing is
@@ -232,7 +269,9 @@ try:
     rpc("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script"})
     rpc("action.run", {"action": "terminal.sendText", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script",
                        "args": {"text": "clear && printf '%s\\n%s\\n' build-fleet/ORG-BACKUP.md missing/nowhere.md\n"}})
-    time.sleep(2)  # test harness: the shell runs the command and the output draws
+    wait_until(lambda: (lambda rows: len(rows) > 1 and rows[0].startswith("build-fleet/ORG-BACKUP.md")
+                        and rows[1].startswith("missing/nowhere.md"))(terminal_text().split("\n")),
+               "the two printed paths", timeout=20, raise_on_timeout=False)
 
     def hovered(row):
         """The link Ghostty reports with Cmd held over column 4 of viewport row `row`."""

@@ -6,6 +6,7 @@ import { defineExperiment } from "../../experiments/experiment";
 /// like this jump to top button is a little bit strange-looking, no? Like, did we redesign that
 /// [stuff] yet?" Compare the arms in the gallery's `agent-pane.jump-pair-look` (view Compare arms),
 /// or set `cmux.experiments` to `{"jump-pair-look":"lens"}` in the pane's web inspector and reload.
+/// The default is `single`: Jump to latest alone, as the Codex app draws it (Lucas, 2026-11-14).
 /// Every arm keeps the glass (never opaque), the 32 px height (so Jump up stands over the Needs you
 /// pill the same way), the composer's center line, the fade in place, and the behavior.
 export const jumpPairLook = defineExperiment({
@@ -29,13 +30,18 @@ export const jumpPairLook = defineExperiment({
       description:
         "Two frosted rounded squares in the Needs you pill's corner radius, Jump up a hairline gap over Jump to latest, so the pair reads as one compact column.",
     },
+    single: {
+      label: "Single disc",
+      description:
+        'Only Jump to latest, the frosted disc; no Jump up over it. Leo, 2026-11-12, of Jump up showing after a jump to the bottom and again on the way up: "which is cute, but... maybe a bit extra?"',
+    },
     lens: {
       label: "Fisheye lens (before)",
       description:
         'The disc before: a fisheye lens that magnifies and bends the words under it (Leo, 2026-10-21: "I want more fisheye!"), the arrow on a soft pool.',
     },
   },
-  defaultArm: "frosted",
+  defaultArm: "single",
 });
 
 export type JumpPairLook = keyof typeof jumpPairLook.arms;

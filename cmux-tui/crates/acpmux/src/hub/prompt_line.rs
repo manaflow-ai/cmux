@@ -172,6 +172,16 @@ fn cross_session(text: &str) -> Option<(String, String)> {
         let close = format!("</{tag}>");
         rest = rest[rest.find(&close)? + close.len()..].trim_start();
     }
+    // Claude Code's line before the envelope, in either wording, by itself or with the agent busy.
+    for lead in ["Another Claude session sent a message", "A peer session sent a message"] {
+        if let Some(after) = rest.strip_prefix(lead) {
+            let after = after.strip_prefix(" while you were working").unwrap_or(after);
+            if let Some(after) = after.strip_prefix(':') {
+                rest = after.trim_start();
+            }
+            break;
+        }
+    }
     let open = rest.strip_prefix("<cross-session-message")?;
     let (attributes, after) = open.split_once('>')?;
     let words = &after[..after.find("</cross-session-message>")?];
@@ -284,6 +294,16 @@ mod tests {
         // The person's own words, and an envelope typed in a live chat, stay as they are.
         assert_eq!(prompt_line("Fix the grid", "adopt", None), "Fix the grid");
         assert_eq!(prompt_line(text, "acpmux-cli#1", None), text);
+        // Claude Code's line before the envelope, in either wording, is no part of the message.
+        for preface in [
+            "Another Claude session sent a message:\n",
+            "A peer session sent a message while you were working:\n",
+        ] {
+            let text = format!(
+                "{preface}<cross-session-message from=\"abc\" from-name=\"coord\">hi</cross-session-message>\n\nThis came from another Claude session."
+            );
+            assert_eq!(prompt_line(&text, "adopt", None), "coord: hi", "{preface}");
+        }
     }
 
     #[test]

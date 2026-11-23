@@ -1,5 +1,6 @@
+import { envForObject } from "./build-space.ts"
 import { DurableObject } from "cloudflare:workers"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 
 /**
  * DomainDO: one per lowercased email domain, the single writer of which team
@@ -9,7 +10,8 @@ import type { Env } from "./env.ts"
  * Sign-in discovery reads the owner here without scanning any table.
  */
 export class DomainDO extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env)
     ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY CHECK (id = 1), domain TEXT NOT NULL, team TEXT NOT NULL, verified_at INTEGER NOT NULL)`

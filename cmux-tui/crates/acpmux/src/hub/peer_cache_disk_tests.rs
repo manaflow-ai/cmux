@@ -56,7 +56,7 @@ fn measure(rows: usize) -> Cost {
     let name = "busy";
     let peer = add_idle_peer(&hub, name);
     let list: Vec<Value> = (0..rows).map(|i| row(i, rows)).collect();
-    hub.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(list.clone()));
+    hub.apply_peer_notice(name, peer.generation, PeerNotice::sessions_from_values(list.clone()));
     hub.save_peer_cache(name, peer.generation, true);
     let peers = dir.path().join("peers");
     let whole_file = std::fs::metadata(peers.join(format!("{name}.json"))).unwrap().len();
@@ -88,13 +88,13 @@ fn measure(rows: usize) -> Cost {
     // The rows as they are now, so the flap below lists exactly what is on disk.
     let current: Vec<Value> = {
         let rows = hub.remote_sessions.read();
-        rows.of_peer(name).map(|(_, r)| r.summary.clone()).collect()
+        rows.of_peer(name).map(|(_, r)| r.summary.value()).collect()
     };
     let start = wrote(&hub);
     peer.seed_last_seen(Some(now_ms() - 40_000));
     hub.mark_peer_unreachable(name, peer.generation);
     assert!(hub.remote_sessions().iter().all(|r| r["stale"] == true));
-    hub.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(current));
+    hub.apply_peer_notice(name, peer.generation, PeerNotice::sessions_from_values(current));
     hub.save_peer_cache(name, peer.generation, true);
     let flap = wrote(&hub) - start;
 
@@ -140,7 +140,7 @@ fn a_restart_reads_the_journal_with_its_tombstones() {
     let hub = hub_at(dir.path());
     let peer = add_idle_peer(&hub, "builder");
     let rows = vec![listed("a", "idle"), listed("b", "idle"), listed("c", "idle")];
-    hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(rows));
+    hub.apply_peer_notice("builder", peer.generation, PeerNotice::sessions_from_values(rows));
     hub.save_peer_cache("builder", peer.generation, true);
     let peers = dir.path().join("peers");
     let snapshot = std::fs::read(peers.join("builder.json")).unwrap();
@@ -201,7 +201,7 @@ fn a_torn_line_and_an_older_daemons_snapshot_are_read_safely() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        PeerNotice::Sessions(vec![listed("a", "idle")]),
+        PeerNotice::sessions_from_values(vec![listed("a", "idle")]),
     );
     hub.save_peer_cache("builder", peer.generation, true);
     hub.apply_peer_notice(
@@ -251,7 +251,7 @@ fn a_same_length_snapshot_replacement_is_found() {
     let hub = hub_at(dir.path());
     let peer = add_idle_peer(&hub, "builder");
     let rows = vec![listed("a", "idle"), listed("b", "idle")];
-    hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(rows));
+    hub.apply_peer_notice("builder", peer.generation, PeerNotice::sessions_from_values(rows));
     hub.save_peer_cache("builder", peer.generation, true);
     let peers = dir.path().join("peers");
     let snap = peers.join("builder.json");

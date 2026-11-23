@@ -75,13 +75,13 @@ pub(super) fn dispatch(
             None => {
                 let discard = request.fields.get("discard").and_then(Value::as_bool) == Some(true);
                 let mut attempt = plan(&target.repository, discard)?;
-                let script =
-                    worktree_recipe::resolve(mux, Some(&attempt.main_root), &attempt.main_root)
-                        .recipe
-                        .teardown;
+                let resolved =
+                    worktree_recipe::resolve(mux, Some(&attempt.main_root), &attempt.main_root);
+                let consent = resolved.consent();
+                let script = resolved.recipe.teardown;
                 attempt.teardown = script.is_some();
                 journal.start(&fingerprint, &attempt)?;
-                teardown = run_teardown(&attempt, target.git_dir(), script.as_deref());
+                teardown = run_teardown(&attempt, &target, script.as_deref(), consent.as_deref());
                 attempt
             }
         };
@@ -89,7 +89,7 @@ pub(super) fn dispatch(
         let resolved_root = worktree_setup::resolved(&attempt.root);
         let result = remove(&target.repository, &attempt);
         if result.is_ok() {
-            worktree_setup::removed(target.git_dir(), &resolved_root);
+            worktree_setup::removed(target.common_dir(), &resolved_root);
         }
         if !result.as_ref().is_err_and(|error| error.details["reason"] == "timed_out") {
             journal.finish();
@@ -112,13 +112,16 @@ pub(super) fn dispatch(
 
 /// Stops the worktree's setup and runs the project's teardown in it; what
 /// the reply says of the teardown. It runs once, before the first try.
-fn run_teardown(attempt: &Attempt, git_dir: &Path, script: Option<&str>) -> Option<Value> {
-    let place = worktree_setup::Place {
-        root: worktree_setup::resolved(&attempt.root),
-        main_root: Some(attempt.main_root.clone()),
-        git_dir: git_dir.to_path_buf(),
-    };
-    worktree_setup::teardown(&place, script)
+fn run_teardown(
+    attempt: &Attempt,
+    target: &Target,
+    script: Option<&str>,
+    consent: Option<&str>,
+) -> Option<Value> {
+    let root = worktree_setup::resolved(&attempt.root);
+    let (main, git_dir) = (Some(attempt.main_root.clone()), target.git_dir());
+    let place = worktree_setup::Place::new(root, main, git_dir, target.common_dir());
+    worktree_setup::teardown(&place, script, consent)
 }
 
 /// The worktree to remove, refused while it holds work found nowhere else

@@ -127,6 +127,8 @@ import argparse, datetime, glob, http.server, json, os, plistlib, re, shutil, so
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged cmux DEV .app")
@@ -344,7 +346,7 @@ def end_tag():
     """TagTeardown, then this tag's terminal hosts whose daemon is gone. They run as `cmux-tui
     __terminal-host --owner <bundle id>:<tag>@<daemon pid>` (argv[0] is not the bundle path, so
     TagTeardown does not see them) and outlived the forced session shutdown on a capture mini."""
-    TagTeardown(APP, log=lambda line: print("  " + line, flush=True)).end()
+    TagTeardown(APP, log=lambda line: safe_print("  " + line, flush=True)).end()
     out = subprocess.run(["ps", "-A", "-o", "pid=,command="], capture_output=True, text=True).stdout
     owner = re.compile(r"__terminal-host .*--owner %s:%s@(\d+)" % (re.escape(BUNDLE_ID), re.escape(TAG)))
     orphans = [int(line.split(None, 1)[0]) for line in out.splitlines()
@@ -355,7 +357,7 @@ def end_tag():
         except ProcessLookupError:
             pass
     if orphans:
-        print(f"  teardown: stopped {len(orphans)} orphaned terminal hosts of {TAG}", flush=True)
+        safe_print(f"  teardown: stopped {len(orphans)} orphaned terminal hosts of {TAG}", flush=True)
 
 
 def unified_log(start, predicate, seconds=30):
@@ -515,8 +517,13 @@ class LogStream:
         # Its first line ("Filtering the log data ...") says the stream is attached.
         self.attached = bool(wait(lambda: os.path.getsize(path) > 0, 10, step=0.05))
 
-    def stop(self):
-        time.sleep(1)  # the stream delivers a moment after the line is logged
+    def stop(self, until=None):
+        """Stops the stream once it delivered: `until(events)` holds (when given), then the file stops growing
+        (the stream delivers a moment after the line is logged). Both best-effort: the caller checks the lines."""
+        if until:
+            wait_until(lambda: until(self.events()), "the log stream's line", timeout=10, interval=0.1, raise_on_timeout=False)
+        wait_stable(lambda: os.path.getsize(self.path), "the log stream's output", timeout=10, interval=0.25,
+                    reads=4, raise_on_timeout=False)
         self.process.terminate()  # this stream's exact process
         try:
             self.process.wait(timeout=10)
@@ -669,7 +676,8 @@ def in_flight_quit(run, pid):
     run.check(log.attached, "log stream attached before the quit")
     quit_event = QuitEvent(BUNDLE_ID)
     journal = JournalWatch()
-    time.sleep(0.3)
+    # The journal watch's first read of the ring lands before its entries are cleared.
+    wait(lambda: journal.last_read, 10, step=0.01)
     journal.entries.clear()
     # The burst: one open every --open-interval-ms, each on its own thread (an open's reply waits on
     # the daemon for about 200 ms; waiting for it would leave gaps no creation spans), cycling over
@@ -723,7 +731,7 @@ def in_flight_evidence(run, quit, exit_seconds):
     the quit's `quit origin` line, each fresh tab's host-present and attach, its page's first GET,
     the first live page torn down, the `CEF shutdown` line and the exit; then the in-flight checks."""
     log = quit["log"]
-    log.stop()
+    log.stop(until=lambda events: any(c == "app.quit" and m.startswith("quit origin") for _, c, m in events))
     events = log.events()
     zero = quit["quit_wall"]
     ms = lambda t: round((t - zero) * 1000)
@@ -879,7 +887,8 @@ def windowless_quit(run, pid):
         for _, tab in first:
             if tab.get("content_kind") != "terminal":
                 action("closeTab", target=f"tab:{tab.get('id')}", focus=False, confirm=True)
-        time.sleep(1)
+        # The closed new-tab pages leave the window: every tab left in it is a terminal.
+        wait(lambda: all(t.get("content_kind") == "terminal" for p in panes_of(window) for t in pane_tabs(p["pane"])), 15)
     panes = panes_of(window)
     every = [t for w in windows() for p in panes_of(w.get("id")) for t in pane_tabs(p["pane"])]
     kinds = sorted({t.get("content_kind") for t in every})
@@ -905,7 +914,8 @@ def windowless_quit(run, pid):
     run.check(log.attached, "log stream attached before the quit")
     quit_event = QuitEvent(BUNDLE_ID)
     journal, watch = JournalWatch(seconds=120), CEFWatch(seconds=120)
-    time.sleep(0.3)
+    # Both watches' first reads land before the journal's entries are cleared.
+    wait(lambda: journal.last_read and watch.last_read, 10, step=0.01)
     journal.entries.clear()
     opened = {}
 
@@ -960,7 +970,7 @@ def windowless_quit(run, pid):
         if opts.quit_at != "open":
             trigger = wait(watch.initializing if opts.quit_at == "initialize" else asked, 60, step=0.002)
         if delay_ms:
-            time.sleep(delay_ms / 1000)
+            time.sleep(delay_ms / 1000)  # sleep-ok: --quit-delay-ms, the staircase's chosen gap after the trigger
     quit_wall, quit_at = time.time(), time.monotonic()
     if opts.quit_at == "before-open":
         quit_moment[0] = quit_wall
@@ -982,7 +992,7 @@ def windowless_evidence(run, quit, exit_seconds):
     (the browser exists), its held request ending (Chromium tore it down), the quit's lines and the
     exit."""
     log = quit["log"]
-    log.stop()
+    log.stop(until=lambda events: any(c == "app.quit" and m.startswith("quit origin") for _, c, m in events))
     events = log.events()
     zero = quit["quit_wall"]
     ms = lambda t: round((t - zero) * 1000) if t is not None else None
@@ -1058,7 +1068,7 @@ def one_run(index):
         wipe_state()  # a first launch: nothing restored, Chromium never used
     app_log = os.path.join(run.dir, "app.log")
     reports_before = set(glob.glob(os.path.join(REPORTS, "*.ips")))
-    print(f"run {index}: launching {os.path.basename(APP)} ({BUNDLE_ID})", flush=True)
+    safe_print(f"run {index}: launching {os.path.basename(APP)} ({BUNDLE_ID})", flush=True)
     extra = []
     if opts.case == "windowless":
         # Its own cmux-next.json, which the default-engine switch writes (never the account's file).
@@ -1082,7 +1092,9 @@ def one_run(index):
     if restored:
         run.note(f"restored {len(restored)} windows with {sum(len(w.get('workspaces') or []) for w in restored)} workspaces; closing them")
         action("workspace.closeAllInAllWindows", focus=True, confirm=True)
-        time.sleep(2)
+        # The close lands: the window list stops changing.
+        wait_stable(lambda: [(w.get("id"), len(w.get("workspaces") or [])) for w in windows()],
+                    "the windows after closing every workspace", timeout=15, interval=0.25, raise_on_timeout=False)
         if len(windows()) > 1:
             action("window.closeOthers", focus=True, confirm=True)
             wait(lambda: len(windows()) <= 1, 15)

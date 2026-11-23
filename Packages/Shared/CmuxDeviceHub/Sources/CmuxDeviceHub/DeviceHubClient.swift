@@ -158,12 +158,14 @@ public actor DeviceHubClient {
         try await call("GET", "/v1/me", as: HubMe.self)
     }
 
-    /// Registers or updates this device, signed by the key it registers.
+    /// Registers or updates this device, signed by the key it registers, with the Mac it runs on
+    /// (`machine`, ``DeviceMachine``): the hub reads the host's answers about this Mac across every
+    /// device id it has (each tagged build, each renewed identity, cmux Remote's and the app's).
     public func registerDevice(name: String, platform: DevicePlatform) async throws -> HubDevice {
-        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String }
+        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var machine: String? }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey)
+                        agreementKey: identity.agreementKey, machine: DeviceMachine.current.id)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 
@@ -193,6 +195,16 @@ public actor DeviceHubClient {
                        as: DeviceAnswer.self).device
     }
 
+    /// Carries a signed `cmux.share-approval.v1` (`approvalJSON`, one JSON object) to the host
+    /// `target`: `POST /v1/devices/:target/share-approval {approval}` (cmuxterm-hq#18912 cut 2). The
+    /// hub pushes it to the target, which admits it and turns its own sharing on.
+    public func sendShareApproval(target: String, approvalJSON: String) async throws {
+        struct Delivered: Decodable { var delivered: Bool? }
+        let body = Data("{\"approval\":".utf8) + Data(approvalJSON.utf8) + Data("}".utf8)
+        _ = try await call("POST", "/v1/devices/\(segment(target))/share-approval", query: [], bodyData: body,
+                           as: Delivered.self)
+    }
+
     public func permissions(host: String) async throws -> [HubPermission] {
         struct Answer: Decodable { var permissions: [HubPermission] }
         return try await call("GET", "/v1/permissions", query: [URLQueryItem(name: "host", value: host)], as: Answer.self).permissions
@@ -208,6 +220,13 @@ public actor DeviceHubClient {
     public func requestSession(host: String, scope: SessionScope) async throws -> HubSession {
         struct Body: Encodable { var hostId: String; var scope: SessionScope }
         return try await call("POST", "/v1/sessions", body: Body(hostId: host, scope: scope), as: SessionAnswer.self).session
+    }
+
+    /// Renews admission for the same viewer/host session after a transient stream drop.
+    /// The hub checks the original pair and scope and returns a short-lived viewer ticket.
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        struct Answer: Decodable { var ticket: SessionTicket }
+        return try await call("POST", "/v1/sessions/\(segment(id))/reattach", body: [String: String](), as: Answer.self).ticket
     }
 
     /// From the host: answers a pending request. `always` stores the permission with `scope`.

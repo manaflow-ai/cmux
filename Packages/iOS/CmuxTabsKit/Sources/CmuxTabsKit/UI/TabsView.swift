@@ -96,6 +96,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
     @State private var pinchSession = ZoomPinchSession()
     @State private var zoomPinchActive = false
+    /// The swipe up on the bar that drives the zoom, with its travel fixed
+    /// when it started (nil when no bar swipe drives it).
+    @State private var barSwipe: BarSwipe.Tracking?
+    @Environment(\.scenePhase) private var scenePhase
     /// The insets the grid last had on screen: a page that hides a tab bar or
     /// the status bar has smaller ones, and a card revealed or laid out
     /// against them landed under the grid's bar once they came back
@@ -114,6 +118,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// it opened, as UIKit's do.
     @State private var menuGroups: [[TabsKitMenuItem]] = []
     @Environment(\.tabsKitTheme) private var theme
+    @Environment(\.tabsKitOverviewColumns) private var overviewColumns
 
     private var fullRect: CGRect { CGRect(origin: .zero, size: size) }
     private var tabs: [TabsKitTab] { source.tabs }
@@ -136,7 +141,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     private var overviewLayout: OverviewLayout {
         OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count,
-                       pinned: pinnedCount)
+                       pinned: pinnedCount, columns: overviewColumns)
     }
 
     private var toolbarLayout: ToolbarLayout {
@@ -201,7 +206,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onMenu: openMenu, onTabs: openOverview, onBeginEditing: beginEditing,
                         onEndEditing: { endEditing() }, onGo: go,
                         onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded,
-                        onSwipeUpChanged: swipeUpChanged, onSwipeUpEnded: swipeUpEnded)
+                        onSwipeUpChanged: swipeUpChanged, onSwipeUpEnded: swipeUpEnded,
+                        onSwipeCancelled: swipeCancelled)
                 .opacity(1 - overviewShown)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
@@ -249,7 +255,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .coordinateSpace(.named(TabsScreenSpace.name))
         .gesture(ZoomPinchGesture { handlePinch($0) })
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
+        .onChange(of: GridShape(width: size.width, columns: overviewColumns)) { old, _ in keepGridPlace(from: old) }
         .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
+        // Leaving the foreground cancels the touches without ending their
+        // gestures: a swipe up left part-way would keep the bar untouchable.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { releaseCancelledSwipeUp() }
+        }
         .onChange(of: zoomState.phase == .overview ? safeTop : -1) { _, top in
             if top >= 0 { gridTop = top }
         }
@@ -458,7 +470,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The active tab's card in the grid's content coordinates.
     private var activeCardContentRect: CGRect {
         let index = activeIndex ?? 0
-        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount).card(index)
+        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount, columns: overviewColumns).card(index)
     }
 
     /// The tab beside the page during a toolbar swipe (its card content at
@@ -523,7 +535,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     private func zoomEndpoint() -> CGRect {
         if let id = newTabZoomID, id == zoomTabId {
             guard newTabZoom.fromLoneSlot else { return newTabZoom.rect(in: fullRect) }
-            let lone = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: 1)
+            let lone = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: 1, columns: overviewColumns)
             return lone.zoomEndpoint(0, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
         }
         let index: Int
@@ -532,7 +544,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         } else {
             index = zoomTabId.flatMap { id in tabs.firstIndex { $0.id == id } } ?? (activeIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount, columns: overviewColumns)
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
@@ -590,7 +602,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         source.overviewWillAppear()
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen.
-        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: count, pinned: pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: count, pinned: pinnedCount, columns: overviewColumns)
         let offset = grid.offset(revealing: index, from: overviewScroll)
         if abs(offset - overviewScroll) > 0.5 {
             var t = Transaction()
@@ -599,6 +611,26 @@ struct TabsScreen<Source: TabsDataSource>: View {
             // Until the scroll view reports it, the fallback endpoint uses it too.
             gridScroll.offset = offset
         }
+    }
+
+    /// A foldable folding or unfolding under the settled grid changes its
+    /// width and column count: the card that led the screen leads it again,
+    /// instead of the old scroll offset landing on other tabs in the reflowed
+    /// grid. Every shape change keeps the place, so a host that changes the
+    /// width and the column count in two updates still lands on the same card.
+    /// (Off the grid, `prepareOverview` reveals the active card on the way in.)
+    private func keepGridPlace(from old: GridShape) {
+        guard zoomState.phase == .overview else { return }
+        let resized = overviewLayout
+        var before = resized
+        before.size.width = old.width
+        before.columns = old.columns
+        let offset = before.offset(keepingPlace: overviewScroll, in: resized)
+        guard abs(offset - overviewScroll) > 0.5 else { return }
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { overviewPosition = ScrollPosition(y: offset) }
+        gridScroll.offset = offset
     }
 
     /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
@@ -776,33 +808,52 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     // MARK: Toolbar swipe
 
-    /// Swipe up on the bar: the page shrinks toward its card with the finger.
+    /// Swipe up on the bar: the page shrinks toward its card under the
+    /// finger, 1:1 with its travel; nothing runs on its own clock while the
+    /// finger is down.
     private func swipeUpChanged(_ up: CGFloat, _ velocity: CGFloat) {
         if zoomState.phase == .page {
             guard !chrome.swiping, activeID != nil else { return }
             zoomTabId = activeID
             prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
-            // Safari's page follows its swipe-up curve in time (by finger travel
-            // alone it dropped 98 pt in the first frame, cmux-next re-audit 3 D7).
-            zoomDriver.startSwipeUp()
-            return
+            barSwipe = BarSwipe.Tracking(path: zoomPath())
+            zoomDriver.beginInteraction()
         }
-        // The finger turned back down: the swipe takes over interactively.
-        if zoomState.playingSwipeUp, velocity < -50 { zoomDriver.beginInteraction() }
-        guard zoomState.phase == .interactive else { return }
-        zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up), velocity: BarSwipe.velocity(up: up, velocity: velocity))
+        guard zoomState.phase == .interactive, !zoomPinchActive, let barSwipe else { return }
+        zoomDriver.updateInteraction(progress: barSwipe.progress(up: up), velocity: barSwipe.velocity(velocity))
     }
 
-    /// Release: on to the grid or back to the page, on the release spring.
+    /// Release: on to the grid or back to the page on the release spring,
+    /// which starts at the finger's speed.
     private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
+        let tracking = barSwipe
+        barSwipe = nil
         guard zoomState.phase == .interactive, !zoomPinchActive else { return }
-        // Safari goes on to the grid along its own curve from where the
-        // finger left the page; a swipe back down (or barely up) returns.
-        if up > 24 && velocity >= 0 {
-            zoomDriver.releaseOnSwipeUpCurve()
-        } else {
-            zoomDriver.endInteraction(velocity: BarSwipe.releaseVelocity(velocity), startedFromOverview: false)
+        let swipe = tracking ?? BarSwipe.Tracking(path: zoomPath())
+        let progress = swipe.progress(up: up)
+        let v = swipe.velocity(velocity)
+        zoomDriver.updateInteraction(progress: progress, velocity: v)
+        zoomDriver.release(toOverview: BarSwipe.releaseToOverview(progress: progress, velocity: v))
+    }
+
+    /// The system cancelled a bar drag (no end event): a sideways swipe
+    /// springs back to its page, a swipe up settles at the nearer end.
+    private func swipeCancelled(_ axis: BarSwipe.Axis) {
+        switch axis {
+        case .horizontal: if chrome.swiping { swipeEnded(0, 0) }
+        case .up: releaseCancelledSwipeUp()
+        case .down: break
         }
+    }
+
+    /// Releases a zoom left interactive by a swipe that never ended, from
+    /// where the page is, at rest.
+    private func releaseCancelledSwipeUp() {
+        barSwipe = nil
+        guard BarSwipe.releasesOnCancel(phase: zoomState.phase, pinchActive: zoomPinchActive) else { return }
+        let progress = zoomState.progress
+        zoomDriver.updateInteraction(progress: progress, velocity: 0)
+        zoomDriver.release(toOverview: BarSwipe.releaseToOverviewOnCancel(progress: progress))
     }
 
     /// Closing from the grid: the active card is first handed to the grid
@@ -884,5 +935,10 @@ struct BarCutout: View {
         }
         .compositingGroup()
     }
+}
+/// The grid's width and column count, which change together when a foldable folds or unfolds.
+private struct GridShape: Equatable {
+    var width: CGFloat
+    var columns: Int
 }
 #endif

@@ -6,10 +6,11 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import Testing
 
-/// CLOSE MOTION 2 case 3 (cmux-ad m48): the last tab of a pane is a page, and the close springs its neighbour over the
-/// pane. The closing pane shows only its ground (`PaneHostView.showClosingGround`, read once from
-/// `NSView.paneGroundColor`), and a page pane's ground was its chrome's, the window's own color: the page went in the
-/// close's turn and the window background showed where it was. Its ground is the shown page's own background.
+/// A page pane's ground is its page's own background (CLOSE MOTION 2 case 3). A pane shows its ground
+/// (`NSView.paneGroundColor`) where its content does not cover it: around content that keeps one size while its pane
+/// moves, and over a content area whose producer is late for a layout change (`PaneHostView.showsLateGround`). A
+/// browser's chrome paints the window's own color under its page, so a page pane's ground was the window's color
+/// where the person saw the page. The pane's content view finds its content area and reads the shown page's color.
 @MainActor @Suite(.serialized) struct BrowserPaneClosingGroundTests {
     struct Pane {
         let pane: PaneContentView
@@ -38,7 +39,7 @@ import Testing
         return [srgb.redComponent, srgb.greenComponent, srgb.blueComponent, srgb.alphaComponent].map { ($0 * 255).rounded() }
     }
 
-    @Test func aPagePaneClosesOnThePagesOwnBackground() async throws {
+    @Test func aPagePanesGroundIsThePagesOwnBackground() async throws {
         let pane = Pane()
         defer { pane.tearDown() }
         // The fixture page's yellow, read when it loads (`WebKitTab.samplePageBackdrop`).

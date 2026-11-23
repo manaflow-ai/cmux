@@ -105,7 +105,9 @@ test("the refined look stacks a narrow pane too: no side border, strip-sized tab
   // card: the sidebar kept its right border and 18 px padding, the tabs their 30 px rows, and the
   // content its left-cut corners and gap, all from the refined rules that outrank the narrow block.
   expect(refined(".settings > .sidebar", "border-right", 480)).toBe("0");
-  expect(refined(".settings > .sidebar", "border-bottom", 480)).toBe("1px solid var(--polish-edge)");
+  expect(refined(".settings > .sidebar", "border-bottom", 480)).toBe(
+    "1px solid var(--polish-divider, var(--polish-edge))",
+  );
   expect(refined(".settings .section-link", "min-height", 480)).toBe("0");
   // The content pane paints no fill of its own (user, 2026-10-30: one background), so it needs no
   // inset gap at any width; a wide pane has no divider beside the sidebar either.

@@ -100,13 +100,21 @@ def workflow_supports_reroute(api: object, run: Mapping[str, object]) -> bool:
         data = api.request("GET", f"/contents/{WORKFLOW_PATH}?ref={sha}")
         content = base64.b64decode(str((data or {}).get("content") or "").replace("\n", "")).decode()
         document = yaml.safe_load(content)
+        # tests/workflow_jobs.py reads the runs-on; a checkout without it cannot check the route and retries nothing.
+        tests = str(Path(__file__).resolve().parents[2] / "tests")
+        if tests not in sys.path:
+            sys.path.append(tests)
+        workflow_jobs = importlib.import_module("workflow_jobs")
     except Exception:
         return False
     jobs = document.get("jobs") if isinstance(document, Mapping) else None
     watch = jobs.get("watch") if isinstance(jobs, Mapping) else None
-    runs_on = watch.get("runs-on") if isinstance(watch, Mapping) else None
-    if not isinstance(runs_on, str):
+    if not isinstance(watch, Mapping):
         return False
+    items = workflow_jobs.runs_on_items(watch)
+    if len(items) != 1 or not isinstance(items[0], str):
+        return False
+    runs_on = items[0]
     normalized = re.sub(r"[\s'\"]", "", runs_on)
     expected = (f"github.run_attempt==1&&{WATCH_LABELS[0]}||"
                 f"github.run_attempt==2&&{WATCH_LABELS[1]}||{WATCH_LABELS[2]}")
@@ -272,7 +280,7 @@ def rescue_sequence(api: object, run: Mapping[str, object], *, wait_seconds: int
     they never hold the long owned-pool sweeper open with polling.
     """
     if wait_seconds:
-        sleep(max(0, min(wait_seconds, 300)))
+        sleep(max(0, min(wait_seconds, 300)))  # sleep-ok: the fixed queue budget above, one look after it, no polling
     decision = run_once(api, run)
     decisions = [decision]
     if not follow_retries or decision.action != "rescue":
@@ -280,7 +288,7 @@ def rescue_sequence(api: object, run: Mapping[str, object], *, wait_seconds: int
     attempt = int(run.get("run_attempt") or 0)
     if attempt + 1 >= MAX_ATTEMPT:
         return decisions
-    sleep(NO_START_SECONDS)
+    sleep(NO_START_SECONDS)  # sleep-ok: "no start" means not started within NO_START_SECONDS; the window is the test
     refreshed = api.run(_run_id(run))
     decisions.append(run_once(api, refreshed))
     return decisions
@@ -315,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("GH_TOKEN is required")
     api = _client(args.source_root, token, repo, os.environ.get("READ_TOKEN", ""))
     if args.wait_seconds:
-        time.sleep(max(0, min(args.wait_seconds, 300)))
+        time.sleep(max(0, min(args.wait_seconds, 300)))  # sleep-ok: the run's fixed queue budget before its one look
     runs = [api.run(args.run_id)] if args.run_id else candidate_runs(api, repo)
     for run in runs:
         for decision in rescue_sequence(api, run, follow_retries=args.run_id is not None, sleep=time.sleep):

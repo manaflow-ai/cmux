@@ -174,7 +174,7 @@ open(CONFIG, "w").write("{}")
 open(GHOSTTY, "w").write("")
 app = launch()
 try:
-    print("doc:", json.dumps((rpc("debug.sidebar_rows") or {}).get("doc"))[:300], flush=True)
+    safe_print("doc:", json.dumps((rpc("debug.sidebar_rows") or {}).get("doc"))[:300], flush=True)
 
     # gui: the header menu's Pin/Unpin Group ----------------------------------------
     shown, personal = make_group("gui")

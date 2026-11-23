@@ -38,6 +38,9 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 # The suite also runs on Actions. Start every test from a host environment, so the
 # "never land from Actions" refusal (landing_refusal) applies only where a test sets
 # GITHUB_ACTIONS itself, and a runner's own batch settings never leak into a case.
@@ -81,7 +84,16 @@ class Classify(unittest.TestCase):
             "schemas/settings/settings-schema.json": "swift",
             "plans/cmux-next/action-surfaces.json": "swift",
             "cmux-tui/bindings/python/cmux/raw/_generated/models.py": "sdk",
-            "cmux-tui/bindings/java/src/com/cmux/raw/Client.java": "sdk",
+            "cmux-tui/bindings/java/src/com/cmux/raw/AckTabNotificationsRequest.java": "sdk",
+            # Hand-written files beside generated ones (not in the package's .cmux-sdk-manifest.json).
+            "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java": "source",
+            "cmux-tui/bindings/go/raw/client.go": "source",
+            # Every other generated family (scripts/cmux-next/generated_merge.py).
+            "webviews/src/agent-session/acpmux/protocol/generated/types.ts": "generated",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift": "generated",
+            # Hand-written registries: cmux-insertions-v1, never kept.
+            "cmux-tui/crates/cmux-agent-pane-policy/policy.json": "source",
+            "cmux-tui/crates/acpmux/docs/acpmux-schema.json": "source",
             "cmux-tui/spec/sdk-schema.json": "spec",
             "Resources/Localizable.xcstrings": "xcstrings",
             "cmux.xcodeproj/project.pbxproj": "pbxproj",
@@ -1865,7 +1877,7 @@ class WorkflowShape(unittest.TestCase):
                 self.assertNotIn("git push", script)
                 self.assertNotIn("git -c", script.replace("git -c user.", ""))
                 self.assertIn("format-patch", script)
-                self.assertFalse(any("secrets." in json.dumps(step) for step in spec["steps"]))
+                self.assertFalse(any(workflow_jobs.secret_names(step) for step in spec["steps"]))
 
     def run_format(self, bun: str) -> dict:
         """Run regen-linux's real step script for `kinds: format` with a stub bun."""

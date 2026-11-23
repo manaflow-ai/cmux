@@ -41,6 +41,7 @@ Usage: scripts/cmux-next/check-no-process-scan.py [repo-root] [--list]
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import sys
@@ -90,12 +91,23 @@ REGEX = re.compile("|".join(f"(?:{p})" for p in PATTERNS))
 COMMENT = re.compile(r"^\s*(//|/\*|\*(\s|/|$))")
 
 
+def load_test_modules():
+    """rust_test_modules.py beside this file (a checkout's, or the installed copy's): `-I` puts no
+    folder on sys.path. It names the files a `#[cfg(test)] mod name;` makes test code."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("rust_test_modules", os.path.join(here, "rust_test_modules.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def scan(root: str) -> dict[str, list[tuple[int, str]]]:
     hits: dict[str, list[tuple[int, str]]] = {}
     for scope, exts in SCOPES:
         base = os.path.join(root, scope)
         if not os.path.isdir(base):
             continue
+        test_modules = load_test_modules().scan(base) if ".rs" in exts else None
         for dirpath, dirnames, filenames in os.walk(base):
             dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
             for name in sorted(filenames):
@@ -104,6 +116,8 @@ def scan(root: str) -> dict[str, list[tuple[int, str]]]:
                 if name in ("tests.rs",) or name.endswith(("_tests.rs", "_test.rs", "Tests.swift")):
                     continue
                 path = os.path.join(dirpath, name)
+                if test_modules is not None and test_modules.contains(path):  # a `#[cfg(test)] mod name;`
+                    continue
                 rel = os.path.relpath(path, root).replace(os.sep, "/")
                 if "/tests/" in rel or "/Tests/" in rel:
                     continue

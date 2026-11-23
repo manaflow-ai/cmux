@@ -16,10 +16,18 @@ export type SlashCommand = {
   hint?: string;
   /** Where the command came from. Harness commands are the default for old snapshots. `saved`: one
    *  of the person's saved prompts (savedPrompts.ts), which a pick writes out as `body`. */
-  source?: "agent" | "cmux" | "skill" | "prompt" | "saved";
+  source?: "agent" | "cmux" | "skill" | "prompt" | "saved" | "extension";
   /** A saved prompt's text. */
   body?: string;
+  /** An extension's command (`cmux.composer.command/1`): the text its pick writes over the `/word`. */
+  insert?: string;
+  /** An extension's command: the extension's name, which the menu row shows as its source. */
+  extension?: string;
 };
+
+/// An extension's command: picking it writes its text, so it never runs or goes as `/name`.
+export const insertsText = (command: SlashCommand): command is SlashCommand & { insert: string } =>
+  command.source === "extension" && typeof command.insert === "string" && command.insert.length > 0;
 
 /// One menu row: the command and the ranges of its name the query matched.
 export type SlashMatch = { command: SlashCommand; ranges: [number, number][] };
@@ -386,31 +394,31 @@ export function slashTrigger(before: string, lead: number | undefined): SlashTri
 export const goesAsText = (command: SlashCommand) => command.source === "skill" || command.source === "prompt";
 
 /// The menu's rows for `trigger`: every command at the prompt's start, the ones that go as text
-/// mid-prompt.
+/// (and an extension's, which write their text) mid-prompt.
 export function slashMatches(commands: readonly SlashCommand[], trigger: SlashTrigger): SlashMatch[] {
   // A saved prompt is written out where it is picked, so it is offered mid-prompt too.
   return trigger.leading
     ? matchCommands([...commands], trigger.query)
     : matchCommands(
-        commands.filter((command) => goesAsText(command) || command.source === "saved"),
+        commands.filter((command) => goesAsText(command) || insertsText(command) || command.source === "saved"),
         trigger.query,
         false,
       );
 }
 
 /// Whether Return picks `match`, the menu's highlighted row, for `query` (the typed word without its
-/// `/`): when the row was chosen with the arrows (`arrowed`), or when the typed word begins the row's
-/// name, unless it is that name in full and the command takes no arguments (Return then sends it).
-/// Otherwise Return does what it does with no menu: a path or a word that only resembles a command
-/// (`look in /dev`) is never rewritten. The chat and New Tab both decide by this.
-export function returnPicks(match: SlashMatch | undefined, query: string, arrowed: boolean): boolean {
+/// `/`). A listed row is always highlighted, and Return takes it as Tab does (Leo, 2026-11-20: "i
+/// click enter and it should do it"); Esc closes the list and leaves the word as typed. Only the
+/// row's name in full, for a command that takes no arguments, is sent as typed: Return runs it. The
+/// chat and New Tab both decide by this.
+export function returnPicks(match: SlashMatch | undefined, query: string): boolean {
   if (!match) return false;
   const name = shownName(match.command);
   const typed = query.replace(/^\$/, "");
-  // A saved prompt typed in full is still picked: `/standup` alone means its text, never the word.
-  if (name === typed && match.command.source !== "saved" && (!match.command.hint || match.command.source === "cmux"))
-    return false;
-  return arrowed || name.toLowerCase().startsWith(typed.toLowerCase());
+  // An extension's command is only its text: Return on its whole name writes the text, never sends it.
+  // A saved prompt typed in full is picked too: `/standup` alone means its text, never the word.
+  if ((insertsText(match.command) || match.command.source === "saved") && name === typed) return true;
+  return !(name === typed && (!match.command.hint || match.command.source === "cmux"));
 }
 
 /// The names a `/name` word is a command by: `anywhere` mid-prompt, `leading` at the prompt's start.
@@ -422,7 +430,8 @@ export type SlashNames = {
 };
 
 export function slashNames(commands: readonly SlashCommand[] | undefined): SlashNames {
-  const list = commands ?? [];
+  // An extension's command never stays in the prompt as `/name` (its pick writes its text): no blue.
+  const list = (commands ?? []).filter((command) => !insertsText(command));
   // A `$` skill by the name the prompt shows (`/emil-color`) and by its own (`/$emil-color`).
   const names = (each: readonly SlashCommand[]) => each.flatMap((command) => [command.name, shownName(command)]);
   const descriptions = new Map<string, string>();
@@ -537,22 +546,29 @@ function subsequence(name: string, needle: string): [number, number][] | undefin
 /// `forward` after it (the rest of the word and one space or tab) become `text`, `/name `. What
 /// came before and after stays; a line break or attachment after the word is kept. `cut`: `after`
 /// stops short of the block's end. A rest of the word that runs past it is left whole, never cut
-/// (nor split between the halves of a surrogate pair).
+/// (nor split between the halves of a surrogate pair). With `insert` (an extension's command) the
+/// word becomes that text as it is, and the space after the word stays.
 export function commandSplice(
   after: string,
   trigger: SlashTrigger,
   name: string,
   cut = false,
+  insert?: string,
 ): { back: number; forward: number; text: string } {
   const word = /^[^\s\uFFFC]*/.exec(after)?.[0] ?? "";
-  const forward =
-    word.length === after.length && cut ? 0 : word.length + (/^[ \t]/.test(after.slice(word.length)) ? 1 : 0);
+  if (word.length === after.length && cut) return { back: trigger.length, forward: 0, text: insert ?? `/${name} ` };
+  if (insert !== undefined) return { back: trigger.length, forward: word.length, text: insert };
+  const forward = word.length + (/^[ \t]/.test(after.slice(word.length)) ? 1 : 0);
   return { back: trigger.length, forward, text: `/${name} ` };
 }
 
 /// The prompt after picking `command` with no editor to edit in place: `/name ` replacing a
-/// leading `/word`.
+/// leading `/word`, or an extension's text.
 export function applyCommand(text: string, caret: number, command: SlashCommand): { text: string; caret: number } {
+  if (insertsText(command)) {
+    const rest = text.slice(caret).replace(/^\S*/, "");
+    return { text: command.insert + rest, caret: command.insert.length };
+  }
   const inserted = `/${shownName(command)} `;
   const rest = text.slice(caret).replace(/^\S*\s?/, "");
   return { text: inserted + rest, caret: inserted.length };

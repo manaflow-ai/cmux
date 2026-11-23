@@ -13,6 +13,9 @@ pub mod grant;
 pub mod http;
 pub mod identity;
 pub mod link;
+pub mod link_ports;
+#[cfg(all(test, unix))]
+mod lock_keeper_tests;
 pub mod network_watch;
 pub use mux_client::MuxLineClient;
 mod mux_carrier_role;

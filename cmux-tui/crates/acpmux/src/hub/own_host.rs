@@ -30,7 +30,9 @@ impl Hub {
             // Its whole name first, then its short name (`Hub::resolve_short_here`).
             return self
                 .resolve_exact(rest)
+                .or_else(|| self.resolve_handle_here(rest))
                 .or_else(|| self.resolve_short_here(rest))
+                .or_else(|| self.resolve_former_here(rest))
                 .unwrap_or(found);
         }
         found
@@ -45,6 +47,34 @@ impl Hub {
                 && e.message.starts_with("no session matches");
             if tell && plain { self.unknown_session(key) } else { e }
         })
+    }
+
+    /// The session whose given name (`session_handle::matches`, any case) is `key`: None when
+    /// none is; an error naming each when several are (a given name is one session's, so only
+    /// old state can tie).
+    pub(super) fn resolve_handle_here(&self, key: &str) -> Option<Result<Arc<Session>, RpcError>> {
+        if key.contains('/') {
+            return None;
+        }
+        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut found: Vec<(Arc<Session>, String)> = sessions
+            .values()
+            .filter_map(|s| {
+                let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                crate::session_handle::matches(meta.handle.as_deref(), &s.id, key)
+                    .then(|| (s.clone(), format!("{} ({})", meta.name, s.id)))
+            })
+            .collect();
+        drop(sessions);
+        match found.len() {
+            0 => None,
+            1 => Some(Ok(found.remove(0).0)),
+            _ => {
+                let mut names: Vec<String> = found.into_iter().map(|(_, n)| n).collect();
+                names.sort();
+                Some(Err(crate::session_name::ambiguous(key, &names)))
+            }
+        }
     }
 
     /// The session whose id or whole name is `key`: None when none is; an error when several
@@ -110,7 +140,7 @@ mod segment_tests {
     fn peer_row(hub: &Hub, peer: &str, id: &str, name: &str) {
         let row = RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": name, "peer": peer}),
+            summary: json!({"sessionId": id, "name": name, "peer": peer}).into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),
@@ -293,7 +323,8 @@ mod segment_tests {
         let row = RemoteSession {
             peer: "hb".into(),
             summary: json!({"sessionId": "r1", "name": "hb/c/lane", "peer": "hb",
-                            "status": "closed"}),
+                            "status": "closed"})
+            .into(),
             receipt: SessionReceipt {
                 host_id: "hb".into(),
                 mux_session_id: "r1".into(),

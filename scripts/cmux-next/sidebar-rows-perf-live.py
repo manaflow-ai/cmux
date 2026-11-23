@@ -33,6 +33,9 @@ and exits 1 when an assertion fails.
 """
 import argparse, json, os, shutil, socket, statistics, subprocess, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -221,11 +224,29 @@ def start_ticks(terms, seconds):
     """Starts each ticking terminal's OSC 7501 loop for `seconds` (it ends by itself, then idle)."""
     ticks_each = int(seconds * 1000 / opts.tick_ms)
     interval = opts.tick_ms / 1000
+    TICKS_END[0] = max(TICKS_END[0], time.monotonic() + ticks_each * interval)
     loop = (f"i=0; while [ $i -lt {ticks_each} ]; do if [ $((i % 2)) = 0 ]; then s=working; else s=idle; fi; "
             f"printf '\\033]7501;state=%s\\033\\\\' $s; sleep {interval}; i=$((i + 1)); done; printf '\\033]7501;state=idle\\033\\\\'\n")
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda term: cli("terminal", term, "write", "--text", loop), terms))
     return ticks_each
+
+
+TICKS_END = [0.0]  # monotonic time the latest started tick loops end by their own count
+
+
+def row_patches():
+    reply = counters()
+    return None if reply is None else reply.get("row_patches", 0)
+
+
+def sidebar_activity():
+    """What changes while the sidebar still works: the row patch counter, or (an app without counters) the
+    perf-tick rows themselves."""
+    patches = row_patches()
+    if patches is not None:
+        return patches
+    return json.dumps([r for r in workspace_rows() if str(r.get("title") or "").startswith("perf-tick-")], sort_keys=True, default=str)
 
 
 class Trace:
@@ -243,17 +264,32 @@ class Trace:
         self.proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", self.template, "--attach", str(self.pid),
                                       "--time-limit", f"{self.seconds}s", "--output", self.path, "--no-prompt"],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        time.sleep(4)  # test script: the recorder attaches before the measured window
+        # xctrace prints "Ctrl-C to stop the recording" once it is attached and recording; go on at that line.
+        self.lines, self.recording = [], threading.Event()
+        self.reader = threading.Thread(target=self._read, daemon=True)
+        self.reader.start()
+        wait_until(lambda: self.recording.is_set() or self.proc.poll() is not None, f"xctrace {self.template} to attach",
+                   timeout=60, raise_on_timeout=False)
+        if not self.recording.is_set():
+            safe_print(f"xctrace {self.template}: no recording line (exit {self.proc.poll()}): {''.join(self.lines)[-300:]}", flush=True)
         return self
+
+    def _read(self):
+        for line in self.proc.stdout:
+            self.lines.append(line)
+            if "ctrl-c to stop" in line.lower() or "starting recording" in line.lower():
+                self.recording.set()
 
     def __exit__(self, *exc):
         try:
-            out, _ = self.proc.communicate(timeout=self.seconds + 240)
+            self.proc.wait(timeout=self.seconds + 240)
+            self.reader.join(timeout=10)
+            out = "".join(self.lines)
         except subprocess.TimeoutExpired:
             self.proc.terminate()
             out = "timeout"
         if self.proc.returncode != 0:
-            print(f"xctrace {self.template} exit {self.proc.returncode}: {(out or '')[-300:]}", flush=True)
+            safe_print(f"xctrace {self.template} exit {self.proc.returncode}: {(out or '')[-300:]}", flush=True)
         return False
 
 
@@ -380,7 +416,8 @@ def tick_phase(pid):
     summary["ticking_terminals"] = len(terms)
     check(len(terms) >= min(opts.ticking, 1), f"{len(terms)} ticking terminals")
     summary["visible_ticking_rows"] = visible_ticking()
-    time.sleep(3)  # test script: let the creates settle before the measured window
+    # The creates settle before the measured window: the sidebar's row patches stop.
+    wait_stable(sidebar_activity, "the sidebar after the creates", timeout=60, interval=0.5, reads=4, raise_on_timeout=False)
     base = counters(reset=True)
     rpc("debug.hangs", {"clear": True})
     cpu0 = cpu_ns(pid)
@@ -391,7 +428,7 @@ def tick_phase(pid):
     thread = threading.Thread(target=sampler, args=(stop, samples))
     thread.start()
     ticks_each = start_ticks(terms, opts.seconds)
-    time.sleep(opts.seconds + 1)  # test script: the measured window is the ticks themselves
+    time.sleep(opts.seconds + 1)  # sleep-ok: the measured window is the ticks themselves
     stop.set()
     thread.join()
     cpu1 = cpu_ns(pid)
@@ -431,17 +468,11 @@ def tick_phase(pid):
 
 
 def quiet():
-    """Waits until the tick programs have ended."""
-    time.sleep(max(5, opts.seconds * 0.3))  # test script: the tick loops end a little after --seconds
-    if counters() is None:
-        return
-    deadline, last = time.monotonic() + 30, None
-    while time.monotonic() < deadline:  # bounded wait: no row patch for 2 s
-        now = counters().get("row_patches")
-        if now == last:
-            return
-        last = now
-        time.sleep(2)
+    """Waits until the tick programs have ended: no row patch (or perf-tick row change) for 2 s, within 30 s
+    after the loops' own end."""
+    timeout = max(0.0, TICKS_END[0] - time.monotonic()) + 30
+    if wait_stable(sidebar_activity, "the tick loops to end", timeout=timeout, interval=2, reads=2, raise_on_timeout=False) is None:
+        safe_print("quiet: the sidebar did not go quiet", flush=True)
 
 
 def realized_titles(window):
@@ -514,13 +545,23 @@ def scroll_mode(pid, window, label, terms):
     print(f"{'info' if wheel_moved else 'note'} scroll {label}: the mouse wheel moved the list: {wheel_moved}", flush=True)
     # The trackpad gesture, measured.
     scroll_to_top(window, point)
-    time.sleep(1)
+    # The scroll-to-top animation ends: the realized rows stop changing.
+    wait_stable(lambda: realized_titles(window), f"scroll {label}: the list at the top", timeout=10, interval=0.2, reads=3,
+                raise_on_timeout=False)
     before = realized_titles(window)
     seconds = opts.gesture_events * 2 / 60 + 2
     attempts = opts.repeats * 2  # a recording that fails (another xctrace on the host) or saw no app updates runs again
     if terms:
+        patches = row_patches()
         start_ticks(terms, (seconds + 10) * attempts)
-        time.sleep(1)
+        # The ticks run: the row patch counter moves (an app without counters: the perf-tick rows change).
+        if patches is not None:
+            wait_until(lambda: (row_patches() or 0) > patches, f"scroll {label}: the ticks to patch rows", timeout=10,
+                       raise_on_timeout=False)
+        else:
+            ticking = sidebar_activity()
+            wait_until(lambda: sidebar_activity() != ticking, f"scroll {label}: the ticks to change rows", timeout=10,
+                       raise_on_timeout=False)
     counters(reset=True)
     runs, moved, down, up, frames = [], False, [], [], None
     for attempt in range(attempts):

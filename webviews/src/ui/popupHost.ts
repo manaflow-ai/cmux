@@ -11,6 +11,8 @@ import { useEffect, useRef, useState } from "react";
 import { usePopupHost } from "./UiProvider";
 import type { NativePopupTransport } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
+import { onVisualViewport, visualViewportScale } from "./visualViewportBox";
+import { listPlacement } from "./listPlacement";
 
 export interface PopupItem {
   id: string;
@@ -190,7 +192,8 @@ export function popupItems(
  * The surface's height with every list in it at its designed size: a list that scrolls (the
  * surface itself or one inside it) counts its hidden rows too, up to its `--popup-scroll-cap` when
  * it sets one (a list that scrolls by design at that size, as the folder menu's and the slash
- * menu's). A small window that squeezes a list below its cap does not make the surface fit.
+ * menu's). The cap is a registered length (popupSurface.css), so a cap written in rows computes to
+ * px here. A small window that squeezes a list below its cap does not make the surface fit.
  */
 export function naturalHeight(popup: HTMLElement): number {
   let hidden = 0;
@@ -272,6 +275,12 @@ export interface EscapeOptions {
   /** How a list's row picks: on mouse-down (a list beside a field it keeps focused) or a click. */
   pick?: "mousedown" | "click";
   /**
+   * A list the page itself opens on the side of its box with room and shrinks to that room
+   * (listPlacement.ts, a composer's `/` list): it leaves the page only when even the larger side
+   * has no room for a few rows.
+   */
+  shrinks?: boolean;
+  /**
    * The host closed the rows (another app, a resize, a click elsewhere). By default the surface
    * gets an Escape; a field whose Escape clears its text hides its rows here instead.
    */
@@ -297,6 +306,7 @@ export function useEscapingPopup(
     pick = "mousedown",
     onDismiss,
     wraps = false,
+    shrinks = false,
   }: EscapeOptions,
 ) {
   const anchorRef = useRef(anchor);
@@ -317,14 +327,18 @@ export function useEscapingPopup(
       const at = anchorRef.current();
       if (!at) return null;
       const { items, highlighted } = popupItems(element, kind, active);
-      const box = at.getBoundingClientRect();
+      // Where the anchor shows under a trackpad pinch, so the App's popup opens beside it.
+      // A virtual anchor (a pointer, a plain box) has no document: the page's own window.
+      const view = ("ownerDocument" in at ? (at as Element).ownerDocument?.defaultView : undefined) ?? window;
+      const box = onVisualViewport(at.getBoundingClientRect(), view);
       return {
         items,
         highlighted,
         anchor: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
         side,
         align,
-        width: kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width,
+        width:
+          (kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width) * visualViewportScale(view),
         kind,
       };
     };
@@ -358,8 +372,10 @@ export function useEscapingPopup(
       const room = at?.getBoundingClientRect();
       const fits =
         !room ||
-        (fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
-          (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
+        (shrinks
+          ? !listPlacement(room, window.innerHeight, naturalHeight(element), { gap }).escapes
+          : fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
+            (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
       if (!flat || items.length === 0 || fits) return;
       const first = model();
       if (!first) return;
@@ -443,7 +459,7 @@ export function useEscapingPopup(
       cancelAnimationFrame(frame);
       restore();
     };
-  }, [host, element, side, align, gap, kind, flip, hide, active, pick, wraps]);
+  }, [host, element, side, align, gap, kind, flip, hide, active, pick, wraps, shrinks]);
 }
 
 /**
@@ -457,6 +473,7 @@ export function useEscapingList(
   gap: number,
   onDismiss?: () => void,
   anchor?: HTMLElement | null,
+  shrinks = false,
 ): ((list: HTMLElement | null) => void) | undefined {
   const host = usePopupHost();
   const [list, setList] = useState<HTMLElement | null>(null);
@@ -467,6 +484,7 @@ export function useEscapingList(
     kind: "list",
     flip: false,
     onDismiss,
+    shrinks,
   });
   return host ? setList : undefined;
 }

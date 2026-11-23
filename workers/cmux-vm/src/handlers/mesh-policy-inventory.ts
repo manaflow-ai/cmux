@@ -15,23 +15,23 @@ const timed = <A, E, R>(into: Record<string, string> | undefined, key: string, e
 
 /**
  * Compiles `document` against the mesh's live devices and VMs. Lenient: names that left the mesh are skipped.
- * `phases` (an attach's mesh_vm_attach line) gets each read's time (read*Ms) and the mesh's size (members, devices).
- * A Worker's clock stands still while code runs, so the compile's own CPU reads as compileMs minus the slowest read.
+ * `phases` (an attach's mesh_vm_attach line) gets the read's time (readMs) and the mesh's size (members, devices).
+ * A Worker's clock stands still while code runs, so the compile's own CPU reads as compileMs minus readMs.
  */
 export const compileMeshPolicy = (tenantId: Principal["tenantId"], meshId: string, document: AclDocument, strict: boolean, additional: ReadonlyArray<OverlayServerRow> = [], phases?: Record<string, string>) =>
   Effect.gen(function* () {
     const store = yield* MeshStore;
     const config = yield* MeshConfig;
-    // Five independent reads of one mesh, issued together: one database round trip instead of five
-    // (each is a Worker-to-database hop). Writers hold the mesh writer lease, which keeps them consistent; the
-    // receiver-policy read takes no lock and compiles twice instead, refusing any difference.
-    const [gatewayDevices, servers, members, deviceIpv6, recorded] = yield* Effect.all([
-      timed(phases, "readDevicesMs", store.listDevices(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")))),
-      timed(phases, "readServersMs", store.listOverlayServers(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("overlay.list")))),
-      timed(phases, "readMembersMs", store.listMembers(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listMembers")))),
-      timed(phases, "readAddressesMs", store.deviceAddresses(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.deviceAddresses")))),
-      timed(phases, "readRulesMs", store.listRules(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listRules")))),
-    ], { concurrency: "unbounded" });
+    // The five reads of one mesh in one statement: one database round trip on the request's one connection, where
+    // five queries queued behind each other there and grew under a burst (staging 1x10: 0.44 s alone, 1.93 s in a
+    // wave). One statement also reads one snapshot. Writers hold the mesh writer lease, which keeps them consistent;
+    // the receiver-policy read takes no lock and compiles twice instead, refusing any difference. No cache: a stale
+    // member list would give a VM the wrong access.
+    const { devices: gatewayDevices, servers, members, deviceIpv6, rules: recorded } = yield* timed(
+      phases,
+      "readMs",
+      store.meshInventory(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.inventory"))),
+    );
     const devices = [...gatewayDevices, ...servers, ...additional];
     const existingAddressKeys = new Set(recorded.filter((rule) => isAddressRuleKey(rule.key)).map((rule) => rule.key));
     const deviceIds = devices.map((device) => device.deviceId);

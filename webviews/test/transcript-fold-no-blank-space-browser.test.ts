@@ -25,8 +25,8 @@ import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
   /// The gaps the stack places between two drawn rows (transcriptGrid.ts transcriptGap): the footer
-  /// gap under a reply, the block gap, the turn gap around a prompt, and the inner gap used between transcript runs and prose.
-  const gapTokens = ["gap-footer", "gap-block", "gap-turn", "gap-inner"].flatMap((name) => {
+  /// gap under a reply, the block gap, the turn gap around a prompt, and the run gap between activity and prose.
+  const gapTokens = ["gap-footer", "gap-block", "gap-turn", "gap-run"].flatMap((name) => {
     try {
       return [gridLength(name)];
     } catch {
@@ -293,12 +293,12 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
 
     await toggle(page);
     const opened = await blankSpace(page);
-    expect(opened.ids).toContain("a4");
+    // Adjacent runs draw as one line (turns.ts mergeShortNotes; Leo, 2026-11-12, ask-bc2af01f6e: "how come
+    // these aren't folded?"): the steps of only quiet thoughts join the calls beside them, so a4's calls
+    // draw under a3's line and no quiet-only step is left as a row of its own.
+    expect(opened.ids).toContain("a3");
+    for (const id of ["a4", "a5"]) expect(opened.ids).not.toContain(id);
     expect(opened.blank).toEqual([]);
-    // The steps of only quiet thoughts draw no element and take no room, mounted.
-    const quietRows = (await drawnRows(page)).filter((row) => ["a3", "a5", "a7"].includes(row.id));
-    expect(quietRows.length).toBeGreaterThan(0);
-    expect(quietRows.map((row) => [row.id, row.height])).toEqual(quietRows.map((row) => [row.id, 0]));
 
     await toggle(page);
     const closed = await blankSpace(page);

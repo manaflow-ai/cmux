@@ -44,6 +44,10 @@ pub(super) fn close_file_session(mux: Arc<Mux>, root: std::path::PathBuf) {
 /// Only the statements of the thread that runs `request` count: the mux's background threads
 /// (exit settling, journal maintenance and the like) use the same connection at their own times,
 /// and their statements are not the request's.
+///
+/// The reads of the sidebar document rows do not count: a request reads them only when the
+/// process-wide cached copy is of another registry (`sidebar_doc_store::reading_rows_on_this_thread`),
+/// which parallel tests change.
 pub(super) fn selects_of(mux: &Arc<Mux>, request: impl FnOnce()) -> usize {
     let count = Arc::new(AtomicUsize::new(0));
     let request_thread = std::thread::current().id();
@@ -51,6 +55,7 @@ pub(super) fn selects_of(mux: &Arc<Mux>, request: impl FnOnce()) -> usize {
         move |context: AuthContext<'_>| {
             if matches!(context.action, AuthAction::Select)
                 && std::thread::current().id() == request_thread
+                && !crate::state::sidebar_doc_store::reading_rows_on_this_thread()
             {
                 count.fetch_add(1, Ordering::Relaxed);
             }

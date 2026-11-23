@@ -310,9 +310,15 @@ class Workflow:
         return ""
 
     def owned_jobs(self) -> dict[str, str]:
+        tests = str(ROOT / "tests")
+        if tests not in sys.path:
+            sys.path.append(tests)
+        import workflow_jobs  # noqa: PLC0415 - the one runs-on reader; it needs PyYAML, like _load
+
         found = {}
         for key, job in self.jobs.items():
-            why = self.why(str(job.get("runs-on") or ""), key, set())
+            # The runs-on as written: why() follows what its text reads (a matrix key, a needs output, an input).
+            why = self.why(workflow_jobs.runs_on(job), key, set())
             if why:
                 found[key] = why
         return found

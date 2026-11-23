@@ -25,6 +25,10 @@ extension SidebarContainerView {
         // The leg starts on screen: this frame's layout pass shows the turn, not the old slide's step.
         (widthConstraint.constant, edge.constant) = (fromWidth, fromReach)
         let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(token, in: window) : 0
+        // The float slides in from the window's edge as a drawer does: the strong ease (a spring's start) over the
+        // token's time, so it reads at once and lands soft; its slide out takes the faster disappear token. The
+        // docked show and hide keep the layout curve, which the content beside them shares. Reduce Motion: 0, instant.
+        widthMotion.activeCurve = isFloatOverlay ? TimedProgress.drawerCurve : TimedProgress.curve
         widthMotion.run(duration: duration, in: self, trace: "sidebar.width", completion: completion)
     }
 
@@ -53,9 +57,11 @@ extension SidebarContainerView {
 
     /// The panel's leading x in window coordinates, from this view's frame and the pins that place
     /// the panel: inside this view's `layout()` the panel's own frame is not set yet (its clip lays it out
-    /// after), so reading it would carry the last frame's position.
+    /// after), so reading it would carry the last frame's position. The width is the constraint's, as
+    /// unrounded as the panel width it is offset by: the pixel-rounded bounds less a drag's fractional
+    /// panel width put the origin up to half a pixel off, and a tie moved the + a pixel (#48495).
     var panelOriginInWindow: CGFloat {
-        let x = side == .left ? bounds.width + clipTrailing.constant - panelWidth.constant : clipLeading.constant
+        let x = side == .left ? widthConstraint.constant + clipTrailing.constant - panelWidth.constant : clipLeading.constant
         return convert(CGPoint(x: x, y: 0), to: nil).x
     }
 
