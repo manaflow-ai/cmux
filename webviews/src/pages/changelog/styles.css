@@ -324,8 +324,9 @@ html[data-cmux-page="changelog"] {
   border-radius: 12px;
   background: var(--page-hover);
   box-shadow: inset 0 0 0 1px var(--page-separator);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  /* No blur of its own: the card sits in the content layer over the window's glass, which already
+     frosts the wallpaper; a second backdrop-filter here was a second frost on the first (Leo
+     2026-11-22: "doubled up glass/wack looking glass all over the place"). */
 }
 .cln-card-kind {
   color: var(--page-text-3);
@@ -597,8 +598,7 @@ html[data-cmux-page="changelog"] {
   border-radius: 16px;
   background: var(--page-hover);
   box-shadow: inset 0 0 0 1px var(--page-separator);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  /* No blur of its own, as .cln-card. */
 }
 .cln-clips-grid .cln-clip-text { padding: 0 4px; }
 .cln-clips-grid .cln-clip-title { font-size: var(--text-title); line-height: var(--text-title--line-height); letter-spacing: var(--text-title--letter-spacing); }

@@ -44,6 +44,8 @@ type Props = {
    * says where its whole reply is: the subagent's own transcript (`view`), its own records read on
    * Show more (`log`), or nowhere (`none`). */
   capped?: "view" | "log" | "none";
+  /** `instant`: its start and end were stamped at one moment, so the line has no duration. */
+  instant?: boolean;
 };
 
 const CHILD_ID = "optchat-5e2a91c4b7d0-3f";
@@ -93,6 +95,7 @@ const done = (
   reply?: string,
   report?: string,
   capped = false,
+  instant = false,
 ): AcpmuxRow => {
   const agent: Subagent = {
     id: subsession ? `${CHILD_ID}/start-${index}` : `agent-done-${index}`,
@@ -104,7 +107,7 @@ const done = (
     state: failed ? "failed" : "completed",
     ...(failed && { error: ERROR }),
     startedAt: minutesAgo(12),
-    endedAt: minutesAgo(10.6),
+    endedAt: instant ? minutesAgo(12) : minutesAgo(10.6),
     ...(report && !failed && (capped ? { lastMessage: LONG_PREVIEW } : { result: report })),
   };
   return {
@@ -174,6 +177,7 @@ export default componentEntry<Props>({
       report,
       arm,
       capped,
+      instant,
     }: Props) {
       const view = (id: string) =>
         capped === "view" && id === "agent-done-0"
@@ -208,6 +212,7 @@ export default componentEntry<Props>({
                             index === 0 ? reply : undefined,
                             index === 0 ? report : undefined,
                             capped !== undefined,
+                            instant,
                           )}
                         />
                         {/* The base's look only: the chat's reply drawn muted under the line. */}
@@ -264,6 +269,10 @@ export default componentEntry<Props>({
     reply: {
       note: "Shipped: the chat replied to the end; the line keeps only its new dot and its time, and the reply is the chat's own message after it (agent-pane.notification-reply).",
       props: { names: [SHORT, "Push relay"], reply: REPLY },
+    },
+    "reply-no-time": {
+      note: "A replied line with no duration (its start and end stamped at one moment): its new dot sits flush at the line's right edge, where the time would end, with no room kept for a time it lacks (cmux#51746).",
+      props: { names: [SHORT, "Push relay"], reply: REPLY, instant: true },
     },
     "reply-before": {
       note: 'Before (Leo, 2026-11-09: "your response was weirdly folded into the rende?"): the chat\'s reply drawn muted under the line, as if the subagent said it.',
