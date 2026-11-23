@@ -5,6 +5,7 @@
 //! lock is released, so events leave in revision order.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use cmux_config::{Change, ConfigStore, ManagedReader, Op, Outcome, Refusal, State, Watcher};
@@ -31,6 +32,9 @@ pub(crate) struct SettingsSlot {
     // Hook folds may already hold the lifecycle fence. Read this small snapshot
     // independently of the store, which takes daemon locks when applying edits.
     agent_notifications: Mutex<AgentNotificationLevels>,
+    /// `agents.appControl` is `read`: agents in cmux may read the app but
+    /// not change it (server/agent_app_control.rs). One load per line.
+    agents_read_only: AtomicBool,
 }
 
 pub(crate) struct SettingsOwner {
@@ -64,6 +68,16 @@ impl Mux {
     fn adopt_agent_notification_levels(&self, state: &State) {
         *self.settings.agent_notifications.lock().unwrap_or_else(|e| e.into_inner()) =
             AgentNotificationLevels::from_settings(&state.effective().root);
+    }
+
+    /// Whether `agents.appControl` is `read` (server/agent_app_control.rs).
+    /// False until the settings owner has read the file.
+    pub(crate) fn agents_read_only(&self) -> bool {
+        self.settings.agents_read_only.load(Ordering::Relaxed)
+    }
+
+    fn adopt_agents_app_control(&self, state: &State) {
+        self.settings.agents_read_only.store(agents_read_only(state), Ordering::Relaxed);
     }
 
     /// Starts the settings owner with `paths`. False when one already runs.
@@ -189,6 +203,23 @@ fn freeing_enabled(state: &State) -> bool {
         .unwrap_or(false)
 }
 
+/// The app setting that lets agents in cmux change the app (`change`, the
+/// default) or only read it (`read`).
+pub(crate) const AGENTS_APP_CONTROL_SETTING: &str = "agents.appControl";
+
+fn agents_read_only(state: &State) -> bool {
+    state
+        .get(&cmux_config::Target::Key(AGENTS_APP_CONTROL_SETTING.to_string()))
+        .row
+        .and_then(|row| row.value)
+        .is_some_and(|value| value.as_str() == Some("read"))
+}
+
+/// Whether `key` (a changed key) is the app control setting or holds it.
+fn touches_agents_app_control(key: &str) -> bool {
+    key == "agents" || key == AGENTS_APP_CONTROL_SETTING
+}
+
 /// Refresh daemon-owned preferences while changes are still in revision order.
 fn adopt_preferences(mux: &Mux, store: &ConfigStore, changes: &[Change]) {
     if changes.iter().flat_map(|change| &change.keys).any(|key| {
@@ -197,6 +228,9 @@ fn adopt_preferences(mux: &Mux, store: &ConfigStore, changes: &[Change]) {
             || key.starts_with("notifications.delivery.")
     }) {
         mux.adopt_agent_notification_levels(store.state());
+    }
+    if changes.iter().flat_map(|change| &change.keys).any(|key| touches_agents_app_control(key)) {
+        mux.adopt_agents_app_control(store.state());
     }
     if changes.iter().any(|change| change.keys.iter().any(|key| key == FREEING_ENABLED_SETTING)) {
         mux.set_terminal_last_command(freeing_enabled(store.state()));
@@ -240,6 +274,7 @@ fn open_owner(mux: &Arc<Mux>, paths: SettingsPaths) -> SettingsOwner {
     }
     if let Ok(store) = store.lock() {
         mux.adopt_agent_notification_levels(store.state());
+        mux.adopt_agents_app_control(store.state());
         mux.set_terminal_last_command(freeing_enabled(store.state()));
     }
     SettingsOwner { store, _watcher: watcher }
