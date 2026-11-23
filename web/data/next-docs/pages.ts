@@ -3,6 +3,8 @@
 // Keep these short and plain. Every command named here must exist in the
 // action catalog; tests/next-docs.test.ts checks that.
 
+import { pinnedInstallCommand } from "../../app/lib/install-static-pin";
+
 export type DocBlock =
   | { h2: string }
   | { p: string }
@@ -388,8 +390,8 @@ export const nextDocPages: NextDocPage[] = [
       ] },
       { p: "The machine must accept your SSH key, and its host key must already be in your known_hosts. A new host key or a password prompt goes to your terminal, as ssh always does. cmux never accepts a host key for you, and it turns off agent, X11 and port forwarding for these commands. Without a terminal (with --yes in a script), ssh never prompts: an unknown host key stops the install." },
       { h2: "Install on this machine" },
-      { p: "On the Linux box or Mac itself, one line installs cmux and starts the service:" },
-      { code: "curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server", lang: "bash" },
+      { p: "On the Linux box or Mac itself, one line installs cmux and starts the service. It saves the installer in a new private folder, checks it against the SHA-256 the line carries, and runs it only when it matches:" },
+      { code: pinnedInstallCommand(" --server"), lang: "bash" },
       { p: "To see what it would do first, add --dry-run. To install one exact build, add --commit SHA; --channel stable or --channel nightly picks the latest build of that channel. With cmux already installed, run cmux server install." },
       { p: "The installer checks the download against the SHA-256 in the build's manifest, over HTTPS only. The script is one block that the shell reads to its end before it runs, so a download cut short runs nothing." },
       { h2: "What the service is" },

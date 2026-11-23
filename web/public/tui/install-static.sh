@@ -7,9 +7,12 @@ set -eu
 
 # Pairing (acpmux src/pairing): a ticket minted on another machine
 # (`cmux host ticket new`) joins this one to it once cmux is installed. The
-# line that command prints installs, then hands the ticket to `cmux host join`
-# on stdin, so no process has it in its argv (`ps`, /proc/PID/cmdline):
-#   curl -fsSL https://cmux.com/tui/install-static.sh | sh && printf '%s\n' <ticket> | ~/.cmux/bin/cmux host join --serve
+# line that command prints installs (this script from its immutable
+# https://cmux.com/tui/install-static/<sha256>.sh, saved in a `mktemp -d`
+# directory and run only after `sha256sum -c` against the sha256 the command
+# pins), then hands the ticket to `cmux host join` on stdin, so no process has
+# it in its argv (`ps`, /proc/PID/cmdline):
+#   (<the pinned install>) && printf '%s\n' <ticket> | ~/.cmux/bin/cmux host join --serve
 # This script also takes CMUX_JOIN_TICKET=<ticket>, and still takes
 # `sh -s -- <ticket>` and `--join <ticket>` with a warning: those put the ticket
 # in this shell's argv. A daemon-role ticket (the other machine drives this
@@ -20,8 +23,8 @@ set -eu
 # cmux server (https://cmux.com/docs/server): `--server` also runs
 # `cmux server install`, which keeps this machine's cmux session running as a
 # service (systemd user unit with linger on Linux, a LaunchAgent on macOS), so
-# your cmux reaches it over SSH after logouts and reboots:
-#   curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server
+# your cmux reaches it over SSH after logouts and reboots: the pinned command
+# in the repository's README.md, with `sh "$d/install.sh" --server`.
 # `--server` installs the current cmux NIGHTLY build unless `--commit <sha>` (a
 # published cmux build) or CMUX_DOWNLOAD_BASE_URL picks another. `--nightly`
 # picks that build without the service; `--channel nightly` is the same, and
