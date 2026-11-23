@@ -178,6 +178,7 @@ final class QuitCoordinator {
         logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
         let services = services
+        await services.updater.afterimage?.untilShown(limit: .milliseconds(600)) // a relaunch's pictures are up before any step takes a window off screen (RelaunchAfterimage)
         // A keep quit ends within `keepQuitLimit` from here, whatever any step
         // below does (slow quit, 2026-10-20). An End quit arms its deadline
         // once its sessions ended (the end steps show their failures).

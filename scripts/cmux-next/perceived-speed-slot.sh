@@ -120,7 +120,9 @@ done
 [ -n "$found" ] || { echo "no app socket for $bid on $host: switch hosts (CAPTURE_HOST_SLOT_HOSTS)" >&2; exit 3; }
 sock=$found
 echo "perceived-speed: socket $sock"
-sleep 4  # first window, prewarmed New Tab spare
+# The first window, the prewarmed New Tab spare and a still window, read over the socket.
+ssh "$host" "cd $remote && PYTHONDONTWRITEBYTECODE=1 python3 perceived-speed.py ready --socket '$sock'" \
+  || { echo "perceived-speed: the app on $host never showed its first window" >&2; exit 3; }
 
 ssh "$host" "cd $remote && PYTHONDONTWRITEBYTECODE=1 python3 perceived-speed.py run --socket '$sock' --out $remote/out --runs $runs ${surfaces[*]}"
 status=$?

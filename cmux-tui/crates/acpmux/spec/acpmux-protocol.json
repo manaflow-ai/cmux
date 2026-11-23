@@ -233,6 +233,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/callers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true
@@ -2349,6 +2355,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/owner_phone_changed",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_consent_set",
       "params": true,
       "result": true
@@ -2386,6 +2398,18 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_join_ssh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_candidates",
       "params": true,
       "result": true
     },
@@ -2563,6 +2587,11 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/machine_join_progress",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true
@@ -2585,7 +2614,8 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
-        "loginId": true
+        "loginId": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2596,7 +2626,8 @@
           "$ref": "#/types/RequestMeta"
         },
         "code": true,
-        "loginId": true
+        "loginId": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2608,7 +2639,8 @@
         },
         "account": true,
         "family": true,
-        "name": true
+        "name": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2648,6 +2680,7 @@
         "harness": true,
         "harnessFrom": true,
         "host": true,
+        "ifNameTaken": true,
         "inlineParts": true,
         "interrupt": true,
         "localAppToken": true,
@@ -4640,6 +4673,13 @@
     },
     "MessageSender": {
       "properties": {
+        "displayName": {
+          "description": "The sender's given name (`session_handle.rs`), shown first: \"Mango · HOST/NAME\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "host": {
           "type": [
             "string",
@@ -6454,6 +6494,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "displayName": {
+          "description": "The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,\nnotices, a message's sender): its handle when one was given (`acpmux rename @ Mango\n--handle`), absent otherwise (a derived handle is no name a person chose; show `name`).\nIts former names and handles are `formerNames` (\"Mango (fka claude-sr2-coord-old)\").",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "effort": {
           "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
           "type": [
@@ -6526,6 +6573,17 @@
         "hasDraft": {
           "description": "Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update\nthat installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from\na peer on an older acpmux.",
           "type": "boolean"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionIcon"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the\nharness mark."
         },
         "indicator": {
           "anyOf": [
@@ -7106,6 +7164,110 @@
       ],
       "type": "object"
     },
+    "SessionIcon": {
+      "description": "The icon clients draw for one chat.",
+      "oneOf": [
+        {
+          "description": "An agent mark id from design/agent-icons (`claude`, `gemini`, ...).",
+          "properties": {
+            "brand": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "brand",
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "brand"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One emoji.",
+          "properties": {
+            "kind": {
+              "const": "emoji",
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An SF Symbol; `text` and `hue` are the monogram a client that cannot draw it shows.",
+          "properties": {
+            "hue": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "symbol",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "text",
+            "hue"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An SVG, PNG, ICO or JPEG, base64, so a page draws it with no file or network access.",
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "image",
+              "type": "string"
+            },
+            "mime": {
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "mime",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SessionNewParams": {
       "additionalProperties": false,
       "properties": {
@@ -7234,6 +7396,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "displayName": {
+          "description": "The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,\nnotices, a message's sender): its handle when one was given (`acpmux rename @ Mango\n--handle`), absent otherwise (a derived handle is no name a person chose; show `name`).\nIts former names and handles are `formerNames` (\"Mango (fka claude-sr2-coord-old)\").",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "effort": {
           "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
           "type": [
@@ -7306,6 +7475,17 @@
         "hasDraft": {
           "description": "Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update\nthat installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from\na peer on an older acpmux.",
           "type": "boolean"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionIcon"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the\nharness mark."
         },
         "indicator": {
           "anyOf": [
@@ -8650,6 +8830,29 @@
             "null"
           ]
         },
+        "tokensByModel1h": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "tokensByModelPreviousUtcHour": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Tokens per call model in the completed UTC hour preceding the hour of updatedAt.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "updatedAt": {
           "description": "Unix ms of the read these come from.",
           "format": "uint64",
@@ -8672,6 +8875,8 @@
         "subagents24h",
         "subagentsLive",
         "tokens24h",
+        "tokensByModel1h",
+        "tokensByModelPreviousUtcHour",
         "updatedAt"
       ],
       "type": "object"

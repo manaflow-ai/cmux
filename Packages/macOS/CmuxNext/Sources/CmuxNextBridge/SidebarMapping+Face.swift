@@ -240,6 +240,11 @@ extension SidebarMapping {
         row.focusedTab = focused.map { TabID($0.id) }
         // The row's agent chat's acpmux session, whose dot glyph `appearance.agentSignature` draws.
         row.agentSessionID = agentTab?.agentSession?.session.flatMap { $0.isEmpty ? nil : $0 }
+        // Who the row's agent is (acpmux `displayName`, `formerNames`): its hover card's agent line.
+        if let ref = agentTab?.agentSession {
+            row.agentDisplayName = AgentTurnStateStore.shared.displayName(for: ref)
+            row.agentFormerName = AgentTurnStateStore.shared.formerName(for: ref)
+        }
         row.paneShape = Self.paneShape(workspace)
         row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
@@ -271,15 +276,13 @@ extension SidebarMapping {
         return row
     }
 
-    /// The mark the row draws for the agent tab the face picked: a custom harness's own icon (user 12922; a mark
-    /// it names is a brand, anything else the row's `agentIcon`), else the tab's brand.
-    static func agentMark(_ tab: TabModel?, harnessIcons: HarnessIconLookup) -> (brand: String?, icon: SidebarAgentIcon?) {
+    /// The mark the row draws for the agent tab the face picked: the icon its session set for itself (acpmux
+    /// `icon`), else a custom harness's own icon (user 12922; a mark it names is a brand, anything else the row's
+    /// `agentIcon`), else the tab's brand.
+    static func agentMark(_ tab: TabModel?, harnessIcons: HarnessIconLookup,
+                          turns: AgentTurnStateStore = .shared) -> (brand: String?, icon: SidebarAgentIcon?) {
         guard let tab else { return (nil, nil) }
-        switch harnessIcons.custom(for: tab.agentSession?.harness) {
-        case .brand(let brand)?: return (brand, nil)
-        case .symbol(let name)?: return (nil, .symbol(name))
-        case .image(_, let favicon)?: return (nil, .image(favicon))
-        case nil: return (tab.agentBrand, nil)
-        }
+        let art = tab.agentSession.flatMap(turns.iconArt(for:)) ?? harnessIcons.custom(for: tab.agentSession?.harness)
+        return art.map(HarnessIconLookup.sidebarMark) ?? (tab.agentBrand, nil)
     }
 }

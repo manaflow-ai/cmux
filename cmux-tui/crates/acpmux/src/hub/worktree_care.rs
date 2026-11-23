@@ -390,6 +390,26 @@ impl Hub {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Ok(()),
             _ => {}
         }
+        // A folder in acpmux's own session temp folders never comes back (`session_tmp::holds`):
+        // the refusal is final, so an outbox or relayed delivery is refused once, its sender told
+        // why, instead of being tried again every minute forever. Any other folder may come back
+        // (a worktree removed by hand and made again), so its refusal stays retryable.
+        if meta.worktree.is_none() && crate::agent::session_tmp::holds(&meta.cwd) {
+            return Err(RpcError::internal(format!(
+                "session.folder_missing: the folder of {} ({}) was a temporary folder and is gone \
+                 for good, so its agent cannot start again; start a new chat, or archive this one \
+                 (`acpmux archive {}`)",
+                meta.name,
+                meta.cwd.display(),
+                meta.name,
+            ))
+            .with_data(json!({
+                "reason": "session.folder_missing",
+                "folder": meta.cwd,
+                "retryable": false,
+                "temporary": true,
+            })));
+        }
         Err(RpcError::internal(format!(
             "session.folder_missing: the folder of {} ({}) no longer exists; it was moved or \
              removed (or a file took its place), so its agent cannot start until it is back",

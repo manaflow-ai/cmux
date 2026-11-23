@@ -6,7 +6,9 @@ use cmux_json::JsonSet as _;
 mod host_build;
 mod host_load;
 
-pub(crate) use host_build::{host_build_differs, other_build_host_line, other_build_hosts_line};
+pub(crate) use host_build::{
+    host_build_differs, live_host_build, other_build_host_line, other_build_hosts_line,
+};
 
 /// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
 /// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
@@ -732,19 +734,22 @@ impl Hub {
             session_id: m.id.clone(),
             name: m.name.clone(),
             handle: Some(m.spoken_handle().into_owned()),
+            display_name: m.handle.clone().filter(|h| crate::session_handle::valid(h)),
+            icon: m.icon.clone(),
             name_given: m.name_given,
             former_names: m.former_names.clone(),
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
-            status: m.status.to_string(),
+            // A watched chat whose app exited reads disconnected (`app_exit.rs`).
+            status: super::app_exit::row_status(session, m.status),
             // A Stop's turn that has not ended yet (`cancel.rs`): never read as running on.
             state: if stopping {
                 "stopping".to_owned()
             } else if stuck.is_some() {
                 "stuck".to_owned()
             } else {
-                m.status.to_string()
+                super::app_exit::row_status(session, m.status)
             },
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),

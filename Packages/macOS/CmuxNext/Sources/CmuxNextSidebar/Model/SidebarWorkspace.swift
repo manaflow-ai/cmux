@@ -136,6 +136,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// agent); nil for a row with no agent chat, or a new chat with no session yet. `appearance.agentSignature`
     /// draws its dot glyph from it (``SidebarAgentSignatures``).
     public var agentSessionID: String?
+    /// The name given to that agent's session (acpmux `displayName`, "Mango") and the one it had before
+    /// (the newest of `formerNames`): the hover card's agent line says who it is ("Mango — fka claude-sr2").
+    public var agentDisplayName: String?
+    public var agentFormerName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
     public var lastMessage: String?
     /// When the workspace's agent chat last changed what it does (acpmux `lane.since`: a turn started, ended,
