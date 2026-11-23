@@ -25,7 +25,9 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         // The pill plus its tap slop (`TerminalJumpToBottomRow.hitSlop` each side), never the full-width row.
         XCTAssertLessThan(jump.frame.width, window.width * 0.75, "the element is the pill's target, not the full-width row: \(jump.frame)")
         XCTAssertEqual(jump.frame.midX, window.midX, accuracy: 2, "Jump to bottom is centered (was trailing)")
-        XCTAssertLessThan(jump.frame.maxY, field.frame.minY, "it sits above the composer field")
+        // With the keyboard down there is no key row: the pill's target (its gap included) ends
+        // where the composer field starts.
+        XCTAssertLessThanOrEqual(jump.frame.maxY, field.frame.minY + 0.5, "it sits above the composer field")
         let keyRow = app.descendants(matching: .any)["terminal.key.keyboard"]
         XCTAssertFalse(keyRow.exists, "the key row stays hidden with the keyboard down")
         attach(app, "scrolled-up-centered")
@@ -51,6 +53,30 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         // 6 pt in from the target's top-left corner: above and left of the 28 pt pill.
         jump.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 6, dy: 6)).tap()
         XCTAssertTrue(jump.waitForNonExistence(timeout: 5), "a tap beside the pill jumps too")
+    }
+
+    /// Leo, 2026-11-23: "theres also these weird dead zones in the jump to
+    /// bottom in terminal... dont add blur there". Beside the pill's target the
+    /// row is the terminal's: a drag that starts there scrolls the page (before,
+    /// it hit the row and did nothing). Dragging up from beside the pill reaches
+    /// the bottom, and the pill goes.
+    @MainActor
+    func testDragBesideThePillScrollsTheTerminal() throws {
+        let app = launch()
+        let jump = app.buttons["terminal.jumpToBottom"]
+        XCTAssertTrue(scrollUp(app, until: jump), "scrolled up: Jump to bottom shows\n\(app.debugDescription)")
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(jump.frame.minX - window.minX, 40, "room beside the target: \(jump.frame)")
+        attach(app, "beside-before")
+        // 20 pt in from the window's left edge, at the target's middle height.
+        let beside = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: 20, dy: jump.frame.midY - window.minY))
+        for _ in 0..<12 where jump.exists {
+            beside.press(forDuration: 0.05, thenDragTo: beside.withOffset(CGVector(dx: 0, dy: -window.height * 0.5)))
+            _ = jump.waitForNonExistence(timeout: 1)
+        }
+        attach(app, "beside-after")
+        XCTAssertFalse(jump.exists, "a drag beside the pill scrolls the page to the bottom (was a dead zone)")
     }
 
     /// Keyboard up, the stack rides the keyboard: the pill stays above the
@@ -82,11 +108,12 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         let hide = app.buttons["Hide Toolbar"]
         let window = app.windows.firstMatch.frame
         let rowY = (keyboardKey.frame.midY - window.minY) / window.height
-        for _ in 0..<8 where !(hide.exists && hide.isHittable) {
+        // 44 pt keys: the row is ~1900 pt wide, so a few more drags than the old 28 pt row took.
+        for _ in 0..<16 where !(hide.exists && hide.isHittable) {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: rowY))
                 .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.38, dy: rowY)))
         }
-        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Hide Toolbar at the row's end\n\(app.debugDescription)")
+        XCTAssertTrue(hide.waitForHittable(timeout: 5), "Hide Toolbar at the row's end\n\(app.debugDescription)")
         hide.tap()
         XCTAssertTrue(keyboardKey.waitForNonExistence(timeout: 5), "Hide Toolbar hides the key row")
         let jump = app.buttons["terminal.jumpToBottom"]

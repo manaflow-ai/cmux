@@ -37,7 +37,10 @@ fn claude_code_tucks_its_input_box_footer_and_spinner() {
     let r = rows(CLAUDE_DONE);
     let from = t.tuck_from.expect("a done turn tucks") as usize;
     assert!(r[from - 1].contains("Churned for"), "the turn's record stays: {:?}", r[from - 1]);
-    assert!(r[from..].iter().all(|row| row.trim().is_empty() || rule(row) || row.trim_start().starts_with('❯') || row.starts_with("  ")));
+    assert!(r[from..].iter().all(|row| row.trim().is_empty()
+        || rule(row)
+        || row.trim_start().starts_with('❯')
+        || row.starts_with("  ")));
 }
 
 #[test]
@@ -61,14 +64,36 @@ fn opencode_tucks_its_barred_box_and_hint_row() {
         let r = rows(screen);
         let from = t.tuck_from.expect("tucks") as usize;
         assert!(r[from..].iter().any(|row| row.trim_start().starts_with('╹')));
-        assert!(r[from..].iter().all(|row| row.trim().is_empty() || row.trim_start().starts_with(['┃', '╹']) || row.starts_with("   ")),
-                "{:?}", &r[from..]);
+        assert!(
+            r[from..].iter().all(|row| row.trim().is_empty()
+                || row.trim_start().starts_with(['┃', '╹'])
+                || row.starts_with("   ")),
+            "{:?}",
+            &r[from..]
+        );
     }
 }
 
 #[test]
+fn the_phones_fake_codex_tucks_its_rule_prompt_and_status() {
+    // `FakeCodexSession`'s live area (the simulator UI test's harness): a rule, `› `, a blank,
+    // the status line, at the screen's bottom.
+    let mut screen: Vec<String> = (1..=32).map(|n| format!("reply line {n}")).collect();
+    screen.push("─".repeat(40));
+    screen.push("› ".to_owned());
+    screen.push(String::new());
+    screen.push("Working (3s) · esc to interrupt".to_owned());
+    screen.push(String::new());
+    let t = harness_tuck("codex".to_owned(), screen);
+    assert_eq!(t.tuck_from, Some(32));
+    assert!(!t.prompt);
+}
+
+#[test]
 fn a_question_the_person_must_answer_never_tucks() {
-    for (program, screen) in [("claude", CLAUDE_APPROVAL1), ("codex", CODEX_APPROVAL1), ("opencode", OPENCODE_APPROVAL1)] {
+    for (program, screen) in
+        [("claude", CLAUDE_APPROVAL1), ("codex", CODEX_APPROVAL1), ("opencode", OPENCODE_APPROVAL1)]
+    {
         let t = tuck(program, screen);
         assert!(t.prompt, "{program}: the approval is a prompt");
         assert_eq!(t.tuck_from, None, "{program}: nothing tucks over a question");
@@ -442,4 +467,3 @@ const OPENCODE_DONE: &str = r#"
    /tmp/agent-demo1/work                                        6.2K (1%) · $0.20  ctrl+p commands
 
 "#;
-

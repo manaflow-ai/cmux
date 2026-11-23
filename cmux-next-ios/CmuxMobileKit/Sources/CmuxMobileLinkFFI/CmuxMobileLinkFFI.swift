@@ -1628,6 +1628,16 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func openSurface(argsJson: String, observer: BrowserObserver) async throws  -> BrowserStream
     
+    /**
+     * Before the OS suspends the app: ask the Mac to hold this link for up
+     * to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+     * at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+     * `true`: parked, and nothing on the link wakes the phone until
+     * `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+     * which cannot be held; the link closes on silence as before.
+     */
+    func park(holdMs: UInt32, timeoutMs: UInt32) async throws  -> Bool
+    
     func path()  -> LinkPath
     
     /**
@@ -1658,6 +1668,14 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * heartbeat probes only a link quiet for a whole beat.
      */
     func receivedAgoMs()  -> UInt64
+    
+    /**
+     * Back from the background: the link expects the Mac again. `true` when
+     * it was parked and its hold has not passed. The tunnel then moves onto
+     * a fresh socket (as on a network change) and the caller probes; the
+     * first frame back ends the park on both sides.
+     */
+    func resume()  -> Bool
     
     /**
      * The latest WireGuard roam of this link (`network_changed`,
@@ -1920,6 +1938,31 @@ open func openSurface(argsJson: String, observer: BrowserObserver)async throws  
         )
 }
     
+    /**
+     * Before the OS suspends the app: ask the Mac to hold this link for up
+     * to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+     * at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+     * `true`: parked, and nothing on the link wakes the phone until
+     * `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+     * which cannot be held; the link closes on silence as before.
+     */
+open func park(holdMs: UInt32, timeoutMs: UInt32)async throws  -> Bool  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_park(
+                    self.uniffiCloneHandle(),
+                    FfiConverterUInt32.lower(holdMs),FfiConverterUInt32.lower(timeoutMs)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_i8,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_i8,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
 open func path() -> LinkPath  {
     return try!  FfiConverterTypeLinkPath_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_path(
@@ -1995,6 +2038,20 @@ open func probeTimeoutMs(floorMs: UInt32) -> UInt32  {
 open func receivedAgoMs() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_received_ago_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Back from the background: the link expects the Mac again. `true` when
+     * it was parked and its hold has not passed. The tunnel then moves onto
+     * a fresh socket (as on a network change) and the caller probes; the
+     * first frame back ends the park on both sides.
+     */
+open func resume() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_resume(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -3504,6 +3561,89 @@ public func FfiConverterTypeFollowRect_lift(_ buf: RustBuffer) throws -> FollowR
 #endif
 public func FfiConverterTypeFollowRect_lower(_ value: FollowRect) -> RustBuffer {
     return FfiConverterTypeFollowRect.lower(value)
+}
+
+
+/**
+ * What tucks on one screen.
+ */
+public struct HarnessTuck: Equatable, Hashable {
+    /**
+     * The harness the program name names; nil: not a harness (a shell, an editor), nothing tucks.
+     */
+    public var harness: TuckHarness?
+    /**
+     * The first row (0 = the screen's top) of the bottom block that only repeats status; nil:
+     * nothing tucks.
+     */
+    public var tuckFrom: UInt32?
+    /**
+     * A question the person must answer is on screen (a permission dialog, a numbered menu,
+     * a y/n): nothing tucks, and the key row stays up for its arrows and Return.
+     */
+    public var prompt: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The harness the program name names; nil: not a harness (a shell, an editor), nothing tucks.
+         */harness: TuckHarness?, 
+        /**
+         * The first row (0 = the screen's top) of the bottom block that only repeats status; nil:
+         * nothing tucks.
+         */tuckFrom: UInt32?, 
+        /**
+         * A question the person must answer is on screen (a permission dialog, a numbered menu,
+         * a y/n): nothing tucks, and the key row stays up for its arrows and Return.
+         */prompt: Bool) {
+        self.harness = harness
+        self.tuckFrom = tuckFrom
+        self.prompt = prompt
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HarnessTuck: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHarnessTuck: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HarnessTuck {
+        return
+            try HarnessTuck(
+                harness: FfiConverterOptionTypeTuckHarness.read(from: &buf), 
+                tuckFrom: FfiConverterOptionUInt32.read(from: &buf), 
+                prompt: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HarnessTuck, into buf: inout [UInt8]) {
+        FfiConverterOptionTypeTuckHarness.write(value.harness, into: &buf)
+        FfiConverterOptionUInt32.write(value.tuckFrom, into: &buf)
+        FfiConverterBool.write(value.prompt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHarnessTuck_lift(_ buf: RustBuffer) throws -> HarnessTuck {
+    return try FfiConverterTypeHarnessTuck.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHarnessTuck_lower(_ value: HarnessTuck) -> RustBuffer {
+    return FfiConverterTypeHarnessTuck.lower(value)
 }
 
 
@@ -5575,6 +5715,102 @@ public func FfiConverterTypeTransport_lower(_ value: Transport) -> RustBuffer {
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * A harness the phone knows by its terminal's program name.
+ */
+
+public enum TuckHarness: Equatable, Hashable {
+    
+    /**
+     * Claude Code: a ruled input box (`─` rows around `❯`), a footer under it.
+     */
+    case claude
+    /**
+     * Codex CLI: an unruled `›` line, a model and cwd footer under it, a `• Working` line above.
+     */
+    case codex
+    /**
+     * opencode: a `┃` barred box closed by a `╹▀▀` rule, a hint row under it.
+     */
+    case openCode
+    /**
+     * Gemini CLI, Amp, pi: a boxed (`╭─╮`, `╰─╯`) or ruled input box, a footer under it.
+     */
+    case boxed
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TuckHarness: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTuckHarness: FfiConverterRustBuffer {
+    typealias SwiftType = TuckHarness
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TuckHarness {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .claude
+        
+        case 2: return .codex
+        
+        case 3: return .openCode
+        
+        case 4: return .boxed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TuckHarness, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .claude:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .codex:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .openCode:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .boxed:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTuckHarness_lift(_ buf: RustBuffer) throws -> TuckHarness {
+    return try FfiConverterTypeTuckHarness.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTuckHarness_lower(_ value: TuckHarness) -> RustBuffer {
+    return FfiConverterTypeTuckHarness.lower(value)
+}
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -5738,6 +5974,30 @@ fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffe
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypePredictionLayout.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeTuckHarness: FfiConverterRustBuffer {
+    typealias SwiftType = TuckHarness?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeTuckHarness.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeTuckHarness.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -6193,6 +6453,28 @@ public func classicCleanupVersion() -> Int64  {
 })
 }
 /**
+ * The tuckable block of `rows` (the screen's rows, top to bottom, as text) drawn by `program`.
+ */
+public func harnessTuck(program: String, rows: [String]) -> HarnessTuck  {
+    return try!  FfiConverterTypeHarnessTuck_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_harness_tuck(
+        FfiConverterString.lower(program),
+        FfiConverterSequenceString.lower(rows),$0
+    )
+})
+}
+/**
+ * The harness a terminal's program name (its foreground process, or the agent its hook
+ * reported) names.
+ */
+public func tuckHarness(program: String) -> TuckHarness?  {
+    return try!  FfiConverterOptionTypeTuckHarness.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_tuck_harness(
+        FfiConverterString.lower(program),$0
+    )
+})
+}
+/**
  * Which device opens `url`, a link the person opened on the phone.
  */
 public func linkOpenSide(url: String) -> LinkOpenSide  {
@@ -6310,10 +6592,10 @@ public func overviewColumns(width: Double) -> UInt32  {
 })
 }
 /**
- * The layout of a window `width` by `height` points. A size that is not
- * finite or not positive is a compact phone's of that width (zero when
- * unknown), so a transient zero size during a scene change never shows two
- * panes.
+ * The layout of a window `width` by `height` points. A size with either side
+ * not finite or not positive is unknown, laid out as a zero-sized compact
+ * window, so a transient zero size during a scene change never shows two
+ * panes or a wide overview.
  */
 public func windowLayout(width: Double, height: Double) -> WindowLayout  {
     return try!  FfiConverterTypeWindowLayout_lift(try! rustCall() {
@@ -6381,6 +6663,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_harness_tuck() != 50034) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_tuck_harness() != 65008) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6408,7 +6696,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 29754) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 34233) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
@@ -6453,6 +6741,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_surface() != 44893) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_park() != 63347) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_path() != 46489) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6466,6 +6757,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume() != 43166) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {

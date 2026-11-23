@@ -135,7 +135,10 @@ fn last_text(rows: &[String]) -> Option<usize> {
 /// not status, and stays).
 fn live_status(row: &str) -> bool {
     let text = row.trim();
-    if text.contains("esc to interrupt") || text.contains("esc interrupt") || text.contains("ctrl+c to interrupt") {
+    if text.contains("esc to interrupt")
+        || text.contains("esc interrupt")
+        || text.contains("ctrl+c to interrupt")
+    {
         return true;
     }
     let mut chars = text.chars();
@@ -169,13 +172,18 @@ fn boxed(rows: &[String]) -> Option<usize> {
     Some(with_status_above(rows, open))
 }
 
-/// Codex CLI: the footer (model and cwd, hints), a blank, the `›` line and its wrapped rows.
+/// Codex CLI: the footer (model and cwd, hints, or a live status line), a blank, the `›` line
+/// and its wrapped rows, and a rule over it if one is drawn.
 fn codex(rows: &[String]) -> Option<usize> {
     let last = last_text(rows)?;
     // The footer: indented rows up to the first blank above them.
     let mut i = last;
     let mut footer = 0;
-    while i > 0 && !blank(&rows[i]) && rows[i].starts_with("  ") && footer < MAX_FOOTER_ROWS {
+    while i > 0
+        && !blank(&rows[i])
+        && (rows[i].starts_with("  ") || live_status(&rows[i]))
+        && footer < MAX_FOOTER_ROWS
+    {
         footer += 1;
         i -= 1;
     }
@@ -194,13 +202,19 @@ fn codex(rows: &[String]) -> Option<usize> {
     if !rows[i].starts_with('›') {
         return None;
     }
+    // A rule drawn over the `›` line is the box's top.
+    if i > 0 && rule(&rows[i - 1]) {
+        i -= 1;
+    }
     Some(with_status_above(rows, i))
 }
 
 /// opencode: the hint row, the `╹▀▀` rule, the `┃` rows of its box above it.
 fn opencode(rows: &[String]) -> Option<usize> {
     let last = last_text(rows)?;
-    let close = (last.saturating_sub(MAX_FOOTER_ROWS)..=last).rev().find(|&i| rows[i].trim_start().starts_with('╹'))?;
+    let close = (last.saturating_sub(MAX_FOOTER_ROWS)..=last)
+        .rev()
+        .find(|&i| rows[i].trim_start().starts_with('╹'))?;
     let mut open = close;
     while open > 0 && rows[open - 1].trim_start().starts_with('┃') && close - open < MAX_BOX_ROWS {
         open -= 1;

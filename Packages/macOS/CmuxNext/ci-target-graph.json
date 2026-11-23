@@ -142,6 +142,7 @@
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
@@ -582,6 +583,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApps",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextBrowserCore",
         "CmuxNextCompat",
@@ -590,6 +592,7 @@
         "CmuxNextIcons",
         "CmuxNextPages",
         "CmuxNextSettings",
+        "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -609,6 +612,7 @@
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
+        "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
       "packages": [

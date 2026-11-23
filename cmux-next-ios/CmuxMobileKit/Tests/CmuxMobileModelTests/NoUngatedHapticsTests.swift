@@ -50,7 +50,7 @@ import Testing
 
     @Test func noRawHapticEmissionOutsideGates() throws {
         var hits: [String] = []
-        for root in sourceRoots {
+        for root in Self.sourceRoots {
             for file in try Self.swiftFiles(in: root) where !Self.isAllowed(file) {
                 let text = try String(contentsOf: file, encoding: .utf8)
                 for (number, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
