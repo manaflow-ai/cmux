@@ -169,8 +169,8 @@ extension SidebarListViewComponents {
     /// How far left of its members' x `row` starts: a group header's reach over its rail (`SidebarStyle.groupLineX`)
     /// and the line layout's overhang past it (`groupHeaderOverhang`), never past the list's edge; 0 for other rows.
     func railReach(for row: SidebarRow) -> CGFloat {
-        // A plain folder draws no rail: its header keeps the rows' own frame.
-        guard case .group = row.key, !indent.indentsTopLevel else { return 0 }
+        // A plain folder draws no rail, nor does a card (its block wraps the rows): the header keeps the rows' own frame.
+        guard case .group = row.key, !indent.indentsTopLevel, !model.groupHeaderDetails.background.drawsCard else { return 0 }
         let membersX = inset + indentOffset(for: row)
         return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
     }
