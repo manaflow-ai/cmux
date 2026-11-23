@@ -75,6 +75,7 @@ import {
 } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
 import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
+import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
   cmuxTuiWebsocketSmokeCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
@@ -988,6 +989,16 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
   await L.step(vm, "agent-tools-desktop", rdSetupCommand());
 }
 
+/**
+ * The names many people added on their own machines (graduate.ts), installed in the agents layer so one shared
+ * copy replaces the many personal ones. Both bakes run it before the finalize records the image's packages.
+ */
+async function installGraduated(ctx: Ctx): Promise<void> {
+  const g = readGraduated();
+  if (g.apt.length + g.npm.length === 0) return;
+  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 290_000)).trim().split("\n").at(-1);
+}
+
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
 async function prefillDepCaches(ctx: Ctx): Promise<void> {
   await ctx.L.step(ctx.vm, "npm-cache-prefill", npmCachePrefillCommand(), 290_000);
@@ -1191,6 +1202,7 @@ async function baseSteps(ctx: Ctx): Promise<void> {
   await configureRoles(ctx);
   if (options.agentTools) await installAgentTools(ctx);
   // A layered bake fills it in the agents layer (overlaySteps), not twice.
+  if (!options.layered) await installGraduated(ctx);
   if (!options.layered) await prefillDepCaches(ctx);
   if (options.devTree) await installDevTree(ctx);
   await installMachineHealth(ctx);
@@ -1217,6 +1229,7 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
   if (layer === "agents") {
     await configureRoles(ctx);
     if (ctx.options.agentTools) await installAgentTools(ctx);
+    await installGraduated(ctx);
     await prefillDepCaches(ctx);
     await L.step(vm, "agents-done", "rm -rf /tmp/cmux-dl && echo agents-layer-ok");
     return;
