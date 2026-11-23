@@ -2584,10 +2584,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-tag-cache"
-version = "0.1.0"
-
-[[package]]
 name = "cmux-tab-snapshots"
 version = "0.1.0"
 dependencies = [
@@ -2596,6 +2592,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
 ]
+
+[[package]]
+name = "cmux-tag-cache"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-tailnet"

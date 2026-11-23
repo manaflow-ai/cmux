@@ -1124,7 +1124,7 @@ impl Hub {
         session: &Session,
         recent: usize,
         before: u64,
-    ) -> Value {
+    ) -> Result<Value, RpcError> {
         let (processes, older, cutoff) =
             (*self.cached_window(session, recent, Some(before))).clone();
         recent_values(processes, older, cutoff, recent, PROCESS_PAGE_BUDGET, output_len)

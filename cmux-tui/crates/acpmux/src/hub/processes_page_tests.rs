@@ -414,7 +414,7 @@ fn older_pages_walk_back_from_the_split_to_the_first_end_once_each() {
         for p in &page {
             assert!(seen.insert(p.id.clone()), "{} read twice", p.id);
         }
-        let reply = recent_values(page, older, split, 100, PROCESS_PAGE_BUDGET, |_| 0);
+        let reply = recent_values(page, older, split, 100, PROCESS_PAGE_BUDGET, |_| 0).unwrap();
         assert_eq!(reply.get("endedBefore").is_some(), older > 0);
         (before, left) = (split, older);
     }

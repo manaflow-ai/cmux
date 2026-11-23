@@ -71,10 +71,10 @@ async fn a_reopen_reads_the_cached_window_and_a_logged_process_makes_it_stale() 
     for _ in 0..9 {
         hub.process_windows.invalidate(InfoTag::Processes(session.id.clone()));
         let start = std::time::Instant::now();
-        first = hub.list_recent_processes(&session, 500, within);
+        first = hub.list_recent_processes(&session, 500, within).unwrap();
         cold.push(start.elapsed().as_secs_f64() * 1e3);
         let start = std::time::Instant::now();
-        let again = hub.list_recent_processes(&session, 500, within);
+        let again = hub.list_recent_processes(&session, 500, within).unwrap();
         warm.push(start.elapsed().as_secs_f64() * 1e3);
         assert_eq!(again, first, "the cached window answers as the table does");
     }
@@ -96,14 +96,14 @@ async fn a_reopen_reads_the_cached_window_and_a_logged_process_makes_it_stale() 
         table.log(at)
     };
     hub.append(&session, "mux", "process_update", json!({"process": logged}));
-    let after = hub.list_recent_processes(&session, 500, within);
+    let after = hub.list_recent_processes(&session, 500, within).unwrap();
     assert!(ids(&after).contains(&format!("chat/task-{SHELLS}")), "the logged shell is read");
     assert_eq!(after["omitted"], json!(SHELLS + 1 - 500));
 
     // An older page is cached the same way, and the same record kinds make it stale.
     let before = first["endedBefore"].as_u64().unwrap();
-    let older = hub.list_older_processes(&session, 200, before);
-    assert_eq!(hub.list_older_processes(&session, 200, before), older);
+    let older = hub.list_older_processes(&session, 200, before).unwrap();
+    assert_eq!(hub.list_older_processes(&session, 200, before).unwrap(), older);
     assert_eq!(ids(&older).len(), 200);
 }
 
@@ -116,8 +116,8 @@ async fn a_rebuilt_table_makes_its_windows_stale() {
         table.upsert(ended(0));
         *session.processes.lock().unwrap() = table;
     }
-    assert_eq!(ids(&hub.list_recent_processes(&session, 500, None)), ["chat/task-0"]);
+    assert_eq!(ids(&hub.list_recent_processes(&session, 500, None).unwrap()), ["chat/task-0"]);
     // The log holds none of them: the table read again from it is empty.
     hub.rebuild_processes(&session);
-    assert!(ids(&hub.list_recent_processes(&session, 500, None)).is_empty());
+    assert!(ids(&hub.list_recent_processes(&session, 500, None).unwrap()).is_empty());
 }
