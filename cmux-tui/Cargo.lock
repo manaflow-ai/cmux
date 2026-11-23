@@ -29,6 +29,7 @@ dependencies = [
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-environment",
+ "cmux-cloud-wire",
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-command-class",
@@ -60,6 +61,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-share-approval",
  "cmux-signed-bundle",
  "cmux-source-scan",
  "cmux-stack-auth",
@@ -2057,6 +2059,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-install-check"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-journal"
 version = "0.1.0"
 dependencies = [
@@ -2302,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2316,6 +2326,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "windows",
  "windows-sys 0.61.2",
  "x11rb",
 ]
@@ -2500,6 +2511,14 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "time",
+]
+
+[[package]]
+name = "cmux-share-approval"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2747,6 +2766,7 @@ dependencies = [
  "cmux-holder",
  "cmux-host",
  "cmux-host-budget",
+ "cmux-install-check",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-lifeline",
@@ -2868,6 +2888,7 @@ dependencies = [
  "arc-swap",
  "base64",
  "cmux-agent-cli-render",
+ "cmux-agent-customize",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",

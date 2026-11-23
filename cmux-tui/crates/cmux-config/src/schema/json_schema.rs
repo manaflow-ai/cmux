@@ -94,6 +94,15 @@ impl Schema {
                 "additionalProperties": false,
             }),
         );
+        root.insert(
+            "fonts".into(),
+            json!({
+                "type": "array",
+                "description": "Font files the app registers for itself while the file applies (a theme pack's own faces), as absolute file: paths; the look names their families (terminal.fontFamily).",
+                "items": { "type": "string", "pattern": "^file:/" },
+                "maxItems": 32,
+            }),
+        );
         for row in self.rows.iter().filter(|row| is_look(row)) {
             root.insert(row.key.clone(), leaf(row));
             if row.path.len() > 1 {
@@ -250,6 +259,27 @@ fn kind_schema(row: &Row) -> Value {
                 properties.insert(token.name.clone(), schema);
             }
             return json!({ "type": "object", "properties": properties, "additionalProperties": false });
+        }
+        Validation::Domain(DomainKind::Hosts) => {
+            let address = json!({ "type": "string", "pattern": "^[^\\s-][^\\s]*$" });
+            let host = json!({
+                "type": "object",
+                "required": ["label"],
+                "oneOf": [{ "required": ["endpoints"] }, { "required": ["endpoint"] }],
+                "properties": {
+                    "label": { "type": "string", "minLength": 1, "maxLength": crate::hosts::MAX_LABEL },
+                    "endpoints": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": crate::hosts::MAX_ENDPOINTS,
+                        "items": address,
+                    },
+                    "endpoint": address,
+                    "icon": { "type": "string" },
+                    "id": { "type": "string" },
+                },
+            });
+            return json!({ "type": "array", "items": host });
         }
         Validation::Domain(DomainKind::AppId) => {
             // The manifest's own id pattern, read from its schema.

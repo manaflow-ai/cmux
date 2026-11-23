@@ -57,6 +57,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether photos and videos keep their location (Settings > Home,
     /// `home.attachments.keepLocation`; false strips it, the default).
     public var keepLocation: () -> Bool = { false }
+    /// The app's clipboard history for the + menu's Clipboard rows (`home.clipboardHistory`); nil: none.
+    public var clipboardHistory: HomeClipboardHistory?
     /// The chain of attachment preparations, in the order they arrived.
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
@@ -233,6 +235,7 @@ public final class HomeNativeTranscriptView: NSView {
         noticeButton.action = #selector(noticeButtonClicked)
         addSubview(noticeButton)
         connectAttachments()
+        connectPlusMenu()
         connectVoice()
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
