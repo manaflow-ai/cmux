@@ -4,9 +4,11 @@
 //! first dial ([`LinkCell`]), after it the connection.
 //!
 //! Owner-only like the daemon's admin socket: an owner-controlled directory, the peer's uid
-//! checked on every connection, and nothing but [`AdminRequest::LinkState`] and
-//! [`AdminRequest::AwaitReady`] answered. It reads state and spends the link's own redial
-//! budget; it runs nothing and reaches no other object.
+//! checked on every connection, and nothing but [`AdminRequest::LinkState`],
+//! [`AdminRequest::AwaitReady`] and, on a link that serves them, the port forwards
+//! ([`AdminRequest::PortForward`], [`AdminRequest::PortList`], [`AdminRequest::PortClose`])
+//! answered. It reads state, spends the link's own redial budget and opens loopback forwards
+//! through the link ([`crate::link_ports`]); it runs nothing else and reaches no other object.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -26,11 +28,15 @@ use super::{
 };
 use crate::connection::{ClientConnection, ConnectionError};
 use crate::first_dial::{LinkCell, LinkPhase, NotConnected};
+use crate::link_ports::LinkPorts;
 use crate::observability::ConnectionState;
 use crate::unix_socket::{OwnedUnixListener, UnixSocketError};
 
 /// The longest wait one [`AdminRequest::AwaitReady`] may ask for.
 pub const LINK_AWAIT_LIMIT: Duration = Duration::from_secs(120);
+/// How long a client waits for a `port-forward` answer: the machine opens a workspace and a
+/// route first, over the link.
+pub const LINK_PORT_FORWARD_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The answer to both link requests.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +63,7 @@ pub(super) fn response_timeout(request: &AdminRequest) -> Duration {
         AdminRequest::AwaitReady { within_ms } => {
             Duration::from_millis(*within_ms).min(LINK_AWAIT_LIMIT) + ADMIN_IO_TIMEOUT
         }
+        AdminRequest::PortForward { .. } => LINK_PORT_FORWARD_TIMEOUT + ADMIN_IO_TIMEOUT,
         _ => ADMIN_IO_TIMEOUT,
     }
 }
@@ -74,7 +81,7 @@ pub async fn serve_link_admin(
     connection: &Arc<ClientConnection>,
     path: impl Into<PathBuf>,
 ) -> Result<AdminServer, AdminError> {
-    serve(LinkTarget::Connection(Arc::downgrade(connection)), path.into()).await
+    serve(LinkTarget::Connection(Arc::downgrade(connection)), None, path.into()).await
 }
 
 /// Serve a link's state on `path` from before its first connect: the first dial's state until
@@ -84,10 +91,24 @@ pub async fn serve_link_cell_admin(
     cell: &Arc<LinkCell>,
     path: impl Into<PathBuf>,
 ) -> Result<AdminServer, AdminError> {
-    serve(LinkTarget::Cell(Arc::downgrade(cell)), path.into()).await
+    serve(LinkTarget::Cell(Arc::downgrade(cell)), None, path.into()).await
 }
 
-async fn serve(target: LinkTarget, path: PathBuf) -> Result<AdminServer, AdminError> {
+/// [`serve_link_cell_admin`] that also serves the link's port forwards from `ports`
+/// (`port-forward`, `port-list`, `port-close`), held weakly as the cell is.
+pub async fn serve_link_cell_admin_with_ports(
+    cell: &Arc<LinkCell>,
+    ports: &Arc<LinkPorts>,
+    path: impl Into<PathBuf>,
+) -> Result<AdminServer, AdminError> {
+    serve(LinkTarget::Cell(Arc::downgrade(cell)), Some(Arc::downgrade(ports)), path.into()).await
+}
+
+async fn serve(
+    target: LinkTarget,
+    ports: Option<Weak<LinkPorts>>,
+    path: PathBuf,
+) -> Result<AdminServer, AdminError> {
     let listener = OwnedUnixListener::bind(path.clone()).await.map_err(|error| match error {
         UnixSocketError::Io(error) => AdminError::Io(error),
         UnixSocketError::Protocol(message) => {
@@ -126,9 +147,10 @@ async fn serve(target: LinkTarget, path: PathBuf) -> Result<AdminServer, AdminEr
             }
             let Ok(permit) = permits.clone().try_acquire_owned() else { continue };
             let target = target.clone();
+            let ports = ports.clone();
             connections.spawn(async move {
                 let _permit = permit;
-                let _ = serve_link_connection(target, stream).await;
+                let _ = serve_link_connection(target, ports, stream).await;
             });
         }
         connections.shutdown().await;
@@ -137,7 +159,11 @@ async fn serve(target: LinkTarget, path: PathBuf) -> Result<AdminServer, AdminEr
     Ok(AdminServer { path, socket_cleanup, shutdown: Some(shutdown_tx), task: Some(task) })
 }
 
-async fn serve_link_connection(target: LinkTarget, stream: UnixStream) -> Result<(), AdminError> {
+async fn serve_link_connection(
+    target: LinkTarget,
+    ports: Option<Weak<LinkPorts>>,
+    stream: UnixStream,
+) -> Result<(), AdminError> {
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
     let mut encoded = Vec::new();
@@ -152,6 +178,11 @@ async fn serve_link_connection(target: LinkTarget, stream: UnixStream) -> Result
         AdminResponse::failure("link request is too large")
     } else {
         match serde_json::from_slice::<AdminRequest>(&encoded) {
+            Ok(
+                request @ (AdminRequest::PortForward { .. }
+                | AdminRequest::PortList
+                | AdminRequest::PortClose { .. }),
+            ) => dispatch_ports(ports.as_ref(), request).await,
             Ok(request) => match &target {
                 LinkTarget::Connection(connection) => dispatch(connection, request).await,
                 LinkTarget::Cell(cell) => dispatch_cell(cell, request).await,
@@ -177,7 +208,9 @@ async fn dispatch(connection: &Weak<ClientConnection>, request: AdminRequest) ->
             };
             AdminResponse::success(await_connection(&connection, await_deadline(within_ms)).await)
         }
-        _ => AdminResponse::failure("a link's socket answers only link-state and await-ready"),
+        _ => AdminResponse::failure(
+            "a link's socket answers only link-state, await-ready and the port requests",
+        ),
     }
 }
 
@@ -189,7 +222,9 @@ async fn dispatch_cell(cell: &Weak<LinkCell>, request: AdminRequest) -> AdminRes
             AdminRequest::LinkState | AdminRequest::AwaitReady { .. } => {
                 AdminResponse::success(closed())
             }
-            _ => AdminResponse::failure("a link's socket answers only link-state and await-ready"),
+            _ => AdminResponse::failure(
+                "a link's socket answers only link-state, await-ready and the port requests",
+            ),
         };
     };
     match request {
@@ -219,7 +254,36 @@ async fn dispatch_cell(cell: &Weak<LinkCell>, request: AdminRequest) -> AdminRes
                 Err(NotConnected::Closed) => AdminResponse::success(closed()),
             }
         }
-        _ => AdminResponse::failure("a link's socket answers only link-state and await-ready"),
+        _ => AdminResponse::failure(
+            "a link's socket answers only link-state, await-ready and the port requests",
+        ),
+    }
+}
+
+/// The port requests, on a link that serves them.
+async fn dispatch_ports(ports: Option<&Weak<LinkPorts>>, request: AdminRequest) -> AdminResponse {
+    let Some(ports) = ports else {
+        return AdminResponse::failure("this link's socket does not serve port forwards");
+    };
+    let Some(ports) = ports.upgrade() else {
+        return AdminResponse::failure("the link is closed");
+    };
+    let answer = match request {
+        AdminRequest::PortForward { port, host, workspace_root } => {
+            match ports.forward(port, host, workspace_root).await {
+                Ok(forward) => serde_json::to_value(forward),
+                Err(reason) => return AdminResponse::failure(reason),
+            }
+        }
+        AdminRequest::PortList => serde_json::to_value(ports.list().await),
+        AdminRequest::PortClose { port, host } => {
+            serde_json::to_value(ports.close(port, host).await)
+        }
+        _ => return AdminResponse::failure("not a port request"),
+    };
+    match answer {
+        Ok(value) => AdminResponse::success(value),
+        Err(error) => AdminResponse::failure(error.to_string()),
     }
 }
 
