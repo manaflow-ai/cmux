@@ -5,7 +5,7 @@ import CmuxSpinner
 import Observation
 import SwiftUI
 
-/// One agent that works right now: a capsule of the Feed's "Working now" strip.
+/// One agent that works right now: a card of the Feed's "Working now" strip.
 struct WorkingAgent: Identifiable, Hashable, Sendable {
     var workspaceID: String
     var tabID: String
@@ -155,39 +155,45 @@ struct FeedWorkingStrip: View {
 
 private struct WorkingAgentCapsule: View {
     let agent: WorkingAgent
+    /// Two cards and the edge of a third fit an iPhone's width, so a glance says "there are more".
+    @ScaledMetric(relativeTo: .footnote) private var textWidth: CGFloat = 150
 
     var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: FeedRowCell.avatarSymbol(agent.harness))
-                .font(.footnote.weight(.semibold))
-                .frame(minWidth: 16)
-            Text(agent.place)
-                .font(.footnote.weight(.medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: 190, alignment: .leading)
-                .fixedSize(horizontal: true, vertical: false)
-            CmuxSpinner(size: 12)
-            if let since = agent.since {
-                // A system-driven timer: it counts up without a view update per second.
-                Text(since, style: .timer)
-                    .font(.caption.weight(.medium))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Image(systemName: FeedRowCell.avatarSymbol(agent.harness))
+                    .font(.caption.weight(.semibold))
+                    .frame(minWidth: 16, alignment: .leading)
+                Text(agent.workspaceTitle.isEmpty ? agent.agentName : agent.workspaceTitle)
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                CmuxSpinner(size: 12)
             }
+            HStack(spacing: 6) {
+                Text(agent.task.flatMap { $0.isEmpty ? nil : $0 } ?? agent.agentName)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                if let since = agent.since {
+                    // A system-driven timer: it counts up without a view update per second.
+                    Text(since, style: .timer)
+                        .font(.caption.weight(.medium))
+                        .monospacedDigit()
+                }
+            }
+            .foregroundStyle(.secondary)
         }
-        .padding(.leading, 11)
-        .padding(.trailing, 12)
-        .padding(.vertical, 6)
-        // Grows with Dynamic Type, as the filter chips under it.
-        .frame(minHeight: 36)
-        .cmuxMobilePressBackground(Color.cmuxMobileFill, in: .capsule)
-        // 44 pt target around the 36 pt capsule.
+        .frame(width: textWidth)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .cmuxMobilePressBackground(Color.cmuxMobileFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .frame(minHeight: 44)
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(agent.task.map { "\(agent.agentName) is working in \(agent.workspaceTitle): \($0)" }
-            ?? "\(agent.agentName) is working in \(agent.workspaceTitle)")
+        .accessibilityLabel("\(agent.agentName) is working in \(agent.place)")
         .accessibilityValue(agent.since.map { Text($0, style: .relative) } ?? Text(""))
         .accessibilityHint(agent.opensTerminal ? "Opens its terminal" : "Opens its chat")
         .accessibilityAddTraits(.isButton)
