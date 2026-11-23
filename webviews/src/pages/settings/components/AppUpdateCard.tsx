@@ -55,7 +55,7 @@ export function AppUpdateCard() {
         )}
         {state.schedule?.map((line) => (
           <ActionRow key={line.id} title={line.label} help="">
-            <span className="text-[12px] text-muted" data-app-update-schedule={line.id}>
+            <span className="text-detail text-muted" data-app-update-schedule={line.id}>
               {line.value}
             </span>
           </ActionRow>

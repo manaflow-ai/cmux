@@ -1742,7 +1742,7 @@
         {
           "key": "updates.installWhenIdle",
           "title": "Update When Idle",
-          "help": "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.",
+          "help": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
           "kind": "toggle",
           "default": false,
           "group": "Updates"
