@@ -7,7 +7,7 @@
 // measures the table's box against its column, the reply's own block.
 // CI fails the file when it cannot launch (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/reply-table-centered.test.ts
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
@@ -16,18 +16,12 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("reply-table-centered.test.ts", async () => {
   const ENTRY = "agent-pane.table-block";
   setDefaultTimeout(90_000);
-  try {
-    await (await chromium.launch({ headless: true })).close();
-  } catch {
-    describe.skip("reply table centered", () => test("no engine", () => {}));
-    return;
-  }
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const stageURL = (variant: string, width: number) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(ENTRY, { variant, frame: "component", width })}`;
+  const stageURL = (variant: string, width: number, arm?: string) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(ENTRY, { variant, frame: "component", width, arm, exp: arm ? "table-actions-place" : undefined })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -44,18 +38,10 @@ await requireBrowserLane("reply-table-centered.test.ts", async () => {
     await vite?.close();
   });
 
-  const open = async (variant: string, width: number): Promise<Page> => {
+  const open = async (variant: string, width: number, arm?: string): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width, height: 640 } });
-    for (;;) {
-      await page.goto(stageURL(variant, width));
-      try {
-        await page.waitForSelector(".cv-table-block .cv-table", { timeout: 30_000 });
-        break;
-      } catch (error) {
-        // The first load can run Vite's dependency optimizer and reload mid-compile.
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
+    await page.goto(stageURL(variant, width, arm));
+    await page.locator(".cv-table-block .cv-table").first().waitFor();
     return page;
   };
 
@@ -95,6 +81,17 @@ await requireBrowserLane("reply-table-centered.test.ts", async () => {
       expect(Math.abs(at.leftGap - at.rightGap), "the same room on each side").toBeLessThanOrEqual(1);
       await page.close();
     });
+
+  test("beside controls fit in the gutter of a centered table", async () => {
+    const page = await open("centered", 760, "beside");
+    const block = page.locator('.cv-table-block[data-actions="beside"]').first();
+    await block.hover();
+    const at = await geometry(page);
+    const tools = await block.locator(".cv-table-tools").boundingBox();
+    expect(Math.abs(at.leftGap - at.rightGap)).toBeLessThanOrEqual(1);
+    expect(at.rightGap).toBeGreaterThanOrEqual(tools!.width);
+    await page.close();
+  });
 
   for (const width of [420, 760])
     test(`too-wide at ${width}px: the table fills the column and scrolls in its own box`, async () => {
