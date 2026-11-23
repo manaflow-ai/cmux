@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { transcriptColumn, transcriptRowWidth } from "../model";
+import { transcriptColumn, transcriptRowWidth, transcriptLead } from "../model";
 import {
   closeComputerUsePreview,
   COMPUTER_USE_PREVIEW_RESERVE,
@@ -284,7 +284,8 @@ describe("the column keeps the card's room", () => {
     expect(plain).toEqual({ inset: 50, insetEnd: 50, width: 800 });
     const beside = transcriptColumn(900, column, COMPUTER_USE_PREVIEW_RESERVE);
     expect(beside).toEqual({ inset: 50, insetEnd: 204, width: 646 });
-    expect(transcriptRowWidth(900, column, COMPUTER_USE_PREVIEW_RESERVE)).toBe(646);
+    // Rows start at the composer's + (`transcriptLead`), so they are that much narrower than the column.
+    expect(transcriptRowWidth(900, column, COMPUTER_USE_PREVIEW_RESERVE)).toBe(646 - transcriptLead(646));
   });
 
   test("a wide pane's gutter already holds the card: nothing moves", () => {
