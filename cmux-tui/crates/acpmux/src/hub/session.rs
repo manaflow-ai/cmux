@@ -254,6 +254,14 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// The turn being started is a continuation a move at a tool boundary left
+    /// (`restart_resume.rs` `Cut::MoveAtBoundary`): a Claude process started for it may resume
+    /// the cut turn by itself (`claude_stdio/resume_cut.rs`). Set and cleared by `turns.rs`
+    /// around the start, under the turn lock.
+    pub(super) resume_cut_ask: AtomicBool,
+    /// The process just started does resume the cut turn: `turns.rs` takes it and sends the
+    /// continuation as a carried prompt, which writes nothing. Written by every Claude start.
+    pub(super) resumed_cut: AtomicBool,
     /// What the rehydrated transcript's note tells the agent, when not the restore's own: a fork
     /// onto another harness says it was forked from the chat (`fork.rs` `Retarget`). Taken with
     /// `rehydrate`.
