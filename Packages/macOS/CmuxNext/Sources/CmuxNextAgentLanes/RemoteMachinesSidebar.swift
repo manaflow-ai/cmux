@@ -111,6 +111,8 @@ public final class RemoteMachinesSidebar {
     /// its answer is dropped and the list read again.
     @ObservationIgnored private var peerPushes = 0
     @ObservationIgnored private let connectionPresentation = RemoteMachinesConnectionPresentation()
+    /// Only chats still displayed retain navigation through a brief watch gap.
+    @ObservationIgnored private var displayedLanes: [String: AgentActivityLane] = [:]
 
     public init(lanes: AgentLaneStore = .shared) {
         self.lanes = lanes
@@ -126,7 +128,7 @@ public final class RemoteMachinesSidebar {
         let lanes = lanes, refresh = refresh
         // task-owner: this instance; event-driven (Observation); each change only arms the one-shot `refresh`
         laneWatch = Task { [weak self] in
-            for await _ in ObservationStream({ _ = lanes.lanes; _ = SidebarTunables.laneFixture.value }) {
+            for await _ in ObservationStream({ _ = lanes.lanes; _ = lanes.live; _ = SidebarTunables.laneFixture.value }) {
                 refresh.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.rebuild() }
             }
         }
@@ -161,6 +163,7 @@ public final class RemoteMachinesSidebar {
         host = nil
         peers = nil
         machines = []
+        displayedLanes = [:]
         pages = [:]
         olderShown = []
         older = [:]
@@ -256,17 +259,35 @@ public final class RemoteMachinesSidebar {
             return true
         }
         guard let session = Self.suffix(raw, Self.sessionPrefix) else { return false }
-        if let lane = lanes.lanes[session] { host?.open(lane) }
+        if let lane = lanes.lanes[session] ?? displayedLanes[session] { host?.open(lane) }
         return true
     }
 
-    private func rebuild() {
+    func rebuild() {
         guard laneWatch != nil else { return } // stopped: a fire queued before `stop()` does nothing
         askForPeers()
         // Captures run no peers: the sample machines stand in (`sidebar.laneFixture`, Debug, off).
-        let current = SidebarTunables.laneFixture.value ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
-            : Self.machines(lanes: lanes.lanes.values, peers: peers)
+        let current: [Machine]
+        if SidebarTunables.laneFixture.value {
+            current = Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
+        } else if lanes.beforeGap != nil {
+            // An empty watch is unknown, not a fresh empty session list. Use the same bounded
+            // disconnect presentation as a peer drop; never freeze a stale working state forever.
+            current = machines.map { machine in
+                var down = machine
+                down.online = false
+                down.chats = []
+                return down
+            }
+        } else {
+            current = Self.machines(lanes: lanes.lanes.values, peers: peers)
+        }
         let next = connectionPresentation.update(current) { [weak self] in self?.rebuild() }
+        var navigation: [String: AgentActivityLane] = [:]
+        for chat in next.flatMap(\.chats) {
+            navigation[chat.id] = lanes.lanes[chat.id] ?? displayedLanes[chat.id]
+        }
+        displayedLanes = navigation
         if machines != next { machines = next }
     }
 

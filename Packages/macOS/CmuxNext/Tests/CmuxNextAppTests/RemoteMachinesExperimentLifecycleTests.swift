@@ -2,6 +2,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextSidebar
 import Observation
 import Testing
 
@@ -51,5 +52,35 @@ struct RemoteMachinesExperimentLifecycleTests {
         #expect(await host.peers() == nil)
         #expect(await host.older("peer", nil) == nil)
         #expect(reads == 3, "each request gets the current path even if an earlier read had none")
+    }
+
+    @Test func watchGapKeepsDisplayedChatNavigableAndFreshPageRemovesIt() {
+        let lanes = AgentLaneStore()
+        let lane = RemoteMachinesSidebarTests.lane("durable", peer: "studio")
+        lanes.lanes = [lane.id: lane]
+        lanes.live = true
+        let sidebar = RemoteMachinesSidebar(lanes: lanes)
+        var opened: [AgentActivityLane] = []
+        sidebar.bind(host: .init(peers: { nil }, older: { _, _ in nil },
+                                 displayName: { _ in nil }, open: { opened.append($0) }))
+        defer { sidebar.stop() }
+        let shown = sidebar.machines
+        let row = LayoutItemID(LayoutItemID.transientPrefix + "remote:session:" + lane.id)
+
+        // Match AgentTurnStateFeed.lost: mark the watch down before clearing its live store.
+        lanes.live = false
+        lanes.lanes = [:]
+        sidebar.rebuild()
+        #expect(sidebar.machines == shown, "a watch gap keeps the last rows for the quiet period")
+        #expect(sidebar.activate(row))
+        #expect(opened == [lane], "the visible row still opens the same remote session")
+
+        lanes.live = true
+        sidebar.rebuild()
+        #expect(sidebar.machines.isEmpty, "a fresh empty page really removes the chat")
+        _ = sidebar.activate(row)
+        #expect(opened == [lane], "removed rows retain no navigation state")
+        sidebar.stop()
+        #expect(sidebar.rows().isEmpty)
     }
 }
