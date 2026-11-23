@@ -1,0 +1,514 @@
+{
+  "version": 1,
+  "build": "4510943012901",
+  "notes": "notes/4510943012901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 51423,
+      "title": "rivals: cmux NEXT vs Claude, Codex and other apps, first install to idle RAM ceiling",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51421,
+      "title": "What's New customizations-menu: a clip that shows the cmux > Customizations menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51463,
+      "title": "piece-swap: list web-ui and rust-core, merge-on-push classes once the drill passed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50733,
+      "title": "remote-host: a known verb with wrong arguments names its usage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50339,
+      "title": "acpmux: opt-in team usage sharing (one record per turn, batched upload)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50644,
+      "title": "acpmux wrap_up: take summary (and other close names) as recap, and the card draws it (hq#18786)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45227,
+      "title": "Screen Sharing: an agent may start viewing your own devices, and app mac-screens says where a tab stands",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51389,
+      "title": "cmux-encode: the frame guard's QP floor stays under the ladder's QP ceiling (VideoToolbox -12902)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51119,
+      "title": "Rollback check: a call goes on from the place of the call before it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51391,
+      "title": "CI: run the step table's linux job on the feat-cmux-next tip (report-only)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47069,
+      "title": "health: parallelize Freestyle VM inventory pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51432,
+      "title": "acpmux ls: a kept relay listing is served at once, never waited on; the stall bench adds --machine local and warm-cache legs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51405,
+      "title": "cmux-next: compile-status ends when the controller posts the compile status",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51446,
+      "title": "ci(cmux-next): bound the seed restores' LAN cache wait at 8 minutes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48254,
+      "title": "Screen sharing: keep viewer candidates received before the session answer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50431,
+      "title": "typing bench: the launch arm writes the build it launches, and proves its switches once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51203,
+      "title": "zero-to-going: steps and Cloud seconds per Start page level, from one harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51305,
+      "title": "bench_memory: --release-hidden-chats refuses an attached app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50393,
+      "title": "mcp hub: sign in with a device code (RFC 8628) for registry `auth: device` servers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49901,
+      "title": "cmux-next-ios: terminal projection, parity and resize-equivalence harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51377,
+      "title": "Revert \"Glass: terminals show the glass at Opacity 1 (tint capped at 40%/55%) (#50499)\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51314,
+      "title": "bench_ram_baseline: count a launched peer's WebKit processes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50978,
+      "title": "rd-link: resume a screen share in one trip after the host wakes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51153,
+      "title": "Popup windows open with the page focused, not the omnibar",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46234,
+      "title": "Tasks and Bookmarks: a status event or a relist during search renders only the rows it changes",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/46234/hv-f0f422ec1c2a-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 51264,
+      "title": "Regenerate the Swift Linux inventory after CmuxMobileBilling moved (cmux#51128 review F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42999,
+      "title": "test(ios): prove mounted screen sharing input and stop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51437,
+      "title": "api: production trusts main's Cloud journey job by its OIDC token (environment subject)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49272,
+      "title": "webviews: the pane-english and popup-host tests name the sources that are there now",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49272/hv-a15136265dc0-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 51356,
+      "title": "app_ffi_additive: strip only a __cplusplus block that holds nothing but the wrapper",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50573,
+      "title": "test(agent pane): a daemon reconnect keeps the permission card and transcript on every frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50829,
+      "title": "webviews: feel plan tray green on the fix; the harness knows snap-along rests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49748,
+      "title": "Backgrounds: drag to place, zoom, Fill or Fit, per picture (Adjust Background…)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51037,
+      "title": "test(watchdog): read the Atomics before #expect, so the tests compile",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51323,
+      "title": "Screen Sharing helper: one identity and one copy per channel; old builds' copies and per-tag DEV rows cleaned up",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51418,
+      "title": "acpmux sign-in enroll: another account's unredeemed join proposal is set aside before this join",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50708,
+      "title": "cmux chat --wait here: wait on acpmux's own turn end and read on one connection",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50708/hv-8397d6e0b35c-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 50710,
+      "title": "acpmux: Claude Code chats read acpmux's MCP server instructions from the cached system prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50637,
+      "title": "acpmux: a new Claude Code chat spawns on its start effort (--effort), no set_config after initialize",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50912,
+      "title": "Screen sharing: the host opens its capture and encoder during the handshake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39001,
+      "title": "composer: Cloud's Environment chip on by default, on Auto",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49109,
+      "title": "Living wallpapers: six calm ones (sakura, sumi, koi, snowfall, lanterns, rain)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51407,
+      "title": "post-merge: create swap-out, probe and revert branches with the workflows token when minted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49757,
+      "title": "Backgrounds: Recent Backgrounds and Switch to Previous Background, one click between rotating folders and past picks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51308,
+      "title": "acpmux: rename a session only the mesh hub reaches; no session verb answers no_session for one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50920,
+      "title": "Tuck the transcript to the composer's +, round the composer and its hat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51302,
+      "title": "cmux-tui-core: the signal source's floored tell is signal_source_due, not a second signal_due",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50935,
+      "title": "cloud-journey: a preclaim miss starts the agent on its launch credential, not a 4.3 s post-bind login copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47927,
+      "title": "Computer Use approvals: the palette picks the app from the saved approvals (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50430,
+      "title": "cmux-mobile-host: phone pushes only while away from the Mac (opt-in)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51157,
+      "title": "cmux-tui: an idle holder terminal no longer keeps a 64 KiB read buffer in the daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51269,
+      "title": "cloud: a Cloud Chief's machine size comes from the plan's chief_size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44208,
+      "title": "Screen sharing: draw the Mac's own cursor on iPhone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51196,
+      "title": "app_ffi_additive: a declaration moved within its directive interval is not additive",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45071,
+      "title": "Screen sharing: the follow camera on the phone (FollowCamera in CmuxMobileLinkFFI)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50930,
+      "title": "Declare the phone link's capability names once in cmux-mobile-link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51350,
+      "title": "chat: move TranscriptView's shell and jump wiring into transcript/ (RFD 0046 step 3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50929,
+      "title": "The settings Swift is built by a SwiftPM plugin, not committed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50008,
+      "title": "share host: a session stopped before its viewer connected logs how far it got and the helper's own end reason",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44008,
+      "title": "Screen Sharing: a signed-in Mac stops reading as signed out, and every build reads its device hub (CMUX-572)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51033,
+      "title": "acpmux duress bench: ls/send/register/wake latency and false-dead/false-alive under load",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51379,
+      "title": "bench(terminal-throughput): --payload sgr, a color change on every character (reading note)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51342,
+      "title": "cu-png: roll the one-second bucket before adding a frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50341,
+      "title": "MCP code mode: declare and hint tool names that are no identifiers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50346,
+      "title": "MCP connect registry: add five observability and platform servers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48063,
+      "title": "c-6975a1a4cf: read saved VM files without waking",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49740,
+      "title": "Backgrounds: Desktop Wallpaper follows every macOS change (rotation, per screen, fit/fill, aerials, time of day)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51363,
+      "title": "scripts/measure: projection-macos, FSEvents per agent checkout on a Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50872,
+      "title": "Screen sharing: the host answers at its first host candidate; a trickled route gets the handshake at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51352,
+      "title": "Device list: a Linux desktop's Share opens the screen host the hub lists",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50788,
+      "title": "Computer Use: a window_id may be the window's title or app name, so no list_windows turn comes first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51104,
+      "title": "rd-link: 50 ms first handshake retry; a learned LAN route is a LAN path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50877,
+      "title": "Chat switch: the first commit lands at the open position",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50774,
+      "title": "Chat switch: the thread rail is placed in the next frame, off the switch's forced layout",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50774/hv-e1575b4adba1-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 50233,
+      "title": "acpmux session move: a running turn moves between its tool calls and goes on there; a failed move says why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51250,
+      "title": "Fix two feat-cmux-next base reds: stray diff3 marker, collapsible if",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51319,
+      "title": "Revert \"Agent chat: no wait for the local agent service on connect\"",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51247,
+      "title": "remote-protocol: a Connect ticket can name its CarrierGrant, and a Connect can carry it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50850,
+      "title": "pick-forward onto #49987: One fixed path per helper bundle id, so macOS stops asking again; the helper is named \"<app> Helper\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49397,
+      "title": "home-inbox: a window builds only its rows (home-inbox-window-v1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51083,
+      "title": "cmux-rd: an OpenH264 viewer gets Constrained Baseline, and refuses High loudly (#50591)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47425,
+      "title": "Docs: a signed-in build to drive is a copy of a signed-in app, not an authenticated dev build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51175,
+      "title": "cmux-tui: opt-in updates.daemon takes each merge's daemon build live (off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
