@@ -142,13 +142,11 @@ final class OnboardingService {
         }
     }
 
-    /// A Sign In's login in a local terminal tab (false: none opened), or its provider's page in the front window beside this tool window, which slides off
-    /// the page's pane and back once the sign-in ends (``WindowPlacement/sideBySide(_:besidePane:)``). A top page covers either, so it shows once the page is left.
+    /// A Sign In's login in a local terminal tab (false: none opened), or its provider's page in the front window beside this tool window, which slides off the page's pane and back once the sign-in ends (``WindowPlacement/sideBySide(_:besidePane:)``). A top page covers either, so it shows once the page is left.
     private func openSignIn(_ line: String) async -> Bool { leaveTopPageForSignIn(); return await services.openLocalProviderLogin(line) }
     private func openSignInPage(_ url: URL) -> @MainActor () -> Void {
         leaveTopPageForSignIn(); var putBack: @MainActor () -> Void = {}
-        let back = services.linkOpener.openSignInPage(url, beside: nil) { [weak self] pane in if let tool = self?.controller?.window { putBack = WindowPlacement.sideBySide(tool, besidePane: pane.view) } }
-        return { back(); putBack() }
+        let back = services.linkOpener.openSignInPage(url, beside: nil) { [weak self] pane in if let tool = self?.controller?.window { putBack = WindowPlacement.sideBySide(tool, besidePane: pane.view) } }; return { back(); putBack() }
     }
     private func leaveTopPageForSignIn() { if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page } }
 
