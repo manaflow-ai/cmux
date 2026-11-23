@@ -2298,6 +2298,12 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     echo(&mut first, b"one\n").await;
     echo(&mut second, b"two\n").await;
     assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(2));
+    // `gauges.links` counts them, both ends of each (other tests in this process add theirs).
+    let links = acpmux::gauges::links().status();
+    assert!(links["keptStreamsOpen"].as_u64().unwrap() >= 4, "{links}");
+    assert!(links["hubKeptOpen"].as_u64().unwrap() >= 2, "{links}");
+    assert!(links["hubKeptDials"].as_u64().unwrap() >= 1, "{links}");
+    assert!(links["keptStreamOpens"].as_u64().unwrap() >= opens + 2, "{links}");
 
     // A half close: the far side reads the end, closes, and the stream ends; the other lives on.
     first.shutdown().await.unwrap();

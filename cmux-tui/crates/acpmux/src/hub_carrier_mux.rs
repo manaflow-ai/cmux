@@ -116,6 +116,8 @@ struct Entry {
     events: mpsc::UnboundedSender<Event>,
     credit: Arc<Semaphore>,
     answer: Option<oneshot::Sender<Result<(), ServiceRefusal>>>,
+    /// `gauges.links.keptStreamsOpen`, given back when the stream leaves the circuit.
+    _open: crate::gauges::Held,
 }
 
 /// Which end of a kept circuit this is.
@@ -140,6 +142,8 @@ pub(crate) struct Mux {
     stats: Arc<Stats>,
     /// The dialer's: where the answer to its `mux` hello goes, the circuit's first record back.
     hello: Mutex<Option<oneshot::Sender<Result<(), ServiceRefusal>>>>,
+    /// `gauges.links.hubKeptOpen`: given back at `close`, or when the circuit drops unclosed.
+    open: Mutex<Option<crate::gauges::Held>>,
 }
 
 /// The answer to a kept circuit's `mux` hello.
@@ -158,6 +162,7 @@ impl Mux {
             quiet_since: Mutex::new(Instant::now()),
             stats,
             hello: Mutex::new(None),
+            open: Mutex::new(Some(crate::gauges::Held::on(&crate::gauges::links().hub_kept_open))),
         })
     }
 
@@ -191,6 +196,7 @@ impl Mux {
         for entry in streams.into_values() {
             entry.credit.close();
         }
+        self.open.lock().unwrap_or_else(|e| e.into_inner()).take();
         self.closing.notify_waiters();
         let _ = self.link.close().await;
     }
@@ -217,7 +223,8 @@ impl Mux {
         if self.is_closed() || streams.contains_key(&id) {
             return None;
         }
-        streams.insert(id, Entry { events, credit: credit.clone(), answer });
+        let _open = crate::gauges::Held::on(&crate::gauges::links().kept_streams_open);
+        streams.insert(id, Entry { events, credit: credit.clone(), answer, _open });
         Some((received, credit))
     }
 
@@ -494,6 +501,7 @@ impl Mux {
             Ok(Err(refusal)) => Ok(Err(refusal)),
             Ok(Ok(())) => {
                 self.stats.kept_opens.fetch_add(1, Ordering::Relaxed);
+                crate::gauges::bump(&crate::gauges::links().kept_stream_opens);
                 let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
                 let mux = self.clone();
                 scope().spawn_named("hub carrier kept stream", async move {

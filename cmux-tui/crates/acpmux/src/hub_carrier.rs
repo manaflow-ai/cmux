@@ -698,6 +698,7 @@ impl HubCarrier {
 
     fn carry_plain(&self, secure: cmux_remote::crypto::SecureLink) -> HubStream {
         self.stats.dials.fetch_add(1, Ordering::Relaxed);
+        crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
         let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
         let stats = self.stats.clone();
         tokio::spawn(async move { pump(Box::new(secure), theirs, &stats).await });
@@ -790,6 +791,7 @@ impl HubCarrier {
         daemon: &str,
     ) -> Result<(Arc<mux::Mux>, mux::HelloAnswer, DialStages), String> {
         let (secure, stages) = self.open_circuit(daemon).await?;
+        crate::gauges::bump(&crate::gauges::links().hub_kept_dials);
         secure.send(mux::mux_hello()).await.map_err(|e| e.to_string())?;
         let (mux, said) = mux::start_dialer(
             Box::new(secure),
@@ -1384,6 +1386,8 @@ async fn pump<S>(link: Box<dyn FrameLink>, io: S, stats: &Stats)
 where
     S: AsyncRead + AsyncWrite + Send + Unpin,
 {
+    // Held while the circuit is carried: `gauges.links.hubPlainOpen`.
+    let _open = crate::gauges::Held::on(&crate::gauges::links().hub_plain_open);
     let link: Arc<dyn FrameLink> = Arc::from(link);
     let (mut read, mut write) = tokio::io::split(io);
     let chunk = link.maximum_frame_bytes().clamp(1, CHUNK_BYTES);
