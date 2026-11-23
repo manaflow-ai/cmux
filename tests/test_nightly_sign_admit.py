@@ -33,6 +33,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -512,6 +513,15 @@ class AdmitCase(unittest.TestCase):
             self.assertIsNone(policy.nightly_slot_reason(label), label)
         self.assertTrue(admit.TRUSTED_POOL_LABEL.fullmatch(policy.CLASSIC_NIGHTLY_MINI_VARIABLES["CI_CLASSIC_NIGHTLY_MINI"]))
         self.assertEqual(admit.RUNNER_NAME_LABEL.pattern, policy.RUNNER_NAME_LABEL.pattern)
+        # The signing Mac (vars.CI_NIGHTLY_SIGN_RUNNER) is named outside the policy module; pin it to its test's constant.
+        sign = re.search(r'"(glaeda-trusted-next-signing)"', (ROOT / "tests/test_classic_nightly_one_mini.py").read_text())
+        self.assertIsNotNone(sign)
+        self.assertTrue(admit.TRUSTED_POOL_LABEL.fullmatch(sign.group(1)))
+        # The policy's GUI pools never take a trusted or nightly prefix, so neither form is a builder.
+        for label in ("glaeda-trusted-gui-std-xcode-26.6", "glaeda-nightly-gui-std-xcode-26.6"):
+            self.assertIsNotNone(policy.trusted_pool_reason(label), label)
+            self.assertIsNotNone(policy.nightly_slot_reason(label), label)
+            self.assertFalse(admit.TRUSTED_POOL_LABEL.fullmatch(label), label)
         # Every pull request pool label the policy allows a runner variable to name is refused as a builder.
         for label in ("glaeda-std-xcode-26.6", "glaeda-aws-xl-xcode-26.6", "glaeda-gui-std-xcode-26.6", "glaeda-ios-sim"):
             self.assertTrue(policy.OWNED_MAC_LABEL.fullmatch(label), label)
