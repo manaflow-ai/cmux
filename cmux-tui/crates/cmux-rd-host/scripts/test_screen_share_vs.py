@@ -475,8 +475,9 @@ class TailnetHostIpTests(unittest.TestCase):
             a=types.SimpleNamespace(host="mac-a", host_ip=host_ip, clock_count=5),
             py="python3", me="screen-share-vs.py",
             host=types.SimpleNamespace(popen=lambda cmd: srv),
-            viewer=types.SimpleNamespace(run=fail))
-        with self.assertRaises(RuntimeError) as cm:
+            viewer=types.SimpleNamespace(run=fail), CLOCK_TRIES=2)
+        me.clock_once = lambda: vs.Orchestrator.clock_once(me)
+        with self.assertRaises(RuntimeError) as cm, contextlib.redirect_stderr(io.StringIO()):
             vs.Orchestrator.clock(me)
         return str(cm.exception)
 
