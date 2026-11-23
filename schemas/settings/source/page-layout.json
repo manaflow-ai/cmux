@@ -533,7 +533,7 @@
           "lead": ["sharedLinks"],
           "groups": [
             {"title": {"key": "settings.pageGroup.localData", "text": "Data on This Mac"}, "keys": [
-              "history.terminalCommands", "home.attachments.keepLocation"
+              "history.terminalCommands", "home.attachments.keepLocation", "home.clipboardHistory"
             ]},
             {"title": {"key": "settings.pageGroup.network", "text": "Network Requests"}, "keys": [
               "browser.omnibar.remoteSuggestions", "announcements.fetch"

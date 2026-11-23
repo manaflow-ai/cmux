@@ -432,6 +432,7 @@ fn serve_projection(
                 let _ = (&stream).write_all(&bytes);
             }
         } else {
+            super::projection_away::install(mux);
             crate::projection::serve(&stream, first, leftover, &roots);
         }
     }
@@ -495,6 +496,7 @@ pub(super) fn serve_local_projection(
     let _ = stream.set_read_timeout(None);
     let _ = stream.set_write_timeout(Some(Duration::from_secs(60)));
     let Ok(writer) = stream.try_clone_box() else { return };
+    super::projection_away::install(mux);
     crate::projection::serve_io(stream, writer, first, leftover, &roots);
 }
 

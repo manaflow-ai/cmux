@@ -135,7 +135,7 @@ async fn send(
             from: Sender {
                 name: caller.map(|id| hub.session_name(id)),
                 session_id: caller.map(str::to_owned),
-                host: Some(crate::pairing::machine_name()),
+                host: Some(crate::pairing::mesh_host()),
                 ..Sender::default()
             },
             kind: Kind::Prompt,
