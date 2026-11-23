@@ -19,6 +19,9 @@ Exit status 0 when every check passes.
 """
 import argparse, json, os, socket, sys, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable, wait_until  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--out", default="/tmp")
@@ -67,7 +70,27 @@ def row(check, expected, observed, ok):
 def key(name, *modifiers):
     reply = rpc("debug.key", {"key": name, "modifiers": list(modifiers)})
     print("key", "+".join([*modifiers, name]), json.dumps(reply)[:120], flush=True)
-    time.sleep(0.4)  # test harness: the key's focus change lands
+    settle_focus(f"focus after {'+'.join([*modifiers, name])}")
+
+
+def focus_state():
+    """What a jump key changes: the focused pane, the responder, the sidebar and the focused workspace."""
+    focus = window_focus()
+    return (focus.get("layout_focused_pane"), (focus.get("appkit") or {}).get("classified"),
+            (focus.get("model") or {}).get("sidebar_hidden"), focused_workspace())
+
+
+def settle_focus(what):
+    # The key's focus change landed: the focus state held still for 0.4 s (some keys change nothing on purpose).
+    wait_stable(focus_state, what, timeout=10, interval=0.1, reads=5)
+
+
+def new_workspace():
+    before = focused_workspace()
+    print("new workspace:", action("workspace.newAtBottom"), flush=True)
+    # The workspace shows and its terminal takes focus.
+    wait_until(lambda: focused_workspace() not in (None, before) and focused_pane(), "the new workspace in focus", timeout=15)
+    settle_focus("focus in the new workspace")
 
 
 def action(name):
@@ -112,11 +135,12 @@ def panes_by_number():
 
 
 def pane_checks():
-    print("new workspace:", action("workspace.newAtBottom"), flush=True)
-    time.sleep(1.5)  # test harness: the workspace shows and its terminal takes focus
+    new_workspace()
     for _ in range(2):
+        count = len(window_focus().get("topology") or [])
         print("splitRight:", action("splitRight"), flush=True)
-        time.sleep(1)  # test harness: the split pane shows
+        wait_until(lambda: len(window_focus().get("topology") or []) > count, "the split pane", timeout=10)
+        settle_focus("focus after the split")
     panes = len(window_focus().get("topology") or [])
     landed = panes_by_number()
     print("landed:", landed, flush=True)
@@ -128,7 +152,7 @@ def pane_checks():
 
     key("1", "control", "command")
     print("focusNextPane:", action("focusNextPane"), flush=True)
-    time.sleep(0.4)  # test harness: focus lands
+    wait(lambda: focused_pane() == landed["2"], 5, step=0.05)  # Next Pane's focus lands (checked just below)
     after_next = focused_pane()
     row("Pane 1 then Next Pane is pane 2", "reading order matches Next Pane", f"{after_next} vs {landed['2']}",
         distinct and after_next == landed["2"])
@@ -141,8 +165,7 @@ def pane_checks():
 
 def sidebar_checks():
     first = focused_workspace()
-    print("new workspace:", action("workspace.newAtBottom"), flush=True)
-    time.sleep(1.5)  # test harness: the workspace shows and its terminal takes focus
+    new_workspace()
     second = focused_workspace()
 
     key("e", "control", "command")
@@ -192,7 +215,8 @@ def main():
         pane_checks()
         sidebar_checks()
         rpc("settings.set", {"path": "labs.previewFeatures", "value": True})
-        time.sleep(0.5)  # test harness: the settings snapshot reloads
+        wait_until(lambda: (rpc("settings.get", {"path": "labs.previewFeatures"}) or {}).get("value") is True,
+                   "labs.previewFeatures on", timeout=10)
         menu_checks()
     finally:
         if before is None:
