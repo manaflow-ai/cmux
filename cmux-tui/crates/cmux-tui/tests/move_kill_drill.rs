@@ -684,8 +684,13 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
     loop {
         let on_mac = open_on(&mut mac_acpmux, &session);
         let on_vm = open_on(&mut vm_acpmux, &session);
-        let ran = turn_results(&mac_acpmux.events(&session), QUEUED_ID)
-            + if on_vm { turn_results(&vm_acpmux.events(&session), QUEUED_ID) } else { 0 };
+        // Where the chat is open, its journal holds every record: a landed chat's carries the
+        // Mac's, so the two sides are never added.
+        let ran = if on_vm {
+            turn_results(&vm_acpmux.events(&session), QUEUED_ID)
+        } else {
+            turn_results(&mac_acpmux.events(&session), QUEUED_ID)
+        };
         if (on_mac ^ on_vm && ran >= 1) || Instant::now() > deadline {
             break;
         }
@@ -712,7 +717,9 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
     } else {
         (&mac_events, &mut mac_acpmux, "mac")
     };
-    let ran = turn_results(&mac_events, QUEUED_ID) + turn_results(&vm_events, QUEUED_ID);
+    // The live journal holds every record of the chat (a landed one carries the Mac's), so a
+    // prompt run on the Mac before a given-back move and carried over counts once.
+    let ran = turn_results(live_events, QUEUED_ID);
     match ran {
         1 => {}
         0 => out.lost.push("queued prompt never ran".into()),
