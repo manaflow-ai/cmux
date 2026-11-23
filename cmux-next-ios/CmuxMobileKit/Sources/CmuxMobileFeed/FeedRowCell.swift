@@ -28,6 +28,10 @@ protocol FeedRowCellDelegate: AnyObject {
     func rowCodeExpand(_ id: String)
     func rowCopyCommand(_ id: String)
     func rowMenu(_ id: String) -> UIMenu
+    /// The long-press preview of the row (nil: the menu alone).
+    func rowPeek(_ id: String) -> UIViewController?
+    /// The preview was tapped: open what it showed.
+    func rowPeekCommit(_ id: String)
     func rowWebHeight(_ id: String, _ height: CGFloat)
     var rowsSettled: Bool { get }
 }
@@ -711,7 +715,18 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard let delegate else { return nil }
         let id = id
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in delegate.rowMenu(id) }
+        // Long-press peeks at the chat (FeedPeek): the preview is built only when the menu opens.
+        return UIContextMenuConfiguration(identifier: id as NSString, previewProvider: { [weak delegate] in delegate?.rowPeek(id) }) { _ in
+            delegate.rowMenu(id)
+        }
+    }
+
+    /// A tap on the preview opens what it shows, with the system's pop.
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willPerformPreviewActionForMenuWith configuration: UIContextMenuConfiguration,
+                                animator: any UIContextMenuInteractionCommitAnimating) {
+        guard let id = configuration.identifier as? String else { return }
+        animator.preferredCommitStyle = .pop
+        animator.addCompletion { [weak delegate] in delegate?.rowPeekCommit(id) }
     }
 
     // MARK: Helpers
