@@ -64,6 +64,7 @@ mod remote_link_mux;
 mod self_install;
 mod spill;
 mod ssh_carrier;
+mod spill_cloud;
 use daemon_lifecycle::*;
 use enroll::*;
 use exec_cp::{ExitWith, run_cp, run_exec};
