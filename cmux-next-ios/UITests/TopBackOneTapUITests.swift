@@ -56,14 +56,15 @@ final class TopBackOneTapUITests: XCTestCase {
                       "screen=\(app.frame.size): \(restingTop ? "top" : "NOT-AT-TOP")")
                 XCTAssertTrue(restingTop, "\(step): keyboard down, Back is not at the top (\(restingBack.frame) on \(app.frame.size))")
                 attach(app, "\(step)-keyboard-down")
-                let field = app.textViews.firstMatch.exists ? app.textViews.firstMatch : app.textFields.firstMatch
-                guard field.waitForExistence(timeout: 10), field.isHittable else {
-                    print("CMUX_TOP_BACK \(step): SKIPPED (no composer field)")
-                    attach(app, "SKIP-\(step)")
+                // The workspace's composer, whichever kind it opened on: the agent chat's (a
+                // collapsed "Reply to ..." capsule first) or the terminal's. No composer is a failure:
+                // a skipped step proved nothing on the run before this one.
+                guard focusComposer(app) else {
+                    XCTFail("\(step): no composer to focus\n\(app.debugDescription)")
+                    attach(app, "FAIL-\(step)-no-composer")
                     leave(app)
                     continue
                 }
-                field.tap()
                 let keyboard = app.keyboards.firstMatch
                 XCTAssertTrue(keyboard.waitForExistence(timeout: 8), "\(step): no keyboard")
                 attach(app, "\(step)-keyboard-up")
@@ -98,5 +99,22 @@ final class TopBackOneTapUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.45)),
                     withVelocity: .fast, thenHoldForDuration: 0)
         _ = app.tabBars.firstMatch.waitForExistence(timeout: 5)
+    }
+
+    /// Focuses the open workspace's composer; false when it has none.
+    private func focusComposer(_ app: XCUIApplication) -> Bool {
+        for id in ["chat.composer.field", "terminal.composer.field"] {
+            let field = app.textViews[id].firstMatch
+            if field.waitForExistence(timeout: 3), field.isHittable { field.tap(); return true }
+        }
+        let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+        if capsule.waitForExistence(timeout: 3), capsule.isHittable {
+            capsule.tap()
+            let field = app.textViews["chat.composer.field"].firstMatch
+            if field.waitForExistence(timeout: 5) { if !app.keyboards.firstMatch.waitForExistence(timeout: 2) { field.tap() }; return true }
+        }
+        let key = app.buttons["terminal.key.keyboard"].firstMatch
+        if key.waitForExistence(timeout: 3), key.isHittable { key.tap(); return true }
+        return false
     }
 }
