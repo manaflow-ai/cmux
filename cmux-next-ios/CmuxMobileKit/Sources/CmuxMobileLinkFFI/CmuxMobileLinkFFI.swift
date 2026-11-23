@@ -1348,8 +1348,9 @@ public protocol FollowCameraProtocol: AnyObject, Sendable {
     /**
      * One message of the `focus` channel (a JSON event), received at
      * `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
-     * replaced by `now_us`. A message that is not an event is refused and
-     * changes nothing.
+     * replaced by `now_us`, except that events sharing one Mac `t_us` (the
+     * rects of one redraw) all take the phone time the first of them got.
+     * A message that is not an event is refused and changes nothing.
      */
     func pushJson(line: String, nowUs: UInt64) throws 
     
@@ -1475,8 +1476,9 @@ open func mode() -> FollowCameraMode  {
     /**
      * One message of the `focus` channel (a JSON event), received at
      * `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
-     * replaced by `now_us`. A message that is not an event is refused and
-     * changes nothing.
+     * replaced by `now_us`, except that events sharing one Mac `t_us` (the
+     * rects of one redraw) all take the phone time the first of them got.
+     * A message that is not an event is refused and changes nothing.
      */
 open func pushJson(line: String, nowUs: UInt64)throws   {try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
     uniffi_cmux_mobile_link_ffi_fn_method_followcamera_push_json(
@@ -2693,6 +2695,11 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
      */
     func feed(bytes: Data, paint: Bool)  -> [ProjectionSegment]
     
+    /**
+     * Paints what unpainted feeds changed, once (nothing on the alternate screen).
+     */
+    func flush()  -> [ProjectionSegment]
+    
     func isAlternate()  -> Bool
     
     /**
@@ -2816,6 +2823,17 @@ open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
             self.uniffiCloneHandle(),
         FfiConverterData.lower(bytes),
         FfiConverterBool.lower(paint),$0
+    )
+})
+}
+    
+    /**
+     * Paints what unpainted feeds changed, once (nothing on the alternate screen).
+     */
+open func flush() -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_flush(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -6513,7 +6531,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_mode() != 38203) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_push_json() != 58022) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_push_json() != 54911) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_resume() != 43594) {
@@ -6562,6 +6580,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_feed() != 63739) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_flush() != 56682) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_is_alternate() != 62553) {
