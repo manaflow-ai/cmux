@@ -519,7 +519,6 @@
     "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
     "nightly.yml#published-in": {"class": "portable-checks"},
     "nightly.yml#dispatch-published-in": {"class": "portable-checks"},
-    "nightly.yml#dispatch-nightly-next-sign": {"class": "portable-checks"},
     "nightly.yml#retry-nightly-next": {"class": "portable-checks"},
     "nightly.yml#wake-nightly-next-tick": {"class": "portable-checks"},
     "nightly.yml#published-build": {"class": "portable-checks"},
