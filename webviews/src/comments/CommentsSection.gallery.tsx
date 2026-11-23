@@ -3,6 +3,7 @@
 // header's trailing button) in each send state, and the two placements it was chosen over.
 import { componentEntry } from "../gallery/format";
 import type { SidebarCommentEntry } from "./annotations";
+import { SavedComment } from "./SavedComment";
 import { CommentsSidebarSection } from "./CommentsSection";
 import { commentDisplayName } from "./format";
 import { resolveCommentLabels } from "./labels";
@@ -35,10 +36,44 @@ const entries = (count: number): SidebarCommentEntry[] =>
   }));
 
 type Design = "header" | "footer" | "link";
-type Props = { design?: Design; count?: number; state?: CommentsSendState };
+type ThreadKind = "sent" | "answered" | "failed" | "long";
+type Props = { design?: Design; count?: number; state?: CommentsSendState; thread?: ThreadKind };
+
+const LONG_REPLY = [
+  "Done. Uploads now take their attempt count from `net.retries` in config, defaulting to 5.",
+  "",
+  ...Array.from({ length: 14 }, (_, i) => `Step ${i + 1}: adjusted the retry path and covered it with a test.`),
+].join("\n");
+
+const threadComment = (kind: ThreadKind): DiffCommentRecord => ({
+  ...COMMENTS[0]!,
+  thread: {
+    promptId: "p1",
+    sentAt: "2026-11-07T00:01:00.000Z",
+    state: kind === "sent" ? "sent" : kind === "failed" ? "failed" : "answered",
+    ...(kind === "answered"
+      ? { reply: { text: "Done. It now reads `net.retries` from config.", at: "2026-11-07T00:02:00.000Z" } }
+      : {}),
+    ...(kind === "long" ? { reply: { text: LONG_REPLY, at: "2026-11-07T00:02:00.000Z" } } : {}),
+  },
+});
+
+/** A sent comment as the diff draws it under its line: the thread card in each state. */
+function CommentThreadStage({ thread = "sent" }: Props) {
+  return (
+    <SavedComment
+      comment={threadComment(thread)}
+      labels={resolveCommentLabels(undefined)}
+      onDelete={() => {}}
+      onReply={() => {}}
+      onSaveMessage={() => {}}
+    />
+  );
+}
 
 /** The sidebar's bottom, as FilesSidebar lays it out: the section under a stand-in file tree. */
-function CommentsSendStage({ design = "header", count = 2, state = "idle" }: Props) {
+function CommentsSendStage({ design = "header", count = 2, state = "idle", thread }: Props) {
+  if (thread != null) return <CommentThreadStage thread={thread} />;
   const labels = resolveCommentLabels(undefined);
   const list = entries(count);
   return (
@@ -114,7 +149,7 @@ export default componentEntry<Props>({
   area: "Pages",
   height: 300,
   widths: { normal: 300 },
-  covers: ["comments/CommentsSection.tsx"],
+  covers: ["comments/CommentsSection.tsx", "comments/SavedComment.tsx"],
   styles: () => import("../styles.css"),
   load: async () => CommentsSendStage,
   variants: {
@@ -133,6 +168,22 @@ export default componentEntry<Props>({
     "header-many": {
       props: { design: "header", count: 3 },
       note: "Three comments across three files.",
+    },
+    "thread-sent": {
+      props: { thread: "sent" },
+      note: "Kept after Send to agent: the comment, then 'Sent to agent…'; Resolve only until the turn ends.",
+    },
+    "thread-answered": {
+      props: { thread: "answered" },
+      note: "The agent's reply under the comment, with Reply and Resolve.",
+    },
+    "thread-failed": {
+      props: { thread: "failed" },
+      note: "The turn failed: one line says so; Reply asks again, Resolve removes it.",
+    },
+    "thread-long-reply": {
+      props: { thread: "long" },
+      note: "A long reply scrolls inside the card instead of pushing the diff down.",
     },
     "alt-footer": {
       props: { design: "footer", count: 2 },
