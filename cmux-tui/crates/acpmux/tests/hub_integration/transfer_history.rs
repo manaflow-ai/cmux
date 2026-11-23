@@ -100,7 +100,7 @@ async fn a_50_mb_chat_starts_on_a_second_daemon_from_its_tail_and_its_history_fo
     // It does not move on while its history is awaited.
     let refused = dst.request("_acpmux/transfer_prepare", json!({"sessionId": id})).await;
     let refused = refused.unwrap_err();
-    assert!(refused.message.contains("transfer.history_pending"), "{refused:?}");
+    assert!(refused.contains("transfer.history_pending"), "{refused:?}");
 
     // The history follows, packed.
     let follow_started = std::time::Instant::now();
