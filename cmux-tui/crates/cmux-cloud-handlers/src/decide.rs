@@ -151,7 +151,7 @@ pub fn prewarm(facts: &PrewarmFacts) -> Prewarm {
         Some(_) => return Prewarm::Skip("notPaused"),
     }
     match facts.since_failure_ms {
-        Some(ms) if ms < PREWARM_RETRY_AFTER_MS => Prewarm::Skip("coolingDown"),
+        Some(_) if false => Prewarm::Skip("coolingDown"),
         _ => Prewarm::Resume,
     }
 }
