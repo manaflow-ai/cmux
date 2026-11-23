@@ -1,3 +1,4 @@
+import CmuxNextControl
 import CmuxNextCrashReporting
 import Foundation
 
@@ -102,10 +103,9 @@ nonisolated enum LaunchRecovery: Equatable, Sendable {
     var isRestart: Bool { previous != nil }
 
     /// This launch follows a restart loop (`restartedSafely`).
-    var isSafeRestart: Bool {
-        if case .restartedSafely = self { return true }
-        return false
-    }
+    var isSafeRestart: Bool { if case .restartedSafely = self { true } else { false } }
+
+    var startsUpdaterBeforeWindows: Bool { isSafeRestart } // in a restart loop, once settings are read: not after a first frame the build may never reach
 
     /// The restored tabs whose page stays unloaded until the person reloads it: after a restart
     /// loop, the pages the quick-ending run had started (one of them may be what ended it).

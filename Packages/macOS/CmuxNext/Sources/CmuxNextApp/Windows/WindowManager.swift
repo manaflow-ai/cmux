@@ -8,8 +8,11 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextHomeEngine
+import CmuxNextHomeModel
 import CmuxNextLayout
 import CmuxNextWakeups
+import CmuxNextWindowRules
 import Observation
 import CmuxNextCloudUI
 
@@ -62,6 +65,9 @@ final class WindowManager {
     private var notSavedToasts: [String: CmuxToastHandle] = [:]
     /// New workspaces windows asked for before the daemon reported them (`WorkspaceClaims`).
     var claims = WorkspaceClaims()
+    /// Spaces off (#48355): a workspace moved into a window on another space, selected there once its pin shows it while the
+    /// window still shows what it showed at the move (`since`) or that workspace: a pick made since wins.
+    var pinSelections: [String: (window: String, since: String?)] = [:]
     /// Windows to open behind (automation, Option).
     var behindWindows: Set<String> = []
     /// While ``fileOpenedMachine(of:into:)`` re-runs reconcile: a window that pass opens files nothing again.
@@ -157,13 +163,19 @@ final class WindowManager {
     }
 
     /// The window actions without an explicit target act in: during an input event's dispatch the
-    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the
-    /// last active one.
+    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the frontmost
+    /// on screen by the registry's recency (every key change and `WindowActivation` order, also one in front
+    /// without the keys, which `lastActive` misses), else the last active one. A CLI run with no key window acts
+    /// in the window in front, never the first opened (Leo 2026-11-16: "idk why you guys opened a new window").
     var active: WindowController? {
         if let origin = eventOriginWindow { return origin }
         if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
-        return lastActive ?? controllers.first
+        let shown = controllers.filter { $0.window.map(isOnScreen) ?? false }.map(\.state.id)
+        return registry.value.mostRecent(of: shown).flatMap(controller(for:)) ?? lastActive ?? controllers.first
     }
+
+    /// Whether a window is on screen for ``active``; a test that never orders its windows in sets its own.
+    var isOnScreen: @MainActor (NSWindow) -> Bool = { $0.isVisible && !$0.isMiniaturized }
 
     /// The controller whose window is `window` or owns it: a sheet, a
     /// Chromium page window, the palette or another panel over it.
@@ -205,6 +217,7 @@ final class WindowManager {
     func state(for windowID: String) -> WindowState {
         if let state = states[windowID] { return state }
         let state = registry.closeSelection.watch(WindowState(id: windowID, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
+        state.onProfileChange = { [weak self] in self?.registry.spaceEntered(windowID); self?.spaceDidChange() }
         states[windowID] = state
         return state
     }
@@ -223,10 +236,10 @@ final class WindowManager {
             makeController(for: WindowRegistry.Window(id: id, frame: services.daemon.launchSnapshotWindows?.lastFrame?.rect,
                                                       display: services.daemon.launchSnapshotWindows?.lastDisplay))
         }
-        let store = services.daemon.store
+        let store = services.daemon.store; DebugTimings.markLaunch("window.restore_wait_start") // the wait on the daemon's first tree
         loadObservation = Task { [weak self] in
             for await loaded in ObservationStream({ store.isLoaded }) where loaded {
-                await self?.restore()
+                DebugTimings.markLaunch("window.restore_wait_end"); await self?.restore()
                 return
             }
         }
@@ -241,11 +254,16 @@ final class WindowManager {
             services.notifications.feedDriver?.run()
             restoreClosed.restoreEnded(in: registry.value, applied: services.daemon.store.appliedSequence) { self.services.workspace(id: $0) != nil }
         }
+        // A launch snapshot the daemon does not know (WindowRules+Launch): the window drops it, as a launch with nothing to restore.
+        if let launch = launchWindowID, let state = controller(for: launch)?.state, WindowRules().launchSnapshotIsStale(snapshot: services.daemon.launchSnapshotRegistryID,
+            live: services.daemon.store.registryID, shown: state.workspaceID, listed: registry.provisional[launch], isLive: { self.services.machines.workspace(id: $0) != nil }) {
+            services.daemon.launchSnapshotWindows = nil; registry.provisional[launch] = nil; state.adopt(WindowRecord(id: launch)) }
         registry.clearProvisional()
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         let saved = await readSavedWindows()
         guard !Task.isCancelled, !isTerminating else { return }
-        guard let document = saved else { restoreGaveUp = true; return reconcileMembership() }
+        // No saved session to tell a first run by: Meet Chief does not start, and Chief's welcome is not held.
+        guard let document = saved else { restoreGaveUp = true; services.onboarding.chief.begin(freshInstall: false); return reconcileMembership() }
         // Incognito workspaces a crashed run left on a daemon without state
         // resources: the app's ledger owns them, so they close, never shown.
         // A daemon with state resources owns its ephemeral workspaces (it closes them at its
@@ -273,8 +291,12 @@ final class WindowManager {
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
-        if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
-        for record in document.windows where states[record.id] == nil { states[record.id] = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction) }
+        if closedLaunchWindowID != nil, let front = restoredRegistry.frontOpen(where: hasMirroredWorkspace) { restoreClosed.closed(front) }
+        for record in document.windows where states[record.id] == nil {
+            let state = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
+            state.onProfileChange = { [weak self, id = record.id] in self?.registry.spaceEntered(id); self?.spaceDidChange() }
+            states[record.id] = state
+        }
         rememberMachines(of: document)
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
@@ -285,9 +307,9 @@ final class WindowManager {
         }
         reconcileMembership()
         // No saved window open (the last one closed, then quit, or the open ones' workspaces ended meanwhile): a relaunch restores
-        // only what was open at quit (#31514). Closed windows keep their workspaces; the launch window opens on a new one (or `firstWorkspace`).
+        // only what was open at quit (#31514). Closed windows keep their workspaces; the launch window opens `firstWorkspace`, else what the launch rule says.
         let opensFresh = restoreClosed.windows.isEmpty && !registry.value.windows.isEmpty && !registry.value.windows.contains(where: \.isOpen)
-        if opensFresh, let launch = launchWindowID { if let first = firstWorkspace { claimNew(workspaceID: first, window: launch) } else { Task { _ = await createWorkspace(into: launch, newTabPage: true) } } }
+        if opensFresh, let launch = launchWindowID { if let first = firstWorkspace { claimNew(workspaceID: first, window: launch) } else if FirstWorkspaceLanding().opensWithNoSavedWindowOpen(classicHome: services.home.dock.isClassic, homeEnsured: services.home.homeWorkspaceID != nil) == .newTab { Task { _ = await createWorkspace(into: launch, newTabPage: true) } } }
         // Restored windows but the front one come back at their saved place, in any content arrival order.
         restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
         sync(previous: [:])
@@ -314,16 +336,26 @@ final class WindowManager {
         // Its New Tab page or Home; not after the person closed a window meanwhile: revealing it
         // opens a window again (the Home workspace shows before the restore finished).
         if restoreClosed.windows.isEmpty { FirstWorkspaceLaunch(manager: self).land(firstWorkspace, leftover: leftover) }
+        // A relaunch lands where the person was, that workspace and tab or Home (cmux-window-rules `launch::landing`); a saved workspace the daemon lacks: Home.
+        if restoreClosed.windows.isEmpty, firstWorkspace == nil, !opensFresh, let front = registry.value.frontOpen(where: { _ in true }), let controller = controller(for: front),
+           let landing = document.windows.first(where: { $0.id == front }).flatMap({ WindowRules().launchLanding(front: $0, workspace: services.workspace(id:)) }) {
+            if case let .workspace(id, pane, tab) = landing, controller.state.workspaceID != id || controller.content?.workspace.id != id {
+                if let pane, let tab { controller.state.selection.select(tab, in: pane) }; select(id, in: controller.state); controller.showWorkspace(requested: id)
+            } else if landing == .home(why: "unknownWorkspace"), services.home.homeWorkspace != nil { AppActions.showHome(services) }
+        }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
+        let isFirstRun = firstWorkspace != nil && document.windows.isEmpty // Meet Chief decides before Home's welcome:
+        services.onboarding.chief.begin(freshInstall: isFirstRun && ChiefIntroStore(defaults: .standard).welcomePending)
         Task {
             await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
-            let isFirstRun = firstWorkspace != nil && document.windows.isEmpty
-            // One step at a time: Agents, then Bring your history once its window closed.
+            // One step at a time: the Set Up cmux card, or the first-run windows one after another.
             await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
+            // A new person's first launch: a new agent chat, ready to type (cmux#48416).
+            await services.onboarding.openFirstChat(isFirstRun: isFirstRun)
             // Then, once per channel: `cmux` in Terminal that would not run this app.
-            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.skipsOnboarding)
+            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
@@ -354,7 +386,7 @@ final class WindowManager {
     /// nothing saved it stays the only window and receives every workspace.
     private func adoptLaunchWindow(_ restored: WindowRegistry, records: [WindowRecord]) -> WindowController? {
         guard let launchID = launchWindowID, let launch = controller(for: launchID),
-              let front = adoptableFront(restored),
+              let front = restored.frontOpen(where: hasMirroredWorkspace),
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front
@@ -363,7 +395,8 @@ final class WindowManager {
         states[front] = launch.state
         launch.sidebar.restore(width: record.sidebarWidth, hidden: record.sidebarHidden)
         if services.environment.testWindow == nil, let frame = restored.window(front)?.frame {
-            launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
+            let visible = WindowPlacementFallback.visible(frame, display: restored.window(front)?.display)
+            launch.window?.setFrame(LaunchDisplay.placed(visible, defaultSize: WindowController.defaultSize) ?? visible, display: true)
         }
         return launch
     }
@@ -373,14 +406,8 @@ final class WindowManager {
     private func placeLaunchWindow(_ document: WindowStateDocument) {
         guard services.environment.testWindow == nil, let launch = launchWindowID.flatMap(controller(for:)),
               let frame = document.lastFrame?.rect else { return }
-        launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: document.lastDisplay), display: true)
-    }
-
-    /// The frontmost saved window that can show a workspace now; one whose
-    /// workspaces are gone or still connecting would leave the launch
-    /// window on screen with nothing to show.
-    private func adoptableFront(_ restored: WindowRegistry) -> String? {
-        restored.recency.first { id in restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true }
+        let visible = WindowPlacementFallback.visible(frame, display: document.lastDisplay)
+        launch.window?.setFrame(LaunchDisplay.placed(visible, defaultSize: WindowController.defaultSize) ?? visible, display: true)
     }
 
     func restoresSession(_ id: String) -> Bool { registry.restoresSession(id, launchWindow: launchWindowID, saved: previousLaunch?.windowIDs) }
@@ -390,14 +417,20 @@ final class WindowManager {
     /// Creates the controller of registered window `id`.
     @discardableResult
     func makeController(for window: WindowRegistry.Window) -> WindowController {
-        let state = state(for: window.id)
-        var frame = (window.frame ?? pendingFrames.removeValue(forKey: window.id)).map { WindowPlacementFallback.visible($0, display: window.display) }
+        DebugTimings.markLaunch("window.make_start"); let state = state(for: window.id) // the first window's marks (startup-tti)
+        // A frame its caller chose (tear-off, Move to New Window) is kept; only the launch and
+        // restored windows move to the launch display (#51115).
+        let chosen = pendingFrames.removeValue(forKey: window.id)
+        var frame = (window.frame ?? chosen).map { WindowPlacementFallback.visible($0, display: window.display) }
         let placement = services.environment.testWindow
         if let placement, let placed = placement.windowFrame(ordinal: placedWindows, visibleFrames: NSScreen.screens.map(\.visibleFrame)) {
             frame = placed
             placedWindows += 1
+        } else if chosen == nil, restoring || !restored,
+                  let placed = LaunchDisplay.placed(frame, defaultSize: WindowController.defaultSize, cascade: controllers.count) {
+            frame = placed
         }
-        let controller = WindowController(state: state, services: services, frame: frame)
+        let controller = WindowController(state: state, services: services, frame: frame); DebugTimings.markLaunch("window.init_done")
         controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: restoresSession(window.id)) // REOPEN-F2: a restore shows in place; a new window opens like one (#38128)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
@@ -449,8 +482,8 @@ final class WindowManager {
 
     /// Orders a new window in without taking focus under no-activate.
     func present(_ controller: WindowController) {
-        // Tests: never on the user's display. Otherwise one rule: under
-        // no-activate behind the others (in front on a test screen), never key.
+        controller.sidebar.sectionsPass?.completeFirstFrame() // the first frame reads each band item's value (SidebarFirstFrame)
+        // Tests: never on the user's display. Otherwise one rule: under no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil
         services.background.windowWillAppear(activates: !behind && ordersWindowsIn) // leave background mode first (cx-ghagp)
         let restacks = restacking.remove(controller.state.id) != nil
@@ -459,7 +492,7 @@ final class WindowManager {
             // A restored window shown alone comes forward without key; the order keeps its saved place.
             let kept = keepsOrder
             keepsOrder = restacks
-            WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present)
+            WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present); DebugTimings.markLaunch("window.ordered_front")
             keepsOrder = kept
         }
         onPresent?(controller)

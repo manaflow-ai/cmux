@@ -32,7 +32,7 @@ import Testing
     }
 
     @Test func agentsComesAheadOfImportAndComputerUse() {
-        #expect(OnboardingModel.Step.allCases == [.agents, .importData, .computerUse])
+        #expect(OnboardingModel.Step.allCases == [.agents, .importData, .computerUse, .makeItYours])
     }
 
     /// `_acpmux/harnesses` rows joined with `_acpmux/harness/health`: a terminal profile, a
@@ -420,7 +420,7 @@ import Testing
         #expect(noneShown().isEmpty, "no agent CLI found (only ones to install): nothing opens")
     }
 
-    /// One step at a time: the first-run step after Agents (Bring your history) waits until the
+    /// One step at a time: the first-run step after Agents (finishing the first launch) waits until the
     /// Agents window closed; with no tool window open it goes at once.
     @Test func theNextFirstRunStepWaitsForTheAgentsWindowToClose() async throws {
         @MainActor final class Order { var steps: [String] = [] }

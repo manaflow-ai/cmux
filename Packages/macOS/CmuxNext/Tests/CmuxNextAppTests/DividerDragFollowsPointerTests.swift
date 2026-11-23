@@ -48,7 +48,7 @@ struct DividerDragFollowsPointerTests {
             root.driver.isManual = true
             model.intentHandler = { [unowned self] intent in
                 switch intent {
-                case .setSplitRatio(_, _, _, .ended), .setColumnWidth(_, _, _, _, .ended): ended.append(intent)
+                case .setSplitRatio(_, _, _, .ended), .setColumnWidth(_, _, _, _, .ended), .setLayoutSizes: ended.append(intent)
                 default: break
                 }
             }

@@ -119,29 +119,45 @@ fn dispatch_command(
         Command::RemoteHostCall { method, params } => {
             remote_host_command::call(mux, client, &method, params)
         }
-        Command::RemoteHostConfig { computer_use, screen_sharing, headless } => {
-            remote_host_command::config(
-                mux,
-                client,
-                json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless}),
-            )
+        Command::RemoteHostConfig { computer_use, screen_sharing, headless, app_permissions } => {
+            let update = json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless});
+            remote_host_command::config(mux, client, update, app_permissions)
         }
         Command::RemoteHostApp => remote_host_command::app(mux, client),
+        Command::ComputerUseEndpoint => computer_use_command::endpoint(mux, client),
+        Command::ComputerUseConfig { config } => computer_use_command::config(mux, client, config),
+        Command::ComputerUseApprovals { action, app_id, id, answer } => {
+            computer_use_command::approvals(
+                mux,
+                client,
+                json!({"action": action, "app_id": app_id, "id": id, "answer": answer}),
+            )
+        }
+        Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
+            device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
+        }
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout, restart } => {
-            cmd_server::shutdown_daemon(
-                mux,
-                client,
-                pid,
-                generation,
-                force,
-                end_terminals,
-                keep_layout,
-                restart,
-            )
-        }
+        Command::ShutdownDaemon {
+            pid,
+            generation,
+            force,
+            end_terminals,
+            keep_layout,
+            restart,
+            if_idle,
+        } => cmd_server::shutdown_daemon(
+            mux,
+            client,
+            pid,
+            generation,
+            force,
+            end_terminals,
+            keep_layout,
+            restart,
+            if_idle,
+        ),
         Command::Ping => cmd_server::ping(),
         Command::SetClientInfo {
             name,
@@ -348,24 +364,13 @@ fn dispatch_command(
         Command::TerminalLastCommand { surface, terminal_id } => {
             cmd_terminals::terminal_last_command(mux, surface, terminal_id)
         }
+        Command::TerminalCommandContext { surface, intent } => {
+            cmd_terminals::terminal_command_context(mux, surface, intent)
+        }
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
-            cmd_tabs::new_tab(
-                mux,
-                client,
-                actor,
-                pane,
-                cwd,
-                env,
-                cols,
-                rows,
-                keep,
-                terminal_id,
-                shell_args,
-            )
-        }
+        Command::NewTab(params) => cmd_tabs::new_tab(mux, client, actor, params),
         Command::NewConversationTab(params) => cmd_tabs::new_conversation_tab(mux, client, params),
         Command::BindConversationTabSession(params) => {
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
@@ -571,6 +576,10 @@ fn dispatch_command(
         Command::NewRow(params) => cmd_panes::new_row(mux, client, params),
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
         Command::MoveColumn(params) => column_move::move_column(mux, client, params),
+        Command::FloatPane(params) => floating_panes::float_pane(mux, client, actor, params),
+        Command::QuickTerminal(params) => {
+            floating_panes::quick_terminal(mux, client, actor, params)
+        }
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             cmd_tabs::move_tab_to_new_workspace(
                 mux,
@@ -695,6 +704,10 @@ fn dispatch_command(
             conversations::link_resolve(mux, client, params)
         }
         Command::ConversationInboxOp(params) => conversations::inbox_op(mux, client, params),
+        Command::ConversationScheduledList(params) => {
+            conversation_scheduled::list(mux, client, params)
+        }
+        Command::ConversationScheduledOp(params) => conversation_scheduled::op(mux, client, params),
         Command::HomeInbox(params) => conversations::home_inbox(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
@@ -1008,6 +1021,10 @@ fn dispatch_command(
             replay_history_rows,
             output_coalesce_ms,
             replay_history_start,
+            hybrid_stream,
+            hybrid_frame,
+            resume_offset,
+            resume_generation,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -1028,6 +1045,8 @@ fn dispatch_command(
                 replay_history_rows,
                 output_coalesce_ms,
                 replay_history_start,
+                (hybrid_stream, hybrid_frame),
+                (resume_offset, resume_generation),
                 snapshot,
             )
         }

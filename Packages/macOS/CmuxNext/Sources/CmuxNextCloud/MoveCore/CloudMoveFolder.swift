@@ -96,6 +96,13 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable, Decodable {
         let reply = CloudMoveCore().call("folder_remote", Request(root: root, subpath: subpath, workRoot: workRoot), as: Reply.self)
         return (reply?.folder ?? workRoot, reply?.chat ?? workRoot)
     }
+
+    /// ``remote(under:)`` with the synced folder's name ending in `suffix` (Move to Cloud's and Bring Back's copy).
+    public func remote(under workRoot: String, suffix: String) -> (folder: String, chat: String) {
+        let base = remote(under: workRoot)
+        guard !suffix.isEmpty else { return base }
+        return (base.folder + suffix, base.folder + suffix + String(base.chat.dropFirst(base.folder.count)))
+    }
 }
 
 /// Where the Cloud toggle (`cloud.newWorkspacesInCloud`) sends a person's New Workspace: nil keeps it on this Mac;

@@ -24,7 +24,8 @@
 //! `"lsArgv": ["relay", "sessions"]` is how such a host sees the other machines' sessions: `acpmux
 //! ls` (and the MCP `ls` tool) runs it, reads `{"sessions": [...]}` from its stdout, and lists every
 //! row whose `peer` names another machine beside this host's own, so `HOST/NAME` is found before
-//! it is sent to. A relay that fails or is slow costs a warning, never the local list.
+//! it is sent to. A relay that fails or is slow costs a warning, never the local list: `ls`
+//! waits for it a short budget and otherwise serves its last good listing (`ls_far.rs`).
 //! Leo, 2026-11-05, on sends between lane machines: "Just do what's expected. Just do the magic."
 
 use crate::cli::errors::{AppError, Code};
@@ -32,25 +33,64 @@ use crate::cli::output::print_json;
 use crate::cli::sender::{FROM_ENV, Subagent};
 use crate::prompt_class::PromptClass;
 use anyhow::{Context, Result, anyhow};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use tokio::time::Instant;
 
-/// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when
-/// set, prints the other machines' live sessions as `{"sessions": [...]}` (see the module doc).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SendRelay {
-    pub argv: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ls_argv: Option<Vec<String>>,
-}
+pub use crate::config::SendRelay;
 
 /// How long a relay listing may take before `ls` goes on without it.
 pub(crate) const LS_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// The directories under `$HOME` a relay program is looked for in when it is a bare name the
+/// PATH lacks, as `native.rs` looks for `opencode`: `lane-gh` lives in `~/.local/bin`, on a
+/// lane VM shell's PATH but not the acpmux daemon's, so every MCP `send` to a peer reached through
+/// the broker failed `cannot run the send relay "lane-gh": No such file or directory`
+/// (2026-11-21).
+const HOME_BIN_DIRS: [&str; 3] = [".local/bin", ".bun/bin", "bin"];
+
+/// The well-known install directories outside `$HOME`, after those.
+const SYSTEM_BIN_DIRS: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
+
+/// The program a relay's `argv[0]` runs: a path as it is; a bare name on `path` (the daemon's
+/// own, then the login PATH spawned processes see), else under `home`'s and the system's
+/// install directories, as an absolute path. A miss names every place it looked.
+pub(crate) fn relay_program(
+    program: &str,
+    paths: &[std::ffi::OsString],
+    home: Option<&std::path::Path>,
+) -> Result<std::path::PathBuf> {
+    if program.contains('/') {
+        return Ok(program.into());
+    }
+    let mut tried: Vec<std::path::PathBuf> = Vec::new();
+    let dirs = paths
+        .iter()
+        .flat_map(std::env::split_paths)
+        .chain(home.into_iter().flat_map(|h| HOME_BIN_DIRS.map(|d| h.join(d))))
+        .chain(SYSTEM_BIN_DIRS.map(std::path::PathBuf::from));
+    for dir in dirs {
+        if dir.as_os_str().is_empty() || tried.contains(&dir) {
+            continue;
+        }
+        let candidate = dir.join(program);
+        if crate::harness_install::is_executable(&candidate) {
+            return Ok(candidate);
+        }
+        tried.push(dir);
+    }
+    let shown: Vec<String> = tried.iter().map(|d| d.join(program).display().to_string()).collect();
+    Err(anyhow!("cannot find the send relay {program:?}: tried {}", shown.join(", ")))
+}
+
+/// [`relay_program`] with this process's PATH, the login PATH and `$HOME`.
+pub(crate) fn find_relay_program(program: &str) -> Result<std::path::PathBuf> {
+    let paths: Vec<std::ffi::OsString> =
+        std::env::var_os("PATH").into_iter().chain(crate::login_env::path()).collect();
+    relay_program(program, &paths, dirs::home_dir().as_deref())
+}
 
 /// The other machines' sessions the relay's `lsArgv` lists: rows whose `peer` is a machine name
 /// other than this one's, at most `LS_MAX_ROWS`. `Ok(None)` when no `lsArgv` is configured.
@@ -58,7 +98,7 @@ pub(crate) fn relay_ls(relay: &SendRelay, deadline: Option<Instant>) -> Result<O
     let Some((program, args)) = relay.ls_argv.as_deref().and_then(<[String]>::split_first) else {
         return Ok(None);
     };
-    let mut cmd = Command::new(program);
+    let mut cmd = Command::new(find_relay_program(program)?);
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
@@ -89,35 +129,96 @@ pub(crate) fn relay_ls(relay: &SendRelay, deadline: Option<Instant>) -> Result<O
             })
             .take(LS_MAX_ROWS)
             .cloned()
+            .map(|mut row| {
+                // How the row is reached: through the relay that listed it, not this daemon.
+                if let Some(fields) = row.as_object_mut() {
+                    fields.insert("via".to_owned(), json!(VIA));
+                }
+                row
+            })
             .collect(),
     ))
 }
 
-/// At most this many rows from one relay listing.
-const LS_MAX_ROWS: usize = 5000;
+/// The `via` of a row the relay lists: no peer link or hub of this daemon reaches it, so only
+/// the relay's own verbs do (`send` through `argv`, its row through `lsArgv`).
+pub(crate) const VIA: &str = "relay";
 
-/// The other machines' sessions the configured relay lists (`relay_ls`, off the async runtime),
-/// or none: no relay, no `lsArgv`, or a listing that failed, which is said on stderr unless
-/// `quiet`.
-pub(crate) async fn relay_rows(quiet: bool) -> Vec<Value> {
-    let Some(relay) = configured().filter(|r| r.ls_argv.is_some()) else { return Vec::new() };
-    match tokio::task::spawn_blocking(move || relay_ls(&relay, None)).await {
-        Ok(Ok(Some(rows))) => rows,
-        Ok(Ok(None)) => Vec::new(),
-        Ok(Err(e)) => {
-            if !quiet {
-                eprintln!("acpmux: other machines' sessions are not listed: {e}");
-            }
-            Vec::new()
-        }
-        Err(e) => {
-            if !quiet {
-                eprintln!("acpmux: other machines' sessions are not listed: {e}");
-            }
-            Vec::new()
-        }
-    }
+/// How long a lookup of one key in the relay's listing may take (`listed_row`).
+const LOOKUP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The one row of `rows` that `key` names: `HOST/NAME`, `HOST/ID`, the qualified id, the bare
+/// id, or a bare name only one row carries (the relay may list a name with its host's prefix).
+pub(crate) fn find_row<'a>(rows: &'a [Value], key: &str) -> Option<&'a Value> {
+    let text = |r: &'a Value, k: &str| r.get(k).and_then(Value::as_str).unwrap_or_default();
+    let named = |r: &'a Value| {
+        let (peer, id, name) = (text(r, "peer"), text(r, "sessionId"), text(r, "name"));
+        let bare = name.strip_prefix(peer).and_then(|n| n.strip_prefix('/')).unwrap_or(name);
+        let on_peer = |rest: &str| {
+            !rest.is_empty()
+                && key.strip_prefix(peer).and_then(|k| k.strip_prefix('/')) == Some(rest)
+        };
+        key == id
+            || key == text(r, "qualifiedSessionId")
+            || on_peer(id)
+            || on_peer(bare)
+            || (!bare.is_empty() && (key == bare || key == name))
+            || crate::session_handle::matches(r["handle"].as_str(), id, key)
+            || key
+                .strip_prefix(peer)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .is_some_and(|rest| crate::session_handle::matches(r["handle"].as_str(), id, rest))
+    };
+    let mut found = rows.iter().filter(|&r| named(r));
+    let first = found.next()?;
+    found.next().is_none().then_some(first)
 }
+
+/// The row the configured relay's listing has for `key` ([`find_row`]), or none: no relay with
+/// an `lsArgv`, a listing that failed or ran past [`LOOKUP_DEADLINE`], or no one row it names.
+/// Asked only once this daemon found no session for `key`.
+pub(crate) async fn listed_row(key: &str) -> Option<Value> {
+    let relay = configured().filter(|r| r.ls_argv.is_some())?;
+    let deadline = Instant::now() + LOOKUP_DEADLINE;
+    let rows = tokio::task::spawn_blocking(move || relay_ls(&relay, Some(deadline)))
+        .await
+        .ok()?
+        .ok()??;
+    find_row(&rows, key).cloned()
+}
+
+/// The no-session refusal for `key`, which only the relay lists as `row`: still the refusal a
+/// send relays on ([`no_such_session`]), saying what reaches the row, with the row in its data
+/// ([`relayed_row`]), so `info` answers with the row as the relay listed it.
+pub(crate) fn listed_refusal(key: &str, row: Value) -> AppError {
+    let text = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let (peer, name) = (text("peer"), text("name"));
+    let bare =
+        name.strip_prefix(peer.as_str()).and_then(|n| n.strip_prefix('/')).unwrap_or(name.as_str());
+    let target = if bare.is_empty() {
+        format!("{peer}/{}", text("sessionId"))
+    } else {
+        format!("{peer}/{bare}")
+    };
+    AppError::new(
+        Code::NoSession,
+        "no_session",
+        format!(
+            "{key:?} is {target}, which only the send relay lists (sendRelay.lsArgv): this daemon has no link to read or attach to it; prompt it with `{} send {target} MESSAGE`, which the send relay delivers",
+            crate::cli::entry::program()
+        ),
+    )
+    .with_data(json!({"via": VIA, "target": target, "row": row}))
+}
+
+/// The relay's row a [`listed_refusal`] carries.
+pub(crate) fn relayed_row(e: &anyhow::Error) -> Option<&Value> {
+    let data = e.downcast_ref::<AppError>()?.data.as_ref()?;
+    if data.get("via").and_then(Value::as_str) == Some(VIA) { data.get("row") } else { None }
+}
+
+/// At most this many rows from one relay listing.
+pub(crate) const LS_MAX_ROWS: usize = 5000;
 
 /// `rows` (this daemon's list) with `far` (the relay's) added, none twice: a peer row this
 /// daemon lists already, by its machine and session id. How many were added.
@@ -320,7 +421,7 @@ pub(crate) fn relay_with_deadline(
 ) -> Result<Relayed> {
     let (program, args) =
         relay.argv.split_first().ok_or_else(|| anyhow!("sendRelay has no argv"))?;
-    let mut cmd = Command::new(program);
+    let mut cmd = Command::new(find_relay_program(program)?);
     cmd.args(args)
         .arg(session)
         .arg("-")
@@ -444,6 +545,26 @@ mod tests {
     }
 
     #[test]
+    fn a_key_finds_the_one_relay_row_it_names() {
+        let rows = vec![
+            json!({"peer": "far", "sessionId": "01a", "name": "flap", "qualifiedSessionId": "far/01a"}),
+            json!({"peer": "lane-2", "sessionId": "01b", "name": "lane-2/goal"}),
+            json!({"peer": "lane-4", "sessionId": "01c", "name": "flap"}),
+        ];
+        let id = |key: &str| find_row(&rows, key).and_then(|r| r["sessionId"].as_str());
+        assert_eq!(id("far/flap"), Some("01a"));
+        assert_eq!(id("far/01a"), Some("01a"));
+        assert_eq!(id("01a"), Some("01a"));
+        assert_eq!(id("lane-2/goal"), Some("01b"));
+        assert_eq!(id("goal"), Some("01b"));
+        assert_eq!(id("lane-4/flap"), Some("01c"));
+        // A bare name two hosts carry, another host's name, or nothing: no row.
+        assert_eq!(id("flap"), None);
+        assert_eq!(id("far/goal"), None);
+        assert_eq!(id("nothing"), None);
+    }
+
+    #[test]
     fn merged_rows_are_each_listed_once_by_machine_and_id() {
         let row = |peer: &str, id: &str| json!({"peer": peer, "sessionId": id});
         let mut rows = vec![row("hostb", "a")];
@@ -554,6 +675,34 @@ mod tests {
             relay_with_deadline(&missing, "lane-b", "x", &RelayMetadata::default(), true, None)
                 .is_err()
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A bare relay name the PATH lacks is found in `$HOME/.local/bin` and run by its absolute
+    /// path; one found nowhere names every place looked (lane VMs, 2026-11-21).
+    #[cfg(unix)]
+    #[test]
+    fn a_bare_relay_name_is_found_in_home_local_bin_when_path_lacks_it() {
+        let dir = scratch("home-bin");
+        let home = dir.join("home");
+        let empty = dir.join("empty-path");
+        std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+        std::fs::create_dir_all(&empty).unwrap();
+        let relay = home.join(".local/bin/acpmux-test-relay");
+        crate::test_exec::write_executable(&relay, "#!/bin/sh\ncat >/dev/null\necho delivery-7\n");
+        let paths = [empty.clone().into_os_string()];
+        assert_eq!(relay_program("acpmux-test-relay", &paths, Some(&home)).unwrap(), relay);
+        // A path is run as it is.
+        assert_eq!(
+            relay_program("./x/relay", &paths, Some(&home)).unwrap(),
+            std::path::PathBuf::from("./x/relay")
+        );
+        let e = relay_program("acpmux-test-absent", &paths, Some(&home)).unwrap_err().to_string();
+        let local = home.join(".local/bin/acpmux-test-absent");
+        let on_path = empty.join("acpmux-test-absent");
+        assert!(e.contains(&local.display().to_string()), "{e}");
+        assert!(e.contains(&on_path.display().to_string()), "{e}");
+        assert!(e.contains("/usr/local/bin/acpmux-test-absent"), "{e}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

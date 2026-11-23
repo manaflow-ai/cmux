@@ -30,18 +30,27 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
-      # The local packages CmuxMobileKit depends on (Package.swift).
-      - "Packages/Shared/CmuxGhosttyKit/**"
-      - "Packages/Shared/CmuxAgentQuestion/**"
-      - "Packages/Shared/CmuxAuthRuntime/**"
+      # The local packages CmuxMobileKit depends on, transitively (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
       - "Packages/Shared/CMUXAuthCore/**"
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
-      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
+      - "Packages/Shared/CmuxChiefList/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
-      - "Packages/iOS/CmuxTabsKit/**"
+      - "Packages/Shared/CmuxConnectivityTelemetry/**"
+      - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxScreenKit/**"
+      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxTheme/**"
+      - "Packages/Shared/CmuxVNC/**"
+      - "Packages/Shared/CmuxVNCWebRTC/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileBilling/**"
       - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/CmuxTabsKit/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -51,6 +60,7 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
@@ -60,18 +70,27 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
-      # The local packages CmuxMobileKit depends on (Package.swift).
-      - "Packages/Shared/CmuxGhosttyKit/**"
-      - "Packages/Shared/CmuxAgentQuestion/**"
-      - "Packages/Shared/CmuxAuthRuntime/**"
+      # The local packages CmuxMobileKit depends on, transitively (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
       - "Packages/Shared/CMUXAuthCore/**"
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
-      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
+      - "Packages/Shared/CmuxChiefList/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
-      - "Packages/iOS/CmuxTabsKit/**"
+      - "Packages/Shared/CmuxConnectivityTelemetry/**"
+      - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxScreenKit/**"
+      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxTheme/**"
+      - "Packages/Shared/CmuxVNC/**"
+      - "Packages/Shared/CmuxVNCWebRTC/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileBilling/**"
       - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/CmuxTabsKit/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -81,6 +100,7 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
@@ -92,13 +112,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: cmux-next-ios-kit-${{ github.ref }}
   # A new push to a pull request cancels its previous run; feat-cmux-next pushes never cancel.
+  # A dispatch (main's nightly cron) gets a group of its own: with cancel-in-progress false,
+  # GitHub still cancels a run that is pending in a group when a newer one joins it, so the
+  # nightly, queued behind a running push run, was dropped by the next push (43572826977,
+  # 2026-11-14, by push run 43574629185), and the bench went stale.
+  group: cmux-next-ios-kit-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   # Pick an idle owned Mac with an iOS simulator, then fall back to Blacksmith
@@ -116,6 +140,8 @@ jobs:
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
       label: ${{ steps.pool.outputs.label }}
       persistent: ${{ steps.pool.outputs.persistent }}
+      # Same-tree reuse (scripts/ci/same_tree_reuse.py): kit-tests already passed on this merge tree.
+      same_tree: ${{ steps.same-tree.outputs.same_tree }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -127,6 +153,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            scripts/ci/same_tree_reuse.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the owned-pool routing token
@@ -210,9 +237,47 @@ jobs:
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
+      # Same-tree reuse: a pass of kit-tests on this exact merge tree and workflow file (a re-push of the same
+      # tree, a reopen, a re-run) is not run again; the Mac is never taken. The key is the merge commit's tree,
+      # the job and this file's blob; the receipt is an Actions cache entry kit-tests wrote on its pass, which
+      # only this pull request's runs and its base can write. 10% of hits still run in full
+      # (CI_SAME_TREE_AUDIT_PERCENT), and a red there names the receipt. CI_SAME_TREE_REUSE=0 turns it off.
+      - name: Same-tree keys
+        id: same-tree-keys
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_SAME_TREE_REUSE || '1') != '0' }}
+        continue-on-error: true
+        run: python3 scripts/ci/same_tree_reuse.py keys --workflow .github/workflows/cmux-next-ios-kit.yml --jobs kit-tests >> "$GITHUB_OUTPUT"
+      - name: Look up a same-tree pass of kit-tests
+        id: same-tree-kit-tests
+        if: ${{ steps.same-tree-keys.outputs.kit-tests != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # One relative path for the save and the restore: the cache version hashes it, and runner.temp differs
+          # between the Linux runner and the Mac.
+          path: .same-tree/kit-tests
+          enableCrossOsArchive: true
+          key: ${{ steps.same-tree-keys.outputs.kit-tests }}
+      - name: Same-tree decision
+        id: same-tree
+        if: ${{ steps.same-tree-keys.outputs.keys != '' }}
+        continue-on-error: true
+        env:
+          KEYS: ${{ steps.same-tree-keys.outputs.keys }}
+          HITS: kit-tests=${{ steps.same-tree-kit-tests.outputs.cache-hit }}
+          AUDIT_PERCENT: ${{ vars.CI_SAME_TREE_AUDIT_PERCENT }}
+        run: |
+          python3 scripts/ci/same_tree_reuse.py decide --keys "$KEYS" --hits "$HITS" \
+            --receipts .same-tree --audit-percent "$AUDIT_PERCENT" >> "$GITHUB_OUTPUT"
+
   kit-tests:
     needs: [runner]
     name: CmuxMobileKit tests (macOS swift test, iOS simulator)
+    # Runs on every pull request this workflow's paths match (cmux-next-ios/**, the packages CmuxMobileKit links), with
+    # no full-ci label: as a Tier B skip, iOS PRs merged untested and were fixed forward over days (Leo, 2026-11-22:
+    # "if 80% of code doesn't have a way of having a proper pr in the hour, then our fucking codebase is not good enough").
+    # Also skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
+    if: ${{ !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:
@@ -221,6 +286,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # A phone connection state waits QuietStatusGate's 10 s or carries an action (cmux-next.yml's checks job runs
+      # the same check with its shrink-only --base ratchet; that workflow does not run on a phone-only change).
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-366
+      - name: Connection notices
+        run: python3 -I scripts/cmux-next/check-connection-notices.py --root "$GITHUB_WORKSPACE"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -251,9 +322,15 @@ jobs:
             exit 1
           fi
 
-      # The instant-list bench runs on its own below (no other suite on the cores).
+      # The instant-list bench runs on its own below (no other suite on the cores). So do the suites
+      # that bound wall-clock time or the process footprint: among 2580 parallel tests in one process
+      # they measured their neighbours (reattach 1839 ms < 1000, 5194 ms < 5000, footprint 79 MB < 40 MB
+      # on base runs 45081481908 and 45081946888), each run a different one.
       - name: swift test (macOS)
-        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests
+
+      - name: swift test (macOS, measured suites alone)
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests
 
 
       # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so
@@ -289,7 +366,7 @@ jobs:
           # without coverage. arm64 only: the xcframework has no x86_64 simulator slice.
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
-            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet \
+            -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO -quiet \
             -skip-testing:CmuxMobileInstantPerfTests \
             -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" && status=0 || status=$?
           # -quiet drops Swift Testing's output: report from the result bundle (counts,
@@ -319,8 +396,17 @@ jobs:
 
       # The bench runs after both test runs, so a bench red never skips the iOS tests.
       # Small vs god fixtures, budgets and the 1.2x rule: cmux-next-ios/design/instant-perf.md.
+      # Advisory: both bench steps report and never fail the job (Leo, 2026-11-21: "for connection and ci, we
+      # can simply move. and go"). On shared 6 vCPU and owned Macs the bench went red in 19 of 24 kit runs and 6
+      # of the last 10 base pushes on code the pull request never touched: home_list_first_screen at 1.36-1.49x
+      # since 9d18df05e5c (MessagePreview parses each preview by Character; the first screen went 1.5 -> 6 ms on
+      # the same runner class), plus chat_reconnect_catch_up and terminal_chat_swap_to_terminal swinging 2-5x on
+      # some runners. The numbers stay in the report below, the job summary and the instant-perf-* artifact,
+      # and the report step names each bench step that missed as a warning.
       - name: Instant list bench (macOS swift test)
+        id: bench-macos
         if: ${{ !cancelled() }}
+        continue-on-error: true
         env:
           CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
@@ -328,7 +414,10 @@ jobs:
       # The same bench on the simulator, alone, on the build above when there is one (TEST_RUNNER_ passes the
       # variable through to the test process).
       - name: Instant list bench (iOS simulator)
+        id: bench-ios
         if: ${{ !cancelled() }}
+        # Advisory, as the macOS bench above.
+        continue-on-error: true
         # The same bound as the test step above: a hung simulator ends the step.
         timeout-minutes: 30
         working-directory: cmux-next-ios/CmuxMobileKit
@@ -359,7 +448,7 @@ jobs:
             exit 1
           fi
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$UDID,arch=arm64" \
-            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet \
+            -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO -quiet \
             -only-testing:CmuxMobileInstantPerfTests \
             -resultBundlePath "$RUNNER_TEMP/instant-perf-ios.xcresult" && status=0 || status=$?
           out="$RUNNER_TEMP/instant-perf/ios-simulator.jsonl"
@@ -386,9 +475,18 @@ jobs:
 
       - name: Instant list bench report
         if: ${{ !cancelled() }}
+        env:
+          BENCH_MACOS: ${{ steps.bench-macos.outcome }}
+          BENCH_IOS: ${{ steps.bench-ios.outcome }}
         run: |
           set -euo pipefail
           python3 cmux-next-ios/scripts/instant_perf_table.py "$RUNNER_TEMP/instant-perf" | tee -a "$GITHUB_STEP_SUMMARY"
+          # The bench steps are advisory (continue-on-error): a miss is a warning here, not a red job.
+          for pair in "macOS:$BENCH_MACOS" "iOS simulator:$BENCH_IOS"; do
+            if [[ "${pair#*:}" == failure ]]; then
+              echo "::warning title=Instant list bench (advisory)::${pair%%:*} bench missed a budget or ratio; see the table in the job summary"
+            fi
+          done
 
       # One `INSTANTPERF {json}` line per metric and platform in the job log, for readers of the log.
       - name: Instant perf lines
@@ -407,3 +505,24 @@ jobs:
           path: ${{ runner.temp }}/instant-perf/*.jsonl
           if-no-files-found: warn
           retention-days: 3
+
+      # A sampled audit of a same-tree hit ran in full and went red: the receipt it contradicts is named.
+      - name: Same-tree audit
+        if: ${{ failure() && fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].audit }}
+        env:
+          RECEIPT: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].receipt }}
+          KEY: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].key }}
+        run: echo "::error title=same-tree audit::kit-tests failed on the tree of $KEY, whose receipt $RECEIPT passed it"
+      - name: Write the same-tree receipt
+        if: ${{ success() && fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].record }}
+        env:
+          KEY: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].key }}
+        run: python3 scripts/ci/same_tree_reuse.py receipt --job kit-tests --key "$KEY" --out .same-tree/kit-tests
+      - name: Record the same-tree receipt
+        if: ${{ success() && fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].record }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .same-tree/kit-tests
+          enableCrossOsArchive: true
+          key: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].key }}

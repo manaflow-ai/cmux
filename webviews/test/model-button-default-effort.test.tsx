@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -197,7 +198,7 @@ async function mount(chat: Chat) {
 
 const doc = () => dom.window.document;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-const modelButton = () => host.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button")!;
+const modelButton = () => host.querySelector<HTMLButtonElement>(MODEL_PICKER)!;
 const menus = () => [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
 const effortRow = () =>
   [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>

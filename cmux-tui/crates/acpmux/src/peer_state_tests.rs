@@ -100,6 +100,137 @@ async fn a_peer_reads_connected_only_once_its_handshake_finished() {
     fake.abort();
 }
 
+/// A reconnect that already has a whole list starts controls beside its next watch read. The
+/// controls snapshot and live answer must remain state-only until that watch publishes the list.
+#[tokio::test]
+async fn controls_before_the_list_publish_nothing() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("owner", "ws://127.0.0.1:9", None, None, tx);
+    peer.whole_list.store(true, Ordering::SeqCst);
+    let links = Arc::new(crate::link_v2::Shared::default());
+    let (index, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
+    links.install(Arc::new(acpmux_core::life::V2::with_surfaces(
+        index,
+        writer,
+        ["list", "peers"].into_iter().map(str::to_owned).collect(),
+    )));
+    peer.set_mirror(links);
+
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let (release_tx, release) = oneshot::channel::<()>();
+    let (events_tx, mut events) = mpsc::unbounded_channel::<&'static str>();
+    let fake = tokio::spawn(async move {
+        let (mut sink, mut source) = server.split();
+        let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
+        let writer = tokio::spawn(async move {
+            while let Some(line) = out_rx.recv().await {
+                if sink.send(Frame::Text(line.into())).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let mut release = Some(release);
+        while let Some(Ok(Frame::Text(text))) = source.next().await {
+            let request: Value = serde_json::from_str(&text).unwrap();
+            let Some(id) = request.get("id").cloned() else { continue };
+            let method = request.get("method").and_then(Value::as_str).unwrap_or_default();
+            match method {
+                method::INITIALIZE => {
+                    let result = json!({"_meta": {"acpmux": {
+                        "origin": "peer",
+                        "personInstance": "owner-run",
+                        "features": [crate::server::controls::FEATURE]
+                    }}});
+                    out_tx.send(Message::ok(id, result).to_line()).unwrap();
+                }
+                method::MUX_WATCH => {
+                    events_tx.send("watch").unwrap();
+                    let out = out_tx.clone();
+                    let release = release.take().expect("one watch reply");
+                    tokio::spawn(async move {
+                        let _ = release.await;
+                        let _ = out.send(Message::ok(id, json!({"sessions": []})).to_line());
+                    });
+                }
+                crate::server::controls::METHOD => {
+                    let params = request.get("params").cloned().unwrap_or(Value::Null);
+                    let result = if params.get("kinds").is_some() {
+                        events_tx.send("snapshot").unwrap();
+                        json!({"stream": "controls", "phase": "snapshot", "page": 0,
+                        "next": null, "entries": [
+                            {"kind": "asks", "key": ["chat", "permission"],
+                             "value": {"sessionId": "chat", "permissionId": "permission",
+                                "personInstance": "owner-run", "decisionNonce": "nonce",
+                                "kind": "permission_request"}},
+                            {"kind": "ready", "value": {"githubLink": true}}
+                        ]})
+                    } else if params.get("live") == Some(&Value::Bool(true)) {
+                        events_tx.send("live").unwrap();
+                        json!({"stream": "controls", "phase": "live", "ready": true})
+                    } else {
+                        json!({})
+                    };
+                    out_tx.send(Message::ok(id, result).to_line()).unwrap();
+                }
+                _ => out_tx.send(Message::ok(id, json!({})).to_line()).unwrap(),
+            }
+        }
+        drop(out_tx);
+        let _ = writer.await;
+    });
+
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let serving_peer = peer.clone();
+    let serving = tokio::spawn(async move { serving_peer.serve(client, &mut out_rx).await });
+
+    let mut saw_watch = false;
+    let mut saw_live = false;
+    while !saw_watch || !saw_live {
+        let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+            .await
+            .expect("controls and watch requests arrive")
+            .expect("fake peer stays open");
+        if event == "watch" {
+            saw_watch = true;
+        }
+        if event == "live" {
+            saw_live = true;
+        }
+    }
+    assert!(saw_watch, "the watch is in flight while controls open");
+    while let Ok((_, _, notice)) = notices.try_recv() {
+        assert!(!matches!(notice, PeerNotice::Notification { .. }), "controls published early");
+    }
+    let controls_notified = tokio::time::timeout(Duration::from_millis(250), async {
+        while let Some((_, _, notice)) = notices.recv().await {
+            if matches!(notice, PeerNotice::Notification { .. }) {
+                return true;
+            }
+        }
+        false
+    })
+    .await
+    .unwrap_or(false);
+    assert!(!controls_notified, "controls published before the watch list");
+    assert_eq!(peer.github_link.load(Ordering::SeqCst), 0, "controls did not open lending");
+
+    release_tx.send(()).unwrap();
+    loop {
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(5), notices.recv())
+            .await
+            .expect("the watch reply publishes the list")
+            .expect("the link stays open");
+        if matches!(notice, PeerNotice::Listed) {
+            break;
+        }
+    }
+    peer.stop_controls(peer.link_epoch());
+    serving.abort();
+    fake.abort();
+}
+
 /// HQ #2892: a request still queued when its link drops never went out. Its caller is told so
 /// (`peer_unreachable`, retryable, not sent) rather than `peer disconnected`, and the frame is
 /// gone from the queue, so the next link never sends it.

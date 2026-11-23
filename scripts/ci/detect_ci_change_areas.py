@@ -202,6 +202,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
     ".github/cloud-machine-count-probe/request",
+    ".github/cloud-surge-proof/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
     ".github/defaults-call-owners.json",
     ".github/design-surfaces.json",
@@ -347,28 +348,13 @@ _CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guar
 _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
-# ci-guards.yml's guard tests take a free mini from portable placement
-# (scripts/ci/portable_job_placement.py) only when cmux-next-guards.yml passes
-# one. That job runs the same Linux guard tests, not the app's macOS lanes, so
-# the term does not make the tests it names macOS-relevant.
-_PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
-# The credentialed `changes` router accepts only the current attempt's
-# validated Linux placement. Its test-path references still run on Linux;
-# an unknown needs expression must continue to fail open below.
-_PORTABLE_ROUTER_LINUX_TERM = (
-    "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
-    "contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && "
-    "needs.portable-placement.outputs.linux_runner ||"
-)
-
-
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "").replace(_PORTABLE_ROUTER_LINUX_TERM, "")
+    value = runs_on.strip()
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
-    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
+    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu|'cmux-linux'", value))
 
 
 _JOB_SPLIT_RE = re.compile(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)")
@@ -915,7 +901,11 @@ def ci_helper_areas(
                         and runner not in _TEST_PATH_LISTS
                         and not runner.endswith(_DOCUMENTATION_SUFFIXES)
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
-                        and not (runner.startswith("tests/") and runner.endswith(".py")
+                        # So does a script under scripts/ (scripts/cmux-next/tests/
+                        # test_build_names.py names tests/test_script_module_loads.py
+                        # in a comment; #44759 made that fail open for every helper
+                        # that test reaches).
+                        and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
                         # A test that runs this test is judged by the rule for a
                         # test that names the helper: a Linux guard test, or a
@@ -1655,7 +1645,7 @@ def is_macos_neutral(
     if re.match(r"Packages/iOS/[^/]+/Tests/", path):
         return True
     # Agent instructions at any depth, and skill documentation. The app bundles
-    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
+    # skills/cmux-computer-use as a folder resource, and skill scripts and manifests are
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
@@ -1707,7 +1697,7 @@ def is_macos_neutral(
         return True
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return True
-    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
+    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/")
 
 
 def is_macos_change(

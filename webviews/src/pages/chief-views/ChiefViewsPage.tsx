@@ -3,18 +3,19 @@
 // to open it, and the views themselves: one in the pane, and optionally a second beside it as a
 // split (half) or a sidebar (a narrow column). Below NARROW of the page's own width the second
 // view stacks under the first.
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { Button } from "../../ui/Button";
+import { useDeadlineNow } from "../../ui/pageClock";
 import { SplitEdge } from "../../ui/SplitEdge";
 import { Switch } from "../../ui/Switch";
 import type { Strings } from "../shared/i18n";
-import { ViewGlyph } from "./parts";
+import { nextDay, startOfDay } from "./model";
+import { FixedNow, ViewGlyph } from "./parts";
 import { CHIEF_VIEWS, viewById, type ChiefViewManifest } from "./registry";
 import type { ChiefViewsStore, ViewNeed } from "./store";
 import type { Placement } from "./types";
 
 const PLACEMENTS: Placement[] = ["pane", "split", "sidebar"];
-const MINUTE = 60_000;
 
 export function ChiefViewsPage({
   store,
@@ -23,11 +24,11 @@ export function ChiefViewsPage({
 }: {
   store: ChiefViewsStore;
   strings: Strings;
-  /** A fixed clock (the gallery); else the page's own, a tick a minute for the "4 min" stamps. */
+  /** A fixed clock (the gallery); else each "4 min" stamp keeps its own and the page only the day. */
   now?: number;
 }) {
   const data = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const now = useNow(fixedNow);
+  const today = startOfDay(useDeadlineNow(nextDay, fixedNow));
   const { layout } = data;
   const main = viewById(layout.main);
   const side = layout.side ? viewById(layout.side.id) : undefined;
@@ -41,98 +42,102 @@ export function ChiefViewsPage({
   }, [store, needKey]);
   const { t } = strings;
   const enabled = CHIEF_VIEWS.filter((view) => layout.enabled.includes(view.id));
-  const props = {
-    data,
-    strings,
-    now,
-    onOpenAgent: store.open.bind(store),
-    onOpenURL: store.openURL.bind(store),
-    onSetFleetURL: store.setFleetURL.bind(store),
-  };
+  // One set of callbacks for the store's life: the rows' memo compares them.
+  const actions = useMemo(
+    () => ({
+      onOpenAgent: store.open.bind(store),
+      onOpenURL: store.openURL.bind(store),
+      onSetFleetURL: store.setFleetURL.bind(store),
+    }),
+    [store],
+  );
+  const props = { data, strings, today, ...actions };
   return (
-    <div className="cv-page" data-catalog={data.catalog ? "" : undefined}>
-      <header className="cv-header">
-        {enabled.length > 0 && (
-          <nav className="cv-dots" aria-label={t("chiefViews.page.title")}>
-            {enabled.map((view) => (
-              <button
-                key={view.id}
-                type="button"
-                className="cv-dot"
-                data-view={view.id}
-                aria-current={view.id === layout.main ? "page" : undefined}
-                aria-label={t(view.title)}
-                title={t(view.title)}
-                onClick={() => store.show(view.id, "pane")}
-              >
-                <ViewGlyph glyph={view.glyph} size={14} />
-              </button>
-            ))}
-          </nav>
-        )}
-        <div className="cv-heading">
-          <h1 className="cv-title">{main ? t(main.title) : t("chiefViews.page.title")}</h1>
-          {main && <p className="cv-description">{t(main.description)}</p>}
-        </div>
-        <div className="cv-actions">
-          {needs.some((need) => need !== "agents") && (
-            <Button size="sm" className="cv-button" onClick={() => store.refresh(needs)}>
-              {t("chiefViews.refresh")}
-            </Button>
+    <FixedNow.Provider value={fixedNow}>
+      <div className="cv-page" data-catalog={data.catalog ? "" : undefined}>
+        <header className="cv-header">
+          {enabled.length > 0 && (
+            <nav className="cv-dots" aria-label={t("chiefViews.page.title")}>
+              {enabled.map((view) => (
+                <button
+                  key={view.id}
+                  type="button"
+                  className="cv-dot"
+                  data-view={view.id}
+                  aria-current={view.id === layout.main ? "page" : undefined}
+                  aria-label={t(view.title)}
+                  title={t(view.title)}
+                  onClick={() => store.show(view.id, "pane")}
+                >
+                  <ViewGlyph glyph={view.glyph} size={14} />
+                </button>
+              ))}
+            </nav>
           )}
-          <Button
-            size="sm"
-            className="cv-button"
-            aria-expanded={data.catalog}
-            aria-controls="cv-gallery"
-            onClick={() => store.setCatalog(!data.catalog)}
-          >
-            {t("chiefViews.gallery.button")}
-          </Button>
-        </div>
-      </header>
-      {data.catalog && <Gallery store={store} strings={strings} enabled={layout.enabled} main={layout.main} />}
-      {data.offline && <p className="cv-note cv-offline">{t("chiefViews.offline")}</p>}
-      {main ? (
-        <div className="cv-layout" data-side={layout.side?.placement}>
-          <section className="cv-pane" data-view={main.id} aria-label={t(main.title)}>
-            <main.component {...props} placement="pane" />
-          </section>
-          {side && layout.side && (
-            <section
-              className="cv-side"
-              data-view={side.id}
-              data-placement={layout.side.placement}
-              aria-label={t(side.title)}
+          <div className="cv-heading">
+            <h1 className="cv-title">{main ? t(main.title) : t("chiefViews.page.title")}</h1>
+            {main && <p className="cv-description">{t(main.description)}</p>}
+          </div>
+          <div className="cv-actions">
+            {needs.some((need) => need !== "agents") && (
+              <Button size="sm" className="cv-button" onClick={() => store.refresh(needs)}>
+                {t("chiefViews.refresh")}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              className="cv-button"
+              aria-expanded={data.catalog}
+              aria-controls="cv-gallery"
+              onClick={() => store.setCatalog(!data.catalog)}
             >
-              <div className="cv-side-head">
-                <ViewGlyph glyph={side.glyph} size={12} />
-                <h2 className="cv-side-title">{t(side.title)}</h2>
-                <button type="button" className="cv-link" onClick={() => store.show(side.id, "pane")}>
-                  {t("chiefViews.placement.pane")}
-                </button>
-                <button type="button" className="cv-link" onClick={() => store.closeSide()}>
-                  {t("chiefViews.side.close")}
-                </button>
-              </div>
-              <side.component {...props} placement={layout.side.placement} />
-              {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx); each placement
-                  keeps its own width. */}
-              <SplitEdge
-                side="start"
-                property="--chief-views-side-width"
-                storageKey={`cmux.chiefViews.side.${layout.side.placement}.width`}
-                min={200}
-                max={layout.side.placement === "split" ? 1200 : 480}
-                on="parent"
-              />
+              {t("chiefViews.gallery.button")}
+            </Button>
+          </div>
+        </header>
+        {data.catalog && <Gallery store={store} strings={strings} enabled={layout.enabled} main={layout.main} />}
+        {data.offline && <p className="cv-note cv-offline">{t("chiefViews.offline")}</p>}
+        {main ? (
+          <div className="cv-layout" data-side={layout.side?.placement}>
+            <section className="cv-pane" data-view={main.id} aria-label={t(main.title)}>
+              <main.component {...props} placement="pane" />
             </section>
-          )}
-        </div>
-      ) : (
-        !data.catalog && <p className="cv-note">{t("chiefViews.empty")}</p>
-      )}
-    </div>
+            {side && layout.side && (
+              <section
+                className="cv-side"
+                data-view={side.id}
+                data-placement={layout.side.placement}
+                aria-label={t(side.title)}
+              >
+                <div className="cv-side-head">
+                  <ViewGlyph glyph={side.glyph} size={12} />
+                  <h2 className="cv-side-title">{t(side.title)}</h2>
+                  <button type="button" className="cv-link" onClick={() => store.show(side.id, "pane")}>
+                    {t("chiefViews.placement.pane")}
+                  </button>
+                  <button type="button" className="cv-link" onClick={() => store.closeSide()}>
+                    {t("chiefViews.side.close")}
+                  </button>
+                </div>
+                <side.component {...props} placement={layout.side.placement} />
+                {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx); each placement
+                  keeps its own width. */}
+                <SplitEdge
+                  side="start"
+                  property="--chief-views-side-width"
+                  storageKey={`cmux.chiefViews.side.${layout.side.placement}.width`}
+                  min={200}
+                  max={layout.side.placement === "split" ? 1200 : 480}
+                  on="parent"
+                />
+              </section>
+            )}
+          </div>
+        ) : (
+          !data.catalog && <p className="cv-note">{t("chiefViews.empty")}</p>
+        )}
+      </div>
+    </FixedNow.Provider>
   );
 }
 
@@ -217,16 +222,4 @@ function ViewCard({
       </div>
     </li>
   );
-}
-
-/** The fixed clock, else the time now, again every minute. */
-function useNow(fixed?: number): number {
-  const [now, setNow] = useState(() => fixed ?? Date.now());
-  useEffect(() => {
-    if (fixed !== undefined) return;
-    // The same minute tick the Lanes view keeps for its "Idle · 3 h" stamps.
-    const timer = setInterval(() => setNow(Date.now()), MINUTE);
-    return () => clearInterval(timer);
-  }, [fixed]);
-  return fixed ?? now;
 }

@@ -14,11 +14,18 @@ workspace = true
 anyhow.workspace = true
 base64.workspace = true
 bytes.workspace = true
+cmux-build-space.workspace = true
+# The Chief's push body as words, not Markdown (src/notify.rs).
+cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-core.workspace = true
+# This Mac's interface table, for which interfaces a session uses (src/netwatch.rs).
+cmux-transport.workspace = true
 # The shared rd media engine: the in-hostd host of a simulator surface (src/surface.rs).
 cmux-rd-engine.workspace = true
 cmux-rd-proto.workspace = true
+# The `tabs` service's frames, producer and sessions (src/tab_snapshots.rs).
+cmux-tab-snapshots.workspace = true
 # Compressed acpmux messages on the phone link (src/link_deflate.rs).
 flate2.workspace = true
 futures-util.workspace = true

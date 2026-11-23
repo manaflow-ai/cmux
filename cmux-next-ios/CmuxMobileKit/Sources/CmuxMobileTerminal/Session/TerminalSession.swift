@@ -98,6 +98,19 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
+    /// The title pill's subtitle once an outage lasted
+    /// `QuietStatusGate.threshold` (nil: attached). A few words in place of
+    /// the working directory: the page itself gets no status row.
+    public var pillSubtitle: String? {
+        switch self {
+        case .connecting: return "Connecting…"
+        case .reattaching: return "Reattaching…"
+        case .offline: return "Mac offline"
+        case .failed: return "Can't connect"
+        case .attached: return nil
+        }
+    }
+
     /// A dropped tab (reattaching, or its Mac offline): a warm surface keeps
     /// its last frame live and readable under no overlay; the title pill says
     /// what is going on.
@@ -138,6 +151,8 @@ public enum TerminalConnectionState: Sendable, Equatable {
 
     /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
     public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
+    /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
+    public static let composerSendNotSentNotice = "Your message was not sent."
 }
 
 /// One terminal on a Mac, as the phone sees it: bytes in, input out, resize and
@@ -160,6 +175,17 @@ public protocol TerminalSession: AnyObject {
     /// scroll or a tap. A session that holds keys through an outage drops these
     /// instead, and never reports them as ``TerminalSessionEvent/inputNotSent(bytes:)``.
     func sendReply(_ bytes: Data)
+    /// The composer's Send: `text` as one paste and Return, in one request to
+    /// where the terminal runs, which brackets the paste by its own live
+    /// DEC mode 2004 and writes Return right after it (a Mac daemon's
+    /// `send {text, paste:true, submit:true}`). The phone's mirror may have
+    /// lost mode 2004 in a replay, and its paste and its Return were two
+    /// writes 60 ms apart: a draft could stay unsent in the program's prompt.
+    /// Returns false when this session cannot (no Mac daemon, or one without
+    /// `send-expect-agent-v1`): the screen then pastes through its mirror.
+    /// `notSent` is called once, on the main actor, if the text is dropped,
+    /// refused or answered with an error: the screen then gives it back.
+    func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -183,11 +209,6 @@ public protocol TerminalSession: AnyObject {
     /// Mac releases its size when told false and claims it again on true).
     /// Driven by ``TerminalSizeClaimer``. Sessions without a Mac ignore it.
     func setClaimsSize(_ claims: Bool)
-    /// The app is leaving for the background or coming back with its claim
-    /// kept: a claimed size is reported again now, so the Mac's size lease
-    /// runs from this moment (its 45 s match the phone's background grace).
-    /// Sessions without a Mac ignore it.
-    func renewSizeClaim()
     /// The person tapped or typed in the terminal: on a Mac terminal this
     /// view becomes the active device for the Mac's sizing policy (sessions
     /// rate-limit it themselves). Sessions without a Mac ignore it.
@@ -208,16 +229,48 @@ public protocol TerminalSession: AnyObject {
     /// it asked (a mirror reset and a longer replay follow).
     @discardableResult
     func loadOlderHistory() -> Bool
+    /// The mirror holds a window far above the Mac's screen (a reader went up
+    /// a long history, `attach-replay-history-window-v1`): its history rows,
+    /// then the Mac's screen, without the rows between. Nil: the mirror's rows
+    /// reach the screen. The screen asks for newer rows (``loadNewerHistory(toTheScreen:)``)
+    /// when its reader comes down to the window's last row.
+    var historyWindowRows: Int? { get }
+    /// The reader came down to the last row of the window the mirror holds
+    /// (``historyWindowRows``): the window moves down toward the screen; or,
+    /// `toTheScreen`, the reader came up from the screen to the window: the
+    /// mirror holds the newest rows again.
+    /// Called as often as the page scrolls there; the session decides.
+    /// Returns whether it asked (a mirror reset and a replay follow).
+    @discardableResult
+    func loadNewerHistory(toTheScreen: Bool) -> Bool
     /// Before the first attach: the screen will put a reader back on a row
     /// `rows` rows above the end (a tab back from the warm set,
     /// ``TerminalScrollPlace``), so a session that attaches with the latest
     /// screen first asks for at least that much history at once. Others ignore it.
     func requestHistoryRows(_ rows: Int)
+    /// The phone projects this terminal itself (``TerminalProjectingSession``):
+    /// the session claims a size only when told to, and never holds the
+    /// Mac's own grid back from the screen while the primary screen shows.
+    /// Sessions without a Mac ignore it.
+    func setProjectsLocally(_ projects: Bool)
+    /// Where the reader is, in the page's rows: from the document's end to
+    /// the top of the screen they read (the screen's height at the bottom).
+    /// A projection keeps those lines when it re-wraps at a new width.
+    /// Called as the page scrolls; others ignore it.
+    func noteReaderRowsFromEnd(_ rows: Int)
+    /// The session itself, under any session wrapping it (the projection).
+    var underlyingSession: AnyObject { get }
+    /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
+    /// there (`phone-frames`). Others ignore it.
+    func reportScrollFrames(_ pan: TerminalPanFrames)
 }
 
 extension TerminalSession {
     /// Sessions that never hold keys send a reply as they send keys.
     public func sendReply(_ bytes: Data) { send(bytes) }
+
+    /// Sessions with no Mac daemon paste through the screen's mirror.
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool { false }
 
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary
@@ -233,8 +286,6 @@ extension TerminalSession {
 
     public func setClaimsSize(_ claims: Bool) {}
 
-    public func renewSizeClaim() {}
-
     public func noteInteraction() {}
 
     public var clearsHistory: Bool { false }
@@ -244,18 +295,52 @@ extension TerminalSession {
     @discardableResult
     public func loadOlderHistory() -> Bool { false }
 
+    public var historyWindowRows: Int? { nil }
+
+    @discardableResult
+    public func loadNewerHistory(toTheScreen: Bool) -> Bool { false }
+
     public func requestHistoryRows(_ rows: Int) {}
+
+    public func setProjectsLocally(_ projects: Bool) {}
+
+    public func noteReaderRowsFromEnd(_ rows: Int) {}
+
+    public var underlyingSession: AnyObject { self }
+    public func reportScrollFrames(_ pan: TerminalPanFrames) {}
 
     public var hostGridOwnerName: String? { nil }
 }
 
 /// Follows DEC private modes 47, 1047 and 1049 in a byte stream, across chunk
 /// boundaries. Sessions that only see bytes use it to derive `alternateScreen`.
+/// It also follows the input modes (``inputModeNumbers``), so a terminal that was
+/// reset can be put back in the modes the stream set (``restoringBytes``).
 public struct AlternateScreenDetector: Sendable {
+    /// The DEC private modes that change what the terminal's keys, pastes and touches
+    /// send: cursor keys (1), mouse tracking (1000, 1002, 1003), focus events (1004),
+    /// mouse encodings (1005, 1006, 1015) and bracketed paste (2004).
+    public static let inputModeNumbers: Set<Int> = [1, 1000, 1002, 1003, 1004, 1005, 1006, 1015, 2004]
+
     public private(set) var isActive = false
+    /// The ``inputModeNumbers`` the stream set and has not reset since.
+    public private(set) var inputModes: Set<Int> = []
     private var pending: [UInt8] = []
 
     public init() {}
+
+    /// A stream that is already on the alternate screen (`active`) when it starts.
+    public init(active: Bool) {
+        isActive = active
+    }
+
+    /// The bytes that put a reset terminal back in the modes the stream set: the
+    /// alternate screen, then the input modes. Empty when it set none.
+    public var restoringBytes: Data {
+        var out = isActive ? "\u{1B}[?1049h" : ""
+        for mode in inputModes.sorted() { out += "\u{1B}[?\(mode)h" }
+        return Data(out.utf8)
+    }
 
     /// Scans `bytes`; returns the new state when it changed in this chunk.
     public mutating func scan(_ bytes: Data) -> Bool? {
@@ -290,6 +375,9 @@ public struct AlternateScreenDetector: Sendable {
                     if byte == 0x68 || byte == 0x6C {
                         if params.contains(where: { $0 == 47 || $0 == 1047 || $0 == 1049 }) {
                             isActive = byte == 0x68
+                        }
+                        for mode in params where Self.inputModeNumbers.contains(mode) {
+                            if byte == 0x68 { inputModes.insert(mode) } else { inputModes.remove(mode) }
                         }
                     }
                     complete = true

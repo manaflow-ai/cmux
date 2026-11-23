@@ -439,6 +439,15 @@ import CmuxNextCompat
 
     private var seedTicket: SeedTicket?
 
+    /// A prompt the CLI, MCP or a script seeded gets no seed ticket: it waits in the composer for
+    /// the person's own Send, though a typed Send needs no gesture. Set when the handshake hands
+    /// such a prompt out; the first prompt the person sends ends it.
+    public private(set) var automationSeedWaits = false
+
+    public func holdAutomationSeed() { automationSeedWaits = true }
+
+    func releaseAutomationSeed() { automationSeedWaits = false }
+
     /// Issues the seeded prompt's ticket and its promptId (a new one replaces an older one).
     /// Takes no live gesture: the person's action that seeded the prompt is the gesture.
     public func issueSeedTicket() -> (promptId: String, ticket: String) {

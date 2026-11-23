@@ -11,8 +11,12 @@ use cmux_json::JsonSet as _;
 mod credential_env_tests;
 mod model;
 mod network;
+mod reach;
+#[cfg(test)]
+mod reach_tests;
 mod removal;
 pub(crate) mod removed;
+pub(crate) mod setup;
 #[cfg(test)]
 mod tests;
 
@@ -28,13 +32,19 @@ use model::{Listing, Role, Sources, State, Via};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
-       cmux device list [--json] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
+       cmux device list [--json [--probe]] [--no-probe] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
        cmux device add HOST --yes [--name NAME] [--json]
        cmux device invite [--role client|read-only] [--ttl 15m] [--label TEXT] [--json]
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
-       cmux device SELECTOR show [--catalog]   (one device of the machine catalog, `cmux machine ls`)
+       cmux device traffic [--json]            (this Mac's bytes in and out per service through its
+                                               iPhone and machine link host, last 10 s and 60 s)
+       cmux device setup DEVICE|--all [--json] [--dry-run] [--allow-agents]   (install, keep running and start cmux NIGHTLY on a Mac of yours)
+       cmux device start DEVICE [--json]                       (start cmux NIGHTLY on a Mac of yours)
+       cmux device SELECTOR show [--json]      (one device of `cmux device list`, by id, name or
+                                               address; else the machine catalog, `cmux machine ls`)
+       cmux device SELECTOR show --catalog     (the machine catalog only)
        cmux device revoke|rotate ID|NAME       (a machine that joined with a pasted line)
        cmux device doctor [MACHINE] [--fix]    (check an SSH machine and fix what it can)
 
@@ -43,8 +53,10 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
   Cloud VMs (new, run, pause, resume, rm) are `cmux vm`: `cmux vm --help`.";
 
 /// The verbs this module runs; `add` only with `--yes`.
-const VERBS: &[&str] =
-    &["list", "ls", "remove", "rm", "audit", "network", "invite", "help", "-h", "--help"];
+const VERBS: &[&str] = &[
+    "list", "ls", "remove", "rm", "audit", "network", "invite", "setup", "start", "help", "-h",
+    "--help",
+];
 
 /// The output flags a device verb takes anywhere: before `device`, before the verb or after.
 fn output_flag(word: &str) -> bool {
@@ -67,6 +79,18 @@ pub(crate) fn device_args(raw_args: &[String]) -> Option<Vec<String>> {
         Some([verb, after @ ..]) if verb == "add" => {
             after.iter().any(|a| a == "--yes" || a == "-y")
         }
+        // `device SELECTOR show` reads the device list first (hq#11835 row 13); `--catalog` and
+        // any other flag keep the machine catalog's `machine SELECTOR show`.
+        Some([selector, show, after @ ..]) if show == "show" && !selector.starts_with('-') => {
+            if !after.iter().all(|a| output_flag(a)) {
+                return None;
+            }
+            let mut words: Vec<String> = leading.to_vec();
+            words.push("show".to_owned());
+            words.push(selector.clone());
+            words.extend(rest.iter().filter(|w| output_flag(w)).cloned());
+            return Some(words);
+        }
         None => true,
         _ => false,
     };
@@ -87,6 +111,9 @@ pub(crate) fn run(rest: &[String]) -> i32 {
     // the reason for a failure) stays.
     let _silenced = if quiet { Silenced::stdout() } else { None };
     let args = args.as_slice();
+    if verb == "show" {
+        return show(args);
+    }
     let result = match verb {
         "list" | "ls" => list(args),
         "add" => add(args),
@@ -94,8 +121,14 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "remove" | "rm" => remove(args),
         "audit" => show_audit(args),
         "network" => show_network(args),
+        "setup" => setup::verb(args, setup::Mode::Setup),
+        "start" => setup::verb(args, setup::Mode::Start),
         _ => {
-            println!("{USAGE}");
+            // Asked-for help also lists the cmux app's `device …` verbs (cli/app_action_help.rs).
+            match crate::cli::app_action_help::append("device", USAGE) {
+                Some(text) if matches!(verb, "help" | "-h" | "--help") => println!("{text}"),
+                _ => println!("{USAGE}"),
+            }
             return if matches!(verb, "help" | "-h" | "--help") { 0 } else { 2 };
         }
     };
@@ -288,6 +321,17 @@ pub(crate) const CREDENTIAL_ENV: &[&str] = &[
     "CMUX_PANE_APP_CREDENTIAL",
     "WEFT_ADMIN_TOKEN",
     "WEFT_TICKET_SEED",
+    // Cloud VM providers' credentials (cmux-vm-pool gce.rs, freestyle.rs): `cmux vm` reads them in
+    // its own process; no child this module starts makes a VM.
+    "CLOUDSDK_AUTH_ACCESS_TOKEN",
+    "GOOGLE_OAUTH_ACCESS_TOKEN",
+    "FREESTYLE_API_KEY",
+    // This machine's hub credential: acpmux reads it from its own store, never from the environment
+    // (joined_model_plane.rs), so an inherited copy is only a leak.
+    "CMUX_MACHINE_CREDENTIAL",
+    // Automation secrets' example names (cli/automation_secret.rs): a value under them is a secret.
+    "CMUX_PRO_KEY",
+    "MODELS_CATALOG_TOKEN",
 ];
 
 /// This program as `cmux` (argv[0]), so the `host` verbs, which exist only on the `cmux`
@@ -415,19 +459,92 @@ fn list(args: &[String]) -> anyhow::Result<()> {
     let flags = Flags::parse(
         args,
         &["network", JOIN_VALUES[0], JOIN_VALUES[1]],
-        &["json", "cloud-token-stdin"],
+        &["json", "cloud-token-stdin", "probe", "no-probe"],
     )?;
     let auth = JoinAuth::read(&flags)?;
     let mut notes = Vec::new();
-    let listing = current(&flags, &auth, &mut notes)?;
-    if flags.has("json") {
+    let mut listing = current(&flags, &auth, &mut notes)?;
+    // The human list probes so it never suggests an add that waits out ssh's timeout; `--json`
+    // (the app's refresh after every change) probes only when asked, so it pays nothing.
+    let json_out = flags.has("json");
+    let probe = !flags.has("no-probe") && (!json_out || flags.has("probe"));
+    let probe_ms = probe.then(|| probe_available(&mut listing.available, &reach::tcp_probe()));
+    if json_out {
         let mut v = serde_json::to_value(&listing)?;
         v.set("notes", json!(notes));
+        if let Some(ms) = probe_ms {
+            v.set("sshProbe", json!({"ms": ms, "budgetMs": reach::BUDGET.as_millis()}));
+        }
         println!("{v}");
         return Ok(());
     }
     print_listing(&listing, &notes);
     Ok(())
+}
+
+/// `cmux device SELECTOR show`: the row of `cmux device list` that `SELECTOR` names (id, name or
+/// network address), so a device the list shows is always one `show` finds. A selector the list
+/// does not name is the machine catalog's (`cmux machine SELECTOR show`: Cloud VMs, this Mac),
+/// run as it ran before. Returns the exit code.
+fn show(args: &[String]) -> i32 {
+    let json_out = args.iter().any(|a| a == "--json");
+    let Some(selector) = args.iter().find(|a| !a.starts_with('-')) else {
+        eprintln!("cmux device show: needs a device: its id, name or address\n{USAGE}");
+        return 2;
+    };
+    let mut notes = Vec::new();
+    let listing = Flags::parse(&[], &[], &[])
+        .and_then(|flags| current(&flags, &JoinAuth::default(), &mut notes));
+    if let Ok(listing) = &listing
+        && let Some(device) = model::find(listing, selector)
+    {
+        if json_out {
+            let mut v = serde_json::to_value(device).unwrap_or(Value::Null);
+            v.set("source", json!("device-list"));
+            println!("{v}");
+        } else {
+            print_device(device);
+        }
+        return 0;
+    }
+    let mut command = match cmux() {
+        Ok(command) => command,
+        Err(e) => {
+            eprintln!("cmux device show: {e:#}");
+            return 1;
+        }
+    };
+    if json_out {
+        command.arg("--json");
+    }
+    command.args(["machine", selector, "show"]);
+    match command.status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(e) => {
+            eprintln!("cmux device show: cannot run cmux machine {selector} show: {e}");
+            1
+        }
+    }
+}
+
+fn print_device(d: &model::Device) {
+    let roles: Vec<&str> = d.roles.iter().copied().map(role_words).collect();
+    println!("{:<10} {}", "name", d.name);
+    println!("{:<10} {}", "id", d.id);
+    println!("{:<10} {}", "state", state_words(d.state));
+    println!("{:<10} {}", "roles", roles.join(", "));
+    if let Some(os) = &d.os {
+        println!("{:<10} {os}", "os");
+    }
+    if let Some(reach) = &d.reach {
+        println!("{:<10} {} ({})", "address", reach.address, reach.network);
+    }
+    if let Some(added) = &d.added_at {
+        println!("{:<10} {added}", "added");
+    }
+    if let Some(detail) = &d.detail {
+        println!("{:<10} {detail}", "detail");
+    }
 }
 
 fn role_words(role: Role) -> &'static str {
@@ -481,13 +598,8 @@ fn print_listing(listing: &Listing, notes: &[String]) {
     }
     if !listing.available.is_empty() {
         println!("\nNot added yet (your network and ~/.ssh/config):");
-        for a in &listing.available {
-            println!(
-                "  {:<28} {:<10} cmux device add {} --yes",
-                a.name,
-                a.os,
-                shell_word(&a.address)
-            );
+        for line in available_lines(&listing.available) {
+            println!("{line}");
         }
     }
     for pool in &listing.pools {
@@ -499,6 +611,56 @@ fn print_listing(listing: &Listing, notes: &[String]) {
     for note in notes {
         println!("\nNote: {note}");
     }
+}
+
+/// Probes ssh on every available computer at once ([`reach::probe_all`], one [`reach::BUDGET`]
+/// whatever their count) and records each answer in its row. Returns the pass's milliseconds.
+fn probe_available(available: &mut [model::Available], probe: &reach::Probe) -> u128 {
+    let started = std::time::Instant::now();
+    let hosts: Vec<String> = available.iter().map(|a| a.address.clone()).collect();
+    for (a, reach) in available.iter_mut().zip(reach::probe_all(&hosts, reach::BUDGET, probe)) {
+        a.ssh = Some(reach);
+    }
+    started.elapsed().as_millis()
+}
+
+/// Names a folded line spells out before "and N more".
+const UNREACHABLE_NAMES: usize = 12;
+
+/// The "Not added yet" rows: an add command for each computer ssh may reach, then one group for
+/// the ones whose ssh did not answer (their add would only wait out ssh's timeout), with the
+/// tailnet ACL hint once when any of them is a network computer.
+fn available_lines(available: &[model::Available]) -> Vec<String> {
+    let (silent, offered): (Vec<_>, Vec<_>) =
+        available.iter().partition(|a| a.ssh == Some(reach::SshReach::NoAnswer));
+    let mut lines: Vec<String> = offered
+        .iter()
+        .map(|a| {
+            format!(
+                "  {:<28} {:<10} cmux device add {} --yes",
+                a.name,
+                a.os,
+                shell_word(&a.address)
+            )
+        })
+        .collect();
+    if silent.is_empty() {
+        return lines;
+    }
+    let mut names: Vec<&str> =
+        silent.iter().take(UNREACHABLE_NAMES).map(|a| a.name.as_str()).collect();
+    let more = silent.len().saturating_sub(UNREACHABLE_NAMES);
+    let more_text = format!("and {more} more");
+    if more > 0 {
+        names.push(&more_text);
+    }
+    lines.push(format!("  ssh not reachable from here ({}): {}", silent.len(), names.join(", ")));
+    if silent.iter().any(|a| a.found == model::Found::Network) {
+        lines.push(
+            "    If `tailscale ping HOST` works, the tailnet's ACL does not let this computer reach its port 22: add a rule like { \"src\": [\"autogroup:member\"], \"dst\": [\"HOST\"], \"ip\": [\"tcp:22\"] } or turn on Tailscale SSH there, then list again.".into(),
+        );
+    }
+    lines
 }
 
 /// `text` as one shell word for a command a person copies: as is when it is
@@ -517,7 +679,7 @@ fn actor() -> String {
         .unwrap_or_else(|_| "unknown".into())
 }
 
-fn record(event: &str, fields: Value) {
+pub(crate) fn record(event: &str, fields: Value) {
     let mut entry = json!({"event": event, "by": actor(), "via": "cli"});
     if let (Some(map), Some(extra)) = (entry.as_object_mut(), fields.as_object()) {
         map.extend(extra.clone());

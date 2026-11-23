@@ -56,6 +56,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({ "url": config::sign_in_url(&request.auth_web_origin, &request.callback_scheme, request.state.as_deref()) })
         }
+        // The install token's owner: use the held token, renew it beside, wait on the mint, or name the stall.
+        b"cloud_auth_install_token_lease" => {
+            let facts: cmux_cloud_config::signin::LeaseFacts = read(request)?;
+            json!(cmux_cloud_config::signin::lease(&facts))
+        }
         // How a launch signs in, and which files its account pick reads.
         b"cloud_auth_launch_sign_in" => {
             #[derive(Deserialize)]
@@ -200,6 +205,37 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let mut answer = json!(slots::slots(&request.accounts));
             answer["replacement"] = json!(slots::replacement(&request.deletes));
             answer
+        }
+        // The hub's records as physical devices (`device_list`): `{thisDevice, others}` from this
+        // device and every record, so a Mac's other builds and stale records list once, or not at all.
+        b"cloud_identity_device_list" => {
+            use cmux_cloud_config::device_list;
+            #[derive(Deserialize)]
+            struct Request {
+                this: device_list::This,
+                #[serde(default)]
+                devices: Vec<device_list::Device>,
+            }
+            let request: Request = read(request)?;
+            json!(device_list::listing(&request.this, &request.devices))
+        }
+        // What Your Devices says while it lists nothing (`device_list::discovery`): "none" only after
+        // a device-list read succeeded, else finding or the reason it failed.
+        b"cloud_identity_device_discovery" => {
+            let request: cmux_cloud_config::device_list::DiscoveryInput = read(request)?;
+            json!(cmux_cloud_config::device_list::discovery(&request))
+        }
+        // Screen Sharing's machine picker (`screen_picker`): `[{id, name, symbol, state, opens, fix}]`
+        // from the machines the hub lists, so the menu says why a machine cannot be viewed.
+        b"cloud_identity_screen_picker" => {
+            use cmux_cloud_config::screen_picker;
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                machines: Vec<screen_picker::Machine>,
+            }
+            let request: Request = read(request)?;
+            json!(screen_picker::rows(&request.machines))
         }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]

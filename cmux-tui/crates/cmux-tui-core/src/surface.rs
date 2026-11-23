@@ -31,6 +31,7 @@ mod pending_bells;
 mod pty_surface;
 mod render_tap;
 mod render_view;
+pub(crate) mod resume_ring;
 mod scrolling;
 mod shutdown;
 pub(crate) mod spawn;
@@ -307,6 +308,16 @@ pub struct AttachStream {
     pub history_rows_skipped: Option<u64>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
+    /// Where the output stream stood at the replay (`terminal-resume-v1`).
+    pub(crate) stamp: resume_ring::StreamStamp,
+}
+
+/// A `terminal-resume-v1` reattach the daemon could answer exactly: the bytes
+/// after the viewer's offset, and an attach stream with no replay, whose live
+/// tap follows them.
+pub(crate) struct ResumeAttach {
+    pub missing: Vec<u8>,
+    pub attach: AttachStream,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -860,6 +871,7 @@ impl Surface {
                     input_port::InputRoute::Hosted(attachment.input_route()),
                 ))),
                 input_port: port,
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -880,6 +892,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 recover_requested: AtomicBool::new(false),
+                #[cfg(unix)]
+                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: host_fallback.map(std::sync::OnceLock::from).unwrap_or_default(),
                 dirty: AtomicBool::new(true),
@@ -1050,6 +1064,15 @@ impl Surface {
             Surface::Pty(surface) => Some(surface),
             Surface::Browser(_) => None,
         }
+    }
+
+    /// The terminal runs on the holder (its PTY master lives in the holder process).
+    #[cfg(test)]
+    pub(crate) fn runs_on_holder(&self) -> bool {
+        self.as_pty().is_some_and(|pty| {
+            let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. })
+        })
     }
 
     pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {

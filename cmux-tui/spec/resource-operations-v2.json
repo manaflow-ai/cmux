@@ -7350,6 +7350,56 @@
               "name": "WorkspaceRef"
             }
           }
+        },
+        "created_by": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "kind": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "agent or script."
+              },
+              "session": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "The agent session that made it."
+              },
+              "session_name": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "That session's name."
+              },
+              "host": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "The host it ran on."
+              },
+              "purpose": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "One line on what the space is for."
+              }
+            },
+            "extra": false
+          },
+          "description": "Who made the space and why (created-by-detail-v1), when an agent or a script said so; absent for the person's own."
         }
       },
       "extra": false
@@ -8087,12 +8137,13 @@
             "kind": "enum",
             "values": [
               "set",
+              "set_exact",
               "set_unset",
               "reset",
               "reset_unchanged"
             ]
           },
-          "description": "set and reset are settings.set and settings.reset; set_unset sets only while the file has no value at the path (JSON null is a value); reset_unchanged resets only while the file still holds value there (1 and 1.0 are one value)."
+          "description": "set and reset are settings.set and settings.reset; set_exact is set without its default removal (a schema row set to its default keeps the key); set_unset sets only while the file has no value at the path (JSON null is a value); reset_unchanged resets only while the file still holds value there (1 and 1.0 are one value)."
         },
         "key": {
           "required": false,
@@ -8120,7 +8171,7 @@
             "kind": "ref",
             "name": "JsonValue"
           },
-          "description": "The value to set (set, set_unset) or the value expected (reset_unchanged); reset takes none."
+          "description": "The value to set (set, set_exact, set_unset) or the value expected (reset_unchanged); reset takes none."
         }
       },
       "extra": false
@@ -10362,7 +10413,7 @@
             "name": "string",
             "min_length": 1
           },
-          "description": "The repository's top level, as in every git operation."
+          "description": "The repository's top level, as in every git operation; for a folder in no repository, the folder itself."
         },
         "folder": {
           "required": true,
@@ -10371,7 +10422,7 @@
             "name": "string",
             "min_length": 1
           },
-          "description": "The folder listed, in git's spelling: root or a folder under it. Every entry is a child of folder."
+          "description": "The folder listed, in git's spelling: root or a folder under it (in no repository, the folder as given). Every entry is a child of folder."
         },
         "entries": {
           "required": true,
@@ -10720,6 +10771,15 @@
           },
           "description": "For example origin/main."
         },
+        "github_repo": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "With github: true, the owner/name of the upstream's remote (else origin) when its URL is on github.com, for example manaflow-ai/cmux. Absent otherwise."
+        },
         "base": {
           "required": false,
           "type": {
@@ -10941,7 +11001,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "none (the recipe copies and runs nothing) or copying (started; git.worktree.setup follows it)."
+          "description": "none (the recipe copies and runs nothing), copying (started; git.worktree.setup follows it) or awaiting_approval (the repository's setup waits for git.worktree.setup.run with approve)."
         },
         "port": {
           "required": false,
@@ -10950,6 +11010,14 @@
             "name": "uint16"
           },
           "description": "CMUX_PORT: the first of ten ports the worktree keeps until it is removed."
+        },
+        "approval": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "While awaiting_approval: the fingerprint of the recipe to approve."
         }
       },
       "extra": false
@@ -10963,7 +11031,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "succeeded, failed or timed_out (after one minute). A failed teardown does not keep the worktree."
+          "description": "succeeded, failed, timed_out (after one minute) or not_approved (a repository teardown nobody approved does not run). A failed teardown does not keep the worktree."
         },
         "exit_code": {
           "required": false,
@@ -11040,7 +11108,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "none, copying, running, succeeded, failed, timed_out (after 30 minutes) or interrupted (the session host restarted meanwhile)."
+          "description": "none, awaiting_approval (the repository's setup waits for the person), copying, running, succeeded, failed, timed_out (after 30 minutes) or interrupted (the session host restarted meanwhile)."
         },
         "port": {
           "required": false,
@@ -11117,6 +11185,14 @@
             "name": "decimal"
           },
           "description": "The byte offset output ends at; pass it as since to read on."
+        },
+        "approval": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "While awaiting_approval: the fingerprint of the recipe it waits on."
         }
       },
       "extra": false
@@ -11205,6 +11281,37 @@
             }
           },
           "description": "What was wrong with them."
+        },
+        "approval": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitWorktreeSetupApproval"
+          },
+          "description": "Present when the repository's own setup or teardown runs: those commands wait for one approval of this recipe on this machine."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeSetupApproval": {
+      "kind": "object",
+      "fields": {
+        "fingerprint": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The fingerprint of the repository's setup, teardown and include lines in effect; git.worktree.setup.run approve takes it."
+        },
+        "approved": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the person approved this recipe on this machine (kept in the repository's git folder, never committed)."
         }
       },
       "extra": false
@@ -15694,6 +15801,75 @@
             }
           },
           "description": "The pull request URLs it opened, oldest first."
+        },
+        "preview": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Its last reply, one short line as acpmux keeps it (a New Tab card's message); null before the first reply. Kept fresh with updated_ms and, like it, no change signal of its own. Absent from a daemon older than the field."
+        }
+      },
+      "extra": false
+    },
+    "LanguagePackState": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "bundled",
+              "ready",
+              "unavailable"
+            ]
+          },
+          "description": "bundled: nothing to fetch, the app uses what it ships. ready: the pack is extracted at root. unavailable: the pack could not be had now; code and message say why."
+        },
+        "root": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "ready: the pack's folder, <cache>/<sha256>."
+        },
+        "chromium_pak": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "ready, when the pack carries a Chromium locale: its locale.pak, <root>/ChromiumLocales/<catalog>.lproj/locale.pak."
+        },
+        "code": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "language_packs.offline",
+              "language_packs.verify",
+              "language_packs.bad_manifest",
+              "language_packs.io"
+            ]
+          },
+          "description": "unavailable: offline (the download failed), verify (size, hash or archive did not match), bad_manifest (the manifest is not readable or names a bad pack) or io (the cache folder could not be written)."
+        },
+        "message": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "unavailable: one plain English sentence."
         }
       },
       "extra": false
@@ -16360,6 +16536,31 @@
               "name": "string"
             },
             "description": "privacy, network or destructive; absent for a path that is not a setting."
+          }
+        },
+        "extra": false
+      }
+    },
+    "settings.file_mismatch": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "file": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The settings file the request named."
+          },
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The settings file this daemon's owner reads and writes (settings.snapshot path)."
           }
         },
         "extra": false
@@ -18890,7 +19091,54 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "description": "At most this many chats, the newest first. Omitted: every chat."
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ChatState"
+            },
+            "description": "Only the chats in this state (input: the ones waiting for the person)."
+          },
+          "before_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The page after a row: that row's updated_ms (its created_ms when updated_ms is null, 0 when both are). Needs before_id."
+          },
+          "before_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The page after a row: that row's id. Needs before_ms."
+          },
+          "before_machine": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The page after a row: that row's machine, when it has one (a peer's chat). Needs before_ms and before_id."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -18909,8 +19157,9 @@
         "validation.invalid"
       ],
       "constraints": [
-        "Every ACP chat acpmux on this machine knows, its peers' included, that is neither closed nor archived, in no particular order: the reader ranks them.",
-        "The daemon keeps the list from acpmux's own pushes, so a read costs no acpmux call. An App Store app's chat.changed fires once for each change of a listed field other than updated_ms.",
+        "Every ACP chat acpmux on this machine knows, its peers' included, that is neither closed nor archived, the newest first: by updated_ms, else created_ms, then id, then machine.",
+        "limit, state and the before_ms/before_id/before_machine cursor read only the rows they return from the daemon's ordered chat index: a read of the 5 newest chats costs 5 rows, never a sort of every chat. Page through every chat with limit and the cursor of each page's last row.",
+        "The daemon keeps the list from acpmux's own pushes, so a read costs no acpmux call. An App Store app's chat.changed fires once for each change of a listed field other than updated_ms and preview.",
         "Empty while acpmux is not running."
       ]
     },
@@ -19026,6 +19275,126 @@
         "acpmux keeps the change, so every window and device sees it; repeating it changes nothing more, so a replayed key does it again harmlessly.",
         "From an app it runs only with a live gesture token (a tap), so automation never changes what the person has seen or pinned.",
         "operation.failed details.reason is not_found (chat.list lists no such chat), unavailable (acpmux is not running here or did not answer) or refused (acpmux, or the chat's peer, refused it; extra.message says why)."
+      ]
+    },
+    "chief.automation.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set does). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "The brain's automations (optchat-chief automations.rs, issue 25573), owned by the brain and passed through unchanged: {automations: [{id, name, prompt, trigger: {type: schedule|agent_done, cron?, matches?, summary}, paused, created_ms, next_ms, last_fired_ms, runs}]}, oldest first."
+      ]
+    },
+    "chief.automation.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          },
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 32
+            },
+            "description": "The automation's id (au<N>) in the brain's list."
+          },
+          "action": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "pause",
+                "resume",
+                "delete",
+                "run"
+              ]
+            },
+            "description": "pause: it never fires until resumed; resume: it fires again from now (a schedule's next time after now); delete: it is gone; run: it fires once now."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set does). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "The brain's answer after the change, passed through unchanged: {automations: [...] as chief.automation.list, outcome: done|noop}. An automation the brain does not have: operation.failed details.reason not_found; an action it does not take: bad_request."
       ]
     },
     "chief.continue": {
@@ -21127,6 +21496,128 @@
         "validation.invalid"
       ]
     },
+    "cloud.machine.chief_start": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Starts a Chief on its own Cloud machine, resumably by args.key: creates the machine sized for a Chief (cloud.machine.create, 4 CPU, 8 GiB memory, 32 GiB disk, idempotency key chief-machine-<key>-create), sets idle_seconds 0 and keep, runs the machine's own optchat-chief cloud pair and approves its code as the caller (server.pair.approve), creates the Chief placed on that install (chief.create with brain_place, not the default), and enables and starts cmux-chief.service. Owner or worker auth; args are key (1 to 48 of a-z, 0-9 and -), name (the Chief's, default Chief), machine_name (default chief-<key>) and until (machine: stop once the machine runs with its policies set). Running it again with the same key finishes a half-done start and never makes a second machine or Chief. Answers {machine, machine_name, host, install, chief, conversation, host_unit (image or installed), stage (machine or done)}; refusals chief.host_missing (the image has no Chief host), chief.machine_gone, chief.pair_failed, chief.place_unsupported, chief.machine_exec.",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
+          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "cloud.machine.io": {
       "class": "mutation",
       "idempotency": "required",
@@ -21747,6 +22238,241 @@
       ]
     },
     "cloud.owner.github_app": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Calls the cmux API Worker's person route for the call (owner auth: Authorization and x-cmux-team only).",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.owner.github_connect": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Calls the cmux API Worker's person route for the call (owner auth: Authorization and x-cmux-team only).",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.owner.github_repos": {
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
@@ -28005,7 +28731,7 @@
               "name": "string",
               "min_length": 1
             },
-            "description": "An absolute path to a folder inside a repository; its immediate children are listed. A file path lists the folder it is in. Use it, or a workspace, pane, tab or terminal selector whose working directory names the folder."
+            "description": "An absolute path to a folder; its immediate children are listed, the git way inside a repository and from the disk outside one. A file path lists the folder it is in. Use it, or a workspace, pane, tab or terminal selector whose working directory names the folder."
           },
           "limit": {
             "required": false,
@@ -28037,7 +28763,8 @@
         "Candidates are tracked files still in the working tree and untracked files no ignore rule hides, under the listed folder; a folder that holds only ignored files is never an entry.",
         "Each candidate folds into its first path component: a component with paths below it is a directory; a lone component is a file, unless it is a folder on disk (a submodule), which is a directory.",
         "Entries are directories first, then by name case-insensitively, then by exact name. A candidate listing cut at its size bound sets truncated.",
-        "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
+        "A folder in no repository lists from one read of the folder on disk: its children only, names starting with . left out, a symlink a file.",
+        "operation.failed details.extra.code is the machine reason: no_working_directory, target_not_found, unreadable or git_failed."
       ]
     },
     "git.files.search": {
@@ -28293,6 +29020,14 @@
               "min_length": 1
             },
             "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "github": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also read github_repo, the GitHub owner/name of the upstream's remote (else origin). One more git run, so it is off unless asked."
           }
         },
         "extra": false
@@ -28563,8 +29298,74 @@
       ],
       "constraints": [
         "The recipe is read from the main checkout: .worktreeinclude, and setup, run, teardown and include in .cmux/worktree.toml; the project's saved recipe (project.update worktree) wins command by command, and its include lines come after the repository's.",
-        "git.worktree.create starts the setup after its reply: it copies the .worktreeinclude files (never overwriting, never following a link out of the repository), then runs setup in the user's login shell in the worktree with CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME and CMUX_PORT (also as CONDUCTOR_*). A failed setup keeps the worktree.",
+        "git.worktree.create starts the setup after its reply: it copies the .worktreeinclude files (never overwriting, never following a link out of the repository), then runs setup in the user's login shell in the worktree with CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME and CMUX_PORT (also as CONDUCTOR_*). A failed setup keeps the worktree. A repository's own setup waits in awaiting_approval, copying nothing, until git.worktree.setup.run approves its recipe (recipe.approval).",
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
+      ]
+    },
+    "git.worktree.setup.run": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a linked worktree. Use it, or a workspace, pane, tab or terminal selector whose working directory names the worktree."
+          },
+          "approve": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The fingerprint of the recipe the person read and approved (git.worktree.setup recipe.approval.fingerprint). Needed only while that recipe is not approved."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitWorktreeSetupStart"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Runs the setup of a linked worktree again from the start, after a first approval or as a retry: it copies the .worktreeinclude files that are not there yet, then runs setup; the log goes on after a --- Setup started again --- line, and git.worktree.setup follows it.",
+        "A repository's own setup or teardown (.cmux/worktree.toml, not replaced by the saved recipe) runs only once the person approved that recipe on this machine; the answer is kept by fingerprint in the repository's git folder and a changed recipe asks again. The saved recipe and include-only recipes need no approval.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, approval_required, recipe_changed (extra.fingerprint is the recipe in effect), setup_running (extra.state), store_failed or git_failed."
       ]
     },
     "history.backups.purge": {
@@ -29684,6 +30485,71 @@
         "selector.invalid",
         "selector.not_found",
         "validation.invalid"
+      ]
+    },
+    "language_packs.ensure": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "language": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 64
+            },
+            "description": "The language the app shows, as a pack key of the manifest (de, ja, zh-Hans, pt-BR). en or empty answers bundled."
+          },
+          "manifest": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the app bundle's language-packs.json. A missing file answers bundled."
+          },
+          "cache": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the folder that keeps extracted packs, one folder per pack SHA-256. The daemon makes it when it is missing."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "LanguagePackState"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only the verified app connection sends it (origin user, a local socket): it reads and writes folders by path and downloads. A page, an agent, an app and a link connection are refused.",
+        "The manifest is {version: 1, packs: {<language>: {url, sha256, size, strings?, chromium?}}}; chromium, when present, is one of the 54 Chromium locale paks for macOS other than en (en-US stays in the app), and a pack with strings false carries a chromium;  another version, a sha256 that is not 64 lowercase hex digits, a size of 0 or above 128 MiB, or a url that is not https://files-next.cmux.com/... is bad_manifest (debug builds also take http on 127.0.0.1 or localhost).",
+        "A pack whose folder <cache>/<sha256> holds .complete answers ready with no network. Otherwise the daemon downloads the url once (120 s in all, no redirect), refuses a body of another size or SHA-256 (verify), unpacks the zstd tar into a private .partial folder (only files and folders with relative names and no .., else verify), writes .complete last and renames the folder into place.",
+        "Requests for one pack share one download. After a ready answer the daemon removes the pack folders of <cache> the manifest no longer names and .partial folders older than an hour.",
+        "A failure is a reply, never an error: unavailable with code language_packs.offline (network), language_packs.verify (size, hash or archive), language_packs.bad_manifest or language_packs.io (the file system), and one sentence for a person."
       ]
     },
     "layout.bulk": {
@@ -32622,6 +33488,64 @@
           "session": "required"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the space: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the space and why (created-by-detail-v1), never a trust claim. Shown as created_by on the space."
+          },
           "name": {
             "required": true,
             "type": {
@@ -34496,7 +35420,8 @@
           "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}},
           "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
           "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
-          "live_question": {"required": false, "description": "A question hook's question (Claude Code AskUserQuestion, Codex request_user_input) as compact JSON {harness, tool_use_id?, questions: [{id?, question, header?, multiSelect, isOther?, options: [{label, description?}]}]} (at most 16 KiB, 4 questions, 8 options each): kept in daemon memory only while the agent waits on it, carried by the question notification event as question and by its list-notifications row; never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
+          "live_question": {"required": false, "description": "A question hook's question (Claude Code AskUserQuestion, Codex request_user_input) as compact JSON {harness, tool_use_id?, questions: [{id?, question, header?, multiSelect, isOther?, options: [{label, description?}]}]} (at most 16 KiB, 4 questions, 8 options each): kept in daemon memory only while the agent waits on it, carried by the question notification event as question and by its list-notifications row; never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_approval": {"required": false, "description": "A Claude Code approval hook's request (PermissionRequest for a tool other than AskUserQuestion or ExitPlanMode) as compact JSON {harness: \"claude\", tool, command?, target?, description?} (at most 16 KiB, 2000 characters a field): kept in daemon memory only while the agent waits on it, carried by its list-notifications row as approval; never journaled or logged (the hook's private queue holds the request line only until the daemon answers it, as for the other live fields).", "type": {"kind": "primitive", "name": "string"}}
         },
         "extra": false
       },
@@ -35270,6 +36195,15 @@
             },
             "description": "The edits, applied in order to the file text and published once."
           },
+          "file": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The settings file the caller means. When its standardized path is not the owner's file (settings.snapshot path), the op is settings.file_mismatch and writes nothing."
+          },
           "if_revision": {
             "required": false,
             "type": {
@@ -35319,6 +36253,7 @@
         "selector.invalid",
         "selector.not_found",
         "settings.agent_refused",
+        "settings.file_mismatch",
         "settings.invalid",
         "settings.managed",
         "settings.removed",
@@ -37673,6 +38608,64 @@
           "pane": "optional"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the tab: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the tab and why (created-by-detail-v1), never a trust claim. Shown as extra.created_by on the tab."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -37784,6 +38777,64 @@
           "pane": "optional"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the tab: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the tab and why (created-by-detail-v1), never a trust claim. Shown as extra.created_by on the tab."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -41205,11 +42256,38 @@
                     "min_length": 1
                   },
                   "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
                 }
               },
               "extra": false
             },
-            "description": "Who made the workspace: a place hint, never a trust claim. An agent or script workspace goes below its creator workspace, after the creator's earlier children, in its group; with no live creator workspace, at the end. A person's workspace, or one without created_by, follows placement or the setting. Shown as extra.created_by on the workspace."
+            "description": "Who made the workspace: a place hint, never a trust claim. An agent or script workspace goes below its creator workspace, after the creator's earlier children, in its group; with no live creator workspace, at the end. A person's workspace, or one without created_by, follows placement or the setting. Shown as extra.created_by on the workspace. Its session_name, host and purpose say who made it and why (created-by-detail-v1); workspace list shows them."
           },
           "cwd": {
             "required": false,

@@ -123,13 +123,18 @@ impl Hub {
             .collect()
     }
 
-    /// How many times the order sorted every chat (its first read, a cursor the log could not
-    /// follow, a count that did not match): a gate's timed read must be none of those.
+    /// Sorts the order if it is not sorted yet, else patches it: the daemon's start task does it
+    /// first, before any log is read (`daemon.rs`), and the load pass again once every log is
+    /// read (`log_load.rs`), where it patches what the logs moved.
+    pub(crate) fn sort_list_order(&self) {
+        drop(self.patched_order());
+    }
+
     /// Reads the order as a daemon's load pass does once every log is read (`log_load.rs`): a
     /// seed that puts sessions in place goes through no load pass.
     #[cfg(test)]
     pub(crate) fn warm_list_order_for_test(&self) {
-        let _ = self.own_rows_from(None, 0);
+        self.sort_list_order();
     }
 
     /// The order as a deferred start holds it before its load pass (`Hub::new` sorts it at
@@ -140,6 +145,8 @@ impl Hub {
         *order = Order::default();
     }
 
+    /// How many times the order sorted every chat (its first read, a cursor the log could not
+    /// follow, a count that did not match): a gate's timed read must be none of those.
     #[cfg(test)]
     pub(crate) fn list_order_rebuilds_for_test(&self) -> u64 {
         self.list_order.0.lock().unwrap_or_else(|e| e.into_inner()).rebuilds

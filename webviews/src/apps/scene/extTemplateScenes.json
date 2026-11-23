@@ -1,0 +1,2145 @@
+{
+  "newtab-a": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 12
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "VStack",
+      "props": {
+        "alignment": "leading",
+        "spacing": 2,
+        "padding": {
+          "leading": 12,
+          "trailing": 12,
+          "top": 16
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Text",
+      "props": {
+        "text": "My view",
+        "font": "largeTitle",
+        "weight": "semibold"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "Starting in atlas",
+        "font": "callout",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4"]
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Panel",
+      "props": {
+        "title": "Start",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Row",
+      "props": {
+        "title": "New agent chat",
+        "subtitle": "Ask Claude or Codex about this folder",
+        "symbol": "sparkles",
+        "accessory": "chevron.right",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Row",
+      "props": {
+        "title": "New terminal",
+        "subtitle": "/Users/you/src/atlas",
+        "symbol": "terminal",
+        "accessory": "chevron.right",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Row",
+      "props": {
+        "title": "Open a file",
+        "subtitle": "Markdown, code or a picture",
+        "symbol": "doc.text",
+        "accessory": "chevron.right",
+        "onTap": true
+      }
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n8", "n9"]
+    },
+    {
+      "op": "children",
+      "id": "n5",
+      "children": ["n6"]
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Panel",
+      "props": {
+        "title": "Make it yours",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Text",
+      "props": {
+        "text": "Edit src/main.ts and save: this page redraws while cmux ext dev runs.",
+        "font": "caption",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n10",
+      "children": ["n11"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n5", "n10"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "newtab-b": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Icon",
+      "props": {
+        "symbol": "sparkles",
+        "font": "largeTitle",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "My view",
+        "font": "largeTitle",
+        "weight": "semibold"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Text",
+      "props": {
+        "text": "Starting in /Users/you/src/atlas",
+        "font": "callout",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "HStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Button",
+      "props": {
+        "title": "New agent chat",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Button",
+      "props": {
+        "title": "New terminal",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Button",
+      "props": {
+        "title": "Open a file",
+        "onTap": true
+      }
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n8", "n9"]
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n3", "n4", "n5", "n6", "n10"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "newtab-before": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Panel",
+      "props": {
+        "title": "Hello from My view",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Text",
+      "props": {
+        "text": "Starting in /Users/you/src/atlas"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Button",
+      "props": {
+        "title": "Say hi",
+        "onTap": true
+      }
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "newtab-c": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 12
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Text",
+      "props": {
+        "text": "My view",
+        "font": "largeTitle",
+        "weight": "semibold",
+        "padding": {
+          "leading": 12,
+          "top": 16
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "HStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "top"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Panel",
+      "props": {
+        "title": "Start",
+        "style": "glass",
+        "frame": {
+          "maxWidth": "infinity"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Row",
+      "props": {
+        "title": "New agent chat",
+        "symbol": "sparkles",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Row",
+      "props": {
+        "title": "New terminal",
+        "symbol": "terminal",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Row",
+      "props": {
+        "title": "Open a file",
+        "symbol": "doc.text",
+        "onTap": true
+      }
+    },
+    {
+      "op": "children",
+      "id": "n5",
+      "children": ["n6", "n7", "n8"]
+    },
+    {
+      "op": "children",
+      "id": "n4",
+      "children": ["n5"]
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Panel",
+      "props": {
+        "title": "Recent",
+        "style": "glass",
+        "frame": {
+          "maxWidth": "infinity"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Row",
+      "props": {
+        "title": "atlas",
+        "subtitle": "2 min ago",
+        "symbol": "folder"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Row",
+      "props": {
+        "title": "docs site",
+        "subtitle": "Yesterday",
+        "symbol": "folder"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n10",
+      "children": ["n11", "n12"]
+    },
+    {
+      "op": "children",
+      "id": "n9",
+      "children": ["n10"]
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n4", "n9"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n3"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "newtab-shipped": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 12
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Panel",
+      "props": {
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Text",
+      "props": {
+        "text": "My view",
+        "font": "largeTitle",
+        "weight": "semibold"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "Starting in atlas",
+        "font": "callout",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4"]
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Panel",
+      "props": {
+        "title": "Start",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Row",
+      "props": {
+        "title": "New agent chat",
+        "subtitle": "Ask Claude or Codex about this folder",
+        "symbol": "sparkles",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Row",
+      "props": {
+        "title": "New terminal",
+        "subtitle": "/Users/you/src/atlas",
+        "symbol": "terminal",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Row",
+      "props": {
+        "title": "Open a file",
+        "subtitle": "Markdown, code or a picture",
+        "symbol": "doc.text",
+        "onTap": true
+      }
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n8", "n9"]
+    },
+    {
+      "op": "children",
+      "id": "n5",
+      "children": ["n6"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n5"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "pane-a": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "HStack",
+      "props": {
+        "padding": {
+          "leading": 12,
+          "trailing": 12,
+          "top": 8
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Text",
+      "props": {
+        "text": "My view",
+        "font": "title2",
+        "weight": "semibold"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Badge",
+      "props": {
+        "tone": "secondary",
+        "text": "0"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4", "n5"]
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Panel",
+      "props": {
+        "title": "Workspaces",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n7",
+      "children": ["n8"]
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n6"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    },
+    {
+      "op": "update",
+      "id": "n5",
+      "props": {
+        "text": "3"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Row",
+      "props": {
+        "accessory": "chevron.right",
+        "title": "atlas",
+        "subtitle": "Focused",
+        "symbol": "rectangle.inset.filled",
+        "selected": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Row",
+      "props": {
+        "accessory": "chevron.right",
+        "title": "docs site",
+        "subtitle": "Workspace 2",
+        "symbol": "rectangle",
+        "selected": false
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Row",
+      "props": {
+        "accessory": "chevron.right",
+        "title": "release 2.4",
+        "subtitle": "Workspace 3",
+        "symbol": "rectangle",
+        "selected": false
+      }
+    },
+    {
+      "op": "children",
+      "id": "n8",
+      "children": ["n9", "n10", "n11"]
+    }
+  ],
+  "pane-b": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "VStack",
+      "props": {
+        "alignment": "leading",
+        "spacing": 2,
+        "padding": {
+          "leading": 12,
+          "trailing": 12,
+          "top": 12,
+          "bottom": 8
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Text",
+      "props": {
+        "text": "My view",
+        "font": "title2",
+        "weight": "semibold"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "text": "0 workspaces"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4"]
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n5"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    },
+    {
+      "op": "update",
+      "id": "n4",
+      "props": {
+        "text": "3 workspaces"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Row",
+      "props": {
+        "title": "atlas",
+        "symbol": "rectangle.inset.filled",
+        "selected": true,
+        "badge": "Here"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Row",
+      "props": {
+        "title": "docs site",
+        "symbol": "rectangle",
+        "selected": false,
+        "badge": null
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Row",
+      "props": {
+        "title": "release 2.4",
+        "symbol": "rectangle",
+        "selected": false,
+        "badge": null
+      }
+    },
+    {
+      "op": "children",
+      "id": "n5",
+      "children": ["n6", "n7", "n8"]
+    }
+  ],
+  "pane-before": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Text",
+      "props": {
+        "text": "Hello from My view"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n4",
+      "children": []
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n3", "n4"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Row",
+      "props": {
+        "title": "atlas",
+        "symbol": "rectangle.inset.filled"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Row",
+      "props": {
+        "title": "docs site",
+        "symbol": "rectangle"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Row",
+      "props": {
+        "title": "release 2.4",
+        "symbol": "rectangle"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n5", "n6", "n7"]
+    }
+  ],
+  "pane-c": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Panel",
+      "props": {
+        "title": "Workspaces",
+        "style": "glass",
+        "frame": {
+          "maxWidth": "infinity"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "font": "title",
+        "weight": "semibold",
+        "text": "0"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n4"]
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Panel",
+      "props": {
+        "title": "Focused",
+        "style": "glass",
+        "frame": {
+          "maxWidth": "infinity"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Text",
+      "props": {
+        "font": "title3",
+        "weight": "semibold",
+        "lineLimit": 1,
+        "text": "None"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n5",
+      "children": ["n6"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n5"]
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Panel",
+      "props": {
+        "title": "All workspaces",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n8",
+      "children": ["n9"]
+    },
+    {
+      "op": "children",
+      "id": "n7",
+      "children": ["n8"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n7"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    },
+    {
+      "op": "update",
+      "id": "n4",
+      "props": {
+        "text": "3"
+      }
+    },
+    {
+      "op": "update",
+      "id": "n6",
+      "props": {
+        "text": "atlas"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Row",
+      "props": {
+        "title": "atlas",
+        "subtitle": "Workspace 1",
+        "symbol": "rectangle.inset.filled",
+        "selected": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Row",
+      "props": {
+        "title": "docs site",
+        "subtitle": "Workspace 2",
+        "symbol": "rectangle",
+        "selected": false
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Row",
+      "props": {
+        "title": "release 2.4",
+        "subtitle": "Workspace 3",
+        "symbol": "rectangle",
+        "selected": false
+      }
+    },
+    {
+      "op": "children",
+      "id": "n9",
+      "children": ["n10", "n11", "n12"]
+    }
+  ],
+  "pane-shipped": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Panel",
+      "props": {
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "HStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "My view",
+        "font": "title2",
+        "weight": "semibold"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Badge",
+      "props": {
+        "tone": "secondary",
+        "text": "0"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n4", "n5", "n6"]
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n7",
+      "children": ["n8"]
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "ProgressView",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n9",
+      "children": ["n10"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n7", "n9"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    },
+    {
+      "op": "update",
+      "id": "n6",
+      "props": {
+        "text": "3"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Row",
+      "props": {
+        "title": "atlas",
+        "subtitle": "Focused",
+        "symbol": "rectangle.inset.filled",
+        "selected": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Row",
+      "props": {
+        "title": "docs site",
+        "subtitle": "Workspace 2",
+        "symbol": "rectangle",
+        "selected": false
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "Row",
+      "props": {
+        "title": "release 2.4",
+        "subtitle": "Workspace 3",
+        "symbol": "rectangle",
+        "selected": false
+      }
+    },
+    {
+      "op": "children",
+      "id": "n8",
+      "children": ["n11", "n12", "n13"]
+    },
+    {
+      "op": "remove",
+      "id": "n10"
+    },
+    {
+      "op": "children",
+      "id": "n9",
+      "children": []
+    }
+  ],
+  "session-info-a": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Row",
+      "props": {
+        "title": "atlas",
+        "subtitle": "/Users/you/src/atlas",
+        "symbol": "folder"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Row",
+      "props": {
+        "title": "fix/chat-drafts",
+        "subtitle": "Branch",
+        "symbol": "arrow.triangle.branch",
+        "tint": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Row",
+      "props": {
+        "title": "claude",
+        "subtitle": "Agent",
+        "symbol": "sparkles",
+        "badge": "Live",
+        "tint": "success"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n3", "n4"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "session-info-b": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Panel",
+      "props": {
+        "title": "My view",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Text",
+      "props": {
+        "text": "atlas",
+        "font": "headline"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "/Users/you/src/atlas",
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "truncation": "middle"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Row",
+      "props": {
+        "title": "fix/chat-drafts",
+        "symbol": "arrow.triangle.branch"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Row",
+      "props": {
+        "title": "claude",
+        "symbol": "sparkles"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4", "n5", "n6"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "session-info-before": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Panel",
+      "props": {
+        "title": "Hello from My view",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Row",
+      "props": {
+        "title": "/Users/you/src/atlas",
+        "symbol": "folder"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Row",
+      "props": {
+        "title": "fix/chat-drafts",
+        "symbol": "arrow.triangle.branch"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Row",
+      "props": {
+        "title": "claude",
+        "symbol": "sparkles"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4", "n5"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "session-info-c": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Row",
+      "props": {
+        "title": "atlas",
+        "symbol": "folder",
+        "badge": "Folder"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Row",
+      "props": {
+        "title": "fix/chat-drafts",
+        "symbol": "arrow.triangle.branch",
+        "badge": "Branch"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Row",
+      "props": {
+        "title": "claude",
+        "symbol": "sparkles",
+        "badge": "Agent"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n3", "n4"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "session-info-shipped": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Row",
+      "props": {
+        "title": "atlas",
+        "subtitle": "/Users/you/src/atlas",
+        "symbol": "folder"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Row",
+      "props": {
+        "title": "fix/chat-drafts",
+        "subtitle": "Branch",
+        "symbol": "arrow.triangle.branch",
+        "tint": null
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Row",
+      "props": {
+        "title": "claude",
+        "subtitle": "Agent",
+        "symbol": "sparkles"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n3", "n4"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "sidebar-a": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Panel",
+      "props": {
+        "title": "My view",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "HStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "text": "1 of 3 done"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Badge",
+      "props": {
+        "tone": "accent",
+        "text": "2"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n4", "n5", "n6"]
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "ProgressView",
+      "props": {
+        "value": 0.3333333333333333
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Review the open pull requests",
+        "symbol": "checkmark.circle.fill",
+        "tint": "success"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Answer the design thread",
+        "symbol": "circle",
+        "tint": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Write the release notes",
+        "symbol": "circle",
+        "tint": "secondary"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n9",
+      "children": ["n10", "n11", "n12"]
+    },
+    {
+      "op": "children",
+      "id": "n8",
+      "children": ["n9"]
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "HStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Button",
+      "props": {
+        "title": "Clear done",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "Button",
+      "props": {
+        "title": "Say hi",
+        "onTap": true
+      }
+    },
+    {
+      "op": "children",
+      "id": "n13",
+      "children": ["n14", "n15", "n16"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n7", "n8", "n13"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "sidebar-b": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Review the open pull requests",
+        "subtitle": "3 waiting on you",
+        "symbol": "checkmark.circle.fill",
+        "tint": "success"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Answer the design thread",
+        "subtitle": "Since this morning",
+        "symbol": "circle",
+        "tint": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Write the release notes",
+        "subtitle": "Due Friday",
+        "symbol": "circle",
+        "tint": "tertiary"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4", "n5"]
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Row",
+      "props": {
+        "symbol": "chart.bar",
+        "tint": "secondary",
+        "title": "1 of 3 done"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n6"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "sidebar-before": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Panel",
+      "props": {
+        "title": "Hello",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Text",
+      "props": {
+        "text": "Clicked 0 times"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "HStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Button",
+      "props": {
+        "title": "Click",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Button",
+      "props": {
+        "title": "Say hi",
+        "onTap": true
+      }
+    },
+    {
+      "op": "children",
+      "id": "n4",
+      "children": ["n5", "n6", "n7"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "sidebar-c": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Panel",
+      "props": {
+        "title": "My view",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "HStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "VStack",
+      "props": {
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "text": "2 left today"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "text": "1 of 3 done"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n4",
+      "children": ["n5", "n6"]
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Menu",
+      "props": {
+        "title": "More",
+        "menu": [
+          {
+            "title": "Clear done"
+          },
+          {
+            "divider": true
+          },
+          {
+            "title": "Say hi"
+          }
+        ]
+      }
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n4", "n7", "n8"]
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "ProgressView",
+      "props": {
+        "value": 0.3333333333333333
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Review the open pull requests",
+        "subtitle": "3 waiting on you",
+        "symbol": "checkmark.circle.fill",
+        "tint": "success"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Answer the design thread",
+        "subtitle": "Since this morning",
+        "symbol": "circle",
+        "tint": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Write the release notes",
+        "subtitle": "Due Friday",
+        "symbol": "circle",
+        "tint": "tertiary"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n11",
+      "children": ["n12", "n13", "n14"]
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n15",
+      "children": []
+    },
+    {
+      "op": "children",
+      "id": "n10",
+      "children": ["n11", "n15"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n9", "n10"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "sidebar-shipped": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Panel",
+      "props": {
+        "title": "My view",
+        "style": "glass"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "HStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "VStack",
+      "props": {
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "text": "2 left today"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "text": "1 of 3 done"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n4",
+      "children": ["n5", "n6"]
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Menu",
+      "props": {
+        "title": "More",
+        "menu": [
+          {
+            "title": "Clear done"
+          },
+          {
+            "divider": true
+          },
+          {
+            "title": "Say hi"
+          }
+        ]
+      }
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n4", "n7", "n8"]
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "ProgressView",
+      "props": {
+        "value": 0.3333333333333333
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "VStack",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Review pull requests",
+        "subtitle": "3 waiting on you",
+        "symbol": "checkmark.circle.fill",
+        "tint": "success"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Answer the design thread",
+        "subtitle": "Since this morning",
+        "symbol": "circle",
+        "tint": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Row",
+      "props": {
+        "onTap": true,
+        "title": "Write the release notes",
+        "subtitle": "Due Friday",
+        "symbol": "circle",
+        "tint": "tertiary"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n11",
+      "children": ["n12", "n13", "n14"]
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n15",
+      "children": []
+    },
+    {
+      "op": "children",
+      "id": "n10",
+      "children": ["n11", "n15"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n9", "n10"]
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ]
+}

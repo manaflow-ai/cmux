@@ -7,6 +7,11 @@ use crate::text::t;
 
 const GROUP: &str = "CloudActionCatalog";
 
+/// A stored Cloud secret, by its Keychain account (`*/NAME`, or `owner/repo/NAME` for one repo);
+/// the App lists the accounts of `~/.config/cmux/cloud-secrets.json`, which holds no value.
+#[rustfmt::skip]
+const CLOUD_SECRET: Argument = Argument { name: "secret", title: t("CloudSessionActions", "argument.cloud.secret", "Secret"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "cloudSecrets", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     Action {
@@ -46,7 +51,7 @@ pub static ACTIONS: &[Action] = &[
         id: "palette.cloud.fork",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.cloud.fork", "Fork Cloud Machine"),
-        description: Some("Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the new machine shows in `cmux cloud list-machines` when the fork is done."),
+        description: Some("Forks the machine (--target machine:<id>) into a new machine: a snapshot, then a machine started from it. Returns the new machine_id and its target, with source_machine_id and snapshot_id. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes."),
         keywords: &["vm", "clone"],
         category: "cloud",
         symbol: "arrow.branch",
@@ -63,7 +68,7 @@ pub static ACTIONS: &[Action] = &[
         id: "palette.cloud.snapshot",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.cloud.snapshot", "Snapshot Cloud Machine"),
-        description: Some("Takes a snapshot of the machine (--target machine:<id>) and returns machine_id and snapshot_id. A snapshot that takes longer than 30 s answers pending: true and finishes on its own."),
+        description: Some("Takes a snapshot of the machine (--target machine:<id>) and returns machine_id and snapshot_id. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes."),
         keywords: &["vm", "backup"],
         category: "cloud",
         symbol: "camera.aperture",
@@ -80,7 +85,7 @@ pub static ACTIONS: &[Action] = &[
         id: "palette.cloud.restore",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.cloud.restore", "Restore Cloud Machine…"),
-        description: Some("Starts a new machine from a snapshot: --snapshot <snapshot id>, from `cmux cloud snapshot-machine --target machine:<id>`. With no Cloud workspace focused, also pass --target machine:<id> of any machine; the new machine does not depend on it. Answers at once with no id; the machine shows in `cmux cloud list-machines` when it is up."),
+        description: Some("Starts a new machine from a snapshot: --snapshot <snapshot id>, from `cmux cloud snapshot-machine --target machine:<id>`. With no Cloud workspace focused, also pass --target machine:<id> of any machine; the new machine does not depend on it. Returns the new machine_id and its target, with snapshot_id. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes."),
         keywords: &["vm", "snapshot"],
         category: "cloud",
         symbol: "clock.arrow.2.circlepath",
@@ -98,7 +103,7 @@ pub static ACTIONS: &[Action] = &[
         id: "palette.cloud.promoteTemplate",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.cloud.promoteTemplate", "Promote Machine to Template"),
-        description: Some("Saves the machine (--target machine:<id>) as a template: a snapshot named template-<first 12 characters of the machine id>-<Unix seconds>, which `cmux cloud restore-machine --target machine:<id> --snapshot <snapshot id>` starts new machines from. Returns machine_id and snapshot_id; after 30 s it answers pending: true and finishes on its own."),
+        description: Some("Saves the machine (--target machine:<id>) as a template: a snapshot named template-<first 12 characters of the machine id>-<Unix seconds>, which `cmux cloud restore-machine --target machine:<id> --snapshot <snapshot id>` starts new machines from. Returns machine_id and snapshot_id. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes."),
         keywords: &["vm", "template"],
         category: "cloud",
         symbol: "star.square",
@@ -188,7 +193,7 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "icloud.and.arrow.up",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 0)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 0).folder("move")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PATH.optional(), args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move",
@@ -203,9 +208,24 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "icloud.and.arrow.down",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 1)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 1).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud bring-back",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "cloudTransferLocal",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudTransferLocal", "Transfer to This Mac"),
+        description: Some("Transfers a chat on a Cloud machine that no move from this Mac put there to this Mac: copies its folder (the branch, commits, staged and working changes; never secrets or ignored files) into a new folder (--path, else ~/Cloud Transfers/<folder>). On your own machine the chat then moves here as Bring Back Local moves it; on a teammate's, you get your own copy of the folder and the chat stays with its owner. Only a person runs it: an agent's run is refused."),
+        keywords: &["vm", "cloud", "transfer", "local", "copy", "chat", "agent", "sync", "mac"],
+        category: "cloud",
+        symbol: "laptopcomputer.and.arrow.down",
+        surfaces: PALETTE | CONTEXT_MENU,
+        arguments: &[args::PATH.optional()],
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 2).folder("move")], ..SurfacePlan::DEFAULT },
+        targets: &["tab"],
+        cli_name: "cloud transfer-local",
         ..Action::DEFAULT
     },
     Action {
@@ -217,10 +237,25 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "arrow.left.arrow.right",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 2)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 3).folder("move")], ..SurfacePlan::DEFAULT },
         arguments: &[args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move-to-machine",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agent.moveToMachine",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agent.moveToMachine", "Move Chat to Machine…"),
+        description: Some("Moves a started chat to an added machine or Auto, preserving history, queue, draft and worktree through acpmux session move. With no target, the palette lists connected machines and placement room. A running turn offers Move after this turn or Move now; uncommitted changes are explained before proceeding. The destination chat opens after a successful move. The CLI is cmux agent move SESSION --machine NAME|auto --json."),
+        keywords: &["move", "machine", "ssh", "remote", "peer", "host", "chat", "agent", "back", "local", "transfer"],
+        category: "cloud",
+        symbol: "arrow.left.arrow.right",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[Argument { kind: ArgKind::String, required: false, suggestions: Some(Suggestions { source: "chatMoveTargets", pinned: &[], other_title: None, allows_multiple: false }), ..args::MACHINE }],
+        targets: &["tab"],
+        cli_name: "agent move",
         ..Action::DEFAULT
     },
     Action {
@@ -647,7 +682,7 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ActionCatalog", "action.cloudOpenDesktop", "Open Desktop"),
         description: Some("Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac: the agent's display as a live video stream over the machine's carrier (--viewer rd, the only viewer), opened watching (Take over in the pane gives you the mouse and keyboard, Hand back returns them). Only the machine's creator can open it, on a cmux NEXT machine that serves a desktop; anything else is refused at once, as is a classic machine. Answers at once with no fields, before the desktop shows."),
-        keywords: &["vm", "cloud tree", "desktop", "display", "screen", "vnc", "computer use"],
+        keywords: &["vm", "cloud tree", "desktop", "display", "screen", "screen sharing", "screen share", "remote desktop", "vnc", "computer use"],
         category: "cloud",
         symbol: "display",
         surfaces: PALETTE | CONTEXT_MENU,
@@ -666,7 +701,7 @@ pub static ACTIONS: &[Action] = &[
         description: Some("Starts the desktop service on the selected Cloud machine and opens its desktop when ready."),
         keywords: &["vm", "desktop", "display", "screen", "setup"],
         category: "cloud",
-        symbol: "display",
+        symbol: "play.display",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 198).folder("connection")], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
@@ -717,7 +752,7 @@ pub static ACTIONS: &[Action] = &[
         id: "cloudPauseMachine",
         group: GROUP,
         title: Text::raw("Pause Machine"),
-        description: Some("Pauses the machine (--target machine:<id>); the run ends when the server has paused it. Returns no fields. `cmux cloud resume-machine --target machine:<id>` starts it again."),
+        description: Some("Pauses the machine (--target machine:<id>); the run answers machine_id, target and status once the server has paused it, or pending: true past 30 s while the pause goes on. `cmux cloud resume-machine --target machine:<id>` starts it again."),
         keywords: &["vm", "cloud tree", "pause", "sleep"],
         category: "cloud",
         symbol: "pause.circle",
@@ -728,13 +763,14 @@ pub static ACTIONS: &[Action] = &[
         palette_target: Some("machine"),
         palette_target_source: Some("cloud"),
         cli_name: "cloud pause-machine",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
         id: "cloudResumeMachine",
         group: GROUP,
         title: Text::raw("Resume Machine"),
-        description: Some("Resumes a paused machine (--target machine:<id>); the run ends when the server has resumed it. Returns no fields."),
+        description: Some("Resumes a paused machine (--target machine:<id>); the run answers machine_id, target and status once the server has resumed it, or pending: true past 30 s while the resume goes on."),
         keywords: &["vm", "cloud tree", "resume", "wake", "start"],
         category: "cloud",
         symbol: "play.circle",
@@ -745,6 +781,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target: Some("machine"),
         palette_target_source: Some("cloud"),
         cli_name: "cloud resume-machine",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -801,7 +838,7 @@ pub static ACTIONS: &[Action] = &[
         id: "cloudResizeMachine",
         group: GROUP,
         title: t("ActionCatalog", "action.cloudResizeMachine", "Resize Machine…"),
-        description: Some("Resizes the machine (--target machine:<id>): --size small, medium, large or xlarge (2 vCPU and 4 GB, 4 and 8, 8 and 16, or 16 and 24), --disk GIB (the disk's new size in whole GiB: 4 GiB steps, up to 256, grow-only), or both in one call; at least one. Returns machine_id, target, and size and disk_gib as given. Answers pending after 30 s; the resize goes on."),
+        description: Some("Resizes the machine (--target machine:<id>): --size small, medium, large or xlarge (2 vCPU and 4 GB, 4 and 8, 8 and 16, or 16 and 24), --disk GIB (the disk's new size in whole GiB: 4 GiB steps, up to 256, grow-only), or both in one call; at least one. Returns machine_id, target, and size and disk_gib as given once Cloud has resized it. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes."),
         keywords: &["vm", "cloud tree", "cpu", "memory", "disk", "storage"],
         category: "cloud",
         symbol: "arrow.up.left.and.arrow.down.right",
@@ -851,6 +888,23 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         cli_name: "cloud deliver-secrets",
         waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    // Remove Cloud Secret: deletes one stored value from this Mac's Keychain and its entry in
+    // ~/.config/cmux/cloud-secrets.json, as `cmux cloud secret rm` (the CLI's own verb). Picked
+    // from the index, which lists names and never values; no value is typed or shown.
+    Action {
+        id: "cloud.secret.remove",
+        group: GROUP,
+        title: t("CloudSessionActions", "action.cloud.secret.remove", "Remove Cloud Secret…"),
+        keywords: &["vm", "cloud", "secret", "secrets", "keychain", "env", "remove", "delete", "forget", "rm"],
+        category: "cloud",
+        symbol: "key.slash",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[CLOUD_SECRET, args::CONFIRM.optional()],
+        cli_name: "action cloud-secret-remove",
+        is_destructive: true,
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {

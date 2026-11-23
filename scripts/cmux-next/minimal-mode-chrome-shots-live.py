@@ -8,7 +8,8 @@ tagged app (no activation, automation socket, its own cmux.json with one pinned 
 second tab, and for each mode (`default`: no `sidebar.minimal`; `minimal`: `sidebar.minimal` true) writes window
 snapshots, light and dark, with the pointer away (`rest`), over the sidebar (`hover-sidebar`) and over the tab bar
 (`hover-tabbar`), plus a crop of the window's top rows. It writes the pane toolbar's `debug.pane_chrome` report per
-state. The user's 2026-11-15 ask ("by default, all buttons should be visible, not fade into view on hover ... only
+state. `--cards` stages an update first, so the Restart to Update card shows (it must hide with the pointer away in
+Minimal Mode, user 2026-11-17). The user's 2026-11-15 ask ("by default, all buttons should be visible, not fade into view on hover ... only
 when minimal mode is enabled, we should hide the buttons ...") is the Before/After this shows.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
@@ -22,6 +23,15 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="minimal-chrome-"))
 parser.add_argument("--modes", default="default,minimal")
+# Comma-separated `sidebar.density` values (Lawrence 2026-11-15: "minimal mode should not change density at all"):
+# with it, each density is shot with Minimal Mode off and on, at rest, and the rows must match.
+parser.add_argument("--densities", default="")
+# Records the window (debug.window_record, a JPEG per display frame) in Minimal Mode while the pointer enters the
+# sidebar and leaves it (Lawrence 2026-11-15, msg 34327: the footer's height goes to the list at rest, animated).
+parser.add_argument("--record", action="store_true")
+# Stages an update (the Restart to Update card) and fills the list before the shots (user 2026-11-17, msg 38388:
+# "minimal mode should hide everything in sidebar including cards like update, iff user is not hovered in sidebar").
+parser.add_argument("--cards", action="store_true")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -70,10 +80,15 @@ def cli(*args):
     return done
 
 
-def write_config(minimal):
+def write_config(minimal, density=None):
     config = {"tabs": {"toolbarButtons": ["splitRight"]}}
+    sidebar = {}
     if minimal:
-        config["sidebar"] = {"minimal": True}
+        sidebar["minimal"] = True
+    if density:
+        sidebar["density"] = density
+    if sidebar:
+        config["sidebar"] = sidebar
     with open(CONFIG + ".tmp", "w") as f:
         json.dump(config, f)
     os.replace(CONFIG + ".tmp", CONFIG)
@@ -147,7 +162,8 @@ def shoot(name):
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 modes = [m for m in opts.modes.split(",") if m]
-write_config(modes[0] == "minimal")
+densities = [d for d in opts.densities.split(",") if d]
+write_config(modes[0] == "minimal", densities[0] if densities else None)
 open(GHOSTTY, "w").write("")
 teardown = TagTeardown(opts.app)
 teardown.install()
@@ -174,6 +190,32 @@ try:
     added = rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
     safe_print("panes", pane_ids, "newTab", json.dumps(added)[:200], flush=True)
     wait(lambda: len((first_pane().get("tab_slots") or [])) >= 2, 15)
+    if opts.record:
+        # Enough workspaces to fill the list to the footer, so the room the footer gives shows as more rows.
+        for _ in range(20):
+            rpc("action.run", {"action": "workspace.newAtBottom", "args": {}, "focus": False, "origin": "script"})
+            time.sleep(0.3)  # capture harness: the new row settles
+    if opts.cards:
+        for _ in range(8):
+            rpc("action.run", {"action": "workspace.newAtBottom", "args": {}, "focus": False, "origin": "script"})
+            time.sleep(0.3)  # capture harness: the new row settles
+        safe_print("stage", json.dumps(rpc("debug.updater", {"action": "stage", "version": "1.99.0"}))[:200], flush=True)
+        time.sleep(1.5)  # capture harness: the card's entrance ends
+    if densities:
+        # A few workspaces and a group, so the list's row heights read in the shots.
+        for name in ("workspace.newAtBottom", "workspace.newAtBottom", "workspace.newInNewGroup", "workspace.newBelow"):
+            reply = rpc("action.run", {"action": name, "args": {}, "focus": False, "origin": "script"})
+            safe_print(name, json.dumps(reply)[:160], flush=True)
+            time.sleep(1.0)  # capture harness: the new row settles
+        for density in densities:
+            for mode in modes:
+                write_config(mode == "minimal", density)
+                time.sleep(1.5)  # capture harness: the config watcher applies the setting
+                rpc("debug.pointer_hover", {"point": None})
+                time.sleep(0.6)  # capture harness: the hover chrome's fade ends
+                report[f"{density}-{mode}"] = first_pane().get("toolbar")
+                shoot(f"{density}-{mode}-rest")
+        modes = []
     for mode in modes:
         write_config(mode == "minimal")
         time.sleep(1.5)  # capture harness: the config watcher applies the setting
@@ -189,6 +231,24 @@ try:
             safe_print(mode, state, json.dumps(pane.get("toolbar"), ensure_ascii=False)[:400], flush=True)
             shoot(f"{mode}-{state}")
         rpc("debug.pointer_hover", {"point": None})
+    if opts.record:
+        write_config(True)
+        time.sleep(1.5)  # capture harness: the config watcher applies the setting
+        for appearance in ("light", "dark"):
+            rpc("debug.appearance", {"mode": appearance})
+            rpc("debug.pointer_hover", {"point": None})
+            time.sleep(0.8)  # capture harness: the theme repaints and the chrome settles at rest
+            frames = os.path.join(opts.out, f"record-minimal-{appearance}")
+            os.makedirs(frames, exist_ok=True)
+            started = rpc("debug.window_record", {"dir": frames, "seconds": 3.2})
+            time.sleep(0.5)  # capture harness: still frames at rest first
+            hover_sidebar()
+            time.sleep(1.2)  # capture harness: the reveal plays, then holds
+            rpc("debug.pointer_hover", {"point": None})
+            time.sleep(1.5 + 0.6)  # capture harness: the hide plays; the recording stops by itself
+            count = len([f for f in os.listdir(frames) if f.endswith(".jpg")])
+            safe_print("record", appearance, count, "frames", json.dumps(started)[:120], flush=True)
+        rpc("debug.appearance", {"mode": "system"})
     with open(os.path.join(opts.out, "toolbar.json"), "w") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 finally:

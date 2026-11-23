@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 
 mod enroll;
-pub(crate) mod host_fingerprint;
+pub(crate) use crate::host_fingerprint;
 mod leave;
 mod recovery;
 mod self_capabilities;
@@ -16,7 +16,8 @@ mod to_revoke;
 
 pub(crate) use enroll::{
     EnrollOutcome, EnrollRequest, JOINED_BY_SIGN_IN, LeaveOutcome, enroll_self,
-    finish_leave_at_start, leave_if_auto, leave_pending, record_leave_intent, relay_may_start,
+    finish_leave_at_start, leave_if_auto, leave_pending, mint_join_token, record_leave_intent,
+    relay_may_start,
 };
 pub(crate) use self_capabilities::{
     state_after_leave as state_capabilities_after_leave,
@@ -24,70 +25,30 @@ pub(crate) use self_capabilities::{
     state_on_reconnect as state_capabilities_on_reconnect,
 };
 
+// The join record and the consent gate live in `crate::machine_record`, which lower modules
+// read; these keep their `cli::cloud_join` paths.
+#[cfg(test)]
+use crate::machine_record::home_copy_state;
+pub(super) use crate::machine_record::load_at;
+pub use crate::machine_record::{
+    CONSENT_REQUIRED, Consent, ConsentState, MachineCredential, SIGNED_IN_MACHINES,
+    require_consent, require_joined_consent, signed_in_machines_granted,
+};
+use crate::machine_record::{
+    CREDENTIAL_FILE, CopyState, authority, consent_home, copied_here, copy_state, load, other_box,
+    settle_evidence, state_dir,
+};
+pub(crate) use crate::machine_record::{
+    HeldLock, consent_status, is_consent_surface, machine_credential, machine_user_id,
+    node_key_copied_at, record_consent_refusal, safe_id,
+};
+
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
 /// The hub a join with no `--hub` uses: cmux-platform's production origin
 /// (Leo, 2026-11-04: "If I tell you to do something, don't stick it into
 /// dev. Put it into prod."). `--hub` still names another one.
 pub const DEFAULT_HUB: &str = cmux_cloud_client::backend::Backend::Production.platform();
-pub const CONSENT_REQUIRED: &str = "consent_required";
 const MAX_TOKEN_BYTES: usize = 512;
-const CREDENTIAL_FILE: &str = "machine-credential.json";
-static CONSENT_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-
-/// A hand later switches config::home to its private agent daemon. Consent
-/// continues to belong to the physical machine's original enrolled state.
-pub(crate) fn retain_machine_consent_home() {
-    let _ = CONSENT_HOME.set(crate::config::home());
-}
-
-fn consent_home() -> PathBuf {
-    CONSENT_HOME.get().cloned().unwrap_or_else(state_dir)
-}
-
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct MachineCredential {
-    pub credential: String,
-    pub machine_id: String,
-    pub team_id: String,
-    pub name: String,
-    pub hub_origin: String,
-    pub last_heartbeat: Option<String>,
-    pub revoked: bool,
-    #[serde(rename = "wgPublicKey")]
-    pub wg_public_key: String,
-    #[serde(default)]
-    pub credential_generation: u64,
-    /// The person who enrolled this machine, from the hub's answer for this credential
-    /// (`userId`). `meshRelay.controlFrom`'s `sameUser` entry matches it against the
-    /// hub-stamped sender. None (an older join, or a hub that does not name it yet) grants
-    /// nothing automatically.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<String>,
-    /// The box this credential was joined on (`host_fingerprint`). None on a record joined
-    /// before it existed: the first daemon start adopts the box it runs on.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host_fingerprint: Option<String>,
-    /// This record was copied here from the box that joined it. The credential is never used
-    /// here again (it stays the original box's, untouched on the hub); a new join line gives
-    /// this box its own.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub cloned: bool,
-    /// What joined this machine: `sign-in` when signing in enrolled it (`enroll.rs`), so signing
-    /// out removes only that join. None for a pair code or a pasted join line: those stay.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub joined_by: Option<String>,
-    /// What this machine told the hub it can do at its redeem, or what the hub recorded when it
-    /// stated it later ([`machine_capabilities`]). None: joined before the hub took the list
-    /// (cmux-platform#1015), so it states it with its own credential (`self_capabilities.rs`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<Vec<String>>,
-    /// The box that found this record copied and gave itself a fresh node key (its
-    /// `host_fingerprint`). A `cloned` record on any other box is a copy of that copy, its node
-    /// key the settling box's: found and settled again. None on a record settled before it
-    /// existed: the next start on the box it runs on takes it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cloned_on: Option<String>,
-}
 
 /// The capability that says this machine's acpmux runs the vault's egress proxy: the hub then
 /// gives it proxy entries' values (`GET /v1/vault/machine`), never otherwise.
@@ -122,19 +83,6 @@ impl Report {
     fn from_json(json_out: bool) -> Self {
         if json_out { Self::Json } else { Self::Text }
     }
-}
-
-/// A hub-supplied id the store keeps: non-empty, one line, and no secret-shaped text.
-pub(crate) fn safe_id(value: &str) -> Option<String> {
-    Some(value)
-        .filter(|s| {
-            !s.is_empty()
-                && s.len() <= 256
-                && !s.contains("cmj_")
-                && !s.contains("cmm_")
-                && !s.chars().any(char::is_control)
-        })
-        .map(str::to_owned)
 }
 
 /// What `host join --status` says to a copied box.
@@ -178,53 +126,6 @@ impl MachineIdentity {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Consent {
-    pub screen: ConsentState,
-    pub control: ConsentState,
-    /// Control for this person's other machines signed in to the same account: they open
-    /// workspaces and terminals here through the hub carrier (`hub_carrier.rs`,
-    /// [`SIGNED_IN_MACHINES`]). Off by default; signing in never grants it. A file an older
-    /// build wrote has none (off), and an older build that rewrites the file drops it (off).
-    #[serde(rename = "signedInMachines", default)]
-    pub signed_in_machines: ConsentState,
-    /// When the person last answered the ask for [`Self::signed_in_machines`] (Allow, Not now,
-    /// or a later Off): it is asked once, so a later refusal records no new ask.
-    #[serde(
-        rename = "signedInMachinesAnsweredAt",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub signed_in_machines_answered_at: Option<String>,
-    /// The account (hub user id) [`Self::signed_in_machines`] was answered for: the grant and the
-    /// answer hold only while this machine is joined as that account, so a switch to another
-    /// account asks again and lets none of its machines in.
-    #[serde(rename = "signedInMachinesUser", default, skip_serializing_if = "Option::is_none")]
-    pub signed_in_machines_user: Option<String>,
-    #[serde(rename = "grantedAt", skip_serializing_if = "Option::is_none")]
-    pub granted_at: Option<String>,
-}
-
-/// The consent surface "control for my other machines signed in to this account" (Leo,
-/// 2026-11-14: "ok then do that", to one click on the new Mac).
-pub const SIGNED_IN_MACHINES: &str = "signedInMachines";
-
-/// Every consent surface the person can grant on this machine.
-pub(crate) fn is_consent_surface(surface: &str) -> bool {
-    matches!(surface, "screen" | "control" | SIGNED_IN_MACHINES)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum ConsentState {
-    #[default]
-    None,
-    Granted,
-}
-
-fn state_dir() -> PathBuf {
-    crate::config::home()
-}
 fn credential_path() -> PathBuf {
     state_dir().join(CREDENTIAL_FILE)
 }
@@ -267,7 +168,7 @@ fn origin(value: Option<String>) -> Result<String> {
 }
 
 fn local_name(name: Option<String>) -> String {
-    name.unwrap_or_else(crate::pairing::machine_name)
+    name.unwrap_or_else(crate::pairing::host_label)
 }
 
 fn save(record: &MachineCredential) -> Result<()> {
@@ -277,108 +178,6 @@ fn save(record: &MachineCredential) -> Result<()> {
 fn save_at(home: &std::path::Path, record: &MachineCredential) -> Result<()> {
     crate::config::private_state_dir(home)?;
     recovery::write_durable(&home.join(CREDENTIAL_FILE), &serde_json::to_vec_pretty(record)?, true)
-}
-
-/// What `record`, read from `home`, is to the box whose fingerprint is `current`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CopyState {
-    /// Joined here, or nothing to compare (no fingerprint on the record or this box).
-    Own,
-    /// Copied from another box and settled on this one: marked `cloned` here, the node key
-    /// replaced with this box's own.
-    SettledHere,
-    /// Copied and not settled here: joined on another box, or marked `cloned` on another box
-    /// (a copy of a copy). The node key in `home` is another box's.
-    Unsettled,
-}
-
-/// Whether `stamp`, a box fingerprint recorded in `home`, names another box than `current`. A
-/// missing stamp or a box with no fingerprint compares nothing.
-fn other_box(home: &std::path::Path, stamp: Option<&str>, current: Option<&str>) -> bool {
-    matches!((stamp, current), (Some(then), Some(here)) if !host_fingerprint::same_box(home, then, here))
-}
-
-fn copy_state(
-    home: &std::path::Path,
-    record: &MachineCredential,
-    current: Option<&str>,
-) -> CopyState {
-    if record.cloned {
-        if other_box(home, record.cloned_on.as_deref(), current) {
-            CopyState::Unsettled
-        } else {
-            CopyState::SettledHere
-        }
-    } else if other_box(home, record.host_fingerprint.as_deref(), current) {
-        CopyState::Unsettled
-    } else {
-        CopyState::Own
-    }
-}
-
-/// The one "was this home copied here" predicate, from every piece of evidence a home holds
-/// about the box it was made on: its machine record (`record`, the one on disk or the one a
-/// caller is about to replace) and a join begun there and not finished
-/// (`machine-join.pending.json`, [`recovery::pending_made_on`]). A pending join proposed on
-/// another box makes the home a copy not settled here, whatever the record says: the node key
-/// beside it is that box's. Every caller that decides "copied home" goes through it
-/// ([`copied_here`], [`copied_at`], [`node_key_copied_at`], `host join`'s set-aside).
-fn home_copy_state(
-    home: &std::path::Path,
-    record: Option<&MachineCredential>,
-    current: Option<&str>,
-) -> CopyState {
-    let by_record = record.map_or(CopyState::Own, |record| copy_state(home, record, current));
-    if by_record != CopyState::Unsettled
-        && recovery::pending_made_on(home)
-            .is_some_and(|made| other_box(home, made.as_deref(), current))
-    {
-        return CopyState::Unsettled;
-    }
-    by_record
-}
-
-/// [`home_copy_state`], recording a copy not settled here (`mesh_node_key::record_copied_key`)
-/// before it answers.
-///
-/// The key recorded is the one read before the evidence that shows the copy, never the one in
-/// place when it is recorded: a settle saves the settled record before it replaces the key
-/// ([`settle_clone_at`]), so a record still unsettled when read again after the key means that
-/// key is the copy's. A `host join` or a settled start may replace it meanwhile with this box's
-/// own (registered) key, which is never marked.
-fn settle_evidence(
-    home: &std::path::Path,
-    record: Option<&MachineCredential>,
-    current: Option<&str>,
-) -> CopyState {
-    let key = crate::cli::mesh_node_key::public_key_at(home);
-    let state = home_copy_state(home, record, current);
-    if state != CopyState::Unsettled {
-        return state;
-    }
-    // Asked again after the key: the record the caller read may predate a settle (and a
-    // join) since; one a leave removed meanwhile leaves the caller's.
-    let again = load_at(home).ok().flatten();
-    if let Some(key) = key
-        && home_copy_state(home, again.as_ref().or(record), current) == CopyState::Unsettled
-        && let Err(e) = crate::cli::mesh_node_key::record_copied_public_key(home, &key)
-    {
-        tracing::warn!("could not record the copied node key: {e:#}");
-    }
-    state
-}
-
-/// Whether `record`, read from `home`, was copied here from another box: marked so, or joined
-/// (or settled) on a box whose fingerprint differs from this one's. A record or a box with no
-/// fingerprint is no clone.
-///
-/// A copy found here and not settled here yet ([`CopyState::Unsettled`]) is recorded first,
-/// durably, whatever the caller does next: the node key now in `home` is another box's
-/// (`mesh_node_key::record_copied_key`, which keeps every key it was ever told). A `machine
-/// leave` may delete this record right after, and the key may stay (the cmux link adopted
-/// it); the record keeps every later holder, the link included, from serving that key here.
-fn copied_here(home: &std::path::Path, record: &MachineCredential, current: Option<&str>) -> bool {
-    settle_evidence(home, Some(record), current) != CopyState::Own
 }
 
 /// At daemon start, before the WireGuard transport and the mesh relay: a record joined on
@@ -456,17 +255,6 @@ pub(crate) fn copied_from_another_box_at(home: &std::path::Path) -> bool {
     copied_at(home, host_fingerprint::current().as_deref())
 }
 
-/// Whether the node key now in acpmux home `home` is another box's: its record is a copy not
-/// settled here (found live, and recorded), or the key is one recorded as copied
-/// (`mesh_node_key::serves_copied_key`, which outlives the record). A home settled here (its
-/// own fresh key) is not. What the cmux link asks before it adopts or serves the key.
-pub(crate) fn node_key_copied_at(home: &std::path::Path) -> bool {
-    let current = host_fingerprint::current();
-    let record = load_at(home).ok().flatten();
-    settle_evidence(home, record.as_ref(), current.as_deref()) == CopyState::Unsettled
-        || crate::cli::mesh_node_key::serves_copied_key(home)
-}
-
 /// What the cmux link's Cloud tunnel (cmux `carrier/tunnel_keeper.rs`) needs of this box's join:
 /// the machine, its team, its name and the platform origin it joined through. Never the `cmm_`
 /// credential: the tunnel attaches with the signed-in person's token.
@@ -487,6 +275,27 @@ pub struct JoinedDevice {
 /// (`finish_leave_at_start`: no mark is `signedIn`). On a Mac that signs in and out often, one
 /// such revoke the hub never took kept the tunnel off for every join after it.
 pub fn joined_device_at(home: &std::path::Path) -> Option<JoinedDevice> {
+    let record = active_join_at(home)?;
+    let hub_origin = origin(Some(record.hub_origin)).ok()?;
+    Some(JoinedDevice {
+        machine_id: record.machine_id,
+        team_id: record.team_id,
+        name: record.name,
+        hub_origin,
+    })
+}
+
+/// Owner of the active join in the specified authority's namespace.
+pub(crate) fn browser_app_owner(hub: &str) -> Option<(String, String)> {
+    let record = active_join_at(&state_dir())?;
+    let joined_origin = origin(Some(record.hub_origin)).ok()?;
+    if joined_origin != hub {
+        return None;
+    }
+    Some((record.team_id, safe_id(&record.user_id?)?))
+}
+
+fn active_join_at(home: &std::path::Path) -> Option<MachineCredential> {
     let record = load_at(home).ok().flatten()?;
     let current = host_fingerprint::current();
     let left = std::fs::symlink_metadata(home.join(enroll::LEAVE_FILE)).is_ok()
@@ -501,37 +310,7 @@ pub fn joined_device_at(home: &std::path::Path) -> Option<JoinedDevice> {
     {
         return None;
     }
-    let hub_origin = origin(Some(record.hub_origin.clone())).ok()?;
-    Some(JoinedDevice {
-        machine_id: record.machine_id,
-        team_id: record.team_id,
-        name: record.name,
-        hub_origin,
-    })
-}
-
-/// Whether `home`'s machine record provably belongs to this box: live, made (or settled) on a
-/// box with a fingerprint, that box this one, and no evidence of a copy
-/// (`home_copy_state`). A box that names no machine proves nothing.
-pub(crate) fn record_own_here(home: &std::path::Path) -> bool {
-    let Some(current) = host_fingerprint::current() else { return false };
-    let Some(record) = load_at(home).ok().flatten() else { return false };
-    let stamped =
-        if record.cloned { record.cloned_on.is_some() } else { record.host_fingerprint.is_some() };
-    !record.revoked
-        && stamped
-        && home_copy_state(home, Some(&record), Some(&current)) != CopyState::Unsettled
-}
-
-/// Whether the node key in acpmux home `home` is provably this box's own
-/// (`mesh_node_key::node_key_own_here`): the record is live and joined or settled on this
-/// box, nothing shows a copy, and the key is not one recorded as copied.
-pub(crate) fn node_key_own_at(home: &std::path::Path) -> bool {
-    let current = host_fingerprint::current();
-    let Some(record) = load_at(home).ok().flatten() else { return false };
-    !record.revoked
-        && home_copy_state(home, Some(&record), current.as_deref()) != CopyState::Unsettled
-        && !crate::cli::mesh_node_key::serves_copied_key(home)
+    Some(record)
 }
 
 /// [`copied_from_another_box_at`], as the box whose fingerprint is `current`. A record that
@@ -677,27 +456,6 @@ fn mesh_relay_configured() -> bool {
         .is_some_and(|relay| relay.credential.as_deref() == Some("join"))
 }
 
-fn load() -> Result<Option<MachineCredential>> {
-    load_at(&state_dir())
-}
-
-/// The joined machine credential, for the vault pull (`crate::vault`), which
-/// sends it only as the bearer of its own hub request.
-///
-/// A record copied from another box is no credential of this one: None, as if not joined.
-pub(crate) fn machine_credential() -> Result<Option<MachineCredential>> {
-    let current = host_fingerprint::current();
-    Ok(load()?.filter(|record| !copied_here(&state_dir(), record, current.as_deref())))
-}
-
-/// The person this machine recorded at join, for `controlFrom`'s `sameUser` entry. None when
-/// the machine is not joined, is revoked, or recorded no person.
-pub(crate) fn machine_user_id() -> Option<String> {
-    // A copy of another box's join speaks for nobody here.
-    let record = machine_credential().ok().flatten()?;
-    (!record.revoked).then_some(record.user_id?).and_then(|user| safe_id(&user))
-}
-
 /// Records the person the hub names for the credential that asked (`host join --status`
 /// repairs an older join). Like [`record_auth_result`], only that credential's record changes.
 fn record_user_id(token: &str, user_id: Option<String>) -> Result<()> {
@@ -724,17 +482,6 @@ pub(crate) fn hub_origin(value: &str) -> Result<String> {
     origin(Some(value.to_owned()))
 }
 
-pub(super) fn load_at(home: &std::path::Path) -> Result<Option<MachineCredential>> {
-    let path = home.join(CREDENTIAL_FILE);
-    match std::fs::symlink_metadata(&path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-        Ok(_) => {}
-    }
-    let file = crate::config::private_state_file(&path)?;
-    Ok(Some(serde_json::from_reader(file).context("read machine credential")?))
-}
-
 /// The relay client reads the joined bearer in-process from the owner-only store.
 /// It never receives a command, URL or environment value containing the credential.
 pub(crate) fn read_join_credential(hub_origin: &str) -> Result<String> {
@@ -750,10 +497,6 @@ pub(crate) fn read_join_credential(hub_origin: &str) -> Result<String> {
     );
     anyhow::ensure!(record.credential.starts_with("cmm_"), "machine credential is malformed");
     Ok(record.credential)
-}
-
-fn authority() -> Result<super::machine_consent::Authority> {
-    super::machine_consent::Authority::current(consent_home())
 }
 
 /// At daemon start: a daemon whose own state holds a join or consent keeps the account-wide
@@ -772,58 +515,19 @@ fn load_consent() -> Consent {
 
 /// Held until redeem and both local writes complete. A competing installer exits
 /// without redeeming; it can safely retry after this process finishes.
-#[cfg(unix)]
 pub(crate) fn join_lock() -> Result<HeldLock> {
     crate::config::private_state_dir(&state_dir())?;
     join_lock_at(&state_dir())
 }
 
 /// [`join_lock`] in acpmux home `home` (made private by the caller).
-#[cfg(unix)]
 fn join_lock_in(home: &std::path::Path) -> Result<HeldLock> {
     join_lock_at(home)
 }
 
-#[cfg(unix)]
 fn join_lock_at(dir: &std::path::Path) -> Result<HeldLock> {
     let file = crate::config::private_state_rw(&dir.join("machine-join.lock"))?;
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        // SAFETY: this process owns the opened regular-file descriptor.
-        anyhow::ensure!(
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-            "another machine join is in progress; retry when it finishes"
-        );
-    }
-    Ok(HeldLock(file))
-}
-
-#[cfg(not(unix))]
-pub(crate) fn join_lock() -> Result<HeldLock> {
-    anyhow::bail!("machine join requires macOS or Linux")
-}
-
-#[cfg(not(unix))]
-fn join_lock_at(_: &std::path::Path) -> Result<HeldLock> {
-    anyhow::bail!("machine join requires macOS or Linux")
-}
-
-#[cfg(not(unix))]
-fn join_lock_in(_: &std::path::Path) -> Result<HeldLock> {
-    join_lock()
-}
-
-/// A held `flock`. Dropping it unlocks explicitly: a process spawned meanwhile (an agent, a
-/// tool, a login shell) shares the lock's open file description from its fork until its exec,
-/// so closing this descriptor alone would leave the lock held until then, and the next
-/// nonblocking take would fail as if another holder were still at work.
-pub(crate) struct HeldLock(pub(super) std::fs::File);
-
-impl Drop for HeldLock {
-    fn drop(&mut self) {
-        let _ = self.0.unlock();
-    }
+    HeldLock::take(file, "another machine join is in progress; retry when it finishes")
 }
 
 pub(crate) fn credential_present() -> Result<bool> {
@@ -832,11 +536,11 @@ pub(crate) fn credential_present() -> Result<bool> {
         .map(|value| {
             value.is_some_and(|record| !copied_here(&state_dir(), &record, current.as_deref()))
         })
-        .map_err(|_| store_error().into())
+        .map_err(|e| store_error_from(e).into())
 }
 
 pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
-    let Some(record) = load().map_err(|_| store_error())? else { return Ok(false) };
+    let Some(record) = load().map_err(store_error_from)? else { return Ok(false) };
     // A copy of another box's join is no join of this one: the new join line makes one.
     if replace
         || join_incomplete()?
@@ -847,11 +551,11 @@ pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
     // No released build created pre-marker credentials. Even branch-only local
     // state must persist the shared requirement before idempotent success.
     let sign_in = record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN);
-    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(|_| store_error())?;
+    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(store_error_from)?;
     // Repair a previous config-save failure before reporting idempotent success. A sign-in's
     // join leaves a relay the person set up as it is.
     relay_for_join_at(&crate::config::Config::path(), &record.hub_origin, sign_in)
-        .map_err(|_| store_error())?;
+        .map_err(store_error_from)?;
     match report {
         Report::Quiet => {}
         Report::Json => {
@@ -875,12 +579,18 @@ fn warn_existing_helpers() {
 }
 
 fn store_error() -> crate::cli::errors::AppError {
-    crate::cli::errors::AppError::new(
-        crate::cli::errors::Code::Runtime,
-        "join.store",
-        "local machine store unavailable",
-    )
-    .with_exit(5)
+    store_error_with("local machine store unavailable".to_string())
+}
+
+/// [`store_error`] that names what failed (a path refused, a lock held, a write that did not land),
+/// so a join that stops here says why. Its cause is a local file or lock error, never a token.
+pub(crate) fn store_error_from(cause: impl std::fmt::Display) -> crate::cli::errors::AppError {
+    store_error_with(format!("local machine store unavailable: {cause:#}"))
+}
+
+fn store_error_with(message: String) -> crate::cli::errors::AppError {
+    crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", message)
+        .with_exit(5)
 }
 
 pub async fn join_with_token(
@@ -1017,16 +727,17 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-/// Only the person-proven local daemon RPC calls this writer. The ordinary
-/// CLI deliberately has no person key and cannot grant consent from a PTY.
+/// The person-proven local daemon RPC calls this writer, and so does the CLI run under sudo as
+/// this Mac's admin (`consent_admin.rs`). A plain shell has no person key and no admin proof.
 pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Consent> {
     authority()?.set(surface, granted)
 }
 
-pub(crate) fn consent_status() -> Value {
-    authority().map(|authority| authority.status()).unwrap_or_else(
-        |_| json!({"consentRequired":true,"consent":Consent::default(),"lastRefusal":null}),
-    )
+/// This machine's consent and the account it is joined as, read now (blocking file reads).
+pub fn signed_in_machines_granted_here() -> (bool, Option<String>) {
+    let account = machine_user_id();
+    let granted = signed_in_machines_granted(&consent_status_for(&json!({})), account.as_deref());
+    (granted, account)
 }
 
 /// `_acpmux/machine_consent_get`'s answer. With `{"use": "localComputerUse"}` (the app asking
@@ -1040,30 +751,6 @@ pub(crate) fn consent_status_for(params: &Value) -> Value {
             .map(|authority| authority.status_for(local))
             .unwrap_or_else(|_| consent_status()),
     )
-}
-
-pub fn require_consent(surface: &str) -> Result<()> {
-    let status = consent_status();
-    if matches!(surface, "screen" | "control") && status["consent"][surface] == "granted" {
-        Ok(())
-    } else {
-        let _ = record_consent_refusal(surface);
-        Err(anyhow!(CONSENT_REQUIRED))
-    }
-}
-
-/// Whether the Mac's own sessions keep computer use with no consent: the requirement comes only
-/// from joins signing in made ([`machine_consent::Authority::required_only_by_sign_in`]).
-pub(crate) fn local_computer_use_kept() -> bool {
-    authority().is_ok_and(|authority| authority.required_only_by_sign_in())
-}
-
-pub fn require_joined_consent(surface: &str) -> Result<()> {
-    if consent_status()["consentRequired"] == false { Ok(()) } else { require_consent(surface) }
-}
-
-pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
-    authority()?.refused(surface)
 }
 
 /// A consent status as it holds for the account this machine is joined as now
@@ -1097,6 +784,7 @@ pub(crate) fn hub_client(hub: &str, bearer: Option<&str>) -> Result<cmux_cloud_c
 pub(crate) fn http_client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
+        .default_headers(cmux_build_space::headers()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -1105,6 +793,15 @@ pub(crate) fn http_client() -> Result<reqwest::Client> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_store_error_names_its_cause() {
+        // 2026-11-21: a join that stopped at the store said only "unavailable".
+        let cause = std::io::Error::other("home is a symlink");
+        let error = super::store_error_from(cause);
+        assert_eq!(error.message, "local machine store unavailable: home is a symlink");
+        assert_eq!(super::store_error().message, "local machine store unavailable");
+    }
+
     use super::{MachineCredential, MachineIdentity, origin, parse_token_text};
 
     #[test]
@@ -1149,6 +846,43 @@ mod tests {
         super::save_at(home, &record).unwrap();
         crate::cli::mesh_node_key::load_or_create_at(home).unwrap();
         std::fs::read(home.join("node.wg.key")).unwrap()
+    }
+
+    /// Two VMs made from one image share a host name: each one joined under its own name
+    /// (`machine join --name`) is that name to its peers, so neither shadows the other on the
+    /// hub. A default join, a revoked or copied record, or a name no session name may be keeps
+    /// the host name.
+    #[test]
+    #[cfg(unix)]
+    fn a_machine_named_at_its_join_is_that_name_to_its_peers() {
+        let home = tempfile::tempdir().unwrap();
+        let named_at = |record: &super::MachineCredential, here: Option<&str>| {
+            super::save_at(home.path(), record).unwrap();
+            crate::machine_record::joined_name_at(home.path(), here)
+        };
+        assert_eq!(crate::machine_record::joined_name_at(home.path(), Some("fp")), None);
+        let record = super::MachineCredential {
+            credential: "cmm_x".into(),
+            name: "lane-7".into(),
+            host_fingerprint: Some("fp".into()),
+            named: true,
+            ..Default::default()
+        };
+        assert_eq!(named_at(&record, Some("fp")).as_deref(), Some("lane-7"));
+        assert_eq!(named_at(&record, None).as_deref(), Some("lane-7"), "no fingerprint here");
+        let default = super::MachineCredential { named: false, ..record.clone() };
+        assert_eq!(named_at(&default, Some("fp")), None, "took the host name");
+        let revoked = super::MachineCredential { revoked: true, ..record.clone() };
+        assert_eq!(named_at(&revoked, Some("fp")), None);
+        let cloned = super::MachineCredential { cloned: true, ..record.clone() };
+        assert_eq!(named_at(&cloned, Some("fp")), None);
+        assert_eq!(named_at(&record, Some("other-box")), None, "a copy on another box");
+        let odd = super::MachineCredential { name: "Lane 7".into(), ..record.clone() };
+        assert_eq!(named_at(&odd, Some("fp")), None, "not a session name");
+        // An older build's record has no `named`: the host name, as before.
+        let older: super::MachineCredential =
+            serde_json::from_str(r#"{"credential":"cmm_x","machine_id":"m","team_id":"t","name":"lane-7","hub_origin":"https://h","last_heartbeat":null,"revoked":false,"wgPublicKey":"k"}"#).unwrap();
+        assert!(!older.named);
     }
 
     /// The cmux link's Cloud tunnel runs only for a live join of this box: a sign-out's leave
@@ -1701,6 +1435,7 @@ mod tests {
             joined_by: None,
             capabilities: None,
             cloned_on: None,
+            named: false,
         };
         let identity = MachineIdentity::from_record(&record);
         let serialized = serde_json::to_string(&identity).unwrap();

@@ -850,6 +850,9 @@ pub struct ChildAgent {
     /// Present when the child is `codex app-server`, bridged in process
     /// (`codex_app_server.rs`) and run directly under acpmux.
     codex: Option<CodexLink>,
+    /// That `codex app-server` started with the PreToolUse hook that holds each of its tools until
+    /// the repository sync is done (`codex_repo_gate.rs`), read from the argv it started with.
+    pub(crate) codex_repo_gated: bool,
     hosted: Option<Hosted>,
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
@@ -859,7 +862,7 @@ pub struct ChildAgent {
     pub given_servers: std::sync::Mutex<Option<Value>>,
     /// The MCP servers its harness's configs named as it started (`LaunchServers::read`, before
     /// it started), for the idle census. None for a harness another daemon started.
-    pub(crate) launch: std::sync::Mutex<Option<crate::hub::LaunchServers>>,
+    pub(crate) launch: std::sync::Mutex<Option<crate::sidecar_census::LaunchServers>>,
     /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
     /// is not the chat's context any more, and is neither logged nor handed to the hub. A lock,
     /// not a flag: the reader holds it while it checks and logs such an answer (`tap_live`), so a
@@ -870,7 +873,7 @@ pub struct ChildAgent {
     ended_on_purpose: std::sync::atomic::AtomicBool,
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
-    pub preview_format: Option<crate::hub::questions::PreviewFormat>,
+    pub preview_format: Option<crate::questions::PreviewFormat>,
     /// The CPU class its harness runs at once its session's start is over (`cpu_class.rs`), set
     /// by the start that spawned it; unset for a harness another daemon started.
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
@@ -909,9 +912,11 @@ struct Spawned {
     stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send>,
     stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
     stderr: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
-    launch: Option<crate::hub::LaunchServers>,
-    preview_format: Option<crate::hub::questions::PreviewFormat>,
+    launch: Option<crate::sidecar_census::LaunchServers>,
+    preview_format: Option<crate::questions::PreviewFormat>,
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
+    /// Its command line carries the repository hook (`codex_repo_gate::in_args`).
+    repo_gated: bool,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
     #[cfg(feature = "sim")]
@@ -929,13 +934,14 @@ impl Spawned {
     ) -> Result<Self> {
         let mut cmd = harness_command_ready(name, profile, cwd, command_line, session).await?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
-        let launch = crate::hub::LaunchServers::read(
+        let launch = crate::sidecar_census::LaunchServers::read(
             &Launch::of(&cmd, cwd),
             crate::config::derive_family(name, profile),
             profile.kind,
         )
         .await;
         let preview_format = Some(pinned_preview_format(&cmd));
+        let repo_gated = crate::codex_repo_gate::in_args(cmd.as_std().get_args());
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
         // Never at background class while it starts; its class, from the harness's own env (its
@@ -984,6 +990,7 @@ impl Spawned {
             launch: Some(launch),
             preview_format,
             run_class: std::sync::OnceLock::from(run_class),
+            repo_gated,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1004,6 +1011,7 @@ impl Spawned {
             launch: None,
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
+            repo_gated: false,
             #[cfg(windows)]
             job: None,
             sim_alive: Some(pipes.alive),
@@ -1094,6 +1102,7 @@ impl ChildAgent {
             launch,
             preview_format,
             run_class,
+            repo_gated,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1116,6 +1125,7 @@ impl ChildAgent {
             inbound: inbound.clone(),
             pid,
             translator: translator.clone(),
+            codex_repo_gated: repo_gated && codex.is_some(),
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
@@ -1308,7 +1318,7 @@ impl ChildAgent {
                             }
                         };
                         if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
-                            let safe = crate::codex_app_server::redact(&raw);
+                            let safe = crate::codex_app_server::logged(&raw);
                             tap(Direction::In, &Message::notification(&kind, safe), None);
                         }
                         let order = cx.order.lock().await;
@@ -1591,6 +1601,13 @@ impl ChildAgent {
             return;
         }
         let pgid = self.pid.map(|p| p as i32);
+        // A caller that stops waiting (the daemon's shutdown cuts its session cleanup at its
+        // deadline) drops this future inside the grace: the group still gets its SIGKILL then,
+        // or an agent that ignores SIGTERM outlives the daemon (Codex review of #42296). Armed
+        // before the first await: the helper scan below reads the whole process table, which
+        // on a loaded machine can outlast the caller's cut, and a cut there sent no signal.
+        #[cfg(unix)]
+        let escalate = KillGroupOnDrop(pgid);
         // Busy: the exit watcher holds it while it reaps the agent (its
         // stdout closed); a helper then is not taken here.
         #[cfg(unix)]
@@ -1604,11 +1621,6 @@ impl ChildAgent {
                 libc::killpg(pg, libc::SIGTERM);
             }
         }
-        // A caller that stops waiting (the daemon's shutdown cuts its session cleanup at its
-        // deadline) drops this future inside the grace: the group still gets its SIGKILL then,
-        // or an agent that ignores SIGTERM outlives the daemon (Codex review of #42296).
-        #[cfg(unix)]
-        let escalate = KillGroupOnDrop(pgid);
         // Windows: Ctrl+Break to the agent's process group first.
         #[cfg(windows)]
         if let Some(pg) = pgid {
@@ -1935,6 +1947,11 @@ impl ChildAgent {
                 tokio::select! {
                     () = fence.settled() => {}
                     answer = &mut rx => {
+                        // A direct child may answer its line before its writer, preempted
+                        // between the write and `written()`, marks it: every direct writer
+                        // settles it, so that answer waits for it. Only a host can answer with
+                        // no receipt to come.
+                        if self.hosted.is_none() { fence.settled().await; }
                         if fence.now() == Fence::WRITTEN { on_written(); }
                         return answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")));
                     }
@@ -2112,6 +2129,14 @@ impl ChildAgent {
         }
     }
 
+    /// Whether Claude Code's translator runs this agent, known without asking its host: a direct
+    /// child's own, or one its host's record says it runs (`HostRecord::claude_translator`).
+    /// False for a host of an older build, which never says.
+    pub fn runs_claude_translator(&self) -> bool {
+        self.translator.is_some()
+            || self.hosted.as_ref().is_some_and(|h| h.link().record.claude_translator)
+    }
+
     /// The Claude translator's state, wherever the translator runs.
     pub async fn claude_state(&self) -> Option<ClaudeState> {
         if let Some(tr) = &self.translator {
@@ -2196,6 +2221,15 @@ impl ChildAgent {
     /// The host record when this agent runs under a host.
     pub fn host_record(&self) -> Option<crate::agent_host::HostRecord> {
         self.hosted.as_ref().map(|h| h.link().record.clone())
+    }
+
+    /// Whether this agent runs under a host whose record says a level below `level`
+    /// (`HostRecord::host_level`) on another build than this one's (`hub/host_level.rs`).
+    pub fn host_below(&self, level: u32) -> bool {
+        self.hosted.as_ref().is_some_and(|h| {
+            let link = h.link();
+            link.record.host_level < level && link.record.host_build != crate::build_info::build()
+        })
     }
 
     /// The build its host runs (`HostRecord::host_build`), when this agent runs under a host.
@@ -2460,6 +2494,7 @@ impl ChildAgent {
             pid: adopted.harness_pid,
             translator: None,
             codex: None,
+            codex_repo_gated: false,
             hosted: Some(Hosted {
                 link: std::sync::RwLock::new(link.clone()),
                 inbound,
@@ -2641,12 +2676,13 @@ impl ChildAgent {
     }
 
     /// Takes custody of `link`'s harness (`agent_host/custody.rs`) in the background, when the
-    /// holder is on and this agent has none of that host yet. Best effort: without it, a host that
-    /// dies cuts the turn as before.
+    /// holder is on, the host can hold (not a translated or bridged harness,
+    /// `HostRecord::may_hold`) and this agent has none of that host yet. Best effort: without it,
+    /// a host that dies cuts the turn as before.
     #[cfg(unix)]
     fn take_custody(self: &Arc<Self>, link: &Arc<crate::agent_host::link::Link>) {
         let Some(hosted) = &self.hosted else { return };
-        if !crate::agent_host::custody::holder_on() {
+        if !crate::agent_host::custody::holder_on() || !link.record.may_hold() {
             return;
         }
         let held = hosted.custody.lock_or_recover().clone();

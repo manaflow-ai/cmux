@@ -12,8 +12,9 @@ import CmuxNextIcons
 /// stays on the column.
 @MainActor
 final class WorkspaceTabHoverCardRow: NSView {
-    /// How far the row (and its hover fill) reaches past the list's leading and trailing edges.
-    static var fillOutset: CGFloat { Metrics.space2 }
+    /// How far the row (and its hover fill) reaches past the list's leading and trailing edges, in whole points: a
+    /// half point put the list's scroll view off the pixel grid and its rows a point and a half off the icon column.
+    static var fillOutset: CGFloat { HoverCardRowView.iconGap }
 
     private let style: WorkspaceTabHoverCardStyle
     private let icon = NSImageView()

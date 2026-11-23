@@ -149,13 +149,19 @@ pub fn summarize(request: &Request) -> Response {
             Section::Status => blocks.push(status(members)),
             Section::Members => {
                 let limit = usize::try_from(request.max_members.max(1)).unwrap_or(usize::MAX);
+                // A member with no title has nothing to list: it counts, but
+                // draws no empty bullet line (Leo 2026-11-06: "you got all
+                // these empty things"). Swift's `.whitespacesAndNewlines` is
+                // Unicode's White_Space, as `str::trim` is.
+                let titled: Vec<&Member> =
+                    members.iter().filter(|m| !m.title.trim().is_empty()).collect();
                 let mut lines = vec![Line::Count { count: count(members.len()) }];
                 lines.extend(
-                    members.iter().take(limit).map(|m| Line::Member { title: m.title.clone() }),
+                    titled.iter().take(limit).map(|m| Line::Member { title: m.title.clone() }),
                 );
-                let shown = members.len().min(limit);
-                if members.len() > shown {
-                    lines.push(Line::More { count: count(members.len().saturating_sub(shown)) });
+                let shown = titled.len().min(limit);
+                if titled.len() > shown {
+                    lines.push(Line::More { count: count(titled.len().saturating_sub(shown)) });
                 }
                 blocks.push(Block { section: Section::Members, tone: Tone::Secondary, lines });
             }
@@ -398,6 +404,37 @@ mod tests {
             assert_eq!(card.blocks[0].section, lead);
             assert_eq!(card.blocks.len(), 5);
         }
+    }
+
+    /// `aMemberWithNoTitleListsNoEmptyLine` (Leo 2026-11-06: "you got all these empty
+    /// things"): a member with no title still counts, but lists no empty bullet line, and
+    /// "+N more" counts only titled members.
+    #[test]
+    fn group_summary_a_member_with_no_title_lists_no_empty_line() {
+        let members = vec![
+            Member { title: "api".into(), ..Member::default() },
+            Member { title: " ".into(), ..Member::default() },
+        ];
+        let card = summarize(&request(members, &[Section::Members], 6));
+        assert_eq!(
+            card.blocks[0].lines,
+            vec![Line::Count { count: 2 }, Line::Member { title: "api".into() }]
+        );
+
+        let mut many: Vec<Member> =
+            (1..=4).map(|n| Member { title: format!("ws-{n}"), ..Member::default() }).collect();
+        many.insert(1, Member { title: "\u{3000}\n".into(), ..Member::default() });
+        many.push(Member { title: String::new(), ..Member::default() });
+        let card = summarize(&request(many, &[Section::Members], 2));
+        assert_eq!(
+            card.blocks[0].lines,
+            vec![
+                Line::Count { count: 6 },
+                Line::Member { title: "ws-1".into() },
+                Line::Member { title: "ws-2".into() },
+                Line::More { count: 2 },
+            ]
+        );
     }
 
     #[test]

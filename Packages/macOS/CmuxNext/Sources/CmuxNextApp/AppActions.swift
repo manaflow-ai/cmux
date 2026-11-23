@@ -94,8 +94,8 @@ enum AppActions {
         DevToolsHandlers.bind(into: registry, context: context)
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
+        context.services.keyRouter.keyModes.bind(into: registry)
         VoiceRoomHandlers.bind(into: registry, context: context)
-        ChiefScreenShareActions(share: context.services.chiefScreenShare, registry: registry).bind()
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)
@@ -120,21 +120,23 @@ enum AppActions {
         AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
+        DaemonStartupWait(daemon: services.daemon).bind(into: registry)
         AccountsHandlers.bind(into: registry, context: context)
         ProfileMenuHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
         SSHTargetHandlers.bind(into: registry, context: context)
         ResumeCommandHandlers.bind(into: registry, context: context)
         RemoteGroupHandlers.bind(into: registry, context: context)
+        SidebarScreenIntentActions.bindViewScreen(into: registry) { [weak services] in services?.windows.active.map { window in (sections: window.sidebar.model.sections, handle: { @MainActor intent in window.sidebar.handle(intent) }) } }
         ChiefMoveHandlers.bind(into: registry, context: context)
-        ChiefMemoryImportHandlers.bind(into: registry, context: context)
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
-        // Last of the handlers: a catalog row that names its daemon request and has no handler of
-        // its own above sends that request (cmux-action-catalog `Action::request`).
+        // Last: a catalog row with a daemon request and no handler above sends it (cmux-action-catalog `Action::request`).
         CatalogRequestHandlers(host: services).bind(into: registry)
+        HandlerPlaceholders.bind(into: registry)
         IconMenuVisibility.install(registry, context: context)
+        SpacesMenuVisibility { [weak services] in services.map { SidebarSpaceBar.profiles($0.machines.local, window: $0.windows.active?.state.id ?? "", windows: $0.windows).count } ?? 0 }.install(in: registry)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installActionRules(services)
         ActionTargetReasons.refuseHeadlessNameEditors(in: registry) { RefusalStrings.nameArgumentRequired }
@@ -145,10 +147,10 @@ enum AppActions {
         ActionRouting.install(services)
         ActionRouting.installUserIntentObservers(services)
         WindowKeyTable.install(services)
-        // One owner per action: a second binding silently replaces the first. The check is a test
-        // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
-        if !registry.duplicateBindings.isEmpty {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+        // One owner per action, and every bound id in the catalog: tests check both (noActionIsBoundTwice,
+        // everyBoundActionIsInTheCatalog); at runtime a Debug dogfood build must not crash, so only a fault.
+        for (problem, ids) in [("bound twice", registry.duplicateBindings), ("not in the catalog, left unbound", registry.uncataloguedBindings)] where !ids.isEmpty {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions \(problem, privacy: .public): \(ids.map(\.rawValue).joined(separator: ", "), privacy: .public)")
         }
     }
 
@@ -196,6 +198,8 @@ enum AppActions {
             do {
                 let scripted = registry.isCapturingRefusal
                 let origin = try QuitOrigin(for: invocation, scripted: scripted)
+                // Cmd-Q's first press only warns (`app.warnBeforeQuitShortcut`); the menu, Dock and scripts quit.
+                if !scripted, origin == .interactive, services.quit.holdsShortcutQuit(invocation) { return }
                 // A scripted quit saves unsaved documents first and refuses,
                 // naming them, when a save fails (R96 quit hook).
                 guard scripted, !services.quit.unsaved.unsaved().isEmpty else { return services.quit.requestQuit(origin) }

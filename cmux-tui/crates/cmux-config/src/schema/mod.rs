@@ -4,6 +4,8 @@
 
 mod accepts;
 mod app_id;
+mod backdrop;
+mod build_defaults;
 mod chat_roots;
 mod json_schema;
 mod retired;
@@ -17,14 +19,21 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
+pub use backdrop::normalize_backdrop;
+pub use backdrop::{
+    RECENTS_CAP, is_selection as is_background, previous_background, recents_of, record_recent,
+};
+pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
 pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
 
-/// A `static`, not a `const`: one copy, whose bytes the embedded rows borrow.
-static EMBEDDED: &str = include_str!("../../../../../schemas/settings/settings-schema.json");
+/// Compiled in compressed (cmux-embed): 2.4 MB of JSON, about 85 KB packed. Inflated once
+/// into the one text whose bytes the embedded rows borrow (`EMBEDDED.get()`).
+static EMBEDDED: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../../../../../schemas/settings/settings-schema.json"));
 
 /// A text with the string catalog key it came from (nil for a product name).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -131,6 +140,26 @@ pub enum DomainKind {
     /// (Swift `BackdropSelectionSetting.accepts`; each Mac has its own
     /// wallpaper set, so system paths are checked by shape).
     BackdropSelection,
+    /// `appearance.backgroundLight` / `appearance.backgroundDark`: a fixed
+    /// background, a listed choice or `system:` / `file:` with an absolute
+    /// path (Swift `BackdropSelectionSetting.acceptsPicture`).
+    BackdropPicture,
+    /// `appearance.backgroundSchedule`: an object of times (`HH:MM`, or a sun
+    /// event with an offset) to fixed backgrounds (Swift
+    /// `BackdropSelectionSetting.acceptsSchedule`).
+    BackdropSchedule,
+    /// `appearance.backgroundLocation`: `LAT,LON` (Swift `BackdropLocation`).
+    BackdropLocation,
+    /// `appearance.backgroundMemory`: what each background mode last showed
+    /// (`rotate`, `folder`, `off`; Swift `BackdropSelectionSetting.acceptsMemory`).
+    BackdropMemory,
+    /// `appearance.backgroundPlacement`: picture ids to placement texts
+    /// (`crate::backdrop_placement`; Swift `BackdropPlacement`).
+    BackdropPlacement,
+    /// `appearance.backgroundRecents`: the backgrounds shown before, newest
+    /// first, each an `appearance.background` value, at most
+    /// `backdrop::RECENTS_CAP` (Swift `BackdropSelectionSetting.acceptsRecents`).
+    BackdropRecents,
     /// `agents.chats.roots`: absolute folders outside the protected ones
     /// (Swift `ChatRootValidator`).
     ChatRoots,
@@ -143,6 +172,10 @@ pub enum DomainKind {
     /// `agentPane.display.commandLabels`: a list of preset names and command
     /// label rules (Swift `CommandLabelsSetting.accepts`).
     CommandLabels,
+    /// `agentPane.display.transcriptTokens`: an object of transcript look
+    /// tokens, each in its range (`crate::transcript_look`; Swift
+    /// `TranscriptTokensSetting.accepts` checks the shape only).
+    TranscriptTokens,
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
@@ -228,6 +261,8 @@ pub struct Schema {
     pub rows: Vec<Row>,
     by_key: HashMap<String, usize>,
     by_path: HashMap<Vec<String>, usize>,
+    /// The build's defaults applied to their rows ([`Schema::with_build_defaults`]).
+    build_defaults: std::collections::BTreeMap<String, Value>,
 }
 
 #[derive(Deserialize)]
@@ -300,9 +335,13 @@ impl Schema {
     pub fn embedded() -> &'static Schema {
         static SCHEMA: OnceLock<Schema> = OnceLock::new();
         SCHEMA.get_or_init(|| {
-            let parsed = Schema::parse_keeping(EMBEDDED, |embedded, _| RowText::Embedded(embedded));
+            let parsed =
+                Schema::parse_keeping(EMBEDDED.get(), |embedded, _| RowText::Embedded(embedded));
             // crash-allow: the schema is compiled in; the behavior tests parse it on every run.
-            parsed.expect("the embedded settings schema parses")
+            let schema = parsed.expect("the embedded settings schema parses");
+            // The build's defaults the app named (`CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, build_defaults.rs).
+            let defaults = std::env::var(BUILD_DEFAULTS_ENV).ok();
+            schema.with_build_defaults(&build_defaults_from(defaults.as_deref()))
         })
     }
 
@@ -339,6 +378,7 @@ impl Schema {
             rows,
             by_key,
             by_path,
+            build_defaults: std::collections::BTreeMap::new(),
         })
     }
 
@@ -396,11 +436,18 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:font_family" => Validation::Domain(DomainKind::FontFamily),
         "domain:sound" => Validation::Domain(DomainKind::Sound),
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
+        "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
+        "domain:backdrop_schedule" => Validation::Domain(DomainKind::BackdropSchedule),
+        "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
+        "domain:backdrop_memory" => Validation::Domain(DomainKind::BackdropMemory),
+        "domain:backdrop_placement" => Validation::Domain(DomainKind::BackdropPlacement),
+        "domain:backdrop_recents" => Validation::Domain(DomainKind::BackdropRecents),
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
         "domain:app_id" => Validation::Domain(DomainKind::AppId),
+        "domain:transcript_tokens" => Validation::Domain(DomainKind::TranscriptTokens),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {
@@ -441,14 +488,14 @@ mod row_text_tests {
 
     #[test]
     fn the_schema_hash_equals_the_whole_array_hash() {
-        assert_eq!(Schema::embedded().schema_hash, rows_hash_reference(EMBEDDED));
+        assert_eq!(Schema::embedded().schema_hash, rows_hash_reference(EMBEDDED.get()));
         let empty = r#"{"version":1,"sections":[],"rows":[]}"#;
         assert_eq!(Schema::parse(empty).expect("parses").schema_hash, rows_hash_reference(empty));
     }
 
     #[test]
     fn embedded_rows_keep_slices_of_the_compiled_text_not_heap_copies() {
-        let range = EMBEDDED.as_bytes().as_ptr_range();
+        let range = EMBEDDED.get().as_bytes().as_ptr_range();
         let rows = &Schema::embedded().rows;
         assert!(!rows.is_empty());
         for row in rows {
@@ -459,7 +506,7 @@ mod row_text_tests {
             assert!(range.contains(&start), "{}: not a slice of the embedded text", row.key);
         }
         // Another text keeps owned compact rows that give back the same values.
-        let parsed = Schema::parse(EMBEDDED).expect("parses");
+        let parsed = Schema::parse(EMBEDDED.get()).expect("parses");
         assert_eq!(parsed.schema_hash, Schema::embedded().schema_hash);
         for (owned, embedded) in parsed.rows.iter().zip(rows) {
             assert!(matches!(owned.raw, RowText::Owned(_)));

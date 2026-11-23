@@ -10,6 +10,22 @@ For a tagged Debug app with separate chat and pages servers, use
 
 ## The loop
 
+**The quickest way to run your change: copy your nightly and swap your code in.** In your cmux checkout:
+
+```sh
+cmux app try .              # a fresh copy of cmux NIGHTLY runs beside yours, with your code in
+cmux app try . --extract    # keep the code that went in (branch cmux-try/<copy> and a patch)
+cmux app try . --stop       # quit the copy and delete it
+```
+
+The copy is an APFS clone of `/Applications/cmux NIGHTLY.app` (`--from APP` for another build) with its own
+bundle id, data, socket and daemon, so the cmux you are using is never touched. Your web UI goes in through a dev
+server (each save shows live) and your daemon Rust as the published build of your tree, else a local cargo
+build. It prints the copy's socket; `cmux --app-socket SOCKET ...` drives it. Run it again for a fresh copy with
+your newest code. Dev builds stay available: when the change needs one (Swift, Rust the app links), the command
+says why and prints the fleet build command. It is `scripts/cmux-next/hot-verify.py run`, the same engine as
+`look` below without the screenshots.
+
 Write the code, put it into the cmux you are running, use it, then test it. Leo, 2026-11-15: "imagine if you
 could just write the code and then the code goes into your app and then you can just use it." Screenshot it, take
 a video, click through it; compile checks, CI and suites come after the look. Of the newest 300 merged NEXT PRs, 70% of those that change the Mac app could go in live; almost none were looked at in a running app before merging:
@@ -24,7 +40,11 @@ a video, click through it; compile checks, CI and suites come after the look. Of
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>` | `cmux app try undo` |
 | Swift, Rust the app links, resources | a build: `hot-apply.py plan SHA` says which | |
 
-`cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build, and
+To look and keep the proof in one step, `scripts/cmux-next/hot-verify.py look --source dir:.|pr:N --app APP --out DIR`
+puts the change into a side copy and writes before and after screenshots, a video and a receipt for the PR
+(`hot-verify.py plan --source dir:. --app APP` first says whether it needs a build).
+
+`cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build (a fork's only when you run `use` again), and
 `library off --all` turns every code layer off. Rust hot-apply into a Developer ID NIGHTLY takes the
 tree's Team-signed copy, which CI publishes a few minutes after the tree; until then it is held back. Agents follow the same loop through the
 [cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:
@@ -352,7 +372,8 @@ cmux live status                             # the last swap: when, which save, 
 cmux live stop --rust                        # stop watching; the daemon keeps the last build
 ```
 
-On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, the loop
+On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, or a file outside it the build
+reads (a design token, a schema, a skill page the daemon embeds), the loop
 (`scripts/cmux-next/rust-live.py`):
 
 1. builds only the daemons the changed crates reach (`cargo metadata`), incrementally. With
@@ -375,8 +396,15 @@ On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, the loop
 The build host builds for the daemon's platform: a Mac build box for the app's daemon on a Mac, any
 Linux box for a daemon on Linux. Pass `--session NAME` for a daemon other than the default session
 (`cmux-app-<tag>` for a tagged build), or `--socket PATH` when the app's daemon socket isn't the
-session's default (an app sets its daemon's `TMPDIR`). A build error is logged (`cmux live status`
-shows it), and the running daemon stays as it was.
+session's default (an app sets its daemon's `TMPDIR`; `cmux --socket PATH live start --rust` works too).
+A build error is logged (`cmux live status` shows it), and the running daemon stays as it was.
+
+A build host gets `cmux-tui/` and everything its build reads outside it, which the loop computes from
+the source each time it starts, so a new include needs no list: each `include_str!`/`include_bytes!`
+target, each `../` path a build script names, the path dependencies (`workers/cmux-vm`), and the
+`ghostty-next` submodule, which a fresh worktree has empty and the loop checks out first. A file a
+sparse checkout leaves out goes from `HEAD`. `rust-live.py inputs` prints the set; the cmux-tui test
+`rust_live_sends_every_outside_input` fails when cargo's dep-info names a file the set misses.
 
 On a side copy of a DEV app (cmux#36389, base 1773603b, PR eddb05df, cmux-tui built on the fleet), the
 app handoff took 1.38 s to the PR's daemon, 1.34 s back and 1.16 s forward again. The app's pid and
@@ -590,6 +618,33 @@ digests differ only in what a hot apply swaps, so `plan` compares the two files 
 `"via": "published keys"`. It skips the fetch of SHA and the tree and web key computation. Nothing in
 the plan reads a checkout, so it is the step a `cmux` CLI command in any build can take next. Commits
 without keys (before this, or a branch) are planned from the diff as before.
+
+## Share your build with a teammate
+
+Send a line, not a bundle. The best line is a commit: once your change is on feat-cmux-next,
+`cmux app try <sha>` runs it in the other person's cmux the cheapest way there is, with nothing to
+upload. For anything else, `cmux app share` writes the line for you:
+
+```sh
+cmux app share                      # the cmux DEV build you run (or --app APP): prints one line to send
+cmux app share | pbcopy             # the line alone goes to stdout
+cmux app try '<the line's link>'    # on the other Mac: the build opens beside their cmux
+```
+
+- A clean commit on feat-cmux-next becomes `cmux app try <sha>`; nothing is uploaded.
+- Any other build (local changes, an unmerged commit, `--bundle`) is zipped and uploaded to the team
+  build cache, and the line is `cmux app try https://.../v1/tags/share-...?backend=<env>`. The other Mac
+  downloads it, checks its sha256 and signature, unpacks it under `~/Applications/cmux Shared/`, sets a
+  DEV build's Cloud backend to the sender's, and opens it. Their own cmux is not touched.
+- The sign-in never travels: it lives in the sender's keychain, and no login or token is read or sent.
+  Each person signs in with their own account; the backend in the link takes them to the same Cloud.
+- The cache comes from `--store`, `CMUX_APP_SHARE_STORE` or `~/.config/cmux/app-share.json`
+  (`{"store": "https://..."}`), which the team's HQ menu bar app writes. HQ's menu has
+  **Share this build…**, which runs the same command and copies the line.
+
+Why not AirDrop a zipped `.app`: most dev builds are signed ad hoc, so Gatekeeper blocks the
+quarantined copy on the other Mac, and the sign-in stays behind anyway. A build `cmux app try`
+downloads carries no quarantine, so it runs.
 
 ## Every merge, no checkout
 

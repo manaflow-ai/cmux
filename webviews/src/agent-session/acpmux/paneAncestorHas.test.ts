@@ -6,8 +6,8 @@
 // Three such rules made a send in a 1,000-turn chat restyle about 5x the elements (traced style time
 // 122 ms to 25 ms over the 250 ms after Return) and a composer menu open 1,248 elements instead of
 // 333 (pane-has-restyle.browser.test.ts). State attributes on the pane (`data-asks`,
-// `data-home-lists`, `data-stage-loading`, App.tsx) carry those states instead, or the `:has()` sits
-// on a small sibling (`.nt-page-dots:has(...) ~ ...`).
+// `data-home-lists`, `data-stage-loading`, pane/PaneBody.tsx) carry those states instead, or a sibling
+// combinator finds the small element (`.acpmux-main > .nt-style ~ ...`).
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -91,6 +91,6 @@ test("the detector sees the shapes it guards", () => {
   expect(parts(".acpmux-shell:has(> .a) > .b")).toBe(true);
   // The subject, a sibling's `:has()`, and other columns are not this shape.
   expect(parts(".acpmux-main[data-dock=float] > .acpmux-dock:has(.acpmux-composer-foot)")).toBe(false);
-  expect(parts(".acpmux-main > .nt-page-dots:has(> .nt-style) ~ * .nt-screen")).toBe(false);
+  expect(parts(".acpmux-main > .nt-style ~ * .nt-screen:has(.nt-foot)")).toBe(false);
   expect(parts(".acpmux-main-column:has(> .a) .b")).toBe(false);
 });

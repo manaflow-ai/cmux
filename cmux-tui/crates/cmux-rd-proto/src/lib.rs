@@ -10,24 +10,33 @@
 #[cfg(feature = "serde")]
 pub mod app_line;
 mod bulk;
+pub mod clipboard;
 mod clock;
 #[cfg(feature = "serde")]
 pub mod control;
+mod cursor;
 mod datagram;
 mod error;
 mod feedback;
 mod frame;
+mod frame_times;
 mod input;
 mod stream;
 
 pub use bulk::{BULK_PREFIX_LEN, BulkFrame, MAX_BULK_CHUNK};
 pub use clock::{ClockEstimate, ClockPing, ClockPong};
+pub use cursor::{
+    CURSOR_POS_LEN, CursorPos, MAX_CURSOR_SIDE, base64_decode, base64_encode, cursor_flags,
+    cursor_seq_newer, shape_id,
+};
 pub use datagram::{
-    DatagramHeader, DatagramKind, HEADER_LEN, MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, flags,
+    DatagramDeparture, DatagramHeader, DatagramKind, HEADER_LEN, MAX_DEPARTURE_RECEIPTS,
+    MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, fec_block_of, fec_blocks, flags,
 };
 pub use error::DecodeError;
 pub use feedback::{Arrival, Feedback, MAX_ARRIVALS, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack};
 pub use frame::{FRAME_PREFIX_LEN, FrameBody, REF_NONE};
+pub use frame_times::{FRAME_TIMES_LEN, FrameTimes};
 pub use input::{
     INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, MAX_SERVICE_BYTES, MAX_TEXT_BYTES,
     service_flags,

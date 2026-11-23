@@ -93,14 +93,16 @@ impl Hub {
     /// order's next read. Costs the live chats, the rows changed since the order's last read
     /// and those of the last day, never a walk of every chat.
     fn usage_candidates(&self, now: u64) -> Vec<Arc<Session>> {
-        let mut seen = HashSet::new();
-        let mut candidates = Vec::new();
-        let recent = self.own_rows_since(now.saturating_sub(DAY_MS));
-        for session in self.live_session_handles().into_iter().chain(recent) {
-            if seen.insert(session.id.clone()) {
-                candidates.push(session);
-            }
-        }
+        let mut candidates = self.live_session_handles();
+        let live: HashSet<&str> = candidates.iter().map(|s| s.id.as_str()).collect();
+        // A recent row that is live is already a candidate: one lookup, no id copied.
+        let recent: Vec<Arc<Session>> = self
+            .own_rows_since(now.saturating_sub(DAY_MS))
+            .into_iter()
+            .filter(|s| !live.contains(s.id.as_str()))
+            .collect();
+        drop(live);
+        candidates.extend(recent);
         candidates
     }
 
@@ -265,6 +267,27 @@ impl Hub {
         self.usage_stats.dirty.store(true, Ordering::SeqCst);
     }
 
+    /// The candidates both ways, each timed in µs: as #43807 deduped them (a set of every
+    /// candidate's id, each id copied) and as now (a set of the live ids); and how many.
+    pub(crate) fn usage_candidates_both_for_test(&self) -> (u128, u128, usize) {
+        let now = crate::store::now_ms();
+        let at = std::time::Instant::now();
+        let mut seen = HashSet::new();
+        let mut copied = Vec::new();
+        let recent = self.own_rows_since(now.saturating_sub(DAY_MS));
+        for session in self.live_session_handles().into_iter().chain(recent) {
+            if seen.insert(session.id.clone()) {
+                copied.push(session);
+            }
+        }
+        let copied_us = at.elapsed().as_micros();
+        let at = std::time::Instant::now();
+        let candidates = self.usage_candidates(now);
+        let live_us = at.elapsed().as_micros();
+        assert_eq!(copied.len(), candidates.len(), "the same candidates both ways");
+        (copied_us, live_us, candidates.len())
+    }
+
     /// How many whole passes ran, and how many chats the last one read.
     pub(crate) fn usage_passes_for_test(&self) -> (u64, usize) {
         let cache = &self.usage_stats;
@@ -275,3 +298,14 @@ impl Hub {
 #[cfg(test)]
 #[path = "usage_view_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+impl Hub {
+    /// Sets `id`'s stats as a pass that found them does: kept, and its row told changed.
+    pub(crate) fn set_usage_stats_for_test(&self, id: &str, stats: UsageStats) {
+        self.usage_stats.stats.lock().unwrap_or_else(|e| e.into_inner()).insert(id.into(), stats);
+        if let Some(session) = self.session_by_id(id) {
+            self.events.row_changed(&session);
+        }
+    }
+}

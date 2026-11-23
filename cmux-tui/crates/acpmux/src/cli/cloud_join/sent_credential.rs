@@ -46,6 +46,11 @@ pub(super) fn describe(token: &str, now_secs: u64) -> String {
     )
 }
 
+/// The `team` claim of `token` (unverified; not a secret), or None when it is no JWT or names none.
+pub(super) fn team(token: &str) -> Option<String> {
+    claims(token)?.get("team")?.as_str().filter(|team| !team.is_empty()).map(str::to_owned)
+}
+
 /// The unverified payload of a three-part JWT.
 fn claims(token: &str) -> Option<serde_json::Map<String, Value>> {
     let mut parts = token.trim().split('.');
@@ -68,7 +73,7 @@ fn claims(token: &str) -> Option<serde_json::Map<String, Value>> {
 
 #[cfg(test)]
 mod tests {
-    use super::describe;
+    use super::{describe, team};
     use base64::Engine as _;
 
     fn jwt(payload: serde_json::Value) -> String {
@@ -115,6 +120,10 @@ mod tests {
         );
         let teamless = jwt(serde_json::json!({"iss": "https://cmux-api/production", "sub": "u"}));
         assert!(describe(&teamless, 1_000).starts_with("a cmux access token with no team claim"));
+        // The team a join minted with it lands in (a sign-in join elsewhere moves there).
+        assert_eq!(team(&token).as_deref(), Some("team_d9753ae7bf17ea2f6eaf"));
+        assert_eq!(team(&teamless), None);
+        assert_eq!(team("cmm_opaque"), None);
     }
 
     #[test]

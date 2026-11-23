@@ -71,7 +71,7 @@
           },
           "help": {
             "key": "settings.appearance.theme.help",
-            "text": "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."
+            "text": "Colors for terminals. A space, workspace or terminal theme overrides it."
           },
           "summary": {
             "key": "settings.appearance.theme.summary",
@@ -108,7 +108,7 @@
           },
           "help": {
             "key": "settings.appearance.appTheme.help",
-            "text": "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."
+            "text": "Colors for the window, sidebar, tabs and pages. Terminals use Terminal Theme."
           },
           "summary": {
             "key": "settings.appearance.appTheme.summary",
@@ -139,7 +139,7 @@
           },
           "help": {
             "key": "settings.appearance.themeEdits.help",
-            "text": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."
+            "text": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\"."
           },
           "kind": "string_map",
           "swift_owner": "ThemeEditsSetting",
@@ -194,7 +194,7 @@
           },
           "help": {
             "key": "settings.appearance.rotateFavoriteThemes.help",
-            "text": "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."
+            "text": "Switches the terminal theme to the next starred one. Needs two starred themes."
           },
           "summary": {
             "key": "settings.appearance.rotateFavoriteThemes.summary",
@@ -254,7 +254,7 @@
           },
           "help": {
             "key": "settings.appearance.accent.help",
-            "text": "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."
+            "text": "The color of selection, focus and the Send button."
           },
           "summary": {
             "key": "settings.appearance.accent.summary",
@@ -346,6 +346,56 @@
           ]
         },
         {
+          "key": "appearance.selection",
+          "note": "Off by default: accent is today's rule (the accent's tint when appearance.accent or the theme names one). neutral keeps the gray card whatever the accent (ThemeInput.selection).",
+          "title": {
+            "key": "settings.appearance.selection",
+            "text": "Selection"
+          },
+          "help": {
+            "key": "settings.appearance.selection.help",
+            "text": "Accent tints the selected row and tab with the accent. Neutral keeps them gray."
+          },
+          "summary": {
+            "key": "settings.appearance.selection.summary",
+            "text": "Color of the selected row and tab"
+          },
+          "kind": "choice",
+          "swift_owner": "SelectionSetting",
+          "swift_enum": {
+            "name": "ThemeSelection",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "accent",
+              "title": {
+                "key": "settings.choice.selection.accent",
+                "text": "Accent"
+              }
+            },
+            {
+              "value": "neutral",
+              "title": {
+                "key": "settings.choice.selection.neutral",
+                "text": "Neutral"
+              }
+            }
+          ],
+          "default": "accent",
+          "keywords": [
+            "selection",
+            "selected",
+            "row",
+            "highlight",
+            "accent",
+            "gray",
+            "neutral",
+            "sidebar"
+          ]
+        },
+        {
           "key": "appearance.themeFile",
           "title": {
             "key": "settings.appearance.themeFile",
@@ -353,7 +403,7 @@
           },
           "help": {
             "key": "settings.appearance.themeFile.help",
-            "text": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."
+            "text": "A theme file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json."
           },
           "summary": {
             "key": "settings.appearance.themeFile.summary",
@@ -379,6 +429,27 @@
           ]
         },
         {
+          "key": "appearance.themeFileExceptions",
+          "title": {
+            "key": "settings.appearance.themeFileExceptions",
+            "text": "Changed Over Theme File"
+          },
+          "help": {
+            "key": "settings.appearance.themeFileExceptions.help",
+            "text": "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list."
+          },
+          "kind": "string_list",
+          "swift_owner": "ThemeFileExceptionsSetting",
+          "default": [],
+          "keywords": [
+            "theme file",
+            "override",
+            "exception"
+          ],
+          "palette_hidden": "a Settings change to a row the theme file sets edits it: a list of setting keys",
+          "page_hidden": "bookkeeping of the rows changed over the theme file; each row's note says so"
+        },
+        {
           "key": "appearance.highlightColor",
           "title": {
             "key": "settings.appearance.highlightColor",
@@ -386,7 +457,7 @@
           },
           "help": {
             "key": "settings.appearance.highlightColor.help",
-            "text": "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."
+            "text": "The color of selected text everywhere. Unset uses the terminal theme's."
           },
           "summary": {
             "key": "settings.appearance.highlightColor.summary",
@@ -428,7 +499,7 @@
           },
           "help": {
             "key": "settings.appearance.backdropArt.help",
-            "text": "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."
+            "text": "A painting behind the window. Lower Opacity to see it."
           },
           "summary": {
             "key": "settings.appearance.backdropArt.summary",
@@ -466,7 +537,7 @@
           },
           "help": {
             "key": "settings.appearance.background.help",
-            "text": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
+            "text": "A painting, your wallpaper or a macOS wallpaper behind the window."
           },
           "summary": {
             "key": "settings.appearance.background.summary",
@@ -487,6 +558,22 @@
               "title": {
                 "key": "settings.choice.shufflePaintings",
                 "text": "Shuffle Paintings"
+              }
+            },
+            {
+              "value": "appearance",
+              "note": "Light and dark: the pictures in appearance.backgroundLight and appearance.backgroundDark, per window appearance.",
+              "title": {
+                "key": "settings.choice.backgroundFollowAppearance",
+                "text": "Light and Dark"
+              }
+            },
+            {
+              "value": "schedule",
+              "note": "Time of day: the pictures in appearance.backgroundSchedule, by clock time or sun event.",
+              "title": {
+                "key": "settings.choice.backgroundTimeOfDay",
+                "text": "Time of Day"
               }
             }
           ],
@@ -515,13 +602,13 @@
           },
           "help": {
             "key": "settings.appearance.backgroundRotation.help",
-            "text": "How often a shuffled background turns to its next picture."
+            "text": "How often a shuffled background changes."
           },
           "summary": {
             "key": "settings.appearance.backgroundRotation.summary",
             "text": "How often Shuffle changes the picture"
           },
-          "kind": "choice",
+          "kind": "choice_or_number",
           "swift_owner": {
             "type": "BackdropSelectionSetting",
             "prefixed": true
@@ -555,6 +642,13 @@
               }
             }
           ],
+          "range": {
+            "min": 1,
+            "max": 1440,
+            "step": 1,
+            "unit": "minutes",
+            "placeholder": 30
+          },
           "default": "daily",
           "keywords": [
             "shuffle",
@@ -563,7 +657,271 @@
             "wallpaper",
             "interval",
             "change picture",
-            "background"
+            "background",
+            "minutes"
+          ]
+        },
+        {
+          "key": "appearance.backgroundLight",
+          "name": "light",
+          "note": "The picture of Background's Light and Dark (appearance) in the light appearance: any fixed background id (art, desktop, system:, file:). Unset: the dark side's picture.",
+          "title": {
+            "key": "settings.appearance.backgroundLight",
+            "text": "Light Picture"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundLight.help",
+            "text": "Unset, it shows the dark picture."
+          },
+          "default_label": {
+            "key": "settings.default.sameAsDark",
+            "text": "Same as Dark"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "choices": [],
+          "choices_from": "BackdropSelectionSetting.catalogChoices",
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "light",
+            "appearance",
+            "day",
+            "auto switch"
+          ]
+        },
+        {
+          "key": "appearance.backgroundDark",
+          "name": "dark",
+          "note": "The picture of Background's Light and Dark (appearance) in the dark appearance: any fixed background id. Unset: the light side's picture.",
+          "title": {
+            "key": "settings.appearance.backgroundDark",
+            "text": "Dark Picture"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundDark.help",
+            "text": "Unset, it shows the light picture."
+          },
+          "default_label": {
+            "key": "settings.default.sameAsLight",
+            "text": "Same as Light"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "choices": [],
+          "choices_from": "BackdropSelectionSetting.catalogChoices",
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "dark",
+            "appearance",
+            "night",
+            "auto switch"
+          ]
+        },
+        {
+          "key": "appearance.backgroundSchedule",
+          "name": "schedule",
+          "note": "Background's Time of Day (schedule): when -> fixed background id. When is HH:MM (24 h, local) or sunrise | sunset | dawn | dusk | noon with an optional offset (sunset-30m, sunrise+1h). Now's picture is the latest entry at or before now (before the first: yesterday's last); a sun event that does not happen today is skipped (BackdropTimeOfDay).",
+          "title": {
+            "key": "settings.appearance.backgroundSchedule",
+            "text": "Time of Day Pictures"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundSchedule.help",
+            "text": "A time (07:00) or sun event (sunset-30m) for each picture."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "schedule",
+            "time of day",
+            "sunrise",
+            "sunset",
+            "night",
+            "auto switch"
+          ]
+        },
+        {
+          "key": "appearance.backgroundDynamic",
+          "name": "dynamic",
+          "note": "How a dynamic macOS wallpaper (system: .madesktop or .heic) changes: appearance shows its light or dark frame; time follows the sun (solar metadata), the clock (h24), or for a light/dark-only or not downloaded picture the sun above or below -6 degrees.",
+          "title": {
+            "key": "settings.appearance.backgroundDynamic",
+            "text": "Dynamic Wallpaper"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundDynamic.help",
+            "text": "Follow light and dark, or change with the sun through the day."
+          },
+          "summary": {
+            "key": "settings.appearance.backgroundDynamic.summary",
+            "text": "Follow light and dark, or the sun"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "BackdropDynamicMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "appearance",
+              "title": {
+                "key": "settings.choice.backgroundFollowAppearance",
+                "text": "Light and Dark"
+              }
+            },
+            {
+              "value": "time",
+              "title": {
+                "key": "settings.choice.backgroundTimeOfDay",
+                "text": "Time of Day"
+              }
+            }
+          ],
+          "default": "appearance",
+          "keywords": [
+            "dynamic",
+            "wallpaper",
+            "sun",
+            "solar",
+            "time of day",
+            "macos"
+          ]
+        },
+        {
+          "key": "appearance.backgroundLocation",
+          "name": "location",
+          "note": "LAT,LON in degrees for sun events and solar frames; unset: the system time zone's coordinates from /usr/share/zoneinfo/zone.tab (no location permission).",
+          "title": {
+            "key": "settings.appearance.backgroundLocation",
+            "text": "Sun Location"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundLocation.help",
+            "text": "Latitude,longitude for sunrise and sunset, such as 37.77,-122.42. Unset: your time zone."
+          },
+          "default_label": {
+            "key": "settings.default.fromTimeZone",
+            "text": "From Time Zone"
+          },
+          "placeholder": {
+            "key": null,
+            "text": "37.77,-122.42"
+          },
+          "kind": "text",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "location",
+            "latitude",
+            "longitude",
+            "sunrise",
+            "sunset",
+            "sun"
+          ]
+        },
+        {
+          "key": "appearance.backgroundMemory",
+          "name": "memory",
+          "note": "What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: \"it lost the folder ... i couldn't get back into it\"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.",
+          "title": {
+            "key": "settings.appearance.backgroundMemory",
+            "text": "Background Mode Memory"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundMemory.help",
+            "text": "The folder and picture each background mode last showed, so switching back restores them."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "folder",
+            "rotate",
+            "restore"
+          ]
+        },
+        {
+          "key": "appearance.backgroundPlacement",
+          "name": "placement",
+          "note": "Where each picture lies in its window or pane (Leo, 2026-11-22: \"we also want people to be able to reposition the images easily\"): picture id (the id the background shows, a listed painting, file:, system: or a folder's file:) to a placement text, the mode (fill, fit, center or stretch), then optionally the anchor X Y (0 to 1 from the top-left, like CSS object-position) and a zoom (1 to 4). Unset, or a picture with no entry, is today's centered fill. Adjust Background\u2026 and the Settings page's Background preview write it; cmux-config backdrop_placement is the math the app mirrors.",
+          "title": {
+            "key": "settings.appearance.backgroundPlacement",
+            "text": "Background Placement"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundPlacement.help",
+            "text": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropPlacementSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "position",
+            "fit",
+            "fill",
+            "zoom",
+            "crop"
+          ]
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "name": "recents",
+          "note": "The backgrounds shown before, newest first (Leo, 2026-11-22: \"it was cumbersome back then to switch back\"): each an appearance.background value (a rotating folder, daily, desktop, a picture or a mode), at most 8, each once. The daemon's settings write (cmux-config) puts the replaced value first whenever appearance.background changes, from every surface; Switch to Previous Background, Recent Backgrounds\u2026, cmux wallpaper back|recent and the Settings page's Recent strip read it.",
+          "title": {
+            "key": "settings.appearance.backgroundRecents",
+            "text": "Recent Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundRecents.help",
+            "text": "The backgrounds shown before, newest first, so one click goes back."
+          },
+          "kind": "string_list",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "recent",
+            "previous",
+            "history",
+            "folder"
           ]
         },
         {
@@ -575,7 +933,7 @@
           },
           "help": {
             "key": "settings.appearance.displayBackgrounds.help",
-            "text": "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none."
+            "text": "Display ID to daily, folder:<path>, desktop, a background or none."
           },
           "kind": "string_map",
           "swift_owner": {
@@ -601,7 +959,7 @@
           },
           "help": {
             "key": "settings.appearance.displayBackgroundRotations.help",
-            "text": "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation."
+            "text": "Display ID to 15m, hourly or daily. Others use the global rotation."
           },
           "kind": "string_map",
           "swift_owner": {
@@ -626,7 +984,7 @@
           },
           "help": {
             "key": "settings.appearance.paneBackgrounds.help",
-            "text": "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+            "text": "One background behind the window, or a copy in each pane."
           },
           "summary": {
             "key": "settings.appearance.paneBackgrounds.summary",
@@ -675,7 +1033,7 @@
           },
           "help": {
             "key": "settings.ui.reducedBackgrounds.help",
-            "text": "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
+            "text": "The plain theme color, without paintings, wallpapers or glass."
           },
           "kind": "toggle",
           "swift_owner": "ReducedBackgroundsSetting",
@@ -693,6 +1051,61 @@
             "art",
             "simple",
             "performance"
+          ]
+        },
+        {
+          "key": "appearance.agentGlow",
+          "title": {
+            "key": "settings.appearance.agentGlow",
+            "text": "React to Agents"
+          },
+          "help": {
+            "key": "settings.appearance.agentGlow.help",
+            "text": "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."
+          },
+          "kind": "toggle",
+          "swift_owner": "AgentGlowSetting",
+          "default": false,
+          "keywords": [
+            "agent",
+            "agents",
+            "glow",
+            "react",
+            "reactive",
+            "background",
+            "attention",
+            "needs you",
+            "idle",
+            "calm",
+            "machine color"
+          ]
+        },
+        {
+          "key": "appearance.previousGlass",
+          "note": "Web pages only: on sends glassLevels \"previous\" with the web theme (WebTheme), data-glass-levels=\"previous\" on <html>, and webviews ui/glass/glass.css (PREVIOUS GLASS) restores the glass numbers from before the one glass system (design/glass-system.md, cmux#48174). Off (default) draws the one glass system.",
+          "title": {
+            "key": "settings.appearance.previousGlass",
+            "text": "Previous Glass Look"
+          },
+          "help": {
+            "key": "settings.appearance.previousGlass.help",
+            "text": "Draws menus, popovers, the composer and cards with the glass from before November 2026."
+          },
+          "kind": "toggle",
+          "swift_owner": "PreviousGlassSetting",
+          "default": false,
+          "keywords": [
+            "glass",
+            "liquid glass",
+            "previous",
+            "old",
+            "classic look",
+            "blur",
+            "frost",
+            "translucent",
+            "transparency",
+            "menu",
+            "popover"
           ]
         },
         {
@@ -840,7 +1253,7 @@
           },
           "help": {
             "key": "settings.appearance.inactiveWindowDim.help",
-            "text": "How much more theme color covers a window while another one is in front. 0 keeps the same look."
+            "text": "How much windows behind the front one are tinted. 0 keeps them the same."
           },
           "kind": "number",
           "swift_owner": {
@@ -872,7 +1285,7 @@
           },
           "help": {
             "key": "settings.appearance.wallpaperTint.help",
-            "text": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
+            "text": "The glass takes the colors of your desktop picture."
           },
           "kind": "toggle",
           "swift_owner": "WallpaperTintSetting",
@@ -1107,7 +1520,7 @@
           },
           "help": {
             "key": "settings.appearance.uiScale.help",
-            "text": "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."
+            "text": "Zoom for chat, Settings and other app pages."
           },
           "kind": "number",
           "swift_owner": "UIScaleSetting",
@@ -1138,13 +1551,13 @@
           },
           "help": {
             "key": "settings.appearance.textSize.help",
-            "text": "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."
+            "text": "Text size of the sidebar, tabs, menus and chat. Terminals have their own size."
           },
           "kind": "number",
           "swift_owner": "InterfaceSizeSetting",
           "range": {
             "min": 10,
-            "max": 16,
+            "max": 20,
             "step": 1,
             "unit": "points",
             "placeholder": 12
@@ -1160,7 +1573,74 @@
             "size",
             "density",
             "interface size",
-            "chromeFontSize"
+            "chromeFontSize",
+            "sidebar font size",
+            "menu",
+            "interface font",
+            "bigger",
+            "larger",
+            "readable",
+            "accessibility"
+          ]
+        },
+        {
+          "key": "appearance.fontSmoothing",
+          "note": "How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.",
+          "title": {
+            "key": "settings.appearance.fontSmoothing",
+            "text": "Text Smoothing"
+          },
+          "help": {
+            "key": "settings.appearance.fontSmoothing.help",
+            "text": "How text draws. Some text changes after cmux restarts; terminals keep their own."
+          },
+          "kind": "choice",
+          "swift_owner": "FontSmoothingSetting",
+          "swift_enum": {
+            "name": "FontSmoothing",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.fontSmoothingAuto",
+                "text": "Auto"
+              }
+            },
+            {
+              "value": "antialiased",
+              "title": {
+                "key": "settings.choice.fontSmoothingThin",
+                "text": "Thin"
+              }
+            },
+            {
+              "value": "subpixel",
+              "title": {
+                "key": "settings.choice.fontSmoothingSmooth",
+                "text": "Smooth"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "AppleFontSmoothing",
+            "antialiased",
+            "antialiasing",
+            "auto",
+            "bold",
+            "crisp",
+            "font",
+            "rendering",
+            "smooth",
+            "smoothing",
+            "subpixel",
+            "system",
+            "text",
+            "thin",
+            "weight"
           ]
         },
         {
@@ -1455,6 +1935,32 @@
           ]
         },
         {
+          "key": "appearance.liquidGlass",
+          "note": "Web pages only: off sends data-glass=\"off\" with the web theme (WebTheme), and every web glass surface draws the solid look of Reduce Transparency (webviews ui/glass/glass.css). Scroll fades stay; native surfaces keep their material. Off by default: CMUX-653, Lawrence decided it at standup 2026-11-19.",
+          "title": {
+            "key": "settings.appearance.liquidGlass",
+            "text": "Liquid Glass"
+          },
+          "help": {
+            "key": "settings.appearance.liquidGlass.help",
+            "text": "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."
+          },
+          "kind": "toggle",
+          "swift_owner": "LiquidGlassSetting",
+          "default": false,
+          "keywords": [
+            "glass",
+            "liquid glass",
+            "blur",
+            "frost",
+            "translucent",
+            "transparency",
+            "solid",
+            "plain",
+            "material"
+          ]
+        },
+        {
           "key": "appearance.focusIndicator",
           "name": "focusIndicator",
           "title": {
@@ -1463,7 +1969,7 @@
           },
           "help": {
             "key": "settings.appearance.focusIndicator.help",
-            "text": "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."
+            "text": "How the focused pane stands out."
           },
           "summary": {
             "key": "settings.appearance.focusIndicator.summary",
@@ -1527,7 +2033,7 @@
           },
           "help": {
             "key": "settings.focus.inactiveTabStyle.help",
-            "text": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
+            "text": "How other panes' tabs look subtler when Focused Pane marks tabs."
           },
           "summary": {
             "key": "settings.focus.inactiveTabStyle.summary",
@@ -1642,7 +2148,7 @@
           },
           "help": {
             "key": "settings.appearance.chromeStyle.help",
-            "text": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."
+            "text": "Whether panes sit in one rounded card, and where lines are drawn."
           },
           "summary": {
             "key": "settings.appearance.chromeStyle.summary",
@@ -1688,7 +2194,7 @@
           },
           "help": {
             "key": "settings.appearance.titleAreaTone.help",
-            "text": "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."
+            "text": "The title bar, tab bar and sidebar in the content's color, or shaded apart."
           },
           "summary": {
             "key": "settings.appearance.titleAreaTone.summary",
@@ -1744,7 +2250,7 @@
           },
           "help": {
             "key": "settings.appearance.titleAreaContrast.help",
-            "text": "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."
+            "text": "How much darker the title bar, tab bar and sidebar are. 1 is the default."
           },
           "summary": {
             "key": "settings.appearance.titleAreaContrast.summary",
@@ -1773,6 +2279,192 @@
             "softer",
             "frame"
           ]
+        },
+        {
+          "key": "appearance.twoTone",
+          "note": "A toggle under any chrome style and any theme: the sidebar and the tab bar in tone A, the content panes (terminal, agent pane, New Tab page, Home) in tone B, the accent fitted to both. Off (the default), From Theme (auto) or a curated pairing; the colors and the pairing table are Rust (cmux-config theme_file::two_tone; the Swift TwoTone mirrors it, checked against the Rust fixture TwoToneTests has Rust write at test time). An explicit appearance.surfaces.<surface>.color wins. Leo 2026-11-19: the two-tone is just one of the toggles you can have; what would actually look good and not eyesore-ish.",
+          "title": {
+            "key": "settings.appearance.twoTone",
+            "text": "Two-Tone"
+          },
+          "help": {
+            "key": "settings.appearance.twoTone.help",
+            "text": "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme."
+          },
+          "summary": {
+            "key": "settings.appearance.twoTone.summary",
+            "text": "A second tone for the sidebar and tab bar"
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "TwoTone",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "TwoToneSetting",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.twoTone.auto",
+                "text": "From Theme"
+              },
+              "note": "Tone A from the theme's background and accent; the content keeps the theme's own."
+            },
+            {
+              "value": "inkSakura",
+              "title": {
+                "key": "settings.choice.twoTone.inkSakura",
+                "text": "Ink & Sakura"
+              }
+            },
+            {
+              "value": "charcoalRose",
+              "title": {
+                "key": "settings.choice.twoTone.charcoalRose",
+                "text": "Charcoal & Rose"
+              }
+            },
+            {
+              "value": "inkMagenta",
+              "title": {
+                "key": "settings.choice.twoTone.inkMagenta",
+                "text": "Ink Blue & Magenta"
+              }
+            },
+            {
+              "value": "creamForest",
+              "title": {
+                "key": "settings.choice.twoTone.creamForest",
+                "text": "Cream & Forest"
+              }
+            },
+            {
+              "value": "navySand",
+              "title": {
+                "key": "settings.choice.twoTone.navySand",
+                "text": "Navy & Sand"
+              }
+            },
+            {
+              "value": "boneOxblood",
+              "title": {
+                "key": "settings.choice.twoTone.boneOxblood",
+                "text": "Bone & Oxblood"
+              }
+            },
+            {
+              "value": "slateMatcha",
+              "title": {
+                "key": "settings.choice.twoTone.slateMatcha",
+                "text": "Slate & Matcha"
+              }
+            },
+            {
+              "value": "plumAmber",
+              "title": {
+                "key": "settings.choice.twoTone.plumAmber",
+                "text": "Plum & Amber"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "two tone",
+            "two-tone",
+            "duotone",
+            "tone",
+            "pairing",
+            "sidebar",
+            "tab bar",
+            "chrome",
+            "color",
+            "sakura",
+            "pink",
+            "magenta",
+            "forest",
+            "sand",
+            "oxblood",
+            "matcha",
+            "amber",
+            "palette"
+          ]
+        },
+        {
+          "key": "appearance.cornerFlush",
+          "note": "How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: \"lawrence wanted no goo by default\"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.",
+          "title": {
+            "key": "settings.appearance.cornerFlush",
+            "text": "Selected Tab Shape"
+          },
+          "help": {
+            "key": "settings.appearance.cornerFlush.help",
+            "text": "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+          },
+          "summary": {
+            "key": "settings.appearance.cornerFlush.summary",
+            "text": "Pill, flush or goo for the selected tab"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.cornerFlush.off",
+                "text": "Pill"
+              }
+            },
+            {
+              "value": "flush",
+              "title": {
+                "key": "settings.choice.cornerFlush.flush",
+                "text": "Flush"
+              }
+            },
+            {
+              "value": "flush-tight",
+              "swift_case": "tight",
+              "title": {
+                "key": "settings.choice.cornerFlush.tight",
+                "text": "Flush, Tight to the Sidebar"
+              }
+            },
+            {
+              "value": "flush-goo",
+              "swift_case": "goo",
+              "title": {
+                "key": "settings.choice.cornerFlush.goo",
+                "text": "Goo"
+              }
+            }
+          ],
+          "default": "flush",
+          "keywords": [
+            "corner",
+            "flush",
+            "goo",
+            "gooey",
+            "folder tab",
+            "fillet",
+            "pill",
+            "selected tab",
+            "tab shape",
+            "card",
+            "material"
+          ],
+          "swift_enum": {
+            "name": "CornerFlush",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "CornerFlushSetting"
         }
       ]
     },
@@ -1792,7 +2484,7 @@
           },
           "help": {
             "key": "settings.ui.paneAnimations.help",
-            "text": "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once."
+            "text": "Splits, closes, moves, zooms and column scrolls slide into place."
           },
           "kind": "toggle",
           "swift_owner": "PaneAnimationsSetting",
@@ -1874,7 +2566,7 @@
           },
           "help": {
             "key": "settings.layout.paneSeparation.help",
-            "text": "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."
+            "text": "How panes are told apart."
           },
           "summary": {
             "key": "settings.layout.paneSeparation.summary",
@@ -1971,7 +2663,7 @@
           },
           "help": {
             "key": "settings.layout.paneCornerRadius.help",
-            "text": "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding."
+            "text": "One radius for panes, tabs, panels, popovers and cards."
           },
           "kind": "number",
           "swift_owner": {

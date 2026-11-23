@@ -39,7 +39,7 @@ struct NativeNewTabSpareTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"tabs":{"nativeNewTabPage":true}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings
@@ -98,7 +98,7 @@ struct NativeNewTabSpareTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"tabs":{"nativeNewTabPage":true}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings
@@ -157,7 +157,7 @@ struct NativeNewTabSpareTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"tabs":{"nativeNewTabPage":true}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings
@@ -193,15 +193,22 @@ struct NativeNewTabSpareTests {
             #expect(!seen.contains(ObjectIdentifier(model)), "the second Cmd-T found the first page's model")
             seen.append(ObjectIdentifier(model))
             @MainActor func readCount() -> Int { BenchSpans.spans.filter { $0.name == "newTab.paletteActions" }.count }
-            // A keystroke before the list came reads nothing in its turn.
+            // The second page shows with the first one's list: it is kept while the focus's context and the registry hold.
+            let shownWithList = !model.page.omnibar.actions.isEmpty
+            // A keystroke reads nothing in its turn.
             let before = readCount()
             model.text = "t"
             #expect(readCount() == before, "a keystroke read the palette's actions in its turn (adopted spare: \(adopted))")
             for _ in 0..<2000 where model.page.omnibar.actions.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
             #expect(!model.page.omnibar.actions.isEmpty, "the native page never got the palette's actions (adopted spare: \(adopted))")
             let reads = BenchSpans.end().filter { $0.name == "newTab.paletteActions" }
-            // A listing takes one task to start and one to arrange; the reads between them are the slices.
-            #expect(reads.count >= 4, "the native page read every palette action in one task (\(reads.map(\.milliseconds)) ms, adopted spare: \(adopted))")
+            if adopted {
+                // The first page: no list is kept yet. A listing takes one task to start and one to arrange; the reads
+                // between them are the slices.
+                #expect(reads.count >= 4, "the native page read every palette action in one task (\(reads.map(\.milliseconds)) ms)")
+            } else {
+                #expect(shownWithList, "the second page showed without the palette's actions (\(reads.count) lister tasks to its list)")
+            }
         }
     }
 }

@@ -44,6 +44,10 @@ public final class SidebarModel {
         }
     }
     @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
+    /// The settled chats of `contentRevision` (`settledChats()`): one Rust call per change of the rows, not per layout.
+    @ObservationIgnored var settleCache: (revision: UInt64, settled: Set<WorkspaceID>)?
+    /// The automatic sessions of `contentRevision` (`automaticSessions()`): one Rust call per change of the rows.
+    @ObservationIgnored var automaticCache: (revision: UInt64, automatic: Set<WorkspaceID>)?
     /// The latest document projection before user customization. Keeping this
     /// source lets a live settings reload restore sections or rows that were
     /// hidden by the previous value.
@@ -52,6 +56,9 @@ public final class SidebarModel {
     // when a structural/configuration change already needs a projection.
     @ObservationIgnored private var sourceRowPatches: [WorkspaceID: SidebarWorkspace] = [:]
     @ObservationIgnored private var isReprojecting = false
+    /// The last projection showed the selected workspace only because it is selected: the settings hide it or its
+    /// section (`SidebarCustomizationPlanner.Projection.selectionSpared`).
+    @ObservationIgnored private var selectionSpared = false
     /// Moves on every write of the rows: a structural set, a fold, and a row patch (`patchWorkspaces`), which
     /// `sectionsRevision` does not count. A reader that saves what the rows show (the sidebar snapshot) compares it
     /// instead of every row.
@@ -185,10 +192,9 @@ public final class SidebarModel {
             if case let .workspace(id)? = selectedItem { expandSections(hiding: id) }
             // A selected row is always visible, even when a settings reload
             // hides its workspace or section. Reproject the current document
-            // in the same turn as selection changes.
-            if !sectionCustomization.hiddenSections.isEmpty || sectionCustomization.workspaces.values.contains(where: \.hidden) {
-                reprojectSections()
-            }
+            // in the same turn as selection changes, when the change shows or
+            // hides a row: never on a click between shown rows.
+            if selectionReprojects(to: selectedItem) { reprojectSections() }
         }
     }
     /// The workspace shown in the window: the selection when it is a workspace.
@@ -252,8 +258,6 @@ public final class SidebarModel {
     public var rowBadgeStyle: SidebarRowBadgeStyle?
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
-    /// Minimal mode (`sidebar.minimal`): rows draw only icon, name and marks.
-    public var minimal = false
     /// `sidebar.style`: the standard sidebar or the thin rail (plans/cmux-next/minimal-sidebar.md).
     public var style: SidebarLayoutStyle = .standard
     /// The rail's full sidebar is open over the content (`SidebarRailPeek`); window view state.
@@ -262,12 +266,17 @@ public final class SidebarModel {
     /// rested on the window's sidebar edge). Window view state, never saved: the content keeps
     /// its place (``contentInset`` stays 0), and showing the sidebar ends it.
     public var isFloating = false
-    /// Expanded rows (`sidebar.density`), unless minimal.
+    /// Expanded rows (`sidebar.density`).
     public var expanded = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// Seen, finished agent chats fold behind a "Settled (N)" row (`sidebar.settleFinished`, off by default).
+    public var settlesFinished = false
+    /// Sessions no person started and no chat's subagent draw in place (`sidebar.showAutomaticSessions`, off by
+    /// default: they fold behind an "Automatic (N)" row).
+    public var showsAutomaticSessions = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
     public var showsColors = true
     public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
@@ -525,7 +534,9 @@ public final class SidebarModel {
         SidebarPerfCounters.add(.rowsWalked, new.reduce(0) { $0 + $1.nodes.count })
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let projected = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
-        let shown = SidebarCustomizationPlanner.apply(projected, customization: sectionCustomization, selected: activeWorkspaceID)
+        let projection = SidebarCustomizationPlanner.apply(projected, customization: sectionCustomization, selected: activeWorkspaceID)
+        let shown = projection.sections
+        selectionSpared = projection.selectionSpared
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
         arrangedSectionIDs = docDrag?.document?.shown?.layout.sections.map(\.id) ?? []
@@ -672,6 +683,17 @@ public final class SidebarModel {
     /// (built once per structural set), never a walk of every row.
     public func lists(_ id: WorkspaceID) -> Bool { !listedPaths(of: id).isEmpty }
 
+    /// Whether selecting `item` changes what the customization shows: the old selection was shown only because it was
+    /// selected, or the new one is a workspace the settings hide (its own rule, or a hidden section's row, which this
+    /// window does not list). O(1): a click between shown rows costs the same at 50 workspaces and 5,000, where it
+    /// used to send the whole sidebar through the planner whenever any hide rule was set.
+    private func selectionReprojects(to item: SidebarItem?) -> Bool {
+        if selectionSpared { return true }
+        guard case let .workspace(id)? = item else { return false }
+        if sectionCustomization.workspaces[id.rawValue]?.hidden == true { return true }
+        return !sectionCustomization.hiddenSections.isEmpty && !lists(id)
+    }
+
     /// Whether `id` sits in a collapsed group: the list draws its row only while it is active or revealed.
     func isInCollapsedGroup(_ id: WorkspaceID) -> Bool { collapsedGroup(of: id) != nil }
     func collapsedGroup(of id: WorkspaceID) -> GroupID? {
@@ -699,6 +721,16 @@ public final class SidebarModel {
         guard !sectionIDs.isEmpty else { return }
         collapsedSections.subtract(sectionIDs)
         setDisplayedSections(Self.folding(sections, collapsedSections))
+    }
+
+    /// A membership test for each list that lists `id` (a section's loose rows, or one group's members), O(1) per
+    /// test through `rowIndex`: the session tree nests a row only under parents in the same list
+    /// (`SidebarLayout.treeChildren`), and a workspace may be listed in more than one.
+    func listsHolding(_ id: WorkspaceID) -> [(WorkspaceID) -> Bool] {
+        func key(_ path: SidebarRowIndex.Path) -> [Int] { [path.section, path.member == nil ? -1 : path.node] }
+        return Set(listedPaths(of: id).map(key)).map { list in
+            { [weak self] other in self?.listedPaths(of: other).contains { key($0) == list } ?? false }
+        }
     }
 
     func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
@@ -748,9 +780,11 @@ public final class SidebarModel {
     /// The `sidebar.*` settings that shape the workspace list.
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
         workspaceRow = preferences.workspaceRow
-        (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
+        expanded = preferences.density == .expanded
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
+        settlesFinished = preferences.settleFinished
+        showsAutomaticSessions = preferences.showAutomaticSessions
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
@@ -770,7 +804,7 @@ public final class SidebarModel {
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }
         o.revealedWorkspaces = revealedMembers
         o.workspaceRow = workspaceRow
-        (o.minimal, o.expanded) = (minimal, expanded)
+        o.expanded = expanded
         o.detailedStatus = detailedStatus
         o.showsTimestamps = showsTimestamps
         (o.showsColors, o.colorIndicator) = (showsColors, colorIndicator)
@@ -783,6 +817,7 @@ public final class SidebarModel {
             }
         }
         let listed = sections.compactMap(\.machine)
+        o.cloudMachines = Set(listed.filter { $0.kind == .cloud }.map(\.id))
         if Set(listed.map(\.id)).count > 1 {
             o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
@@ -802,6 +837,8 @@ public final class SidebarModel {
         if grouping.groupsByRecents && o.rowLimit == 0 { o.rowLimit = SidebarLayout.projectLimit }
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         o.grouping = settledGrouping()
+        if settlesFinished { o.settled = settledChats() }
+        o.automatic = automaticSessions()
         return o
     }
 
