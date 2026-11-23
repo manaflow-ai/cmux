@@ -972,26 +972,12 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   behind data, a reader that stalls on one full channel); the phone keeps
   the link and says "Update cmux on this Mac".
   Added 2026-10-14: `"capabilities": [...]`, what the host does that a
-  phone may rely on. `removal-v1` (the Mac host of manaflow-ai/cmux#20414):
-  after its owner removes it (signaling 4002 `removed`) the host stays off
-  until the person allows iPhone connections again on the Mac, so the
-  phone's removal copy can say so. Absent (older hosts): the Mac may add
-  itself back.
-  `file-preview-v1`: `file-preview` sends a size metadata frame before file bytes,
-  allowing a phone to check available storage without a separate stat/open race.
-  `browser-stream-v1`: the host streams browser tabs (`browser`); the Mac
-  build bundles a browser host (Release builds ship none yet). A host that
-  says `removal-v1` without it refuses `browser` with `no_browser_host`, and
-  the phone hides New Browser Tab for that Mac.
-  `browser-video-track-v1`: the host honors `browser {"video":"track"}`
-  (the media lane above), on WebRTC and, since 2026-10-14, on WireGuard.
-  `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
-  (`surface`, below).
-  `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
-  `cloud-directory-v1` and `cloud-acpmux-v1` (2026-11-01): the host can list
-  and drive authenticated owner Cloud machines through the Mac carrier.
-  `cloud-desktop-v1` (2026-11-02): `surface` also streams an owned Cloud
-  machine's desktop, view only, on the key `c~<machine_id>~<team_id>` (below).
+  phone may rely on, each named in "Capabilities" below. `removal-v1` came
+  with the Mac host of manaflow-ai/cmux#20414, so the phone's removal copy
+  can say the Mac stays off. `browser-stream-v1` needs a browser host in the
+  Mac build (Release builds ship none yet); a host that says `removal-v1`
+  without it refuses `browser` with `no_browser_host`, and the phone hides
+  New Browser Tab for that Mac.
 - `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
   string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
   then `[::1]`. Data frames are the connection's bytes in each direction;
@@ -1052,6 +1038,35 @@ refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or
 `unavailable`. When the link itself drops, local channels see
 `link_closed`.
 
+### Capabilities
+
+Every capability name the link speaks: what hostd lists in `version`, and the
+cmux-tui daemon's names hostd itself declares or checks. Printed from
+`rust/crates/cmux-mobile-link/src/names.rs`; edit it there, not here.
+
+<!-- link-names:capabilities:begin (printed from cmux-mobile-link src/names.rs; CMUX_UPDATE_LINK_NAMES=1 cargo test -p cmux-mobile-link names rewrites it) -->
+| Name | Said by | Meaning |
+|---|---|---|
+| `removal-v1` | hostd `version` | After its owner removes it (signaling 4002 `removed`) the Mac stays off until iPhone connections are allowed again on the Mac; without it the Mac may add itself back. |
+| `file-preview-v1` | hostd `version` | `file-preview` sends a size metadata frame before the file bytes, so the phone can check free storage first. |
+| `localhost-forward-v1` | hostd `version` | (2026-10-30) The host serves `localhost`: a phone browser tab reaches a port on the Mac's loopback. |
+| `cloud-directory-v1` | hostd `version` | (2026-11-01) The host lists the owner's authenticated Cloud machines through the Mac carrier (`cloud-directory`). |
+| `cloud-acpmux-v1` | hostd `version` | (2026-11-01) The host drives an owned Cloud machine's agents through the Mac carrier (`cloud-acpmux`). |
+| `needs-you-v1` | hostd `version` | The host serves `needs-you`: the Mac app's own open Feed requests. |
+| `appearance-v1` | hostd `version` | (2026-11-12) The host serves `appearance` and `appearance-wallpaper`: the Mac's theme and wallpaper. |
+| `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
+| `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
+| `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
+| `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
+| `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
+| `cloud-desktop-v1` | hostd `version` | (2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`. |
+| `cloud-mobile-chat-v1` | cmux-tui daemon | On a `cloud-acpmux` carrier hostd requires the Cloud daemon's `identify` to list it before declaring it (phone prompt restrictions). |
+| `conversation-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: conversation tabs read as `conversation` with their record, not `browser`. |
+| `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
+| `agent-session-tabs-v1` | cmux-tui daemon | Declared in `set-client-info` on a `cloud-acpmux` carrier: agent session tabs read with their session source. |
+| `send-expect-agent-v1` | cmux-tui daemon | In `identify`: a notification reply to an agent types text and Return only while that agent waits at its prompt (#24205). |
+<!-- link-names:capabilities:end -->
+
 ## Pairing (`auth` service and the Mac app's control lines)
 
 The `auth` handshake is in `verify/phone-approvals.md` ("Pairing on every
@@ -1087,6 +1102,13 @@ tag's dev iPhone app in a DEBUG tagged dev build (`dev.cmux.mobile.<tag>`) and
 to keep another build's dev iPhone app from prompting (SECURITY.md "Dev
 auto-approve"). An older phone sends none, an older hostd forwards none, and
 the app then asks as before.
+
+`auth` args may also carry `appBuild` (added 2026-11-22; the phone app's
+CFBundleVersion, 1 to 32 ASCII letters, digits, `.` and `-`). hostd keeps the
+phone's `bundleId` and `appBuild` in memory per device and logs one `phone app`
+line at each `auth` open (device, variant `appstore`/`testflight`/`dev`/`other`/
+`unknown`, bundle, build, link path). It refuses nothing on them; an older phone
+sends none.
 
 ### Mac identity (trust on first use)
 
