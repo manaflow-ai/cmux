@@ -259,7 +259,12 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
             const form = document.querySelector("form.acpmux-composer");
             const cls = el && typeof el.className === "string" ? el.className.split(/\\s+/).filter(Boolean).slice(0, 2) : [];
             const label = el ? [el.tagName.toLowerCase(), ...cls].join(".") : String(this.nodeName);
-            return { inside: !!(form && el && form.contains(el)), detached: !this.isConnected, label };
+            const inside = !!(form && el && form.contains(el));
+            // Outside the composer, name the ancestors too: a bare "span" says nothing.
+            const up = [];
+            for (let at = el && el.parentElement; !inside && at && up.length < 4; at = at.parentElement)
+              up.push(at.tagName.toLowerCase() + (typeof at.className === "string" && at.className ? "." + at.className.split(" ")[0] : ""));
+            return { inside, detached: !this.isConnected, label: up.length ? label + " < " + up.join(" < ") : label };
           }`,
         })) as { result: { value: { inside: boolean; detached: boolean; label: string } } };
         // A node the edit added and then replaced in the same window (ProseMirror swaps a text node on
