@@ -27,7 +27,7 @@ nonisolated extension ChromiumHelperProcess {
     @concurrent
     public static func waitForExit(_ pid: Int32, limit: Duration) async -> Bool {
         let (events, continuation) = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingOldest(1))
-        // A process source: the only exit signal for a helper this app did not fork itself (Chromium does).
+        // A process source: Chromium forks and reaps its helpers, so this app has no wait of its own on them.
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .global(qos: .utility))
         source.setEventHandler { continuation.yield(true) }
         source.resume()
