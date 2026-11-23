@@ -249,6 +249,28 @@ fn visible_below<'a>(
     Err("cyclic mount ancestry".into())
 }
 
+/// Whether `path`, read in `mount`, is hidden by a mount visible below `mount` at `path` or one
+/// of its ancestors: a lookup of `path` crosses into that mount, so `mount`'s files there are
+/// out of reach. systemd's `PrivateTmp=yes` binds `/tmp/systemd-private-*/tmp` over `/tmp`; the
+/// root mount still holds that folder at its own `/tmp/systemd-private-*/tmp`, which the private
+/// `/tmp` covers (this check read it as a second view of every tree under `/tmp`). A
+/// covering mount that shows the tree again is its own pair, checked as `other` in turn.
+fn covered_below(path: &Path, mount: &MountEntry, mounts: &[MountEntry]) -> Result<bool, String> {
+    for cover in mounts {
+        if cover.id == mount.id
+            || cover.point == mount.point
+            || !cover.point.starts_with(&mount.point)
+            || !path.starts_with(&cover.point)
+        {
+            continue;
+        }
+        if visible_below(cover, mount.id, mounts)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// A tree is (canonical path, resolved containing mount ID, writable).
 /// Every visible descendant filesystem is a separate piece. All comparisons
 /// consume finite trees, pieces and mount entries. Unknown topology refuses.
@@ -325,6 +347,11 @@ fn home_views_listed(
         let Ok(rest) = underlying.strip_prefix(other_root) else { continue };
         let view = join_path(&mount.point, rest);
         if view.starts_with(home) || home.starts_with(&view) {
+            continue;
+        }
+        // A view a mount below covers (systemd's PrivateTmp under `/tmp`) is out of reach, and
+        // the plan could not make its folders: no view.
+        if covered_below(&view, mount, &mounts)? {
             continue;
         }
         path_arg(&view)?;
@@ -495,6 +522,7 @@ fn check_trees(
                 // at the view the session did not name).
                 if source != alternate
                     && !masked_by_rebuild(&source, mount.id, &alternate, other.id, rebuilt)
+                    && !covered_below(&alternate, other, &mounts)?
                 {
                     reasons.insert(format!(
                         "{} is also visible at {}",

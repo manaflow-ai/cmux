@@ -141,6 +141,13 @@
     },
     {
       "agent": "settable",
+      "why": "Cmd-Q's warning against an accidental quit; a quit keeps every session either way.",
+      "keys": [
+        "app.warnBeforeQuitShortcut"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "The language cmux's own text is in; ends no work.",
       "keys": [
         "app.language"
@@ -271,7 +278,9 @@
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
         "appearance.backgroundLocation",
-        "appearance.backgroundMemory"
+        "appearance.backgroundMemory",
+        "appearance.backgroundPlacement",
+        "appearance.backgroundRecents"
       ]
     },
     {
@@ -1630,6 +1639,13 @@
       "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.",
       "keys": [
         "macScreen.systemShortcuts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "It decides whether an agent may start viewing the person's own screens without their click; an agent never loosens it.",
+      "keys": [
+        "macScreen.onlyPersonStartsViewing"
       ]
     },
     {

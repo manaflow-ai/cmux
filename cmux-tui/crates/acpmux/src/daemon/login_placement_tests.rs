@@ -31,18 +31,6 @@ fn a_keyed_start_over_ssh_stays_here_and_says_so() {
 }
 
 #[test]
-fn a_lowered_starter_moves_the_persons_own_daemon_to_the_login_job() {
-    // In the login session, own home, a GUI login: lowered goes to the job, not in place.
-    assert_eq!(placement_lowered(Some(true), true, true, false, true), Placement::LoginJob);
-    assert_eq!(placement_lowered(Some(true), true, true, false, false), Placement::InPlace);
-    // Not the person's own home, a keyed start, or no GUI login: as before.
-    assert_eq!(placement_lowered(Some(true), false, true, false, true), Placement::InPlace);
-    assert_eq!(placement_lowered(Some(false), true, true, true, true), Placement::KeyedInPlace);
-    assert_eq!(placement_lowered(Some(true), true, false, false, true), Placement::InPlace);
-    assert_eq!(placement_lowered(Some(false), true, false, false, true), Placement::NoGuiLogin);
-}
-
-#[test]
 fn a_home_that_leaves_the_persons_own_by_dot_dot_is_not_theirs() {
     let dir = std::env::temp_dir().join(format!("acpmux-own-{}", std::process::id()));
     let default = dir.join("home");

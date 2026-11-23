@@ -6,10 +6,8 @@ fn shown(args: Value) -> Value {
 
 #[test]
 fn a_recap_with_an_ask_and_two_answers_is_shown() {
-    let (got, notes) = check(
-        &json!({"recap": " Done. ", "ask": "Open a PR?", "actions": ["Yes, open PR", "Not now"]}),
-    )
-    .unwrap();
+    let (got, notes) = check(&json!({"recap": " Done. ", "ask": "Open a PR?", "actions": ["Yes, open PR", "Not now"]}))
+        .unwrap();
     assert_eq!(
         got,
         json!({"recap": "Done.", "ask": "Open a PR?", "actions": ["Yes, open PR", "Not now"]})
@@ -112,6 +110,27 @@ fn the_schema_says_every_bound_and_enforces_none() {
     }
     let at = "x".repeat(RECAP_CEILING);
     assert_eq!(shown(json!({"recap": at}))["recap"], at);
+}
+
+/// cmuxterm-hq#18786: the refused call of 2026-11-21T15:24Z sent `summary`, not `recap`.
+#[test]
+fn summary_and_other_aliases_are_taken_as_their_field_and_said_so() {
+    let summary = "The scheduler grant works end to end. In smoke run 44913484985, both Mac jobs ran on cmux18 under per-run labels the scheduler granted.";
+    let result = call(&json!({"summary": summary}));
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["recap"], summary);
+    assert!(result["structuredContent"].get("trimmed").is_none());
+    let text = result["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("summary taken as recap"), "{text}");
+    assert_eq!(
+        shown(
+            json!({"message": "Done.", "question": "Open a PR?", "options": ["Yes", "No"], "lessons": ["Use pnpm."]})
+        ),
+        json!({"recap": "Done.", "ask": "Open a PR?", "actions": ["Yes", "No"], "learned": ["Use pnpm."]})
+    );
+    // The field itself wins over an alias sent beside it.
+    assert_eq!(shown(json!({"recap": "Done.", "summary": "Other."}))["recap"], "Done.");
+    assert!(check(&json!({"summary": "  "})).is_err());
 }
 
 #[test]

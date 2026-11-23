@@ -45,6 +45,25 @@ pub const SERVERS: [(&str, &str); 5] = [
     (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
 ];
 
+/// A server env key: `1` when the harness already has the server's instructions in its system
+/// prompt (a Claude Code chat acpmux starts, `agent_tools::AgentTools::instructions_in_prompt`).
+/// `initialize` then gives none, so the chat never reads them twice: Claude Code puts MCP
+/// instructions after its last cached system block, so each new chat wrote them to the prompt
+/// cache again, while the appended system prompt is the prefix every chat shares.
+pub const INSTRUCTIONS_IN_PROMPT_ENV: &str = "ACPMUX_MCP_INSTRUCTIONS_IN_PROMPT";
+
+/// The instructions server `name` of [`SERVERS`] gives at `initialize` with the env
+/// [`crate::tool_env`] reads (the acpmux server's depend on its tool allowlist), whatever
+/// [`INSTRUCTIONS_IN_PROMPT_ENV`] says. None for a server without any, or not one of these.
+pub(crate) fn instructions_of(name: &str) -> Option<String> {
+    match name {
+        crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::INSTRUCTIONS.to_owned()),
+        crate::subsession_mcp::SERVER_NAME => Some(crate::subsession_mcp::instructions()),
+        crate::acpmux_mcp_names::SERVER_NAME => crate::acpmux_mcp::env_instructions(),
+        _ => None,
+    }
+}
+
 /// Whether server `name` run as `args` is one of [`SERVERS`] as acpmux runs it: its own
 /// command word last.
 pub fn owns(name: &str, args: &[String]) -> bool {
@@ -162,6 +181,9 @@ where
 {
     let session =
         crate::tool_env::var(session_env).ok_or_else(|| anyhow!("{session_env} is not set"))?;
+    // Already in the harness's system prompt: said once ([`INSTRUCTIONS_IN_PROMPT_ENV`]).
+    let instructions = instructions
+        .filter(|_| crate::tool_env::var(INSTRUCTIONS_IN_PROMPT_ENV).as_deref() != Some("1"));
     let daemon = daemon.clone();
     let call = boxed(move |session, params| {
         let (daemon, call) = (daemon.clone(), call.clone());

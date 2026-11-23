@@ -7,13 +7,17 @@ fn a_row_round_trips_and_lists_with_no_member_twice() {
         "sessionId": "s1", "name": "hb/x", "status": "running", "peer": "hb",
         "stale": false, "peerState": "old", "tags": {"mux.parent": "p", "mux.handle": "h"},
         "title": "t".repeat(400), "tools": [{"name": "a"}], "toolsMutable": true,
+        "timeBreakdown": {"totalMs": 9, "spans": [{"turnId": "t1"}]},
         "updatedAt": 5, "createdAt": 3, "pendingPermissions": 2,
     });
     let row = PeerRow::new(&summary);
     assert_eq!(row.value(), summary);
     assert_eq!(row, PeerRow::new(&row.value()));
     assert_eq!(row.pair(), Some(("p".into(), "h".into())));
-    assert_eq!((row.updated_ms(), row.created_at(), row.pending_permissions()), (5, Some(3), 2));
+    assert_eq!(
+        (row.updated_ms(), row.created_at(), row.pending_permissions()),
+        (5, Some(3), 2)
+    );
     let listed: Value = serde_json::from_str(&row.listed(Some("connected"), false)).unwrap();
     let mut want = super::super::views::without_summary_tools(summary.clone());
     want.set("peerState", json!("connected"));

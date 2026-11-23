@@ -14,6 +14,36 @@ fn overlay_info(options: &str) -> String {
 const SECOND_HOME: &str =
     "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 /home/u /alias/u rw - ext4 root rw\n";
 
+/// systemd `PrivateTmp=yes` (a CI runner's unit): the private folder is bound over `/tmp`, so
+/// the root mount's copy of it at `/tmp/systemd-private-*/tmp` is covered, not a second view.
+#[test]
+fn regression_private_tmp_is_no_alias_of_a_tree_under_tmp() {
+    let private = "/tmp/systemd-private-39c3-runner.service-LCB624/tmp";
+    let info = format!("{ROOT}30 1 8:1 {private} /tmp rw - ext4 root rw\n");
+    let trees = [(Path::new("/tmp/fixture/spawn-tmp"), 30, true)];
+    assert_eq!(guarded_aliases(&trees, &info), Vec::<String>::new());
+    // Nor is the root mount's covered copy a second view of a HOME under /tmp to rebuild.
+    assert!(home_views(Path::new("/tmp/fixture/home"), 30, &info).unwrap().is_empty());
+    // The same folder bound somewhere uncovered is still a second view.
+    let exposed = format!("{info}31 1 8:1 {private} /mnt/tmp-again rw - ext4 root rw\n");
+    let reasons = guarded_aliases(&trees, &exposed);
+    assert!(
+        reasons.contains(
+            &"/tmp/fixture/spawn-tmp is also visible at /mnt/tmp-again/fixture/spawn-tmp"
+                .into()
+        ),
+        "{reasons:?}"
+    );
+    // A second mount of the whole root at /srv shows the private folder with nothing over it.
+    let beside = format!("{info}32 1 8:1 / /srv rw - ext4 root rw\n");
+    let reasons = guarded_aliases(&trees, &beside);
+    assert!(
+        reasons.iter().any(|r| r
+            .starts_with("/tmp/fixture/spawn-tmp is also visible at /srv/tmp/systemd-private")),
+        "{reasons:?}"
+    );
+}
+
 #[test]
 fn regression_home_alias_refuses_without_a_rebuilt_view() {
     let trees = [
@@ -87,7 +117,10 @@ fn rebuilt_home_view_accepts_only_aliases_inside_it() {
     // A second alias the plan has no view for still refuses.
     let twice = format!("{SECOND_HOME}58 1 8:1 /home/u/.ssh /mnt/ssh rw - ext4 root rw\n");
     let reasons = check_rebuilt(&trees, &twice);
-    assert!(reasons.contains(&"/home/u/.ssh is also visible at /mnt/ssh".into()), "{reasons:?}");
+    assert!(
+        reasons.contains(&"/home/u/.ssh is also visible at /mnt/ssh".into()),
+        "{reasons:?}"
+    );
     // A view computed for another mount does not vouch for this one.
     let reasons = guarded_aliases_viewed(
         &trees,
@@ -154,15 +187,20 @@ fn regression_overlay_plus_options_are_layers() {
 #[test]
 fn regression_unknown_overlay_layer_syntax_is_refused() {
     for option in ["fooodir=/secret", "fooodir+=/secret"] {
-        let reasons =
-            guarded_aliases_with(&[], &overlay_info(option), |p| Ok(p.to_path_buf()), |_| Ok(true));
+        let reasons = guarded_aliases_with(
+            &[],
+            &overlay_info(option),
+            |p| Ok(p.to_path_buf()),
+            |_| Ok(true),
+        );
         assert!(reasons.iter().any(|r| r.contains("unknown overlay")), "{reasons:?}");
     }
 }
 
 #[test]
 fn reachable_overlay_non_layer_options_are_accepted() {
-    let info = overlay_info("lowerdir=/var/lib/x,redirect_dir=on,index=on,metacopy=on,xino=auto");
+    let info =
+        overlay_info("lowerdir=/var/lib/x,redirect_dir=on,index=on,metacopy=on,xino=auto");
     let reasons = guarded_aliases_with(
         &[(Path::new("/home/u/.ssh"), 1, false)],
         &info,
@@ -393,43 +431,12 @@ fn missing_mount_ids_and_overlay_layer_access_fail_closed() {
 #[test]
 fn guarded_overlap_matrix() {
     for (tree, id, info, expected) in [
-        (
-            "/mnt/h",
-            2,
-            format!("{ROOT}2 1 8:1 /home/u /mnt/h rw - ext4 root rw\n"),
-            "/mnt/h is also visible at /home/u",
-        ),
-        (
-            "/home/u/work",
-            1,
-            format!("{ROOT}2 1 8:1 /home/u/work/cache /victim/.git/hooks rw - ext4 root rw\n"),
-            "/home/u/work/cache is also visible at /victim/.git/hooks",
-        ),
-        (
-            "/home/u/work",
-            1,
-            format!("{ROOT}2 1 8:1 /home/u/work /mnt/other rw - ext4 root rw\n"),
-            "/home/u/work is also visible at /mnt/other",
-        ),
-        (
-            "/home/u/work",
-            1,
-            format!("{ROOT}2 1 8:1 /home/u/work/a/b /mnt/x rw - ext4 root rw\n"),
-            "/home/u/work/a/b is also visible at /mnt/x",
-        ),
-        (
-            "/home/u/repo",
-            1,
-            "1 0 0:42 /@home /home rw - btrfs root rw\n2 0 0:42 / /mnt/top rw - btrfs root rw\n"
-                .into(),
-            "/home/u/repo is also visible at /mnt/top/@home/u/repo",
-        ),
-        (
-            "/home/u/.ssh",
-            1,
-            format!("{ROOT}2 1 8:1 /home /mnt/home rw - ext4 root rw\n"),
-            "/home/u/.ssh is also visible at /mnt/home/u/.ssh",
-        ),
+        ("/mnt/h", 2, format!("{ROOT}2 1 8:1 /home/u /mnt/h rw - ext4 root rw\n"), "/mnt/h is also visible at /home/u"),
+        ("/home/u/work", 1, format!("{ROOT}2 1 8:1 /home/u/work/cache /victim/.git/hooks rw - ext4 root rw\n"), "/home/u/work/cache is also visible at /victim/.git/hooks"),
+        ("/home/u/work", 1, format!("{ROOT}2 1 8:1 /home/u/work /mnt/other rw - ext4 root rw\n"), "/home/u/work is also visible at /mnt/other"),
+        ("/home/u/work", 1, format!("{ROOT}2 1 8:1 /home/u/work/a/b /mnt/x rw - ext4 root rw\n"), "/home/u/work/a/b is also visible at /mnt/x"),
+        ("/home/u/repo", 1, "1 0 0:42 /@home /home rw - btrfs root rw\n2 0 0:42 / /mnt/top rw - btrfs root rw\n".into(), "/home/u/repo is also visible at /mnt/top/@home/u/repo"),
+        ("/home/u/.ssh", 1, format!("{ROOT}2 1 8:1 /home /mnt/home rw - ext4 root rw\n"), "/home/u/.ssh is also visible at /mnt/home/u/.ssh"),
     ] {
         for writable in [false, true] {
             let reasons = guarded_aliases(&[(Path::new(tree), id, writable)], &info);
@@ -455,11 +462,6 @@ fn writable_nonlocal_filesystems_are_refused() {
 
 #[test]
 fn overlay_layers_decode_data_only_and_escaped_paths() {
-    assert_eq!(
-        overlay_layers(
-            r"lowerdir=/first\072colon::/second\040space:,upperdir=/upper\134slash,workdir=/work"
-        )
-        .unwrap(),
-        ["/first:colon", "/second space", r"/upper\slash", "/work"].map(PathBuf::from)
-    );
+    assert_eq!(overlay_layers(r"lowerdir=/first\072colon::/second\040space:,upperdir=/upper\134slash,workdir=/work").unwrap(),
+        ["/first:colon", "/second space", r"/upper\slash", "/work"].map(PathBuf::from));
 }
