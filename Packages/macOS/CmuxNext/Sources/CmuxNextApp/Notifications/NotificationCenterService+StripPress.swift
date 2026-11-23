@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTabs
 
@@ -21,8 +22,7 @@ extension NotificationCenterService {
         /// Where it went down (screen coordinates; a torn-off tab's mouse-up comes in another window).
         let screenLocation: NSPoint
         let pane: LayoutPaneID?; weak var content: WorkspaceContentController? // the pressed pane, gone into by a click: its ring blinks out (cmux#46908)
-        /// The pointer went past the tab drag distance at some point: a drag, even if it came back.
-        var dragged = false
+        var dragged = false // the pointer went past the tab drag distance at some point: a drag, even if it came back
     }
 
     /// A strip press began on `tab` at `screenLocation`. A press whose mouse-up a tracking loop took before this ran (the titlebar
