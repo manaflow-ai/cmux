@@ -1604,6 +1604,33 @@ final class ChannelLog: @unchecked Sendable {
         #expect(!daemon.recorded.contains { $0["cmd"] as? String == "resolve-terminal" })
     }
 
+    /// The capability is remembered from the last identify; a Mac that restarted an older daemon
+    /// ignores `terminal_id` and attaches the surface number alone, which may now name another
+    /// terminal. The phone reads the fresh identify in the same write, drops that attach and
+    /// resolves the terminal first, never showing the other terminal.
+    @Test func aDaemonThatDroppedAttachTerminalIDIsNotTrustedWithTheSurfaceHint() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.attachTerminalID = true
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "Mac app restarted an older daemon")
+        try await waitUntil { !session.isAttached }
+        // The older daemon: no capability; surface 7 is another terminal now, term_a is 15.
+        daemon.attachTerminalID = false
+        daemon.terminals = ["term_a": 15]
+        let firstAttachWrites = daemon.writes.count
+        session.reconnect()
+        try await waitUntil(attempts: 400) { daemon.recorded.contains { $0["cmd"] as? String == "resolve-terminal" } && session.surface == 15 }
+        let reattach = Array(daemon.writes[firstAttachWrites...])
+        #expect(reattach.first == ["set-client-info", "identify", "attach-surface"], "\(reattach)")
+        #expect(reattach.contains(["resolve-terminal"]), "\(reattach)")
+        // The attach on surface 7 (another terminal) was answered but never shown.
+        #expect(!session.isAttached)
+    }
+
     @Test func aDaemonWithoutAttachTerminalIDKeepsTheSerialReattach() async throws {
         let daemon = FakeTerminalDaemon()
         daemon.terminals = ["term_a": 7]

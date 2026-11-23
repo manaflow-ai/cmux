@@ -977,9 +977,12 @@ public final class DaemonTerminalSession: TerminalSession {
         defer { attaching = false }
         // A history fetch: the attach it replaces is live on this daemon.
         let replacement = replacing != nil
+        // This attempt's client: an error it throws after another client took over is not its to handle.
+        var attemptClient: DaemonClient?
         do {
             let client = try await open()
             guard handler != nil else { return }
+            attemptClient = client
             self.client = client
             await client.start()
             // A reattach (or a retry) first asks where the terminal is: a Mac
@@ -1106,6 +1109,10 @@ public final class DaemonTerminalSession: TerminalSession {
             }
             // A history fetch's attach rides in the setup write too (`quickSize`); a pipelined
             // reattach's rode in it as `plan` (the two never both: a fetch is not pipelined).
+            // A reply that lands after this attach was superseded (a link drop, a close)
+            // changes nothing: not the capabilities, the surface or the held events (they
+            // belong to whichever attach is current).
+            guard self.client === client else { return }
             let identify = try? setup.dropFirst().first?.get()
             lastIdentify = identify
             var quickReply: Data?
@@ -1132,9 +1139,16 @@ public final class DaemonTerminalSession: TerminalSession {
                 // The attach rode in the setup write. A refusal that names the terminal ends or
                 // retries the session as `resolve-terminal`'s answer would; anything else goes
                 // through the attach's usual handling below.
+                // The capability came from the earlier identify; a daemon that restarted older
+                // (or whose identify failed) may have ignored `terminal_id` and attached the
+                // surface number alone, which can now name another terminal. Its attach is not
+                // used: the retry takes the serial path, resolve-terminal first.
+                guard identify.map({ Self.lists(Self.attachTerminalIDCapability, $0) }) ?? false else {
+                    heldEvents = nil
+                    throw LinkError(code: "attach", message: "the daemon no longer lists attach-terminal-id-v1")
+                }
                 let data = try setup[2].get()
                 if let error = Self.error(in: data), let resolution = Self.resolvedAttachError(error), let terminalID {
-                    guard self.client === client else { heldEvents = nil; return }
                     heldEvents = nil
                     if try applyResolution(resolution, terminalID: terminalID) { return }
                 }
@@ -1213,6 +1227,7 @@ public final class DaemonTerminalSession: TerminalSession {
             } else {
                 reply = try await attachSurface(nil)
             }
+            guard self.client === client else { return }
             if let error = Self.error(in: reply) {
                 if pipelined, let terminalID, let resolution = Self.resolvedAttachError(error) {
                     heldEvents = nil
@@ -1228,7 +1243,6 @@ public final class DaemonTerminalSession: TerminalSession {
                 lineParser = DaemonTerminalEventParser(surface: moved)
                 throw LinkError(code: "attach", message: "the terminal moved to another surface")
             }
-            guard self.client === client else { heldEvents = nil; return }
             let (sizeState, participant) = Self.attachSizing(reply)
             sizing.apply(sizeState, selfParticipant: participant)
             noteHostGridOwner()
@@ -1307,6 +1321,7 @@ public final class DaemonTerminalSession: TerminalSession {
             armLiveness()
             scheduleHistoryPrefetch()
         } catch {
+            if let attemptClient, let current = self.client, current !== attemptClient { return }
             heldEvents = nil
             lastError = Self.diagnostic(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
