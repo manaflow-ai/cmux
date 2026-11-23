@@ -3705,7 +3705,7 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-next-fast-tier-cargo-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          shared-key: cmux-next-fast-tier-cargo-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (one key across pool hosts and Blacksmith)
           add-rust-environment-hash-key: false
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}

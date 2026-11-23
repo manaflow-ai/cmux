@@ -553,11 +553,15 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-acpmux-tests-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          shared-key: cmux-tui-acpmux-tests-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
-          # Keyed on the pinned toolchain and the lockfile, not on rust-cache's environment hash: that
+          # Not on Cargo.lock: rust-cache appends the lockfile hash to the key and, on a miss, restores the
+          # newest entry under the shared key. A lockfile hash in the shared key itself left no fallback, so
+          # every lockfile change built cold (batch 45277968169: "No cache found", 20 min for the bench
+          # step's build alone, the test step stopped at the 40-minute cap).
+          # Keyed on the pinned toolchain, not on rust-cache's environment hash: that
           # hashes every toolchain `rustup toolchain list` shows, and the pool hosts keep different
           # leftover ones (1.88, 1.98.1, 1.100 beside the pinned 1.95), so each host saved and looked
           # under its own key: 117 of 133 runs in 18-23Z on 2026-11-21 found no cache and built cold.

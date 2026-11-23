@@ -2142,8 +2142,9 @@ Above `fast-tier-cargo: Cache cargo build` in `.github/workflows/cmux-next.yml`.
 Only a feat-cmux-next push saves this build cache; a pull request reads the base
 branch's. (The pass record at the end of the job is a separate artifact.)
 
-The key is the pinned toolchain and lockfiles (`hashFiles` of `cmux-tui/rust-toolchain.toml`,
-`cmux-tui/Cargo.lock`, `.cargo/config.toml`), not rust-cache's environment hash, which also hashes every
+The key is the pinned toolchain (`hashFiles` of `cmux-tui/rust-toolchain.toml`, `.cargo/config.toml`;
+rust-cache adds the lockfile hash itself and, when it changed, restores the newest entry under this prefix),
+not rust-cache's environment hash, which also hashes every
 toolchain `rustup toolchain list` shows. The base push saves on Blacksmith (hash `b69e319b`). The owned
 Linux pool hosts each keep different leftover toolchains, so each computed its own hash (`db011040`,
 `fabb63b8`, `0422658f`, `d8989acf`), found no cache and compiled cold for 10-14 minutes. In 03:00-05:00Z

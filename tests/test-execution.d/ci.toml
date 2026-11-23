@@ -752,6 +752,11 @@ path = "tests/test_ci_rust_cache_runner_cargo_home.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_cache_shared_key_no_lockfile.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_rust_cache_shared_key_no_lockfile.py"
+
+[[test]]
 path = "tests/test_ci_rust_targets_installed_first.py"
 lane = "linux-guard"
 
