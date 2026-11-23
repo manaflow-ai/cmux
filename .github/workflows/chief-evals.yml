@@ -200,7 +200,7 @@ jobs:
             exit 0
           fi
           log="${RUNNER_TEMP:?}/chief-evals-ab.log"
-          "$client" run --class exclusive --measurement --label measure --script scripts/measure/chief-evals.sh \
+          "$client" run --class exclusive --measurement --os linux --label measure --script scripts/measure/chief-evals.sh \
             --ref "$AFTER" --arg "base_url=$BASE_URL" --arg "before=$BEFORE" --arg "after=$AFTER" \
             --timeout 5400 2>&1 | tee "$log"
           status=${PIPESTATUS[0]}

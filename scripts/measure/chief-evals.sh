@@ -15,7 +15,7 @@
 # the model route directly.
 #
 # Run alone on a worker:
-#   cmux-ci run --class exclusive --measurement --label measure \
+#   cmux-ci run --class exclusive --measurement --os linux --label measure \
 #     --script scripts/measure/chief-evals.sh --ref HARNESS_SHA \
 #     --arg=base_url=http://100.120.48.119:4016 --arg=before=BASE_SHA --arg=after=HEAD_SHA \
 #     [--arg=repeat=3] [--arg=only=links-] --timeout 5400
