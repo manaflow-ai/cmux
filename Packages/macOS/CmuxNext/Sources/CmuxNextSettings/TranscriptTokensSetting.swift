@@ -11,6 +11,7 @@
 /// drops a value it refuses. Here, the write check is the shape only, so the app never refuses a
 /// token a newer page knows.
 public nonisolated struct TranscriptTokensSetting: Sendable {
+    public nonisolated init() {}
     public static let configPath = AgentPaneDisplaySettingsSchema.transcriptTokensPath
 
     /// The most tokens one object holds; the table has fewer than 64.
