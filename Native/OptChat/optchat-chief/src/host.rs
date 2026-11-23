@@ -270,6 +270,13 @@ pub fn turn_preset(
         session_dir::TURN_TOOLS_ENV.to_owned(),
         session_dir::CHIEF_CMUX_TOOLS.join(","),
     );
+    // The cmux server reads the Chief's attached Cloud computer from its
+    // engine.json at each call: `cloud_computer`'s default machine (acpmux
+    // `agent_tools::CHIEF_ENGINE_ENV`, passed to the `cmux` server only).
+    env.insert(
+        session_dir::CHIEF_ENGINE_ENV.to_owned(),
+        crate::engine::path(home).display().to_string(),
+    );
     if family == Family::Codex {
         env.insert(
             CODEX_CACHE_KEY_ENV.to_owned(),
@@ -1684,6 +1691,15 @@ fn start(
             ControlRequest::StopAll => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopAll { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::Automations(request) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Automations { request, reply })
+                    .map_err(stopping)?;
                 answer
                     .recv_timeout(wait)
                     .map(|v| v.to_string())
