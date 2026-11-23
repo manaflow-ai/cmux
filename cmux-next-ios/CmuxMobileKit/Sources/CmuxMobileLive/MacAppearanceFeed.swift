@@ -21,7 +21,7 @@ public final class MacAppearanceFeed {
     public static let service = "appearance"
     public static let wallpaperService = "appearance-wallpaper"
     /// The largest picture taken (hostd serves at most this).
-    public static let maxWallpaperBytes = 8 << 20
+    public nonisolated static let maxWallpaperBytes = 8 << 20
 
     /// Brings a picture's bytes from one Mac.
     typealias Fetch = @MainActor (CmuxMobileMacAppearance.Wallpaper) async -> Data?
@@ -37,9 +37,17 @@ public final class MacAppearanceFeed {
     /// The picture fetch in flight, if any (tests await it); the next frame or focus cancels it.
     private(set) var pictureFetch: Task<Void, Never>?
 
+    /// The picture id ``pictureFetch`` brings: a frame naming the same one keeps that fetch.
+    private(set) var fetchingID: String?
+
     public init(theme: CmuxMobileMacTheme = .shared, terminalThemes: CmuxMobileTerminalThemes = .shared) {
         self.theme = theme
         self.terminalThemes = terminalThemes
+        // Match Mac theme turned back on: fetch the focused Mac's picture if this phone lacks it.
+        theme.pictureWanted = { [weak self] in
+            guard let self, let macID = self.focusedMacID, let appearance = self.latest[macID] else { return }
+            self.fetchPicture(of: appearance, macID: macID)
+        }
     }
 
     /// The focused Mac changed: its newest theme shows at once, and a chat picture not cached yet
@@ -68,25 +76,41 @@ public final class MacAppearanceFeed {
         fetchPicture(of: appearance, macID: macID)
     }
 
-    /// Fetches `appearance`'s chat picture when it is not cached, and hands it over if
+    /// Fetches `appearance`'s picture (the Mac's wallpaper; the chat shows it when its `chat` names it) when it is not cached, and hands it over if
     /// `appearance` is still `macID`'s newest and `macID` still the focused Mac.
     private func fetchPicture(of appearance: CmuxMobileMacAppearance, macID: String) {
+        let wanted = theme.needsChatWallpaper(appearance) ? appearance.wallpaper : nil
+        // A frame naming the picture already on its way (a color change, the same frame again)
+        // keeps that fetch: one download per content id.
+        if let wanted, wanted.id == fetchingID, pictureFetch != nil { return }
         pictureFetch?.cancel()
         pictureFetch = nil
-        guard theme.needsChatWallpaper(appearance), let wallpaper = appearance.chatWallpaper,
-              let fetch = fetchers[macID] else { return }
-        // task-owner: pictureFetch; one picture per frame or focus, cancelled by the next one.
+        fetchingID = nil
+        guard let wallpaper = wanted, let fetch = fetchers[macID] else { return }
+        fetchingID = wallpaper.id
+        // task-owner: pictureFetch; one per picture id, cancelled by a frame or focus that names another.
         pictureFetch = Task { [weak self] in
-            let bytes = await fetch(wallpaper).flatMap { Self.verified($0, wallpaper) }
-            // A newer frame or another Mac's focus came while the picture loaded: that one wins.
-            guard let self, let bytes, !Task.isCancelled, macID == self.focusedMacID,
-                  self.latest[macID] == appearance else { return }
-            self.theme.apply(appearance, chatWallpaper: bytes)
+            let data = await fetch(wallpaper)
+            // Up to 8 MB of SHA-256: never on the main actor.
+            var bytes: Data?
+            if let data {
+                bytes = await Task.detached(priority: .utility) { Self.verified(data, wallpaper) }.value
+            }
+            guard let self else { return }
+            if self.fetchingID == wallpaper.id {
+                self.fetchingID = nil
+                self.pictureFetch = nil
+            }
+            // Another Mac's focus, or a frame naming another picture, came meanwhile: that one wins.
+            // A newer frame naming this same picture (a color change) gets it.
+            guard let bytes, !Task.isCancelled, macID == self.focusedMacID,
+                  let newest = self.latest[macID], newest.wallpaper?.id == wallpaper.id else { return }
+            self.theme.apply(newest, chatWallpaper: bytes)
         }
     }
 
     /// `data` when it is the picture `wallpaper` names (its size and SHA-256).
-    static func verified(_ data: Data, _ wallpaper: CmuxMobileMacAppearance.Wallpaper) -> Data? {
+    nonisolated static func verified(_ data: Data, _ wallpaper: CmuxMobileMacAppearance.Wallpaper) -> Data? {
         guard data.count == wallpaper.bytes, data.count <= maxWallpaperBytes else { return nil }
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         return digest == wallpaper.id.lowercased() ? data : nil
@@ -136,6 +160,11 @@ public final class MacAppearanceFeed {
         data.reserveCapacity(wallpaper.bytes)
         do {
             while let chunk = try await channel.receive() {
+                // A newer frame or focus cancelled this picture: stop reading it now.
+                if Task.isCancelled {
+                    await channel.close(code: "eof", reason: "cancelled")
+                    return nil
+                }
                 data.append(chunk)
                 if data.count > wallpaper.bytes {
                     await channel.close(code: "eof", reason: "larger than announced")

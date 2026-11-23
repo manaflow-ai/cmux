@@ -112,8 +112,8 @@
     },
     {
       "path": "AttachSurfaceRequest.java",
-      "sha256": "6cf71de707488adc3923eaadef7c54fff9faea9f1ba123ab2ec0172ba3c4ee27",
-      "size": 13654
+      "sha256": "b37fbeb5b3560f81868dc392e6ceab4a0b992f8e6755430ea3f8ca196a9ccd5a",
+      "size": 15244
     },
     {
       "path": "AttachSurfaceRequestMode.java",
@@ -787,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "f2bd46ca6ebd7205b566670326eb3b8581d95b79b2d263b964ae3542c96778d0",
-      "size": 85713
+      "sha256": "ee114bf56689dd5dc90882142e816502400c5d70b8b5932cc553719cc91dbad5",
+      "size": 85817
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -1597,18 +1597,18 @@
     },
     {
       "path": "HomeInboxRequest.java",
-      "sha256": "a8f71b0a4c26dfa08d5b44c976e2cb6b18c7a9b08ffda8432ee8fb21abc18c7e",
-      "size": 2069
+      "sha256": "d540d1fdb6b92516b2c2968d55f8609b3ef90e5e7a27d84493f5fd072467e26f",
+      "size": 5201
     },
     {
       "path": "HomeInboxResult.java",
-      "sha256": "85f67b4537e3660defe636a33c972bf09c18fe8dc585df063a4bee19fce37b43",
-      "size": 3192
+      "sha256": "e2ecaae74a6db24c34f2ece0560a85c14f543464e793f1efe42b01bd594544d2",
+      "size": 7436
     },
     {
       "path": "HomeInboxRow.java",
-      "sha256": "d7b201401b9f46162021308155bb834d56a0e1955ef16dbde73944f82699ea00",
-      "size": 10404
+      "sha256": "e11d05175b5614144518ccbf00c8ecdc7753df4946f0e8c8dbd8db21d0d99f63",
+      "size": 10974
     },
     {
       "path": "HostSizeMode.java",
@@ -2257,7 +2257,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "b5d2fad46669625038cca7d14b0bd4d284afa40c6cc60f23ee7ba669292d9e42",
+      "sha256": "39467c4ce0a1e372acc41cb09b4f212631a1034f1933d21140584bd5d66f3ef5",
       "size": 8407
     },
     {
@@ -3797,7 +3797,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "c8378e5f487690ac232a71406501defb5b770b6a149bc400ae0bc410e13ea028",
+  "ir_sha256": "8e292e79c1396e841ad4d94548147fb425ee2a2a87152a5e2aee3b49642c63e4",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

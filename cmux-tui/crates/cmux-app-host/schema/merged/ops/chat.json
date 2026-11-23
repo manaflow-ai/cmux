@@ -4,7 +4,7 @@
     "chat.list": {
       "source": "local",
       "class": "read",
-      "digest": "0f536779a0b5637f"
+      "digest": "0c78601a2f90f0d7"
     },
     "chat.mark_read": {
       "source": "local",

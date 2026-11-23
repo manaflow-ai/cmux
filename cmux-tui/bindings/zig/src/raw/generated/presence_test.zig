@@ -58,6 +58,13 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.FeedLocalListRequest, "unread");
     try expectExplicitNullRejected(protocol.ForgetSessionRequest, "force");
     try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "full");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "offset");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "order");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "removed");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "revision");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "total");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "window");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "machine_metadata");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "restore_progress");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "revisions");
@@ -225,6 +232,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "chief");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "chief_state");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "index");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "last_author");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "pin_position");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "preview");

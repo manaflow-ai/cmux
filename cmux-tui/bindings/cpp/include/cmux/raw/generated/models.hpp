@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c8378e5f487690ac232a71406501defb5b770b6a149bc400ae0bc410e13ea028";
+inline constexpr std::string_view kProtocolIrSha256 = "8e292e79c1396e841ad4d94548147fb425ee2a2a87152a5e2aee3b49642c63e4";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -1005,6 +1005,8 @@ struct AttachSurfaceRequest {
     Field<std::uint32_t> output_coalesce_ms{};
     Field<std::uint32_t> replay_history_rows{};
     Field<std::uint64_t> replay_history_start{};
+    Field<std::string> resume_generation{};
+    Field<std::uint64_t> resume_offset{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
     std::optional<bool> snapshot_images{};
@@ -3431,7 +3433,12 @@ enum class HomeInboxKind {
 };
 
 struct HomeInboxRequest {
+    Field<std::vector<std::string>> ids{};
+    Field<std::uint64_t> limit{};
+    Field<std::uint64_t> offset{};
     Field<std::vector<std::string>> owners{};
+    Field<std::string> scope{};
+    Field<std::uint64_t> since{};
     friend bool operator==(const HomeInboxRequest&, const HomeInboxRequest&) = default;
 };
 
@@ -3440,6 +3447,7 @@ struct HomeInboxRow {
     std::optional<std::string> chief{};
     std::optional<HomeChiefState> chief_state{};
     std::string id{};
+    std::optional<std::uint64_t> index{};
     HomeInboxKind kind{};
     std::optional<std::string> last_author{};
     bool marked_unread{};
@@ -3455,8 +3463,15 @@ struct HomeInboxRow {
 
 struct HomeInboxResult {
     std::string cloud{};
+    std::optional<bool> full{};
     std::string me{};
+    std::optional<std::uint64_t> offset{};
+    std::optional<std::string> order{};
+    std::optional<std::vector<std::string>> removed{};
+    std::optional<std::uint64_t> revision{};
     std::vector<HomeInboxRow> rows{};
+    std::optional<std::uint64_t> total{};
+    std::optional<bool> window{};
     friend bool operator==(const HomeInboxResult&, const HomeInboxResult&) = default;
 };
 

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c8378e5f487690ac232a71406501defb5b770b6a149bc400ae0bc410e13ea028";
+pub const ir_sha256 = "8e292e79c1396e841ad4d94548147fb425ee2a2a87152a5e2aee3b49642c63e4";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1117,6 +1117,7 @@ pub const HomeInboxRow = struct {
     chief: ?[]const u8 = null,
     chief_state: ?HomeChiefState = null,
     id: []const u8,
+    index: ?u64 = null,
     kind: HomeInboxKind,
     last_author: ?[]const u8 = null,
     marked_unread: bool,
@@ -1131,6 +1132,7 @@ pub const HomeInboxRow = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "chief",
         "chief_state",
+        "index",
         "last_author",
         "pin_position",
         "preview",
@@ -3814,6 +3816,8 @@ pub const AttachSurfaceRequest = struct {
     output_coalesce_ms: wire.Field(u32) = .absent,
     replay_history_rows: wire.Field(u32) = .absent,
     replay_history_start: wire.Field(u64) = .absent,
+    resume_generation: wire.Field([]const u8) = .absent,
+    resume_offset: wire.Field(u64) = .absent,
     rows: wire.Field(u16) = .absent,
     snapshot: wire.Field([]const u8) = .absent,
     snapshot_images: ?bool = null,
@@ -3847,6 +3851,8 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "output_coalesce_ms", .since = null, .capability = "attach-output-coalesce-v1" },
                 .{ .name = "replay_history_rows", .since = null, .capability = "attach-replay-history-rows-v1" },
                 .{ .name = "replay_history_start", .since = null, .capability = "attach-replay-history-window-v1" },
+                .{ .name = "resume_generation", .since = null, .capability = "terminal-resume-v1" },
+                .{ .name = "resume_offset", .since = null, .capability = "terminal-resume-v1" },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
                 .{ .name = "snapshot", .since = null, .capability = "terminal-snapshot-v1" },
                 .{ .name = "snapshot_images", .since = null, .capability = "terminal-snapshot-images-v1" },
@@ -6887,13 +6893,35 @@ pub fn historySearch(client: anytype, request: HistorySearchRequest) !wire.Decod
 }
 
 pub const HomeInboxRequest = struct {
+    ids: wire.Field([]const []const u8) = .absent,
+    limit: wire.Field(u64) = .absent,
+    offset: wire.Field(u64) = .absent,
     owners: wire.Field([]const []const u8) = .absent,
+    scope: wire.Field([]const u8) = .absent,
+    since: wire.Field(u64) = .absent,
 };
 
 pub const HomeInboxResult = struct {
     cloud: []const u8,
+    full: ?bool = null,
     me: []const u8,
+    offset: ?u64 = null,
+    order: ?[]const u8 = null,
+    removed: ?[]const []const u8 = null,
+    revision: ?u64 = null,
     rows: []const HomeInboxRow,
+    total: ?u64 = null,
+    window: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "full",
+        "offset",
+        "order",
+        "removed",
+        "revision",
+        "total",
+        "window",
+    };
 };
 
 pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeInboxResult) {

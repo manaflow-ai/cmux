@@ -974,6 +974,7 @@ class HomeInboxRow:
     unread: int
     chief: Union[str, MissingType] = field(default=MISSING)
     chief_state: Union[HomeChiefState, MissingType] = field(default=MISSING)
+    index: Union[int, MissingType] = field(default=MISSING)
     last_author: Union[str, MissingType] = field(default=MISSING)
     pin_position: Union[int, MissingType] = field(default=MISSING)
     preview: Union[str, MissingType] = field(default=MISSING)
@@ -2599,6 +2600,8 @@ class AttachSurfaceRequest:
     output_coalesce_ms: Union[int, None, MissingType] = field(default=MISSING)
     replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
     replay_history_start: Union[int, None, MissingType] = field(default=MISSING)
+    resume_generation: Union[str, None, MissingType] = field(default=MISSING)
+    resume_offset: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
     snapshot_images: Union[bool, MissingType] = field(default=MISSING)
@@ -3961,7 +3964,12 @@ class HistorySearchResult:
 @dataclass(frozen=True)
 class HomeInboxRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/home-inbox/request'
+    ids: Union[List[str], None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
     owners: Union[List[str], None, MissingType] = field(default=MISSING)
+    scope: Union[str, None, MissingType] = field(default=MISSING)
+    since: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3970,6 +3978,13 @@ class HomeInboxResult:
     cloud: str
     me: str
     rows: List[HomeInboxRow]
+    full: Union[bool, MissingType] = field(default=MISSING)
+    offset: Union[int, MissingType] = field(default=MISSING)
+    order: Union[str, MissingType] = field(default=MISSING)
+    removed: Union[List[str], MissingType] = field(default=MISSING)
+    revision: Union[int, MissingType] = field(default=MISSING)
+    total: Union[int, MissingType] = field(default=MISSING)
+    window: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
