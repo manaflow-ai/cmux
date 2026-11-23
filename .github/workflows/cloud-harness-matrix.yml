@@ -91,8 +91,8 @@ jobs:
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/cloud-harness-matrix"
-          bun scripts/cmux-next/cloud-chat-matrix.ts --backend staging --cells "$CELLS" --out "$out"
-          code=$?
+          code=0
+          bun scripts/cmux-next/cloud-chat-matrix.ts --backend staging --cells "$CELLS" --out "$out" || code=$?
           cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no matrix written)" >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

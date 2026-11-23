@@ -25,7 +25,7 @@
  *   subscription  a Claude Pro/Max login, CLAUDE_CODE_OAUTH_TOKEN, sent with the agent's start as the app sends a Cloud model connection (cmux#40159)
  *   api-key       ANTHROPIC_API_KEY, put in Claude's settings on the machine (the chat card's API-key route)
  *   team-key      a key from the team's settings (CMUX_MATRIX_TEAM_KEY_TEAM names the team that has one)
- * A row whose credential is absent is SKIP with the reason, never a pass. Exit 0 only when no run cell failed.
+ * A row whose credential is absent is SKIP with the reason. An all-skipped run exits 2 (0 for --plan).
  * Secrets come from the environment or --credentials only and are never printed (the journey scrubs its output).
  */
 import { spawn } from "node:child_process";
@@ -41,7 +41,7 @@ export const CHATS = ["first", "followup", "resume", "parallel"] as const;
 export type Chat = (typeof CHATS)[number];
 export type CellStatus = "pass" | "fail" | "skip";
 export type Cell = { status: CellStatus; detail: string };
-export type Row = { auth: Auth; model: string; cells: Record<Chat, Cell>; replyMs?: number; createToReplyMs?: number; reply?: string };
+export type Row = { auth: Auth; model: string; cells: Record<Chat, Cell>; replyMs?: number; createToReplyMs?: number; reply?: string; journeyError?: string };
 
 const STEP: Record<Exclude<Chat, "parallel">, string> = { first: "reply", followup: "turn 2 (same session)", resume: "turn after resume" };
 
@@ -75,6 +75,8 @@ export function rowFromSteps(auth: Auth, model: string, steps: Step[], exitCode:
   const create = steps.findIndex((s) => s.step === "create machine");
   const reply = steps.findIndex((s) => s.step === "reply");
   const row: Row = { auth, model, cells };
+  if (firstFailed) row.journeyError = `${firstFailed.step}: ${firstFailed.detail.slice(0, 200)}`;
+  else if (exitCode !== 0) row.journeyError = `journey exit ${exitCode}`;
   if (reply >= 0 && steps[reply].status === "pass") {
     row.replyMs = steps[reply].ms;
     row.reply = steps[reply].detail.slice(0, 120);
@@ -93,10 +95,14 @@ export function parallelCell(rows: Row[]): Cell {
 const sec = (ms?: number) => (ms === undefined ? "" : `${(ms / 1000).toFixed(1)} s`);
 const mark = (c: Cell) => (c.status === "pass" ? "pass" : c.status === "fail" ? "**FAIL**" : "skip");
 
+export function matrixStatus(rows: Row[]): CellStatus {
+  if (rows.some((r) => r.journeyError || CHATS.some((c) => r.cells[c].status === "fail"))) return "fail";
+  return rows.some((r) => r.cells.first.status === "pass") ? "pass" : "skip";
+}
+
 export function matrixMarkdown(backend: string, rows: Row[]): string {
-  const failed = rows.some((r) => CHATS.some((c) => r.cells[c].status === "fail"));
   const lines = [
-    `${failed ? "FAIL" : "PASS"}: Cloud chat matrix, Claude, on \`${backend}\``,
+    `${matrixStatus(rows).toUpperCase()}: Cloud chat matrix, Claude, on \`${backend}\``,
     "",
     "| auth | model | first | follow-up | resume | parallel | reply (send→reply) | create→reply | reply read back |",
     "|---|---|---|---|---|---|---:|---:|---|",
@@ -104,7 +110,10 @@ export function matrixMarkdown(backend: string, rows: Row[]): string {
     "",
   ];
   const notes = rows.flatMap((r) => CHATS.filter((c) => r.cells[c].status !== "pass").map((c) => `- ${r.auth} ${r.model} ${c}: ${r.cells[c].status}: ${r.cells[c].detail.replace(/\n/g, " ")}`));
-  return [...lines, ...(notes.length ? ["Why each non-pass cell is what it is:", "", ...notes, ""] : [])].join("\n");
+  for (const row of rows) {
+    if (row.journeyError) notes.push(`- ${row.auth} ${row.model} journey: ${row.journeyError.replace(/\n/g, " ")}`);
+  }
+  return [...lines, ...(notes.length ? ["Journey and cell details:", "", ...notes, ""] : [])].join("\n");
 }
 
 function argValue(flag: string, argv: string[]): string | undefined {
@@ -180,11 +189,13 @@ async function main(argv: string[]): Promise<number> {
     }
     rows.push(...authRows);
   }
+  const status = matrixStatus(rows);
   const md = matrixMarkdown(backend, rows);
-  writeFileSync(path.join(out, "matrix.json"), `${JSON.stringify({ backend, at: new Date().toISOString(), rows }, null, 2)}\n`);
+  writeFileSync(path.join(out, "matrix.json"), `${JSON.stringify({ backend, at: new Date().toISOString(), status, rows }, null, 2)}\n`);
   writeFileSync(path.join(out, "matrix.md"), md);
   console.log(md);
-  return rows.some((r) => CHATS.some((c) => r.cells[c].status === "fail")) ? 1 : 0;
+  if (status === "fail") return 1;
+  return status === "skip" && !argv.includes("--plan") ? 2 : 0;
 }
 
 if (import.meta.main) process.exit(await main(process.argv.slice(2)));

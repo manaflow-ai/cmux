@@ -912,6 +912,20 @@ def grid(cells: list[dict]) -> str:
     return "\n".join(rows) + "\n"
 
 
+def matrix_result(cells: list[dict], machines_left: list, logins_left: list) -> tuple[str, int]:
+    failed = sum(not cell["result"].startswith(("pass", "skipped")) for cell in cells)
+    if failed or machines_left or logins_left:
+        reasons = [f"fail: {failed} cells"]
+        if machines_left:
+            reasons.append(f"{len(machines_left)} machines left")
+        if logins_left:
+            reasons.append(f"{len(logins_left)} cached claude logins not removed")
+        return ", ".join(reasons), 1
+    if any(cell["result"].startswith("pass") for cell in cells):
+        return "pass", 0
+    return "skipped: no workspace cell ran", 2
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
     out = Path(args.out)
@@ -983,11 +997,8 @@ def main(argv=None) -> int:
         report["machines_left"] = left
         logins_left = matrix.remove_logins()
         report["claude_logins_left"] = logins_left
-        failed = [cell for cell in report["cells"] if not cell["result"].startswith(("pass", "skipped"))]
-        report["result"] = "pass" if not failed and not left and not logins_left else f"fail: {len(failed)} cells" + (
-            f", {len(left)} machines left" if left else "") + (
-            f", {len(logins_left)} cached claude logins not removed" if logins_left else "")
-        return finish(report, out, 0 if report["result"] == "pass" else 1)
+        report["result"], code = matrix_result(report["cells"], left, logins_left)
+        return finish(report, out, code)
     finally:
         if not swept:
             matrix.sweep()  # a cancelled or crashed run still deletes the machines it made

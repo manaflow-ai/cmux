@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { authBlocker, matrixMarkdown, parallelCell, rowFromSteps } from "./cloud-claude-matrix.ts";
+import { authBlocker, matrixMarkdown, matrixStatus, parallelCell, rowFromSteps } from "./cloud-claude-matrix.ts";
 
 const step = (name: string, status: "pass" | "fail" | "skip", ms = 1000, detail = "ok") => ({ step: name, status, ms, detail });
 
@@ -46,6 +46,25 @@ describe("cloud chat matrix", () => {
     expect(authBlocker("subscription", { CLAUDE_CODE_OAUTH_TOKEN: "x" })).toBeNull();
     expect(authBlocker("api-key", {})).toContain("ANTHROPIC_API_KEY");
     expect(authBlocker("team-key", {})).toContain("CMUX_MATRIX_TEAM_KEY_TEAM");
+  });
+
+  test("skipped auth and empty selections do not prove a chat replied", () => {
+    const skipped = { status: "skip" as const, detail: "no login" };
+    const row = { auth: "subscription" as const, model: "sonnet", cells: { first: skipped, followup: skipped, resume: skipped, parallel: skipped } };
+    expect(matrixStatus([])).toBe("skip");
+    expect(matrixMarkdown("staging", [row]).startsWith("SKIP:")).toBe(true);
+  });
+
+  test("replies remain visible when cleanup or the journey process fails", () => {
+    const replies = ["reply", "turn 2 (same session)", "turn after resume"].map((name) => step(name, "pass"));
+    const green = rowFromSteps("sr2", "sonnet", replies, 0);
+    expect(matrixStatus([green])).toBe("pass");
+    const cleanup = rowFromSteps("sr2", "sonnet", [...replies, step("delete machine", "fail", 1, "timeout")], 1);
+    const interrupted = rowFromSteps("sr2", "sonnet", replies, 1);
+    expect(cleanup.cells.first.status).toBe("pass");
+    expect(matrixMarkdown("staging", [cleanup])).toContain("delete machine: timeout");
+    expect(matrixStatus([green, cleanup])).toBe("fail");
+    expect(matrixStatus([green, interrupted])).toBe("fail");
   });
 
   test("the table marks failures and explains non-pass cells", () => {

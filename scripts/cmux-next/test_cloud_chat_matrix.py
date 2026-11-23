@@ -131,6 +131,18 @@ class FixtureTests(unittest.TestCase):
         self.assertIn("LEAK", matrix.grid([cell]))
 
 
+class MatrixResultTests(unittest.TestCase):
+    def test_only_measured_cells_can_pass_and_cleanup_failures_take_precedence(self):
+        skipped = {"result": "skipped: fixture unavailable"}
+        passed = {"result": "pass"}
+        self.assertEqual(matrix.matrix_result([], [], [])[1], 2)
+        self.assertEqual(matrix.matrix_result([skipped], [], [])[1], 2)
+        self.assertEqual(matrix.matrix_result([skipped, passed], [], []), ("pass", 0))
+        self.assertEqual(matrix.matrix_result([passed, {"result": "fail: start-chat"}], [], [])[1], 1)
+        self.assertEqual(matrix.matrix_result([skipped], ["vm-left"], [])[1], 1)
+        self.assertEqual(matrix.matrix_result([passed], [], ["login-left"])[1], 1)
+
+
 class LaunchTests(unittest.TestCase):
     def test_socket_travels_only_as_the_next_knob(self):
         argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/cmux-debug-t.sock", None, "staging", "/tmp/c.json")
