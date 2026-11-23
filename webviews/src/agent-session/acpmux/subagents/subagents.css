@@ -2730,3 +2730,75 @@ button.cv-subagent > :last-child {
   /* chat-surface-allow: the fan's backing is the page colour, so the faces read over the transcript */
   background: var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 92%, transparent));
 }
+
+/* ---------- The hat on the composer's columns (cmux#51039) ----------
+   The person, 2026-11-22, on the plan card over the composer: "its not perfectly the same icon size (we
+   need to make sure that we do this well for all densities) and make sure that the spacing left and right
+   is all equal", then "maybe we should align the + and the terminal icon here?". The hat stands on the
+   box's own columns at every density: each row's leading mark centres in +'s box, its words start
+   where the prompt's do (one lead gap after that box), and the header's glyphs (its leading mark, the
+   panel button, the chevron) grow with the composer's glyphs in the composer's control box, so they
+   sit over +, Stop and the mic at the same size. test/hat-composer-icon-grid.test.ts measures it. */
+.acpmux-running-tray {
+  --acpmux-tray-lead-box: var(--acpmux-composer-control, 28px);
+  --acpmux-tray-lead-gap: var(--acpmux-composer-lead-gap, 8px);
+  /* A row icon crops its grid's margin (icons/iconSize.ts ROW_VIEWBOX), so at 14 of the composer's 16
+     its ink is the composer glyphs' size: the panel button's and the mic's both 13.5 px at Default. */
+  --acpmux-tray-glyph: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
+  /* The lead box's room on each side of a glyph of the header's size. */
+  --acpmux-tray-lead-room: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-glyph)) / 2);
+}
+/* The header's glyphs, at the composer's size. */
+.acpmux-running-tray__head :is(.acpmux-lineage__icon, .acpmux-running-tray__kind, .acpmux-running-tray__stack-mark) > svg,
+.acpmux-running-tray__head .acpmux-running-tray__kind > .acpmux-running-tray__stack-mark svg,
+.acpmux-running-tray__head > .acpmux-running-tray__stack svg,
+.acpmux-running-tray__chevron svg,
+.acpmux-running-tray :is(.acpmux-running-tray__open, .acpmux-running-tray__hide) > svg {
+  width: var(--acpmux-tray-glyph);
+  height: var(--acpmux-tray-glyph);
+}
+/* The header's leading mark fills +'s box, its glyph on that box's centre; the words follow one lead
+   gap after it, as the prompt follows +. */
+.acpmux-running-tray__head > .acpmux-lineage__icon {
+  box-sizing: border-box;
+  width: var(--acpmux-tray-lead-box);
+  justify-content: center;
+  margin-inline-end: calc(var(--acpmux-tray-lead-gap) - var(--ds-space-2, 8px));
+}
+.acpmux-running-tray__head > .acpmux-running-tray__stack {
+  padding-inline-start: var(--acpmux-tray-lead-room);
+}
+.acpmux-running-tray__head > .acpmux-running-tray__stack > .acpmux-running-tray__stack-mark:first-child {
+  margin-inline-end: calc(var(--acpmux-tray-lead-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
+}
+.acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) {
+  margin-inline-end: calc(var(--acpmux-tray-lead-gap) - var(--ds-space-2, 8px));
+}
+.acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) > .acpmux-running-tray__stack-mark {
+  margin-inline-end: var(--acpmux-tray-lead-room);
+}
+/* The kinds' header: its first kind's mark in +'s box, the count one lead gap after it. */
+.acpmux-running-tray__kinds > .acpmux-running-tray__kind:first-child > :first-child {
+  margin-inline: var(--acpmux-tray-lead-room) calc(var(--acpmux-tray-lead-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
+}
+/* The panel button is the composer's control box, centred on the header's row. */
+.acpmux-running-tray__open {
+  top: calc((var(--acpmux-tray-head-height) - var(--acpmux-composer-control, 28px)) / 2);
+  height: var(--acpmux-composer-control, 28px);
+}
+/* The lines and the plan's steps under the header keep its columns: each mark centred in +'s box, its
+   words at the prompt's start. */
+.acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
+  box-sizing: border-box;
+  width: var(--acpmux-tray-lead-box);
+  justify-content: center;
+}
+.acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
+  margin-left: calc(var(--acpmux-tray-lead-box) + var(--acpmux-tray-lead-gap) + var(--acpmux-tray-indent, 0px));
+}
+.acpmux-running-tray__plan .cv-plan__item {
+  gap: calc((var(--acpmux-tray-lead-box) - 12px) / 2 + var(--acpmux-tray-lead-gap));
+}
+.acpmux-running-tray__plan .cv-plan__mark {
+  margin-inline-start: calc((var(--acpmux-tray-lead-box) - 12px) / 2);
+}
