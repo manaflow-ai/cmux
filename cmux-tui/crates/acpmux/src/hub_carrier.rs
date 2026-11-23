@@ -1187,8 +1187,6 @@ impl Incoming {
         Ok(daemon)
     }
 
-    /// The session socket a circuit from `from` (its proven key) may reach, as the session gate
-    /// admits.
     /// This machine's end of a machine-call circuit from `from`, or why it may not have one.
     async fn machine_call(&self, from: Option<String>) -> Result<HubStream, ServiceRefusal> {
         match (self.carrier.machine_call_gate(), from) {
@@ -1204,6 +1202,8 @@ impl Incoming {
         }
     }
 
+    /// The session socket a circuit from `from` (its proven key) may reach, as the session gate
+    /// admits.
     async fn admit_session(
         &self,
         from: Option<String>,

@@ -209,6 +209,27 @@ pub async fn request(
     })
 }
 
+/// Whether the person here grants calls from their other machines now, read from this machine's
+/// consent record; a first refusal records the machine's one ask, naming `asking`.
+async fn granted(asking: String) -> Result<(), ServiceRefusal> {
+    tokio::task::spawn_blocking(move || {
+        let consent = crate::cli::cloud_join::consent_status_for(&json!({}));
+        let account = crate::cli::cloud_join::machine_user_id();
+        decide(&consent, account.as_deref()).map_err(|(refusal, ask)| {
+            if ask {
+                // The app on this machine shows its one ask (`lastRefusal`).
+                let _ = crate::cli::cloud_join::record_consent_refusal_from(
+                    SIGNED_IN_MACHINES,
+                    Some(asking.as_str()),
+                );
+            }
+            refusal
+        })
+    })
+    .await
+    .unwrap_or_else(|_| Err(ServiceRefusal::new(CONSENT_REQUIRED, "consent unreadable")))
+}
+
 /// The daemon's gate: the hub's book, this machine's consent record, and the Computer Use relay.
 pub struct ConfiguredGate {
     hub: Weak<Hub>,
@@ -233,28 +254,17 @@ impl MachineCallGate for ConfiguredGate {
                  try again in a moment",
             ));
         };
-        let asking = host.clone();
-        tokio::task::spawn_blocking(move || {
-            let consent = crate::cli::cloud_join::consent_status_for(&json!({}));
-            let account = crate::cli::cloud_join::machine_user_id();
-            decide(&consent, account.as_deref()).map_err(|(refusal, ask)| {
-                if ask {
-                    // The app on this machine shows its one ask (`lastRefusal`).
-                    let _ = crate::cli::cloud_join::record_consent_refusal_from(
-                        SIGNED_IN_MACHINES,
-                        Some(asking.as_str()),
-                    );
-                }
-                refusal
-            })
-        })
-        .await
-        .unwrap_or_else(|_| Err(ServiceRefusal::new(CONSENT_REQUIRED, "consent unreadable")))?;
+        granted(host.clone()).await?;
         let (near, far) = tokio::io::duplex(PIPE_BYTES);
         // Ends when the circuit does: the carrier drops `near`, and the read sees the end.
-        tokio::spawn(serve(far, move |method, params| {
+        let serving = serve(far, move |method, params| {
             let machine = host.clone();
             async move {
+                // The grant is read again for every request, so one taken back stops a circuit
+                // that was opened while it held.
+                granted(machine.clone())
+                    .await
+                    .map_err(|refusal| refused(&refusal.reason, refusal.message))?;
                 match method.as_str() {
                     COMPUTER_USE_CALL => {
                         crate::server::computer_use_relay::run_from(&machine, &params).await
@@ -262,7 +272,8 @@ impl MachineCallGate for ConfiguredGate {
                     _ => Ok(crate::server::computer_use_relay::state_here().await),
                 }
             }
-        }));
+        });
+        hub.scope.spawn_named("machine call circuit", serving);
         Ok(near)
     }
 }

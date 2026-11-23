@@ -363,12 +363,22 @@ pub(super) async fn machines(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcEr
     // The person's signed-in machines no peer link names: reached over the hub carrier. Their
     // state is not asked here (a list costs no circuit per machine); a call answers with it.
     #[cfg(feature = "hub-carrier")]
-    for (_, host) in hub.mesh_book_route_machines() {
-        if !rows.iter().any(|r| r["name"] == host.as_str()) {
-            let reachable = hub.hub_carrier.get().is_some();
-            rows.push(
-                json!({"name": host, "reachable": reachable, "via": "hub", "computer_use": "unknown"}),
-            );
+    {
+        let listed = hub.mesh_book_route_machines();
+        let reachable = hub.hub_carrier.get().is_some();
+        for (key, host) in &listed {
+            // A host name two machines share names neither in a call: each goes by its id.
+            let shared = listed.iter().filter(|(_, other)| other == host).count() > 1;
+            let name = if shared { key } else { host };
+            if !rows.iter().any(|r| r["name"] == name.as_str()) {
+                rows.push(json!({
+                    "name": name,
+                    "host": host,
+                    "reachable": reachable,
+                    "via": "hub",
+                    "computer_use": "unknown",
+                }));
+            }
         }
     }
     rows.sort_by_key(|r| r["name"].as_str().unwrap_or_default().to_owned());
