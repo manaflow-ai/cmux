@@ -3303,10 +3303,10 @@ export function machineIds(rows: any[]): string[] {
 
 /**
  * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
- * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow that runs it to be at most
- * half of this), so a journey that is still running never loses its machine.
+ * journey (the resume matrix's 3600 s cell runs up to 330 min; cloud-journey.test.ts checks every timeout-minutes in
+ * a workflow that runs it to be at most half of this), so a journey that is still running never loses its machine.
  */
-export const STALE_JOURNEY_MS = 3 * 3_600_000;
+export const STALE_JOURNEY_MS = 11 * 3_600_000;
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
 export interface StaleMachine { id: string; name: string; status: string; created: string }
@@ -4983,7 +4983,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // Port 0: the stub binds a free port and writes it to the ready file.
         const point = provider === "codex"
           ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
-          : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`;
+          : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nd = pathlib.Path('/home/cmux/.config/cmux/agent-auth')\nd.mkdir(parents=True, exist_ok=True)\n(d / 'claude').write_text('own\\n')\nprint('stub-ready')\nPY`;
         const r = await exec(
           `rm -f ${shq(stubLog)} ${shq(ready)} ${shq(pidFile)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 & echo $! >${shq(pidFile)}); ` +
             `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +

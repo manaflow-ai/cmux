@@ -49,6 +49,14 @@ export const EXTRA_ARMS: ResumeArm[] = ["reattach", "resume"];
  * when the prompt went, or the agent lost its Claude login across the pause (cmux#45776). Kept as failed samples,
  * counted apart from harness causes.
  */
+/**
+ * The model gateway refused the turn (run 45193446599: `API Error: 503 Every Claude upstream account of this team is
+ * cooling down or disabled ... coderouter`): infra, neither a resume nor the harness. Not counted in a fail streak.
+ */
+export function infraCause(text: string): boolean {
+  return /API Error: 5\d\d|upstream account[^.]*cooling down|coderouter\.cmux\.internal/i.test(text);
+}
+
 export function productSuspect(text: string): boolean {
   return /agent_session\.not_attached|not logged in/i.test(text);
 }
@@ -102,7 +110,7 @@ export type ResumeSample = {
    * `unavailable` (the arm cannot run here), `wake` (the resume call), `attach` (the client's new dial did not attach
    * the chat after the wake), `reply` (attached, no reply), `turn` (a reply, but the turn did not complete), `read`.
    */
-  cause?: "pause" | "unavailable" | "wake" | "attach" | "reply" | "turn" | "read";
+  cause?: "pause" | "unavailable" | "wake" | "attach" | "reply" | "turn" | "read" | "infra";
   error: string;
 };
 
@@ -438,7 +446,8 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             chat.wake();
             await deps.platformSync().catch(() => undefined);
           }
-          if (s.error) s.product_suspect = productSuspect(`${s.error} ${s.turn ?? ""}`);
+          if (s.error && infraCause(`${s.error} ${s.turn ?? ""}`)) s.cause = "infra";
+          if (s.error) s.product_suspect = s.cause !== "infra" && productSuspect(`${s.error} ${s.turn ?? ""}`);
           log(`resume matrix: pause ${pause_s} s ${arm} #${i}: ${RESUME_POINTS.map((p) => `${p} ${s[`${p}_ms` as const] ?? "-"}`).join(", ")}${s.server_timing ? ` (server ${JSON.stringify(s.server_timing)})` : ""}${s.direct_mode ? ` [${s.direct_mode}]` : ""}${s.error ? ` ERROR ${s.error}` : ""}`);
           taken += 1;
           longest = Math.max(longest, now() - sampleStart);
@@ -451,6 +460,8 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             if (!live.size) { ended = true; break; }
             continue;
           }
+          // A gateway refusal says nothing about the resume: it neither extends nor resets a streak.
+          if (s.cause === "infra") continue;
           armStreak.set(arm, s.error ? (armStreak.get(arm) ?? 0) + 1 : 0);
           cellStreak = s.error ? cellStreak + 1 : 0;
           if (cellStreak >= k) {
@@ -558,7 +569,7 @@ export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { m
   const turnLines = [...turns].map(([t, c]) => `- ${t} (${c}x)`);
   const fill = [...new Set(samples.map((x) => x.fill_mib).filter((x): x is number => typeof x === "number"))];
   const head = `${providers.length ? `Provider: ${[...new Set(providers)].join(", ")}. ` : ""}${fill.length ? `Resident through each pause: ${fill.join(", ")} MiB (--resume-fill). ` : ""}`;
-  return `${head ? `${head}\n\n` : ""}${lines.join("\n")}${extra}${turnLines.length ? `\n\nTurns that did not complete:\n\n${turnLines.join("\n")}` : ""}\n\nArms marked (extra) are not the app's path: reattach redials and reattaches the chat before it sends, resume calls POST /v1/machines/{id}/resume for its Server-Timing. product-suspect: a failure the harness does not cause (agent_session.not_attached, a lost Claude login), counted apart until it is judged. largest server phase: the resume answer's largest Server-Timing phase other than total, the most common one, with its p50 and how many answers sent a split; none sent: the answers had no Server-Timing header.\n\nrestored: samples whose agent processes were the same before the pause and after the wake and whose turn completed, of those read. Causes: pause (did not land or hold), unavailable, wake (the resume call), attach (the client's new dial did not attach the chat), reply, turn, read.\n\nSeconds from the wake's event. answered: the resume call's answer (send: none). running: the guest's first tick after the pause. registered: the relay registration line. first byte: the agent reply's first record on the client. page-in: with --resume-fill, the guest's walk over its held memory after the reply (cold pages load on first touch; about 0.85 s per GiB in hq#17877). n counts samples; a point's p50/p95 uses the samples that reached it.\n`;
+  return `${head ? `${head}\n\n` : ""}${lines.join("\n")}${extra}${turnLines.length ? `\n\nTurns that did not complete:\n\n${turnLines.join("\n")}` : ""}\n\nArms marked (extra) are not the app's path: reattach redials and reattaches the chat before it sends, resume calls POST /v1/machines/{id}/resume for its Server-Timing. product-suspect: a failure the harness does not cause (agent_session.not_attached, a lost Claude login), counted apart until it is judged. largest server phase: the resume answer's largest Server-Timing phase other than total, the most common one, with its p50 and how many answers sent a split; none sent: the answers had no Server-Timing header.\n\nrestored: samples whose agent processes were the same before the pause and after the wake and whose turn completed, of those read. Causes: infra (the model gateway refused the turn, not counted in a fail streak), pause (did not land or hold), unavailable, wake (the resume call), attach (the client's new dial did not attach the chat), reply, turn, read.\n\nSeconds from the wake's event. answered: the resume call's answer (send: none). running: the guest's first tick after the pause. registered: the relay registration line. first byte: the agent reply's first record on the client. page-in: with --resume-fill, the guest's walk over its held memory after the reply (cold pages load on first touch; about 0.85 s per GiB in hq#17877). n counts samples; a point's p50/p95 uses the samples that reached it.\n`;
 }
 
 if (import.meta.main && process.argv[2] === "aggregate") {

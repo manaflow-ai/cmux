@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { cliExecResult } from "./cloud-journey.ts";
-import { armOrder, armUnavailable, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
+import { armOrder, armUnavailable, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
   test("takes the gap spanning the event and the first relay line after it, guest clock corrected", () => {
@@ -176,4 +176,10 @@ describe("the dictator's two changes (2026-11-23)", () => {
   test("extra arms are labelled", () => {
     expect(resumeMarkdown([{ ...base, arm: "reattach" }])).toContain("| 5 s | reattach (extra) |");
   });
+});
+
+test("a model gateway 503 is infra, not a resume failure (run 45193446599)", () => {
+  expect(infraCause("turn: API Error: 503 Every Claude upstream account of this team is cooling down or disabled. Retry shortly (coderouter.cmux.internal).")).toBe(true);
+  expect(infraCause("cloud.machine.start: HTTP 503 busy")).toBe(false);
+  expect(infraCause("no reply within 180 s")).toBe(false);
 });
