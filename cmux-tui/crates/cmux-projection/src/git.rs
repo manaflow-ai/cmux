@@ -26,6 +26,7 @@ use std::sync::{Mutex, PoisonError};
 use sha1::{Digest as _, Sha1};
 
 use crate::manifest::{Item, Kind, Manifest};
+#[cfg(any(target_os = "linux", test))]
 use crate::sparse::Sparse;
 use crate::{Fetch, FetchError};
 
@@ -117,6 +118,122 @@ pub fn ls_tree(git_dir: &Path, commit: &str) -> anyhow::Result<Vec<TreeItem>> {
     parse_ls_tree(&output(command)?)
 }
 
+/// [`ls_tree`], kept in `cache` (a file for this commit): the listing of a commit never changes,
+/// and with a cold page cache `ls-tree -l` reads every blob's header out of the packs (about 11 s
+/// for cmux's 58,000 files, against 0.2 s warm), so a remount after a reboot skips git. A commit
+/// with no listing yet takes its sizes from the newest other listing in `cache`'s folder and asks
+/// git only for the blobs that one lacks: `ls-tree` without sizes reads only trees (1.2 s cold
+/// for cmux, against 11.9 s with them).
+pub fn ls_tree_cached(git_dir: &Path, commit: &str, cache: &Path) -> anyhow::Result<Vec<TreeItem>> {
+    if let Some(items) = std::fs::read(cache).ok().and_then(|bytes| parse_ls_tree(&bytes).ok()) {
+        return Ok(items);
+    }
+    let bytes = match sizes_kept_beside(cache) {
+        Some(sizes) => listing_with_sizes(git_dir, commit, &sizes)?,
+        None => {
+            let mut command = git(git_dir);
+            command.args(["ls-tree", "-r", "-l", "-z", "--full-tree", commit]);
+            output(command)?
+        }
+    };
+    let items = parse_ls_tree(&bytes)?;
+    if let Some(parent) = cache.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temp = cache.with_extension(format!("tmp{}", std::process::id()));
+    std::fs::write(&temp, &bytes)?;
+    std::fs::rename(&temp, cache)?;
+    Ok(items)
+}
+
+/// Each blob's size in the newest listing beside `cache` (its folder's other files), if any.
+fn sizes_kept_beside(cache: &Path) -> Option<HashMap<String, u64>> {
+    let newest = std::fs::read_dir(cache.parent()?)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.path() != cache && !entry.file_name().to_string_lossy().contains('.'))
+        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
+        .max()?
+        .1;
+    let items = parse_ls_tree(&std::fs::read(newest).ok()?).ok()?;
+    Some(items.into_iter().map(|item| (item.oid, item.size)).collect())
+}
+
+/// `ls-tree -r -l -z` output for `commit`, its sizes from `sizes` and, for blobs not in it,
+/// from one `cat-file --batch-check`.
+fn listing_with_sizes(
+    git_dir: &Path,
+    commit: &str,
+    sizes: &HashMap<String, u64>,
+) -> anyhow::Result<Vec<u8>> {
+    let mut command = git(git_dir);
+    command.args(["ls-tree", "-r", "-z", "--full-tree", commit]);
+    let bytes = output(command)?;
+    let mut rows = Vec::new();
+    let mut unknown = BTreeSet::new();
+    for record in bytes.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
+        let record = std::str::from_utf8(record)?;
+        let (head, path) =
+            record.split_once('\t').ok_or_else(|| anyhow::anyhow!("bad ls-tree line"))?;
+        let mut fields = head.split_whitespace();
+        let (Some(mode), Some(kind), Some(oid)) = (fields.next(), fields.next(), fields.next())
+        else {
+            anyhow::bail!("bad ls-tree line {record:?}");
+        };
+        if kind == "blob" && !sizes.contains_key(oid) {
+            unknown.insert(oid);
+        }
+        rows.push((mode, kind, oid, path));
+    }
+    let found = object_sizes(git_dir, &unknown)?;
+    let mut listing = Vec::with_capacity(bytes.len() + rows.len() * 8);
+    for (mode, kind, oid, path) in rows {
+        if kind == "blob" {
+            let size = sizes
+                .get(oid)
+                .or_else(|| found.get(oid))
+                .ok_or_else(|| anyhow::anyhow!("no size for blob {oid}"))?;
+            write!(listing, "{mode} {kind} {oid} {size}\t{path}\0")?;
+        } else {
+            write!(listing, "{mode} {kind} {oid} -\t{path}\0")?;
+        }
+    }
+    Ok(listing)
+}
+
+/// The sizes of `oids` in one `cat-file --batch-check`.
+fn object_sizes(git_dir: &Path, oids: &BTreeSet<&str>) -> anyhow::Result<HashMap<String, u64>> {
+    if oids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    // The ids come from a file, not a pipe: a long answer can never block git while the ids are
+    // still being written to it.
+    let input: String = oids.iter().map(|oid| format!("{oid}\n")).collect();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let path =
+        std::env::temp_dir().join(format!("cmux-projection-oids-{}-{nanos}", std::process::id()));
+    std::fs::write(&path, input)?;
+    let file = std::fs::File::open(&path);
+    let _ = std::fs::remove_file(&path);
+    let mut command = git(git_dir);
+    command
+        .args(["cat-file", "--batch-check=%(objectname) %(objectsize)"])
+        .stdin(Stdio::from(file?))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let out = command.output()?;
+    anyhow::ensure!(out.status.success(), "cat-file --batch-check failed");
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let (oid, size) = line.split_once(' ')?;
+            Some((oid.to_owned(), size.parse().ok()?))
+        })
+        .collect())
+}
+
 /// `git ls-tree -r -l -z` output as items: `MODE TYPE OID SIZE\tPATH\0`.
 pub fn parse_ls_tree(bytes: &[u8]) -> anyhow::Result<Vec<TreeItem>> {
     let mut items = Vec::new();
@@ -204,8 +321,6 @@ pub struct IndexEntry {
     pub mtime_ns: i64,
     /// The manifest entry, whose inode number the mount serves (entry + 1).
     pub entry: u32,
-    /// Left out by the sparse patterns: not projected, marked skip-worktree in the index.
-    pub skip_worktree: bool,
 }
 
 /// A commit ready to mount: its manifest, where each entry's bytes come from, and its index.
@@ -226,13 +341,12 @@ pub struct Layout<'a> {
     pub now_ns: i64,
     /// The `.git` file's text (`gitdir: ...`), or none.
     pub gitfile: Option<String>,
-    /// The folder on the machine's disk that holds the build output folders.
-    pub real_root: &'a Path,
+    /// The folder on the machine's disk that holds the build output folders, or none: no links
+    /// to build output folders at all (a read-only lower that many checkouts share, where each
+    /// checkout's own upper keeps its `target/`).
+    pub real_root: Option<&'a Path>,
     /// Link texts of the commit's symlinks, by blob id.
     pub links: &'a HashMap<String, String>,
-    /// The sparse patterns (`--sparse`): the paths they leave out are not projected and are
-    /// skip-worktree in the index. None projects every path.
-    pub sparse: Option<&'a Sparse>,
 }
 
 /// The build output folder each marker file asks for, beside it.
@@ -241,17 +355,12 @@ const REAL_DIRS: [(&str, &str); 3] =
 
 impl Projection {
     /// The projection of `commit`'s `items`, with mtimes from `book` (updated to this commit).
-    /// The paths [`Layout::sparse`] leaves out are in the index only, marked skip-worktree.
     pub fn build(
         commit: &str,
-        all_items: &[TreeItem],
+        items: &[TreeItem],
         book: &mut Book,
         layout: &Layout<'_>,
     ) -> anyhow::Result<Self> {
-        let (items, left_out): (Vec<&TreeItem>, Vec<&TreeItem>) = match layout.sparse {
-            Some(sparse) => all_items.iter().partition(|item| sparse.includes(&item.path)),
-            None => (all_items.iter().collect(), Vec::new()),
-        };
         let paths: BTreeSet<&str> = items.iter().map(|item| item.path.as_str()).collect();
         let mut folders = BTreeSet::new();
         for path in &paths {
@@ -264,13 +373,13 @@ impl Projection {
             }
         }
         let mut wanted = BTreeSet::new();
-        for item in &items {
+        for item in items {
             let (dir, name) = match item.path.rsplit_once('/') {
                 Some((dir, name)) => (dir, name),
                 None => ("", item.path.as_str()),
             };
             for (marker, output) in REAL_DIRS {
-                if name != marker {
+                if name != marker || layout.real_root.is_none() {
                     continue;
                 }
                 let real =
@@ -283,7 +392,7 @@ impl Projection {
         let mut list = Vec::with_capacity(items.len() + wanted.len() + 1);
         let mut sources = HashMap::with_capacity(items.len() + 1);
         let mut mtimes = HashMap::with_capacity(items.len());
-        for item in &items {
+        for item in items {
             let mtime_ns = if item.mode == GITLINK {
                 layout.commit_ns
             } else {
@@ -330,8 +439,9 @@ impl Projection {
                 link: None,
             });
         }
-        for real in &wanted {
-            let target = layout.real_root.join(real);
+        // `wanted` is empty without a `real_root`.
+        for (real, root) in wanted.iter().filter_map(|real| Some((real, layout.real_root?))) {
+            let target = root.join(real);
             list.push(Item {
                 path: real.clone(),
                 kind: Kind::Link,
@@ -343,8 +453,8 @@ impl Projection {
         }
         let manifest = Manifest::build(layout.commit_ns, list)?;
         let mut by_entry = vec![Source::None; manifest.len()];
-        let mut index = Vec::with_capacity(all_items.len());
-        for item in &items {
+        let mut index = Vec::with_capacity(items.len());
+        for item in items {
             let entry = manifest
                 .resolve(&item.path)
                 .ok_or_else(|| anyhow::anyhow!("{} is not in the manifest", item.path))?;
@@ -361,18 +471,6 @@ impl Projection {
                 size: item.size,
                 mtime_ns: mtimes.get(item.path.as_str()).copied().unwrap_or(layout.commit_ns),
                 entry,
-                skip_worktree: false,
-            });
-        }
-        for item in left_out {
-            index.push(IndexEntry {
-                path: item.path.clone(),
-                mode: item.mode,
-                oid: item.oid.clone(),
-                size: item.size,
-                mtime_ns: 0,
-                entry: 0,
-                skip_worktree: true,
             });
         }
         if let (Some(source), Some(entry)) = (sources.remove(".git"), manifest.resolve(".git")) {
@@ -391,23 +489,51 @@ impl Projection {
     }
 }
 
-/// The index of `entries`, with the stat data the mount serves for each: mtime and ctime from the
-/// manifest, inode number entry + 1, owner `uid`/`gid`. git then finds every file unchanged by
-/// stat alone. A skip-worktree entry (left out by the sparse patterns) carries no stat data and
-/// git's extended flag `CE_SKIP_WORKTREE`, which needs index version 3; with none it is version 2.
+/// The index (version 2) of `entries`, with the stat data the mount serves for each: mtime and
+/// ctime from the manifest, inode number entry + 1, owner `uid`/`gid`. git then finds every file
+/// unchanged by stat alone.
 pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result<Vec<u8>> {
-    let extended = entries.iter().any(|entry| entry.skip_worktree);
-    let mut out = Vec::with_capacity(entries.len() * 100 + 32);
+    index_bytes_sparse(entries, &[], uid, gid)
+}
+
+/// [`index_bytes`], plus `skipped`: the commit's paths a sparse checkout leaves out, as git
+/// records them (skip-worktree, no stat), so the index still holds the whole commit and git sees
+/// nothing deleted. Index version 3 when there are any (its extended flags carry the bit).
+pub fn index_bytes_sparse(
+    entries: &[IndexEntry],
+    skipped: &[TreeItem],
+    uid: u32,
+    gid: u32,
+) -> anyhow::Result<Vec<u8>> {
+    let skip = skipped.iter().map(|item| IndexEntry {
+        path: item.path.clone(),
+        mode: item.mode,
+        oid: item.oid.clone(),
+        size: 0,
+        mtime_ns: 0,
+        entry: u32::MAX,
+    });
+    let mut all: Vec<(IndexEntry, bool)> = entries
+        .iter()
+        .cloned()
+        .map(|entry| (entry, false))
+        .chain(skip.map(|e| (e, true)))
+        .collect();
+    if !skipped.is_empty() {
+        all.sort_by(|a, b| a.0.path.as_bytes().cmp(b.0.path.as_bytes()));
+    }
+    let version: u32 = if skipped.is_empty() { 2 } else { 3 };
+    let mut out = Vec::with_capacity(all.len() * 100 + 32);
     out.extend_from_slice(b"DIRC");
-    out.extend_from_slice(&(if extended { 3u32 } else { 2u32 }).to_be_bytes());
-    out.extend_from_slice(&u32::try_from(entries.len())?.to_be_bytes());
-    for entry in entries {
-        let (seconds, nanos) = if entry.mode == GITLINK || entry.skip_worktree {
+    out.extend_from_slice(&version.to_be_bytes());
+    out.extend_from_slice(&u32::try_from(all.len())?.to_be_bytes());
+    for (entry, skip_worktree) in &all {
+        let (seconds, nanos) = if entry.mode == GITLINK || *skip_worktree {
             (0, 0)
         } else {
             (entry.mtime_ns.div_euclid(1_000_000_000), entry.mtime_ns.rem_euclid(1_000_000_000))
         };
-        let (ino, uid, gid, size) = if entry.mode == GITLINK || entry.skip_worktree {
+        let (ino, uid, gid, size) = if entry.mode == GITLINK || *skip_worktree {
             (0, 0, 0, 0)
         } else {
             (u64::from(entry.entry) + 1, uid, gid, entry.size)
@@ -432,13 +558,13 @@ pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result
         }
         out.extend_from_slice(&hex(&entry.oid)?);
         let name = entry.path.as_bytes();
-        let mut flags = u16::try_from(name.len().min(0xfff))?;
-        if entry.skip_worktree {
-            flags |= CE_EXTENDED;
-        }
-        out.extend_from_slice(&flags.to_be_bytes());
-        if entry.skip_worktree {
-            out.extend_from_slice(&CE_SKIP_WORKTREE.to_be_bytes());
+        let flags = u16::try_from(name.len().min(0xfff))?;
+        if *skip_worktree {
+            // The extended bit, then the extended flags with skip-worktree.
+            out.extend_from_slice(&(flags | 0x4000).to_be_bytes());
+            out.extend_from_slice(&0x4000u16.to_be_bytes());
+        } else {
+            out.extend_from_slice(&flags.to_be_bytes());
         }
         out.extend_from_slice(name);
         let len = out.len() - start;
@@ -449,11 +575,6 @@ pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result
     out.extend_from_slice(&digest);
     Ok(out)
 }
-
-/// The entry flag saying a second, extended flags word follows (index version 3).
-const CE_EXTENDED: u16 = 0x4000;
-/// The extended flag of a path the sparse patterns leave out.
-const CE_SKIP_WORKTREE: u16 = 0x4000;
 
 fn hex(oid: &str) -> anyhow::Result<[u8; 20]> {
     anyhow::ensure!(oid.len() == 40, "not a sha-1 object id: {oid}");
@@ -523,6 +644,7 @@ impl Worktree {
     /// `info/sparse-checkout` count as the same), so an index written for other patterns is
     /// written again.
     #[must_use]
+    #[cfg(any(target_os = "linux", test))]
     pub fn sparse_matches(admin: &Path, sparse: Option<&Sparse>) -> bool {
         let held = std::fs::read_to_string(admin.join("info").join("sparse-checkout")).ok();
         held.as_deref() == sparse.map(Sparse::text)
@@ -531,6 +653,7 @@ impl Worktree {
     /// Records `sparse` as this worktree's sparse patterns the way `git sparse-checkout set
     /// --no-cone` does: the patterns in `info/sparse-checkout`, `core.sparseCheckout=true` and
     /// `core.sparseCheckoutCone=false` in the worktree's own config. None turns sparse off again.
+    #[cfg(any(target_os = "linux", test))]
     pub fn set_sparse(&self, git_dir: &Path, sparse: Option<&Sparse>) -> anyhow::Result<()> {
         let file = self.admin.join("info").join("sparse-checkout");
         let config = self.admin.join("config.worktree");

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::*;
-use crate::git::{Book, Layout, Projection, Worktree, index_bytes, link_texts, ls_tree};
+use crate::git::{Book, Layout, Projection, Worktree, index_bytes_sparse, link_texts, ls_tree};
 
 fn git(dir: &Path, args: &[&str], stdin: Option<&str>) -> String {
     let mut child = Command::new("git")
@@ -120,6 +120,7 @@ fn the_index_has_skip_worktree_on_exactly_the_left_out_paths_and_status_is_clean
 
     let sparse = Sparse::parse(patterns).unwrap();
     let items = ls_tree(&git_dir, &commit).unwrap();
+    let (items, skipped) = Sparse::partition(Some(&sparse), items);
     let links = link_texts(&git_dir, &items).unwrap();
     let admin = git_dir.join("worktrees").join("projected");
     let real_root = dir.path().join("real");
@@ -127,9 +128,8 @@ fn the_index_has_skip_worktree_on_exactly_the_left_out_paths_and_status_is_clean
         commit_ns: 1_000_000_000,
         now_ns: 5_000_000_000,
         gitfile: Some(Worktree::gitfile(&admin)),
-        real_root: &real_root,
+        real_root: Some(&real_root),
         links: &links,
-        sparse: Some(&sparse),
     };
     let projection = Projection::build(&commit, &items, &mut Book::default(), &layout).unwrap();
     for left_out in &by_git {
@@ -138,14 +138,8 @@ fn the_index_has_skip_worktree_on_exactly_the_left_out_paths_and_status_is_clean
     assert!(projection.manifest.resolve("a/b/keep").is_some());
     assert!(projection.manifest.resolve("a/b/z").is_none());
     assert!(projection.real_dirs.contains(&"crate/target".to_owned()));
-    assert_eq!(projection.index.len(), PATHS.len(), "the index still holds every path");
-    let skipped: BTreeSet<String> = projection
-        .index
-        .iter()
-        .filter(|entry| entry.skip_worktree)
-        .map(|entry| entry.path.clone())
-        .collect();
-    assert_eq!(skipped, by_git);
+    assert_eq!(projection.index.len() + skipped.len(), PATHS.len());
+    assert_eq!(skipped.iter().map(|item| item.path.clone()).collect::<BTreeSet<_>>(), by_git);
 
     // On disk: the kept files and the `.git` file, the way the mount shows them.
     let at = dir.path().join("mnt");
@@ -160,7 +154,7 @@ fn the_index_has_skip_worktree_on_exactly_the_left_out_paths_and_status_is_clean
         std::os::unix::fs::symlink(real_root.join(real), at.join(real)).unwrap();
     }
     assert!(!Worktree::sparse_matches(&admin, Some(&sparse)));
-    let index = index_bytes(&projection.index, 1000, 1000).unwrap();
+    let index = index_bytes_sparse(&projection.index, &skipped, 1000, 1000).unwrap();
     assert_eq!(index.get(4..8), Some(&3u32.to_be_bytes()[..]), "extended flags need version 3");
     Worktree::write(&git_dir, "projected", &at, &commit, &index, &projection.real_dirs)
         .unwrap()
@@ -190,18 +184,18 @@ fn an_index_with_nothing_left_out_stays_version_2() {
     let git_dir = work.join(".git");
     let commit = git(&work, &["rev-parse", "HEAD"], None).trim().to_owned();
     let items = ls_tree(&git_dir, &commit).unwrap();
-    let links = link_texts(&git_dir, &items).unwrap();
     let sparse = Sparse::parse("/*\n").unwrap();
+    let (items, skipped) = Sparse::partition(Some(&sparse), items);
+    let links = link_texts(&git_dir, &items).unwrap();
     let layout = Layout {
         commit_ns: 1_000_000_000,
         now_ns: 5_000_000_000,
         gitfile: None,
-        real_root: Path::new("/real"),
+        real_root: Some(Path::new("/real")),
         links: &links,
-        sparse: Some(&sparse),
     };
     let projection = Projection::build(&commit, &items, &mut Book::default(), &layout).unwrap();
-    assert!(projection.index.iter().all(|entry| !entry.skip_worktree));
-    let index = index_bytes(&projection.index, 1000, 1000).unwrap();
+    assert!(skipped.is_empty());
+    let index = index_bytes_sparse(&projection.index, &skipped, 1000, 1000).unwrap();
     assert_eq!(index.get(4..8), Some(&2u32.to_be_bytes()[..]));
 }

@@ -56,6 +56,17 @@ impl Sparse {
         matches!(self.patterns.matched_path_or_any_parents(path, false), Match::Ignore(_))
     }
 
+    /// Split the commit's listing before reading symlink blobs or building the manifest.
+    pub fn partition(
+        sparse: Option<&Self>,
+        items: Vec<crate::git::TreeItem>,
+    ) -> (Vec<crate::git::TreeItem>, Vec<crate::git::TreeItem>) {
+        match sparse {
+            Some(sparse) => items.into_iter().partition(|item| sparse.includes(&item.path)),
+            None => (items, Vec::new()),
+        }
+    }
+
     /// The text git keeps in `info/sparse-checkout`.
     #[must_use]
     pub fn text(&self) -> &str {
