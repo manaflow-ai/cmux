@@ -458,6 +458,7 @@
         "notifications.sources.cli.dismissal",
         "notifications.delivery.permissionRequest",
         "notifications.delivery.question",
+        "notifications.delivery.blocked",
         "notifications.delivery.taskComplete",
         "notifications.desktop",
         "notifications.sound",
