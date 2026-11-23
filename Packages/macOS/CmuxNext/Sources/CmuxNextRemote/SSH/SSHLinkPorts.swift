@@ -36,7 +36,8 @@ public enum SSHLinkPortAnswer<Value: Sendable>: Sendable {
 
 /// The port requests' wire format (cmux-remote `AdminRequest::PortForward`, `PortList`, `PortClose`): one JSON
 /// line each, `method` in kebab-case, optional fields left out when nil.
-public enum SSHLinkPortWire {
+public struct SSHLinkPortWire {
+    public init() {}
     public static let listLine = #"{"method":"port-list"}"#
 
     public static func forwardLine(port: Int, host: String?, workspaceRoot: String?) -> String {
