@@ -1,20 +1,19 @@
-// The composer's draft scrollbar sits on the box's own right edge (Leo 2026-10-22: "shouldn't the
-// styling wrt composer vs the chat/window (these should be one and hte same) be more cohesive? well
-// idk but the chatgpt(codex) has it on the outside while claude indeed has it on the inside"). The
-// chat's thin thumb runs down the pane's right edge; the composer's runs down the box's, as in Claude
-// desktop and as Codex's look already draws it, not down a lane between the draft and Send.
+// The composer's draft scrollbar runs in a lane between the draft and the actions, down to the
+// box's bottom inset, as Claude desktop draws it (Leo 2026-11-22, his clip of Claude: "the thumb only
+// appears when it's relevant ... AND IT ACTUALLY GOES IN A REASONABLE LOOKING PLACE, INSTEAD OF OUR
+// THUMB THAT STOPS ATOP BUTTONS!? ... THEN OUR CALIBRATION OF "BOTTOM" LOOKS STUPID"). It ran down
+// the box's right edge before, stopping a block inset over Send. It stays inside the box (Leo
+// 2026-10-22: "claude indeed has it on the inside").
 // In the gallery's `agent-pane.composer` long draft, Claude's look (the default), at three widths:
-//   - the draft overflows and its scroller (the prompt field) ends on the box's right edge, so the
-//     scrollbar lane is the box's last 8 px;
+//   - the draft overflows and its scroller (the prompt field) ends at the actions' left edge, so the
+//     scrollbar lane is the field's last 8 px, beside the mic and Send, never under them;
 //   - the draft's text keeps clear of the mic and Send: it ends left of them;
 //   - the mic and Send still take a click at their centre.
 // And in the gallery's `agent-pane.composer-scrollbar` (the placements drawn for the pick): with the
-// draft scrolled to its end, the drawn thumb stops above Send in the shipped `edge`, and runs past
-// Send's top in `edge-full` (so the probe sees the thumb at all). The shipped track ends a block
-// inset above the button row, never on its top (Leo 2026-11-22: "INSTEAD OF OUR THUMB
-// THAT STOPS ATOP BUTTONS!? [...] THEN OUR CALIBRATION OF "BOTTOM" LOOKS
-// STUPID"): the thumb's bottom is at least 8 px over the actions' top. The placements gallery marks
-// the field scrolling, since the thumb shows only while the draft scrolls.
+// draft scrolled to its end, the drawn thumb ends level with the buttons' bottom in the shipped
+// `lane` (within 3 px: the track's end inset is the buttons' own inset over the box's bottom edge),
+// stops at least 8 px above Send in `edge`, and runs past Send's top in `edge-full`. The placements
+// gallery marks the field scrolling, since the thumb shows only while the draft scrolls.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -53,7 +52,7 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
     browser = await chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
     await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "long-draft" } });
-    await warmGalleryFrame(vite, PLACEMENTS, { browser, params: { variant: "edge" } });
+    await warmGalleryFrame(vite, PLACEMENTS, { browser, params: { variant: "lane" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -61,7 +60,7 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
   });
 
   for (const width of [420, 760, 1100])
-    test(`at ${width} px the long draft's scrollbar runs down the box's right edge`, async () => {
+    test(`at ${width} px the long draft's scrollbar runs in a lane beside the mic and Send`, async () => {
       const page = await browser!.newPage({ viewport: { width, height: 420 } });
       await page.goto(stageURL("long-draft"));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
@@ -90,9 +89,9 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
             .map((button) => button.getAttribute("aria-label") ?? button.className);
           return {
             overflows: field.scrollHeight > field.clientHeight + 1,
-            // The lane sits 2 px inside the box's hairline rim (composerLocation.css).
-            laneOnBoxEdge: Math.abs(box.right - 2 - fieldRect.right) <= 1,
-            gap: Math.round(box.right - fieldRect.right),
+            // The lane ends where the actions start, inside the box (composerLocation.css).
+            laneBesideActions:
+              fieldRect.right <= left + 0.5 && fieldRect.right >= left - 12 && fieldRect.right < box.right,
             textClearOfActions: text.right <= left + 0.5,
             actions: actions.length,
             unreachable,
@@ -104,10 +103,10 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
       expect(drawn.actions).toBeGreaterThanOrEqual(1);
       expect({
         overflows: drawn.overflows,
-        laneOnBoxEdge: drawn.laneOnBoxEdge,
+        laneBesideActions: drawn.laneBesideActions,
         textClearOfActions: drawn.textClearOfActions,
         unreachable: drawn.unreachable,
-      }).toEqual({ overflows: true, laneOnBoxEdge: true, textClearOfActions: true, unreachable: [] });
+      }).toEqual({ overflows: true, laneBesideActions: true, textClearOfActions: true, unreachable: [] });
     });
   /// The lowest drawn row of the draft's thumb with the draft scrolled to its end, and Send's top.
   /// The box's last scroller-lane column is shot with the draft at its start and at its end: only the
@@ -122,7 +121,9 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
           ...document.querySelectorAll<HTMLElement>(".acpmux-composer-box .acpmux-composer-actions button"),
         ].filter((button) => button.offsetWidth > 0);
         const top = Math.min(...send.map((button) => button.getBoundingClientRect().top));
+        const bottom = Math.max(...send.map((button) => button.getBoundingClientRect().bottom));
         return {
+          sendBottom: bottom,
           x: Math.round(rect.right - 4),
           top: Math.round(rect.top),
           bottom: Math.round(rect.bottom),
@@ -154,14 +155,15 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
       const diff = [0, 1, 2].reduce((sum, c) => sum + Math.abs(end.data[at + c]! - start.data[at + c]!), 0);
       if (diff > 24) last = y;
     }
-    return { thumbBottom: last < 0 ? undefined : geometry.top + last + 1, sendTop: geometry.sendTop };
+    return {
+      thumbBottom: last < 0 ? undefined : geometry.top + last + 1,
+      sendTop: geometry.sendTop,
+      sendBottom: geometry.sendBottom,
+    };
   }
 
-  for (const [variant, aboveSend] of [
-    ["edge", true],
-    ["edge-full", false],
-  ] as const)
-    test(`placement ${variant}: the thumb ${aboveSend ? "stops above" : "runs past"} Send's top`, async () => {
+  for (const variant of ["lane", "edge", "edge-full"] as const)
+    test(`placement ${variant}: where the thumb ends against Send`, async () => {
       const page = await browser!.newPage({ viewport: { width: 760, height: 420 } });
       await page.goto(stageURL(variant, PLACEMENTS));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
@@ -170,7 +172,9 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
       await page.close();
       console.log(`THUMB_END ${variant} ${JSON.stringify(end)}`);
       expect(end.thumbBottom).toBeDefined();
-      expect({ aboveSend: end.thumbBottom! <= end.sendTop }).toEqual({ aboveSend });
-      if (aboveSend) expect(end.sendTop - end.thumbBottom!).toBeGreaterThanOrEqual(8);
+      const bottom = end.thumbBottom!;
+      if (variant === "lane") expect(Math.abs(bottom - end.sendBottom)).toBeLessThanOrEqual(3);
+      else if (variant === "edge") expect(end.sendTop - bottom).toBeGreaterThanOrEqual(8);
+      else expect(bottom).toBeGreaterThan(end.sendTop);
     });
 });

@@ -201,7 +201,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
           // the frame's layout, its animation would apply only from the next frame, and this one would
           // paint the end height (29 px at once, composer-geometry-stable.test.ts). Its own observer
           // of the text retargets it.
-          if (changed && !moving.has(field)) follow(true);
+          if (changed && !moving.has(field)) follow();
         });
         observeTiles();
         restObserver = new ResizeObserver(() => {
@@ -246,8 +246,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         animation.addEventListener("cancel", done, { once: true });
       };
       // perf-hot: one layout read per edit (ProseMirror's own caret reveal reads the same layout next).
-      // `tile`: an attachment tile changed size with no edit; its text rides the top edge (below).
-      const follow = (tile = false) => {
+      const follow = () => {
         const field = scroller;
         if (!field) return;
         const running = moving.get(field);
@@ -284,11 +283,10 @@ export function fieldGrowth(external: () => boolean): Plugin {
         const cssHeight = Number.parseFloat(getComputedStyle(field).height);
         const scale = cssHeight > 0 ? to / cssHeight : 1;
         const reveal = capped || (running?.reveal ?? false);
-        // A tile that took its size after the edit (its header read) grows the field with no key typed
-        // and the caret not on the move: its text rides the top edge like a shrink's. Held on the bottom
-        // edge, all of the text above the tile went up the tile's growth in one frame, under the top
-        // edge (29 px, composer-geometry-stable.test.ts attachment add).
-        const holdsTop = growsDown || to < from || (tile && !running);
+        // A tile that took its size after the edit grows like an edit's: the tile is drawn in its final
+        // slot from the first frame (composer-attach-no-jump.test.ts), the line over it covered by the
+        // top edge and uncovered as it rises. Riding the top edge instead slid the new tile up 37 px.
+        const holdsTop = growsDown || to < from;
         const now = performance.now();
         const { keyframes, duration, easing, progress } = growthFrames(
           arm,
@@ -345,7 +343,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
       // The tiles' observer above is the fallback for a change no render tells (a picture decoding).
       const shaped = () => {
         observeTiles();
-        follow(true);
+        follow();
       };
       view.dom.addEventListener(TILE_SHAPE_EVENT, shaped);
       return {

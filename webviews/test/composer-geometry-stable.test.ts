@@ -380,7 +380,11 @@ await requireBrowserLane("composer-geometry-stable.test.ts", async () => {
       const step = Math.abs(after.boxHeight - before.boxHeight);
       if (step > 0.25) steps++;
       maxStep = Math.max(maxStep, step);
-      if (before.textTop !== null && after.textTop !== null) {
+      // A line the top edge covers in either frame is not drawn there: a growth draws every line in
+      // its final place and uncovers the top one as the edge rises (fieldGrowth.ts), so only a line
+      // shown in both frames can jump.
+      const shown = (sample: Sample) => sample.textTop !== null && sample.textTop >= sample.visible.top - 0.5;
+      if (shown(before) && shown(after)) {
         const excess = Math.abs(after.textTop - before.textTop) - Math.abs(after.boxTop - before.boxTop);
         if (excess > textJump) {
           textJump = excess;
