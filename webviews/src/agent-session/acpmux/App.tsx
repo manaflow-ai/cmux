@@ -5123,7 +5123,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       mode: sandboxModeRows.mode,
       environment: sandboxModeRows.environment,
       ...(autoPlacedHere ? { autoPlaced: autoPlacedHere } : {}),
-      // Auto's row only with Settings' Auto Chat Placement on (off by default).
+      // Auto's row only with Settings' Auto Chat Placement on (on by default).
       ...(autoChatPlacement ? { auto: true as const } : {}),
       // An empty local chat offers Cloud, not Sandboxed (`emptyLocalChat`).
       ...(sandboxOffered ? {} : { sandbox: false as const }),
@@ -8278,7 +8278,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     runMode: () => sandbox.mode,
     setRunMode(mode) {
-      // Auto only while Settings' Auto Chat Placement offers it (off by default).
+      // Auto only while Settings' Auto Chat Placement offers it (on by default).
       if (mode === "auto" && !autoChatPlacement) return false;
       // An empty local chat offers Cloud and This Mac, never Sandboxed (`emptyLocalChat`).
       const offered = sandboxOffered || (cloudOffered && mode !== "sandboxed");

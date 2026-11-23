@@ -38,9 +38,9 @@
 // read: the chord the host sends, empty for the app's own. Anything else reads as "cmux".
 // `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
 // new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
-// `autoChatPlacement` is `agentPane.autoChatPlacement` ("Auto Chat Placement", off by default): on, a new
+// `autoChatPlacement` is `agentPane.autoChatPlacement` ("Auto Chat Placement", on by default, RFD 0057): on, a new
 // chat's place picker offers Auto, which asks acpmux where the chat starts (`_acpmux/place_chat`,
-// autoPlace.ts) and shows the verdict. Off, the picker is as before. Anything but true reads as off.
+// autoPlace.ts) and shows the verdict. Off, the picker is as before. Anything but a boolean keeps the default.
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
 // environment; no cmux.json key): on, picking Cloud in a new
@@ -93,7 +93,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   harnessSwitch: false,
   showMachineLoadWarnings: true,
   newChatsIn: "local",
-  autoChatPlacement: false,
+  autoChatPlacement: true,
   composerRing: "context",
   cloudEnvironments: false,
 };

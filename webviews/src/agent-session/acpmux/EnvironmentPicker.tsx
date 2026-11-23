@@ -445,7 +445,7 @@ export function EnvironmentPicker({
       : undefined;
   const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
   // Auto heads a new chat's main, Where and Run lists (never a machine list or a started chat's), and
-  // only while Settings' Auto Chat Placement (`agentPane.autoChatPlacement`, off by default) offers it.
+  // only while Settings' Auto Chat Placement (`agentPane.autoChatPlacement`, on by default) offers it.
   const autoRow = runMode?.auto === true ? AUTO_RUN : undefined;
   // Which machine's list, and Other devices' list, end with Add Machine….
   const addMachine: Action | undefined =

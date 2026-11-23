@@ -32,9 +32,9 @@ extension AgentPaneComposerSetting {
     /// `agentPane.newChatsIn`: Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
     public nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
     public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .local
-    /// `agentPane.autoChatPlacement`: Off by default: a new chat's place picker offers Auto, which asks acpmux where the chat starts (_acpmux/place_chat, design/auto-chat-placement.md) and shows the verdict, folder travel included. Off, the picker is as before. Leo, 2026-11-18: "how about the moving back and forth between local and cloud/remote chats? tbh in conjunction with the projection fs type thing, i think we can do lots of interesting stuff".
+    /// `agentPane.autoChatPlacement`: On by default (decided by debate, RFD 0057, d-94bef9b79e): a new chat's place picker offers Auto, which asks acpmux where the chat starts (_acpmux/place_chat, design/auto-chat-placement.md) and shows the verdict, folder travel included. Off, the picker is as before. Leo, 2026-11-18: "how about the moving back and forth between local and cloud/remote chats? tbh in conjunction with the projection fs type thing, i think we can do lots of interesting stuff".
     public nonisolated static let autoChatPlacementPath = ["agentPane", "autoChatPlacement"]
-    public nonisolated static let autoChatPlacementDefault = false
+    public nonisolated static let autoChatPlacementDefault = true
     /// `agentPane.sessionWorktrees`.
     public nonisolated static let sessionWorktreesPath = ["agentPane", "sessionWorktrees"]
     public nonisolated static let sessionWorktreesDefault: AgentPaneSessionWorktrees = .off

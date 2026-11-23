@@ -1255,11 +1255,11 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     // Auto (autoPlace.ts; Leo, 2026-11-18: "an auto mode as an umbrella over remote/local/cloud itself.
-    // so it just goes."): only while Settings' Auto Chat Placement (agentPane.autoChatPlacement, off by
-    // default) is on (`runMode.auto`). Then it is first in the list, ⌥⌘0, and the face says where acpmux
+    // so it just goes."): only while Settings' Auto Chat Placement (agentPane.autoChatPlacement, on by
+    // default, RFD 0057) is on (`runMode.auto`). Then it is first in the list, ⌥⌘0, and the face says where acpmux
     // put the chat and how its folder gets there.
     "environment-picker-auto-setting-off": {
-      note: "Auto Chat Placement off (the default): the picker is as before, with no Auto row; This Mac is checked.",
+      note: "Auto Chat Placement turned off: the picker is as before, with no Auto row; This Mac is checked.",
       props: {
         ...baseProps,
         environments: true,

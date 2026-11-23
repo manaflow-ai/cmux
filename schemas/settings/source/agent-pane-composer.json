@@ -384,7 +384,7 @@
         },
         {
           "key": "agentPane.autoChatPlacement",
-          "note": "Off by default: a new chat's place picker offers Auto, which asks acpmux where the chat starts (_acpmux/place_chat, design/auto-chat-placement.md) and shows the verdict, folder travel included. Off, the picker is as before. Leo, 2026-11-18: \"how about the moving back and forth between local and cloud/remote chats? tbh in conjunction with the projection fs type thing, i think we can do lots of interesting stuff\".",
+          "note": "On by default (decided by debate, RFD 0057, d-94bef9b79e): a new chat's place picker offers Auto, which asks acpmux where the chat starts (_acpmux/place_chat, design/auto-chat-placement.md) and shows the verdict, folder travel included. Off, the picker is as before. Leo, 2026-11-18: \"how about the moving back and forth between local and cloud/remote chats? tbh in conjunction with the projection fs type thing, i think we can do lots of interesting stuff\".",
           "title": {
             "key": "settings.agentPane.autoChatPlacement",
             "text": "Auto Chat Placement"
@@ -394,7 +394,7 @@
             "text": "Adds Auto to a new chat's place picker: cmux picks This Mac, a joined machine or Cloud on the first send and says how the folder gets there."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "auto",
             "placement",

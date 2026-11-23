@@ -117,12 +117,12 @@ test("new chats start on this Mac by default; Cloud only when the setting says s
   expect(readComposerSettings({ newChatsIn: true }).newChatsIn).toBe("local");
 });
 
-// Auto Chat Placement is off until the person turns it on (the coordinator: "build it behind an
-// off-by-default setting"); only a real true turns it on.
-test("Auto Chat Placement is off by default; only true turns it on", () => {
-  expect(DEFAULT_COMPOSER.autoChatPlacement).toBe(false);
-  expect(readComposerSettings({}).autoChatPlacement).toBe(false);
-  expect(readComposerSettings({ autoChatPlacement: true }).autoChatPlacement).toBe(true);
-  expect(readComposerSettings({ autoChatPlacement: "true" }).autoChatPlacement).toBe(false);
-  expect(readComposerSettings({ autoChatPlacement: 1 }).autoChatPlacement).toBe(false);
+// Auto Chat Placement is on until the person turns it off (decided by debate, RFD 0057,
+// d-94bef9b79e: "Yes, flip the default to on"); only a real false turns it off.
+test("Auto Chat Placement is on by default; only false turns it off", () => {
+  expect(DEFAULT_COMPOSER.autoChatPlacement).toBe(true);
+  expect(readComposerSettings({}).autoChatPlacement).toBe(true);
+  expect(readComposerSettings({ autoChatPlacement: false }).autoChatPlacement).toBe(false);
+  expect(readComposerSettings({ autoChatPlacement: "false" }).autoChatPlacement).toBe(true);
+  expect(readComposerSettings({ autoChatPlacement: 0 }).autoChatPlacement).toBe(true);
 });

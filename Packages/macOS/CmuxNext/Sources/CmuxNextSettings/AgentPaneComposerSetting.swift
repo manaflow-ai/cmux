@@ -41,7 +41,7 @@ import CmuxNextDesign
 /// machine, the page's `cloud.startChat`). The page decides (runLocationDefault.ts); this only
 /// carries the value. Leo, 2026-10-31: "whenever i start a chat it should be able to send me to
 /// cloud autommatically".
-/// `autoChatPlacement`: off by default. On, a new chat's place picker offers Auto, which asks acpmux
+/// `autoChatPlacement`: on by default (RFD 0057, d-94bef9b79e). On, a new chat's place picker offers Auto, which asks acpmux
 /// where the chat starts (`_acpmux/place_chat`, design/auto-chat-placement.md) and shows its
 /// verdict, how the folder travels included. Off, the picker is as before. The page decides
 /// (autoPlace.ts); this only carries the value.

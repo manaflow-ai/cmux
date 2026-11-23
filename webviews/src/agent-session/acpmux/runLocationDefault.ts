@@ -20,7 +20,7 @@ export type RunLocation = "local" | "cloud";
 /// (lastNewChatPlace.ts, cmux#46019: a new workspace keeps Cloud or This Mac as picked), else where
 /// its folder's newest chat ran (folderRunLocation), else undefined (this Mac, as before). The
 /// composer's own pick always wins over this (App.tsx). With Settings' Auto Chat Placement
-/// (`agentPane.autoChatPlacement`, off by default) on, it is Auto ahead of all of these: acpmux picks
+/// (`agentPane.autoChatPlacement`, on by default) on, it is Auto ahead of all of these: acpmux picks
 /// the place on the first send (autoPlace.ts). Off, Auto is never the answer.
 export function newChatRunLocation(
   newChatsIn: "local" | "cloud",

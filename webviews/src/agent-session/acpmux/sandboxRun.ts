@@ -21,7 +21,7 @@ export type RunModeRows = {
   /// false: Cloud alone, with no Sandboxed face (a new chat whose empty local session already opened).
   sandbox?: false;
   /// true: an Auto row heads the list (EnvironmentPicker AUTO_RUN). Only Settings' Auto Chat
-  /// Placement (`agentPane.autoChatPlacement`, off by default) sets it; absent, the picker is as before.
+  /// Placement (`agentPane.autoChatPlacement`, on by default) sets it; absent, the picker is as before.
   auto?: true;
   /// Auto's place once acpmux answered this chat's first send (autoPlace.ts): the picker says
   /// "Auto · <place>", and acpmux's reason in its tooltip.

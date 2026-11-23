@@ -1,7 +1,7 @@
 /// Auto, where a new chat starts (design/auto-chat-placement.md; Leo, 2026-11-18: "an auto mode as an
 /// umbrella over remote/local/cloud itself. so it just goes. thats essentialyl what we're doing rn with
 /// teh lanes going to various machines"). Only offered while Settings' Auto Chat Placement
-/// (`agentPane.autoChatPlacement`) is on; it is off by default, and off the picker is as before.
+/// (`agentPane.autoChatPlacement`) is on; it is on by default, and off the picker is as before.
 /// The page decides nothing: on the first send it asks acpmux
 /// (`_acpmux/place_chat`, acpmux chat_place.rs), which weighs this Mac, each joined machine and Cloud,
 /// and the page starts the chat where the verdict says. An acpmux that predates the request, or one
