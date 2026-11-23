@@ -113,7 +113,8 @@ nonisolated final class MacScreenRdHost: Sendable {
                         answer?.candidates.append(candidate)
                     }
                 }
-                // The answer goes once every candidate this side will find is known.
+                // The answer goes once this side's host candidates are known (serve says
+                // candidates_done then); reflexive and relayed ones trickle after it.
                 if line.candidatesDone == true, !answered, let document = answer {
                     answered = true
                     answerDeadline.cancel()
@@ -138,7 +139,9 @@ nonisolated final class MacScreenRdHost: Sendable {
             // The process ended without saying why (it crashed, or never started). A cancel is
             // this session ending (serve returned), which the hub host already handles.
             guard !Task.isCancelled else { return }
-            self?.emit(.sourceFailed(process.stderrTail.isEmpty ? "the screen host stopped" : process.stderrTail))
+            // Its own words, never a grant's: the process (the helper in a build with one) just ended.
+            let stopped = "the screen host exited without saying why"
+            self?.emit(.sourceFailed(process.stderrTail.isEmpty ? stopped : "\(stopped): \(process.stderrTail)"))
         }
         self.output.withLock { $0 = output }
         // Nothing to read when no rd host started (a WebRTC viewer, or a viewer that never offered).

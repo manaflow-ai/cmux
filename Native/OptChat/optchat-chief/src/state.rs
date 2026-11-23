@@ -175,6 +175,17 @@ pub struct HostState {
     /// first. At most [`WAKES_KEPT`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<Wake>,
+    /// The automations the person asked for (automations.rs), oldest
+    /// first. At most [`crate::automations::AUTOMATIONS_MAX`].
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "crate::automations::deserialize_kept"
+    )]
+    pub automations: Vec<crate::automations::Automation>,
+    /// The number of the next automation id (`au<N>`), unique for this home.
+    #[serde(default)]
+    pub next_automation: u64,
     /// Watches the Chief started with `watch` (brain/watches.rs), oldest
     /// first. At most `WATCHES_KEPT`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -329,6 +340,10 @@ pub struct SpawnRecord {
     /// The turn that spawned it (its reply key), for the trace.
     #[serde(default)]
     pub turn: Option<String>,
+    /// A turn an automation's note started made it: its subagents never
+    /// fire an `agent_done` automation (automations.rs).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_automation: bool,
     /// The originating conversation; reports must not follow the Chief into another chat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
@@ -637,6 +652,11 @@ pub struct PendingPermission {
     /// A disabled rollout retired this card; the same request must not reopen it.
     #[serde(default)]
     pub home_closed: bool,
+    /// The asking subagent's task as it read when the request came (its
+    /// title): the Home card says who asked. Kept with the request, so a
+    /// later rename never changes the card the owner acknowledged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked_by: Option<String>,
 }
 
 fn is_zero(n: &u32) -> bool {
