@@ -12,7 +12,6 @@ import {
   TRANSCRIPT_LIVE_LINE_BOX,
   TRANSCRIPT_LIVE_STEP_GAP,
   TRANSCRIPT_LIVE_STEP_HEIGHT,
-  transcriptLiveVars,
 } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
@@ -98,10 +97,7 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
               await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
               await page.locator(".acpmux-thinking .cv-worked").waitFor();
               await page.evaluate(() => document.fonts.ready);
-              // The live line's box as transcriptGrid.ts gives it for the shipped look (`--cv-live-line-box`), resolved at
-              // the live line rather than read back through the scroller's custom property.
-              const lineBox = transcriptLiveVars()["--cv-live-line-box"];
-              const measured = await page.evaluate((lineBox) => {
+              const measured = await page.evaluate(() => {
                 const live = document.querySelector(".acpmux-thinking .cv-worked")!;
                 let previous = live.closest(".acpmux-row")!.previousElementSibling;
                 while (previous && previous.getBoundingClientRect().height === 0)
@@ -118,12 +114,15 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                     const probe = document.createElement("div");
                     live.parentElement!.append(probe);
                     const read = (height: string) => {
-                      probe.style.cssText = `position:absolute;visibility:hidden;width:0;height:${height}`;
+                      // No min-height or padding a row's rule could give it: only `height` sizes it.
+                      probe.style.cssText = `position:absolute;visibility:hidden;width:0;min-height:0;max-height:none;padding:0;border:0;box-sizing:content-box;height:${height}`;
                       return probe.getBoundingClientRect().height;
                     };
                     const value = {
                       box: read("var(--cv-live-step-height)"),
-                      line: read(`min(${lineBox}, var(--cv-live-step-height))`),
+                      // `--cv-live-line-box` as the scroller computes it (transcriptLiveVars: `var(--cv-tool-row-height)`
+                      // there), inherited by the live line: 22 (#48701 af4bc681457, variant B).
+                      line: read("min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height))"),
                       inherited: getComputedStyle(live).getPropertyValue("--cv-live-line-box").trim(),
                     };
                     probe.remove();
@@ -135,7 +134,7 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                   ),
                   wholeTurnFolds: document.querySelectorAll(".acpmux-worked").length,
                 };
-              }, lineBox);
+              });
               const phase = process.env.CMUX_GAP_PHASE ?? "after";
               console.log(
                 `transcript-live-gap ${phase} ${variant} ${label} ${density} ${interfaceScale}: ${JSON.stringify(measured)}`,
