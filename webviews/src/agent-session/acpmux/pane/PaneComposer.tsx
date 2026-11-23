@@ -129,6 +129,8 @@ type WorktreeError = {
 
 /// What AcpmuxPane's render hands its composer tree: each value as the render worked it out.
 export type PaneComposerDeps = {
+  /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
+  markDockEdge: (lit: boolean) => void;
   readOnlySubagent: boolean;
   subagentDraftKey: string;
   shownSubagentTarget: SubagentTarget | undefined;
@@ -359,6 +361,7 @@ export type PaneComposerDeps = {
 /// The pane's composer tree: a subagent pane's SubagentComposer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
+  markDockEdge,
   readOnlySubagent,
   subagentDraftKey,
   shownSubagentTarget,
@@ -553,6 +556,7 @@ export function drawPaneComposer({
   return readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}
+      onFocusEdge={markDockEdge}
       subagent={shownSubagentTarget?.name ?? t("tray.kind.subagent")}
       chat={chatName}
       draftKey={subagentDraftKey}
@@ -837,6 +841,7 @@ export function drawPaneComposer({
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
+            onFocusEdge={markDockEdge}
             cloudStarting={cloudStarting}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
