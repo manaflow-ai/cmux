@@ -3,7 +3,7 @@
 
 The signer jobs take hosted Ubuntu on attempt 1 (tests/test_ci_self_hosted_guard.sh's signer route).
 A job can't be moved once it is queued without cancelling the started nightly, so the route is chosen
-before they queue: decide and pick-nightly-sign-runner each read how long hosted took to start them,
+before they queue: decide reads how long hosted took to start them,
 and a wait over THRESHOLD_SECONDS sends the jobs after them to their Blacksmith Linux re-run route on
 attempt 1 too. Run 41684606067 waited 6.8 min for the pick and 9.3 min for signer-app.
 

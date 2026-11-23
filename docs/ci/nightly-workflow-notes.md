@@ -63,12 +63,6 @@ build-nightly-app, Mark the kept Release DerivedData built (dedicated nightly-ne
 
 cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly bundles: the daemon, app host and Cloud server come from this tree (pin-cmux-tui.sh tree mode), so the notices do too, with exact closures from `cargo tree`. build-nightly-inputs generates them on Linux beside this job; they are taken when generated at this commit, else generated here as before. The Release build copied the committed file; bundle-notices replaces that copy with this tree's. The sign job verifies the bundle against scripts/cmux-next/notices/bundle-map.json. The dedicated builder's next build may build on this DerivedData only after this one finished (nightly_build_state.py); a build that failed or was cancelled leaves it unmarked, so the next one starts clean.
 
-## note-11
-
-pick-nightly-sign-runner, owned:
-
-An owned label (glaeda-...) or empty: the verify jobs then take the nightly build runner. They read it only while `attempt` is the run's own attempt (a re-run of failed jobs that keeps this job takes `alternate`). Outside attempt 1 of a push (the rescue's workflow_run watch) it stands only once the owned-pool-watch marker is uploaded, as pick-nightly-build-runner's does. The all-nightly reservation is the first owned choice for the secret-free verify and DMG-image jobs. It is deliberately an exact capability check: an unset, stale or foreign value falls through to the normal owned picker. Release-pool signing jobs consume sign_owned instead and keep their existing keychain and claim contract.
-
 ## note-12
 
 sign-release-notes (the job):
@@ -331,17 +325,6 @@ resume, or a build_sha without the step). It scans file contents, so the strip
 before transfer does not hide anything from it, and it covers what
 build-nightly-app adds after the compile (cmux-symbols.bin). The password-reader proof reads symbols with nm, which the
 strip removes, so it stays right after the compile in build-nightly-app.
-
-## note-41
-
-Above `- name: Pick a drained owned Mac for the signing jobs` in `.github/workflows/nightly.yml`.
-
-Leo, 2026-10-28: the release signing jobs may run on owned Macs ("we can just read the code"). A mini
-that runs no job now is offered, pinned by its runner label, else an idle nightly slot on the least busy
-mini, which glaeda drains for the job (no new job starts there while it waits, 3600 s at most, then the
-Blacksmith twin signs); glaeda gives a signing job the whole mini (the exclusive class) and the job's
-first step checks that claim (scripts/ci/signing-runner-claim.sh).
-Off unless vars.CI_SIGN_OWNED is 1; any failure leaves it empty and the signing jobs take Blacksmith.
 
 ## note-42
 
