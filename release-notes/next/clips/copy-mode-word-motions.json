@@ -1,0 +1,20 @@
+{
+  "caption": "In copy mode, 3w moves the cursor three words on and 5j five rows down; v and y copy what it covers.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A terminal with a few lines of text", "cmux": ["action", "run", "newTab", "--arg", "name=Words", "--arg", "command=clear; for i in 1 2 3 4 5 6 7; do echo \"line $i: alpha beta gamma delta epsilon\"; done; sleep 900", "--arg", "focus=true"], "wait": 2.5},
+    {"title": "Copy mode", "rpc": {"method": "debug.key", "params": {"key": "m", "modifiers": ["command", "shift"]}}, "wait": 1.0},
+    {"title": "Top line", "rpc": {"method": "debug.key", "params": {"key": "g"}}, "wait": 0.2},
+    {"title": "gg", "rpc": {"method": "debug.key", "params": {"key": "g"}}, "wait": 1.0, "clip": true},
+    {"title": "3", "rpc": {"method": "debug.key", "params": {"key": "3"}}, "wait": 0.4, "clip": true},
+    {"title": "3w", "rpc": {"method": "debug.key", "params": {"key": "w"}}, "wait": 1.2, "clip": true},
+    {"title": "v", "rpc": {"method": "debug.key", "params": {"key": "v"}}, "wait": 0.6, "clip": true},
+    {"title": "5", "rpc": {"method": "debug.key", "params": {"key": "5"}}, "wait": 0.4, "clip": true},
+    {"title": "5j", "rpc": {"method": "debug.key", "params": {"key": "j"}}, "wait": 1.2, "clip": true},
+    {"title": "2e", "rpc": {"method": "debug.key", "params": {"key": "2"}}, "wait": 0.3, "clip": true},
+    {"title": "e", "rpc": {"method": "debug.key", "params": {"key": "e"}}, "wait": 1.5, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.19, 0, 0.62, 0.42]
+}

@@ -2384,6 +2384,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextTerminalTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
+                "CmuxNextCopyMode",
                 "CmuxNextDesign",
                 "CmuxNextDictation",
                 "CmuxNextTerminal",

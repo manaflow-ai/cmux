@@ -154,6 +154,8 @@ final class TerminalCopyMode {
             for _ in 0..<count { view.session?.navigateSearch(.previous) }
         case .adjustSelection(let move):
             moveCopyModeCursor(move, count: count, surface: surface)
+        case .moveWord(let move):
+            moveCopyModeCursor(byWord: move, count: count, surface: surface)
         }
         syncCursor()
     }
@@ -196,6 +198,27 @@ final class TerminalCopyMode {
     private func moveCopyModeCursor(_ move: CopyModeMove, count: Int, surface: ghostty_surface_t) {
         for _ in 0..<CopyModeKeys.clampCount(count) {
             _ = view.performBindingAction("adjust_selection:\(move.rawValue)")
+        }
+        switch session?.selection ?? .off {
+        case .off: collapseToEnd(surface)
+        case .line: _ = ghostty_surface_select_lines(surface)
+        case .character: break
+        }
+    }
+
+    /// Moves by words over the visible rows: `adjust_selection:left` and
+    /// `:right` step over text cells only, so the motion is that many steps
+    /// (`CopyModeWords`).
+    private func moveCopyModeCursor(byWord move: CopyModeWordMove, count: Int, surface: ghostty_surface_t) {
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard let end = selectionEnd(surface), end.in_viewport,
+              ghostty_surface_grid_metrics(surface, &metrics), metrics.rows > 0 else { return }
+        let columns = Int(metrics.columns)
+        let rows = (0..<Int(metrics.rows)).map { ghosttyViewportRowText(surface, row: $0, columns: columns) }
+        let steps = CopyModeWords.steps(rows: rows, row: Int(end.row), column: Int(end.column), move: move, count: count)
+        guard steps != 0 else { return }
+        for _ in 0..<abs(steps) {
+            _ = view.performBindingAction(steps > 0 ? "adjust_selection:right" : "adjust_selection:left")
         }
         switch session?.selection ?? .off {
         case .off: collapseToEnd(surface)
