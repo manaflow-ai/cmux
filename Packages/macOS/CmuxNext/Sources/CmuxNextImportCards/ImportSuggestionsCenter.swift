@@ -59,7 +59,7 @@ public final class ImportSuggestionsCenter {
 
     /// `Application Support/cmux-next/<bundle id>/import-jobs.json`.
     public nonisolated static var defaultLedgerURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        NextSupport.applicationSupportDirectory()
             .appending(path: "cmux-next", directoryHint: .isDirectory)
             .appending(path: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next", directoryHint: .isDirectory)
             .appending(path: "import-jobs.json")
