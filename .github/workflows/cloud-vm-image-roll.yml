@@ -42,6 +42,11 @@ on:
         default: auto
         type: choice
         options: [auto, "true", "false"]
+      again:
+        description: times this build was dispatched again because the tip moved its image inputs during a bake (the report job sets it; at most 3)
+        required: false
+        default: "0"
+        type: string
       platform_readiness:
         description: mint the cmux-platform push token and read its main Wrangler config without pushing
         required: false
@@ -432,6 +437,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
+      # actions: write dispatches the same build again when the tip moved its image inputs during the bake.
+      actions: write
       contents: write
       issues: write
     steps:
@@ -509,7 +516,7 @@ jobs:
             fi
           fi
           case "$outcome" in
-            pushed|dry-run|nothing) exit 0 ;;
+            pushed|dry-run|nothing|moved) exit 0 ;;
           esac
           what="the gate (bake, 5-clone smoke, agent tools probe or its picker harness ensure) failed; production stays on its image"
           [ "$gate" = passed ] && what="the gate passed but the promotion commit did not land; production stays on its image"
@@ -524,3 +531,14 @@ jobs:
               || gh issue create --repo "$GITHUB_REPOSITORY" --title "Cloud VM image roll is red" --body "$body"
           fi
           exit 1
+      # Promote's "moved": an image-input commit landed on feat-cmux-next during the bake, so approve refused the
+      # candidate. That commit's push roll rebakes the tip with the old pin, so a dispatched build would be dropped
+      # (roll 45142787545); images/cmux-vm/image-roll-again.sh dispatches it again, at most 3 times.
+      - name: Roll the same build again when the tip moved its image inputs during the bake
+        if: ${{ needs.promote.outputs.result == 'moved' && needs.plan.outputs.pin != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIN: ${{ needs.plan.outputs.pin }}
+          AGAIN: ${{ inputs.again || '0' }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run || 'auto' }}
+        run: bash images/cmux-vm/image-roll-again.sh

@@ -779,6 +779,106 @@ describe("auto-roll scripts", () => {
     }
   });
 
+  // Roll 45142787545 (2026-11-23): an image-input commit landed mid-bake, approve refused the candidate (exit 4) and
+  // the run ended green as "nothing", dropping the dispatched cmux-tui. It is "moved" now, and the report job rolls
+  // the same build again.
+  test("the push script reports moved when the tip's lock is not the one the image was baked from", () =>
+    withDir(async (dir) => {
+      const src = path.join(dir, "src");
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+        mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
+        copyFileSync(path.join(repoRoot, file), path.join(src, file));
+      }
+      await git(dir, "init", "-q", "--bare", "remote.git");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", src);
+      await git(src, "add", ".");
+      await git(src, "commit", "-q", "-m", "base");
+      await git(src, "remote", "add", "origin", path.join(dir, "remote.git"));
+      await git(src, "push", "-q", "origin", "feat-cmux-next");
+      const temp = path.join(dir, "runner-temp");
+      mkdirSync(temp);
+      // candidate.lock_sha256 is zeros: not the digest of the tip's lock.
+      writeFileSync(path.join(temp, "candidate.json"), JSON.stringify(candidate));
+      writeFileSync(path.join(temp, "message.txt"), "cmux-vm: image roll test\n");
+      const out = await runChild(
+        "bash",
+        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-1", "--run", "4242",
+          "--attempt", "1", "--message-file", path.join(temp, "message.txt"), "--dry-run"],
+        { cwd: src, env: { ...gitEnv, RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output") } },
+      );
+      expect(out.status).toBe(0);
+      expect(out.stdout.trim().split("\n").at(-1)).toMatch(/^moved the tip moved the image inputs since the bake/);
+      expect(readFileSync(path.join(temp, "output"), "utf8")).toContain("result=moved");
+    }), 60_000);
+
+  describe("image-roll-again.sh", () => {
+    const PIN = "c".repeat(40);
+    // A fake gh: logs its argv, answers the runs list with $FAKE_WAITING.
+    const run = (dir: string, env: Record<string, string>) => {
+      const bin = path.join(dir, "bin");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(path.join(bin, "gh"), '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$FAKE_LOG"\nif [ "$2" != "-X" ]; then printf "%s" "${FAKE_WAITING:-}"; fi\n', { mode: 0o755 });
+      const log = path.join(dir, "gh.log");
+      writeFileSync(log, "");
+      return runChild("bash", [path.join(repoRoot, "images/cmux-vm/image-roll-again.sh")], {
+        cwd: dir,
+        env: { PATH: `${bin}:${process.env.PATH}`, FAKE_LOG: log, GITHUB_REPOSITORY: "o/r", GITHUB_RUN_ID: "77", PIN, AGAIN: "0", DRY_RUN_INPUT: "auto", ...env },
+      }).then((r) => ({ ...r, calls: readFileSync(log, "utf8").trim().split("\n").filter(Boolean) }));
+    };
+
+    test("dispatches the same build again with the next count and the run's dry_run", () =>
+      withDir(async (dir) => {
+        const r = await run(dir, { AGAIN: "1", DRY_RUN_INPUT: "true" });
+        expect(r.status).toBe(0);
+        expect(r.calls).toHaveLength(2);
+        expect(r.calls[0]).toContain("repos/o/r/actions/workflows/cloud-vm-image-roll.yml/runs?branch=feat-cmux-next&event=workflow_dispatch");
+        expect(r.calls[0]).toContain(".id != 77");
+        expect(r.calls[1]).toBe(`api -X POST repos/o/r/actions/workflows/cloud-vm-image-roll.yml/dispatches -f ref=refs/heads/feat-cmux-next -f inputs[commit]=${PIN} -f inputs[dry_run]=true -f inputs[again]=2`);
+        expect(r.stdout).toContain("time 2 of 3");
+      }), 30_000);
+
+    test("a dispatched roll already waiting is left to roll its build", () =>
+      withDir(async (dir) => {
+        const r = await run(dir, { FAKE_WAITING: "99" });
+        expect(r.status).toBe(0);
+        expect(r.calls).toHaveLength(1);
+        expect(r.stdout).toContain("already waiting (run 99)");
+      }), 30_000);
+
+    test("the third time stops with a warning and no API call", () =>
+      withDir(async (dir) => {
+        const r = await run(dir, { AGAIN: "3" });
+        expect(r.status).toBe(0);
+        expect(r.calls).toEqual([]);
+        expect(r.stdout).toContain("::warning");
+      }), 30_000);
+
+    test("a pin that is not a commit fails and dispatches nothing", () =>
+      withDir(async (dir) => {
+        const r = await run(dir, { PIN: "main" });
+        expect(r.status).toBe(1);
+        expect(r.calls).toEqual([]);
+      }), 30_000);
+  });
+
+  test("the report job rolls a dispatched build again only on moved, with actions: write and the again input", () => {
+    const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
+    type Step = { name?: string; if?: string; run?: string; env?: Record<string, string> };
+    const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as {
+      on: { workflow_dispatch: { inputs: Record<string, { default?: string; type?: string }> } };
+      jobs: Record<string, { permissions?: Record<string, string>; steps: Step[] }>;
+    };
+    expect(roll.on.workflow_dispatch.inputs["again"]).toMatchObject({ default: "0", type: "string" });
+    const report = roll.jobs["report"]!;
+    expect(report.permissions).toMatchObject({ actions: "write", contents: "write", issues: "write" });
+    const record = report.steps.find((s) => s.name === "Record the roll")!;
+    expect(record.run).toContain("pushed|dry-run|nothing|moved) exit 0 ;;");
+    const again = report.steps.find((s) => s.run?.includes("image-roll-again.sh"))!;
+    expect(again.if).toBe("${{ needs.promote.outputs.result == 'moved' && needs.plan.outputs.pin != '' }}");
+    expect(again.env).toMatchObject({ PIN: "${{ needs.plan.outputs.pin }}", AGAIN: "${{ inputs.again || '0' }}", DRY_RUN_INPUT: "${{ inputs.dry_run || 'auto' }}" });
+    expect(report.steps.indexOf(again)).toBeGreaterThan(report.steps.indexOf(record));
+  });
+
   test("the plan job checks out full history and fails on a pin it cannot fetch", () => {
     const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
     type Step = { id?: string; run?: string; with?: Record<string, unknown> };

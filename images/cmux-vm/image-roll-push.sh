@@ -104,7 +104,7 @@ for push_try in 1 2 3 4 5; do
             --wrangler "$platform_checkout/workers/cmux-vm/wrangler.jsonc" --lock "$PWD/images/cmux-vm/inputs.lock.json" "${pins_args[@]}" > "$RUNNER_TEMP/approve.json"
           rc=$?
           set -e
-          if [ "$rc" = 4 ]; then report nothing "the tip moved the image inputs since the bake; the next roll bakes them" ""; exit 0; fi
+          if [ "$rc" = 4 ]; then report moved "the tip moved the image inputs since the bake; a dispatched build is rolled again, a push roll is the next roll" ""; exit 0; fi
           [ "$rc" = 0 ] || exit "$rc"
           cat "$RUNNER_TEMP/approve.json"
           git -C "$platform_checkout" config user.name "github-actions[bot]"
@@ -123,7 +123,7 @@ for push_try in 1 2 3 4 5; do
           bun images/cmux-vm/auto-roll.ts approve --candidate "$candidate" --revision "$revision" --run "$run" --attempt "$attempt" "${pins_args[@]}" > "$RUNNER_TEMP/approve.json"
           rc=$?
           set -e
-          if [ "$rc" = 4 ]; then report nothing "the tip moved the image inputs since the bake; the next roll bakes them" ""; exit 0; fi
+          if [ "$rc" = 4 ]; then report moved "the tip moved the image inputs since the bake; a dispatched build is rolled again, a push roll is the next roll" ""; exit 0; fi
           [ "$rc" = 0 ] || exit "$rc"
           cat "$RUNNER_TEMP/approve.json"
           git add workers/cmux-vm/wrangler.jsonc images/cmux-vm/inputs.lock.json
