@@ -28,6 +28,12 @@ if ((${#missing[@]})); then
   sudo -n apt-get update -qq >/dev/null && sudo -n apt-get install -y -qq xvfb ethtool iproute2 >/dev/null ||
     { echo "netem-before-after: cannot install ${missing[*]}" >&2; exit 2; }
 fi
+# A kernel without sch_netem (the Blacksmith image) fails every row's tc; say so before building.
+sudo -n modprobe sch_netem 2>/dev/null
+sudo -n ip link add rdnetem-probe type dummy 2>/dev/null &&
+  { sudo -n tc qdisc add dev rdnetem-probe root netem delay 1ms; ok=$?; sudo -n ip link del rdnetem-probe; } ||
+  ok=1
+((ok == 0)) || { echo "netem-before-after: this kernel ($(uname -r)) has no netem qdisc" >&2; exit 2; }
 
 features=(--no-default-features --features bench,link,portal-dbus)
 build() { # build DIR TARGET -> path of cmux-rd
@@ -57,6 +63,7 @@ head_bin="$(build "$repo" "$target")" || { echo "head build failed" >&2; exit 1;
 base_bin="$(build "$base_dir" "$target-base")" || { echo "base build failed" >&2; exit 1; }
 echo "base $base_sha, head $(git -C "$repo" rev-parse HEAD)"
 
+failed=0
 for row in $ROWS; do
   IFS=: read -r rtt loss rate <<<"$row"
   for side in base head; do
@@ -64,8 +71,12 @@ for row in $ROWS; do
     file="$out/$side-$rtt-$loss-$rate.jsonl"
     sudo -n python3 -I "$here/screen-share-netem.py" "$bin" --rtt "$rtt" --loss "$loss" --rate "$rate" \
       --workload "$WORKLOAD" --attempts "$ATTEMPTS" --samples "$SAMPLES" "${serve_args[@]}" --out "$file" >"$file.log" 2>&1
-    echo "$side rtt=${rtt}ms loss=${loss}% rate=${rate}Mbit exit=$?: $(tail -n 3 "$file.log" | tr '\n' ' ')" |
+    rc=$?
+    ((rc == 0)) || failed=$((failed + 1))
+    echo "$side rtt=${rtt}ms loss=${loss}% rate=${rate}Mbit exit=$rc: $(tail -n 3 "$file.log" | tr '\n' ' ')" |
       tee -a "$out/summary.txt"
   done
 done
 git -C "$repo" worktree remove --force "$base_dir"
+# A run whose rows failed measured nothing: exit non-zero so its CI verdict is not green.
+((failed == 0)) || { echo "netem-before-after: $failed run(s) failed" >&2; exit 1; }
