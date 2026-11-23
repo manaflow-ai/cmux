@@ -166,7 +166,7 @@ impl Translator {
         drop(steers);
         drop(batches);
         // Sent now (`_meta.steerNow`): the current step stops, so it reads the line at once; the
-        // turn runs on. Not while a subagent or a background shell runs (`interrupt_ends_work`).
+        // turn runs on. Not while a foreground subagent runs (`interrupt_ends_work`).
         if now && !self.interrupt_ends_work().await {
             return Outbound::Lines(vec![line, self.step_interrupt(None)]);
         }

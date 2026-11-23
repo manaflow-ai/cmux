@@ -24,7 +24,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not self.path.split("?")[0].endswith(".xml"):
             return super().do_GET()
         start = time.time() * 1000
-        time.sleep(latency_ms / 1000)
+        time.sleep(latency_ms / 1000)  # sleep-ok: the simulated slow feed itself (its latency is the test input)
         super().do_GET()
         with lock, open(reads_path, "a") as f:
             f.write(json.dumps({"path": self.path, "start_ms": start, "end_ms": time.time() * 1000}) + "\n")

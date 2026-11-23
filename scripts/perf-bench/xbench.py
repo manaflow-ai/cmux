@@ -21,6 +21,9 @@ Safari, on one Mac, the same way for every browser:
   memory-closed        MB, back to 1 tab after 20
   power-home-idle, idle-cpu-home, idle-wakeups-home  cmux-terminal only: cmux idle on Home
   budget-*             cmux-budget only: the resource budget session (budget.py, budgets.json)
+  tabsN-*              --scenario idle-tabs only: at N open tabs (--tab-counts, default 1,10,50), each idle
+                       --idle s: memory (MB), CPU and wakeups of the whole instance, the CPU of its GPU
+                       process, and the Mac's GPU Device Utilization (ioreg, as bench_memory.py's GpuSampler)
 
 Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
   - local pages on 127.0.0.1 (pages.py), no network-dependent rows;
@@ -48,7 +51,12 @@ Usage (on a fleet mini; scripts/measure/perf-bench.sh is the fleet entry):
   xbench.py gate --results results.json --baseline baseline.json [--tolerance 0.15]
 
 Browser names: cmux-chromium, cmux-webkit, cmux-terminal, cmux-budget (all --app cmux=BUNDLE),
-chrome, helium, dia, ardia, safari (default /Applications/Safari.app).
+chrome, edge (Microsoft Edge), helium, dia, ardia, safari (default /Applications/Safari.app).
+
+--scenario idle-tabs (perf-bench.sh suite=tabs) runs only the idle-tabs session: one launch per browser per
+round, tabs opened to each count of --tab-counts in turn, the same local idle page in every tab (each tab its
+own renderer: Chromium never shares one for an IP address), the newest tab shown and the rest in the
+background, as a user's window after opening that many tabs.
 """
 from __future__ import annotations
 
@@ -114,6 +122,34 @@ ROWS = [
 ROW_INFO = {row: (label, unit, main) for row, label, unit, main in ROWS}
 ROW_INFO.update(budget.ROW_INFO)
 
+# --scenario idle-tabs: one row set per tab count (Leo, 2026-11-20, ask-9176875aef: idle RAM, CPU and GPU
+# per tab against Edge, as tabs grow).
+TAB_COUNTS_DEFAULT = "1,10,50"
+TAB_METRICS = [
+    ("memory", "memory", "MB"),
+    ("cpu", "CPU, idle (100 % = one core)", "%"),
+    ("wakeups", "wakeups, idle", "/s"),
+    ("gpu-cpu", "GPU process CPU, idle", "%"),
+    ("gpu-util", "GPU Device Utilization, idle (whole Mac)", "%"),
+]
+
+
+def tab_counts(text: str) -> list[int]:
+    return sorted({int(part) for part in str(text or TAB_COUNTS_DEFAULT).split(",") if part.strip()})
+
+
+def tab_row(count: int, metric: str) -> str:
+    return f"tabs{count}-{metric}"
+
+
+def register_tab_rows(counts: list[int]):
+    for count in counts:
+        for metric, label, unit in TAB_METRICS:
+            ROW_INFO.setdefault(tab_row(count, metric), (f"{count} tab{'s' if count != 1 else ''}, {label}", unit, False))
+
+
+register_tab_rows(tab_counts(TAB_COUNTS_DEFAULT))
+
 # Ardia's tweet (2026-10-19, Apple M5 Pro, macOS 27.2): Ardia 0.2.38-nightly.8, Helium 0.19.3.1, Dia 1.53.0.
 PUBLISHED = {
     "ardia": {"power-idle-hidden": 3.9, "power-idle-visible": 3.5, "power-scroll": 28.2, "power-video": 82.0,
@@ -127,11 +163,11 @@ PUBLISHED = {
             "idle-cpu-20": 1.05, "memory-1": 480, "memory-10": 1273, "memory-20": 1822},
 }
 
-CHROMIUM = {"chrome", "helium", "dia", "ardia"}
+CHROMIUM = {"chrome", "edge", "helium", "dia", "ardia"}
 CMUX = {"cmux-chromium", "cmux-webkit", "cmux-terminal", budget.NAME}
 LABELS = {"cmux-chromium": "cmux NEXT (Chromium tab)", "cmux-webkit": "cmux NEXT (WebKit tab)",
-          "cmux-terminal": "cmux NEXT (terminals)", budget.NAME: budget.LABEL, "chrome": "Chrome", "helium": "Helium", "dia": "Dia",
-          "ardia": "Ardia", "safari": "Safari"}
+          "cmux-terminal": "cmux NEXT (terminals)", budget.NAME: budget.LABEL, "chrome": "Chrome", "edge": "Microsoft Edge",
+          "helium": "Helium", "dia": "Dia", "ardia": "Ardia", "safari": "Safari"}
 DEFAULT_BROWSERS = "cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 
 
@@ -144,7 +180,7 @@ def now_ms() -> float:
 
 
 def sleep(seconds: float):
-    time.sleep(seconds)  # bench: a deliberate settle or idle window
+    time.sleep(seconds)  # sleep-ok: the bench's fixed settle and idle points, the same for every browser compared
 
 
 def tree_states(root: str) -> dict[str, tuple[float, int]]:
@@ -695,7 +731,7 @@ class Run:
             browser.ready()
             log(f"{browser.name} r{round_no}: session (load {load})")
             if browser.name == "cmux-terminal":
-                sleep(a.settle)
+                sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before the home idle window
                 self.window(browser, round_no, {"power-home-idle": "mw", "idle-cpu-home": "cpu_pct",
                                                 "idle-wakeups-home": "wakeups_per_s"}, a.idle)
             browser.adopt_first(first)
@@ -703,7 +739,7 @@ class Run:
                 painted = self.server.wait("fcp", first, timeout=30)
                 if not painted:
                     log(f"{browser.name}: first tab never painted")
-            sleep(a.settle)
+            sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before memory-1 and its idle window
             self.memory(browser, round_no, "memory-1")
             self.window(browser, round_no, {"power-idle-visible-1": "mw", "idle-cpu-1": "cpu_pct",
                                             "idle-wakeups-1": "wakeups_per_s"}, a.idle)
@@ -723,12 +759,12 @@ class Run:
                         browser.tabs.remove(handle)  # Safari keeps it open: it is one of the 20 below
                         browser.tabs.append(handle)
             self.open_to(browser, 10)
-            sleep(10)
+            sleep(10)  # sleep-ok: memory-10 is read 10 s after the tenth tab, the same for every browser
             self.memory(browser, round_no, "memory-10")
             self.open_to(browser, 20)
-            sleep(15)
+            sleep(15)  # sleep-ok: memory-20 is read 15 s after the twentieth tab, the same for every browser
             self.memory(browser, round_no, "memory-20")
-            sleep(a.settle)
+            sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before the 20-tab idle window
             self.window(browser, round_no, {"power-idle-visible": "mw", "idle-cpu-20": "cpu_pct",
                                             "idle-wakeups-20": "wakeups_per_s"}, a.idle)
             if isinstance(browser, ChromiumBrowser):
@@ -775,15 +811,58 @@ class Run:
                         browser.close(handle)
                     sleep(2)
             browser.hide()
-            sleep(10)
+            sleep(10)  # sleep-ok: 10 s hidden before the hidden power window (the OS's hidden-app throttling starts in it)
             self.window(browser, round_no, {"power-idle-hidden": "mw"}, a.idle)
             browser.unhide()
             if browser.can_close:
                 while len(browser.tabs) > 1:
                     browser.close(browser.tabs[-1])
                     sleep(0.2)  # bench: a user's pace closing tabs
-                sleep(30)
+                sleep(30)  # sleep-ok: memory-closed is read 30 s after the closes, the same for every browser
                 self.memory(browser, round_no, "memory-closed")
+        except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on
+            self.record(browser.name, round_no, "session-error", None, note=f"{type(error).__name__}: {error}"[:400])
+        finally:
+            browser.quit()
+            shutil.rmtree(profile, ignore_errors=True)
+
+    def idle_tabs(self, browser: Browser, round_no: int, counts: list[int]):
+        """--scenario idle-tabs: idle cost at each tab count, one launch, tabs opened in ascending counts."""
+        import bench_memory as bm  # GpuSampler: the same ioreg counters as perf-10x-idle.sh's axes
+        a = self.args
+        load = self.quiet()
+        profile = self.profile(browser, f"tabs{round_no}")
+        first = self.tab_id("i")
+        try:
+            browser.launch(profile, self.server.url("idle", first) if browser.can_link or browser.name == "safari" else None)
+            browser.ready()
+            log(f"{browser.name} r{round_no}: idle tabs {counts} (load {load})")
+            browser.adopt_first(first)
+            if browser.tab_kind == "page" and not self.server.wait("fcp", first, timeout=30):
+                log(f"{browser.name}: first tab never painted")
+            for count in counts:
+                self.open_to(browser, count)
+                newest = browser.ids.get(browser.tabs[-1], browser.tabs[-1]) if browser.tabs else None
+                painted = self.server.wait("fcp", newest, timeout=30) if browser.tab_kind == "page" else True
+                sleep(a.settle)
+                got = browser.instance.memory()
+                note = {} if painted else {"note": f"tab {newest} never painted"}
+                self.record(browser.name, round_no, tab_row(count, "memory"), got["mb"], processes=got["processes"],
+                            kinds=got["kinds"], tabs=len(browser.tabs), **note)
+                gpu = bm.GpuSampler(interval=2.0)
+                gpu.start()
+                try:
+                    window = browser.instance.window(a.idle)
+                finally:
+                    gpu_got = gpu.finish()
+                kinds = window["kinds"]
+                extra = {"load": round(procs.load_average(), 2), "tabs": len(browser.tabs), **note}
+                self.record(browser.name, round_no, tab_row(count, "cpu"), window["cpu_pct"], kinds=kinds, **extra)
+                self.record(browser.name, round_no, tab_row(count, "wakeups"), window["wakeups_per_s"], **extra)
+                self.record(browser.name, round_no, tab_row(count, "gpu-cpu"),
+                            sum(kinds.get(kind, {}).get("cpu_pct", 0.0) for kind in ("gpu", "webkit-gpu")), **extra)
+                self.record(browser.name, round_no, tab_row(count, "gpu-util"), gpu_got.get("device_utilization_pct"),
+                            gpu=gpu_got, **extra)
         except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on
             self.record(browser.name, round_no, "session-error", None, note=f"{type(error).__name__}: {error}"[:400])
         finally:
@@ -841,6 +920,10 @@ class Run:
             for round_no in range(1, a.rounds + 1):
                 order = order[1:] + order[:1] if round_no > 1 else order  # rotate each round
                 for browser in order:
+                    if a.scenario == "idle-tabs":
+                        if browser.name != budget.NAME:
+                            self.idle_tabs(browser, round_no, tab_counts(a.tab_counts))
+                        continue
                     if browser.name == budget.NAME:
                         budget.session(self, browser, round_no, log, a.budgets)
                         continue
@@ -864,6 +947,33 @@ def aggregate(samples: list[dict]) -> dict:
         result[row] = {b: {"median": round(statistics.median(v), 3), "min": min(v), "max": max(v), "n": len(v)}
                        for b, v in per.items()}
     return result
+
+
+def tabs_lines(rows: dict, present: list[str], meta: dict) -> list[str]:
+    """The idle-tabs section: one table row per tab count and metric, cmux against the best other and Edge."""
+    counts = tab_counts(meta.get("args", {}).get("tab_counts"))
+    register_tab_rows(counts)
+    wanted = [tab_row(count, metric) for count in counts for metric, _label, _unit in TAB_METRICS]
+    if not any(rows.get(row) for row in wanted):
+        return []
+    others = [b for b in present if b not in CMUX]
+    head = ["Tabs, idle"] + [LABELS[b] for b in present] + ["best other", "cmux vs best other"]
+    lines = ["## Idle cost as tabs grow", "",
+             f"Each count opened in one window, {meta.get('args', {}).get('idle', '?')} s idle after "
+             f"{meta.get('args', {}).get('settle', '?')} s settle; the newest tab shown. GPU Device Utilization is "
+             "the whole Mac's (ioreg), GPU process CPU is the browser's own GPU process. Lower is better.", "",
+             "| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    for row in wanted:
+        per = rows.get(row, {})
+        if not per:
+            continue
+        label, unit, _main = ROW_INFO[row]
+        cells = [fmt(per.get(b, {}).get("median"), unit) for b in present]
+        best = min((per[b]["median"], b) for b in others if b in per) if any(b in per for b in others) else None
+        cmux_best = min((per[b]["median"] for b in CMUX if b in per), default=None)
+        lines.append("| " + " | ".join([label] + cells + [
+            f"{fmt(best[0], unit)} ({LABELS[best[1]]})" if best else "–", ratio(cmux_best, best[0] if best else None)]) + " |")
+    return lines + [""]
 
 
 def fmt(value, unit: str) -> str:
@@ -1027,6 +1137,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
+    register_tab_rows(tab_counts(meta.get("args", {}).get("tab_counts")))  # a run's own --tab-counts
     rows = aggregate(samples)
     switch_rows, switch_lines = tab_switch_rows(tabswitch)
     rows.update(switch_rows)
@@ -1052,7 +1163,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
         with open(json_path, "w") as handle:
             json.dump(result, handle, indent=1)
     m = meta["machine"]
-    present = [b for b in ["cmux-chromium", "cmux-webkit", "cmux-terminal", "chrome", "helium", "ardia", "dia", "safari"]
+    present = [b for b in ["cmux-chromium", "cmux-webkit", "cmux-terminal", "chrome", "edge", "helium", "ardia", "dia", "safari"]
                if any(b in per for per in rows.values())]
     others = [b for b in present if b not in CMUX]
     lines = [f"# xbench, {result['date']}: cmux NEXT against Chrome, Helium, Ardia, Dia, Safari", "",
@@ -1080,6 +1191,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
         lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
                   "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
                   "The 10x goal: every cmux cell at a tenth of the best other.", ""]
+    lines += tabs_lines(rows, present, meta)
     lines += budget_lines
     lines += switch_lines
     lines += palette_lines
@@ -1186,6 +1298,9 @@ def main():
     run.add_argument("--app", action="append", default=[], metavar="NAME=BUNDLE")
     run.add_argument("--browsers", default=DEFAULT_BROWSERS)
     run.add_argument("--rounds", type=int, default=3)
+    run.add_argument("--scenario", choices=("full", "idle-tabs"), default="full",
+                     help="idle-tabs: only the idle cost at each --tab-counts count (perf-bench.sh suite=tabs)")
+    run.add_argument("--tab-counts", default=TAB_COUNTS_DEFAULT, help="idle-tabs: the tab counts, ascending")
     run.add_argument("--launches", type=int, default=2, help="cold launches per browser per round")
     run.add_argument("--newtabs", type=int, default=5)
     run.add_argument("--idle", type=float, default=60)

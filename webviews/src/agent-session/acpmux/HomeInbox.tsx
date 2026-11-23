@@ -27,6 +27,7 @@ import { type AcpmuxSessionEntry, projectLabel } from "./sessionList";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { type HomeInboxOutcome, inlineAnswers } from "./homeInboxModel";
 import { pressToOpen } from "../../ui/pressToOpen";
+import { WithFacts } from "./chips/FactsHoverCard";
 
 /// How the inbox lays its rows out: each ask with its chat under it and its answers (`list`, the
 /// home's), one line per ask with its answers at its end (`compact`), or under its chat's folder
@@ -236,23 +237,26 @@ const InboxRow = memo(function InboxRow({
         type="button"
         className="acpmux-home-inbox-open"
         aria-label={`${ask}, ${where}`}
-        title={t("needsYou.goToSource")}
         {...pressToOpen(() => open(item))}
       >
         <span className="acpmux-home-inbox-mark">
           <AgentMark agent={item.who.harness} size={14} reserve />
         </span>
         <span className="acpmux-home-inbox-text">
-          <span className="acpmux-home-inbox-ask" title={ask}>
-            {ask}
-          </span>
+          <span className="acpmux-home-inbox-ask">{ask}</span>
+          {/* A long command or path ends in an ellipsis: hovering it shows the whole text (c0ecbb88 took its
+              title; WithFacts is where a row's cut text shows, a1e7752). */}
           {item.detail && (
-            <span className="acpmux-home-inbox-detail" data-code={item.command ? "" : undefined} title={item.detail}>
-              {item.detail}
-            </span>
+            <WithFacts facts={[{ value: item.detail, code: !!item.command }]}>
+              {(facts) => (
+                <span {...facts} className="acpmux-home-inbox-detail" data-code={item.command ? "" : undefined}>
+                  {item.detail}
+                </span>
+              )}
+            </WithFacts>
           )}
           {look !== "compact" && (
-            <span className="acpmux-home-inbox-where" title={where}>
+            <span className="acpmux-home-inbox-where">
               <span className="acpmux-home-inbox-kind">{t(KINDS[item.kind])}</span>
               {where && ` · ${where}`}
             </span>

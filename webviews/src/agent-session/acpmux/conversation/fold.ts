@@ -215,11 +215,18 @@ export function clipFold(node: HTMLElement, on: boolean): void {
 /// it) to the height it lays out at now: a cut card opening whole, or cut again. The fold's duration
 /// and easing, clipped while it plays; at once when the fold may not move. A resize that turns back
 /// midway starts from where it was drawn, as `from` is read while it plays.
-export function playResize(node: HTMLElement, from: number): void {
+///
+/// `to` and `done` are for a box that closes to a height it does not lay out at while it plays (a
+/// thought's line keeps its wrapped words until it is one line tall again, ThoughtRow.tsx): the
+/// height to end at, and what to do once the resize is over or dropped.
+export function playResize(node: HTMLElement, from: number, to?: number, done?: () => void): void {
   resizing.get(node)?.cancel();
   const ms = node.closest("[data-bottom-fold]") ? 0 : foldMs(node);
-  const to = node.getBoundingClientRect().height;
-  if (ms <= 0 || Math.abs(to - from) < 0.5) return;
+  to ??= node.getBoundingClientRect().height;
+  if (ms <= 0 || Math.abs(to - from) < 0.5) {
+    done?.();
+    return;
+  }
   // The rows below are placed before paint while it plays, as a fold's are (`heightFoldInFlight`).
   markHeightFold(node, ms);
   clipFold(node, true);
@@ -236,9 +243,27 @@ export function playResize(node: HTMLElement, from: number): void {
     if (resizing.get(node) !== animation) return;
     resizing.delete(node);
     clipFold(node, false);
+    done?.();
   };
   animation.onfinish = release;
   animation.oncancel = release;
+  restartAfterSlowFirstFrame(node, animation);
+}
+
+/// A resize's first gap that comes slow (the toggle's own render and layout: a permission card's full
+/// command, gallery `agent-pane.transcript` permission-expanded, cost a 64 ms first frame under load)
+/// restarts its clock, as a fold's does (`settleOnDroppedFrames`), so the first frame the reader sees
+/// moved is near the start rather than most of the way. Two frame callbacks, once per resize.
+function restartAfterSlowFirstFrame(node: HTMLElement, animation: Animation): void {
+  const view = node.ownerDocument.defaultView;
+  if (!view?.requestAnimationFrame) return;
+  view.requestAnimationFrame((first) =>
+    view.requestAnimationFrame((now) => {
+      if (resizing.get(node) !== animation) return;
+      const gap = now - first;
+      if (gap > FOLD_FRAME_MS * 1.5) restartClock(node, animation, gap - FOLD_FRAME_MS);
+    }),
+  );
 }
 
 /// Stops the resize `node` is playing, if any (`playResize`), leaving it at the height it lays out at.

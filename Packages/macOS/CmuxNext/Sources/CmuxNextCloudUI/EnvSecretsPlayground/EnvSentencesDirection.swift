@@ -317,6 +317,7 @@ struct EnvSentencesDirection {
 
     private func request() -> NSView {
         let field = NSSecureTextField()
+        field.focusRingType = .none
         field.placeholderString = "Type or paste the value"
         field.bezelStyle = .roundedBezel
         field.font = .systemFont(ofSize: TypeScale.field)
