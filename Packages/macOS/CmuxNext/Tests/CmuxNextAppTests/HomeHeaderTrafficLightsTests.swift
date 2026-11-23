@@ -55,23 +55,19 @@ import Testing
         window.contentView?.addSubview(home)
         home.layoutSubtreeIfNeeded()
         #expect(window.windowControlsAvoiders.count >= 1, "Home's list did not join the window's top-row views")
-        // One header, lights over the list or not (the user, 2026-11-19, msg 42221): right of the
-        // sidebar the list keeps the lights' row, with nothing on it, so a toggle moves it sideways only.
-        let beside = home.header
-        #expect(beside.listTop > HomeSidebarHeaderLayout.band, "the list right of the sidebar lost the lights' row")
+        #expect(home.header == HomeSidebarHeaderLayout(width: 300, searchOpen: false), "the list right of the sidebar reserved room for the lights")
 
         home.setFrameOrigin(.zero)
         WindowControlsAvoiders.refresh(in: window)
         home.layoutSubtreeIfNeeded()
         let lights = try lights(window)
         #expect(!inWindow(home.searchCapsule).intersects(lights), "after the sidebar hid, the Search field stayed under the traffic lights")
-        #expect(home.header == beside, "the sidebar hid and Home's header moved")
 
-        // Cmd+B again: the list moves back right of the sidebar, its header as it was.
+        // Cmd+B again: the list moves back right of the sidebar and the row returns to its inset.
         home.setFrameOrigin(NSPoint(x: 260, y: 0))
         WindowControlsAvoiders.refresh(in: window)
         home.layoutSubtreeIfNeeded()
-        #expect(home.header == beside)
+        #expect(home.header == HomeSidebarHeaderLayout(width: 300, searchOpen: false))
     }
 
     /// The app's own trigger: a pane with no tab bar (the docked Home) moves in the window at the
@@ -90,15 +86,13 @@ import Testing
         _ = pane.show(container)
         window.contentView?.addSubview(pane)
         window.contentView?.layoutSubtreeIfNeeded()
-        let beside = home.header
-        #expect(beside.listTop > HomeSidebarHeaderLayout.band, "the list right of the sidebar lost the lights' row")
+        #expect(home.header == HomeSidebarHeaderLayout(width: 300, searchOpen: false))
 
         pane.setFrameOrigin(.zero)
         pane.paneFrameInWindowDidChange()
         window.contentView?.layoutSubtreeIfNeeded()
         let lights = try lights(window)
         #expect(!inWindow(home.searchCapsule).intersects(lights), "the pane moved under the lights and Home's Search field stayed there")
-        #expect(home.header == beside, "the pane moved under the lights and Home's header moved")
     }
 
     /// The Cmd+B wiring itself: the window controller hands the main pane card's move
@@ -119,20 +113,17 @@ import Testing
         let home = HomeSidebarView(frame: NSRect(x: 260, y: 0, width: 300, height: controller.root.bounds.height))
         controller.root.addSubview(home)
         home.layoutSubtreeIfNeeded()
-        let beside = home.header
+        #expect(home.header == HomeSidebarHeaderLayout(width: 300, searchOpen: false))
 
         home.setFrameOrigin(.zero)
         let lights = try lights(window)
-        // One header, lights over the list or not: even before the callback the Search field
-        // is clear of the lights (it was under them while the list had two headers).
-        #expect(!inWindow(home.searchCapsule).intersects(lights), "the list moved under the lights and its Search field was under them before any re-check")
+        try #require(inWindow(home.searchCapsule).intersects(lights), "the fixture must put the stale Search field under the traffic lights before the callback")
         // Bind the closure before calling it: calling `#require`'s result inline crashes the
         // Swift 6.2 type checker (ConstraintSystem recordArgumentList assertion).
         let mainPaneMoved = try #require(controller.root.onMainPaneMove, "the window controller did not wire the main pane card's move")
         mainPaneMoved()
         home.layoutSubtreeIfNeeded()
         #expect(!inWindow(home.searchCapsule).intersects(lights), "the main pane card moved and Home's Search field stayed under the lights")
-        #expect(home.header == beside, "the main pane card moved and Home's header moved")
     }
 
     /// A hidden workspace keeps the clearance it had: re-checks skip it while hidden, and it
@@ -154,7 +145,7 @@ import Testing
         #expect(home.header == cleared)
         workspace.isHidden = false
         home.layoutSubtreeIfNeeded()
-        #expect(home.header == cleared, "beside the lights Home's header is the one under them")
+        #expect(home.header == HomeSidebarHeaderLayout(width: 300, searchOpen: false))
         #expect(!inWindow(home.searchCapsule).intersects(try lights(window)))
     }
 
@@ -209,7 +200,7 @@ import Testing
         column.showsCompose = true
         window.contentView?.addSubview(column)
         column.layoutSubtreeIfNeeded()
-        #expect(column.chats.isHidden, "the Chats button shows (#48467: no sidebar toggle beside compose)")
+        #expect(column.chats.isHidden, "the Chats button shows (#48467)")
         #expect(column.compose.frame.minX == HomeChatColumnView.composeInset)
 
         column.setFrameOrigin(.zero)
@@ -217,6 +208,7 @@ import Testing
         column.layoutSubtreeIfNeeded()
         let lights = try lights(window)
         #expect(!inWindow(column.compose).intersects(lights), "the compose button is under the traffic lights")
+        #expect(!inWindow(column.chats).intersects(lights), "the Chats button is under the traffic lights")
     }
 
     /// The shared measure (`WindowTitlebar.windowControlsMaxX`): only what lies over the shown part counts.

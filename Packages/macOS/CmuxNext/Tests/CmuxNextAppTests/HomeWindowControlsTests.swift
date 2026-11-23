@@ -62,10 +62,8 @@ struct HomeWindowControlsTests {
         #expect(home.unreadToggle.frame == h.filter)
     }
 
-    /// A list clear of the lights (the window's sidebar open beside it) keeps the lights' row with
-    /// nothing on it, so a toggle of the window's sidebar moves Home sideways only (the user,
-    /// 2026-11-19, msg 42221: "stuff in the home imessage chief ui shifts around too").
-    @Test func theListBesideTheLightsKeepsTheLightsRow() throws {
+    /// A list clear of the lights (the window's sidebar open beside it) keeps the one row.
+    @Test func theListBesideTheLightsKeepsOneRow() throws {
         let win = Self.window()
         defer { win.close() }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 700))
@@ -76,13 +74,20 @@ struct HomeWindowControlsTests {
         home.layoutSubtreeIfNeeded()
         home.list.headerView.needsLayout = true
         home.list.headerView.layoutSubtreeIfNeeded()
-        let lights = try Self.lights(in: home.list.headerView)
-        let h = home.header
-        #expect(abs(h.filter.midY - lights.midY) <= 1, "the filter left the lights' line beside them")
-        #expect(h.filter.maxX == 320 - HomeSidebarHeaderLayout.inset)
-        #expect(h.search.minY >= lights.maxY, "the search field left the row under the lights' line")
-        #expect(h.search.width == 320 - 2 * HomeSidebarHeaderLayout.inset)
-        #expect(h.listTop > HomeSidebarHeaderLayout.band)
+        #expect(home.header == HomeSidebarHeaderLayout(width: 320, searchOpen: false))
+    }
+
+    /// #48467, the person: "can we make this text search bar in the top and then the filter on the right". Clear of
+    /// the lights, Search is on the top row with the filter to its right, centred on one line, and no empty row sits
+    /// above them; the chat's compose sits on that line too.
+    @Test(arguments: [240, 320, 480] as [CGFloat])
+    func searchTopFilterRightBesideTheLights(_ width: CGFloat) throws {
+        let h = HomeSidebarHeaderLayout(width: width, searchOpen: false)
+        #expect(!h.compact)
+        #expect(h.filter.minX >= h.search.maxX, "the filter is not right of Search at \(width)")
+        #expect(abs(h.filter.midY - h.search.midY) <= 0.5, "Search \(h.search) and the filter \(h.filter) are not on one line")
+        #expect(h.search.maxY <= HomeSidebarHeaderLayout.band, "Search is below the top row at \(width): \(h.search)")
+        #expect(abs(h.search.midY - HomeChatColumnView.composeCenterY) <= 0.5, "compose is not level with Search")
     }
 
     /// The list moves under the lights (the window's sidebar closes) without a width change: the
@@ -103,7 +108,7 @@ struct HomeWindowControlsTests {
         win.contentView = root
         split.layoutSubtreeIfNeeded()
         home.list.headerView.layoutSubtreeIfNeeded()
-        let beside = home.header
+        #expect(home.header.listTop == HomeSidebarHeaderLayout.band)
         // The sidebar closes: the page slides to the window's edge and grows.
         split.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
         split.layoutSubtreeIfNeeded()
@@ -111,7 +116,6 @@ struct HomeWindowControlsTests {
         let lights = try Self.lights(in: home.list.headerView)
         #expect(!home.header.search.intersects(lights))
         #expect(home.header.search.minY >= lights.maxY)
-        #expect(home.header == beside, "the window's sidebar closed and Home's header moved")
     }
 
     /// The chat's compose button under the lights (a folded list, or the chat at the window's
@@ -128,7 +132,7 @@ struct HomeWindowControlsTests {
         win.contentView = root
         column.layoutSubtreeIfNeeded()
         let lights = try Self.lights(in: column)
-        // Compose alone, no Chats (sidebar) button before it (#48467), after the lights on their line.
+        // Compose alone at the top-left (#48467: no Chats button), after the lights on their line.
         #expect(column.chats.isHidden, "the Chats button shows")
         #expect(!compose.frame.intersects(lights), "compose sits on the traffic lights")
         #expect(compose.frame.minX >= lights.maxX)

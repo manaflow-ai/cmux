@@ -365,14 +365,14 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// The search is open while the field edits or holds a query.
     var searchOpen: Bool { list.searchField.isEditing || !list.searchField.stringValue.isEmpty }
 
-    /// The traffic lights' row over the header's band at its last layout (`homeLightsRow`).
+    /// The traffic lights over the header's band at its last layout (`homeWindowControls`).
     private var windowControls: CGRect?
 
     /// Re-reads the traffic lights after the list moved in its window without a resize of its
     /// header (the window's sidebar opened or closed beside the Home page); relays out the header
     /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
     public func updateWindowControlsAvoidance() {
-        guard list.headerView.homeLightsRow(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
+        guard list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
         // The header's layout also places the list under it (its height may change). Laid out
         // now, not at the next display pass: an occluded window gets none until it shows, and
         // the next frame on screen would still have the search field under the lights.
@@ -381,11 +381,11 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     private func layoutHeader(_ bounds: CGRect) -> CGFloat {
-        // One header, lights over the list or not: the lights' row (`homeLightsRow`) is the top row
-        // either way and the same in both, so a toggle of the window's sidebar moves Home sideways
-        // only. A list clear of the lights keeps their row with nothing on it; full screen, with
-        // no lights, has the one-row band.
-        let controls = list.headerView.homeLightsRow(band: HomeSidebarHeaderLayout.band)
+        // The lights' row only where the lights lie over the list (the window's sidebar hidden). Beside
+        // the window's sidebar the search field and its round filter button share the top row, as
+        // Messages draws them (#48467: the user asked for this header back after 5c86208170 kept an
+        // empty lights row there, which put the filter above the search field).
+        let controls = list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)
         windowControls = controls
         var chipRow = unreadOnly, chipFill = false, chipCentered = false
         #if DEBUG || CMUX_BENCH_HOOKS
