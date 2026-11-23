@@ -32,6 +32,9 @@ browser scenarios with and without it give the energy that costs:
   cmux-ci run --class exclusive --measurement --label measure \
     --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=tabs20,tabs20-hidden \
     --arg=config=bench --arg=freeze=5 --arg=extension=mv3-all-sites --artifact artifacts/perf-idle-power.json
+`--tab-page busy` (perf-idle-power.sh pages=busy) opens the tabs on /busy.html (a 250 ms timer and
+an animation loop, as a typical site) instead of the static article, so a hidden page that is not
+frozen has work to do.
 
 `neighbors` (browser.keepNeighborTabsAwake, plans/cmux-next/neighbor-tabs-DESIGN.md)
 times switches among the 20 tabs: to the next tab (a neighbor) and to a tab 10
@@ -814,6 +817,8 @@ def main():
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
     parser.add_argument("--extension", choices=sorted(EXTENSIONS),
                         help="load this minimal unpacked extension (CMUX_NEXT_CEF_LOAD_EXTENSIONS)")
+    parser.add_argument("--tab-page", choices=("static", "busy"), default="static",
+                        help="the page the 20 tabs open: the static article or /busy.html (a timer and an animation loop)")
     parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
                         help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
     parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
@@ -921,7 +926,7 @@ def main():
         run("workspace.selectLast")
         if "terminal" in scenarios:
             settle_measure("terminal")
-        open_tab("/static.html?n=1")
+        open_tab(f"/{args.tab_page}.html?n=1")
         if "tab1" in scenarios:
             settle_measure("tab1")
         if "tab1-hidden" in scenarios:
@@ -930,7 +935,7 @@ def main():
             run("showHideAllWindows")
         while tabs < 20:
             before = tabs
-            open_tab(f"/static.html?n={tabs + 1}")
+            open_tab(f"/{args.tab_page}.html?n={tabs + 1}")
             if tabs == before:
                 break
         # A tab's Chromium page loads when the tab is first shown: show each

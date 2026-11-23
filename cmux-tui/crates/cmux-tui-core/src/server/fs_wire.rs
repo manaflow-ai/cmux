@@ -5,8 +5,10 @@
 //! error_details?}`). Only two transports may use them: the trusted local
 //! socket (same user) and the link's remote entry, where the stamped peer
 //! already passed the link's own authorization and the remote gate
-//! ([`FsGate`]) admitted the frame. WebSocket clients are refused. A daemon
-//! without an installed owner (every host that is not a cmux Cloud host)
+//! ([`FsGate`]) admitted the frame. WebSocket clients are refused. On a
+//! Linux machine of the person's own (`fs_ops::Scope::Owner`) only the
+//! owner's connections pass ([`transport_allows_fs_in`],
+//! [`remote_dial_admits`]). A daemon without an installed owner (a Mac)
 //! answers `fs.unavailable` to every op.
 //!
 //! Byte streams (`"stream": true`) need a connection of their own: the
@@ -38,8 +40,8 @@ const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 /// every other frame is denied as before (`remote_denied`, no detail),
 /// except the explicit agent carrier admitted separately for authenticated
 /// Native owners.
-/// Whether the op is served is decided after admission: a daemon that is not
-/// a Cloud host answers `fs.unavailable` (`seed.unavailable`).
+/// Whether the op is served is decided after admission: a daemon with no file
+/// owner installed answers `fs.unavailable` (`seed.unavailable`).
 pub struct FsGate;
 
 impl RemoteGate for FsGate {
@@ -57,6 +59,7 @@ pub(super) fn data_frame(frame: &str) -> bool {
     frame_command(frame).is_some()
         || crate::git_seed::frame_command(frame).is_some()
         || crate::blob_fetch::frame_command(frame).is_some()
+        || crate::projection::frame_command(frame).is_some()
         || crate::cloud_repos::frame_command(frame)
             .is_some_and(|cmd| !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember"))
 }
@@ -75,6 +78,28 @@ pub(super) fn native_dial_admits(
     }
 }
 
+/// [`native_dial_admits`] for a dial of the link's remote entry. On a machine of the person's own
+/// ([`crate::fs_ops::owner_only`]) a classic dial (`None`) is a paired peer that may not be its
+/// owner and has no shell there, so it never sends a data frame either: only the owner's Native
+/// dial does.
+pub(super) fn remote_dial_admits(
+    vm_kind: Option<Option<cmux_link::token::VmKind>>,
+    frame: &str,
+) -> bool {
+    remote_dial_admits_in(crate::fs_ops::owner_only(), vm_kind, frame)
+}
+
+pub(super) fn remote_dial_admits_in(
+    owner_only: bool,
+    vm_kind: Option<Option<cmux_link::token::VmKind>>,
+    frame: &str,
+) -> bool {
+    if owner_only && vm_kind.is_none() && data_frame(frame) {
+        return false;
+    }
+    native_dial_admits(vm_kind, frame)
+}
+
 /// Handles an `fs.*` line; `None` when the message is not one.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
@@ -82,25 +107,30 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
+    // One read of the file owner, before the connection check, answers this frame: a service
+    // installed after the check is not used under the policy read before it.
+    let served = crate::fs_ops::installed().is_some();
     if message.contains("\"git.seed.") && crate::git_seed::frame_command(message).is_some() {
         // The same transports and principal as the fs ops: the seed reads
         // and writes under the same roots.
         let allowed = transport_allows_fs(mux, client) && mux.frame_principal(client).is_some();
-        let reply = crate::git_seed::answer_line(crate::git_seed::installed(), allowed, message);
+        let seed = crate::git_seed::installed().filter(|_| served);
+        let reply = crate::git_seed::answer_line(seed, allowed, message);
         return Some(writer.send_control(&reply).is_ok());
     }
     if message.contains("\"blob.fetch.") && crate::blob_fetch::frame_command(message).is_some() {
         // The same transports and principal as the fs ops: the fetch writes
         // under the same roots.
         let allowed = transport_allows_fs(mux, client) && mux.frame_principal(client).is_some();
-        let reply =
-            crate::blob_fetch::answer_line(crate::blob_fetch::installed(), allowed, message);
+        let fetch = crate::blob_fetch::installed().filter(|_| served);
+        let reply = crate::blob_fetch::answer_line(fetch, allowed, message);
         return Some(writer.send_control(&reply).is_ok());
     }
     if !message.contains("\"fs.") {
         return None;
     }
     frame_command(message)?;
+    let service = crate::fs_ops::installed();
     // The transport first, then the principal of this frame: a remote client
     // needs a bound peer whose install may keep its streams (a revoke or the
     // 72 h limit refuses it before its stream closes). Either one missing:
@@ -110,7 +140,7 @@ pub(super) fn try_handle(
         .flatten()
         .map(super::remote_relay::Principal::participant);
     let reply = answer_line(
-        crate::fs_ops::installed(),
+        service,
         owner.is_some(),
         owner.as_deref().unwrap_or(super::remote_relay::NO_PRINCIPAL),
         message,
@@ -120,10 +150,40 @@ pub(super) fn try_handle(
 
 /// True for a trusted local or a remote-entry connection. A poisoned
 /// registry lock refuses (fail closed).
-fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
-    mux.control_clients.transport_of(client).is_some_and(|transport| {
-        matches!(transport, ClientTransport::Unix | ClientTransport::Remote)
-    })
+pub(super) fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
+    // Callers read the service before this check and answer from that read: with the service
+    // visible, the scope (published first) is final, so this check and the dispatch agree.
+    let owner_only = crate::fs_ops::owner_only();
+    if !owner_only {
+        // A Cloud host: the transport alone, from the published facts.
+        return mux
+            .control_clients
+            .transport_of(client)
+            .is_some_and(|transport| transport_allows_fs_in(false, transport, None));
+    }
+    // A poisoned registry refuses (fails closed), as `transport_of` does.
+    let record = mux.control_clients.state.lock().ok().and_then(|state| {
+        state.clients.get(&client).map(|record| (record.transport, record.native_vm_kind))
+    });
+    record.is_some_and(|(transport, vm_kind)| transport_allows_fs_in(true, transport, vm_kind))
+}
+
+/// The local socket and the link's remote entry may use file ops. On a machine of the person's own
+/// ([`crate::fs_ops::owner_only`]) only the owner's connections may: the local socket stamped
+/// owner by the carrier, and a remote dial signed for the owner. An unstamped local connection is
+/// refused there: a bridge (a trusted-network WebSocket's `mux-control`) may open the socket for
+/// a remote member with no owner grant and no stamp.
+pub(super) fn transport_allows_fs_in(
+    owner_only: bool,
+    transport: ClientTransport,
+    vm_kind: Option<Option<cmux_link::token::VmKind>>,
+) -> bool {
+    use cmux_link::token::VmKind;
+    match transport {
+        ClientTransport::Unix => !owner_only || vm_kind == Some(Some(VmKind::Owner)),
+        ClientTransport::Remote => !owner_only || vm_kind == Some(Some(VmKind::Owner)),
+        _ => false,
+    }
 }
 
 /// The answer to one `fs.*` request line. `owner` keys the caller's
@@ -209,10 +269,15 @@ pub(super) fn route_first_line_of(
     native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
 ) -> Option<Box<dyn transport::Stream>> {
     let (first, rest) = read_first_line(&stream, entry.first_line_deadline)?;
-    let request = std::str::from_utf8(&first)
+    let admitted = std::str::from_utf8(&first)
         .ok()
-        .filter(|line| gate.admit(peer, line) && native_dial_admits(native_vm_kind, line))
-        .and_then(StreamRequest::parse);
+        .filter(|line| gate.admit(peer, line) && remote_dial_admits(native_vm_kind, line));
+    // A projection's dial (projection.rs): its manifest, then the Mac's answers, raw.
+    if let Some(line) = admitted.filter(|line| crate::projection::frame_command(line).is_some()) {
+        serve_projection(mux, peer, entry.service, line, rest, stream);
+        return None;
+    }
+    let request = admitted.and_then(StreamRequest::parse);
     let Some(request) = request else {
         let mut prefix = first;
         prefix.extend_from_slice(&rest);
@@ -315,6 +380,122 @@ fn serve_stream(
     writer.close();
     let _ = stream.shutdown(std::net::Shutdown::Both);
     control.close();
+}
+
+/// Serves a projection's dial ([`crate::projection::serve`]) as a registered remote client, as
+/// [`serve_stream`] does a byte stream: a kick, a revocation or the entry's shutdown closes it.
+/// No idle limit: the dial lives as long as the chat's projection, quiet between reads.
+fn serve_projection(
+    mux: &Arc<Mux>,
+    peer: &RemotePeer,
+    service: Option<&FsService>,
+    first: &str,
+    leftover: Vec<u8>,
+    stream: UnixStream,
+) {
+    let (Ok(control), Ok(closer)) = (stream.try_clone(), stream.try_clone()) else { return };
+    let control = SinkControl::unix(Box::new(control));
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new_with_render_service(
+        QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
+        Arc::new(RenderService::new()),
+    );
+    let watcher =
+        std::thread::Builder::new().name("mux-projection-close".into()).spawn(move || {
+            while outbound.recv().is_some() {}
+            let _ = closer.shutdown(std::net::Shutdown::Both);
+        });
+    if watcher.is_err() {
+        return;
+    }
+    let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
+    let bound = writer.is_open() && mux.bind_remote_peer(client, peer).is_ok();
+    if bound {
+        let roots: Vec<std::path::PathBuf> = service
+            .map(|service| {
+                service.roots().canonical_paths().map(std::path::Path::to_path_buf).collect()
+            })
+            .unwrap_or_default();
+        if roots.is_empty() || crate::projection::advertised().is_empty() {
+            let id = serde_json::from_str::<Value>(first)
+                .ok()
+                .and_then(|value| value.get("id").cloned())
+                .unwrap_or(Value::Null);
+            let line = serde_json::json!({
+                "id": id,
+                "ok": false,
+                "error": "this machine does not serve projected folders",
+                "error_code": "projection.unavailable",
+            });
+            if let Ok(mut bytes) = serde_json::to_vec(&line) {
+                bytes.push(b'\n');
+                let _ = (&stream).write_all(&bytes);
+            }
+        } else {
+            crate::projection::serve(&stream, first, leftover, &roots);
+        }
+    }
+    super::disconnect_client(mux, client, false);
+    mux.unbind_conversation_principal(client);
+    writer.close();
+    let _ = stream.shutdown(std::net::Shutdown::Both);
+    control.close();
+}
+
+/// Serves a projection's dial that arrived on a line connection of the local socket: the Cloud
+/// carrier opens each connection of the Mac as a `mux-control` stream to this socket (after its
+/// `carrier-role` stamp), so a dial whose line is `projection.serve` comes here, not to the
+/// remote entry. Its manifest and the Mac's answers follow raw, as on the remote entry. Only a
+/// connection a data frame may use ([`native_dial_admits`]: no stamp, or the owner's) is
+/// served; it stays registered as the line connection's client while it is served, so a kick
+/// closes it. Returns when the Mac closes the dial.
+#[cfg(unix)]
+pub(super) fn serve_local_projection(
+    mux: &Arc<Mux>,
+    client: u64,
+    first: &str,
+    leftover: Vec<u8>,
+    stream: Box<dyn transport::Stream>,
+) {
+    let kind = {
+        let state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.get(&client).map(|record| record.native_vm_kind)
+    };
+    // The service once, before the check (see `try_handle`).
+    let service = crate::fs_ops::installed();
+    let allowed = transport_allows_fs(mux, client)
+        && kind.is_some_and(|kind| native_dial_admits(kind, first));
+    let roots: Vec<std::path::PathBuf> = service
+        .map(|service| {
+            service.roots().canonical_paths().map(std::path::Path::to_path_buf).collect()
+        })
+        .unwrap_or_default();
+    let refusal = if !allowed {
+        Some(("projection.denied", "this connection may not project a folder"))
+    } else if roots.is_empty() || crate::projection::advertised().is_empty() {
+        Some(("projection.unavailable", "this machine does not serve projected folders"))
+    } else {
+        None
+    };
+    if let Some((code, message)) = refusal {
+        let id = serde_json::from_str::<Value>(first)
+            .ok()
+            .and_then(|value| value.get("id").cloned())
+            .unwrap_or(Value::Null);
+        let line = serde_json::json!({"id": id, "ok": false, "error": message, "error_code": code});
+        if let Ok(mut bytes) = serde_json::to_vec(&line) {
+            bytes.push(b'\n');
+            let mut stream = stream;
+            let _ = stream.write_all(&bytes);
+            let _ = stream.flush();
+        }
+        return;
+    }
+    let _ = stream.set_read_timeout(None);
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(60)));
+    let Ok(writer) = stream.try_clone_box() else { return };
+    crate::projection::serve_io(stream, writer, first, leftover, &roots);
 }
 
 /// Closes every remote client (line dials and byte streams): the entry is

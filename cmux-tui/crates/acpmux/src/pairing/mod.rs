@@ -150,8 +150,18 @@ pub fn source_ok(from: std::net::SocketAddr) -> bool {
     from.ip().to_canonical().is_loopback()
 }
 
-/// This machine's name as a peer: the host name's first label, or `host`.
+/// This machine's name as a peer: the name it was given at its hub join (`machine join
+/// --name`, `machine_record::joined_name_at`), else [`host_label`]. Two machines with one host
+/// name (VMs made from one image) joined under their own names never shadow each other.
 pub fn machine_name() -> String {
+    let current = crate::host_fingerprint::current();
+    crate::machine_record::joined_name_at(&crate::machine_record::state_dir(), current.as_deref())
+        .unwrap_or_else(host_label)
+}
+
+/// The host name's first label, lowercased, or `host`: a join's default name and the
+/// `hostname` it reports to the hub.
+pub fn host_label() -> String {
     let host = crate::hand::pair::hostname();
     let first = host.split('.').next().unwrap_or_default().to_ascii_lowercase();
     if crate::session_name::validate(&first).is_ok() { first } else { "host".into() }

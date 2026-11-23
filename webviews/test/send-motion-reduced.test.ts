@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path_ from "node:path";
 import { chromium, type Browser } from "playwright";
+import { MOTION_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("send-motion-reduced.test.ts", async () => {
@@ -50,7 +51,7 @@ await requireBrowserLane("send-motion-reduced.test.ts", async () => {
         const page = await browser!.newPage();
         try {
           await page.emulateMedia({ reducedMotion: path.media });
-          await page.setContent(`<!doctype html><html style="${path.tokens}; --agent-motion-in: 120ms">
+          await page.setContent(`<!doctype html><html style="${path.tokens}; --agent-motion-in: ${MOTION_MS.micro}ms">
         <body><div class="acpmux-thread">
           <article class="acpmux-row acpmux-user acpmux-row--message-enter"><div class="acpmux-row__message-presentation">
             <div class="cv-user"><img class="cv-user__image cv-enter" alt=""><div class="cv-user__bubble"><p>sent</p></div></div>

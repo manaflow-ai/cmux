@@ -11,6 +11,7 @@ import {
   SNAPSHOT_SHOWN_GLOBAL,
   type SnapshotLive,
 } from "./shared";
+import { watchLaunchSettle } from "../launchSettle";
 
 type Shown = { at: number; swappedAt?: number };
 
@@ -184,6 +185,8 @@ export function reportChatSnapshot(
   if (typeof window === "undefined") return;
   const shows = () => {
     void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
+    // The copy is the page's first paint: what moves from here is the launch's settle (launchSettle.ts).
+    watchLaunchSettle(report, SNAPSHOT_HOST_TAG);
     // A click or key while the copy shows ends the copy and does nothing else: the live page under
     // it is at opacity 0, so a press must never act on a control the person can't see (a permission
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup

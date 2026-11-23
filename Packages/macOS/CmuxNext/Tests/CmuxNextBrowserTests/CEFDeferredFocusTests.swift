@@ -491,6 +491,34 @@ import Testing
         #expect(keys.made.count == 1)
     }
 
+    /// Lawrence 2026-11-19: "i did cmd n and started typing and it didnt have focus". Cmd-N typed in a page (a New Tab
+    /// page, a chat) left that page's own window key, a child of the same cmux window. The new workspace's New Tab page was
+    /// granted focus (its renderer took it and reported its field ready), but its window did not become key. The keys held
+    /// for it went on to the key window, the old page, which the switch hid (cmux23 bench, cmdn-typing: "hllo world 123",
+    /// "lo world 123"). The page window takes the keys from another page window of the cmux window that shows it: one key
+    /// change.
+    @Test func aGrantTakesTheKeysFromAnotherPageWindowOfTheSameCmuxWindow() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 15)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
+        let page = pageWindow(over: tab, in: window)
+        // The page that had the keys at Cmd-N: another child page window of the same cmux window, elsewhere.
+        let old = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 50, height: 50), styleMask: .borderless, backing: .buffered, defer: true)
+        window.addChildWindow(old, ordered: .above)
+        defer { page.closeAfterTest(); old.closeAfterTest() }
+        let keys = KeyRecorder(key: old)
+        tab.keyWindows = keys.seam
+
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted == [15])
+        #expect(keys.key === page, "the page has focus but the other page window of its cmux window kept the keys")
+        #expect(keys.made.count == 1, "one focus request made \(keys.made.count) key changes")
+    }
+
     /// A grant whose page window became key (CEF moved the keys itself) gets no second key change; an inactive app
     /// (no key window) and another window that has the keys keep them.
     @Test func aGrantTakesNoKeysWhenCEFMovedThemOrAnotherWindowOrNoneHasThem() throws {

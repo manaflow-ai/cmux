@@ -99,7 +99,8 @@ pub(crate) fn keep_prompt(prompt_id: &str) -> impl FnMut(&crate::store::KindHead
         if h.kind == "turn_stop_requested" && !joined {
             return true;
         }
-        if !joined && !h.names_many {
+        // A list joins it only by naming one of its prompts (a digest's `took`).
+        if !joined && !h.names(|p| prompts.contains(p)) {
             return false;
         }
         for p in [h.prompt_id, h.digest_prompt_id].into_iter().flatten() {
@@ -451,6 +452,27 @@ impl Hub {
         } else if let Some(inbox) = self.logged_inbox(session, prompt_id) {
             return Some((Ok(inbox), None));
         }
+        self.logged_prompt_records(session, prompt_id, outcome)
+    }
+
+    /// [`Self::logged_prompt`] for a prompt the caller already knows no inbox record answers
+    /// (`turns.rs`: a resend asks [`Hub::logged_inbox_answer`] first), so the chat's inbox
+    /// records are not read a second time.
+    pub(super) fn logged_prompt_past_inbox(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+    ) -> Option<Result<Value, crate::rpc::RpcError>> {
+        self.logged_prompt_records(session, prompt_id, false).map(|(result, _)| result)
+    }
+
+    /// [`Self::logged_prompt_state`] from the prompt's own records, past the inbox's.
+    fn logged_prompt_records(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+        outcome: bool,
+    ) -> Option<(Result<Value, RpcError>, Option<Value>)> {
         // The last completed turn may predate a later queued/declined incarnation reusing
         // this client id. Reconstruct the latest incarnation from its ordered durable records.
         let mut turn_id: Option<String> = None;
@@ -467,7 +489,7 @@ impl Hub {
         // (`store/kind_index.rs`), never the log.
         // Only this prompt's records, as the arms below join them, are read whole: those naming
         // it, those of a turn or digest one of them names, every Stop (`stopped_turns`), and
-        // those naming prompts by a list (a digest's `took`), which the head does not hold.
+        // those whose list (a digest's `took`) names one of its prompts.
         let (kinds, mut keep) = (PROMPT_STATE_KINDS, keep_prompt(prompt_id));
         let _ = self.store.scan_kinds_keyed(&session.id, kinds, &mut keep, &mut |rec| {
             let field = |k: &str| rec.msg.get(k).and_then(Value::as_str);

@@ -28,10 +28,17 @@ export const ANCHOR_TTL_MS = 30 * 24 * 3600 * 1000;
 /** How long the billing answer recorded at an anchor stands for a host session's cmux relay. */
 export const ANCHOR_RELAY_TTL_MS = 24 * 3600 * 1000;
 
-/** The platforms a device registers as. A Linux desktop hosts like a Mac (`cmux-rd linux-host`). */
-export type DevicePlatform = "macos" | "ios" | "linux";
+/**
+ * The platforms a device registers as. A Linux desktop hosts like a Mac (`cmux-rd linux-host`);
+ * a Windows PC registers and stays online with its device key (`cmux-rd windows-host`).
+ */
+export type DevicePlatform = "macos" | "ios" | "linux" | "windows";
+export const DEVICE_PLATFORMS: readonly DevicePlatform[] = ["macos", "ios", "linux", "windows"];
 /** The platforms that host a screen: only these are anchored for device-key renewal. */
-export const HOST_PLATFORMS: readonly DevicePlatform[] = ["macos", "linux"];
+export const HOST_PLATFORMS: readonly DevicePlatform[] = ["macos", "linux", "windows"];
+export function isDevicePlatform(value: unknown): value is DevicePlatform {
+  return (DEVICE_PLATFORMS as readonly unknown[]).includes(value);
+}
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -65,6 +72,12 @@ interface SessionRow {
   ended_at: number | null;
   end_reason: string | null;
   path: string | null;
+  /** The session this one replaced (`POST /v1/sessions/:id/move`); null for one started fresh. */
+  moved_from: string | null;
+  /** The last billing answer a full (Stack-token) caller got for this session: 1 paid, 0 free, null never read. */
+  relay_paid: number | null;
+  /** When that answer was read (ms); it covers the session's host end for ANCHOR_RELAY_TTL_MS. */
+  relay_read_at: number | null;
 }
 
 interface RelayRow {
@@ -99,6 +112,14 @@ export const SILENT_MS = 75_000;
 /** Close code for a socket closed for silence. Not terminal: the app reconnects. */
 export const SILENT_CLOSE = 4004;
 const PERMISSION_SCOPES: PermissionScope[] = ["none", "ask", "view", "full"];
+/**
+ * The permission a host gives a device with no stored row: Full Control. Every device in this
+ * Durable Object is signed in to the same account (one UserDO per user), so a session between them
+ * is the person reaching their own machine, and nobody clicks Allow on the host (Leo, 2026-11-16,
+ * ask-da398bba67). A permission the person set (`none`, `ask`, `view`) is stored and always wins.
+ * Narrow it to `view` here to keep control behind a prompt.
+ */
+export const OWN_DEVICE_DEFAULT: PermissionScope = "full";
 const RELAY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PING = JSON.stringify({ type: "ping" });
@@ -112,7 +133,24 @@ interface WireTicket {
   peer: { id: string; name: string; signingKey: string };
   role: "viewer" | "host";
   scope: Scope;
+  /**
+   * Whose devices the session joins, as this hub authenticated them: `user` is one account, both
+   * devices signed in to it. The host decides from this, never from anything the viewer sends,
+   * whether the session is the person's own; a later team or shared-access owner says otherwise.
+   */
+  ownerKind: "user";
   reattach?: boolean;
+  /**
+   * Set on a session the viewer did not ask for itself (its host pushed the screen, or the share
+   * was moved): the viewer's app opens it with no click. `movedFrom` is the session it replaced, or null.
+   */
+  pushed?: true;
+  movedFrom?: string | null;
+}
+
+/** How a session reached a viewer that did not ask for it: pushed by its host (`movedFrom` null), or moved. */
+interface Pushed {
+  movedFrom: string | null;
 }
 
 const SCHEMA = `
@@ -169,6 +207,9 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["audit", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
   ["devices", "machine", "TEXT"],
+  ["sessions", "moved_from", "TEXT"],
+  ["sessions", "relay_paid", "INTEGER"],
+  ["sessions", "relay_read_at", "INTEGER"],
 ];
 
 /** A registration's `machine`: the lowercase hex SHA-256 the app derives from the Mac's hardware id. */
@@ -328,7 +369,7 @@ export class UserDO extends DurableObject<Env> {
         ...viewers,
       )
       .toArray()[0];
-    return (row?.scope as PermissionScope | undefined) ?? "ask";
+    return (row?.scope as PermissionScope | undefined) ?? OWN_DEVICE_DEFAULT;
   }
 
   /**
@@ -498,8 +539,8 @@ export class UserDO extends DurableObject<Env> {
     if (body.id !== h.id) throw badRequest("id must equal X-Device-Id");
     if (body.shareByJoin !== undefined && typeof body.shareByJoin !== "boolean") throw badRequest("shareByJoin must be a boolean");
     const name = str(body.name, "name", 100);
-    if (body.platform !== "macos" && body.platform !== "ios" && body.platform !== "linux") {
-      throw badRequest("platform must be macos, ios or linux");
+    if (!isDevicePlatform(body.platform)) {
+      throw badRequest("platform must be macos, ios, linux or windows");
     }
     if (!(await isValidDeviceKey(body.signingKey))) throw badRequest("signingKey must be a base64 X9.63 P-256 key");
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
@@ -595,9 +636,11 @@ export class UserDO extends DurableObject<Env> {
       if (n === 3 && m === "PUT") return this.setPermission(me, b!, d!, this.parse(raw));
     }
     if (a === "sessions") {
+      if (n === 1 && m === "GET") return this.listSessions(me, c);
       if (n === 1 && m === "POST") return this.requestSession(me, this.parse(raw), c);
       if (n === 3 && m === "POST") {
         if (!SESSION_ID.test(b!)) throw notFound("session not found");
+        if (d === "move") return this.moveSession(me, b!, this.parse(raw), c);
         if (d === "decision") return this.decide(me, b!, this.parse(raw), c);
         if (d === "reattach") return this.reattach(me, b!, c);
         if (d === "end") return this.endFromDevice(me, b!, raw.length ? this.parse(raw) : {});
@@ -624,6 +667,9 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("DELETE FROM offline WHERE device_id = ?", me.id);
     // Everyone refetches, including this device: its cached list may say it is offline.
     this.broadcast({ type: "devices.changed" });
+    // A request waiting on this host went to a socket it no longer has (it dropped, or this one
+    // replaces it): send it again so the prompt reaches the host it waits on.
+    await this.resendPendingRequests(me.id);
     // The silence check: a device that never pings after connecting goes offline at the bound.
     await this.scheduleAlarm();
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -920,10 +966,117 @@ export class UserDO extends DurableObject<Env> {
 
   // ---- sessions ----
 
-  private async requestSession(me: DeviceRow, body: Record<string, unknown>, c: CallContext): Promise<Response> {
+  /**
+   * The account's sessions that are not over, oldest first: what `cmux share screens` lists. A
+   * host or machine session sees only those whose host or viewer is on its own machine.
+   */
+  private listSessions(me: DeviceRow, c: CallContext): Response {
+    const rows = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' ORDER BY created_at, rowid").toArray() as unknown as SessionRow[];
+    const mine = c.scope === "full" ? null : new Set(this.sameMachine(me.id));
+    const names = new Map(this.sql.exec("SELECT id, name FROM devices").toArray().map((d) => [d.id as string, d.name as string]));
+    return json({
+      sessions: rows
+        .filter((s) => !mine || mine.has(s.host_id) || mine.has(s.viewer_id))
+        .map((s) => ({
+          id: s.id,
+          hostId: s.host_id,
+          hostName: names.get(s.host_id) ?? null,
+          viewerId: s.viewer_id,
+          viewerName: names.get(s.viewer_id) ?? null,
+          scope: s.scope,
+          state: s.state,
+          createdAt: s.created_at,
+          startedAt: s.started_at,
+          movedFrom: s.moved_from ?? null,
+        })),
+    });
+  }
+
+  /** A new session row, pending until approve (or the host's decision) moves it on. */
+  private insertSession(viewerId: string, hostId: string, scope: Scope, movedFrom: string | null): string {
+    const id = crypto.randomUUID();
+    this.sql.exec(
+      "INSERT INTO sessions(id, viewer_id, host_id, scope, state, created_at, owner_kind, owner_id, moved_from) VALUES (?, ?, ?, ?, 'pending', ?, 'user', ?, ?)",
+      id,
+      viewerId,
+      hostId,
+      scope,
+      Date.now(),
+      this.ownerId,
+      movedFrom,
+    );
+    return id;
+  }
+
+  /**
+   * The checks a session the viewer did not ask for passes before anything is written (a host
+   * pushing its screen, a move): the same as a viewer's own request, but it never prompts. A
+   * permission below `scope` answers needs_approval: nobody is at the viewer to see a request go
+   * out, and the host's prompt would pop up for something it started itself.
+   */
+  private checkPushed(me: DeviceRow, hostId: string, viewerId: string, scope: Scope, c: CallContext) {
+    if (hostId === viewerId) throw badRequest("a device cannot view itself");
+    const host = this.liveDevice(hostId);
+    this.liveDevice(viewerId);
+    // A host or machine session serves its machine as a host: it never makes a device there a viewer.
+    if (c.scope !== "full" && this.sameMachine(me.id).includes(viewerId)) {
+      throw new ApiError(403, "machine_scope", "a machine's session is never a viewer");
+    }
+    if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
+    const perm = this.permission(hostId, viewerId);
+    if (perm === "none") throw new ApiError(403, "permission_none", "the host does not allow this device");
+    if (!this.online(hostId)) throw new ApiError(409, "host_offline", "the host is not connected");
+    if (rank(perm) < rank(scope)) throw new ApiError(409, "needs_approval", "the host must allow this device first; ask from the viewer");
+  }
+
+  /** `POST /v1/sessions` with `viewerId`: the host (or a device on its machine) shares its screen to another device. */
+  private async pushSession(me: DeviceRow, body: Record<string, unknown>, scope: Scope, c: CallContext): Promise<Response> {
     const hostId = str(body.hostId, "hostId", 64);
+    const viewerId = str(body.viewerId, "viewerId", 64);
+    if (!this.sameMachine(me.id).includes(hostId)) throw new ApiError(403, "not_host", "only the host pushes its screen to another device");
+    this.checkPushed(me, hostId, viewerId, scope, c);
+    const id = this.insertSession(viewerId, hostId, scope, null);
+    this.audit("requested", { viewerId, hostId, scope, sessionId: id, detail: "pushed" });
+    this.audit("approved", { viewerId, hostId, scope, sessionId: id, detail: "permission" });
+    await this.approveOrEnd(this.session(id)!, c, { movedFrom: null });
+    const s = this.session(id)!;
+    return json({ session: { id: s.id, state: s.state, scope: s.scope, hostId, viewerId, movedFrom: null } });
+  }
+
+  /**
+   * Hands a running share to another viewer or another host: a new session for the new pair,
+   * approved with no prompt, then the old one ends (reason `moved`, `movedTo` the new id). A
+   * check that fails changes nothing: the old share keeps running.
+   */
+  private async moveSession(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext): Promise<Response> {
+    const viewerId = body.viewerId === undefined ? undefined : str(body.viewerId, "viewerId", 64);
+    const hostId = body.hostId === undefined ? undefined : str(body.hostId, "hostId", 64);
+    if ((viewerId === undefined) === (hostId === undefined)) throw badRequest("a move names exactly one of viewerId and hostId");
+    const old = this.session(id);
+    if (!old) throw notFound("session not found");
+    if (old.state !== "approved" && old.state !== "live") throw new ApiError(409, "session_not_active", "session is not active");
+    const newHost = hostId ?? old.host_id;
+    const newViewer = viewerId ?? old.viewer_id;
+    if (newHost === old.host_id && newViewer === old.viewer_id) throw badRequest("the session already has that device");
+    this.checkPushed(me, newHost, newViewer, old.scope, c);
+    const newId = this.insertSession(newViewer, newHost, old.scope, old.id);
+    // A move continues the same share: it keeps the billing answer its viewer's request got.
+    this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ? WHERE id = ?", old.relay_paid ?? null, old.relay_read_at ?? null, newId);
+    this.audit("moved", { viewerId: old.viewer_id, hostId: old.host_id, scope: old.scope, sessionId: old.id, detail: newId });
+    this.audit("approved", { viewerId: newViewer, hostId: newHost, scope: old.scope, sessionId: newId, detail: "moved" });
+    // The new share is up before the old one goes: a move that cannot start keeps the old share.
+    await this.approveOrEnd(this.session(newId)!, c, { movedFrom: old.id });
+    const current = this.session(old.id);
+    if (current) await this.endSession(current, "moved", "ended", true, { movedTo: newId });
+    const s = this.session(newId)!;
+    return json({ session: { id: s.id, state: s.state, scope: s.scope, hostId: s.host_id, viewerId: s.viewer_id, movedFrom: s.moved_from } });
+  }
+
+  private async requestSession(me: DeviceRow, body: Record<string, unknown>, c: CallContext): Promise<Response> {
     const scope = body.scope as Scope;
     if (scope !== "view" && scope !== "full") throw badRequest("scope must be view or full");
+    if (body.viewerId !== undefined) return this.pushSession(me, body, scope, c);
+    const hostId = str(body.hostId, "hostId", 64);
     if (hostId === me.id) throw badRequest("a device cannot view itself");
     const host = this.liveDevice(hostId);
     if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
@@ -932,36 +1085,44 @@ export class UserDO extends DurableObject<Env> {
     // A scope above the saved permission (View Only asking for Full Control) is a
     // request to the host, decided on its prompt like a request under Ask.
     if (!this.online(hostId)) throw new ApiError(409, "host_offline", "the host is not connected");
-    const now = Date.now();
-    const id = crypto.randomUUID();
-    this.sql.exec(
-      "INSERT INTO sessions(id, viewer_id, host_id, scope, state, created_at, owner_kind, owner_id) VALUES (?, ?, ?, ?, 'pending', ?, 'user', ?)",
-      id,
-      me.id,
-      hostId,
-      scope,
-      now,
-      this.ownerId,
-    );
+    const id = this.insertSession(me.id, hostId, scope, null);
     this.audit("requested", { viewerId: me.id, hostId, scope, sessionId: id });
     if (rank(perm) >= rank(scope)) {
       this.audit("approved", { viewerId: me.id, hostId, scope, sessionId: id, detail: "permission" });
       await this.approveOrEnd(this.session(id)!, c);
     } else {
+      // The host decides with its own session, which has no Stack token: the viewer's billing
+      // answer is read now and kept on the session, so the host's approval mints the relay.
+      await this.sessionEntitlement(this.session(id)!, c);
       await this.scheduleAlarm();
-      this.send(hostId, {
-        type: "session.request",
-        session: { id, viewerId: me.id, viewerName: me.name, viewerKeyFingerprint: await keyFingerprint(me.signing_key), scope },
-      });
+      this.send(hostId, await this.sessionRequest(id, me, scope));
     }
     const s = this.session(id)!;
     return json({ session: { id: s.id, state: s.state, scope: s.scope } });
   }
 
+  private async sessionRequest(id: string, viewer: DeviceRow, scope: Scope) {
+    return {
+      type: "session.request",
+      session: { id, viewerId: viewer.id, viewerName: viewer.name, viewerKeyFingerprint: await keyFingerprint(viewer.signing_key), scope },
+    };
+  }
+
+  /** Sends `hostId` every request still pending on it, oldest first. */
+  private async resendPendingRequests(hostId: string) {
+    const pending = this.sql
+      .exec("SELECT * FROM sessions WHERE state = 'pending' AND host_id = ? ORDER BY created_at", hostId)
+      .toArray() as unknown as SessionRow[];
+    for (const s of pending) {
+      const viewer = this.device(s.viewer_id);
+      if (viewer) this.send(hostId, await this.sessionRequest(s.id, viewer, s.scope));
+    }
+  }
+
   /** Approves, or ends the session (approve_failed) when the Session DO or tickets cannot be set up. */
-  private async approveOrEnd(s: SessionRow, c: CallContext) {
+  private async approveOrEnd(s: SessionRow, c: CallContext, pushed: Pushed | null = null) {
     try {
-      await this.approve(s, c);
+      await this.approve(s, c, pushed);
     } catch (err) {
       console.error("session approve failed", err instanceof Error ? err.message : String(err));
       const current = this.session(s.id);
@@ -981,11 +1142,11 @@ export class UserDO extends DurableObject<Env> {
    * other requests while this awaits, so a session ended meanwhile (sharing
    * off, removal, access lowered) is checked after every await and gets no ticket.
    */
-  private async approve(s: SessionRow, c: CallContext) {
+  private async approve(s: SessionRow, c: CallContext, pushed: Pushed | null = null) {
     this.sql.exec("UPDATE sessions SET state = 'approved', scope = ? WHERE id = ? AND state != 'ended'", s.scope, s.id);
     if (!this.stillOpen(s.id)) return;
     // Ask billing now (in parallel with the Session DO init); fail closed.
-    const entitled = this.entitlement(c).catch(() => "error" as const);
+    const entitled = this.sessionEntitlement(s, c);
     const viewer = this.device(s.viewer_id)!;
     const host = this.device(s.host_id)!;
     const stub = this.env.SESSION_DO.get(this.env.SESSION_DO.idFromName(s.id));
@@ -1005,13 +1166,13 @@ export class UserDO extends DurableObject<Env> {
     // first makes init refuse), so there is nothing to start.
     if (!this.stillOpen(s.id)) return;
     if (!init.ok) throw new Error(`session init ${init.status}`);
-    const tickets = await this.issueTickets(s, c, (await entitled) === "paid" ? await mintTurn(this.env) : [], TICKET_TTL_S, false);
+    const tickets = await this.issueTickets(s, c, (await entitled) === "paid" ? await mintTurn(this.env) : [], TICKET_TTL_S, false, pushed);
     if (!tickets) return;
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? viewer.id : host.id, { type: "session.ticket", ...ticket });
   }
 
   /** Mints fresh tickets for the same approved viewer/host pair. */
-  private async issueTickets(s: SessionRow, c: CallContext, ice: IceServer[], ttlS: number, reattach: boolean): Promise<[WireTicket, WireTicket] | null> {
+  private async issueTickets(s: SessionRow, c: CallContext, ice: IceServer[], ttlS: number, reattach: boolean, pushed: Pushed | null = null): Promise<[WireTicket, WireTicket] | null> {
     if (!this.stillOpen(s.id)) return null;
     const viewer = this.device(s.viewer_id);
     const host = this.device(s.host_id);
@@ -1021,7 +1182,7 @@ export class UserDO extends DurableObject<Env> {
     for (const [self, peer, role] of [[viewer, host, "viewer"], [host, viewer, "host"]] as const) {
       const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope, ...(reattach ? { reattach: true } : {}) }, Date.now(), ttlS);
       if (!this.stillOpen(s.id)) return null;
-      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope });
+      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ownerKind: "user", ...(pushed ? { pushed: true as const, movedFrom: pushed.movedFrom } : {}) });
     }
     return result as [WireTicket, WireTicket];
   }
@@ -1034,7 +1195,7 @@ export class UserDO extends DurableObject<Env> {
     if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
     if (!this.online(host.id)) throw new ApiError(409, "host_offline", "the host is not connected");
     if (rank(this.permission(host.id, me.id)) < rank(s.scope)) throw new ApiError(403, "permission_none", "the host no longer allows this device");
-    const entitled = (await this.entitlement(c)) === "paid";
+    const entitled = (await this.sessionEntitlement(s, c)) === "paid";
     const tickets = await this.issueTickets(s, c, entitled ? await mintTurn(this.env) : [], REATTACH_TTL_S, true);
     if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? me.id : host.id, { type: "session.ticket", ...ticket });
@@ -1084,7 +1245,7 @@ export class UserDO extends DurableObject<Env> {
    * `session.revoked` or `session.ended` to both devices and, when asked,
    * closes the Session DO.
    */
-  private async endSession(s: SessionRow, reason: string, push: "revoked" | "ended", closeSignal: boolean) {
+  private async endSession(s: SessionRow, reason: string, push: "revoked" | "ended", closeSignal: boolean, extra: Record<string, unknown> = {}) {
     const current = this.session(s.id);
     if (!current || current.state === "ended") return;
     this.sql.exec("DELETE FROM closing WHERE session_id = ?", s.id);
@@ -1092,7 +1253,7 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("UPDATE sessions SET state = 'ended', ended_at = ?, end_reason = ? WHERE id = ?", now, reason, s.id);
     const durationS = current.started_at ? Math.round((now - current.started_at) / 1000) : null;
     this.audit("ended", { viewerId: s.viewer_id, hostId: s.host_id, scope: current.scope, sessionId: s.id, detail: reason, durationS });
-    const msg = { type: push === "revoked" ? "session.revoked" : "session.ended", sessionId: s.id, reason };
+    const msg = { type: push === "revoked" ? "session.revoked" : "session.ended", sessionId: s.id, reason, ...extra };
     this.send(s.viewer_id, msg);
     this.send(s.host_id, msg);
     if (closeSignal && current.state !== "pending") {
@@ -1111,7 +1272,7 @@ export class UserDO extends DurableObject<Env> {
     const s = this.session(id);
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
     if (s.state !== "approved" && s.state !== "live") throw new ApiError(409, "session_not_active", "session is not active");
-    const ice = (await this.entitlement(c)) === "paid" ? await mintTurn(this.env) : [];
+    const ice = (await this.sessionEntitlement(s, c)) === "paid" ? await mintTurn(this.env) : [];
     return json({ ice });
   }
 
@@ -1236,6 +1397,27 @@ export class UserDO extends DurableObject<Env> {
 
   // ---- device renewal (PROTOCOL.md, Device renewal) ----
 
+  /**
+   * One session's relay right. Its viewer and host are one account (one UserDO per user), so
+   * a paid answer from billing covers both ends. A full caller (the app, with a Stack token)
+   * asks billing, fail closed, and the answer is kept on the session (a failed read clears
+   * it). A host or machine caller has no Stack token: it gets the relay while its session holds
+   * a paid answer read in the last ANCHOR_RELAY_TTL_MS (the same bound as an anchor's), else its
+   * own (a host anchor's `rel`; a machine session's none). A move carries the answer and its
+   * read time, never refreshes them. A free or failed read grants nothing to either end.
+   */
+  private async sessionEntitlement(s: SessionRow, c: CallContext): Promise<"paid" | "free" | "error"> {
+    if (c.scope === "full") {
+      const answer = await this.entitlement(c).catch(() => "error" as const);
+      const paid = answer === "error" ? null : answer === "paid" ? 1 : 0;
+      this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ? WHERE id = ?", paid, paid === null ? null : Date.now(), s.id);
+      return answer;
+    }
+    const held = this.sql.exec("SELECT relay_paid, relay_read_at FROM sessions WHERE id = ?", s.id).toArray()[0];
+    if (held && (held.relay_paid as number | null) === 1 && (held.relay_read_at as number) + ANCHOR_RELAY_TTL_MS > Date.now()) return "paid";
+    return this.entitlement(c).catch(() => "error" as const);
+  }
+
   /** The cmux relay entitlement: billing for a full session, the anchor's record for a host session. */
   private async entitlement(c: CallContext): Promise<"paid" | "free" | "error"> {
     if (c.scope === "host") return c.hostRelay ? "paid" : "free";
@@ -1245,13 +1427,31 @@ export class UserDO extends DurableObject<Env> {
   /**
    * What a host session may do: serve this device as a Mac Screen host. Its
    * own socket and registration, reads, its sessions' decisions, ends and
-   * ICE, its own permissions, and sharing off. Not: another device, relay
-   * writes, a session as viewer, sharing on, anchoring.
+   * ICE, its own permissions, and sharing off; pushing this machine's screen
+   * to another device and moving a share this machine is part of (never with
+   * a device of this machine as the viewer: moveSession, pushSession). Not:
+   * another device, relay writes, a session as viewer, sharing on, anchoring.
    */
   private hostAllowed(m: string, parts: string[], me: DeviceRow, raw: Uint8Array): boolean {
     const [a, b, d] = parts;
     const n = parts.length;
-    if (m === "GET") return (a === "me" && n === 1) || (a === "user" && b === "ws" && n === 2) || (a === "devices" && n === 1) || (a === "permissions" && n === 1) || (a === "relays" && n === 1) || (a === "audit" && n === 1);
+    if (m === "GET") return (a === "me" && n === 1) || (a === "user" && b === "ws" && n === 2) || (a === "devices" && n === 1) || (a === "permissions" && n === 1) || (a === "relays" && n === 1) || (a === "audit" && n === 1) || (a === "sessions" && n === 1);
+    if (a === "sessions" && n === 1 && m === "POST") {
+      // Only a push of this machine's own screen; a session as viewer needs the signed-in app.
+      let body: { hostId?: unknown; viewerId?: unknown };
+      try {
+        body = JSON.parse(new TextDecoder().decode(raw)) as typeof body;
+      } catch {
+        return false;
+      }
+      return typeof body?.viewerId === "string" && typeof body.hostId === "string" && this.sameMachine(me.id).includes(body.hostId);
+    }
+    if (a === "sessions" && n === 3 && m === "POST" && d === "move") {
+      // Only a share whose host or viewer is on this machine.
+      const s = this.session(b!);
+      const mine = this.sameMachine(me.id);
+      return !!s && (mine.includes(s.host_id) || mine.includes(s.viewer_id));
+    }
     // Its own screen sharing status: what it can serve, read where it runs.
     if (a === "devices" && n === 3 && d === "screen-share" && m === "PUT" && b === me.id) return true;
     if (a === "devices" && n === 3 && d === "mac-screen" && m === "PUT" && b === me.id) {
@@ -1306,7 +1506,7 @@ export class UserDO extends DurableObject<Env> {
 
   /** The signed-in app lets its Mac renew its own host session for 30 days. */
   private async anchor(me: DeviceRow, c: CallContext): Promise<Response> {
-    if (!HOST_PLATFORMS.includes(me.platform)) throw new ApiError(403, "not_host", "only a Mac or a Linux desktop is anchored");
+    if (!HOST_PLATFORMS.includes(me.platform)) throw new ApiError(403, "not_host", "only a Mac, a Linux desktop or a Windows PC is anchored");
     const paid = (await relayEntitlement(this.env, c.userId, c.stackToken).catch(() => "error")) === "paid";
     const now = Date.now();
     this.sql.exec(

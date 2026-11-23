@@ -24,6 +24,12 @@ Bitwarden's code is GPL and stays out of this repository). Red before the fix: t
 got its port disconnects, the old script copies stayed live beside the new ones, and the get failed
 with "Something went wrong."; the page's dataset counters (copies, disconnects) are in result.json.
 
+--scenario agent (no extension): an agent drives the tab (`browser.page.*` with `agent`) and registers a passkey
+on the virtual authenticator, then clicks "Use passkey": the fork refuses each WebAuthn request of an agent-driven
+tab (cmux_tab_set_webauthn_mode), so registration must fail with NotAllowedError. Every cmux control call marks
+the tab agent-driven, so a person's ceremony cannot be driven here; the unit tests hold that a person's tab keeps
+passkeys. Red before the fix: the agent registered and signed in (on a person's Mac, a real Touch ID sheet).
+
 Writes result.json, the page's own pictures (DevTools Page.captureScreenshot) and window pictures to
 --out. Exit 0 when the page signed in.
 """
@@ -35,10 +41,11 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--keep", action="store_true", help="leave the app running at the end")
-parser.add_argument("--scenario", choices=["popout", "sw-restart"], default="popout",
+parser.add_argument("--scenario", choices=["popout", "sw-restart", "agent"], default="popout",
                     help="popout: close the extension's popout, expect the fallback sign-in; sw-restart: hide the tab "
                          "until the extension's worker stops, show it again (the worker restarts and injects its "
-                         "scripts again), expect one live copy and a sign-in")
+                         "scripts again), expect one live copy and a sign-in; agent: no extension, an agent's "
+                         "register must get NotAllowedError")
 parser.add_argument("--extension", help="the extension folder (default: the probe in tests/passkeys/extension-fallback)")
 parser.add_argument("--freeze-hidden", default=None, help="browser.freezeHiddenTabs for the run: seconds or off")
 parser.add_argument("--hidden-seconds", type=float, default=45, help="sw-restart: how long the tab stays hidden")
@@ -60,6 +67,7 @@ if not INFO.get("CFBundleIdentifier", "").startswith(PREFIX):
 BINARY = os.path.join(APP, "Contents/MacOS", INFO["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{re.sub(r'[^a-z0-9]+', '-', INFO['CFBundleIdentifier'][len(PREFIX):].lower()).strip('-')}.sock"
 RESULT = {"tag": opts.tag, "steps": []}
+AGENT = "PasskeyProbeAgent"
 
 
 def step(name, **fields):
@@ -185,7 +193,8 @@ app = subprocess.Popen([BINARY], env={
     "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "main", "CMUX_NEXT_TEST_WINDOW_FRAME": "60,60,1200,800",
-    "CMUX_NEXT_CEF_LOAD_EXTENSIONS": os.path.abspath(opts.extension) if opts.extension else os.path.join(ROOT, "extension")},
+    **({} if opts.scenario == "agent" else {
+        "CMUX_NEXT_CEF_LOAD_EXTENSIONS": os.path.abspath(opts.extension) if opts.extension else os.path.join(ROOT, "extension")})},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
 signed_in = False
 try:
@@ -208,7 +217,7 @@ try:
         raise SystemExit("the page did not load in a Chromium tab")
     # The extension's page script wraps navigator.credentials.get in the page (MAIN world) once it is installed.
     wrapped = "!String(navigator.credentials.get).includes('[native code]')"
-    if not wait(lambda: js(wrapped), 30):
+    if opts.scenario != "agent" and not wait(lambda: js(wrapped), 30):
         js("location.reload()")
         if not wait(lambda: js(wrapped), 30):
             raise SystemExit("the extension's page script is not in the page")
@@ -216,6 +225,32 @@ try:
     # Page focus is part of the check: the app must be the active app (a person's click makes it so).
     subprocess.run(["/usr/bin/open", APP], check=False)
     step("activate", active=wait(lambda: (rpc("debug.focus") or {}).get("app_active"), 10))
+    if opts.scenario == "agent":
+        # Every cmux control call (browser.page.*, debug.cef.devtools) marks the tab agent-driven, so this
+        # harness is the agent from its first call: a person's ceremony on the same page is not possible here
+        # (the unit tests hold that a person's tab keeps passkeys). The agent registers and signs in.
+        touched = rpc("browser.page.eval", {"tab": PAGE_TAB, "agent": AGENT, "script": "document.title"})
+        step("agent takes the tab", reply=touched)
+        wait(lambda: js("document.title") == "passkey fallback", 30)
+        devtools("WebAuthn.enable", {"enableUI": False})
+        added = devtools("WebAuthn.addVirtualAuthenticator", {"options": {
+            "protocol": "ctap2", "transport": "internal", "hasResidentKey": True, "hasUserVerification": True,
+            "isUserVerified": True, "automaticPresenceSimulation": True}})
+        step("virtual authenticator", reply=added)
+        js("window.__reg = null; register().then(id => window.__reg = 'ok ' + id, e => window.__reg = 'failed ' + e)")
+        registered = wait(lambda: js("window.__reg"), 30)
+        step("agent registers", result=registered, pictures=pictures("1-register"))
+        outcome = None
+        if str(registered).startswith("ok"):
+            js("window.__status = null")
+            clicked = rpc("browser.page.click", {"tab": PAGE_TAB, "agent": AGENT, "selector": "#signin"}, timeout=45)
+            outcome = wait(lambda: (lambda v: v if v and v != "waiting" else None)(js("window.__status")), 30, 0.5)
+            step("agent clicks Use passkey", reply=clicked, outcome=outcome, pictures=pictures("2-agent"))
+        refused = str(registered).startswith("failed NotAllowedError") and outcome is None
+        RESULT["outcome"] = {"register": registered, "sign_in": outcome}
+        print("PASS the agent's passkey requests were refused" if refused
+              else f"FAIL register={registered!r} sign_in={outcome!r}", flush=True)
+        raise SystemExit(0 if refused else 1)
     devtools("WebAuthn.enable", {"enableUI": False})
     added = devtools("WebAuthn.addVirtualAuthenticator", {"options": {
         "protocol": "ctap2", "transport": "internal", "hasResidentKey": True, "hasUserVerification": True,

@@ -25,7 +25,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::ring::Ring;
 use crate::wire::{self, Frame, In, Kind, Out};
@@ -327,6 +327,31 @@ impl LinkBreak {
     }
 }
 
+/// When a holder's orphan wait began, by two clocks. `Instant` is the awake
+/// clock on a Mac (`CLOCK_UPTIME_RAW`): it stops while the Mac sleeps, so a
+/// laptop that sleeps every night took weeks to count
+/// [`crate::ABANDONED_GRACE`] (cmuxterm-hq#8377, 2026-11-21). The wall clock
+/// counts sleep; a wall clock set back counts nothing, and the awake time
+/// still does. `poll` wakes at least once a minute, so a sleep is seen within
+/// a minute of waking.
+#[derive(Debug, Clone, Copy)]
+struct OrphanSince {
+    awake: Instant,
+    wall: SystemTime,
+}
+
+impl OrphanSince {
+    fn at(awake: Instant) -> Self {
+        Self { awake, wall: SystemTime::now() }
+    }
+
+    /// The longer of the awake and the wall time since the wait began.
+    fn elapsed_at(&self, awake: Instant, wall: SystemTime) -> Duration {
+        let awake = awake.saturating_duration_since(self.awake);
+        awake.max(wall.duration_since(self.wall).unwrap_or_default())
+    }
+}
+
 /// The holder state.
 pub struct Holder {
     listener: UnixListener,
@@ -363,7 +388,7 @@ pub struct Holder {
     /// `None`: never (normal installs, decision D1).
     orphan_grace: Option<Duration>,
     /// Terminals and no daemon link since this time.
-    orphan_since: Option<Instant>,
+    orphan_since: Option<OrphanSince>,
     sigchld: OwnedFd,
 }
 
@@ -631,9 +656,13 @@ impl Holder {
     /// ended ones are forgotten and the holder exits idle.
     fn end_orphans(&mut self, now: Instant) {
         let orphaned = self.link.is_none() && !self.terminals.is_empty();
-        self.orphan_since = if orphaned { Some(self.orphan_since.unwrap_or(now)) } else { None };
+        self.orphan_since = if orphaned {
+            Some(self.orphan_since.unwrap_or_else(|| OrphanSince::at(now)))
+        } else {
+            None
+        };
         let (Some(grace), Some(since)) = (self.orphan_grace, self.orphan_since) else { return };
-        if now.saturating_duration_since(since) < grace {
+        if since.elapsed_at(now, SystemTime::now()) < grace {
             return;
         }
         let open: Vec<u32> = self
@@ -665,7 +694,10 @@ impl Holder {
             .orphan_since
             .zip(self.orphan_grace)
             .filter(|_| self.terminals.values().any(|terminal| !terminal.closing))
-            .map(|(since, grace)| since + grace);
+            .map(|(since, grace)| {
+                let now = Instant::now();
+                now + grace.saturating_sub(since.elapsed_at(now, SystemTime::now()))
+            });
         kill.into_iter().chain(handshake).chain(idle).chain(orphan).min()
     }
 
@@ -1715,4 +1747,28 @@ fn peer_uid(fd: RawFd) -> Option<libc::uid_t> {
         )
     } == 0;
     ok.then_some(cred.uid)
+}
+
+#[cfg(test)]
+mod orphan_since_tests {
+    use super::*;
+
+    /// A holder orphaned for a week of wall time, most of it asleep, still
+    /// counts the week (cmuxterm-hq#8377).
+    #[test]
+    fn an_orphan_wait_counts_the_time_the_mac_slept() {
+        let since = OrphanSince::at(Instant::now());
+        let awake_hour = since.awake + Duration::from_secs(60 * 60);
+        let wall_week = since.wall + crate::ABANDONED_GRACE;
+        assert!(since.elapsed_at(awake_hour, wall_week) >= crate::ABANDONED_GRACE);
+    }
+
+    /// A wall clock set back counts nothing; the awake time still counts.
+    #[test]
+    fn a_wall_clock_set_back_keeps_the_awake_time() {
+        let since = OrphanSince::at(Instant::now());
+        let awake_day = since.awake + Duration::from_secs(24 * 60 * 60);
+        let wall_back = since.wall - Duration::from_secs(30 * 24 * 60 * 60);
+        assert_eq!(since.elapsed_at(awake_day, wall_back), Duration::from_secs(24 * 60 * 60));
+    }
 }

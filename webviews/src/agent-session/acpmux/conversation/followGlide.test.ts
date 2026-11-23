@@ -63,7 +63,7 @@ test("a rise eases from where the reader saw the rows, at most the room, on the 
   const { node, glides, at } = thread();
   expect(glide.rise(node, 22.75, 40)).toBe(22.75);
   expect(glides[0]!.keyframes).toEqual([{ translate: "0 22.75px" }, { translate: "0 0" }]);
-  expect(glides[0]!.options.duration).toBe(180);
+  expect(glides[0]!.options.duration).toBe(MOTION_MS.standard);
   // Halfway through, the next line starts from what is still drawn back plus its own rise, capped.
   at(0.5);
   expect(glide.outstanding()).toBeCloseTo(11.375);
@@ -115,13 +115,13 @@ test("on the scale's send step (0) a send rises nothing; on a page's own send cl
   expect(product.glides).toHaveLength(0);
   // A page that sets `--agent-motion-send` itself (a gallery) still gets the rise on that clock.
   const glide = createFollowGlide();
-  const { node, glides, at } = thread({ token: "180ms" });
+  const { node, glides, at } = thread({ token: "180ms" }); // motion-allow: a gallery's own send token and its clock
   // The sent prompt's row (64) and its reply's live line came at once: no room cap.
   expect(glide.sent(node, 64)).toBe(64);
   expect(glides[0]!.keyframes).toEqual([{ translate: "0 64px" }, { translate: "0 0" }]);
   // On the send motion (Leo 2026-11-07: "it's all just one unified motion"): the clock the sent
   // prompt's bubble and the thinking row come in on.
-  expect(glides[0]!.options.duration).toBe(180);
+  expect(glides[0]!.options.duration).toBe(180); // motion-allow: a gallery's own send token and its clock
   expect(glides[0]!.options.easing).toBe(MOTION_EASE_SEND);
   // No room under the last row (the live line names a call): the send still plays to rest.
   glide.fit(0);
@@ -131,7 +131,7 @@ test("on the scale's send step (0) a send rises nothing; on a page's own send cl
   expect(glide.rise(node, 20, 4)).toBe(52);
   expect(glides[0]!.cancelled).toBe(true);
   // The reply's line that lands while the send plays keeps the send's clock.
-  expect(glides[1]!.options.duration).toBe(180);
+  expect(glides[1]!.options.duration).toBe(180); // motion-allow: a gallery's own send token and its clock
   // A row the next commit brings rises on the send's glide too.
   at(0);
   expect(glide.sent(node, 30)).toBe(82);

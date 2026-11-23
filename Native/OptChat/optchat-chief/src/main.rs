@@ -9,11 +9,14 @@ use optchat_chief::paths::{Paths, mux_home};
 
 const USAGE: &str = "optchat-chief host --daemon-socket PATH [--mux-home DIR]   run the Chief host (one per MUX_HOME)
 optchat-chief mcp [--socket PATH | --mux-home DIR]           stdio MCP server with zoom and date
+optchat-chief integrations list | add NAME|URL|-- CMD | signin NAME | remove NAME | tools NAME | call NAME TOOL [JSON] | serve
+                                                          the MCP connections of this build (in its acpmux home, shared with every Chief and agent)
 optchat-chief zoom ID N | date ID [--socket PATH | --mux-home DIR]  the memory tools as commands (harnesses without MCP)
 optchat-chief spawn \"task\" [\"task\" ...] | tell ID \"message\"     section 9's subagent tools as commands
 optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the monitoring trace as a timeline
 optchat-chief workspace                                   the person's Home workspace now (panes, terminal tails, browsers)
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
+optchat-chief brains [list] | migrate hermes [--from DIR] [--apply NAME|all]   open-source brains (hermes, openclaw): state, fallbacks, job import
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
 optchat-chief usage [--since 7d] [--by chief|agent|model|harness|kind|person] [--top N] [--json] [--mux-home DIR]... [--chiefs]
                                                           tokens, cost, cache hit and turn time over time (the usage ledger)
@@ -51,6 +54,17 @@ fn main() -> std::process::ExitCode {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // `--version`: the crate version and, in a published build, the commit it
+    // was built from (the Cloud machine's updater smoke-runs a download with it).
+    if matches!(args.as_slice(), [a] if a == "--version" || a == "-V" || a == "version") {
+        match option_env!("OPTCHAT_CHIEF_BUILD_COMMIT") {
+            Some(commit) if !commit.is_empty() => {
+                println!("optchat-chief {} ({commit})", env!("CARGO_PKG_VERSION"));
+            }
+            _ => println!("optchat-chief {}", env!("CARGO_PKG_VERSION")),
+        }
+        return std::process::ExitCode::SUCCESS;
+    }
     // Agent memory parses its own arguments: note text keeps every word,
     // including the Chief's own flags below.
     if args.first().is_some_and(|a| a == "agent-memory") {
@@ -174,6 +188,8 @@ fn main() -> std::process::ExitCode {
     }
     let code = match flags.words.first().map(String::as_str) {
         Some("host") => optchat_chief::host::run(&flags, started_ms),
+        // The machine's MCP connections (one store with cmux): list, add, sign in, call.
+        Some("integrations") => optchat_chief::mcp_hub::cli(&args[1..]),
         Some("mcp") => {
             let socket = flags.value("socket").map(PathBuf::from).unwrap_or_else(|| {
                 let home = flags
@@ -192,9 +208,11 @@ fn main() -> std::process::ExitCode {
             }
         }
         Some(
-            tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
-            | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
+            tool @ ("zoom" | "date" | "recall" | "follow_up" | "follow_ups" | "check_ins"
+            | "nothing" | "ask" | "memory_read" | "memory_write" | "memory_forget"
+            | "spawn" | "tell" | "peers" | "react" | "reply" | "send" | "stop" | "sleep"
+            | "watch" | "remember" | "transcript" | "control" | "automation" | "profile"
+            | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
             | "cloud_workspace"),
         ) => {
             let socket = flags
@@ -302,6 +320,18 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        // The open-source brains (brain_home.rs): their state, and the move of a brain's own
+        // jobs into cmux automations.
+        Some("brains") => match optchat_chief::brain_home::run(&flags) {
+            Ok(out) => {
+                print!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief brains: {e}");
+                1
+            }
+        },
         Some("engine") => match optchat_chief::engine::run(&flags) {
             Ok(out) => {
                 print!("{out}");
@@ -397,6 +427,10 @@ fn main() -> std::process::ExitCode {
                                 optchat_chief::chief_settings::TRUSTED_AGENTS => {
                                     s.trusted_agents =
                                         optchat_chief::chief_settings::parse_trusted_agents(value)?
+                                }
+                                optchat_chief::chief_settings::RELAY_MCP_SERVERS => {
+                                    s.relay_mcp_servers =
+                                        optchat_chief::chief_settings::parse_mcp_servers(value)?
                                 }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }

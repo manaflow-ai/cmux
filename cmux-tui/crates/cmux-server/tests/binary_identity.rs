@@ -25,6 +25,8 @@ fn query(keys: Vec<TrustedKey>) -> Value {
         // No home, user id, app bundle or service layout exists.
         env: LayoutEnv::default(),
         now_ms: 0,
+        self_exe: None,
+        terminal_socket: None,
     };
     let args = parse(&["status".into(), "--binary-only".into(), "--json".into()]).unwrap();
     let result = dispatch(&context, &args).unwrap();

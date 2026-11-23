@@ -14,67 +14,102 @@ import Testing
 // is measured in Rust, this is what follows it in Swift).
 //
 // The real coordinator, controller, pairing, acpmux hub, chat source and chat store run against
-// a fake Mac whose every message waits a one-way latency each way (RTT 80 ms). The
+// a fake Mac whose link carries messages in round trips the test steps through (lockstep): the
+// phone sends, then the Mac gets everything sent so far and its answers reach the phone at once.
+// A round trip is counted, never timed, so the count is the same on a loaded runner. The
 // fake Mac answers as cmux-mobile-host and acpmux do: `auth` sends its challenge when it opens
 // and `{"ok":true}` for the signature; every channel opened after `auth` is held until it passes
 // (host.rs accept loop, `LinkAuth::gate`); acpmux answers `initialize`, `_acpmux/watch` and
 // `_acpmux/attach`, then sends one live record. The dial itself returns at once.
 //
-// Each run: background, foreground (`.resume` replaces the link), and marks every step in wall
-// time. Prints, per RTT, `CHAIN_STEP` (ms since the link was adopted, p50/p95 of 10 runs) and
-// `CHAIN_RTTS` ((attach answered - adopted) / RTT), and expects at most three serial round trips
-// (pairing's two and the attach). Runs in about 5 s.
+// Each run: background, foreground (`.resume` replaces the link), then round trips. Before each
+// round trip ends, the test waits for what the phone must have sent by then for the chain to
+// take three: the `auth` open; the signature, `initialize` and the chats' first page (riding
+// behind `auth`, not after it); the attach. A phone that waits for an answer instead never sends
+// it, and the wait fails, naming the send. Prints, per RTT, `CHAIN_STEP` (the round trip of each
+// step, as ms at that RTT, p50/p95 of 10 runs) and `CHAIN_RTTS`, and expects at most three
+// serial round trips (pairing's two and the attach).
 
-/// Wall-clock marks of one run: the first time each step happened.
+/// The marks of one run: the round trip in which each step first happened.
 // crash-allow: every mutable field is read and written only under `lock`
 private final class ChainMarks: @unchecked Sendable {
     private let lock = NSLock()
-    private var marks: [String: ContinuousClock.Instant] = [:]
+    private var marks: [String: Int] = [:]
     private var link: ObjectIdentifier?
+    private var currentRound = 0
 
-    func reset() { lock.withLock { marks = [:]; link = nil } }
+    func reset() { lock.withLock { marks = [:]; link = nil; currentRound = 0 } }
+    /// The round trip the run is in: 0 until the Mac's first answers reach the phone.
+    var round: Int {
+        get { lock.withLock { currentRound } }
+        set { lock.withLock { currentRound = newValue } }
+    }
     /// From now on, wire marks count only for `link` (the old link's stragglers are not this run's).
     func follow(_ link: AnyObject) { lock.withLock { self.link = ObjectIdentifier(link) } }
 
     func mark(_ step: String, link: AnyObject? = nil) {
-        let now = ContinuousClock.now
         lock.withLock {
             if let link, ObjectIdentifier(link) != self.link { return }
-            if marks[step] == nil { marks[step] = now }
+            if marks[step] == nil { marks[step] = currentRound }
         }
     }
 
-    var all: [String: ContinuousClock.Instant] { lock.withLock { marks } }
+    var all: [String: Int] { lock.withLock { marks } }
 }
 
-/// One direction of a link: FIFO, each message delivered `delay` after it was sent.
-// crash-allow: immutable after init (its continuation is Sendable)
-private final class Wire: @unchecked Sendable {
-    struct Delivery: Sendable {
-        let at: ContinuousClock.Instant
-        let work: @Sendable () -> Void
-    }
+/// The link's two directions. Free, a message is delivered at once (in order); held, messages
+/// wait until the test ends the round trip: the Mac gets what the phone sent, then the phone gets
+/// what the Mac answered.
+// crash-allow: every mutable field is read and written only under `lock`
+private final class Lockstep: @unchecked Sendable {
+    typealias Work = @Sendable () -> Void
+    private let lock = NSLock()
+    private var held = false
+    private var up: [Work] = []
+    private var down: [Work] = []
+    private let continuation: AsyncStream<Work>.Continuation
 
-    private let delay: Duration
-    private let continuation: AsyncStream<Delivery>.Continuation
-
-    init(delay: Duration) {
-        self.delay = delay
-        let (stream, continuation) = AsyncStream.makeStream(of: Delivery.self, bufferingPolicy: .unbounded)
+    init() {
+        let (stream, continuation) = AsyncStream.makeStream(of: Work.self, bufferingPolicy: .unbounded)
         self.continuation = continuation
         Task.detached(priority: .high) {
-            for await delivery in stream {
-                try? await ContinuousClock().sleep(until: delivery.at, tolerance: nil) // test: the simulated one-way latency
-                delivery.work()
-            }
+            for await work in stream { work() }
         }
     }
 
-    func send(_ work: @escaping @Sendable () -> Void) {
-        continuation.yield(Delivery(at: .now + delay, work: work))
+    func send(up isUp: Bool, _ work: @escaping Work) {
+        let queued = lock.withLock { () -> Bool in
+            guard held else { return false }
+            if isUp { up.append(work) } else { down.append(work) }
+            return true
+        }
+        if !queued { continuation.yield(work) }
     }
 
-    func close() { continuation.finish() }
+    func hold() { lock.withLock { held = true } }
+
+    /// One round trip: the Mac gets everything the phone sent, then the phone gets the answers.
+    func roundTrip() {
+        for work in lock.withLock({ defer { up = [] }; return up }) { work() }
+        for work in lock.withLock({ defer { down = [] }; return down }) { work() }
+    }
+
+    /// Back to free delivery, after the round trips still owed. The queues go empty and delivery
+    /// goes free under one lock, so no message sent meanwhile is left behind later ones.
+    func release() {
+        while let owed = lock.withLock({ () -> (ups: [Work], downs: [Work])? in
+            if up.isEmpty, down.isEmpty {
+                held = false
+                return nil
+            }
+            defer { up = []; down = [] }
+            return (ups: up, downs: down)
+        }) {
+            // The Mac's answers to `ups` queue behind `downs` and go in the next pass.
+            for work in owed.ups { work() }
+            for work in owed.downs { work() }
+        }
+    }
 }
 
 /// The Mac's acpmux: chat `s1` with three finished turns. Each attach after the first finds what
@@ -155,6 +190,7 @@ private final class FakeMac: @unchecked Sendable {
     let macID: String
     let acpmux = FakeAcpmux()
     let marks = ChainMarks()
+    let lockstep = Lockstep()
     private let lock = NSLock()
     private var oneWayLatency: Duration = .milliseconds(40)
 
@@ -222,8 +258,6 @@ private final class ChainLink: MacLink, @unchecked Sendable {
     private let stateContinuation: AsyncStream<LinkState>.Continuation
     private let mac: FakeMac
     private let oneWay: Duration
-    private let up: Wire
-    private let down: Wire
     private let lock = NSLock()
     private var nextID: UInt32 = 1
     private var paired = false
@@ -236,8 +270,6 @@ private final class ChainLink: MacLink, @unchecked Sendable {
         let delay = mac.oneWay
         self.mac = mac
         oneWay = delay
-        up = Wire(delay: delay)
-        down = Wire(delay: delay)
         (states, stateContinuation) = AsyncStream.makeStream()
         stateContinuation.yield(.connected(.wireGuard, .direct, rttMillis: rttMillis))
     }
@@ -252,12 +284,18 @@ private final class ChainLink: MacLink, @unchecked Sendable {
             return channel
         }
         mac.marks.mark("\(service)_open", link: self)
-        up.send { [self] in macOpened(channel) }
+        mac.lockstep.send(up: true) { [self] in macOpened(channel) }
         return channel
     }
 
+    /// The pong, one round trip later like every other answer: a chain that waits on the probe
+    /// pays that round trip. The probe's bound is on the coordinator's test clock, which the test
+    /// never moves, so the probe never times out.
     func ping() async throws -> UInt32 {
-        try await Task.sleep(for: oneWay * 2) // test: a pong one round trip later
+        let lockstep = mac.lockstep
+        await withCheckedContinuation { (pong: CheckedContinuation<Void, Never>) in
+            lockstep.send(up: true) { lockstep.send(up: false) { pong.resume() } }
+        }
         return rttMillis
     }
 
@@ -268,8 +306,6 @@ private final class ChainLink: MacLink, @unchecked Sendable {
         for channel in open { channel.end() }
         stateContinuation.yield(.disconnected(reason: "closed"))
         stateContinuation.finish()
-        up.close()
-        down.close()
     }
 
     // MARK: Phone side
@@ -287,7 +323,7 @@ private final class ChainLink: MacLink, @unchecked Sendable {
         default:
             break
         }
-        up.send { [self] in macReceived(channel, data) }
+        mac.lockstep.send(up: true) { [self] in macReceived(channel, data) }
     }
 
     /// A message reaches the phone's channel.
@@ -313,7 +349,7 @@ private final class ChainLink: MacLink, @unchecked Sendable {
     // MARK: Mac side (runs when the phone's message arrives)
 
     private func toPhone(_ channel: ChainChannel, _ data: Data) {
-        down.send { [self] in arrived(channel, data) }
+        mac.lockstep.send(up: false) { [self] in arrived(channel, data) }
     }
 
     /// Runs `work` now when `auth` passed, else when it does (`LinkAuth::gate`).
@@ -391,9 +427,14 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         "attach_in", "catchup_applied", "event_in", "live_applied",
     ]
 
-    static func ms(_ duration: Duration) -> Double {
-        Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
-    }
+    /// What the phone must have done before each round trip ends, for the chain to take three from
+    /// the link's adoption: pairing's two (the challenge, the signature) with `initialize` and the
+    /// chats' first page riding behind `auth`, then the attach.
+    static let rounds: [[String]] = [
+        ["adopted", "auth_open"],
+        ["auth_signature_out", "initialize_out", "watch_out"],
+        ["attach_out"],
+    ]
 
     static func percentile(_ values: [Double], _ p: Double) -> Double {
         let sorted = values.sorted()
@@ -403,10 +444,11 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
 
     static func fmt(_ value: Double) -> String { String(format: "%.1f", value) }
 
-    /// Polls `done` every millisecond on the main actor, up to `within`.
-    func waitFor(_ what: String, within: Duration = .seconds(20), _ done: () -> Bool) async throws {
-        let end = ContinuousClock.now + within
-        while !done(), ContinuousClock.now < end { try await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
+    /// Polls `done` on the main actor until it holds. The watchdog counts time awake and only ends a
+    /// wait that would hang (the phone never sends what it waits for); it decides no outcome.
+    func waitFor(_ what: String, within: Duration = .seconds(30), _ done: () -> Bool) async throws {
+        var watchdog = AwakeDeadline(within)
+        while !done(), watchdog.hasTimeLeft() { try await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
         try #require(done(), "timed out waiting for \(what)")
     }
 
@@ -428,6 +470,8 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         let mac = FakeMac(macID: macID)
         let secrets = MemorySecretStore()
         let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        // The coordinator's clock: no heartbeat, probe bound or retry fires unless the test moves it.
+        let clock = LinkTestClock()
         let live = LiveCoordinator(
             store: store,
             api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
@@ -437,9 +481,12 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             keys: PhoneKeys(userID: userID, service: "test.chain.\(UUID())", store: secrets, enclave: false),
             snapshots: snapshots, secrets: secrets,
             readMarks: FeedReadMarks(url: directory.appending(path: "read.json")),
-            pins: MacPins(file: nil)
+            pins: MacPins(file: nil), clock: clock
         )
-        defer { live.stop() }
+        defer {
+            live.stop()
+            clock.stop()
+        }
         // No kept transcript: the chat's history comes from the Mac only.
         live.transcriptCache = nil
 
@@ -472,40 +519,41 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         for rttMillis in [80] {
             mac.oneWay = .milliseconds(rttMillis / 2)
             var values: [String: [Double]] = [:]
-            var mainGaps: [Double] = []
+            var serials: [Int] = []
             for _ in 0..<10 {
                 reattach += 1
                 let missed = FakeAcpmux.missedTurn(reattach)
                 let liveTurn = FakeAcpmux.liveTurn(reattach)
-                try await Task.sleep(for: .milliseconds(20)) // test: lets the last run's tail (probe, seeds) settle
                 marks.reset()
+                mac.lockstep.hold()
                 live.background()
                 marks.mark("resume")
                 live.foreground()
                 // Main-actor marks: each counts once its old state was seen gone.
                 var sawUnpaired = false
                 var sawNotReady = false
-                var last = ContinuousClock.now
-                var gap: Duration = .zero
-                let end = ContinuousClock.now + .seconds(20)
-                while ContinuousClock.now < end {
+                func observe() -> Bool {
                     if session.pairingState != .paired { sawUnpaired = true } else if sawUnpaired { marks.mark("paired") }
                     if !session.acpmux.isReady { sawNotReady = true } else if sawNotReady { marks.mark("ready") }
                     if chat.turns.contains(where: { $0.id == missed }) { marks.mark("catchup_applied") }
-                    if chat.turns.contains(where: { $0.id == liveTurn }) {
-                        marks.mark("live_applied")
-                        break
-                    }
-                    try await Task.sleep(for: .milliseconds(1)) // test: polls the chain's main-actor state
-                    let now = ContinuousClock.now
-                    gap = max(gap, now - last)
-                    last = now
+                    if chat.turns.contains(where: { $0.id == liveTurn }) { marks.mark("live_applied") }
+                    return marks.all["live_applied"] != nil
                 }
+                for (index, sends) in Self.rounds.enumerated() {
+                    try await waitFor("round trip \(index + 1): the phone to send \(sends) before the Mac's answers of round trip \(index) (marks: \(marks.all))") {
+                        _ = observe()
+                        let seen = marks.all
+                        return sends.allSatisfy { seen[$0] != nil }
+                    }
+                    marks.round = index + 1
+                    mac.lockstep.roundTrip()
+                }
+                try await waitFor("the chat's live record \(liveTurn) (marks: \(marks.all))") { observe() }
+                mac.lockstep.release()
                 let seen = marks.all
                 let base = try #require(seen["adopted"], "the new link was never adopted")
-                try #require(seen["live_applied"] != nil, "the chat never got live record \(liveTurn) (marks: \(seen.keys.sorted()))")
-                for (step, at) in seen { values[step, default: []].append(Self.ms(at - base)) }
-                mainGaps.append(Self.ms(gap))
+                for (step, round) in seen { values[step, default: []].append(Double((round - base) * rttMillis)) }
+                serials.append(try #require(seen["attach_in"], "the attach never came back") - base)
             }
             for step in Self.steps {
                 guard let samples = values[step], !samples.isEmpty else {
@@ -514,13 +562,10 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 }
                 emit(#"CHAIN_STEP {"rtt_ms":\#(rttMillis),"step":"\#(step)","n":\#(samples.count),"p50":\#(Self.fmt(Self.percentile(samples, 0.5))),"p95":\#(Self.fmt(Self.percentile(samples, 0.95)))}"#)
             }
-            // The longest the main actor kept the 1 ms poll waiting during a run.
-            emit(#"CHAIN_STEP {"rtt_ms":\#(rttMillis),"step":"main_actor_max_gap","n":\#(mainGaps.count),"p50":\#(Self.fmt(Self.percentile(mainGaps, 0.5))),"p95":\#(Self.fmt(Self.percentile(mainGaps, 0.95)))}"#)
             let attach = Self.percentile(values["attach_in"] ?? [0], 0.5)
             let liveApplied = Self.percentile(values["live_applied"] ?? [0], 0.5)
-            let resume = Self.percentile(values["resume"] ?? [0], 0.5)
-            let serial = Int((attach / Double(rttMillis)).rounded())
-            emit(#"CHAIN_RTTS {"rtt_ms":\#(rttMillis),"serial_round_trips":\#(serial),"attach_in_p50":\#(Self.fmt(attach)),"live_applied_p50":\#(Self.fmt(liveApplied)),"resume_p50":\#(Self.fmt(resume))}"#)
+            let serial = serials.max() ?? 0
+            emit(#"CHAIN_RTTS {"rtt_ms":\#(rttMillis),"serial_round_trips":\#(serial),"attach_in_p50":\#(Self.fmt(attach)),"live_applied_p50":\#(Self.fmt(liveApplied))}"#)
             // Pairing's two round trips, then the attach: `initialize` and the first page of
             // chats ride behind `auth`, not after it (ask-48f698fc26; five before).
             Attachment.record(report.joined(separator: "\n"), named: "reconnect-chain.txt")

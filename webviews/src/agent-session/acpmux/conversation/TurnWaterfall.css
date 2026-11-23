@@ -74,7 +74,7 @@
 
 .cv-waterfall__span.is-link:hover,
 .cv-waterfall__span.is-link:focus-visible {
-  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+  background: var(--ds-surface-hover);
   color: var(--cv-text);
 }
 
@@ -109,7 +109,7 @@
   /* An 8px bar: the track is its padding, on the spacing scale. */
   padding-block: 4px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--cv-fg) 5%, transparent);
+  background: var(--ds-surface-card);
 }
 
 .cv-waterfall__bar {
@@ -169,7 +169,7 @@
   left: var(--wf-from);
   width: var(--wf-width);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--cv-fg) 9%, transparent);
+  background: var(--ds-surface-inset);
 }
 
 .cv-waterfall .is-failed {

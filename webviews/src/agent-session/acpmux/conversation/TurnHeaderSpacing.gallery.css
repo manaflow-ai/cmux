@@ -1,0 +1,13 @@
+/* The rule under a turn's "Working for" / "Worked for" line, three ways (TurnHeaderSteady.gallery.ts
+   `spacing`): the room under the words, then the room over the next row. "Worked for" shares the
+   class, so the turn's end keeps whichever room the running line had. */
+:root[data-turn-header-spacing="tight"] .cv-worked.has-divider.is-toggle {
+  height: calc(var(--cv-tool-row-height) + var(--grid-half-step));
+  padding-bottom: var(--grid-half-step);
+  margin-bottom: calc(var(--grid-gap) - var(--grid-half-step));
+}
+:root[data-turn-header-spacing="roomy"] .cv-worked.has-divider.is-toggle {
+  height: calc(var(--cv-tool-row-height) + var(--grid-gap));
+  padding-bottom: var(--grid-gap);
+  margin-bottom: var(--grid-gap-inner);
+}

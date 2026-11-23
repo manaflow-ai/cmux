@@ -229,7 +229,7 @@ describe("transcript hover-revealed controls fade", () => {
     ]);
     // A fade of its own duration is not the shared fade.
     expect(
-      fixture(".row-tools { opacity: 0; transition: opacity 120ms ease-out } .row:hover .row-tools { opacity: 1 }"),
+      fixture(".row-tools { opacity: 0; transition: opacity 120ms ease-out } .row:hover .row-tools { opacity: 1 }"), // motion-allow: scanner fixture, a raw literal
     ).toHaveLength(1);
     // visibility swaps blink too.
     expect(fixture(".row-tools { visibility: hidden }\n.row:hover .row-tools { visibility: visible }")).toHaveLength(1);

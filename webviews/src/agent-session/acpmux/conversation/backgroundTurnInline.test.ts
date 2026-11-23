@@ -46,11 +46,14 @@ const transcript = (background: Partial<NonNullable<AcpmuxRow["background"]>>) =
 };
 const ids = (rows: AcpmuxRow[]) => rows.filter((entry) => entry.kind !== "date").map((entry) => entry.id);
 
-test("a quiet background turn draws its tool call, with no line and no reply", () => {
+// It ends on its row of actions, as every ended turn does (turnEndActions.experiment.ts; Leo,
+// 2026-11-21: "there's no buttons at the bottom even thuogh you have visibly stopped doing things").
+test("a quiet background turn draws its tool call and its row, with no line and no reply", () => {
   const rows = transcript({ quiet: true });
-  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", "check"]);
+  const drawn = ["prompt", "reply", "summary", "check", "backgroundEnd-bg"];
+  expect(ids(turnView(rows, new Set()))).toEqual(drawn);
   // A fold key left from the line look opens nothing: the reply stays hidden.
-  expect(ids(turnView(rows, new Set([backgroundTurnRowId("bg")])))).toEqual(["prompt", "reply", "summary", "check"]);
+  expect(ids(turnView(rows, new Set([backgroundTurnRowId("bg")])))).toEqual(drawn);
 });
 
 test("a running background turn draws its calls as they come, its reply not yet", () => {
@@ -85,7 +88,34 @@ test('quiet background turns in a row draw no "N background updates" line', () =
   ];
   const view = turnView(rows, new Set());
   expect(view.some((entry) => entry.kind === BACKGROUND_TURN || entry.id.startsWith(BACKGROUND_RUN))).toBe(false);
-  expect(ids(view)).toEqual(["prompt", "reply", "summary", "a-check", "b-check"]);
+  // Each ends on its own row, as a prompt's turn does.
+  expect(ids(view)).toEqual(["prompt", "reply", "summary", "a-check", "backgroundEnd-a", "b-check", "backgroundEnd-b"]);
+});
+
+test("in the `last` arm only the chat's last quiet turn ends on its row", () => {
+  globalThis.cmuxExperiments = { "background-turn-look": "inline", "turn-end-actions": "last" };
+  at = 0;
+  const rows = [
+    row("prompt", "user", { text: "Run the suite" }),
+    row("reply", "assistant", { text: "Started it." }),
+    row("summary", "turnSummary", { status: "completed", durationMs: 2_000 }),
+    line("a", { quiet: true, trigger: "scheduled" }),
+    call("a-check", "a"),
+    line("b", { quiet: true }),
+    call("b-check", "b"),
+  ];
+  expect(ids(turnView(rows, new Set()))).toEqual([
+    "prompt",
+    "reply",
+    "summary",
+    "a-check",
+    "b-check",
+    "backgroundEnd-b",
+  ]);
+  globalThis.cmuxExperiments = { "background-turn-look": "inline", "turn-end-actions": "off" };
+  // Fresh rows: a turn's shape is cached by its rows, and the arm is no part of that key.
+  const fresh = rows.map((each) => ({ ...each }));
+  expect(ids(turnView(fresh, new Set()))).toEqual(["prompt", "reply", "summary", "a-check", "b-check"]);
 });
 
 test("the line look still folds a quiet turn to its line", () => {

@@ -53,13 +53,22 @@ public enum TerminalSessionChoice {
         macName: String?,
         programName: String
     ) -> any TerminalSession {
-        if let live { return live }
+        if let live {
+            #if os(iOS)
+            // The phone re-wraps the Mac's terminal at its own width; the Mac
+            // keeps its size (Fit to Phone, per program or in Settings → Terminal, resizes it).
+            if TerminalProjectingSession.isEnabled(for: live.programName) { return TerminalProjectingSession(inner: live) }
+            #endif
+            return live
+        }
         #if DEBUG
         if mockDataEnabled {
             // A Codex-like inline TUI streaming history (reproduction harness).
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex") { return FakeCodexSession() }
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
-            return MockTerminalSession(roundTrip: .milliseconds(Self.mockRoundTripMilliseconds))
+            // `-cmux-mobile-term-no-intro`: the prompt at once, no scripted commands (LaunchTTIUITests types into it).
+            let intro = !ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-no-intro")
+            return MockTerminalSession(playsIntro: intro, roundTrip: .milliseconds(Self.mockRoundTripMilliseconds))
         }
         #endif
         return PendingTerminalSession(macName: macName, programName: programName)
