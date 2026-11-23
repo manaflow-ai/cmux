@@ -3712,7 +3712,9 @@ async fn dispatch_request_with_identity(
             heap(|| hub.wake(&s)).await
         }
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
-        method::MUX_RELEASE_TO_WATCH => super::chats::release_to_watch(hub, &params).await,
+        method::MUX_RELEASE_TO_WATCH => {
+            super::chats::release_to_watch(hub, &params, conn.origin, conn.socket_peer).await
+        }
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             // The queue a restart rebuilds from the logs.
