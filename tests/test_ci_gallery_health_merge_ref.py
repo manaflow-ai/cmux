@@ -146,7 +146,8 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertEqual(workflow["jobs"]["health"]["strategy"]["matrix"]["shard"],
                          "${{ fromJSON(needs.plan.outputs.shards) }}")
         render = step("Render the gallery and judge it")
-        self.assertEqual(render["env"]["SHARDS"], "${{ strategy.job-total }}")
+        # The full split from the plan: a push's full render starts only a slice of it.
+        self.assertEqual(render["env"]["SHARDS"], "${{ needs.plan.outputs.split || strategy.job-total }}")
         self.assertIn('--shard-count "$SHARDS" --shard-index "$SHARD"', render["run"])
 
     def test_every_health_run_may_render(self) -> None:
@@ -688,8 +689,9 @@ class GalleryHealthTime(unittest.TestCase):
 
     def test_a_shard_past_its_case_budget_fails_naming_the_shard_count(self) -> None:
         cap = step("Hold each shard within its time budget")
-        self.assertEqual(cap["env"]["SHARDS"], "${{ strategy.job-total }}")
-        self.assertIn("matrix.shard == 0", cap["if"])
+        self.assertEqual(cap["env"]["SHARDS"], "${{ needs.plan.outputs.split || strategy.job-total }}")
+        # The first shard that started: a push's slice may not hold shard 0.
+        self.assertIn("strategy.job-index == 0", cap["if"])
         self.assertIn("!cancelled()", cap["if"])
         names = [entry.get("name") for entry in steps()]
         # It counts before the base replay restores the base's webviews/ (review of #41296), goes on so the
@@ -722,6 +724,7 @@ class GalleryHealthTime(unittest.TestCase):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         plan = workflow["jobs"]["plan"]
         self.assertEqual(plan["outputs"]["shards"], "${{ steps.size.outputs.shards }}")
+        self.assertEqual(plan["outputs"]["split"], "${{ steps.size.outputs.split }}")
         self.assertIn("needs.plan.outputs.shards != '[]'", workflow["jobs"]["health"]["if"])
         # A fork's pull request gets no plan and so no shards, as before.
         self.assertIn("head.repo.full_name == github.repository", plan["if"])
@@ -734,12 +737,12 @@ class GalleryHealthTime(unittest.TestCase):
                 "json.dump([{}]*int(sys.argv[1]), open(sys.argv[2], 'w'))\" \"$CASES\" \"$2\"; }; shift; done\n")
             (root / "bin/bun").chmod(0o755)
 
-            def shards(cases: int, all_: str = "false", ids: str = "a") -> list[int]:
+            def shards(cases: int, all_: str = "false", ids: str = "a", **extra: str) -> list[int]:
                 out = root / "out"
                 out.write_text("")
                 env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "RUNNER_TEMP": tmp,
                        "GITHUB_OUTPUT": str(out), "CASES": str(cases), "ALL": all_, "IDS": ids,
-                       **{k: str(v) for k, v in size["env"].items() if k.startswith("MAX_")}}
+                       **{k: str(v) for k, v in size["env"].items() if k.startswith("MAX_")}, **extra}
                 done = subprocess.run(["bash", "-c", size["run"]], cwd=root, env=env, capture_output=True, text=True)
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 values = dict(line.split("=", 1) for line in out.read_text().splitlines())
@@ -754,6 +757,25 @@ class GalleryHealthTime(unittest.TestCase):
             self.assertEqual(shards(per + 1), [0, 1])
             self.assertEqual(shards(13002, all_="true", ids=""), list(range(17)))
             self.assertEqual(len(shards(10**6, all_="true")), int(size["env"]["MAX_SHARDS"]))
+
+            # A push's full render runs a rotating slice of the full split (Leo, 2026-11-21: "cut shit now and
+            # revisit later"); consecutive runs cover every shard. `all` is the off switch.
+            self.assertEqual(size["env"]["PUSH_FULL_SHARDS"], "${{ vars.GALLERY_HEALTH_PUSH_FULL_SHARDS || '2' }}")
+            push = {"EVENT": "push", "PUSH_FULL_SHARDS": "2"}
+            self.assertEqual(shards(13002, all_="true", ids="", RUN_NUMBER="0", **push), [0, 1])
+            self.assertEqual(shards(13002, all_="true", ids="", RUN_NUMBER="8", **push), [16, 0])
+            seen = set()
+            for run_number in range(9):
+                seen.update(shards(13002, all_="true", ids="", RUN_NUMBER=str(run_number), **push))
+            self.assertEqual(seen, set(range(17)), "nine consecutive full-render pushes cover all 17 shards")
+            self.assertEqual(shards(13002, all_="true", ids="", RUN_NUMBER="3", EVENT="push",
+                                    PUSH_FULL_SHARDS="all"), list(range(17)), "the off switch")
+            self.assertEqual(shards(13002, all_="true", ids="", RUN_NUMBER="3", EVENT="workflow_dispatch",
+                                    PUSH_FULL_SHARDS="2"), list(range(17)), "a dispatch renders everything")
+            self.assertEqual(shards(5 * per, RUN_NUMBER="3", **push), list(range(5)),
+                             "a push that touched entries renders them all")
+            self.assertEqual(shards(per + 1, all_="true", ids="", RUN_NUMBER="3", **push), [0, 1],
+                             "a split no wider than the slice renders whole")
 
     def test_the_plan_checks_out_what_the_shards_do(self) -> None:
         self.assertEqual(plan_step("Checkout")["with"], step("Checkout")["with"])
