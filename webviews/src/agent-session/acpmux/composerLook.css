@@ -49,7 +49,7 @@
    `no-preference`. The plain top strip (data-top-strip="plain") drops the strip's fill and blur, so
    this leaves it alone. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-cmux-see-through], [data-reduce-transparency], [data-top-strip="plain"])
+  :root:not([data-cmux-see-through], [data-reduce-transparency], [data-glass="off"], [data-top-strip="plain"])
     .acpmux-composer[data-composer-look="codex"]
     > .acpmux-composer-strip {
     background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));

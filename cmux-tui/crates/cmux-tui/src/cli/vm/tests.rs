@@ -41,6 +41,22 @@ fn client_session_commands_pass_through_to_cmux_vm() {
 }
 
 #[test]
+fn saved_file_commands_use_the_vm_api_without_the_app_carrier() {
+    for verb in ["read", "ls", "stat"] {
+        let words = args(&["vm", "file", verb, "vm_1", "/workspace"]);
+        assert!(cloud_alias(&words).is_none());
+        assert_eq!(
+            planned(&["vm", "file", verb, "vm_1", "/workspace"]).unwrap(),
+            args(&["file", verb, "vm_1", "/workspace"])
+        );
+    }
+    assert_eq!(
+        planned(&["vm", "file", "read", "vm_1", "/log", "--range", "bytes=4-"]).unwrap(),
+        args(&["file", "read", "vm_1", "/log", "--range", "bytes=4-"])
+    );
+}
+
+#[test]
 fn exec_keeps_everything_after_the_double_dash() {
     assert_eq!(
         planned(&["vm", "exec", "vm_1", "--", "acpmux", "run", "-m", "claude", "hi"]).unwrap(),
@@ -566,6 +582,7 @@ fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
     assert_eq!(route(&["vm", "new"], true), NewRoute::App);
     assert_eq!(route(&["vm", "new"], false), NewRoute::VmApi);
     assert_eq!(route(&["vm", "new", "--image", "img_1"], true), NewRoute::VmApi);
+    assert_eq!(route(&["vm", "new", "--label", "fleet=lanes"], true), NewRoute::VmApi);
 }
 
 #[test]

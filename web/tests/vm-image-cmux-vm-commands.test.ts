@@ -199,6 +199,37 @@ describe("cmux VM image apt index", () => {
     expect(bake.APT_FETCH_ATTEMPTS).toBe(3);
   });
 
+  // Image rolls 45109809346 and 45113664312 (2026-11-23): GitHub release downloads ran at about 100 KB/s, and
+  // store-codex (109 MB) hit the guest's 5-minute exec cap (status 124) twice. A store install now continues its
+  // partial download on the next run, skips a whole one, and drops a whole file with the wrong sha256.
+  test("a store install resumes its download and is run again up to STORE_FETCH_ATTEMPTS times", async () => {
+    const codex = lock.programs.find((p) => p.name === "codex")!;
+    const dl = `/tmp/cmux-dl/${codex.sha256}`;
+    const command = programInstallCommand(codex);
+    expect(command).toContain(`test "$(stat -c %s ${dl} 2>/dev/null)" = ${codex.size} || curl -fsSL --retry 3 -C - -o ${dl} `);
+    expect(command).toContain(`sha256sum -c --quiet - || { rm -f ${dl}; false; }`);
+    expect(command).not.toContain(`rm -f ${dl} ${dl}.tgz ${dl}.sums && mkdir`);
+
+    const vm = {} as Parameters<typeof bake.installStoreProgram>[1];
+    const calls: string[] = [];
+    const lines: string[] = [];
+    const L = {
+      log: (line: string) => void lines.push(line),
+      step: async (_vm: unknown, label: string) => {
+        calls.push(label);
+        if (calls.length <= 3) throw new Error(`step ${label} failed`);
+        return "store codex 0.160.0 443961079";
+      },
+    };
+    await bake.installStoreProgram(L, vm, "store-codex", command);
+    expect(calls).toEqual(["store-codex", "store-codex-try-2", "store-codex-try-3", "store-codex-try-4"]);
+    expect(lines.join("\n")).toContain("store-codex failed (try 1 of 6); running it again, keeping the part it downloaded");
+
+    const never = { ...L, step: async (_vm: unknown, label: string) => { throw new Error(`step ${label} failed`); } };
+    await expect(bake.installStoreProgram(never, vm, "store-codex", command)).rejects.toThrow("step store-codex-try-6 failed");
+    expect(bake.STORE_FETCH_ATTEMPTS).toBe(6);
+  });
+
   // Bake run 43932356313 (2026-11-16): the snapshot's index update hit its cap, the archive fallback had replaced
   // ca-certificates 20260816ubuntu0.24.04.1 with .2, and the system layer failed with "apt index has no size".
   test("the Ubuntu closure is fetched by content (archive, then the dated snapshot) and installed with no index", async () => {

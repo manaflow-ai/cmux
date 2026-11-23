@@ -1286,5 +1286,53 @@ class EventPayloadTests(unittest.TestCase):
             self.assertIn("tier=low", out)
 
 
+class GhFailureTests(unittest.TestCase):
+    """A gh call that fails names its reason on the job's log, and a rate limit stops the retries.
+
+    #50881's "risk evidence" job was red with nothing in the log but "CalledProcessError ... returned non-zero
+    exit status 1": gh's stderr went into capture_output and was dropped, so neither a person nor
+    base_red_excuse.py could tell a drained API budget from a graded pull request."""
+
+    def run_gh(self, returncode, stderr, attempts=3):
+        calls, slept = [], []
+        saved_run, saved_sleep = subprocess.run, time.sleep
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, returncode, stdout="", stderr=stderr)
+
+        risk.subprocess.run, risk.time.sleep = fake_run, lambda s: slept.append(s)
+        self.addCleanup(lambda: (setattr(risk.subprocess, "run", saved_run),
+                                 setattr(risk.time, "sleep", saved_sleep)))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            with self.assertRaises(subprocess.CalledProcessError):
+                risk.gh_run(["gh", "api", "repos/o/r/pulls/7/files"], attempts=attempts)
+        return calls, slept, err.getvalue()
+
+    def test_a_rate_limit_stops_at_once_and_says_it_is_not_a_verdict(self):
+        calls, slept, err = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        self.assertEqual(len(calls), 1, "no retry inside this job outlasts an hourly reset")
+        self.assertEqual(slept, [])
+        self.assertIn("API rate limit exceeded", err)
+        self.assertIn("not a verdict", err)
+
+    def test_another_failure_retries_and_still_prints_gh_s_words(self):
+        calls, slept, err = self.run_gh(1, "gh: Not Found (HTTP 404)")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(slept, [2, 4])
+        self.assertIn("Not Found (HTTP 404)", err)
+        self.assertNotIn("not a verdict", err)
+
+    def test_a_successful_call_prints_nothing(self):
+        saved = subprocess.run
+        risk.subprocess.run = lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+        self.addCleanup(lambda: setattr(risk.subprocess, "run", saved))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(risk.gh_run(["gh", "api", "x"]), "[]")
+        self.assertEqual(err.getvalue(), "")
+
+
 if __name__ == "__main__":
     unittest.main()
