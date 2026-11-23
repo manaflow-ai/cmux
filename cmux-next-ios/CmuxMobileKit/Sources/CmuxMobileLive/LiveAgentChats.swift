@@ -259,7 +259,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
 }
 
 /// Toggle Terminal and Chat from the phone: the Mac's chats a terminal's session pairs with
-/// (read from the chats acpmux already sent, no request), and the watching chat the Mac's
+/// (read from the chats acpmux already sent, no request), and the View Only chat the Mac's
 /// Toggle opens, asked for with the same `session/new` adopt the Mac sends
 /// (`TerminalChatHandler`, `AgentPaneAdopt(watch: true)`).
 extension LiveWorkspaceCreationBackend: TerminalChatBackend {

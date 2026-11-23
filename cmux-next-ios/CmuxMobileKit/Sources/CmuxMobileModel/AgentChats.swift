@@ -116,7 +116,7 @@ public protocol AgentChatsBackend: AnyObject {
 }
 
 /// One of the Mac's acpmux chats as Toggle Terminal and Chat pairs it with a terminal: the harness
-/// session it shows (`agentSessionId`) and whether it follows another app's run of it (`watching`).
+/// session it shows (`agentSessionId`) and whether it only watches it (`watching`, View Only).
 public struct TerminalChatListing: Hashable, Sendable {
     public var sessionID: String
     public var harness: String
@@ -133,7 +133,7 @@ public struct TerminalChatListing: Hashable, Sendable {
     }
 }
 
-/// What asking the Mac for a watching chat of a terminal's session gave.
+/// What asking the Mac for a View Only chat of a terminal's session gave.
 public enum TerminalChatOpen: Hashable, Sendable {
     /// The acpmux session that shows it now.
     case chat(String)
@@ -142,7 +142,7 @@ public enum TerminalChatOpen: Hashable, Sendable {
 }
 
 /// Toggle Terminal and Chat: the chats of the Mac a terminal's session pairs with, and the
-/// watching chat the Mac's Toggle opens (acpmux adopt with `watch: true`).
+/// View Only chat the Mac's Toggle opens (acpmux adopt with `watch: true`).
 @MainActor
 public protocol TerminalChatBackend: TerminalChatKeeping {
     /// The Mac's own acpmux chats now (no request; empty when its acpmux is not connected).

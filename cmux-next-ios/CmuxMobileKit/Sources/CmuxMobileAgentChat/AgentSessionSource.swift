@@ -21,8 +21,7 @@ public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
     /// unbound/standalone source, which then disables shared thumbnail caching.
     public var accountID: String
     /// The acpmux session the chat shows when the tab itself names none: a terminal tab's chat
-    /// face (Toggle Terminal and Chat), the Mac's chat that follows the session its agent runs
-    /// (the phone reads it; acpmux refuses a phone's send into a terminal, `remote.terminal_session`).
+    /// face (Toggle Terminal and Chat), a View Only chat of the session its agent runs.
     public var acpmuxSessionID: String?
 
     /// The harness as people name it ("Claude", "Codex", "OpenCode"), never a raw id: the
