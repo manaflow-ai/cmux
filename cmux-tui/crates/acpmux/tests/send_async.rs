@@ -801,11 +801,10 @@ async fn a_paused_agent_pair_holds_the_delivery_and_says_so() {
 
 /// A session whose folder was removed (its worktree deleted while it was idle): on 2026-10-21
 /// sends to cmux16's `chief-team` failed with `spawn harness process: No such file or directory`,
-/// which named neither the folder nor what was missing. The send is refused once, at once,
-/// saying which folder is gone; it is not tried again for a day (a loaded Mac tried each message
-/// to a probe folder under /tmp about 18 times), so a folder made again later does not get it.
+/// which named neither the folder nor what was missing. The message stays queued, tried again,
+/// says which folder is gone, and is delivered once the folder is back.
 #[tokio::test]
-async fn a_session_whose_folder_is_gone_fails_the_message_once_and_names_the_folder() {
+async fn a_session_whose_folder_is_gone_keeps_the_message_and_names_the_folder() {
     let h = hub();
     let folder = std::env::temp_dir().join(format!("send-async-gone-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
@@ -828,23 +827,31 @@ async fn a_session_whose_folder_is_gone_fails_the_message_once_and_names_the_fol
     let queued = c.call(SEND_QUEUE, json!({"request": prompt(&id, "hi", "p-gone")})).await.unwrap();
     assert!(started.elapsed() < ACK, "send_queue took {:?}", started.elapsed());
     let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
-    let status =
-        c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000})).await.unwrap();
-    assert_eq!(status["status"], "failed", "{status}");
-    assert_eq!(status["attempts"], 1, "{status}");
-    assert_eq!(status["reason"], "session.folder_missing", "{status}");
+    // The first attempt's refusal, once it has run (its error is set).
+    let mut status = Value::Null;
+    for _ in 0..20 {
+        status = c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 500})).await.unwrap();
+        if status["error"].is_string() {
+            break;
+        }
+    }
+    assert!(matches!(status["status"].as_str(), Some("queued" | "delivering")), "{status}");
     let error = status["error"].as_str().unwrap_or_default();
     assert!(
         error.contains(&*folder.to_string_lossy()) && error.contains("no longer exists"),
         "the error names the missing folder: {status}"
     );
 
-    // Settled: a folder made again later does not bring the message back.
     std::fs::create_dir_all(&folder).unwrap();
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    let status = c.call(SEND_STATUS, json!({"deliveryId": delivery})).await.unwrap();
-    assert_eq!(status["status"], "failed", "{status}");
-    assert_eq!(status["attempts"], 1, "{status}");
+    let mut status = Value::Null;
+    for _ in 0..3 {
+        status =
+            c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000})).await.unwrap();
+        if status["status"] == "delivered" {
+            break;
+        }
+    }
+    assert_eq!(status["status"], "delivered", "{status}");
     let _ = std::fs::remove_dir_all(&folder);
 }
 
