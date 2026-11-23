@@ -166,6 +166,26 @@ struct JoystickThumbOverlay: View {
     }
 }
 
+/// The joystick's four arrowheads, just inside its circle's edge.
+struct JoystickArrowMarks: Shape {
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2
+        let tip = radius - 1.5
+        let base = radius - 4.5
+        let half: CGFloat = 2.5
+        var path = Path()
+        // Up, right, down, left: a unit vector and its perpendicular.
+        for (dx, dy) in [(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)] as [(CGFloat, CGFloat)] {
+            path.move(to: CGPoint(x: center.x + dx * tip, y: center.y + dy * tip))
+            path.addLine(to: CGPoint(x: center.x + dx * base - dy * half, y: center.y + dy * base + dx * half))
+            path.addLine(to: CGPoint(x: center.x + dx * base + dy * half, y: center.y + dy * base - dx * half))
+            path.closeSubpath()
+        }
+        return path
+    }
+}
+
 struct Joystick: View {
     let engine: JoystickEngine
 
@@ -179,6 +199,14 @@ struct Joystick: View {
             // (`JoystickThumbOverlay`), at most on the circle's edge.
             .opacity(engine.showsFloatingThumb ? 0 : 1)
             .frame(width: size, height: size)
+            // Four small arrowheads around the dot, as on a d-pad: it is
+            // dragged to send arrows. Without them it read as a blank
+            // white button.
+            .overlay {
+                JoystickArrowMarks()
+                    .fill(Color.primary.opacity(engine.gear > 0 ? 0.7 : 0.45))
+                    .allowsHitTesting(false)
+            }
             // A glass circle under the dot, as classic's nub (`UIGlassEffect`);
             // not interactive: the drag owns the touch. The dot draws on top,
             // crisp.

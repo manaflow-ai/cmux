@@ -90,6 +90,21 @@ struct MacScreenConnectTimingsTests {
         timings.connectStarted(at: Date(), start + .seconds(5))
         #expect(timings.firstFrameMs == nil && timings.rtt.count == 0)
     }
+
+    /// Each stage ends once, when the connect first gets past it; a skipped stage ends with the later one.
+    @Test func eachConnectStageEndsOnce() {
+        var timings = MacScreenConnectTimings()
+        let start = ContinuousClock.now
+        timings.reached(.link, at: start)
+        #expect(timings.stageMs.isEmpty, "no connect yet")
+        timings.connectStarted(at: Date(), start)
+        timings.reached(.link, at: start + .milliseconds(120))
+        timings.reached(.link, at: start + .milliseconds(400))
+        timings.reached(.shown, at: start + .milliseconds(510))
+        #expect(timings.stageMs == [.answer: 120, .link: 510, .frame: 510])
+        timings.connectStarted(at: Date(), start + .seconds(5))
+        #expect(timings.stageMs.isEmpty)
+    }
 }
 
 @MainActor
@@ -118,7 +133,10 @@ struct MacScreenStateControlTests {
         #expect(try rows(pages).count == 1, "the home tab is not a screen")
         #expect(idle["tab"]?.stringValue == "a")
         #expect(idle["device_id"]?.stringValue == deviceID)
-        #expect(idle["phase"]?.stringValue == "ended")
+        // Opened by automation that waits for the person: the Connect card, no stream started yet.
+        #expect(idle["phase"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["hub_phase"]?.stringValue == "idle" && idle["state"]?.stringValue == "idle")
+        #expect(idle["started_by"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["connected"]?.boolValue == false && idle["has_frame"]?.boolValue == false)
         #expect(idle["first_frame_ms"] == CmuxNextSettings.JSONValue.null && idle["connect_started_at"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["frame_interval_ms"] == CmuxNextSettings.JSONValue.null)
@@ -135,9 +153,22 @@ struct MacScreenStateControlTests {
         session.framesCounted(counter)
         // An old transport's late batch is not this session's.
         session.framesCounted(MacScreenFrameCounter())
+        // The host answered, the link came up, a picture showed.
+        session.reach(.link)
+        session.reach(.frame)
+        session.framePresented(size: CGSize(width: 1920, height: 1080))
 
         let live = try #require(try rows(pages, tab: "a").first)
+        #expect(live["phase"]?.stringValue == "ended", "a connect began: the phase is the session's")
         #expect(live["connect_started_at"]?.stringValue == "2023-11-14T22:13:20Z")
+        // A picture showed: the read names the stage it reached and when each stage before it ended.
+        #expect(live["connect_stage"]?.stringValue == "shown")
+        let stages = try #require(live["connect_stage_ms"]?.objectValue)
+        #expect(Set(stages.keys) == ["answer", "link", "frame"])
+        let answer = try #require(stages["answer"]?.doubleValue)
+        let link = try #require(stages["link"]?.doubleValue)
+        let frame = try #require(stages["frame"]?.doubleValue)
+        #expect(answer <= link && link <= frame && frame < 10_000)
         let first = try #require(live["first_frame_ms"]?.doubleValue)
         #expect(first >= 0 && first < 10_000)
         #expect(live["frames_dropped"]?.doubleValue == 2)

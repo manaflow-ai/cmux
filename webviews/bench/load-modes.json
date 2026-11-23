@@ -15,7 +15,7 @@
     "transcript: the native harness seeds that many rows into it (debug.agent_pane seed_rows) before it streams.",
     "",
     "`gate_p95_ms` is the design's target for key to frame (16 ms, 8.3 hoped for). It is a bench flag",
-    "(--gate-p95-ms), never a CI gate: cmux CLAUDE.md, 'Never add CI gates, perf-gate rows or budgets'."
+    "(--gate-p95-ms), not a CI gate (written under the 2026-10-23 no-new-CI rule, since lifted)."
   ],
   "gate_p95_ms": 16,
   "modes": [

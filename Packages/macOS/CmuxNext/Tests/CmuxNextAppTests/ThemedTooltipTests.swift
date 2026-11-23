@@ -47,7 +47,10 @@ import CmuxNextTestSupport
         let panel = presenter.panel
         #expect(panel.isVisible)
         #expect(Self.same(try #require(panel.text.textColor), scope.perform { Palette.textPrimary }))
-        #expect(Self.same(try #require(panel.hint.textColor), scope.perform { Palette.textSecondary }))
+        // The shortcut's keys on the keycap plate, in the secondary ink (TooltipDesignTests holds its shape).
+        let keycap = try #require(panel.content.keycap)
+        #expect(keycap.label.stringValue == "⌘T")
+        #expect(Self.same(try #require(keycap.label.textColor), scope.perform { Palette.textSecondary }))
         // The shared overlay glass, drawn in the button's theme scope (Leo 2026-10-21: glass, never solid).
         #expect(panel.glass.themeScope === scope.fullStrength)
         #expect(!panel.glass.isCard)
@@ -63,7 +66,7 @@ import CmuxNextTestSupport
         #expect(presenter.shown?.text == "New Window")
         button.themedToolTip = nil
         #expect(presenter.shown == nil)
-        #expect(!panel.isVisible || panel.isFadingOut)
+        #expect(!panel.isVisible, "the tooltip lingered: it goes in one frame")
         window.closeAfterTest()
     }
 
@@ -72,6 +75,7 @@ import CmuxNextTestSupport
                               backing: .buffered, defer: false)
         let header = NSView(frame: NSRect(x: 0, y: 100, width: 300, height: 28))
         let add = NSButton(frame: NSRect(x: 270, y: 2, width: 24, height: 24))
+        add.title = "" // an icon-only button: one that shows its own title has no tooltip (cut 2)
         header.addSubview(add)
         window.contentView?.addSubview(header)
         header.themedToolTip = "This Mac"
@@ -106,6 +110,9 @@ import CmuxNextTestSupport
                               backing: .buffered, defer: false)
         let first = NSButton(frame: NSRect(x: 0, y: 100, width: 300, height: 28))
         let second = NSButton(frame: NSRect(x: 0, y: 72, width: 300, height: 28))
+        // Rows that show no title of their own: one that shows its text has no tooltip (cut 2).
+        first.title = ""
+        second.title = ""
         window.contentView?.addSubview(first)
         window.contentView?.addSubview(second)
         first.themedToolTip = "First"
@@ -131,10 +138,13 @@ import CmuxNextTestSupport
     @Test func aTooltipWithNoRoomBelowGoesAboveAndStaysOnScreen() {
         let screen = NSRect(x: 0, y: 0, width: 1000, height: 800)
         let size = NSSize(width: 120, height: 20)
+        let gap = TooltipPresenter.gap, edge = TooltipPresenter.edge
+        // Above the control and kept the edge's room from the screen's right side.
         let low = TooltipPresenter.origin(for: size, below: NSRect(x: 980, y: 10, width: 20, height: 20), on: screen)
-        #expect(Self.near(low, NSPoint(x: 874, y: 36)), "\(low)")
+        #expect(Self.near(low, NSPoint(x: 1000 - edge - size.width, y: 30 + gap)), "\(low)")
+        // Below the control, centred on it.
         let high = TooltipPresenter.origin(for: size, below: NSRect(x: 100, y: 500, width: 40, height: 20), on: screen)
-        #expect(Self.near(high, NSPoint(x: 60, y: 474)), "\(high)")
+        #expect(Self.near(high, NSPoint(x: 120 - size.width / 2, y: 500 - gap - size.height)), "\(high)")
     }
 
     /// The shared presenter with no hover delay (the delay and warm group are TooltipHoverIntentTests').

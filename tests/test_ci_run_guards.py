@@ -25,6 +25,21 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import run_ci_guards  # noqa: E402
+
+
+def pid_gone(pid: int, seconds: float = 10) -> bool:
+    """Until PID is gone (killed, and reaped by whoever adopted it), SECONDS at most: whether it went."""
+    import time  # noqa: PLC0415
+
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -39,6 +54,23 @@ guard_child_env = _git_fixture_importlib.module_from_spec(_guard_child_spec)
 _guard_child_spec.loader.exec_module(guard_child_env)
 
 FAST_WORKFLOW = ROOT / ".github/workflows/ci-fast-guards.yml"
+
+
+class AffectedSelectionFailsOpen(unittest.TestCase):
+    def test_a_selection_that_raises_runs_every_step(self):
+        import guard_step_inputs  # noqa: PLC0415
+
+        units = run_ci_guards.plan(run_ci_guards.load_yaml(run_ci_guards.WORKFLOW), "base", "head")
+        original = guard_step_inputs.changed_paths
+
+        def broken(*_args, **_kwargs):
+            raise ValueError("broken selection")
+
+        guard_step_inputs.changed_paths = broken
+        try:
+            self.assertIs(run_ci_guards.affected_units(units, "base"), units)
+        finally:
+            guard_step_inputs.changed_paths = original
 
 
 class PlanFollowsTheWorkflow(unittest.TestCase):
@@ -245,7 +277,7 @@ class PlanRefusesWhatItCannotRun(unittest.TestCase):
         events: list[tuple[str, str]] = []
         lock = threading.Lock()
 
-        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None):
+        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None, root=None):
             results = []
             for step in steps:
                 with lock:
@@ -307,15 +339,16 @@ class StepsFinish(unittest.TestCase):
         self.assertIn("nope", output)
 
 
-class CleanTreeStepsRunAlone(unittest.TestCase):
+class CleanTreeStepsRunInTheirOwnCopy(unittest.TestCase):
     """The canonical guard profile (cmux_workload_profile.py run) refuses a checkout with source
     changes. Run in the pool, it raced release-tooling's `init-submodule.sh ghostty` in the same
-    checkout and failed with "checkout has tracked source changes" (run 39702173417). It must
-    finish before any other guard step starts."""
+    checkout and failed with "checkout has tracked source changes" (run 39702173417). It then ran
+    alone before every other step, so 15 of 16 workers sat idle for its 146-168 s on every guard
+    group run (2026-11-21). It now runs in a clean worktree of HEAD of its own, beside the others."""
 
     PROFILE = "python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard --generation 1"
 
-    def test_the_workload_profile_finishes_before_any_other_step_starts(self) -> None:
+    def test_the_workload_profile_runs_in_a_copy_beside_the_other_steps(self) -> None:
         import contextlib  # noqa: PLC0415
         import io  # noqa: PLC0415
         import threading  # noqa: PLC0415
@@ -334,17 +367,19 @@ class CleanTreeStepsRunAlone(unittest.TestCase):
             ]),
         ]
         events: list[tuple[str, str]] = []
+        roots: dict[str, Path] = {}
         lock = threading.Lock()
 
-        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None):
+        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None, root=None):
             results = []
             for step in steps:
                 with lock:
                     events.append(("start", step.name))
+                    roots[step.name] = root or run_ci_guards.ROOT
                 time.sleep(0.3 if "cmux_workload_profile.py run" in step.run else 0.05)
                 with lock:
                     events.append(("end", step.name))
-                result = run_ci_guards.StepResult(unit, step, True, 0.0, "")
+                result = run_ci_guards.StepResult(unit, step, True, 0.0, f"ran in {root or run_ci_guards.ROOT}")
                 results.append(result)
                 if on_result is not None:
                     on_result(result)
@@ -362,10 +397,42 @@ class CleanTreeStepsRunAlone(unittest.TestCase):
         self.assertEqual(code, 0)
         names = [name for kind, name in events if kind == "start"]
         self.assertEqual(sorted(names), sorted(step.name for unit in units for step in unit.steps))
-        profile_end = events.index(("end", "Run canonical CMUX CI guard profile"))
-        started_before = [name for kind, name in events[:profile_end]
-                          if kind == "start" and name != "Run canonical CMUX CI guard profile"]
-        self.assertEqual(started_before, [], f"steps started while the workload profile ran: {events}")
+        profile = "Run canonical CMUX CI guard profile"
+        self.assertNotEqual(roots[profile], run_ci_guards.ROOT, "the workload profile ran in the shared checkout")
+        self.assertFalse(roots[profile].exists(), "the profile's copy was left behind")
+        for name, root in roots.items():
+            if name != profile:
+                self.assertEqual(root, run_ci_guards.ROOT, name)
+        profile_end = events.index(("end", profile))
+        started_beside = [name for kind, name in events[:profile_end] if kind == "start" and name != profile]
+        self.assertTrue(started_beside, f"no step ran beside the workload profile: {events}")
+
+    def test_the_copy_is_a_clean_checkout_of_head_and_its_output_names_the_checkout(self) -> None:
+        Step, Unit = run_ci_guards.Step, run_ci_guards.Unit
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            git = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True, text=True).stdout
+            git("init", "-q")
+            (repo / "tracked.txt").write_text("one\n")
+            git("add", "tracked.txt")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one")
+            (repo / "tracked.txt").write_text("changed by another step\n")
+            (repo / "untracked.txt").write_text("written by another step\n")
+            step = Step("Run canonical CMUX CI guard profile",
+                        "git status --porcelain=v1 --untracked-files=all; pwd; cat tracked.txt", {}, None)
+            unit = Unit("workflow-guard-tests", "ci", [step])
+            saved = run_ci_guards.ROOT
+            run_ci_guards.ROOT = repo
+            try:
+                results = run_ci_guards.run_in_clean_copy(unit, [step], dict(os.environ), "", True)
+            finally:
+                run_ci_guards.ROOT = saved
+            self.assertEqual(len(results), 1)
+            self.assertTrue(results[0].ok, results[0].output)
+            lines = results[0].output.strip().splitlines()
+            self.assertEqual(lines, [str(repo), "one"], "the copy saw the shared checkout's changes or its own path")
+            self.assertEqual(git("worktree", "list", "--porcelain").count("worktree "), 1, "the copy is still registered")
 
 
 class AptStepsTakeTurns(unittest.TestCase):
@@ -643,7 +710,7 @@ class CheckoutSetupRunsFirst(unittest.TestCase):
         lock = threading.Lock()
         running = [0, 0]  # now, most at once
 
-        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None):
+        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None, root=None):
             results = []
             for step in steps:
                 with lock:
@@ -710,9 +777,7 @@ class ATimedOutRunStopsItsSteps(unittest.TestCase):
             output, _ = proc.communicate(timeout=60)
             self.assertEqual(proc.returncode, 130, output)
             self.assertIn("interrupted", output)
-            time.sleep(0.5)
-            with self.assertRaises(ProcessLookupError, msg="the step's child outlived the run"):
-                os.kill(child, 0)
+            self.assertTrue(pid_gone(child), "the step's child outlived the run")
 
 
 class TheDeadlineStopsTheRun(unittest.TestCase):
@@ -739,9 +804,7 @@ class TheDeadlineStopsTheRun(unittest.TestCase):
             self.assertNotIn("FAIL", run.stdout)
             found = json.loads(results.read_text(encoding="utf-8"))
             self.assertEqual(found, {"_cmux_complete": False, "quick": True})
-            time.sleep(0.5)
-            with self.assertRaises(ProcessLookupError, msg="the stopped step's child outlived the run"):
-                os.kill(int(pid_file.read_text()), 0)
+            self.assertTrue(pid_gone(int(pid_file.read_text())), "the stopped step's child outlived the run")
 
 
 class ACutShortTipRunIsNoVerdict(unittest.TestCase):

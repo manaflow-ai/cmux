@@ -217,4 +217,67 @@ await requireBrowserLane("transcript-open-history-no-remount-browser.test.ts", a
     expect(seen.frames.at(-1)).toContain("s40");
     await page.close();
   });
+
+  // The same open, by pixel (Leo: "the correctness of the layout shifts"): the latest page draws
+  // while the read loads, and the read lands with the older turns above. Every row on screen,
+  // the turn footers and dates the transcript adds included, holds its pixel on every painted frame;
+  // the read's rows appear above, out of sight.
+  test("older history landing above the followed bottom moves no row on screen", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+    await page.waitForFunction(() => "__showLoadingRows" in window);
+
+    await show(page, [], true);
+    await show(page, chat.slice(-24), true);
+    await settle(page);
+    // Each mounted row's viewport top and height, or only the rows on screen; now, then after each
+    // painted frame until the read has settled.
+    const boxes = (onScreen: boolean) => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const view = scroller.getBoundingClientRect();
+      const out: Record<string, [number, number]> = {};
+      for (const node of scroller.querySelectorAll<HTMLElement>("article.acpmux-row")) {
+        const box = node.getBoundingClientRect();
+        if (onScreen && !(box.height > 0 && box.bottom > view.top && box.top < view.bottom)) continue;
+        out[node.dataset.rowId!] = [Math.round(box.top), Math.round(box.height)];
+      }
+      return out;
+    };
+    await page.evaluate(`window.__rowBoxes = ${boxes.toString()}`);
+    const first = await page.evaluate(() =>
+      (window as unknown as { __rowBoxes(onScreen: boolean): Record<string, [number, number]> }).__rowBoxes(true),
+    );
+    expect(Object.keys(first)).toContain("s40");
+    await page.evaluate(() => {
+      const read = () =>
+        (window as unknown as { __rowBoxes(onScreen: boolean): Record<string, [number, number]> }).__rowBoxes(false);
+      const frames: Record<string, [number, number]>[] = [];
+      const stopFrames = window.cmuxAfterPaint(() => void frames.push(read()));
+      (window as unknown as { __stopBoxes(): unknown }).__stopBoxes = () => {
+        stopFrames();
+        return frames;
+      };
+    });
+    await show(page, chat, false);
+    await settle(page);
+    const frames = await page.evaluate(() =>
+      (window as unknown as { __stopBoxes(): Record<string, [number, number]>[] }).__stopBoxes(),
+    );
+    expect(frames.length).toBeGreaterThan(0);
+    const moved = frames.flatMap((frame, index) =>
+      Object.entries(first).flatMap(([id, [top]]) =>
+        frame[id] !== undefined && Math.abs(frame[id]![0] - top) >= 1
+          ? [`frame ${index}: ${id} top ${top} -> ${frame[id]![0]}`]
+          : [],
+      ),
+    );
+    // On a failure, the rows before and after say which box changed.
+    expect({ moved: moved.slice(0, 30), ...(moved.length && { before: first, after: frames.at(-1) }) }).toEqual({
+      moved: [],
+    });
+    expect(Object.keys(frames.at(-1)!)).toContain("s40");
+    await page.close();
+  });
 });

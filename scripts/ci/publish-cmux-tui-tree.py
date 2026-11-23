@@ -75,12 +75,19 @@ WINDOWS_OPTIONAL_NAMES = (
 # them beside GATE_NAMES. A republication of a tree whose completion.json
 # exists keeps that file's names (existing_completion_file), so a tree
 # published before acpmux writes the same immutable bytes and gets no acpmux.
+# cmux-rd, the screen host a joined Linux machine's join line installs from the
+# channel (the shipped build's Linux legs, build_cmux_rd; glibc, so the gnu targets), and its notices ride along
+# the same way: optional, carried when the commit manifest attests them.
 # The workflow reads this list with --list-acpmux-companions.
 ACPMUX_NAMES = (
     "cmux-tui-acpmux-x86_64-unknown-linux-musl",
     "cmux-tui-acpmux-aarch64-unknown-linux-musl",
     "cmux-tui-acpmux-aarch64-apple-darwin",
     "cmux-tui-acpmux-x86_64-apple-darwin",
+    "cmux-tui-rd-x86_64-unknown-linux-gnu",
+    "cmux-tui-rd-aarch64-unknown-linux-gnu",
+    "cmux-tui-rd-notices-x86_64-unknown-linux-gnu.md",
+    "cmux-tui-rd-notices-aarch64-unknown-linux-gnu.md",
 )
 REPAIR_POINTER = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 

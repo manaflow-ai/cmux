@@ -45,6 +45,8 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// A teammate from the search section or a teammate row was chosen: start (or open) the DM.
     public var onStartTeammate: (HomeContact) -> Void = { _ in }
     public var onNewMessage: () -> Void = {}
+    /// The New Chief button was clicked: another Chief at once, as classic cmux's Chief list makes one.
+    public var onNewChief: () -> Void = {}
     /// The x on the New Message draft row (shown while the pointer is over it, as in Messages)
     /// was clicked: the page discards the draft (`home.closeNewMessage`).
     public var onCloseDraft: () -> Void = {}
@@ -55,13 +57,19 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// The unread dot's color: the user's `notifications.attention.color`; nil is the notification blue.
     public var unreadDotColor: NSColor? { didSet { if unreadDotColor != oldValue { applyColors() } } }
 
-    let list = CmuxSidebarView()
+    /// Made on first use, after `init` installs the host hooks (`HomeReduceMotion.install()`): the list sets its
+    /// controls' tooltips while it is made, so a list made before the hooks would draw AppKit's stock tooltip.
+    private(set) lazy var list = CmuxSidebarView()
     /// The header band behind its row: a drag on its empty space moves the window, as on
     /// Messages' sidebar toolbar.
     let dragStrip = HomeWindowDragStrip()
-    /// The header row (`HomeSidebarHeaderLayout`): search, the Unread toggle, then compose.
+    /// The header row (`HomeSidebarHeaderLayout`): search, the Unread toggle, then New Chief; the
+    /// list's compose stays hidden (``chatCompose``).
     let compose = HomeHeaderButton(symbol: "square.and.pencil", label: HomeConversationStrings.newMessage,
                                    identifier: "cmux.home.sidebar.compose")
+    /// Another Chief in one click, as classic cmux's Chief list makes one.
+    let newChief = HomeHeaderButton(symbol: "plus.bubble", label: HomeConversationStrings.chiefTitle,
+                                    identifier: "cmux.home.sidebar.newChief")
     /// All or Unread: one click, Messages' filter glyph on its glass circle (`filterGlass`), lit
     /// while only unread conversations show (Home offers no other filter, so no menu).
     let unreadToggle = HomeHeaderButton(symbol: "line.3.horizontal.decrease", onSymbol: "line.3.horizontal.decrease",
@@ -271,6 +279,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     @objc func newMessage() { onNewMessage() }
+    @objc func newChiefClicked() { onNewChief() }
     @objc func openRequests() { onOpenRequests() }
 
     /// Shows the Message Requests button for `count` open requests; none hides it.
@@ -313,7 +322,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         list.selectionColor = .labelColor
         list.neutralSelectionFill = performWithTheme { Palette.selectionFill }
         layer?.backgroundColor = performWithTheme { Palette.fill(for: .home, default: Palette.paneFill).cgColor }
-        for button in [compose, unreadToggle, searchButton] { button.applyTint() }
+        for button in [compose, newChief, unreadToggle, searchButton] { button.applyTint() }
         applySearchColors()
     }
 
@@ -344,13 +353,15 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         chatCompose.target = self
         chatCompose.action = #selector(newMessage)
         chatCompose.contextMenu = { [weak self] in self?.composeMenu() }
+        newChief.target = self
+        newChief.action = #selector(newChiefClicked)
         unreadToggle.target = self
         unreadToggle.action = #selector(toggleUnread)
         searchButton.target = self
         searchButton.action = #selector(openSearch)
         host.addSubview(filterGlass)
         host.addSubview(searchGlass)
-        for button in [unreadToggle, searchButton, compose] { host.addSubview(button) }
+        for button in [unreadToggle, newChief, searchButton, compose] { host.addSubview(button) }
         filterChip.isHidden = true
         filterChip.target = self
         filterChip.action = #selector(showAll)
@@ -363,14 +374,14 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// The search is open while the field edits or holds a query.
     var searchOpen: Bool { list.searchField.isEditing || !list.searchField.stringValue.isEmpty }
 
-    /// The traffic lights over the header's band at its last layout (`homeWindowControls`).
+    /// The traffic lights' row over the header's band at its last layout (`homeLightsRow`).
     private var windowControls: CGRect?
 
     /// Re-reads the traffic lights after the list moved in its window without a resize of its
     /// header (the window's sidebar opened or closed beside the Home page); relays out the header
     /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
     public func updateWindowControlsAvoidance() {
-        guard list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
+        guard list.headerView.homeLightsRow(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
         // The header's layout also places the list under it (its height may change). Laid out
         // now, not at the next display pass: an occluded window gets none until it shows, and
         // the next frame on screen would still have the search field under the lights.
@@ -379,7 +390,11 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     private func layoutHeader(_ bounds: CGRect) -> CGFloat {
-        let controls = list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)
+        // One header, lights over the list or not: the lights' row (`homeLightsRow`) is the top row
+        // either way and the same in both, so a toggle of the window's sidebar moves Home sideways
+        // only. A list clear of the lights keeps their row with nothing on it; full screen, with
+        // no lights, has the one-row band.
+        let controls = list.headerView.homeLightsRow(band: HomeSidebarHeaderLayout.band)
         windowControls = controls
         var chipRow = unreadOnly, chipFill = false, chipCentered = false
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -401,10 +416,12 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         searchCapsule.frame = h.search
         searchCapsule.isHidden = compactClosed
         searchCapsule.layer?.cornerRadius = h.search.height / 2
-        // The field inside its capsule, its text centred on the row. In the avatar-only list it
-        // waits closed at zero width (alpha 0), so ⌘F and type-to-search still reach it and open it
-        // over the band, and the band stays the window's drag area.
-        let fieldHeight: CGFloat = 22
+        // The field inside its capsule, its text centred on the row: an unbezeled search cell draws
+        // its line from the frame's top, so the field is one text line tall (a 22 pt field put the
+        // text 2.75 pt above the buttons' centre line). In the avatar-only list it waits closed at
+        // zero width (alpha 0), so ⌘F and type-to-search still reach it and open it over the band,
+        // and the band stays the window's drag area.
+        let fieldHeight = list.searchField.font.map { ceil(NSLayoutManager().defaultLineHeight(for: $0)) } ?? 22
         if compactClosed {
             list.searchField.frame = CGRect(x: h.search.minX, y: h.search.midY - fieldHeight / 2, width: 0, height: fieldHeight)
             list.searchField.alphaValue = 0
@@ -417,8 +434,10 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
             list.searchField.setAccessibilityElement(true)
         }
         unreadToggle.frame = h.filter
+        newChief.frame = h.newChief
         compose.frame = h.compose
         unreadToggle.isHidden = h.filter.isEmpty
+        newChief.isHidden = h.newChief.isEmpty
         filterGlass.frame = h.filter
         filterGlass.cornerRadius = h.filter.height / 2
         filterGlass.isHidden = h.filter.isEmpty
@@ -465,6 +484,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         performWithTheme {
             let text = Palette.textPrimary
             searchCapsule.layer?.backgroundColor = nil
+            searchCapsule.glass.tintColor = Self.searchCapsuleTintInScope()
             searchCapsule.layer?.borderColor = text.withAlphaComponent(editing ? 0.36 : 0).cgColor
             searchCapsule.layer?.borderWidth = editing ? 1 / max(1, window?.backingScaleFactor ?? 2) : 0
             field.textColor = text
@@ -477,6 +497,17 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                 editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
             }
         }
+    }
+
+    /// The search capsule's tint. Over a see-through Home fill the clear capsule showed the art under
+    /// its placeholder (2.05:1 on the Great Wave in dark); there it takes the fill every field takes
+    /// (the web composer's surface, `HomeThemePalette.composerSurfaceOverGlass`, the Chief field's
+    /// `composeFillOverGlass`). An opaque Home fill keeps the clear glass (nil).
+    static func searchCapsuleTintInScope() -> NSColor? { // theme-scoped
+        let fill = Palette.fill(for: .home, default: Palette.paneFill).usingColorSpace(.sRGB)
+        guard (fill?.alphaComponent ?? 1) < 1 else { return nil }
+        let surface = HomeThemePalette.composerSurfaceOverGlass(HomeThemePalette.baseThemeInScope())
+        return surface.nsColor
     }
 
     @objc func toggleUnread() { unreadOnly.toggle() }
@@ -540,7 +571,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
     public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?, filterLook: Int? = nil) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
-        let before = [compose, unreadToggle, searchButton].map(\.debugState)
+        let before = [compose, newChief, unreadToggle, searchButton].map(\.debugState)
         // The header as it stood before this call lays anything out, and the traffic lights it
         // used then and sees now (a stale header under the lights shows here).
         func rect(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
@@ -567,11 +598,11 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         }
         return ["width": Double(split?.sidebarWidth ?? bounds.width),
                 "header": ["search": frame(h.search), "searchIcon": frame(h.searchIcon), "filter": frame(h.filter),
-                           "compose": frame(h.compose),
+                           "newChief": frame(h.newChief), "compose": frame(h.compose),
                            "compact": h.compact, "buttonsCovered": h.buttonsCovered,
                            "chatCompose": frame(chat)] as [String: Any],
                 "beforeLayout": stale,
-                "buttons": ["before": before, "after": [compose, unreadToggle, searchButton].map(\.debugState)]]
+                "buttons": ["before": before, "after": [compose, newChief, unreadToggle, searchButton].map(\.debugState)]]
     }
     #endif
 

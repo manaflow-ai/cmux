@@ -1,0 +1,12 @@
+{
+  "family": "channel",
+  "ops": {
+    "channel.create": {
+      "source": "cloud",
+      "owner": "cloud:UserDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "2a47a630e321c474"
+    }
+  }
+}

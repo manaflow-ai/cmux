@@ -36,6 +36,27 @@ use zeroize::Zeroizing;
 
 const CONNECT_BOUND: Duration = Duration::from_secs(10);
 const MAX_BRIDGES: usize = 64;
+/// How long a restart waits for its own closed UDP socket to free the port.
+const REBIND_BOUND: Duration = Duration::from_secs(5);
+
+/// Binds `local` again after the old mesh closed its socket there. The port can stay taken
+/// for a moment after the close: a child this process is starting holds a copy of every open
+/// socket from its fork until its exec, longer on a loaded machine. So `AddrInUse` is retried
+/// until [`REBIND_BOUND`]; any other error, or one that outlasts it, is the restart's error.
+async fn rebind(local: SocketAddr) -> std::io::Result<UdpSocket> {
+    let deadline = tokio::time::Instant::now() + REBIND_BOUND;
+    loop {
+        match UdpSocket::bind(local).await {
+            Err(error)
+                if error.kind() == std::io::ErrorKind::AddrInUse
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            bound => return bound,
+        }
+    }
+}
 
 /// Static interface settings. `address` is virtual: it creates no system route.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -308,7 +329,7 @@ impl Transport {
         if let Some(old) = mesh.take() {
             old.shutdown().await;
         }
-        let socket = UdpSocket::bind(self.local).await.context("bind WireGuard UDP again")?;
+        let socket = rebind(self.local).await.context("bind WireGuard UDP again")?;
         let fresh = WgMesh::start(mesh_config(private_key, self.service), socket)?;
         for peer in &self.peers {
             fresh.add_peer(peer.clone()).await?;

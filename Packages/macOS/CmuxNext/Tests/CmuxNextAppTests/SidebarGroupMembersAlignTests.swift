@@ -27,7 +27,10 @@ import Testing
         let model = SidebarModel(sections: [
             SidebarSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(id: looseID, title: "scratch")), .group(coordinator)]),
         ], activeWorkspaceID: selected)
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        // The band look (`sidebar.groupHeader.background` Automatic): plain folders indent their members by design.
+        let design = DesignSettings()
+        design.sidebarSections.groupHeaderBackground = .auto
+        let sidebar = SidebarView(model: model, design: design)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

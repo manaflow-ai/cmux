@@ -224,7 +224,7 @@ def _width_change(start, sample):
 
 def pane_width_change(samples):
     """The panes' summed frame width at the trace's last tick minus at its first, over the panes in both (points):
-    negative when the panes narrowed (a right sidebar opened beside them), positive when they widened (it closed),
+    negative when the panes narrowed (a sidebar opened beside them), positive when they widened (it closed),
     None without a pane in both. The side pane's toggle is one key for both ways, so this says which way it went."""
     return _width_change(_pane_widths(samples[0]), samples[-1]) if samples else None
 
@@ -427,17 +427,21 @@ def table(report):
     return "\n".join(lines)
 
 
-def headline(cells, flat):
+def headline(cells, flat, unsettled_ms=None):
     """The goal check's one number: the worst cell's settled time over all transitions, with the cell, its
-    transition and the worst flatness ratio. A cell with a failed or unsettled round is the worst (settled None)."""
+    transition and the worst flatness ratio. A cell with a failed round is the worst (settled None: nothing was
+    measured). A round still moving when its strip ended settled no sooner than the strip, `unsettled_ms`: the cell
+    counts at least that (`settled_at_least`), so a slow cell still gives the check a number, never a pass."""
     worst = None
     for cell, per in cells.items():
         for name, summary in per.items():
-            value = summary.get("settled_ms")
-            if summary.get("unsettled") or summary.get("failed_rounds") or value is None:
+            value, floor = summary.get("settled_ms"), False
+            if summary.get("unsettled") and not summary.get("failed_rounds") and _number(unsettled_ms):
+                value, floor = max(value, unsettled_ms) if _number(value) else unsettled_ms, True
+            elif summary.get("unsettled") or summary.get("failed_rounds") or value is None:
                 value = float("inf")
             if worst is None or value > worst["settled_ms"]:
-                worst = {"cell": cell, "transition": name, "settled_ms": value}
+                worst = {"cell": cell, "transition": name, "settled_ms": value, "settled_at_least": floor}
     if worst is None:
         return {}
     if worst["settled_ms"] == float("inf"):

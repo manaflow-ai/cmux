@@ -217,6 +217,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/perf",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true
@@ -277,6 +283,16 @@
       },
       "result": {
         "$ref": "#/types/SessionsResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/usage",
+      "params": {
+        "$ref": "#/types/UsageParams"
+      },
+      "result": {
+        "$ref": "#/types/UsageResult"
       }
     },
     {
@@ -368,6 +384,12 @@
     {
       "kind": "request",
       "name": "_acpmux/register",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_relay",
       "params": true,
       "result": true
     },
@@ -801,6 +823,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/task_list/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/task_list/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/plan/build",
       "params": true,
       "result": true
@@ -826,6 +860,18 @@
       "result": {
         "$ref": "#/types/ProcessBackgroundResult"
       }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github/pr_state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github/pr_wait",
+      "params": true,
+      "result": true
     },
     {
       "kind": "request",
@@ -868,6 +914,18 @@
       "params": {
         "$ref": "#/types/KillParams"
       },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pause",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/wake",
+      "params": true,
       "result": true
     },
     {
@@ -961,6 +1019,14 @@
       "name": "_acpmux/attachment",
       "params": {
         "$ref": "#/types/AttachmentParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/turn_shots",
+      "params": {
+        "$ref": "#/types/TurnShotsParams"
       },
       "result": true
     },
@@ -1308,6 +1374,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/send_fanout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/media_open",
       "params": true,
       "result": true
@@ -1404,6 +1476,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/inbox_subscription_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_subscription_remove",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_subscriptions",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_enroll",
       "params": true,
       "result": true
@@ -1471,6 +1561,18 @@
     {
       "kind": "request",
       "name": "_acpmux/workspace_roots_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/browser_workspace_source_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/browser_workspaces",
       "params": true,
       "result": true
     },
@@ -1945,6 +2047,60 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/account/sign_in",
+      "params": {
+        "$ref": "#/types/AccountSignInParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/sign_in.finish",
+      "params": {
+        "$ref": "#/types/AccountSignInFinishParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/sign_in.cancel",
+      "params": {
+        "$ref": "#/types/AccountSignInCancelParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/switch",
+      "params": {
+        "$ref": "#/types/AccountIdParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/remove",
+      "params": {
+        "$ref": "#/types/AccountIdParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/sign_out",
+      "params": {
+        "$ref": "#/types/AccountIdParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/readiness",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections",
       "params": true,
       "result": true
@@ -1994,6 +2150,12 @@
     {
       "kind": "request",
       "name": "_acpmux/connections/chatgpt.token",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.import",
       "params": true,
       "result": true
     },
@@ -2087,6 +2249,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/move_targets",
+      "params": {
+        "$ref": "#/types/MoveTargetsParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peer_add",
       "params": true,
       "result": true
@@ -2169,6 +2339,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/owner_phone_changed",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_consent_set",
       "params": true,
       "result": true
@@ -2218,6 +2394,30 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_signed_in",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/device_hello",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/device_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/browser_sign_in_start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/browser_sign_in_complete",
       "params": true,
       "result": true
     },
@@ -2292,6 +2492,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/peer_rows_changed",
+      "params": {
+        "$ref": "#/types/PeerRowsChanged"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/permission_pending",
       "params": {
         "$ref": "#/types/PermissionPending"
@@ -2358,6 +2565,49 @@
     }
   ],
   "types": {
+    "AccountIdParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "account": true
+      },
+      "type": "object"
+    },
+    "AccountSignInCancelParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "loginId": true
+      },
+      "type": "object"
+    },
+    "AccountSignInFinishParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "code": true,
+        "loginId": true
+      },
+      "type": "object"
+    },
+    "AccountSignInParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "account": true,
+        "family": true,
+        "name": true
+      },
+      "type": "object"
+    },
     "AcpmuxRequestMeta": {
       "additionalProperties": false,
       "properties": {
@@ -2408,6 +2658,7 @@
         "parent": true,
         "peer": true,
         "peerHops": true,
+        "peerRowBatches": true,
         "personDecision": true,
         "personKey": true,
         "personStop": true,
@@ -2422,6 +2673,7 @@
         "requestId": true,
         "requireFullAccess": true,
         "resend": true,
+        "restricted": true,
         "route": true,
         "senderHarness": true,
         "senderHarnessChecked": true,
@@ -3315,7 +3567,7 @@
           ]
         },
         "promptIndex": {
-          "description": "Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,\nin one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.",
+          "description": "The prompts before `beforeSeq`, newest page first and oldest first within a page, each cut\nto its id and the start of its text (`Hub::prompt_index`). `limit` and `maxBytes` bound the\npage; `hasMore` says an older page remains, whose `beforeSeq` is the first event's seq.",
           "type": [
             "boolean",
             "null"
@@ -4347,6 +4599,17 @@
       },
       "type": "object"
     },
+    "MoveTargetsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "source": true,
+        "sourceKind": true
+      },
+      "type": "object"
+    },
     "NativeHistoryParams": {
       "additionalProperties": false,
       "properties": {
@@ -4371,6 +4634,66 @@
         "sessionId": true
       },
       "type": "object"
+    },
+    "OfflineAction": {
+      "description": "The one thing a person does about an [`OfflineReason`] (`action`).",
+      "oneOf": [
+        {
+          "const": "reconnect",
+          "description": "Ask for a fresh ticket now (`_acpmux/peer_reconnect`).",
+          "type": "string"
+        },
+        {
+          "const": "start-machine",
+          "description": "Start the machine.",
+          "type": "string"
+        },
+        {
+          "const": "sign-in",
+          "description": "Sign in again.",
+          "type": "string"
+        },
+        {
+          "const": "restart-daemon",
+          "description": "Restart the machine's daemon by hand (its budget then starts over).",
+          "type": "string"
+        },
+        {
+          "const": "free-disk",
+          "description": "Free space on the machine's disk.",
+          "type": "string"
+        }
+      ]
+    },
+    "OfflineReason": {
+      "description": "Why a down link is `offline` and what a person does about it (`reason`): a terminal named\nstate, so a link that cannot heal on its own never reads as still connecting (design\n`remote-cloud-durability.md` 4.3, handbook `connection-state-with-no-action-or-bound`).\nAttempts go on behind it (`nextRetryAt`, hourly once parked); the reason only makes the\nreported state true. Each has one [`OfflineAction`].",
+      "oneOf": [
+        {
+          "const": "credential-unavailable",
+          "description": "No relay ticket or credential can be had: the ticket mint is down, or renewing an\nexpiring ticket failed.",
+          "type": "string"
+        },
+        {
+          "const": "machine-stopped",
+          "description": "The machine (or its Cloud VM) is stopped on purpose, not crashed.",
+          "type": "string"
+        },
+        {
+          "const": "login-needed",
+          "description": "The peer refused this daemon's token: a person must sign in again (`authFailed`).",
+          "type": "string"
+        },
+        {
+          "const": "restart-budget-exceeded",
+          "description": "The machine's daemon stopped restarting after more stops than its budget allows.",
+          "type": "string"
+        },
+        {
+          "const": "disk-full",
+          "description": "The machine's disk is full.",
+          "type": "string"
+        }
+      ]
     },
     "Participant": {
       "description": "One person in a chat. The hub never marks the caller's own entry: a connection may carry\nseveral people, so the client compares ids (a caller with no author is `owner`).",
@@ -4445,6 +4768,36 @@
       },
       "type": "object"
     },
+    "PeerRowsChanged": {
+      "description": "To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of\none `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's\nlist). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client\nreads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,\nand keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.",
+      "properties": {
+        "afterSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "listSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "peer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "count",
+        "afterSeq",
+        "listSeq"
+      ],
+      "type": "object"
+    },
     "PeerSnapshotParams": {
       "additionalProperties": false,
       "properties": {
@@ -4459,8 +4812,20 @@
       "type": "object"
     },
     "PeerStateChanged": {
-      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
       "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "$ref": "#/types/OfflineAction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What a person does about `reason`; null when there is none."
+        },
         "at": {
           "description": "When the note was made, ms since the epoch.",
           "format": "uint64",
@@ -4522,6 +4887,18 @@
           "description": "The peer's name, as in `_acpmux/peers`.",
           "type": "string"
         },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/types/OfflineReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why a down link is `offline` (or `authFailed`) and will not heal by retrying alone;\nnull otherwise. Attempts still go on (`nextRetryAt`)."
+        },
         "since": {
           "description": "When `link` took its value, ms since the epoch.",
           "format": "uint64",
@@ -4534,6 +4911,7 @@
         }
       },
       "required": [
+        "action",
         "at",
         "carrier",
         "cause",
@@ -4542,6 +4920,7 @@
         "link",
         "nextRetryAt",
         "peer",
+        "reason",
         "since",
         "state"
       ],
@@ -5054,8 +5433,11 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "calls": true,
         "cursor": true,
+        "endedWithin": true,
         "limit": true,
+        "recent": true,
         "sessionId": true
       },
       "type": "object"
@@ -5557,6 +5939,45 @@
       ],
       "type": "object"
     },
+    "RollingSummary": {
+      "description": "A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and\nthe next action, kept current after each turn a person started (or one that ended on a\n`wrap_up`). The sidebar and the chat header draw it.",
+      "properties": {
+        "at": {
+          "description": "When it was written, Unix ms.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next": {
+          "description": "The next action, for the person or the agent; absent when there is none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "description": "Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.",
+          "type": "string"
+        },
+        "text": {
+          "description": "Where the chat stands, one or two short sentences.",
+          "type": "string"
+        },
+        "turn": {
+          "description": "The chat's turn count it covers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "text",
+        "source",
+        "turn",
+        "at"
+      ],
+      "type": "object"
+    },
     "RouteListParams": {
       "additionalProperties": false,
       "properties": {
@@ -5991,6 +6412,27 @@
             "null"
           ]
         },
+        "forksAnyTurn": {
+          "description": "Whether the chat forks, and edits, through any completed turn, not only its latest: its\nharness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever\nfamily name its profile carries. Absent when unknown (the configuration was being written\nas the summary was built) and from a peer on an older acpmux: a client then falls back to\nthe family, never reads absence as false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "formerNames": {
+          "description": "The names it had before its renames, oldest first: each still names it where no session\nhas it as its current name. Absent when it was never renamed, and from an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "handle": {
+          "description": "The session's spoken handle, independent of its task name and ids. Older peers omit it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harness": {
           "type": "string"
         },
@@ -6141,6 +6583,7 @@
           "type": "string"
         },
         "nameGiven": {
+          "default": false,
           "description": "Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`\ndefault. Absent otherwise, from a session named before it was kept, and from a peer on an\nolder acpmux.",
           "type": "boolean"
         },
@@ -6261,6 +6704,17 @@
           "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
           "type": "boolean"
         },
+        "rollingSummary": {
+          "anyOf": [
+            {
+              "$ref": "#/types/RollingSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar\nand the chat header. Absent before the first turn that makes one, and from a peer on an\nolder acpmux."
+        },
         "root": {
           "default": "",
           "description": "The root of its lineage tree: the first ancestor no agent started; its own\nid for a root. Absent from a peer on an older acpmux.",
@@ -6376,6 +6830,18 @@
           },
           "description": "Tags that have not expired.",
           "type": "object"
+        },
+        "taskList": {
+          "anyOf": [
+            {
+              "$ref": "#/types/TaskListSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What is done and what is next across the chat's turns (`task_list.rs`): its harness's\nlatest plan (TodoWrite, update_plan) or the list its agent or Chief keeps\n(`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux."
         },
         "timeBreakdown": {
           "anyOf": [
@@ -6726,6 +7192,27 @@
             "null"
           ]
         },
+        "forksAnyTurn": {
+          "description": "Whether the chat forks, and edits, through any completed turn, not only its latest: its\nharness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever\nfamily name its profile carries. Absent when unknown (the configuration was being written\nas the summary was built) and from a peer on an older acpmux: a client then falls back to\nthe family, never reads absence as false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "formerNames": {
+          "description": "The names it had before its renames, oldest first: each still names it where no session\nhas it as its current name. Absent when it was never renamed, and from an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "handle": {
+          "description": "The session's spoken handle, independent of its task name and ids. Older peers omit it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harness": {
           "type": "string"
         },
@@ -6872,6 +7359,7 @@
           "type": "string"
         },
         "nameGiven": {
+          "default": false,
           "description": "Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`\ndefault. Absent otherwise, from a session named before it was kept, and from a peer on an\nolder acpmux.",
           "type": "boolean"
         },
@@ -6987,6 +7475,17 @@
           "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
           "type": "boolean"
         },
+        "rollingSummary": {
+          "anyOf": [
+            {
+              "$ref": "#/types/RollingSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar\nand the chat header. Absent before the first turn that makes one, and from a peer on an\nolder acpmux."
+        },
         "root": {
           "default": "",
           "description": "The root of its lineage tree: the first ancestor no agent started; its own\nid for a root. Absent from a peer on an older acpmux.",
@@ -7099,6 +7598,18 @@
           },
           "description": "Tags that have not expired.",
           "type": "object"
+        },
+        "taskList": {
+          "anyOf": [
+            {
+              "$ref": "#/types/TaskListSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What is done and what is next across the chat's turns (`task_list.rs`): its harness's\nlatest plan (TodoWrite, update_plan) or the list its agent or Chief keeps\n(`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux."
         },
         "timeBreakdown": {
           "anyOf": [
@@ -7492,6 +8003,109 @@
       },
       "type": "object"
     },
+    "TaskItem": {
+      "description": "One step of the list.",
+      "properties": {
+        "content": {
+          "description": "The step's words, masked and cut to [`ITEM_CHARS`].",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/types/TaskStatus"
+        }
+      },
+      "required": [
+        "content",
+        "status"
+      ],
+      "type": "object"
+    },
+    "TaskListSource": {
+      "description": "Who keeps a chat's task list.",
+      "oneOf": [
+        {
+          "const": "harness",
+          "description": "The harness's own plan events (TodoWrite, update_plan, ACP `plan`).",
+          "type": "string"
+        },
+        {
+          "const": "agent",
+          "description": "The chat's own agent, through `_acpmux/task_list/set`.",
+          "type": "string"
+        },
+        {
+          "const": "chief",
+          "description": "The person's side: the Chief or the app, through `_acpmux/task_list/set`.",
+          "type": "string"
+        }
+      ]
+    },
+    "TaskListSummary": {
+      "description": "What a summary carries of a chat's task list (`SessionSummary::task_list`): the steps, and the\ncounts and lines a sidebar row or a chat strip draws without counting again.",
+      "properties": {
+        "current": {
+          "description": "The first step in progress; null when none is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "done": {
+          "description": "The steps completed.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/types/TaskItem"
+          },
+          "type": "array"
+        },
+        "next": {
+          "description": "The first step still pending after the current one (or the first pending one when none is\nin progress); null when none is left.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/types/TaskListSource",
+          "description": "Who keeps it: `harness` (its own plan events), `agent` or `chief` (`_acpmux/task_list/set`)."
+        },
+        "total": {
+          "description": "Every step.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updatedAt": {
+          "description": "When it last changed, Unix ms.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "current",
+        "done",
+        "items",
+        "next",
+        "source",
+        "total",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "TaskStatus": {
+      "description": "Where one step stands.",
+      "enum": [
+        "pending",
+        "in_progress",
+        "completed"
+      ],
+      "type": "string"
+    },
     "TimeBreakdown": {
       "properties": {
         "categories": {
@@ -7669,6 +8283,17 @@
       },
       "type": "object"
     },
+    "TurnShotsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true,
+        "turnId": true
+      },
+      "type": "object"
+    },
     "TurnSummary": {
       "description": "The running turn.",
       "properties": {
@@ -7755,6 +8380,49 @@
       "required": [
         "sessionId",
         "on"
+      ],
+      "type": "object"
+    },
+    "UsageParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/usage` (capability `session-usage-v1`): what Session Info's Usage reads.",
+      "properties": {
+        "known": {
+          "description": "The `digest` of the last reply the client holds: while the stats read the same, the reply\nis `{digest, unchanged: true}` and carries none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "UsageResult": {
+      "properties": {
+        "digest": {
+          "description": "Names what `usage` holds: equal digests, equal stats (within one daemon run).",
+          "type": "string"
+        },
+        "unchanged": {
+          "description": "`known` is `digest`: the client's stats stand.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "usage": {
+          "additionalProperties": {
+            "$ref": "#/types/UsageStats"
+          },
+          "description": "Every listed chat that reports usage, its `usageStats` by the `sessionId` its row lists it\nunder (this daemon's chats and the peers' rows). Absent with `unchanged`.",
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "digest"
       ],
       "type": "object"
     },
