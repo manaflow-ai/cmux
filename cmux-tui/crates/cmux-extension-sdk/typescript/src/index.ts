@@ -156,6 +156,12 @@ export interface ComposerCommand {
   insert: string
 }
 
+/** Data-only `options` of `cmux.composer.model.picker/1`. */
+export interface ComposerModelPickerOptions {
+  modelMenu: 'search'
+  reasoningMenu: 'column' | 'separate'
+}
+
 /** The `options` of `cmux.composer.command/1`. */
 export interface ComposerCommandOptions {
   commands: ComposerCommand[]
@@ -176,6 +182,29 @@ export interface ComposerMentionOptions {
   /** The word that narrows `@` to this provider (`@ticket:`). */
   prefix: string
   items: ComposerMention[]
+}
+
+/**
+ * A context chip in the agent chat composer (`cmux.composer.chip/1`): a short label the person
+ * clicks to add `insert` to the draft. The daemon lists chips in `apps.composer.list`.
+ *
+ *     // cmux-app.json: "implements": { "cmux.composer.chip/1": { "options": { "chips": [
+ *     //   { "id": "branch", "label": "Branch", "insert": "Work on the current git branch." } ] } } }
+ */
+export interface ComposerChip {
+  /** Unique in the extension: lowercase letters, digits, `.`, `_` and `-`, at most 64. */
+  id: string
+  /** What the chip shows, at most 32 characters. */
+  label: string
+  /** The chip's tooltip. */
+  detail?: string
+  /** The text a click adds to the draft. */
+  insert: string
+}
+
+/** The `options` of `cmux.composer.chip/1`: up to 12 chips. */
+export interface ComposerChipOptions {
+  chips: ComposerChip[]
 }
 
 // ---------------------------------------------------------------------------------------------

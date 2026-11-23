@@ -81,7 +81,7 @@ fn foreground(args: &Value) -> bool {
 pub fn kind_of(tool: &str, args: &Value) -> Kind {
     match tool {
         "status" | "list_machines" | "list_displays" => Kind::Engine,
-        "list_apps" | "list_windows" => Kind::Inventory,
+        "list_apps" | "list_windows" | "list_alerts" => Kind::Inventory,
         // Without a window id a screenshot or a wait captures the display.
         "screenshot" | "wait" if has(args, "window_id") => Kind::WindowLook,
         "screenshot" | "wait" => Kind::Display,
@@ -90,9 +90,13 @@ pub fn kind_of(tool: &str, args: &Value) -> Kind {
         "record" if args.get("action").and_then(Value::as_str) == Some("stop") => Kind::Engine,
         "record" => Kind::Display,
         "get_ui_tree" => Kind::WindowLook,
-        "click" | "type_text" | "press_key" | "drag" if foreground(args) => Kind::Hid,
-        "click" | "type_text" | "press_key" | "drag" | "scroll" | "set_value"
+        "click" | "move_pointer" | "type_text" | "press_key" | "drag" if foreground(args) => {
+            Kind::Hid
+        }
+        "click" | "move_pointer" | "type_text" | "press_key" | "drag" | "scroll" | "set_value"
         | "perform_action" => Kind::WindowInput,
+        // An accessibility press on one alert's button.
+        "dismiss_alert" => Kind::WindowInput,
         // Each step is checked on its own when it runs.
         "batch" => Kind::WindowInput,
         _ => Kind::Activates,

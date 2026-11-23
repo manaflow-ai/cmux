@@ -540,6 +540,17 @@ impl Engine {
         if self.stops.is_stopped(&ctx.session) {
             return self.refuse_stopped(ctx, tool, name);
         }
+        // A window named by its title or app instead of its id: the id, so
+        // the agent needs no list_windows turn first (engine_window_name.rs).
+        let named;
+        let args = match self.window_by_name(args) {
+            Ok(Some(resolved)) => {
+                named = resolved;
+                &named
+            }
+            Ok(None) => args,
+            Err(refused) => return refused,
+        };
         // An acting call is recorded on disk before it acts and again with its
         // result, so a retry (same call_id), even after a worker restart,
         // never acts twice.
@@ -921,6 +932,7 @@ impl Engine {
                 Ok((ToolOutput::ok(Value::Object(body)), Some(app)))
             }
             "click" => self.click(&config, ctx, args),
+            "move_pointer" => self.move_pointer(&config, ctx, args),
             "type_text" => {
                 let window = self.window(need(args, "window_id")?)?;
                 let text = args
@@ -1096,6 +1108,8 @@ impl Engine {
             }
             "wait" => self.wait(&config, ctx, args),
             "batch" => self.batch(ctx, args),
+            "list_alerts" => self.list_alerts(&config, ctx),
+            "dismiss_alert" => self.dismiss_alert(&config, ctx, args),
             other => Err(ToolOutput::error("unknown_tool", format!("unknown tool {other:?}"))),
         }
     }
@@ -1117,6 +1131,7 @@ impl Engine {
             "menus": config.menus.as_str(),
             "screen_locked": self.desktop.screen_locked(),
             "while_locked": config.while_locked,
+            "alerts": config.alerts,
             // Which binary answers, so `cmux computer-use doctor` can say
             // whether the staged, verified helper is the one running.
             "worker": {
@@ -1393,46 +1408,7 @@ impl Engine {
             .unwrap_or_default();
         let modifiers = KeyCombo::parse_modifiers(&modifiers)
             .map_err(|e| ToolOutput::error("invalid_arguments", e))?;
-        let (window, target) = match args_str(args, "window_id") {
-            Some(id) => {
-                let window = self.window(id)?;
-                if args_str(args, "element_id").is_none()
-                    && (args_f64(args, "x").is_none() || args_f64(args, "y").is_none())
-                {
-                    return Err(ToolOutput::error(
-                        "invalid_arguments",
-                        "click needs element_id or x and y",
-                    ));
-                }
-                // Mapped after the policy check (a denied app is refused as such).
-                (window, None)
-            }
-            None => {
-                let (x, y) = (need_f64(args, "x")?, need_f64(args, "y")?);
-                let key = lock(&self.last_display).get(&ctx.session).cloned().ok_or_else(|| {
-                    ToolOutput::error(
-                        "invalid_arguments",
-                        "click with no window_id uses your latest display screenshot; take one first, or pass window_id",
-                    )
-                })?;
-                let geometry = lock(&self.seen)
-                    .get(&(ctx.session.clone(), key))
-                    .map(|(g, _)| *g)
-                    .ok_or_else(|| {
-                    ToolOutput::error("invalid_arguments", "take a display screenshot first")
-                })?;
-                let point = geometry.to_global(x, y);
-                let window = self
-                    .windows()?
-                    .into_iter()
-                    .find(|w| w.on_screen && !w.minimized && contains(&w.frame, point))
-                    .ok_or_else(|| {
-                        ToolOutput::error("target_not_found", "no window at that point")
-                    })?;
-                let target = PointerTarget::Point { window_id: window.id.clone(), point };
-                (window, Some(target))
-            }
-        };
+        let (window, target) = self.pointer_window(ctx, args, "click")?;
         if args_str(args, "menu_item").is_some() && !self.desktop.picks_menu_items() {
             return Err(ToolOutput::error(
                 "unsupported",
@@ -2244,8 +2220,17 @@ mod observe_glue;
 #[path = "engine_batch.rs"]
 mod batch_glue;
 
+#[path = "engine_alerts.rs"]
+mod alerts_glue;
+
 #[path = "engine_record.rs"]
 mod record_glue;
+
+#[path = "engine_window_name.rs"]
+mod window_name;
+
+#[path = "engine_pointer.rs"]
+mod pointer_glue;
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]
@@ -2268,5 +2253,13 @@ mod observe_tests;
 mod batch_tests;
 
 #[cfg(test)]
+#[path = "engine_alerts_tests.rs"]
+mod alerts_tests;
+
+#[cfg(test)]
 #[path = "engine_record_tests.rs"]
 mod record_tests;
+
+#[cfg(test)]
+#[path = "engine_pointer_tests.rs"]
+mod pointer_tests;

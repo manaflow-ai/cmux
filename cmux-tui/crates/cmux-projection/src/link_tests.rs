@@ -74,3 +74,50 @@ fn a_read_with_no_mac_fails_as_away_after_the_wait_and_works_once_it_is_back() {
     let _back = attach(&link);
     assert_eq!(waiting.join().unwrap().unwrap(), b"file-2");
 }
+
+#[test]
+fn a_read_right_after_a_drop_waits_past_the_away_wait_for_the_next_stream() {
+    let link =
+        Arc::new(Link::new(Duration::from_millis(100)).with_drop_grace(Duration::from_millis(800)));
+    let mac = attach(&link);
+    assert_eq!(link.read(1, 0, 4).unwrap(), b"file");
+    // A paused machine's stream drops; it comes back after the away wait, inside the grace.
+    mac.shutdown(std::net::Shutdown::Both).unwrap();
+    let start = Instant::now();
+    while link.attached() {
+        assert!(start.elapsed() < Duration::from_secs(5));
+        std::thread::yield_now();
+    }
+    let waiting = {
+        let link = link.clone();
+        std::thread::spawn(move || link.read(3, 0, 6))
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let back = attach(&link);
+    assert_eq!(waiting.join().unwrap().unwrap(), b"file-3");
+
+    // Past the grace a read with no stream fails after the away wait again.
+    back.shutdown(std::net::Shutdown::Both).unwrap();
+    while link.attached() {
+        std::thread::yield_now();
+    }
+    std::thread::sleep(Duration::from_millis(900));
+    let start = Instant::now();
+    assert_eq!(link.read(1, 0, 4), Err(FetchError::Away));
+    let waited = start.elapsed();
+    assert!(
+        waited >= Duration::from_millis(100) && waited < Duration::from_millis(700),
+        "{waited:?}"
+    );
+}
+
+#[test]
+fn a_read_after_a_detach_gets_no_grace() {
+    let link =
+        Arc::new(Link::new(Duration::from_millis(100)).with_drop_grace(Duration::from_secs(30)));
+    let _mac = attach(&link);
+    link.detach();
+    let start = Instant::now();
+    assert_eq!(link.read(1, 0, 4), Err(FetchError::Away));
+    assert!(start.elapsed() < Duration::from_secs(5));
+}
