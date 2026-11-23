@@ -77,7 +77,7 @@ fn a_changed_setting_is_validated_stored_and_reaches_the_running_host_live() {
             .unwrap();
     assert_eq!(
         values,
-        json!({ "greeting": "Hello", "compact": true, "size": "small", "limit": 25 })
+        json!({ "greeting": "Hello", "compact": true, "size": "small", "limit": 25, "step": 10 })
     );
     f.wait("settings.changed", |e| e["event"] == "apps-log" && e["message"] == "event 1");
     assert_eq!(listed(&f)["values"]["limit"], 25);
