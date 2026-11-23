@@ -18,6 +18,8 @@ mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// A create over the cap with nowhere to go asks the fleet for a machine.
+pub(crate) mod admission_scale_up;
 mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
@@ -408,6 +410,8 @@ pub fn peer_snapshot_reads_fail(peer: &str, n: u32) {
 pub fn peer_snapshot_bound(n: usize) {
     peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
 }
+mod moved_forward;
+pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
 mod peers;
 mod remote_rows;
 mod remote_table;
@@ -889,6 +893,9 @@ pub(super) struct StreamState {
     pub(super) reply_segment: Option<String>,
     /// Reply segments started in this turn, which numbers the next one.
     pub(super) reply_segments: u32,
+    /// Reply segments started outside any turn since the daemon started (`reply_segment_for`):
+    /// never reset, so text between turns never reuses an earlier id.
+    pub(super) loose_segments: u32,
     /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
     pub(super) segment_turn: Option<String>,
     pub(super) segment_message: Option<String>,
