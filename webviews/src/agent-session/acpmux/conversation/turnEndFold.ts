@@ -31,8 +31,8 @@ import { currentChatMetrics } from "../chatDisplay";
 import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
-import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath } from "./turnFold";
-import { ACTIVITY_LINE, LIVE_THINKING, WORKED, WORKING, NEXT_STEP } from "./turns";
+import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath, isLiveClockNode } from "./turnFold";
+import { ACTIVITY_LINE, LIVE_THINKING, WORKED, NEXT_STEP } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
@@ -199,16 +199,17 @@ export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readon
     let worked: string | undefined;
     for (let index = after.length - 1; index >= 0 && index >= after.length - LINE_TAIL; index -= 1) {
       if (after[index]!.kind === "user" && !isLineRow(after[index]!)) break;
-      if (after[index]!.kind === WORKED) {
+      // An ended header: the running one is still the running turn's.
+      if (after[index]!.kind === WORKED && after[index]!.turnPhase !== "running") {
         worked = after[index]!.id;
         break;
       }
     }
     if (worked === undefined) return false;
+    // The ended header was the running one before (turns.ts `turnHeaderId`: one row, two phases).
     for (let index = before.length - 1; index >= 0 && index >= before.length - LINE_TAIL; index -= 1)
-      if (before[index]!.id === worked) return false;
-    const working = `${WORKING}-${worked.slice(WORKED.length + 1)}`;
-    if (!before.some((row) => row.kind === WORKING && row.id === working)) return false;
+      if (before[index]!.id === worked && before[index]!.turnPhase !== "running") return false;
+    if (!before.some((row) => row.id === worked && row.turnPhase === "running")) return false;
   }
   let prompt: string | undefined;
   for (let index = before.length - 1; index >= 0 && prompt === undefined; index -= 1)
@@ -305,11 +306,10 @@ export function captureTurnEnd(
   const rows = nodes.map((node) => {
     const box = node.getBoundingClientRect();
     const priorId = node.dataset.rowId!;
-    // The live header becomes the ended header in the same slot, rather than leaving a second clock.
-    const workedId = node.classList.contains(`acpmux-${WORKING}`)
-      ? `${WORKED}-${priorId.slice(WORKING.length + 1)}`
-      : undefined;
-    const id = workedId && kept.has(workedId) ? workedId : priorId;
+    // The running header is the ended header, one row (turns.ts `turnHeaderId`): it stays, and it is
+    // the folded line the copies go under. Running, it holds its chevron's slot unseen (WorkingFor.tsx).
+    const id = priorId;
+    const header = node.classList.contains(`acpmux-${WORKED}`) && isLiveClockNode(node);
     // A row clipped over the row gliding under it (tailGlide.ts) draws only down to that row's top:
     // the fold goes on from what it drew, never from its whole box (one read, only while clipped).
     const clip = clippedBottom(node);
@@ -317,7 +317,7 @@ export function captureTurnEnd(
       id,
       top: box.top,
       height: box.height,
-      ...(id !== priorId && { replacesHeader: true }),
+      ...(header && kept.has(id) && { replacesHeader: true }),
       ...(clip > 0 && { clip, shown: box.bottom - clip }),
       ...(!kept.has(id) && { copy: ghostOf(node) }),
       ...(kept.has(id) && (replaces || (swapsSubagents && isSubagentNode(node))) && { snapshot: snapshotOf(node, id) }),
