@@ -144,6 +144,15 @@ fn release_once(runner: &mut dyn Runner, name: &str) -> Released {
         Err(error) => return Released { machine_id: None, gone: false, error: Some(error) },
     };
     let rows = |key: &str| at(&listed, key).as_array().cloned().unwrap_or_default();
+    if at(&listed, "loaded").as_bool() == Some(false)
+        || listed.pointer("/account/signed_in").and_then(Value::as_bool) == Some(false)
+    {
+        return Released {
+            machine_id: None,
+            gone: false,
+            error: Some(json!({"message": "the machine list is not available"})),
+        };
+    }
     let named = |row: &Value, key: &str| at(row, key).as_str() == Some(name);
     let Some(id) = rows("machines")
         .iter()
@@ -155,12 +164,70 @@ fn release_once(runner: &mut dyn Runner, name: &str) -> Released {
         let error = creating.then(|| json!({"message": "its create is still on its way"}));
         return Released { machine_id: None, gone: !creating, error };
     };
+    release_id(runner, &id)
+}
+
+fn release_id(runner: &mut dyn Runner, id: &str) -> Released {
     let target = format!("machine:{id}");
     let kill = ["cloud", "kill-machine", "--target", target.as_str(), "--confirm", "--json"];
     match step_result(&runner.cmux(&words(&kill))) {
-        Ok(_) => Released { machine_id: Some(id), gone: true, error: None },
-        Err(error) => Released { machine_id: Some(id), gone: false, error: Some(error) },
+        Ok(_) => Released { machine_id: Some(id.to_owned()), gone: true, error: None },
+        Err(error) => Released { machine_id: Some(id.to_owned()), gone: false, error: Some(error) },
     }
+}
+
+/// A definitive refusal before an agent exists rolls back only this run's newly created machine.
+/// A timeout or lost reply is ambiguous, so it keeps the existing retry/reconciliation path.
+/// The app wraps daemon refusal codes in its message; retain that original refusal as evidence.
+pub(super) fn release_refused(
+    runner: &mut dyn Runner,
+    fresh_name: Option<&str>,
+    made: Option<&str>,
+    mut outcome: Outcome,
+    deadline: Deadline,
+) -> Outcome {
+    let Outcome::Failed { error, .. } = &mut outcome else { return outcome };
+    if fresh_name.is_none() && made.is_none() {
+        return outcome;
+    }
+    let code = at(error, "code").as_str().unwrap_or_default();
+    let message = at(error, "message").as_str().unwrap_or_default();
+    let refused = [
+        "agent_session.bad_request",
+        "agent_session.not_trusted",
+        "agent_session.not_asking",
+        "agent_session.untrusted_folder",
+        "agent_session.harness_missing",
+        "agent_session.team_vm_blocked",
+        "agent_session.start_unsupported",
+    ];
+    if !refused.iter().any(|reason| code == *reason || message.contains(reason)) {
+        return outcome;
+    }
+    let released = match (made, fresh_name) {
+        (Some(id), _) => release_id(runner, id),
+        (None, Some(name)) => release(runner, name, deadline),
+        (None, None) => return outcome,
+    };
+    let next = if released.gone {
+        "The new machine was deleted because its agent could not start.".to_owned()
+    } else {
+        released.machine_id.as_ref().map_or_else(
+            || "The new machine could not be deleted; find it with `cmux cloud list-machines`, then run `cmux cloud kill-machine --target machine:ID --confirm`.".to_owned(),
+            |id| format!("The new machine could not be deleted; run `cmux cloud kill-machine --target machine:{id} --confirm`."),
+        )
+    };
+    // The app's retry command targets the machine we just deleted. Keep it in details.app,
+    // while the top-level error names the actual terminal outcome.
+    let reason = message.split(". Run `").next().unwrap_or(message);
+    error["message"] = json!(format!("{reason}. {next}"));
+    if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
+        details.insert(
+            "cleanup".to_owned(),
+            released.json(fresh_name.unwrap_or_default(), &json!("agent_refused")),
+        );
+    }
+    outcome
 }
 
 /// `outcome` (the run's first start, begun at `began`), or, when its new machine was stuck ([`stuck`]), the start
