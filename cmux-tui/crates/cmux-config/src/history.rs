@@ -69,7 +69,7 @@ pub fn parse(text: &str) -> Vec<HistoryEntry> {
 
 /// The newest `capacity` of `entries` (oldest first).
 pub fn trim(entries: &[HistoryEntry], capacity: usize) -> &[HistoryEntry] {
-    &entries[entries.len().saturating_sub(capacity)..]
+    entries.get(entries.len().saturating_sub(capacity)..).unwrap_or(entries)
 }
 
 /// The entry `settings.undo` takes back, from `entries` oldest first: the
