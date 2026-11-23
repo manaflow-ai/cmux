@@ -1,6 +1,6 @@
 import AppKit
 import Testing
-@testable import CmuxNextApp
+import CmuxNextPages
 
 @MainActor
 struct TabSwitchMorphTests {
@@ -11,17 +11,21 @@ struct TabSwitchMorphTests {
         #expect(!TabSwitchMorph.isOn)
     }
 
-    @Test func aGroundThatChangedEasesFromTheOldToTheNew() throws {
-        let animation = try #require(TabSwitchMorph.animation(from: light, to: dark, duration: 0.2))
-        #expect(animation.keyPath == "backgroundColor")
-        #expect(animation.fromValue as! CGColor == light)
-        #expect(animation.toValue as! CGColor == dark)
-        #expect(animation.duration == 0.2)
+    @Test func aGroundThatChangedEases() {
+        #expect(TabSwitchMorph.eases(from: light, to: dark))
+        #expect(TabSwitchMorph.eases(from: dark, to: light))
     }
 
-    @Test func noChangeNoGroundOrNoTimeEasesNothing() {
-        #expect(TabSwitchMorph.animation(from: light, to: light, duration: 0.2) == nil)
-        #expect(TabSwitchMorph.animation(from: light, to: nil, duration: 0.2) == nil)
-        #expect(TabSwitchMorph.animation(from: light, to: dark, duration: 0) == nil)
+    @Test func noChangeOrAnUnknownGroundEasesNothing() {
+        #expect(!TabSwitchMorph.eases(from: light, to: light))
+        #expect(!TabSwitchMorph.eases(from: light, to: nil))
+        #expect(!TabSwitchMorph.eases(from: nil, to: dark))
+    }
+
+    @Test func runningItAddsAFadeOnlyForAChangedGround() {
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        host.wantsLayer = true
+        TabSwitchMorph.run(on: host, from: light, to: light, in: nil)
+        #expect(host.layer?.animationKeys()?.isEmpty ?? true)
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextLayout
@@ -113,6 +114,7 @@ extension InternalPageView { var meetsTabStrip: Bool { get { (topBar as? Markdow
 
 /// A two-finger swipe over the page (PageSwipeForwarder) runs `navigate` too.
 extension InternalPageView: PageHistoryHosting {}
+extension InternalPageView: DrawnWebParkable { var drawnWebPage: PageWebView? { PageWebView.shown(in: content) } } // waits drawn off screen on a tab switch
 extension InternalPageView: ChiefPanelContent { var chiefIsAnswering: Bool { (content as? any ChiefPanelContent)?.chiefIsAnswering == true }; var chiefShowsThrough: Bool { get { (content as? any ChiefPanelContent)?.chiefShowsThrough == true } set { (content as? any ChiefPanelContent)?.chiefShowsThrough = newValue } }; var chiefHeaderHeight: CGFloat { (content as? any ChiefPanelContent)?.chiefHeaderHeight ?? 0 } }
 /// Its hover-card picture (``PageTabPictures``): a React page's, nothing for a native page.
 extension InternalPageView: PagePictureSubject { var pictureKey: String { key }; var pictureLook: String { effectiveAppearance.name.rawValue }; var isOnScreen: Bool { window != nil && !isHiddenOrHasHiddenAncestor }; func picture(maxPixelWidth: CGFloat) async -> CGImage? {
