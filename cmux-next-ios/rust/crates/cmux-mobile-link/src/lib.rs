@@ -27,6 +27,7 @@ pub mod media;
 pub mod names;
 pub mod path_report;
 pub mod reconnect;
+pub mod reliable;
 mod send_queue;
 pub mod signaling;
 #[cfg(feature = "testing")]
@@ -36,9 +37,10 @@ pub mod timing;
 pub use build_space::BuildSpace;
 pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind, UltraSetting};
 pub use link::{
-    Channel, ChannelEvent, CloseInfo, IncomingChannel, KEEPALIVE_TIMEOUT, Lane, LaneState, Link, LinkConfig,
-    LinkError, Role,
+    Accepted, Channel, ChannelEvent, ChannelResume, CloseInfo, IncomingChannel, KEEPALIVE_TIMEOUT, Lane,
+    LaneState, Link, LinkConfig, LinkError, ResumeReport, Role,
 };
+pub use reliable::{Carrier, RELIABLE_LANE, ReliableConfig, ReliableStats, ResumeRegistry};
 pub use signaling::SignalingClient;
 pub use timing::Timeline;
 
