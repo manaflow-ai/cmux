@@ -117,7 +117,15 @@ pub(super) async fn relay(
             }
             let message = OutMessage {
                 to,
-                from: sender(hub, delivery.caller.as_deref(), carried.named, carried.claim),
+                // The outbox takes only this machine's unix socket (`outbox::handle`), so a
+                // delivery with no caller is a relay's there, as `relay_of` reads it.
+                from: sender(
+                    hub,
+                    delivery.caller.as_deref(),
+                    carried.named,
+                    carried.claim,
+                    delivery.caller.is_none().then(|| relay_of(&delivery.request)).flatten(),
+                ),
                 kind: Kind::Prompt,
                 op: None,
                 body: carried.body,
@@ -233,7 +241,7 @@ fn message(
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
         to: recipient_in(hub, target),
-        from: sender(hub, caller, carried.named, carried.claim),
+        from: sender(hub, caller, carried.named, carried.claim, local_relay(conn, request)),
         kind: Kind::Prompt,
         op: None,
         body: carried.body,
@@ -349,41 +357,53 @@ fn class_note(row: &mut Value, inline: Option<PromptClass>) {
 }
 
 /// The proven caller names the sender; `fromAgent` (anything a client writes) only when no
-/// session is proven, as a display name. `claim` is provenance only, never the sender.
-/// The hub's sender for a send from session `caller`, else from the program that named itself
-/// `named`. A program outside any session is no session the hub can find, so the hub names none
-/// and the receiver read only "a session on HOST" (ask-1e0e42a38e: glaeda-land's notice;
-/// ask-ee9ef79cbb: shadow-leo's). It also goes as the send's relay record (`relay`), which the hub
-/// carries as the sender's word, so the receiver names the program (`mesh_relay::sender_name`).
-fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>, claim: Option<Value>) -> Sender {
-    let host = crate::pairing::mesh_host();
-    let relay = match (caller, named.as_deref().and_then(relay_label)) {
-        (None, Some(by)) => relay_label(&host).map(|machine| crate::mesh::SenderRelay {
-            by,
-            machine,
-            session: None,
-        }),
-        _ => None,
+/// session is proven, as a display name. `claim` is provenance only, never the sender. `relay` is
+/// the relay record of a send no session made, which goes only when no caller is proven.
+fn sender(
+    hub: &Hub,
+    caller: Option<&str>,
+    named: Option<String>,
+    claim: Option<Value>,
+    relay: Option<Value>,
+) -> Sender {
+    // A program outside any session (`ACPMUX_FROM=glaeda-land`) with no relay of its own is its
+    // own relay: the record names it, so a receiver reads "glaeda-land on HOST", not the machine.
+    let relay = match caller {
+        Some(_) => None,
+        None => relay.or_else(|| program_relay(named.as_deref())),
     };
     Sender {
         name: caller.map(|id| hub.session_name(id)).or(named),
         session_id: caller.map(str::to_owned),
-        host: Some(host),
+        host: Some(crate::pairing::mesh_host()),
         claim,
         relay,
         ..Sender::default()
     }
 }
 
-/// `text` as a hub label (cmux-platform `Label`: 1 to 128 characters), one line; None when empty.
-fn relay_label(text: &str) -> Option<String> {
-    let clean: String = text.chars().filter(|c| !c.is_control()).take(RELAY_LABEL_CHARS).collect();
-    let clean = clean.trim();
-    (!clean.is_empty()).then(|| clean.to_owned())
+/// The relay record naming a program outside any session by its declared name on this machine,
+/// or None when the name is no one relay name ([`RelaySender::of`] decides).
+fn program_relay(named: Option<&str>) -> Option<Value> {
+    let by = named?.trim();
+    let machine = crate::pairing::mesh_host();
+    crate::prompt_provenance::RelaySender::of(&json!({"by": by, "machine": machine}))
+        .map(|r| r.to_value())
 }
 
-/// The longest label the hub takes.
-const RELAY_LABEL_CHARS: usize = 128;
+/// The relay record (`prompt_provenance::FROM_RELAY`) of a send a relay on this machine's unix
+/// socket made outside any session (the lane-gh broker's `acpmux send`), read as the peer link
+/// reads it (`peer_forward::name_sender`): only well-formed fields, from no proven caller.
+fn local_relay(conn: &Conn, request: &Value) -> Option<Value> {
+    (conn.origin == super::Origin::Local && conn.caller().is_none())
+        .then(|| relay_of(request))
+        .flatten()
+}
+
+/// `request`'s relay record, well formed, as the hub's message carries it (`Sender::relay`).
+fn relay_of(request: &Value) -> Option<Value> {
+    crate::prompt_provenance::relay_sender(request)?.relay.map(|r| r.to_value())
+}
 
 pub(super) async fn send(
     hub: &Arc<Hub>,
@@ -406,7 +426,7 @@ pub(super) async fn send(
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
         to: recipient_in(hub, target),
-        from: sender(hub, caller, carried.named, carried.claim),
+        from: sender(hub, caller, carried.named, carried.claim, local_relay(conn, request)),
         kind: Kind::Prompt,
         op: None,
         body: carried.body,
@@ -633,27 +653,27 @@ mod tests {
         assert_eq!(recipient_in(&hub, "machine-b/Kiwi").name.as_deref(), Some("Kiwi"));
     }
 
-    /// A program outside any session (ACPMUX_FROM, no caller) goes with a relay record naming it,
-    /// so the receiver names it rather than "a session on HOST" (ask-1e0e42a38e). A session's own
-    /// send carries none: the hub names that session.
+    /// gap:surface:naming: a send no session made names its program in the relay record it
+    /// carries; one a session made carries none, and a name no relay record fits carries none.
     #[test]
-    fn a_program_outside_any_session_sends_its_name_as_the_relay_record() {
+    fn a_program_outside_any_session_carries_its_name_as_the_relay_record() {
         let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
         config.store.mode = crate::config::StoreMode::Memory;
         let store =
             crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
         let hub = Hub::new(config, store);
-        let from = sender(&hub, None, Some(" glaeda-land\n".into()), None);
-        let relay = from.relay.expect("a relay record");
+        let from = sender(&hub, None, Some("glaeda-land".into()), None, None);
+        let relay = from.relay.as_ref().and_then(crate::prompt_provenance::RelaySender::of);
+        let relay = relay.expect("a relay record");
         assert_eq!(relay.by, "glaeda-land");
-        assert_eq!(relay.machine, crate::pairing::mesh_host().trim());
+        assert_eq!(relay.machine, crate::pairing::mesh_host());
         assert_eq!(relay.session, None);
-        assert_eq!(from.name.as_deref(), Some(" glaeda-land\n"));
-        let wire = serde_json::to_value(sender(&hub, None, Some("x".repeat(300)), None)).unwrap();
-        assert_eq!(wire["relay"]["by"].as_str().map(str::len), Some(128));
-        assert!(sender(&hub, None, None, None).relay.is_none());
-        assert!(sender(&hub, None, Some("  ".into()), None).relay.is_none());
-        assert!(sender(&hub, Some("s-1"), Some("lane-a".into()), None).relay.is_none());
+        let broker = json!({"by": "lane-gh", "machine": "m", "session": "lane-7"});
+        let from = sender(&hub, None, Some("glaeda-land".into()), None, Some(broker.clone()));
+        assert_eq!(from.relay, Some(broker.clone()));
+        assert_eq!(sender(&hub, Some("s-1"), None, None, Some(broker)).relay, None);
+        assert_eq!(sender(&hub, None, Some("two words".into()), None, None).relay, None);
+        assert_eq!(sender(&hub, None, None, None, None).relay, None);
     }
 
     /// cmuxterm-hq#17418: `class: question` to 9 sessions reached only through the relay sent 0

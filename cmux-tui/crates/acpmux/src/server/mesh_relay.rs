@@ -32,6 +32,7 @@ use crate::mesh::{
     Ack, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork,
 };
 use crate::mesh_http::MeshControlFrom;
+use crate::prompt_provenance::RelaySender;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Weak;
@@ -966,42 +967,58 @@ fn sender_name(message: &InMessage, book_host: Option<&str>) -> String {
         name => name,
     };
     let daemon = field(message.from.daemon_id.as_deref());
-    let named = match relayed_by(message).filter(|_| name.is_empty()) {
-        Some(program) if !host.is_empty() => format!("{program} on {host}"),
-        Some(program) if !daemon.is_empty() => format!("{program} on hub daemon {daemon}"),
-        Some(program) => program,
-        None => match (host.is_empty(), name.is_empty()) {
-            (false, false) => format!("{host}/{name}"),
-            (true, false) if !daemon.is_empty() => format!("{name} on hub daemon {daemon}"),
-            (true, false) => name,
-            (false, true) => format!("a session on {host}"),
-            (true, true) if !daemon.is_empty() => format!("a session on hub daemon {daemon}"),
-            (true, true) => "a session on another machine".to_owned(),
-        },
+    let named = match (host.is_empty(), name.is_empty()) {
+        (false, false) => format!("{host}/{name}"),
+        (true, false) if !daemon.is_empty() => format!("{name} on hub daemon {daemon}"),
+        (true, false) => name,
+        (false, true) => format!("a session on {host}"),
+        (true, true) if !daemon.is_empty() => format!("a session on hub daemon {daemon}"),
+        (true, true) => "a session on another machine".to_owned(),
     };
     named.chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect::<String>().trim().to_owned()
 }
 
-/// The program a message with no session names says carried it (`from.relay`, the sending
-/// daemon's `mesh_send::sender`): `by`, and the session it names on its machine when it names one
-/// (`lane-gh` relaying `vm-3/lane-a`). The sender's word, never read as a session.
-fn relayed_by(message: &InMessage) -> Option<String> {
-    let relay = message.from.relay.as_ref()?;
-    let clean =
-        |s: &str| s.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_owned();
-    let by = clean(&relay.by);
-    if by.is_empty() {
+/// What the transport proves of a message no session sent (the lane-gh broker's `acpmux send`, a
+/// shell outside acpmux): the machine, as a relay record (`prompt_provenance::FROM_RELAY`) the
+/// receiver shows as verified. The hub authenticated the sending daemon by its credential and
+/// stamped `from.daemonId`; the machine is the one this person's book lists for it, else the host
+/// the hub returned beside that stamp. The session is the sending daemon's relay record's, its
+/// word as a peer link's `fromRelay` is, kept only when that record names the same machine.
+/// None for a message from a session (`fromSessionId` proves it), a team address, or one with no
+/// hub stamp: those read as [`sender_name`] says.
+/// Why: every broker relay through the hub read "a session on HOST (self-declared,
+/// unauthenticated)" though the hub had proved HOST, and receivers asked the sender to confirm.
+fn hub_relay(message: &InMessage, book_host: Option<&str>) -> Option<RelaySender> {
+    let from = &message.from;
+    let present = |v: Option<&str>| v.map(str::trim).filter(|v| !v.is_empty()).is_some();
+    if present(from.session_id.as_deref())
+        || present(from.team_address.as_deref())
+        || !present(from.daemon_id.as_deref())
+    {
         return None;
     }
-    match relay.session.as_deref().map(clean).filter(|s| !s.is_empty()) {
-        Some(session) => {
-            let machine = clean(&relay.machine);
-            let from = if machine.is_empty() { session } else { format!("{machine}/{session}") };
-            Some(format!("{from} via {by}"))
+    let machine = book_host.or(from.host.as_deref()).map(str::trim).filter(|h| !h.is_empty())?;
+    let carried = from.relay.as_ref().and_then(RelaySender::of);
+    let (by, session) = match carried {
+        Some(r) if r.machine == machine => (r.by, r.session),
+        _ => (HUB_RELAY.to_owned(), None),
+    };
+    RelaySender::of(&json!({"by": by, "machine": machine, "session": session}))
+}
+
+/// How a [`hub_relay`] record reads as the sender: `MACHINE/SESSION`, or `PROGRAM on MACHINE`
+/// for a program outside any session that named itself, or the machine alone.
+fn relay_name(relay: &RelaySender) -> String {
+    match &relay.session {
+        None if relay.by != HUB_RELAY => {
+            crate::prompt_provenance::relayed_label(&format!("{} on {}", relay.by, relay.machine))
         }
-        None => Some(by),
+        _ => relay.name(),
     }
 }
+
+/// The relay a [`hub_relay`] record names when the sending daemon carried none: the team hub.
+const HUB_RELAY: &str = "mesh-hub";
 
 /// The host this person's address book lists for the daemon the hub stamped on `message`
 /// (`from.daemonId`): the machine as the hub proved it, not as the sender wrote it.
@@ -1052,7 +1069,14 @@ pub async fn deliver(
         Err(why) => return Some(Ack::refused(why)),
     };
     let prompt_id = message.message_id.as_str();
-    let from_name = sender_name(message, stamped_host(hub, message).as_deref());
+    let book_host = stamped_host(hub, message);
+    // A send no session made: the machine the hub proved names it, with the session its daemon's
+    // relay record names, so the label is verified rather than declared ([`hub_relay`]).
+    let relay = hub_relay(message, book_host.as_deref());
+    let from_name = match &relay {
+        Some(relay) if !team => relay_name(relay),
+        _ => sender_name(message, book_host.as_deref()),
+    };
     // Team messages are information by default. Record them in the target
     // session's event stream and acknowledge delivery without starting a
     // model turn; a later inbox read/ack records the durable user action.
@@ -1095,7 +1119,7 @@ pub async fn deliver(
     let sender = crate::prompt_provenance::BoundSender {
         session_id: message.from.session_id.clone(),
         harness: None,
-        relay: None,
+        relay: relay.filter(|_| !team),
         display_name: None,
     };
     crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
@@ -1224,6 +1248,27 @@ mod tests {
         assert_eq!(sender_name(&bare, None), "hook on hub daemon inst_a");
     }
 
+    /// gap:surface:naming: a 429 recovery send from `ACPMUX_FROM=glaeda-land` read only
+    /// "build-host". The program's own relay record names it on the machine the hub proved; a
+    /// record for another machine, or none, still reads as the machine alone.
+    #[test]
+    fn a_program_outside_any_session_is_named_on_the_proven_machine() {
+        let name = |m: &InMessage| hub_relay(m, Some("build-host")).map(|r| relay_name(&r));
+        let mut message = from("build-host", "glaeda-land");
+        message.from.daemon_id = Some("inst_a".into());
+        message.from.relay =
+            Some(serde_json::json!({"by": "glaeda-land", "machine": "build-host"}));
+        assert_eq!(name(&message).as_deref(), Some("glaeda-land on build-host"));
+        message.from.relay = Some(serde_json::json!({"by": "glaeda-land", "machine": "other"}));
+        assert_eq!(name(&message).as_deref(), Some("build-host"));
+        message.from.relay = None;
+        assert_eq!(name(&message).as_deref(), Some("build-host"));
+        message.from.relay = Some(
+            serde_json::json!({"by": "lane-gh", "machine": "build-host", "session": "lane-7"}),
+        );
+        assert_eq!(name(&message).as_deref(), Some("build-host/lane-7"));
+    }
+
     /// An old peer that sends neither host, name nor a stamped daemon keeps today's text.
     #[test]
     fn an_unknown_sender_keeps_todays_text() {
@@ -1239,40 +1284,6 @@ mod tests {
         let mut bare = from("", "");
         bare.body = message.body.clone();
         assert_eq!(sender_name(&bare, None), "a session on another machine");
-    }
-
-    /// A program outside any session (glaeda-land's notice, shadow-leo's nudge) is named by the
-    /// relay record its daemon sent, on the stamped machine; before, "a session on build-host"
-    /// (ask-1e0e42a38e, ask-ee9ef79cbb).
-    #[test]
-    fn a_program_outside_any_session_is_named_by_its_relay_record() {
-        use crate::mesh::SenderRelay;
-        let mut message = from("build-host", "");
-        message.from.relay = Some(SenderRelay {
-            by: "glaeda-land".into(),
-            machine: "build-host".into(),
-            session: None,
-        });
-        assert_eq!(sender_name(&message, None), "glaeda-land on build-host");
-        // The machine is the hub's stamp, not the record's word.
-        message.from.daemon_id = Some("inst_a".into());
-        assert_eq!(sender_name(&message, Some("book-host")), "glaeda-land on book-host");
-        message.from.host = None;
-        assert_eq!(sender_name(&message, None), "glaeda-land on hub daemon inst_a");
-        // A relay that names the session it carried says whose and through what.
-        message.from.relay = Some(SenderRelay {
-            by: "lane-gh".into(),
-            machine: "vm-3".into(),
-            session: Some("lane-a".into()),
-        });
-        assert_eq!(sender_name(&message, Some("ctl")), "vm-3/lane-a via lane-gh on ctl");
-        // A session the hub named stays the name: the record is only for a sender with none.
-        message.from.name = Some("coord".into());
-        assert_eq!(sender_name(&message, Some("ctl")), "ctl/coord");
-        // An empty record says nothing.
-        let mut bare = from("vm", "");
-        bare.from.relay = Some(SenderRelay::default());
-        assert_eq!(sender_name(&bare, None), "a session on vm");
     }
 
     #[test]
