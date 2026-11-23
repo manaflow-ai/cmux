@@ -30,6 +30,7 @@ import urllib.parse
 import urllib.request
 
 RESULTS = "https://gh-events.cmux.com/compile-checks/v1"
+HOLD_MAX = 90  # under the gateway's ~100 s request limit
 RECIPE = 2
 CONFIGURATION = "release-onone"
 
@@ -86,7 +87,9 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
         left = deadline - now()
         if left <= 1:
             return "none", f"no verdict in {wait} s ({last})"
-        hold = int(min(max(left - 30, 1), 300))
+        # The results service sits behind a gateway that ends a request held about 100 s (HTTP 524),
+        # so a 300 s hold read a healthy service as down and spent its two-minute grace on it.
+        hold = int(min(max(left - 30, 1), HOLD_MAX))
         code, body = fetch(f"{base}&wait={hold}", hold + 15)
         if code == 200:
             down_since = None
