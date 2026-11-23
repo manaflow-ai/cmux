@@ -330,6 +330,12 @@ export function generate(): Record<string, string> {
     // A notice in the app's own toast presenter, one slot per app (ToastAppOps in CmuxNextApps). Local and
     // non-network, so no grant: scope `none` is always held.
     "toast.show": { scope: "none", class: "mutation" },
+    // Extension signal sources (cmux.signal.source/1, cmux-tui-core apps/signal_sources.rs). Scope `none` here:
+    // the daemon decides each call per source (only the declaring app publishes; a reader needs the source's
+    // `<app namespace>:read` scope).
+    "signal.publish": { scope: "none", class: "mutation" },
+    "signal.read": { scope: "none", class: "read" },
+    "signal.sources.list": { scope: "none", class: "read" },
     "integration.request": { scope: "integration:<provider>", class: "runtime" },
     // Mac-side app ops (AppHostCapabilities in CmuxNextApp, served over the provider channel).
     "coderouter.status": { scope: "coderouter:read", class: "read" },
