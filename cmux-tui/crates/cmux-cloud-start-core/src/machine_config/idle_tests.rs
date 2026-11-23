@@ -33,7 +33,7 @@ fn bad_values_are_refused() {
         ("version = 1\n[idle]\nminutes = 1440\n", "idle.minutes must be 1 to 1439"),
         ("version = 1\n[idle]\nminutes = \"5\"\n", "idle.minutes must be 1 to 1439"),
         ("version = 1\n[idle]\nminutes = 5.0\n", "idle.minutes must be 1 to 1439"),
-        ("version = 1\n[idle]\nseconds = 300\n", "[idle] takes only minutes"),
+        ("version = 1\n[idle]\nseconds = 300\n", "[idle] takes only minutes and policy"),
         ("version = 1\nidle = 5\n", "idle must be a table"),
         ("version = 1\nrole = \"Lane\"\n", "role must match [a-z][a-z0-9-]{0,31}"),
         ("version = 1\nrole = 1\n", "role must match [a-z][a-z0-9-]{0,31}"),
@@ -121,4 +121,23 @@ fn the_applier_agrees_with_this_parser() {
             Err(why) => assert_eq!(py, serde_json::json!(format!("refused: {why}")), "{text}"),
         }
     }
+}
+
+#[test]
+fn the_aggressive_policy_pauses_after_90_seconds_and_minutes_still_wins() {
+    assert_eq!(window("version = 1\n[idle]\npolicy = \"aggressive\"\n"), Ok(Some(90)));
+    assert_eq!(
+        window("version = 1\nrole = \"lane\"\n[idle]\npolicy = \"aggressive\"\n"),
+        Ok(Some(90))
+    );
+    assert_eq!(
+        window("version = 1\n[idle]\npolicy = \"aggressive\"\nminutes = 2\n"),
+        Ok(Some(120))
+    );
+    assert_eq!(
+        parse("version = 1\n[idle]\npolicy = \"fast\"\n"),
+        Err("idle.policy must be \"aggressive\"".to_owned())
+    );
+    // Off unless asked: the defaults do not move.
+    assert_eq!(window("version = 1\nrole = \"lane\"\n"), Ok(Some(300)));
 }

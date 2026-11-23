@@ -17,6 +17,8 @@ NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
 ROLE = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
 # The lane role's window (machine_config/idle.rs LANE_IDLE_SECONDS): 5 minutes after the last activity, then pause.
 LANE_IDLE_SECONDS = 300
+# [idle] policy = "aggressive" (machine_config/idle.rs AGGRESSIVE_IDLE_SECONDS): 90 s after the last activity.
+AGGRESSIVE_IDLE_SECONDS = 90
 # Names the shell owns or evaluates (bash expands arithmetic variables such as OPTIND, and prompts,
 # when it reads them: `OPTIND='a[$(cmd)]'` runs cmd even single-quoted), and names cmux owns.
 RESERVED = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV", "PROMPT_COMMAND", "PWD", "OLDPWD", "TERM",
@@ -116,12 +118,14 @@ def parse(text):
     idle = doc.get("idle", {})
     if not isinstance(idle, dict):
         raise Refused("idle must be a table")
-    if set(idle) - {"minutes"}:
-        raise Refused("[idle] takes only minutes")
+    if set(idle) - {"minutes", "policy"}:
+        raise Refused("[idle] takes only minutes and policy")
+    if "policy" in idle and idle["policy"] != "aggressive":
+        raise Refused('idle.policy must be "aggressive"')
     minutes = idle.get("minutes")
     if minutes is not None and (type(minutes) is not int or not 1 <= minutes <= 1439):
         raise Refused("idle.minutes must be 1 to 1439")
-    idle_seconds = minutes * 60 if minutes is not None else (LANE_IDLE_SECONDS if role == "lane" else None)
+    idle_seconds = minutes * 60 if minutes is not None else (AGGRESSIVE_IDLE_SECONDS if idle.get("policy") == "aggressive" else (LANE_IDLE_SECONDS if role == "lane" else None))
     env = doc.get("env", {})
     if not isinstance(env, dict) or not all(isinstance(v, str) for v in env.values()):
         raise Refused("[env] values must be strings")
