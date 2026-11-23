@@ -31,7 +31,8 @@ extension PageWebView {
     /// An off-screen parking view's alpha (``PageOffscreenParking``) does not count either:
     /// a prewarmed page waits there to paint before it is adopted. Nor does any ancestor's alpha
     /// once the page lies wholly outside its window's content (``liesOutsideWindowContent``): its
-    /// child window shows nothing there, and a hidden page drew a held chat only when its paint hold gave up (an adopted spare, HQ#5914).
+    /// child window shows nothing there, and a hidden page drew a held chat only when its paint
+    /// hold gave up (an adopted spare, HQ#5914).
     /// A page out of sight (outside the window's content, or in an off-screen parking) is visible only
     /// while it has to draw there (``drawsAway``, `PageWebView+AwayDrawing`), then hidden like a chat
     /// behind another tab, so it can be frozen and released (CMUX-571).
