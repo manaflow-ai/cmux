@@ -1,3 +1,5 @@
+import Foundation
+
 /// `chat.asks.open {sessionId, where?, turnId?, ask?}`: the person went to another chat's ask from Needs you (its
 /// list, a row's answer or side question, the Needs your input pill, an expanded row's places).
 ///
