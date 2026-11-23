@@ -232,7 +232,8 @@ mod imp {
         let mut rel = 0;
         // SAFETY: reads the calling thread's own class into locals.
         unsafe { libc::pthread_get_qos_class_np(libc::pthread_self(), &mut qos, &mut rel) };
-        let thread = if qos == libc::qos_class_t::QOS_CLASS_USER_INITIATED {
+        // libc's `qos_class_t` has no `PartialEq`.
+        let thread = if matches!(qos, libc::qos_class_t::QOS_CLASS_USER_INITIATED) {
             Knob::Took("user-initiated".into())
         } else {
             Knob::Refused(format!("thread class {}", qos as u32))
