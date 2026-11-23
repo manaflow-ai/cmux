@@ -1508,6 +1508,46 @@ async fn establish_physical_links(
         .map_err(|error| ConnectionError::Crypto(CryptoError::Random(error.to_string())))?;
     let connection_attempt = ConnectionAttemptId(connection_attempt);
     let bindings = lane_bindings(config.lane_policy, group.capabilities());
+    // A pinned daemon key needs nothing from the first link: every lane link opens and
+    // authenticates at once, so a connect costs one link's open and handshake, not two in
+    // series. On a relay the second lane's allocation and circuit join (~0.5 s, production
+    // `cloud-chat-replies-production` 2026-11-22..23) ran only after the first lane's Noise
+    // and link-ready. The daemon gathers a group's links in any order (its pending groups).
+    // An invitation still goes first and alone: its welcome waits on a person's approval.
+    if let Some(daemon_key) = config.expected_daemon
+        && !matches!(config.auth, ClientAuthMode::Invitation { .. })
+    {
+        let context = LinkHandshakeContext {
+            generation,
+            expected_daemon: Some(daemon_key),
+            connection_attempt,
+        };
+        // `try_join_all` polls in binding order, so the first lane asks its carrier first (a
+        // relay's allocations queue on one control socket).
+        let links = futures_util::future::try_join_all(bindings.into_iter().map(|lanes| {
+            authenticate_one(
+                group.clone(),
+                config,
+                config.auth.clone(),
+                lanes,
+                resume.clone(),
+                context,
+            )
+        }))
+        .await?;
+        let daemon_resume = links[0].2.clone();
+        let mut routes = Vec::with_capacity(links.len());
+        for (lanes, link, link_resume) in links {
+            if link_resume != daemon_resume {
+                return Err(ConnectionError::Protocol(
+                    "daemon reported inconsistent resume cursors across lane links".into(),
+                ));
+            }
+            routes.push(LinkRoute { lanes, link: Arc::new(link) });
+        }
+        let link = LaneMuxLink::new(format!("lanes+{}", group.description()), routes)?;
+        return Ok((link, daemon_key, daemon_resume));
+    }
     let first_lanes = bindings.first().expect("lane bindings are never empty").clone();
     let (_, first, daemon_resume) = authenticate_one(
         group.clone(),
