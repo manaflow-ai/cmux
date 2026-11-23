@@ -3,7 +3,7 @@
 
 Usage:
   rust-workspaces.py check [--repo ROOT]
-  rust-workspaces.py plan [--repo ROOT] [--base SHA]
+  rust-workspaces.py plan [--repo ROOT] [--base SHA] [--own-only]
   rust-workspaces.py run ROOT [--repo ROOT]
 
 Only cmux-tui's own workspace had PR clippy (cmux-tui-spec.yml), and the
@@ -21,7 +21,11 @@ and build dependencies further down), the manifest such a package inherits from,
 file those packages' sources read from elsewhere in the tree (an `include_str!`,
 `include_bytes!` or `CARGO_MANIFEST_DIR` join of a literal path, or any "../..."
 literal naming a tracked path), or a path in the entry's `inputs`. With no usable base, or when the list or
-this check changes, it plans every one. `run` lints and tests one workspace:
+this check changes, it plans every one. With --own-only (pull requests since 2026-11-21) it plans a
+workspace only when the change touches its own packages, a file those read from elsewhere or its `inputs`,
+not a path dependency: a feat-cmux-next push still plans the whole reach, so a red a dependency causes
+shows on the tip (CI 10x: 1.9% of pull request runner-minutes went to the cmux-tui crate and sample
+workspaces with no red only they caught in a week, 1.11% to optchat-chief for 0.26%). `run` lints and tests one workspace:
 `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo test --workspace`,
 with --locked when it tracks a Cargo.lock; both run, and either failing fails it.
 """
@@ -287,13 +291,15 @@ def under(path: str, directory: str) -> bool:
     return directory == "." or path == directory or path.startswith(directory + "/")
 
 
-def plan(repo: Path, base: str) -> list[dict]:
-    return plan_paths(repo, changed(repo, base))
+def plan(repo: Path, base: str, own_only: bool = False) -> list[dict]:
+    return plan_paths(repo, changed(repo, base), own_only=own_only)
 
 
-def plan_paths(repo: Path, paths: list[str] | None) -> list[dict]:
+def plan_paths(repo: Path, paths: list[str] | None, own_only: bool = False) -> list[dict]:
     """The `run = true` workspaces these changed paths reach (None: every one). scripts/ci/affected_tests.py
-    plans the same workspaces for a change, so `cmux-ci test --affected` runs what this workflow would."""
+    plans the same workspaces for a change, so `cmux-ci test --affected` runs what this workflow would.
+    OWN_ONLY: a workspace counts only when a path is its own (its packages, what they read, its `inputs`), not a
+    path dependency's; the build still uses the whole reach."""
     tree = Tree(repo)
     if paths is not None and any(path in EVERYTHING for path in paths):
         paths = None
@@ -304,11 +310,13 @@ def plan_paths(repo: Path, paths: list[str] | None) -> list[dict]:
         root = entry["root"]
         reach = tree.reach(root)
         if paths is not None:
+            own = tree.members(root) | {root}
+            scope = own if own_only else reach
             # A dependency outside the workspace may inherit from its own workspace's manifest.
-            watched = reach | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
+            watched = scope | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, scope) if above}
             # Files named explicitly (read by literal path, or listed as inputs) count wherever they are, inside a
             # nested workspace too: no workspace boundary stops a file a source reads (cmux#41767 review F2).
-            explicit = tree.read_paths(reach, built_only=reach - tree.members(root) - {root}) \
+            explicit = tree.read_paths(scope, built_only=scope - own) \
                 | set(entry.get("inputs", []))
             if not any(tree.owns(directory, path) for path in paths for directory in watched) \
                     and not any(under(path, named) for path in paths for named in explicit):
@@ -336,6 +344,15 @@ def run_cargo(command: list[str], cwd: Path, env: dict[str, str]) -> tuple[int, 
             if STALE_LOCK_HINT in line:
                 refusals.append(line)
         return proc.wait(), refusals
+
+
+def warnings_soft(command: list[str], repo: Path) -> list[str]:
+    """COMMAND through scripts/ci/warnings_policy.py when CI_WARNINGS=soft (pull requests: warnings never fail
+    their compile; Leo, 2026-11-19), else as written."""
+    policy = repo / "scripts/ci/warnings_policy.py"
+    if os.environ.get("CI_WARNINGS", "").strip().lower() == "soft" and policy.is_file():
+        return [sys.executable, str(policy), "run", "--", *command]
+    return command
 
 
 def stale_lock_explained(repo: Path, refusals: list[str]) -> bool:
@@ -366,7 +383,7 @@ def run(repo: Path, root: str) -> int:
         for name, command in commands:
             print(f"::group::{root}: {' '.join(command)}", flush=True)
             # From the workspace so rustup uses the nearest rust-toolchain.toml.
-            rc, refusals = run_cargo(command, repo / root, env)
+            rc, refusals = run_cargo(warnings_soft(command, repo) if name == "clippy" else command, repo / root, env)
             print("::endgroup::", flush=True)
             if rc:
                 red.append(name)
@@ -385,6 +402,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("root", nargs="?")
     parser.add_argument("--repo", type=Path)
     parser.add_argument("--base", default="")
+    parser.add_argument("--own-only", action="store_true",
+                        help="plan: a workspace only for a change to its own paths, not a path dependency's")
     args = parser.parse_args(argv)
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
     if args.command == "check":
@@ -395,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"rust-workspaces: {LIST} lists every Cargo workspace")
         return 1 if problems else 0
     if args.command == "plan":
-        print(json.dumps(plan(repo, args.base.strip())))
+        print(json.dumps(plan(repo, args.base.strip(), own_only=args.own_only)))
         return 0
     if not args.root:
         parser.error("run needs a workspace root")

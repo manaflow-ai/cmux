@@ -72,7 +72,8 @@ every 6 h) had to run on this Mac's runner and stopped while the Mac slept. Now
   it); the run writes the commit it used.
 - The body is the Cloud's journaled `steps` body: one step starts the command in the background
   (a replay never starts it twice), then wait steps of up to 280 s each cover `--timeout` (up to
-  228 min). The exit code is the run's result (`exit 3` fails with the last log lines); a run that
+  228 min), each within the provider's 300 s exec (cmux-vm sends an exec past 60 s as a provider
+  background request, so the provider's edge no longer cuts it at about 120 s). The exit code is the run's result (`exit 3` fails with the last log lines); a run that
   passes its time limit is stopped and fails as a timeout.
 - Concurrency 1, skip when one runs (no overlap); `--catch-up latest|all|none`; `--every` becomes a
   cron (minutes that divide 60, or hours that divide 24).

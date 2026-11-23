@@ -52,6 +52,10 @@ const SESSION = "tools";
 const TURN_SECONDS = 270;
 const RECORDER_DIR = `${PROBE_DIR}/recorder`;
 const LAUNCHES = `${PROBE_DIR}/claude-launches.txt`;
+/** The launch acpmux makes by default, with its MCP gateway on (acpmux mcp_gateway.rs, #48374). */
+const GATEWAY_LAUNCHES = `${PROBE_DIR}/claude-launches-gateway.txt`;
+/** The recorder for the gateway launch: its own directory, so the two launches land in their own files. */
+const GATEWAY_RECORDER_DIR = `${PROBE_DIR}/recorder-gateway`;
 /** Ends one recorded launch (ASCII record separator on its own line). */
 const RECORD_END = "\x1e";
 /** Prefixes the recorded contents of the launch's --mcp-config file (the recorder's last line before RECORD_END). */
@@ -90,11 +94,37 @@ export function attachedComputerUse(servers: readonly RecordedServer[]): { name:
 }
 
 /**
- * Tools of a Computer Use server that would record video or install software: role cua-video (ffmpeg,
- * libx264) stays off on cmux machines, so CU_SERVER must list none.
+ * Problems with the `cmux` server of the default launch: acpmux (#48374) serves it from the daemon's
+ * MCP gateway as loopback HTTP (`/mcp/<session>`, or its `/tools` and `/tools/<server>` endpoints, mcp_gateway.rs);
+ * a stdio `cmux` from the tool dir is also right
+ * (an acpmux without the gateway). Empty when it is attached one of those ways.
  */
-export function videoToolProblems(tools: readonly string[]): string[] {
-  return tools.filter((t) => /ffmpeg|video|record|install/i.test(t)).map((t) => `lists ${t}`);
+export function gatewayProblems(servers: readonly RecordedServer[]): string[] {
+  const cmux = servers.find((s) => s.name === "cmux");
+  if (!cmux) return ["no cmux server"];
+  if (cmux.url === undefined) return cmux.command.startsWith(`${AGENT_TOOLS_BIN}/`) ? [] : [`cmux attached as ${cmux.command || "nothing"}`];
+  let url: URL;
+  try {
+    url = new URL(cmux.url);
+  } catch {
+    return [`cmux url ${cmux.url} is not a URL`];
+  }
+  const problems: string[] = [];
+  if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) problems.push(`cmux url ${cmux.url} is not loopback`);
+  if (!/^\/mcp\/[^/]+(\/tools(\/[^/]+)?)?$/.test(url.pathname)) problems.push(`cmux url ${cmux.url} is not a gateway tool endpoint`);
+  return problems;
+}
+
+/**
+ * Tools of a Computer Use server that would record video or install software: role cua-video (ffmpeg,
+ * libx264) stays off on cmux machines, so CU_SERVER must list none. One exception: cmux-computer-use's
+ * `record` tool (#50070) encodes with the desktop's own H.264 encoder, which only the macOS worker has, so
+ * on a cmux machine it is listed but refused. It passes when `recordCall` (the probe's call to it) was
+ * refused as unsupported.
+ */
+export function videoToolProblems(tools: readonly string[], recordCall?: { isError: boolean; text: string }): string[] {
+  const recordRefused = recordCall !== undefined && recordCall.isError && /unsupported|H\.264 encoder/i.test(recordCall.text);
+  return tools.filter((t) => /ffmpeg|video|record|install/i.test(t) && !(t === "record" && recordRefused)).map((t) => `lists ${t}`);
 }
 /**
  * The tools server NAME must list, as acpmux launched it (`args`). In code mode (no `--all-tools`, acpmux
@@ -160,7 +190,8 @@ export function recorderScript(out: string): string {
   ].join("\n");
 }
 
-export type RecordedServer = { name: string; command: string; args: string[]; env: Record<string, string> };
+/** A server of the launch: a stdio command, or (`url`) an HTTP server such as acpmux's gateway, with no command. */
+export type RecordedServer = { name: string; command: string; args: string[]; env: Record<string, string>; url?: string };
 
 /** The last recorded launch that carries `--mcp-config`: its servers and its `--plugin-dir`. */
 export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; pluginDir?: string } {
@@ -171,13 +202,13 @@ export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; 
   const value = launch[launch.indexOf("--mcp-config") + 1] ?? "";
   const fileLine = launch.find((line) => line.startsWith(MCP_CONFIG_LINE));
   const json = value.trimStart().startsWith("{") ? value : (fileLine?.slice(MCP_CONFIG_LINE.length) ?? "{}");
-  const config = JSON.parse(json) as { mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> };
+  const config = JSON.parse(json) as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; type?: string; url?: string }> };
   const servers: RecordedServer[] = [];
   for (const [name, s] of Object.entries(config.mcpServers ?? {})) {
     const env = { ...(s.env ?? {}) };
     // Code mode: the other servers ride in the cmux server's upstreams; each is started as its own server here.
     const upstreams = env[UPSTREAMS_ENV] ? (JSON.parse(env[UPSTREAMS_ENV]) as Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>) : [];
-    servers.push({ name, command: s.command, args: s.args ?? [], env });
+    servers.push({ name, command: s.command ?? "", args: s.args ?? [], env, ...(s.url ? { url: s.url } : {}) });
     for (const u of upstreams) servers.push({ name: u.name, command: u.command, args: u.args ?? [], env: u.env ?? {} });
   }
   const plugin = launch.indexOf("--plugin-dir");
@@ -187,8 +218,9 @@ export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; 
 /**
  * MCP client over stdio (python3 on the image): starts one server from a spec file, initializes,
  * lists tools, runs `before_calls` (a shell command), makes `calls`, and writes a JSON report.
- * A call `{shell}` runs that shell command at its place instead. A call's PNG (an image content
- * item, else a PNG path in its text) is written to `copy_png_to`.
+ * A call `{shell}` runs that shell command at its place instead. A call with `until` is repeated
+ * every 2 s, for up to `until_s` seconds, until its text contains `until`. A call's PNG (an image
+ * content item, else a PNG path in its text) is written to `copy_png_to`.
  */
 const MCP_CLIENT_PY = String.raw`import base64, json, os, re, select, shutil, subprocess, sys, time
 spec = json.load(open(sys.argv[1]))
@@ -221,9 +253,13 @@ if spec.get("before_calls"): subprocess.run(spec["before_calls"], shell=True)
 for n, call in enumerate(spec.get("calls", [])):
     if "shell" in call:
         subprocess.run(call["shell"], shell=True); continue
-    res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
-    body = res.get("result", {})
-    text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
+    deadline = time.time() + call.get("until_s", 0)
+    while True:
+        res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
+        body = res.get("result", {})
+        text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
+        if not call.get("until") or call["until"] in text or time.time() >= deadline: break
+        time.sleep(2)
     entry = {"name": call["name"], "isError": bool(body.get("isError")) or "error" in res, "expect_error": bool(call.get("expect_error")), "text": (text or str(res.get("error", "")))[:1500]}
     images = [c["data"] for c in body.get("content", []) if c.get("type") == "image" and c.get("data")]
     m = re.search(r"(/[^\s\"']+\.png)", text)
@@ -352,10 +388,11 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
   check("mcp-enabled", s["mcp-enabled"] === "True", `cmux.json mcp.enabled=${s["mcp-enabled"]}`);
   check("daemon-env", s["env-CMUX_AGENT_TOOLS_BIN_DIR"] === AGENT_TOOLS_BIN && s["exists-CMUX_BROWSER_HOST_BIN"] === "ok" && s["exists-CMUX_BROWSER_HOST_CHROMIUM"] === "ok", JSON.stringify({ bin: s["env-CMUX_AGENT_TOOLS_BIN_DIR"], host: s["exists-CMUX_BROWSER_HOST_BIN"], chrome: s["exists-CMUX_BROWSER_HOST_CHROMIUM"] }));
   result.checks.version = { ok: true, detail: s.version ?? "" };
-  await run(vm, `install -d -m 0700 -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${PROBE_DIR} ${PROBE_DIR}/www ${RECORDER_DIR}`);
+  await run(vm, `install -d -m 0700 -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${PROBE_DIR} ${PROBE_DIR}/www ${RECORDER_DIR} ${GATEWAY_RECORDER_DIR}`);
   await vm.fs.writeFile(`${PROBE_DIR}/www/index.html`, `<!doctype html><title>${PAGE_TITLE}</title><h1>${PAGE_TITLE}</h1>`, { mode: 0o644 });
   await vm.fs.writeFile(`${PROBE_DIR}/www/cua.html`, `<!doctype html><title>${CUA_PAGE_TEXT}</title><body style="background:#2d8cff;color:#fff;font:64px sans-serif"><h1>${CUA_PAGE_TEXT}</h1>`, { mode: 0o644 });
   await vm.fs.writeFile(`${RECORDER_DIR}/claude`, recorderScript(LAUNCHES), { mode: 0o755 });
+  await vm.fs.writeFile(`${GATEWAY_RECORDER_DIR}/claude`, recorderScript(GATEWAY_LAUNCHES), { mode: 0o755 });
   await vm.fs.writeFile(`${PROBE_DIR}/mcp-client.py`, MCP_CLIENT_PY, { mode: 0o644 });
   await run(vm, `chown -R ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${PROBE_DIR}`);
   await run(vm, `setsid python3 -m http.server ${PAGE_PORT} --bind 127.0.0.1 --directory ${PROBE_DIR}/www >${PROBE_DIR}/www.log 2>&1 < /dev/null & echo started`, 30_000, DEVBOX_WORK_USER);
@@ -365,6 +402,16 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
   return ws.code === 0;
 }
 
+/** One recorded launch: a fresh daemon with `env`, a session named `name`, one prompt, then shutdown. */
+function recordSteps(name: string, env: string): string[] {
+  return [
+    `export ${env}`,
+    `{ ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n ${name} --cwd ${WORK_DIR}; echo "exit $?"; } > ${PROBE_DIR}/${name}-new.txt 2>&1`,
+    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp send ${name} hello; echo "exit $?"; } > ${PROBE_DIR}/${name}-send.txt 2>&1`,
+    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } > ${PROBE_DIR}/${name}-shutdown.txt 2>&1`,
+  ];
+}
+
 /** The launch acpmux builds for a Claude Code session, captured by the recorder (no model). */
 async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir: string): Promise<RecordedServer[]> {
   const body = [
@@ -372,10 +419,11 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
     `install -d -m 0700 ${PROBE_DIR}/acpmux-recorder`,
     // The daemon puts the login shell's PATH first (acpmux login_env.rs), where the image's real claude is;
     // ACPMUX_LOGIN_ENV=0 keeps this PATH, so the recorder is the claude it launches.
-    `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder ACPMUX_LOGIN_ENV=0 PATH=${RECORDER_DIR}:$PATH`,
-    `{ ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n recorder --cwd ${WORK_DIR}; echo "exit $?"; } > ${PROBE_DIR}/recorder-new.txt 2>&1`,
-    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp send recorder hello; echo "exit $?"; } > ${PROBE_DIR}/recorder-send.txt 2>&1`,
-    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } > ${PROBE_DIR}/recorder-shutdown.txt 2>&1`,
+    `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder ACPMUX_LOGIN_ENV=0`,
+    // First the launch a person's chat gets (the gateway on), kept apart; then the same with the gateway off
+    // (ACPMUX_MCP_GATEWAY=0), whose stdio servers the probe starts and calls itself.
+    ...recordSteps("gateway", `PATH=${GATEWAY_RECORDER_DIR}:$PATH`),
+    ...recordSteps("recorder", `PATH=${RECORDER_DIR}:$PATH ACPMUX_MCP_GATEWAY=0`),
   ].join("\n");
   result.timings.recordMs = await inTerminal(vm, "record", terminalScript("record", body), 180);
   let text = "";
@@ -392,10 +440,15 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
     writeFileSync(path.join(outDir, `${name}.txt`), out);
     said.push(`${name}: ${out.trim().replace(/\s+/g, " ").slice(-240)}`);
   }
+  const gatewayText = await readGuest(vm, GATEWAY_LAUNCHES).catch(() => "");
+  writeFileSync(path.join(outDir, "claude-launches-gateway.txt"), gatewayText);
+  const gateway = parseRecordedLaunch(gatewayText);
+  const gatewayIssues = gatewayProblems(gateway.servers);
+  check("acpmux-attaches-cmux-gateway", gatewayIssues.length === 0, `${gatewayIssues.join("; ")}${gatewayIssues.length ? ": " : ""}${gateway.servers.map((s) => `${s.name}=${s.url ?? s.command}`).join("; ") || "no launch with --mcp-config was recorded"}`);
   const launch = parseRecordedLaunch(text);
-  const names = launch.servers.map((s) => `${s.name}=${s.command} ${s.args.join(" ")}`);
+  const names = launch.servers.map((s) => `${s.name}=${s.url ?? `${s.command} ${s.args.join(" ")}`}`);
   const cu = attachedComputerUse(launch.servers);
-  const cmuxOk = launch.servers.some((s) => s.name === "cmux" && s.command.startsWith(`${AGENT_TOOLS_BIN}/`));
+  const cmuxOk = launch.servers.some((s) => s.name === "cmux" && s.url === undefined && s.command.startsWith(`${AGENT_TOOLS_BIN}/`));
   check(
     "acpmux-attaches-servers",
     cmuxOk && cu?.ok === true,
@@ -425,7 +478,10 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
         { name: "status", arguments: {} },
         { shell: displayWindowCommand(`http://127.0.0.1:${PAGE_PORT}/cua.html`) },
         { name: "screenshot", arguments: { force: true }, copy_png_to: `${WORK_DIR}/cua.png` },
-        { name: "list_windows", arguments: {} },
+        // Chrome can still be mapping the window, titled by its URL, after the 5 s (cmux run 44955837342's bake).
+        { name: "list_windows", arguments: {}, until: CUA_PAGE_TEXT, until_s: 30 },
+        // Role cua-video stays off: a cmux machine's desktop has no H.264 encoder, so `record` must refuse.
+        { name: "record", arguments: { seconds: 1 }, expect_error: true },
       ],
     },
     [LEGACY_CU_SERVER]: {
@@ -522,8 +578,8 @@ async function computerUseChecks(vm: Vm, check: Checker, ffmpegInstalled: string
     workerStartedByComputerUse(w, bus),
     JSON.stringify({ worker: w["worker-pid"], display: w[`worker-unit-${DISPLAY_UNIT}`], a11y: w[`worker-unit-${A11Y_UNIT}`], DISPLAY: w["worker-env-DISPLAY"], headless: w["worker-env-CMUX_CU_HEADLESS"], bus: w["worker-env-DBUS_SESSION_BUS_ADDRESS"] }),
   );
-  const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; text: string }> }).catch(() => null);
-  const listed = videoToolProblems(report?.tools ?? []);
+  const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; isError: boolean; text: string }> }).catch(() => null);
+  const listed = videoToolProblems(report?.tools ?? [], report?.calls.find((c) => c.name === "record"));
   const firstPath = (w["worker-env-PATH"] ?? "").split(":")[0];
   check(
     "cua-video-refused",
