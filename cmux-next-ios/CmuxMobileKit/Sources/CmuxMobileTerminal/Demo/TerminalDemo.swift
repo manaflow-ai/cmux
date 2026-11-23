@@ -131,7 +131,9 @@ final class TerminalDemoDriver {
             await wait(1)
             mark("state " + (model.controller?.debugState ?? "-"))
         }
-        for phase in all where selected.contains(phase) {
+        // Only when named: "oneattachment" leaves one picked photo and a draft, unsent.
+        let named = ["oneattachment"]
+        for phase in all + named where selected.contains(phase) {
             mark("phase \(phase)")
             switch phase {
             case "scroll": await scroll()
@@ -139,6 +141,7 @@ final class TerminalDemoDriver {
             case "tui": await tui()
             case "vim": await vim()
             case "attachments": await attachments()
+            case "oneattachment": await oneAttachment()
             case "artifacts": await artifacts()
             case "follow": await follow()
             case "kbcodex": await keyboardOverCodex()
@@ -615,6 +618,19 @@ final class TerminalDemoDriver {
         await wait(1.2)
         model.controller?.hideKeyboard()
         await wait(1.5)
+    }
+
+    /// The common case of one attachment, left in the composer with a draft:
+    /// the photo sits where the text starts (the gallery's composer scenes).
+    private func oneAttachment() async {
+        mark("one attachment")
+        let image = await MockArtifactSource.screenshotPNG().flatMap(UIImage.init(data:))
+        model.addAttachment(ComposerAttachment(kind: .image, name: "terminal.png", thumbnail: image))
+        await wait(0.6)
+        model.focusComposer()
+        await wait(1.2)
+        await type("what's wrong here?")
+        await wait(30)
     }
 
     private func attachments() async {
