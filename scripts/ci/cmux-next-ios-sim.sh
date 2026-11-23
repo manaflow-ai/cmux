@@ -330,8 +330,6 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
             { echo "cmux-next-ios-sim.sh: only= wants TARGET/SUITE names, got '$item'" >&2; exit 2; }
           kit_only+=("-only-testing:$item")
           [[ "$item" == */TickHarnessCellsTests* ]] && kit_env=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
-          # AgentCardPictureTests also writes its card pictures as PNGs, returned in evidence.zip.
-          [[ "$item" == */AgentCardPictureTests* ]] && kit_env=("TEST_RUNNER_CMUX_CARD_EVIDENCE_DIR=$PWD/artifacts/ios-sim/card-pictures")
         done ;;
       ui=?*)
         IFS=',' read -r -a items <<< "${sel#ui=}"
