@@ -73,4 +73,28 @@ struct AppsStoreChangeTests {
         #expect(change.deploy == nil && change.op == "cmux.apps.uninstall")
         #expect(change.params["deploy"] == nil && change.params["grant_optional"] == nil)
     }
+
+    /// The App Store page (Leo, 2026-11-16: "if i click install it should just install"): a plain
+    /// Install click shows no card and goes out on the click's own gesture, unconfirmed; an install
+    /// that allows the optional scopes or deploys a server still shows the card, and the CLI,
+    /// palette and MCP path (not the page) always does.
+    @Test func thePagesInstallClickInstallsWithNoCard() async throws {
+        let owner = Owner(), presenter = Presenter(answer: true)
+        let page = ConfirmingPageProvider(inner: owner, presenter: presenter) { op, params in
+            AppsPageConfirmations().confirmation(op: op, params: params, detail: ["name": "Standup", "scopes": []], fromPage: true)
+        }
+        let click = PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 1)
+        _ = try await page.call("cmux.apps.install", params: ["app": "acme/tool", "grant_optional": false], context: click)
+        #expect(presenter.shown.isEmpty, "no second card after the Install click")
+        let call = try #require(owner.calls.first)
+        #expect(!call.context.confirmed && call.context.userGesture, "it rides the click, not a sheet")
+
+        _ = try await page.call("cmux.apps.install", params: ["app": "acme/tool", "grant_optional": true], context: click)
+        _ = try await page.call("cmux.apps.install", params: ["app": "acme/tool", "deploy": ["target": "cloud-vm:m1"]], context: click)
+        #expect(presenter.shown.map(\.kind) == [.install, .install], "optional scopes and a deploy still ask")
+
+        let outside = AppsPageConfirmations().confirmation(op: "cmux.apps.install", params: ["app": "acme/tool"], detail: nil)
+        #expect(outside?.kind == .install, "the CLI, palette and MCP install keeps its card")
+        #expect(!AppsPageConfirmations().needsDetail("cmux.apps.install", params: ["app": "acme/tool"], fromPage: true))
+    }
 }

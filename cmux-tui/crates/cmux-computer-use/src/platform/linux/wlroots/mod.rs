@@ -534,6 +534,28 @@ impl Desktop for WlrootsDesktop {
     fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
         super::launch_identities(&self.apps, app_id)
     }
+
+    /// The outputs by name; main is the one at the origin, the output a
+    /// display screenshot with no id takes.
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        let wl = self.wl();
+        let outs = &wl.state.outputs;
+        let main = outs.iter().position(|o| o.logical.x == 0.0 && o.logical.y == 0.0).unwrap_or(0);
+        let virtual_output =
+            |o: &wl::Output| (self.headless || o.name.starts_with("HEADLESS-")).then_some(true);
+        Ok(outs
+            .iter()
+            .enumerate()
+            .map(|(i, o)| crate::displays::Display {
+                id: o.name.clone(),
+                frame: o.logical,
+                scale: f64::from(o.scale.max(1)),
+                main: i == main,
+                builtin: None,
+                is_virtual: virtual_output(o),
+            })
+            .collect())
+    }
 }
 
 fn button_code(b: Button) -> u32 {

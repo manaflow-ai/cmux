@@ -48,11 +48,11 @@ enum WorkspaceGroupClose {
     /// Undo stops or waits for each of `cleanups` (`closeCleanups`), reopening each deleted group's record before the workspaces.
     static func offerUndo(_ id: String, _ message: String, groups: [(String?, [String])], after seen: Set<String>,
                           in window: NSWindow, _ services: AppServices, cleanups: [GroupCloseCleanup] = [],
-                          undone: (@MainActor () -> Void)? = nil) {
+                          toasts: CmuxToastCenter = .shared, undone: (@MainActor () -> Void)? = nil) {
         // Too soon after the last one: Reopen Closed and History still bring the workspaces back.
-        if let undoToasts = services.closedTabs?.undoToasts, !CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == id }),
+        if let undoToasts = services.closedTabs?.undoToasts, !toasts.toasts(in: window).contains(where: { $0.id == id }),
            !undoToasts.allowsNewToast(id) { return }
-        let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: .undo()), in: window)
+        let handle = toasts.show(CmuxToast(id: id, message: message, action: .undo()), in: window)
         handle.onAction = { [weak services] in
             undone?()
             guard let services else { return }
@@ -108,8 +108,27 @@ enum WorkspaceGroupClose {
         }
     }
 
+    static let singleCloseToastID = "workspace-closed"
+
+    /// Toasts v2 (Leo: "closing a tab or workspace, or archiving a session, shows a one-line toast with an inline
+    /// Undo"): a person's close of one workspace, read at the press. `offer` once the close goes ahead shows
+    /// "Closed “name”" through ``offerUndo``; `withdraw` when the daemon refuses. Nil when off, for automation, or
+    /// when no window keeps a workspace.
+    static func singleCloseUndo(_ workspace: WorkspaceModel, _ invocation: ActionInvocation, _ services: AppServices,
+                                toasts: CmuxToastCenter = .shared, in window: NSWindow? = nil) -> (offer: @MainActor () -> Void, withdraw: @MainActor () -> Void)? {
+        guard toasts.v2, invocation.origin == .user,
+              let window = window ?? WorkspaceBulkClose.survivor(closing: [workspace.id], AppActionContext(services: services)) else { return nil }
+        let name = workspace.name, seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
+        let offer: @MainActor () -> Void = { [weak services] in
+            guard let services else { return }
+            offerUndo(singleCloseToastID, MiscHandlerStrings.tabClosed(name.isEmpty ? MiscHandlerStrings.untitledWorkspace : name),
+                      groups: [(nil, [name])], after: seen, in: window, services, toasts: toasts)
+        }
+        return (offer, { @MainActor in _ = toasts.close(id: singleCloseToastID, in: window) })
+    }
+
     static func closedToast(_ name: String) -> String {
         String(format: String(localized: "workspaceGroup.closedToast", defaultValue: "Closed the workspaces in “%@”",
-                              table: "Handlers", bundle: .module), name)
+                              table: "Handlers", bundle: .module.inAppLanguage), name)
     }
 }

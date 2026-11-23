@@ -13,19 +13,25 @@ The report also names, for the person to run, the command that puts the change i
 [the loop](../../../CLAUDE.md#the-loop-use-it-first-then-test) (`cmux app try <PR>`, `cmux customize use pr:N`), so they
 use it before the build is done. The agent itself runs it there only when asked; otherwise it uses a side copy (`hot-verify.py look`).
 
-- **Mac:** build the pushed exact head on the fleet and publish it to HQ, never on the person's Mac:
+- **Mac:** first ask `scripts/cmux-next/hot-verify.py plan --source dir:. --json`. `needs_build: false` (web
+  only, daemon, or both): the person opens it with `cmux app try <PR>` (a copy of their NIGHTLY with the change
+  swapped in), your own look is `cmux app try .` (off a Mac: `cmux-ci hot-verify N --look`), and the build below is
+  only for a person who asks for one. Otherwise build the pushed exact head on the fleet and publish it to HQ,
+  never on the person's Mac:
 
   ```bash
   JOB_ID=$(cmux-ci build cmux --ref "$(git rev-parse HEAD)" --tag <task-slug> \
-      --workspace <PR URL, else the branch name> --backend-mode local \
+      --workspace <PR URL, else the branch name> --production \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
   cmux-ci wait "$JOB_ID"
   cmux-ci publish-hq "$JOB_ID"
   ```
 
   `--workspace` is required (queued builds with the same workspace and tag supersede each other).
-  `--backend-mode local` because cmux-next reads no web API origin; the default `auto` provisions
-  hq's shared backend and stops with "Shared backend helper missing" outside an hq checkout.
+  `--production` because the build is for a person: it launches on the production Cloud, where their own
+  cmux.com account signs in (Leo: "why is the stuff so weird to log in to dev builds?"), and it needs no hq
+  checkout. An agent's own test build takes `--backend-mode local` instead (the default `auto` provisions
+  hq's shared backend and stops with "Shared backend helper missing" outside an hq checkout).
   When you run `cmux-next-ios/scripts/review.sh` below, skip this step: it builds and publishes the
   same-tag Mac app itself, and a second Mac build replaces the first.
   Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it

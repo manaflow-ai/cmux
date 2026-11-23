@@ -9,9 +9,9 @@
 //! and the app's agent chats and the Chief get it from acpmux
 //! (`acpmux::agent_tools`), all with the one server definition
 //! (`acpmux::agent_tools::cmux_server`), named `cmux`. Each follows the
-//! person's answer to "should agents you start in cmux get cmux's tools?"
-//! (`agents.cmuxMcp`: the onboarding step, Settings > Agents): `on` gives it,
-//! `off` and unanswered (`ask`) do not. cmux never writes an agent's own
+//! setting "cmux Tools for Agents in cmux" (`agents.cmuxMcp`, Settings >
+//! Agents): on by default, so each gets it unless the setting is `off`.
+//! cmux never writes an agent's own
 //! config (`~/.claude.json`, `$CODEX_HOME/config.toml`): a person who wants
 //! cmux's server in agents started elsewhere runs the `manual` lines this
 //! report names themselves, and removes them the same way.
@@ -33,13 +33,13 @@
 //! `cmux acp desktop link` (an `acpmux-mcp` guest entry named `cmux` for
 //! Claude desktop, Claude Code and Codex; `acpmux desktop_link.rs`) and
 //! `cmux acp bridge connect` (`cmux-bridge`; `acpmux cli/bridge.rs`). Neither
-//! runs from onboarding, Settings' cmux Tools row or this command.
+//! runs from Settings' cmux Tools row or this command.
 //!
-//! An installed agent is `terminals` once the person said yes and the server
-//! serves these agents (`mcp.enabled` not false), else `planned`; one not
-//! installed is `not_applicable` (named and missing: `needs_user`, install
-//! it). The result is `needs_user` while the person has not answered, or
-//! said yes with `mcp.enabled` false (the server would refuse cmux's tools).
+//! An installed agent is `terminals` while `agents.cmuxMcp` is on (the
+//! default) and the server serves these agents (`mcp.enabled` not false),
+//! else `planned`; one not installed is `not_applicable` (named and missing:
+//! `needs_user`, install it). The result is `needs_user` when the setting is
+//! on with `mcp.enabled` false (the server would refuse cmux's tools).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -303,6 +303,10 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
                     row.set("error", json!(error));
                 }
             }
+            // The person's per-agent switch (cmux#49395): an agent switched off under a yes gets
+            // none, so it reads as not set up (`planned`), and the report says so.
+            let serves = serves
+                && AgentsCmuxMcp::from_config_file_for(&settings, client.id()) == AgentsCmuxMcp::On;
             let state = match () {
                 _ if here && serves => "terminals",
                 _ if here => "planned",
@@ -330,11 +334,10 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
             row
         })
         .collect();
-    // Only the person answers the question; a yes with the switch off needs
-    // the switch (the server would refuse cmux's tools); a no needs nothing.
+    // On with the switch off needs the switch (the server would refuse
+    // cmux's tools); off needs nothing.
     if user_action.is_null() && installed {
         user_action = match &enabled {
-            _ if choice == AgentsCmuxMcp::Ask => unanswered(),
             _ if choice == AgentsCmuxMcp::Off => Value::Null,
             Ok(true) => Value::Null,
             Ok(false) => switch(&settings, None),
@@ -345,13 +348,14 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let text = match () {
         _ if serves => format!(
             "Claude Code and Codex you start in cmux (its terminals, agent chats and the Chief) \
-             get cmux's tools from cmux's server, named {SERVER}, reading {}. cmux changes \
-             no agent's own settings",
+             get cmux's tools from cmux's server, named {SERVER}, reading {}, unless switched \
+             off in Settings > Agents (each client's state says). cmux changes no agent's own \
+             settings",
             settings.display()
         ),
         _ => format!(
-            "Agents you start in cmux do not get cmux's tools until the person turns on {} \
-             (Settings > Agents). cmux changes no agent's own settings",
+            "Agents you start in cmux do not get cmux's tools: {} is off (Settings > Agents), \
+             or \"mcp\": {{\"enabled\": false}} is set. cmux changes no agent's own settings",
             AgentsCmuxMcp::KEY
         ),
     };
@@ -797,24 +801,6 @@ fn this_cli() -> Result<String, Refusal> {
     std::env::current_exe()
         .map(|exe| exe.canonicalize().unwrap_or(exe).to_string_lossy().into_owned())
         .map_err(|error| Refusal::Failed(format!("cmux: setup mcp: no path to this cmux: {error}")))
-}
-
-/// The person has not answered whether agents they start in cmux get cmux's
-/// tools (`agents.cmuxMcp` unset or `ask`): only they answer it, in the
-/// onboarding step or Settings > Agents.
-fn unanswered() -> Value {
-    json!({
-        "kind": "setting",
-        "text": format!(
-            "The person has not chosen whether agents they start in cmux get cmux's tools ({} \
-             is \"ask\"). Ask them: they answer in cmux's cmux Tools step or in Settings > \
-             Agents, or run `cmux settings set {} on --confirm` themselves and approve it in cmux",
-            AgentsCmuxMcp::KEY,
-            AgentsCmuxMcp::KEY
-        ),
-        "command": Value::Null,
-        "url": Value::Null,
-    })
 }
 
 /// The person's switch for cmux's MCP tools, and why the settings file could
