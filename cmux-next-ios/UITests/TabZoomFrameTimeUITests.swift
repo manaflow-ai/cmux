@@ -76,6 +76,19 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         XCTAssertGreaterThanOrEqual(rows.count, Self.cycles * 2 - 1, "one log row per zoom\n\(text)")
+        // Leo, 2026-11-22: "the layout shift when i go from terminal to that view via
+        // that button is crazy because it has to tuck away the composer area". The
+        // composer row rides every zoom: drawn on its first frame, part-faded on the
+        // way, scaled with the page (AccessoryTrace, `row` in each log row).
+        var rowFailures: [String] = []
+        for (i, row) in rows.enumerated() {
+            let trace = row["row"] as? [String: Any]
+            let line = "TABZOOM_ROW zoom=\(i) direction=\((row["toOverview"] as? Bool) == true ? "to_grid" : "to_page") "
+                + (trace.map { t in ["samples", "firstOpacity", "lastOpacity", "midFades", "firstScale", "lastScale", "ridesZoom"]
+                    .map { "\($0)=\(t[$0] ?? "nil")" }.joined(separator: " ") } ?? "row=nil")
+            print(line)
+            if trace?["ridesZoom"] as? Bool != true { rowFailures.append(line) }
+        }
         for direction in [true, false] {
             let mine = rows.filter { ($0["toOverview"] as? Bool) == direction }
             func doubles(_ key: String) -> [Double] { mine.compactMap { ($0[key] as? NSNumber)?.doubleValue } }
@@ -91,6 +104,7 @@ final class TabZoomFrameTimeUITests: XCTestCase {
             summary.lifetime = .keepAlways
             add(summary)
         }
+        XCTAssertTrue(rowFailures.isEmpty, "the composer row rides every zoom:\n" + rowFailures.joined(separator: "\n"))
     }
 
     /// The app's `Documents/tabs-zoom-frames.jsonl`, found in the booted simulator's data containers.

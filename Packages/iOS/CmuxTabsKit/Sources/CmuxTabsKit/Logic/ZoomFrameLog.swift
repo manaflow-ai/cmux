@@ -16,6 +16,8 @@ struct ZoomFrameLog: Equatable, Sendable {
         var over8ms: Int
         var over16ms: Int
         var maxFPS: Int
+        /// What the screen drew of the accessory row during the zoom.
+        var row: AccessoryTrace.Summary? = nil
     }
 
     static let jitter = 0.0005

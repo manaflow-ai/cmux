@@ -191,6 +191,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 // so a settled grid's scroll frame does not re-run this screen.
                 let moving = zoomState.phase == .animating || zoomState.phase == .interactive
                 let z = AccessoryZoom.presentation(zoomState, path: moving ? zoomPath() : ZoomRectPath(full: fullRect, card: fullRect))
+                #if DEBUG
+                let _ = AccessoryProbe.note(z, moving: moving)
+                #endif
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
                     // Held still while the zoom moves and on the grid: the
