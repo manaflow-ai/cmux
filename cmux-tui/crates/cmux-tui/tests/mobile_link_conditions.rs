@@ -750,6 +750,12 @@ struct Tap {
     /// The last `vt-state`'s `history_rows_omitted` and `history_rows_skipped` (the scroll-step
     /// bench walks the phone's history fetches from them).
     vt_history: Option<(u64, u64)>,
+    /// `output` and `vt-state` lines whose terminal bytes repaint from the top (`ESC [ H`, a
+    /// full-screen program's whole-screen redraw): the redraws they carry (one per `ESC [ H`)
+    /// and their line bytes; the rest of those lines' bytes are incremental output.
+    full_redraws: u64,
+    full_redraw_bytes: u64,
+    incremental_bytes: u64,
 }
 
 impl Tap {
@@ -783,6 +789,17 @@ impl Tap {
                             && let Some(data) = v.get("data").and_then(Value::as_str)
                         {
                             self.terminal_bytes += (data.len() as u64 / 4) * 3;
+                            let bytes = base64::engine::general_purpose::STANDARD
+                                .decode(data)
+                                .unwrap_or_default();
+                            let homes =
+                                bytes.windows(3).filter(|window| *window == b"\x1b[H").count();
+                            if homes > 0 {
+                                self.full_redraws += homes as u64;
+                                self.full_redraw_bytes += len as u64;
+                            } else {
+                                self.incremental_bytes += len as u64;
+                            }
                         }
                         format!("event:{event}")
                     }
@@ -802,6 +819,9 @@ impl Tap {
         self.down.clear();
         self.up.clear();
         self.terminal_bytes = 0;
+        self.full_redraws = 0;
+        self.full_redraw_bytes = 0;
+        self.incremental_bytes = 0;
         out
     }
 }
@@ -1318,7 +1338,8 @@ fn alt_screen_pan_bytes() {
         for name in &profiles {
             let profile =
                 file.get(name).unwrap_or_else(|| panic!("no link profile {name}")).clone();
-            if let Err(why) = alt_pans(upstream, &profile, surface, pans, seed_base).await {
+            let run = profiles.iter().position(|p| p == name).unwrap_or(0) as u64;
+            if let Err(why) = alt_pans(upstream, &profile, surface, pans, seed_base, run).await {
                 error(&profile, "alt_pan", "all", 0, &why);
                 failed += 1;
             }
@@ -1341,37 +1362,71 @@ async fn alt_pans(
     surface: u64,
     pans: u64,
     seed: u64,
+    run: u64,
 ) -> Result<(), String> {
     let shaper = Shaper::start(upstream, profile.clone(), seed, &Trace::new())
         .await
         .map_err(|e| format!("shaper: {e}"))?;
     let mut conn = Conn::open(shaper.addr()).await.map_err(|e| format!("connect: {e}"))?;
+    // `NETCOND_PAN_CAPS`: capabilities the phone declares besides `client_info`'s (a transport
+    // setting under test, e.g. `terminal-full-screen-frames-v1` with the lean ones it needs).
+    let mut info = client_info();
+    for cap in env_list("NETCOND_PAN_CAPS", "") {
+        info["capabilities"].as_array_mut().unwrap().push(json!(cap));
+    }
     let ids = conn
-        .send(vec![("set-client-info", client_info()), ("identify", json!({}))])
+        .send(vec![("set-client-info", info), ("identify", json!({}))])
         .await
         .map_err(|e| e.to_string())?;
     let identify = conn.reply(ids[1], |_, _, _, _| {}).await.ok_or("no identify reply")?;
     let keyed = identify.to_string().contains("send-key-v1");
-    attach(&mut conn, surface, false).await.ok_or("no attach")?;
+    // The attach's reply; what draws the screen (a `vt-state`, or a frames viewer's keyframe)
+    // lands in the second before the first window.
+    let ids = conn
+        .send(vec![("attach-surface", attach_params(surface))])
+        .await
+        .map_err(|e| e.to_string())?;
+    let reply = conn.reply(ids[0], |_, _, _, _| {}).await.ok_or("no attach reply")?;
+    if reply["ok"] != json!(true) {
+        return Err(format!("attach: {reply}"));
+    }
     let window = PAN_FRAME * PAN_FRAMES as u32 + PAN_SETTLE;
     tokio::time::sleep(Duration::from_secs(1)).await;
     drain_inbound(&mut conn);
     let put = |scale: &str, metric: &str, value: f64| {
         emit(profile, "alt_pan", scale, metric, Some(value), 0, seed);
     };
+    // Per category: whole-screen redraws vs incremental output, lean frames (a frames viewer's
+    // `agent-cli-lean`/`agent-cli-frame`), and the shaper's own count of what it carried down (a
+    // lost segment is delayed one RTO, never sent twice: equal to `bytes_down` when no byte
+    // is retransmitted).
+    let categories = |scale: &str, tap: &Tap, shaper_down: u64| {
+        let of = |key: &str| tap.down.get(key).copied().unwrap_or((0, 0));
+        let (lean_n, lean_b) = of("event:agent-cli-lean");
+        let (frame_n, frame_b) = of("event:agent-cli-frame");
+        put(scale, "full_redraws", tap.full_redraws as f64);
+        put(scale, "full_redraw_bytes", tap.full_redraw_bytes as f64);
+        put(scale, "incremental_output_bytes", tap.incremental_bytes as f64);
+        put(scale, "frame_events", (lean_n + frame_n) as f64);
+        put(scale, "frame_bytes", (lean_b + frame_b) as f64);
+        put(scale, "shaper_down_bytes", shaper_down as f64);
+    };
     // The stream alone over one pan's window.
     let down_before = conn.down_bytes.load(Ordering::SeqCst);
     conn.tap.lock().unwrap().take();
+    shaper.reset_counters();
     tokio::time::sleep(window).await;
     drain_inbound(&mut conn);
     let tap = conn.tap.lock().unwrap().take();
     put("idle", "bytes_down", (conn.down_bytes.load(Ordering::SeqCst) - down_before) as f64);
     put("idle", "output_bytes", tap.down.get("event:output").map(|s| s.1).unwrap_or(0) as f64);
+    categories("idle", &tap, shaper.counters().down_bytes);
     // The finger at the screen's middle, 1-based (Ghostty reports the cell under it).
     let report = format!("\x1b[<64;{};{}M", COLS / 2 + 1, ROWS / 2 + 1);
     let per_frame = PAN_SPEED * PAN_FRAME.as_secs_f64() * pan_gain(PAN_SPEED);
     for pan in 1..=pans {
         conn.tap.lock().unwrap().take();
+        shaper.reset_counters();
         let down_before = conn.down_bytes.load(Ordering::SeqCst);
         let up_before = conn.up_bytes;
         let started = Instant::now();
@@ -1389,7 +1444,16 @@ async fn alt_pans(
             let mut params = json!({"surface": surface,
                 "bytes": base64::engine::general_purpose::STANDARD.encode(bytes.as_bytes())});
             if keyed {
-                params["key"] = json!(format!("00000000-0000-4000-8000-{:06x}{:06x}", pan, frame));
+                // Unique per profile run too: the daemon remembers applied keys daemon-wide
+                // for 600 s (`send_once`), so a second profile reusing the first's keys had
+                // every wheel send answered and dropped (good-wifi's pans never reached the
+                // pager in run 45101382894).
+                params["key"] = json!(format!(
+                    "00000000-0000-4000-{:04x}-{:06x}{:06x}",
+                    0x8000 + run,
+                    pan,
+                    frame
+                ));
             }
             conn.send(vec![("send", params)]).await.map_err(|e| e.to_string())?;
             sends += 1;
@@ -1410,6 +1474,7 @@ async fn alt_pans(
         put(&scale, "output_bytes", of("event:output") as f64);
         put(&scale, "send_reply_bytes", of("reply:send") as f64);
         put(&scale, "pan_ms", ms(took));
+        categories(&scale, &tap, shaper.counters().down_bytes);
         // The finger lifts and comes back.
         tokio::time::sleep(Duration::from_millis(300)).await;
         drain_inbound(&mut conn);

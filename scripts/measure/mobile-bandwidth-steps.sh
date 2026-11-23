@@ -8,7 +8,8 @@
 #
 # BENCHES is a +-list of scroll (terminal_scroll_steps), chat (chat_bytes_per_minute's
 # bytes_per_session_changed) and pan (alt_screen_pan_bytes: bytes per one-finger pan over a
-# full-screen app streaming 20 lines/s); default scroll+chat. Pairs: tree=BEFORE:chat tree=AFTER:chat.
+# full-screen app streaming 20 lines/s); default scroll+chat. caps= (comma list) adds capabilities
+# the pan bench's phone declares (NETCOND_PAN_CAPS), the same on every tree. Pairs: tree=BEFORE:chat tree=AFTER:chat.
 #
 # Each tree gets this checkout's yardstick laid over it (the shaper, the profiles and the two bench
 # files with their counters: cmux-tui `terminal_scroll_steps`, acpmux `chat_bytes_per_minute`'s
@@ -16,13 +17,14 @@
 # set -o pipefail, and a failing cargo test fails the run.
 set -euo pipefail
 
-trees=() profiles="lte,good-wifi" bw_secs=30
+trees=() profiles="lte,good-wifi" bw_secs=30 caps=""
 for kv in "$@"; do
   case "$kv" in
     tree=*) trees+=("${kv#*=}") ;;
     profiles=*) profiles="${kv#*=}" ;;
     bw_secs=*) bw_secs="${kv#*=}" ;;
-    *) echo "mobile-bandwidth-steps.sh: unknown arg '$kv' (tree=SHA[:scroll+chat+pan], profiles=, bw_secs=)" >&2; exit 2 ;;
+    caps=*) caps="${kv#*=}" ;;
+    *) echo "mobile-bandwidth-steps.sh: unknown arg '$kv' (tree=SHA[:scroll+chat+pan], profiles=, bw_secs=, caps=)" >&2; exit 2 ;;
   esac
 done
 (( ${#trees[@]} )) || trees=(281ddcf1e80359887affccf1975041d8d8f7db76 64863a5779c49073e5c0bb709dd5620dd37ffb20)
@@ -80,7 +82,7 @@ for spec in "${trees[@]}"; do
   if [[ "+$benches+" == *+pan+* ]]; then
     log="$work/$tree-pan.log"
     set +e
-    (cd "$src/cmux-tui" && CARGO_TARGET_DIR="$work/target" NETCOND_PROFILES="$profiles" \
+    (cd "$src/cmux-tui" && CARGO_TARGET_DIR="$work/target" NETCOND_PROFILES="$profiles" NETCOND_PAN_CAPS="$caps" \
       cargo test --release -p cmux-tui --test mobile_link_conditions -- \
         --ignored --nocapture --test-threads 1 --exact alt_screen_pan_bytes 2>&1) | tee "$log" \
       | grep -E '^(NETCOND|test |error)'
@@ -135,7 +137,7 @@ for (tree, prof, phase, metric), vals in sorted(rows.items()):
         print(f"STEPS-SUMMARY {tree} {prof} scroll_step {metric} n={len(v)} mean={sum(v)/len(v):.0f} first={v[0]:.0f} last={v[-1]:.0f} all={','.join(f'{x:.0f}' for x in v)}")
     elif phase == "alt_pan_idle":
         print(f"STEPS-SUMMARY {tree} {prof} alt_pan_idle {metric} {vals[0][1]:.0f}")
-    elif phase == "alt_pan" and metric in ("bytes_down", "bytes_up", "sends", "wheel_reports", "output_bytes", "send_reply_bytes", "pan_ms"):
+    elif phase == "alt_pan" and metric in ("bytes_down", "bytes_up", "sends", "wheel_reports", "output_bytes", "send_reply_bytes", "pan_ms", "full_redraws", "full_redraw_bytes", "incremental_output_bytes", "frame_events", "frame_bytes", "shaper_down_bytes"):
         v = [x for _, x in sorted(vals)]
         print(f"STEPS-SUMMARY {tree} {prof} alt_pan {metric} n={len(v)} mean={sum(v)/len(v):.0f} all={','.join(f'{x:.0f}' for x in v)}")
     elif metric in ("bytes_per_session_changed", "session_changed_msgs", "session_patch_msgs"):
