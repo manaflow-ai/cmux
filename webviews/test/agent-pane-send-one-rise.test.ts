@@ -125,6 +125,10 @@ await requireBrowserLane("agent-pane-send-one-rise.test.ts", async () => {
         index > 0 && frame.top > frames[index - 1]!.top + 1 ? [{ from: frames[index - 1], to: frame }] : [],
       );
       expect(drops, JSON.stringify(frames)).toEqual([]);
+      // Leo, 2026-11-23: "it means every single message i send, the gui shoots all the way up there."
+      // A send never lifts the sent prompt to the top of the view (the ChatGPT placement, reverted from
+      // #47801): the prompt is drawn near the composer, never in the top fifth of the 560 px view.
+      expect(frames[0]!.top, JSON.stringify(frames[0])).toBeGreaterThan(120);
     });
   }
 });
