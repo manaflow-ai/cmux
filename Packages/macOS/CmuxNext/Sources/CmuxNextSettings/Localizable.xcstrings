@@ -177760,6 +177760,268 @@
         }
       }
     },
+    "settings.notifications.toastStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط الإشعار المنبثق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toast-stil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toast-Stil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toast Style"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de los avisos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style des notifications éphémères"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stile dei toast"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トーストのスタイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រចនាប័ទ្មសារលេចឡើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "토스트 스타일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toast-stil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styl powiadomień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo dos avisos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль всплывающих уведомлений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปแบบการแจ้งเตือนแบบโทสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirim Balonu Stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль спливних сповіщень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểu thông báo nổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示樣式"
+          }
+        }
+      }
+    },
+    "settings.notifications.toastStyle.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيف تظهر الإشعارات المنبثقة والمطالبات: زجاج، أو سطح معتم، أو مسطّحة بحافة رفيعة ومن دون ظل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako se prikazuju obavještenja i upiti: staklo, neprozirna površina ili ravno s tankim rubom i bez sjene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan toasts og prompter tegnes: glas, en uigennemsigtig flade eller flad med en tynd kant og ingen skygge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie Toasts und Abfragen gezeichnet werden: Glas, eine deckende Fläche oder flach mit dünnem Rand ohne Schatten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo se dibujan los avisos y las preguntas: cristal, una superficie opaca o plana con un borde fino y sin sombra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le rendu des notifications éphémères et des invites : verre, surface opaque, ou à plat avec un bord fin et sans ombre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come vengono disegnati toast e richieste: vetro, una superficie opaca o piatta con un bordo sottile e senza ombra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トーストとプロンプトの描き方：ガラス、不透明な面、または細い枠線で影のないフラット。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបដែលសារលេចឡើង និងការសួរត្រូវបានគូរ៖ កញ្ចក់ ផ្ទៃស្រអាប់ ឬរាបស្មើដែលមានគែមស្តើង និងគ្មានស្រមោល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "토스트와 프롬프트를 그리는 방식: 유리, 불투명한 표면, 또는 얇은 테두리에 그림자 없는 플랫."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan toasts og spørsmål tegnes: glass, en ugjennomsiktig flate eller flatt med en tynn kant og uten skygge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak rysowane są powiadomienia i monity: szkło, nieprzezroczysta powierzchnia albo płasko z cienką krawędzią i bez cienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como os avisos e as solicitações são desenhados: vidro, uma superfície opaca ou plano com uma borda fina e sem sombra."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как рисуются всплывающие уведомления и запросы: стекло, непрозрачная поверхность или плоско, с тонкой рамкой и без тени."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีวาดการแจ้งเตือนแบบโทสต์และพรอมต์: กระจก พื้นผิวทึบ หรือแบบแบนที่มีขอบบางและไม่มีเงา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirim balonlarının ve istemlerin çizimi: cam, opak bir yüzey ya da ince kenarlı ve gölgesiz düz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як малюються спливні сповіщення та запити: скло, непрозора поверхня або пласко, з тонкою рамкою і без тіні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách vẽ thông báo nổi và lời nhắc: kính, bề mặt đục, hoặc phẳng với viền mảnh và không có bóng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示和询问的绘制方式：玻璃、不透明表面，或带细边框、无阴影的扁平样式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示與詢問的繪製方式：玻璃、不透明表面，或帶細邊框、無陰影的扁平樣式。"
+          }
+        }
+      }
+    },
     "settings.choice.previewsAlways": {
       "extractionState": "manual",
       "localizations": {
@@ -204086,127 +204348,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."
+            "value": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحصل الوكلاء التي تشغّلها في cmux على أدوات cmux، بما فيها Computer Use: ‏Claude Code وCodex في طرفيات cmux ومحادثات الوكلاء. إلى أن تختار، لا تحصل على شيء. لا يغيّر cmux أبدًا الإعدادات الخاصة بوكلائك."
+            "value": "تحصل الوكلاء التي تشغّلها في cmux على أدوات cmux، بما فيها Computer Use: ‏Claude Code وCodex في طرفيات cmux ومحادثات الوكلاء. لا يغيّر cmux أبدًا الإعدادات الخاصة بوكلائك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenti koje pokreneš u cmuxu dobijaju cmux alate, uključujući Computer Use: Claude Code i Codex u cmux terminalima i agentskim razgovorima. Dok ne izabereš, ne dobijaju ništa. cmux nikad ne mijenja vlastite postavke tvojih agenata."
+            "value": "Agenti koje pokreneš u cmuxu dobijaju cmux alate, uključujući Computer Use: Claude Code i Codex u cmux terminalima i agentskim razgovorima. cmux nikad ne mijenja vlastite postavke tvojih agenata."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenter, du starter i cmux, får cmux’ værktøjer, Computer Use inklusive: Claude Code og Codex i cmux’ terminaler og agentchats. Indtil du vælger, får de intet. cmux ændrer aldrig dine agenters egne indstillinger."
+            "value": "Agenter, du starter i cmux, får cmux’ værktøjer, Computer Use inklusive: Claude Code og Codex i cmux’ terminaler og agentchats. cmux ændrer aldrig dine agenters egne indstillinger."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenten, die du in cmux startest, bekommen die Werkzeuge von cmux, Computer Use eingeschlossen: Claude Code und Codex in den Terminals und Agent-Chats von cmux. Bis du dich entscheidest, bekommen sie nichts. cmux ändert nie die eigenen Einstellungen deiner Agenten."
+            "value": "Agenten, die du in cmux startest, bekommen die Werkzeuge von cmux, Computer Use eingeschlossen: Claude Code und Codex in den Terminals und Agent-Chats von cmux. cmux ändert nie die eigenen Einstellungen deiner Agenten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los agentes que inicias en cmux reciben las herramientas de cmux, Computer Use incluido: Claude Code y Codex en las terminales y los chats de agentes de cmux. Hasta que elijas, no reciben nada. cmux nunca cambia los ajustes propios de tus agentes."
+            "value": "Los agentes que inicias en cmux reciben las herramientas de cmux, Computer Use incluido: Claude Code y Codex en las terminales y los chats de agentes de cmux. cmux nunca cambia los ajustes propios de tus agentes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les agents que vous lancez dans cmux reçoivent les outils de cmux, Computer Use compris : Claude Code et Codex dans les terminaux et les discussions d’agents de cmux. Tant que vous n’avez pas choisi, ils ne reçoivent rien. cmux ne modifie jamais les réglages propres de vos agents."
+            "value": "Les agents que vous lancez dans cmux reçoivent les outils de cmux, Computer Use compris : Claude Code et Codex dans les terminaux et les discussions d’agents de cmux. cmux ne modifie jamais les réglages propres de vos agents."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gli agenti che avvii in cmux ricevono gli strumenti di cmux, Computer Use incluso: Claude Code e Codex nei terminali e nelle chat degli agenti di cmux. Finché non scegli, non ricevono nulla. cmux non cambia mai le impostazioni proprie dei tuoi agenti."
+            "value": "Gli agenti che avvii in cmux ricevono gli strumenti di cmux, Computer Use incluso: Claude Code e Codex nei terminali e nelle chat degli agenti di cmux. cmux non cambia mai le impostazioni proprie dei tuoi agenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux で起動したエージェントは、Computer Use を含む cmux のツールを使えます。対象は cmux のターミナルとエージェントチャットの Claude Code と Codex です。選ぶまでは何も追加されません。cmux がエージェント自身の設定を変更することはありません。"
+            "value": "cmux で起動したエージェントは、Computer Use を含む cmux のツールを使えます。対象は cmux のターミナルとエージェントチャットの Claude Code と Codex です。cmux がエージェント自身の設定を変更することはありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux ទទួលបានឧបករណ៍ cmux រួមទាំង Computer Use៖ Claude Code និង Codex ក្នុងស្ថានីយ និងការជជែកភ្នាក់ងាររបស់ cmux។ រហូតដល់អ្នកជ្រើស ពួកវាមិនទទួលបានអ្វីទេ។ cmux មិនដែលផ្លាស់ប្ដូរការកំណត់ផ្ទាល់ខ្លួនរបស់ភ្នាក់ងារអ្នកទេ។"
+            "value": "ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux ទទួលបានឧបករណ៍ cmux រួមទាំង Computer Use៖ Claude Code និង Codex ក្នុងស្ថានីយ និងការជជែកភ្នាក់ងាររបស់ cmux។ cmux មិនដែលផ្លាស់ប្ដូរការកំណត់ផ្ទាល់ខ្លួនរបស់ភ្នាក់ងារអ្នកទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에서 시작한 에이전트는 Computer Use를 포함한 cmux 도구를 사용합니다. cmux 터미널과 에이전트 채팅의 Claude Code와 Codex가 해당됩니다. 선택하기 전까지는 아무것도 받지 않습니다. cmux는 에이전트 자체 설정을 절대 바꾸지 않습니다."
+            "value": "cmux에서 시작한 에이전트는 Computer Use를 포함한 cmux 도구를 사용합니다. cmux 터미널과 에이전트 채팅의 Claude Code와 Codex가 해당됩니다. cmux는 에이전트 자체 설정을 절대 바꾸지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenter du starter i cmux, får cmux-verktøyene, Computer Use inkludert: Claude Code og Codex i cmux-terminaler og agentsamtaler. Til du velger, får de ingenting. cmux endrer aldri agentenes egne innstillinger."
+            "value": "Agenter du starter i cmux, får cmux-verktøyene, Computer Use inkludert: Claude Code og Codex i cmux-terminaler og agentsamtaler. cmux endrer aldri agentenes egne innstillinger."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenci uruchamiani w cmux dostają narzędzia cmux, w tym Computer Use: Claude Code i Codex w terminalach i czatach agentów cmux. Dopóki nie wybierzesz, nie dostają niczego. cmux nigdy nie zmienia własnych ustawień Twoich agentów."
+            "value": "Agenci uruchamiani w cmux dostają narzędzia cmux, w tym Computer Use: Claude Code i Codex w terminalach i czatach agentów cmux. cmux nigdy nie zmienia własnych ustawień Twoich agentów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os agentes que você inicia no cmux recebem as ferramentas do cmux, incluindo o Computer Use: Claude Code e Codex nos terminais e chats de agentes do cmux. Até você escolher, eles não recebem nada. O cmux nunca altera as configurações dos seus agentes."
+            "value": "Os agentes que você inicia no cmux recebem as ferramentas do cmux, incluindo o Computer Use: Claude Code e Codex nos terminais e chats de agentes do cmux. O cmux nunca altera as configurações dos seus agentes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенты, которых вы запускаете в cmux, получают инструменты cmux, включая Computer Use: Claude Code и Codex в терминалах и чатах агентов cmux. Пока вы не выберете, они ничего не получают. cmux никогда не меняет собственные настройки ваших агентов."
+            "value": "Агенты, которых вы запускаете в cmux, получают инструменты cmux, включая Computer Use: Claude Code и Codex в терминалах и чатах агентов cmux. cmux никогда не меняет собственные настройки ваших агентов."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์ที่คุณเริ่มใน cmux จะได้เครื่องมือของ cmux รวมถึง Computer Use ได้แก่ Claude Code และ Codex ในเทอร์มินัลและแชตเอเจนต์ของ cmux จนกว่าคุณจะเลือก เอเจนต์จะไม่ได้อะไรเลย cmux ไม่เปลี่ยนการตั้งค่าของเอเจนต์คุณเลย"
+            "value": "เอเจนต์ที่คุณเริ่มใน cmux จะได้เครื่องมือของ cmux รวมถึง Computer Use ได้แก่ Claude Code และ Codex ในเทอร์มินัลและแชตเอเจนต์ของ cmux cmux ไม่เปลี่ยนการตั้งค่าของเอเจนต์คุณเลย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’ta başlattığın ajanlar, Computer Use dahil cmux araçlarını alır: cmux terminallerindeki ve ajan sohbetlerindeki Claude Code ve Codex. Sen seçene kadar hiçbir şey almazlar. cmux ajanlarının kendi ayarlarını asla değiştirmez."
+            "value": "cmux’ta başlattığın ajanlar, Computer Use dahil cmux araçlarını alır: cmux terminallerindeki ve ajan sohbetlerindeki Claude Code ve Codex. cmux ajanlarının kendi ayarlarını asla değiştirmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенти, яких ви запускаєте в cmux, отримують інструменти cmux, зокрема Computer Use: Claude Code і Codex у терміналах і чатах агентів cmux. Доки ви не оберете, вони нічого не отримують. cmux ніколи не змінює власні налаштування ваших агентів."
+            "value": "Агенти, яких ви запускаєте в cmux, отримують інструменти cmux, зокрема Computer Use: Claude Code і Codex у терміналах і чатах агентів cmux. cmux ніколи не змінює власні налаштування ваших агентів."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các tác tử bạn khởi chạy trong cmux nhận công cụ của cmux, gồm cả Computer Use: Claude Code và Codex trong terminal và cuộc trò chuyện tác tử của cmux. Cho đến khi bạn chọn, chúng không nhận được gì. cmux không bao giờ thay đổi cài đặt riêng của các tác tử của bạn."
+            "value": "Các tác tử bạn khởi chạy trong cmux nhận công cụ của cmux, gồm cả Computer Use: Claude Code và Codex trong terminal và cuộc trò chuyện tác tử của cmux. cmux không bao giờ thay đổi cài đặt riêng của các tác tử của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 cmux 中启动的智能体会获得 cmux 的工具（包括 Computer Use）：即 cmux 终端和智能体聊天中的 Claude Code 与 Codex。在你选择之前，它们不会获得任何工具。cmux 绝不会更改你的智能体自己的设置。"
+            "value": "你在 cmux 中启动的智能体会获得 cmux 的工具（包括 Computer Use）：即 cmux 终端和智能体聊天中的 Claude Code 与 Codex。cmux 绝不会更改你的智能体自己的设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 cmux 中啟動的智慧代理會取得 cmux 的工具（包括 Computer Use）：即 cmux 終端機與代理聊天中的 Claude Code 和 Codex。在你選擇之前，它們不會取得任何工具。cmux 絕不會更改你的智慧代理本身的設定。"
+            "value": "你在 cmux 中啟動的智慧代理會取得 cmux 的工具（包括 Computer Use）：即 cmux 終端機與代理聊天中的 Claude Code 和 Codex。cmux 絕不會更改你的智慧代理本身的設定。"
           }
         }
       }
@@ -204339,138 +204601,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "你在 cmux 中啟動的智慧代理是否取得 cmux 的工具"
-          }
-        }
-      }
-    },
-    "settings.agents.cmuxMcp.ask": {
-      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: whether cmux adds its MCP server (Computer Use included) to the person's coding agents (agents.cmuxMcp)",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اسأل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pitaj"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spørg"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fragen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preguntar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Demander"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiedi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確認する"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សួរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "묻기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spør"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pytaj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Perguntar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спрашивать"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ถาม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Питати"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hỏi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "询问"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "詢問"
           }
         }
       }
@@ -244230,6 +244360,530 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Khi tắt, ô soạn thảo, menu, cửa sổ bật lên và thẻ được vẽ thành bề mặt đặc với viền đơn giản."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "关闭后，输入框、菜单、弹出窗口和卡片显示为带简单边框的不透明表面。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "關閉後，輸入框、選單、彈出視窗和卡片會顯示為帶簡單邊框的不透明表面。"}}
+      }
+    },
+    "settings.group.screenSharing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmdeling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirmfreigabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Sharing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partage d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condivisione schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面共有"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែកអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 공유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermdeling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhamento de Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Общий экран"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแชร์หน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Paylaşma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спільний екран"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕共享"
+          }
+        }
+      }
+    },
+    "settings.macScreen.onlyPersonStartsViewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يبدأ عرض الشاشة إلا بنقرتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo vaš klik pokreće pregled ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun dit klik starter visning af en skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur dein Klick startet die Bildschirmansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only Your Click Starts Viewing a Screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo tu clic inicia la visualización de una pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seul votre clic lance l’affichage d’un écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo il tuo clic avvia la visualizzazione di uno schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面の表示はクリックでのみ開始"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានតែការចុចរបស់អ្នកទេដែលចាប់ផ្ដើមមើលអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내가 클릭할 때만 화면 보기 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare ditt klikk starter visning av en skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko Twoje kliknięcie rozpoczyna podgląd ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só Seu Clique Inicia a Visualização de uma Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотр экрана только по вашему щелчку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มดูหน้าจอได้เมื่อคุณคลิกเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Görüntülemeyi Yalnızca Tıklamanız Başlatır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перегляд екрана лише після вашого клацання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ cú nhấp của bạn mới bắt đầu xem màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅在你点按时开始查看屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅在你點按時開始檢視螢幕"
+          }
+        }
+      }
+    },
+    "settings.macScreen.onlyPersonStartsViewing.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل، تنتظر علامة تبويب مشاركة الشاشة التي يفتحها وكيل أو cmux CLI حتى تختار عرض فقط أو تحكم كامل. عند الإيقاف، تبدأ عرض أجهزتك فورًا وتوضح من بدأها. الجهاز الذي يملكه شخص آخر يطلب الإذن أولًا دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kad je uključeno, kartica Dijeljenje ekrana koju otvori agent ili cmux CLI čeka dok ne odaberete Samo pregled ili Puna kontrola. Kad je isključeno, odmah počinje prikazivati vaše uređaje i navodi ko ju je pokrenuo. Uređaj čiji je vlasnik neko drugi uvijek prvo pita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Til: En Skærmdeling-fane, som en agent eller cmux CLI åbner, venter, til du vælger Kun visning eller Fuld kontrol. Fra: Den begynder straks at vise dine egne enheder og viser, hvem der startede den. En enhed, som en anden ejer, spørger altid først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein: Ein Bildschirmfreigabe-Tab, den ein Agent oder die cmux CLI öffnet, wartet, bis du „Nur ansehen“ oder „Volle Kontrolle“ wählst. Aus: Er zeigt deine eigenen Geräte sofort an und nennt, wer ihn gestartet hat. Ein Gerät, das jemand anderem gehört, fragt immer zuerst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activado, una pestaña de Compartir pantalla que abre un agente o la CLI de cmux espera hasta que elijas Solo ver o Control total. Desactivado, empieza a mostrar tus propios dispositivos al instante e indica quién la inició. Un dispositivo de otra persona siempre pregunta primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé, un onglet Partage d’écran ouvert par un agent ou la CLI cmux attend que vous choisissiez Affichage seul ou Contrôle total. Désactivé, il affiche aussitôt vos propres appareils et indique qui l’a lancé. Un appareil qui appartient à quelqu’un d’autre demande toujours d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivo: una scheda Condivisione schermo aperta da un agente o dalla CLI di cmux attende finché non scegli Solo visualizzazione o Controllo completo. Disattivo: inizia subito a mostrare i tuoi dispositivi e indica chi l’ha avviata. Un dispositivo di proprietà di altri chiede sempre prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、エージェントや cmux CLI が開いた画面共有タブは、「表示のみ」か「フルコントロール」を選ぶまで待機します。オフにすると、自分のデバイスはすぐに表示が始まり、誰が開始したかが表示されます。他の人が所有するデバイスは常に先に確認を求めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបើក ផ្ទាំងការចែករំលែកអេក្រង់ដែលភ្នាក់ងារ ឬ cmux CLI បើក នឹងរង់ចាំរហូតដល់អ្នកជ្រើស មើលតែប៉ុណ្ណោះ ឬ ការគ្រប់គ្រងពេញលេញ។ ពេលបិទ វាចាប់ផ្ដើមមើលឧបករណ៍ផ្ទាល់ខ្លួនរបស់អ្នកភ្លាមៗ ហើយបង្ហាញថាអ្នកណាជាអ្នកចាប់ផ្ដើម។ ឧបករណ៍ដែលអ្នកផ្សេងជាម្ចាស់ តែងតែសួរមុនជានិច្ច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 에이전트나 cmux CLI가 연 화면 공유 탭은 보기 전용 또는 전체 제어를 선택할 때까지 기다립니다. 끄면 내 기기는 바로 보기가 시작되고 누가 시작했는지 표시됩니다. 다른 사람이 소유한 기기는 항상 먼저 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På: En Skjermdeling-fane som en agent eller cmux CLI åpner, venter til du velger Kun visning eller Full kontroll. Av: Den begynner straks å vise dine egne enheter og viser hvem som startet den. En enhet som noen andre eier, spør alltid først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włączone: karta Udostępnianie ekranu otwarta przez agenta lub cmux CLI czeka, aż wybierzesz Tylko podgląd lub Pełna kontrola. Wyłączone: od razu zaczyna pokazywać Twoje urządzenia i informuje, kto ją uruchomił. Urządzenie należące do kogoś innego zawsze najpierw pyta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativado, uma aba de Compartilhamento de Tela aberta por um agente ou pela CLI do cmux espera até você escolher Somente Visualização ou Controle Total. Desativado, ela começa a mostrar seus próprios dispositivos na hora e diz quem a iniciou. Um dispositivo de outra pessoa sempre pergunta antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если включено, вкладка «Общий экран», открытая агентом или cmux CLI, ждёт, пока вы не выберете «Только просмотр» или «Полный контроль». Если выключено, она сразу начинает показывать ваши устройства и сообщает, кто её запустил. Устройство другого владельца всегда сначала спрашивает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิด แท็บการแชร์หน้าจอที่เอเจนต์หรือ cmux CLI เปิดจะรอจนกว่าคุณจะเลือก ดูเท่านั้น หรือ ควบคุมทั้งหมด เมื่อปิด แท็บจะเริ่มแสดงอุปกรณ์ของคุณเองทันทีและบอกว่าใครเป็นผู้เริ่ม อุปกรณ์ที่ผู้อื่นเป็นเจ้าของจะถามก่อนเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açıkken, bir ajanın veya cmux CLI’ın açtığı Ekran Paylaşma sekmesi siz Yalnızca Görüntüleme veya Tam Denetim’i seçene kadar bekler. Kapalıyken kendi aygıtlarınızı hemen göstermeye başlar ve kimin başlattığını belirtir. Başka birine ait bir aygıt her zaman önce sorar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, вкладка «Спільний екран», яку відкрив агент або cmux CLI, чекає, доки ви не виберете «Лише перегляд» або «Повний контроль». Якщо вимкнено, вона одразу починає показувати ваші пристрої й повідомляє, хто її запустив. Пристрій іншого власника завжди спершу питає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật, tab Chia sẻ màn hình do tác tử hoặc cmux CLI mở sẽ chờ đến khi bạn chọn Chỉ xem hoặc Toàn quyền điều khiển. Khi tắt, tab bắt đầu hiển thị thiết bị của chính bạn ngay và cho biết ai đã bắt đầu. Thiết bị của người khác luôn hỏi trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开后，智能体或 cmux CLI 打开的屏幕共享标签页会等你选择“仅查看”或“完全控制”。关闭后，它会立即开始查看你自己的设备，并显示是谁发起的。他人拥有的设备始终会先询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後，代理或 cmux CLI 開啟的螢幕共享分頁會等你選擇「僅檢視」或「完全控制」。關閉後，它會立即開始檢視你自己的裝置，並顯示是誰發起的。他人擁有的裝置一律會先詢問。"
+          }
+        }
+      }
+    },
+    "settings.macScreen.onlyPersonStartsViewing.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للوكلاء بدء عرض شاشاتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti ne mogu pokrenuti pregled vaših ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan ikke starte visning af dine skærme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können deine Bildschirme nicht von selbst anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can't start viewing your screens"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes no pueden empezar a ver tus pantallas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents ne peuvent pas lancer l’affichage de vos écrans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti non possono aprire i tuoi schermi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントは画面の表示を開始できない"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារមិនអាចចាប់ផ្ដើមមើលអេក្រង់របស់អ្នកបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 화면 보기를 시작할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan ikke starte visning av skjermene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci nie mogą rozpocząć podglądu Twoich ekranów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes não podem começar a ver suas telas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты не могут начать просмотр ваших экранов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์เริ่มดูหน้าจอของคุณไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar ekranlarınızı görüntülemeyi başlatamaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти не можуть почати перегляд ваших екранів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử không thể bắt đầu xem màn hình của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体无法开始查看你的屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理無法開始檢視你的螢幕"
+          }
+        }
       }
     }
   },
