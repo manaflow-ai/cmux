@@ -1964,7 +1964,9 @@ jobs:
     # base-red classifier cannot excuse it and every PR that changes a React
     # app waits on a rerun. 30 min is the headroom; the time to cut is in the
     # doctor run, not in this cap.
-    runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}
+    # A fork head takes CI_FORK_LINUX_RUNNER (GitHub-hosted Ubuntu by default), like every other
+    # Linux job here: fork code never reaches the owned label the map names for manaflow-ai.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || fromJSON(needs.runners.outputs.map).linux_16 }}
     timeout-minutes: 30
     defaults:
       run:

@@ -134,6 +134,37 @@ import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTena
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (4/16/64).
 // A smaller explicit ask cannot claim that pool, even when warm-spare just reported a ready machine.
 const CHAT_START_SIZE = Object.freeze({ cpu: 4, memory_mb: 16384, disk_mb: 65536 });
+/**
+ * The "cold create" cell's size: the catalog's md (4 vCPU / 8 GiB / 32 GiB). The Scaler makes spares at the chat start
+ * size only and gives one only to a create asking exactly that (cmux-platform Scaler requestShape), so a create at md
+ * boots cold, as a person's own create of a picked size does. It differs from the image's own 2/4/16 on every axis, so
+ * a create the VM API booted at the image's size reads as one.
+ */
+export const COLD_CREATE_SIZE = Object.freeze({ cpu: 4, memory_mb: 8192, disk_mb: 32768 });
+/** The guest reads a little under the size asked: the kernel keeps some memory, the filesystem some disk (16203 of 16384 MiB, 64328 of 65536 MiB at 4/16/64). */
+const SIZE_READ_SLACK = 0.06;
+
+/**
+ * Null when a guest's `cpu=N mem_mib=N disk_mib=N` reading (the "first exec" command) is the size asked: the CPU count
+ * exactly, memory and disk at most the size asked and within SIZE_READ_SLACK under it. Else why not.
+ */
+export function sizeReadingProblem(stdout: string, asked: { cpu: number; memory_mb: number; disk_mb: number }): string | null {
+  const read = (key: string) => {
+    const m = new RegExp(`\\b${key}=(\\d+)`).exec(stdout);
+    return m ? Number(m[1]) : null;
+  };
+  const cpu = read("cpu");
+  const mem = read("mem_mib");
+  const disk = read("disk_mib");
+  if (cpu === null || mem === null || disk === null) return `no cpu=, mem_mib= and disk_mib= reading in ${JSON.stringify(stdout.trim().slice(-200))}`;
+  const near = (got: number, want: number) => got <= want && got >= want * (1 - SIZE_READ_SLACK);
+  const off = [
+    cpu === asked.cpu ? "" : `cpu ${cpu} (asked ${asked.cpu})`,
+    near(mem, asked.memory_mb) ? "" : `mem_mib ${mem} (asked ${asked.memory_mb})`,
+    near(disk, asked.disk_mb) ? "" : `disk_mib ${disk} (asked ${asked.disk_mb})`,
+  ].filter(Boolean);
+  return off.length ? `booted at another size than asked: ${off.join(", ")}` : null;
+}
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -404,6 +435,9 @@ export async function oidcSignIn(apiOrigin: string, env: Record<string, string |
   if (gh.status !== 200 || typeof gh.body.value !== "string") throw new Error(`GitHub OIDC token HTTP ${gh.status}`);
   secrets.push(gh.body.value);
   const r = await fetchJson("POST", `${apiOrigin}/v1/auth/github-actions`, undefined, { authorization: `Bearer ${gh.body.value}` });
+  // Name the two ways a correct job is refused, so a red run says what to change (cmux#35703).
+  if (r.status === 404) throw new Error(`OIDC sign-in HTTP 404: ${apiOrigin} has no POST /v1/auth/github-actions yet (deploy a cmux-api commit with ci-session.ts)`);
+  if (r.status === 401) throw new Error(`OIDC sign-in HTTP 401: ${apiOrigin} refused this job's token: no valid CI_SESSION_TRUST row matches it (repository, ref, workflow_ref, event_name and sub must equal a row's), or the token was already used`);
   if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`OIDC sign-in HTTP ${r.status} ${String(r.body.error ?? "")}`);
   secrets.push(r.body.access_token);
   return { token: r.body.access_token, user: String(r.body.user ?? "?"), expiresAt: String(r.body.session_expires_at ?? "?") };
@@ -1598,7 +1632,7 @@ export function waitForAnySpareReady(api: Pick<Api, "origin" | "bearer" | "team"
  * The app's part on a warm spare (SpareReady): warm-spare names a spare, the journey waits for its cloud.spare.ready,
  * marks it ready, copies the login through the existing transfer (preflight, fs/write, installer), checks the guest's
  * launcher sees it, and reports it installed. A warm-spare that names no spare answers `spare: null`; the claim then
- * makes a machine and the login is copied after bind.
+ * makes a machine and the login goes with the agent's start (loginPathAfterClaim).
  */
 export async function prepareSpareLogin(a: {
   api: Api;
@@ -2645,7 +2679,10 @@ export function namesUnavailableFirstExec(exec: Exec): Exec {
 const FACTS_READ_MS = 10_000;
 
 /** The checks only the journey runs, never part of a person's chat: they run after the reply, outside J.firstText. */
-export const JOURNEY_ONLY_STEPS = ["listed", "first exec", "machine facts", "GitHub connection (team status)", "GitHub on the machine (stub)", "GitHub on the machine (live)", "GitHub by the agent (live)"] as const;
+/** The guest's size, measured on it: CPU count, memory and root disk, in the form sizeReadingProblem reads. */
+export const SIZE_READ = "echo journey-ok; uname -m; echo cpu=$(nproc) mem_mib=$(free -m | awk '/^Mem:/{print $2}') disk_mib=$(df -BM --output=size / | tail -1 | tr -dc 0-9)";
+export const COLD_CREATE_STEP = "cold create (asked size)";
+export const JOURNEY_ONLY_STEPS = ["listed", "first exec", COLD_CREATE_STEP, "machine facts", "GitHub connection (team status)", "GitHub on the machine (stub)", "GitHub on the machine (live)", "GitHub by the agent (live)"] as const;
 
 /** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
 export function swiftRawString(source: string, name: string): string {
@@ -3062,6 +3099,17 @@ export function startsOnLaunchCredential(o: { modelStub: boolean; provider?: str
 }
 
 /**
+ * How the login reaches the claimed machine. A --preclaim-login run whose spare carried no installed login (the warm
+ * named none, its spare.ready never came, or the claim handed out another machine) used to copy the login after bind:
+ * 4.3 s inside create -> first text (11-22 06:58Z marks) on a path no person's chat takes. It now starts the agent on the
+ * launch credential, as the app does (cmux#40159), whenever that path could carry the login at all.
+ */
+export function loginPathAfterClaim(o: { receipt: boolean; launchCredential: boolean; launchOnMiss: boolean }): "receipt" | "launch" | "copy" {
+  if (o.receipt) return "receipt";
+  return o.launchCredential || o.launchOnMiss ? "launch" : "copy";
+}
+
+/**
  * The app's Cloud start, with the person's model connection as the agent's launch credential (cmux#40159: the machine
  * holds no login; acpmux agent_credentials.rs): `session/new` on the machine's acpmux socket with
  * `_meta.acpmux.credentials: {env: {NAME: value}}`, as the guest cmux-tui's `agent-session-start` relays it from the
@@ -3201,7 +3249,7 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
-    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
+    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway| cold)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
@@ -3637,7 +3685,12 @@ export async function passwordSignIn(stack: (typeof STACK)[StackName], email: st
     "x-stack-project-id": stack.project,
     ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}),
   });
-  if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`Stack sign-in HTTP ${r.status} ${String(r.body.code ?? "")}`);
+  if (r.status !== 200 || typeof r.body.access_token !== "string") {
+    const code = String(r.body.code ?? "");
+    // A pair from another Stack project (the repository's dev pair against prod) fails this way (cmux#35703).
+    const hint = code === "EMAIL_PASSWORD_MISMATCH" ? `: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD is not an account of Stack project ${stack.project.slice(0, 8)}; use that backend's own test account, or --sign-in oidc in a trusted job` : "";
+    throw new Error(`Stack sign-in HTTP ${r.status} ${code}${hint}`);
+  }
   return { access: r.body.access_token, refresh: String(r.body.refresh_token ?? "") };
 }
 
@@ -3979,7 +4032,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
-  const launchCredential = startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: Boolean(preclaimLoginCmux) });
+  let launchCredential = startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: Boolean(preclaimLoginCmux) });
+  // A --preclaim-login run whose claimed machine got no login on spare.ready takes this path (loginPathAfterClaim).
+  const launchOnMiss = startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: false });
   const tag =`jr-${Date.now().toString(36)}`;
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
@@ -4337,7 +4392,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
     // The app's part on a warm spare (SpareReady), before create and so outside the first-text window: the login is
-    // copied on spare.ready. Anything short of a spare with the login installed leaves the copy after bind.
+    // copied on spare.ready. Anything short of a spare with the login installed starts the agent on its launch credential.
     let prepared: PreparedSpare | null = null;
     if (preclaimLoginCmux && !reuse) {
       const t0 = Date.now();
@@ -4367,10 +4422,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }), preclaimSpareWait * 1000, { ready: (ms) => waitForAnySpareReady({ ...api, team: wireTeam }, ms) });
           prepared = got;
           const waited = wait ? `; waited ${wait.waited_ms} ms over ${wait.attempts} warm(s)${wait.cold_after_wait ? ", bound ran out" : wait.ready_by === "claim_path" ? ", the claim path's spare ready" : ""}` : "";
-          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: (prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login is copied after bind") + waited });
+          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: (prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login goes with the agent's start") + waited });
         } catch (e) {
           prepared = null;
-          J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `the login is copied after bind: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
+          J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `the login goes with the agent's start: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
         }
       }
     }
@@ -4433,10 +4488,36 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("first exec", async () => {
         // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the
         // "listed" step): the size a create asks for is not always the size it boots at (cmux-platform#1504).
-        const r = await exec("echo journey-ok; uname -m; echo cpu=$(nproc) mem_mib=$(free -m | awk '/^Mem:/{print $2}') disk_mib=$(df -BM --output=size / | tail -1 | tr -dc 0-9)");
+        const r = await exec(SIZE_READ);
         if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
         return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
       });
+      // A person's own create that no spare serves: the create above asks the chat start size and claims a ready spare,
+      // so without this cell no run shows that a cold create boots at the size it asked for (cmux-platform#1513: every
+      // image create asks the VM API for the size it was admitted at). One machine at COLD_CREATE_SIZE, its size read on
+      // the guest as above, then deleted. `--skip cold` leaves it out.
+      if (only.has("cold") || reuse) J.skip(COLD_CREATE_STEP, reuse ? "--machine" : "--skip cold");
+      else {
+        await J.step(COLD_CREATE_STEP, async () => {
+          const v = await api.op("cloud.machine.create", { name: `${machineName} cold`, size: COLD_CREATE_SIZE }, `${tag}-cold-create`);
+          const id = v.machine.id as string;
+          const spare = spareFields(v);
+          try {
+            const m = await waitMachine(api, id, (x) => x.status === "running" && Boolean(x.host), 300_000);
+            const r = await directExec(api, id, J)(SIZE_READ);
+            if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`${id}: exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+            const reading = r.stdout.trim().split("\n").slice(2).join(" ");
+            const listed = m.size ? ` listed size=${m.size.cpu ?? "?"}/${m.size.memory_mb ?? "?"}/${m.size.disk_mb ?? "?"}` : "";
+            const asked = `asked ${COLD_CREATE_SIZE.cpu}/${COLD_CREATE_SIZE.memory_mb}/${COLD_CREATE_SIZE.disk_mb}`;
+            const why = sizeReadingProblem(r.stdout, COLD_CREATE_SIZE);
+            if (why) throw new Error(`${id} ${asked}: ${why}${listed}`);
+            return { value: null, detail: `${id} ${asked}: ${reading}${listed}; spare fallback ${spare.spare_fallback ?? "none"}` };
+          } finally {
+            await api.deleteMachine(id, `${tag}-cold-delete`).catch((e) => console.log(`cold create: delete ${id} failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+          }
+          // Recorded as failed, and the run fails on it, but the checks after it still run.
+        }).catch(() => undefined);
+      }
       // What the machine booted and what its agents reach their model with, so a reply that fails ("Not logged in")
       // names the image, the daemon and the model plane in the same log: the image the platform recorded, acpmux's and
       // cmux-tui's versions, and each model-plane file's CMUX_CODEROUTER_URL origin (a URL, no credential) and which
@@ -4677,7 +4758,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.skip(loginStep, !provider ? `agent ${agent}` : "--skip");
     } else if (!login) {
       J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
-    } else if (prepared?.spare === created.id && preclaimLoginCmux && preclaimStateDir && await spareLoginReceipt(preclaimLoginCmux, api, preclaimStateDir, install.token, prepared, created.id)) {
+    } else if (loginPathAfterClaim({ receipt: Boolean(prepared?.spare === created.id && preclaimLoginCmux && preclaimStateDir && await spareLoginReceipt(preclaimLoginCmux, api, preclaimStateDir, install.token, prepared!, created.id)), launchCredential, launchOnMiss }) === "receipt") {
       // The claim handed out the spare whose login was copied on spare.ready, and its receipt says installed: what is
       // left of the login is the app's post-bind check that the launcher sees it.
       probeExtra.login_path = "receipt";
@@ -4686,7 +4767,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!own.stdout.includes("own-login")) throw new Error(`the receipt says installed, but the image's launcher does not see an own ${provider} login`);
         return { value: null, detail: "the person's own login, copied on spare.ready (receipt installed); the launcher picks it" };
       });
-    } else if (launchCredential) {
+    } else if (launchCredential || launchOnMiss) {
+      launchCredential = true;
       // cmux#40159: a Cloud chat runs on the person's model connection, given to that chat's agent when it starts; the
       // machine holds no login. The login goes with the agent's start below (launchCredentialStartProgram). A login
       // written onto the machine is outranked there by the machine's model route (acpmux cloud_model_plane.rs fills
