@@ -195,6 +195,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var inactiveWindowDim = 0.0
     /// `appearance.wallpaperTint`: on unless set to false.
     public var wallpaperTint = WallpaperTintSetting.fallback
+    /// `appearance.backgroundPlacement`: where each picture lies; empty (every picture centered and
+    /// filled) unless set.
+    public var backgroundPlacements: [String: BackdropPlacement] = [:]
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
@@ -256,7 +259,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserToolbarPosition: ToolbarPosition = ChromePlacementSetting.browserToolbarPositionDefault
     /// `app.quitBehavior`; "keep" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
-    /// `launch.relaunchCoverSwap`; crossfade when unset or invalid. Read when a relaunch reveals its windows.
+    /// `launch.relaunchCoverSwap`; off when unset or invalid. Read when a relaunch reveals its windows.
     public var relaunchCoverSwap: RelaunchCoverSwap = RelaunchCoverSwapSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
@@ -443,6 +446,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.inactiveWindowDim = WindowBackgroundSetting.parseInactiveDim(root, diagnostics: &snapshot.diagnostics)
         snapshot.wallpaperTint = WallpaperTintSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.backgroundPlacements = BackdropPlacementSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds.twoTone = TwoToneSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)

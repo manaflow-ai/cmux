@@ -82,7 +82,7 @@
       "rows": [
         {
           "key": "launch.relaunchCoverSwap",
-          "note": "How an app relaunch (an update, or `cmux app quit --keep-sessions`) swaps each window's saved picture (the relaunch cover) for its live content. off: no picture is shown (the behavior before relaunch covers). instant: each window's picture is removed in one frame once all its panes are ready. crossfade (the default): the window's picture fades out over 120 ms at that moment. progressive: each pane's region of the picture fades out over 80 ms as that pane becomes ready. A comparison setting for judging the swap: a row in Settings > Development and the Command Palette in DEV and NIGHTLY; the CLI and MCP set it in every build.",
+          "note": "How an app relaunch (an update, or `cmux app quit --keep-sessions`) swaps each window's saved picture (the relaunch cover) for its live content. off (the default): no picture is shown (the behavior before relaunch covers). instant: each window's picture is removed in one frame once all its panes are ready. crossfade: the window's picture fades out over 120 ms at that moment. progressive: each pane's region of the picture fades out over 80 ms as that pane becomes ready. A comparison setting for judging the swap: a row in Settings > Development and the Command Palette in DEV and NIGHTLY; the CLI and MCP set it in every build.",
           "title": {
             "key": "settings.launch.relaunchCoverSwap",
             "text": "Relaunch Cover Swap"
@@ -130,7 +130,7 @@
               "note": "Each pane's region of the picture fades out over 80 ms as that pane becomes ready."
             }
           ],
-          "default": "crossfade",
+          "default": "off",
           "keywords": [
             "relaunch",
             "restart",
