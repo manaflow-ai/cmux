@@ -207,7 +207,7 @@ if [[ -n "$agents" ]]; then
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
   env ${crash_env[@]+"${crash_env[@]}"} python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
-    --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
+    --settle 20 --measure "$measure" --top 8 --gpu ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
     ${attribute[@]+"${attribute[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
   grep '^PERF-ATTR ' "$work/agents.log" | sed 's/^PERF-ATTR /PERF-ATTR app-agents /' || true
   python3 - "$work/agents.json" <<'PY' || status=$?
@@ -216,11 +216,16 @@ data = json.load(open(sys.argv[1]))
 for s in data.get("samples", []):
     for kind, e in s["kinds"].items():
         print(f"PERF-IDLE app-agents {s['label']} agents={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
-              f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
+              f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']} "
+              f"disk_write_mb_per_h={e.get('disk_write_mb_per_h')} logical_write_mb_per_h={e.get('logical_write_mb_per_h')}")
+    if s.get("gpu"):
+        print(f"PERF-IDLE-GPU app-agents {s['label']} {json.dumps(s['gpu'])}")
     if "chat_renderers" in s:
         print(f"CHAT-RENDERERS {s['label']} agents={s['workspaces']} {json.dumps(s['chat_renderers'])}")
     if "cef_pages" in s:
         print(f"PERF-IDLE-RELEASED {s['label']} cmux_pages={json.dumps(s['cef_pages'])}")
+if data.get("gpu_no_app"):
+    print(f"PERF-IDLE-GPU app-agents no-app {json.dumps(data['gpu_no_app'])}")
 if "chat_renderer_crash" in data:
     print(f"CHAT-RENDERERS-CRASH {json.dumps(data['chat_renderer_crash'])}")
 if "restore" in data:

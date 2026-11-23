@@ -5,7 +5,7 @@ import AppKit
 /// AppKit repaints a disabled button's title in the system's disabled ink, which on a themed fill read as
 /// no title at all (``CmuxDialogButtonView``'s fill; a ``ThemedBezelButton``'s selection bezel, #C2C3C3 on
 /// #F6F7F7 in NativeControlContrastAuditTests). A button using this cell picks its disabled ink itself.
-final class OwnInkButtonCell: NSButtonCell {
+class OwnInkButtonCell: NSButtonCell {
     override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
         guard !isEnabled, title.length == attributedTitle.length else { return super.drawTitle(title, withFrame: frame, in: controlView) }
         // The title as AppKit laid it out (centered), in the button's own inks.

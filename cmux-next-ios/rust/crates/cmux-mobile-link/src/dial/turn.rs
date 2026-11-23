@@ -138,13 +138,7 @@ fn parse_url(url: &str, username: &str, credential: &str) -> Option<TurnServer> 
 /// The TURN servers of `servers` to try: the first one over UDP, and the
 /// best one over a stream (TLS on 443, else any TLS, else plain TCP).
 pub fn turn_servers(servers: &[IceServer]) -> (Option<TurnServer>, Option<TurnServer>) {
-    let all: Vec<TurnServer> = servers
-        .iter()
-        .filter_map(|server| Some((server, server.username.as_deref()?, server.credential.as_deref()?)))
-        .flat_map(|(server, username, credential)| {
-            server.urls.iter().filter_map(move |url| parse_url(url, username, credential))
-        })
-        .collect();
+    let all = servers_in_order(servers);
     let udp = all.iter().find(|server| server.transport == TurnTransport::Udp).cloned();
     let rank = |server: &TurnServer| match server.transport {
         TurnTransport::Tls if server.address.ends_with(":443") => 0,
@@ -616,6 +610,58 @@ impl Drop for TurnCarrier {
             });
         }
     }
+}
+
+/// One timed TURN allocation (measurement support: cmux-mobile-path-probe).
+#[derive(Debug, Clone)]
+pub struct TimedAllocation {
+    /// The server allocated on (`host:port`).
+    pub server: String,
+    pub transport: TurnTransport,
+    /// Connect plus allocate: from the first byte sent (the TCP SYN on a
+    /// stream) until the server granted the allocation.
+    pub elapsed: Duration,
+    /// The relayed address the server granted.
+    pub relayed: SocketAddr,
+}
+
+/// Allocate once on the first TURN server of `servers` reached over
+/// `transport` (TLS: on 443 first, as [`turn_servers`] ranks them), time it,
+/// and release it at once. This is the allocation a WireGuard dial makes,
+/// alone: no STUN beside it, no stagger.
+#[doc(hidden)]
+pub async fn timed_allocation(
+    servers: &[IceServer],
+    transport: TurnTransport,
+    options: &DialOptions,
+) -> Result<TimedAllocation, String> {
+    let mut candidates: Vec<TurnServer> =
+        servers_in_order(servers).into_iter().filter(|server| server.transport == transport).collect();
+    // UDP: the first listed, as a dial takes it. A stream: 443 first (stable).
+    if transport.is_stream() {
+        candidates.sort_by_key(|server| !server.address.ends_with(":443"));
+    }
+    let server = candidates.into_iter().next().ok_or_else(|| format!("no TURN server over {transport:?}"))?;
+    let address = server.address.clone();
+    let started = tokio::time::Instant::now();
+    let carrier = tokio::time::timeout(CONNECT_WAIT + STREAM_WAIT, TurnCarrier::allocate_on(server, options))
+        .await
+        .map_err(|_| "TURN allocation timed out".to_owned())??;
+    let elapsed = started.elapsed();
+    let relayed = carrier.relayed;
+    drop(carrier);
+    Ok(TimedAllocation { server: address, transport, elapsed, relayed })
+}
+
+/// Every TURN server of `servers`, in the order listed.
+fn servers_in_order(servers: &[IceServer]) -> Vec<TurnServer> {
+    servers
+        .iter()
+        .filter_map(|server| Some((server, server.username.as_deref()?, server.credential.as_deref()?)))
+        .flat_map(|(server, username, credential)| {
+            server.urls.iter().filter_map(move |url| parse_url(url, username, credential))
+        })
+        .collect()
 }
 
 #[cfg(test)]

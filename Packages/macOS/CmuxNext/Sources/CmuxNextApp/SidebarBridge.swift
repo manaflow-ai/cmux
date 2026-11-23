@@ -111,7 +111,7 @@ final class SidebarBridge {
         // The React update surfaces: the staged card's highlights popover and the Updated card (cx-urd.61.2).
         container.sidebarView.updateSurfaces = UpdateSurfaceIslands(services: services)
         appSections?.releaseAll()
-        let sections = SidebarAppSections(client: services.apps.client, isPresented: { [weak apps = services.apps] in apps?.presence.isPresented($0) == true }, team: { [weak services] in services?.cloudTeam.makeSectionView() })
+        let sections = SidebarAppSections(client: services.apps.client, isPresented: { [weak apps = services.apps] in apps?.client.presence.isPresented($0) == true }, team: { [weak services] in services?.cloudTeam.makeSectionView() })
         appSections = sections
         container.sidebarView.appSections = sections
         // Return or Escape in the inline rename field gives the keyboard

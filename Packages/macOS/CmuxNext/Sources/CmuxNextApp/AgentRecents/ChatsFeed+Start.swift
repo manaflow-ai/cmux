@@ -23,7 +23,14 @@ extension ChatsFeed {
         let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath, lanes: services.agentLanes,
                                                                    peerSessionChanged: { [updates = services.daemonUpdates] in updates.peerSessionChanged($0, stale: $1) })
         AgentTurnStateFeed.shared = turns
-        SidebarMachineSections.bindPeerState(turns) { [weak services] in services?.windows.controllers.map(\.sidebar.machineSections) ?? [] }
+        // A peer that connects, drops or is added reads Settings > Devices' list again: Move to… lists
+        // the acpmux peers from it (``CloudMoveTargets``). One read at a time; a push changes nothing else.
+        // The Labs Hosts section's remote groups hear the same push (``SidebarMachineSections``).
+        SidebarMachineSections.bindPeerState(turns, sections: { [weak services] in services?.windows.controllers.map(\.sidebar.machineSections) ?? [] },
+            also: { [weak services] _, _ in
+                // task-owner: one `device list` read per peer link change; DeviceDirectory skips it while one runs
+                Task { [weak services] in await services?.devices.refresh() }
+            })
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
         // Chat uploads the app wrote go once past their age, at launch (``AgentChatUploads``).
         AgentChatUploads.sweepInBackground()

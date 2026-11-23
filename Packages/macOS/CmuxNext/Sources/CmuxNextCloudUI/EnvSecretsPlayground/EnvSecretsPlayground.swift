@@ -1,6 +1,5 @@
 #if DEBUG
 public import AppKit
-import SwiftUI
 
 /// DEBUG ONLY: Command Palette > Environment Secrets Playground (`debug.envSecretsPlayground`). Three
 /// directions for the proposed Environment variables and secrets page of cmux Cloud (Ledger,
@@ -26,6 +25,7 @@ public final class EnvSecretsPlayground: NSObject, NSWindowDelegate {
         let window = window ?? makeWindow()
         self.window = window
         applyLook()
+        (window.contentView as? EnvSecretsPlaygroundView)?.reload()
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -36,7 +36,7 @@ public final class EnvSecretsPlayground: NSObject, NSWindowDelegate {
         window.title = "Environment Secrets Playground"
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.contentView = NSHostingView(rootView: EnvSecretsPlaygroundView(model: model, applyLook: { [weak self] in self?.applyLook() }))
+        window.contentView = EnvSecretsPlaygroundView(model: model, applyLook: { [weak self] in self?.applyLook() })
         window.center()
         return window
     }

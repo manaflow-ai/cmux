@@ -16,12 +16,14 @@
 #   trace=S             seconds of System Trace per attributed process after each window: each thread's
 #                       wakeups per second with its name (bench_memory.py --attribute-trace); 0 for none
 #   kinds=K,K           the process kinds to attribute (default app,cef-gpu)
+#   settings_open=N     after the idle rounds, N launches per arm of bench-settings-open.py (Cmd-, 4 times, the first
+#                       cold) on the same builds; prints IDLE-AB settings-open <arm> cold_median .. warm_p90 .. (0: none)
 #   relaunch=1          chats=0: the terminal launch is a returning user's (bench_memory.py --relaunch-restored):
 #                       one terminal workspace opened and shown, the app quit (the session saves), what outlived
 #                       the quit ended, and the app relaunched into the same scratch, checked to show that
 #                       workspace and not Home; that relaunch is settled and sampled. A plain launch shows Home
 #                       (FirstWorkspace.swift). relaunch=warm keeps what outlived the quit; 0 (default) is as before.
-#   env=NAME=VALUE      an environment variable for both arms' app (repeatable; chats= and cells= runs), e.g.
+#   env=NAME=VALUE      an environment variable for both arms' app (repeatable; chats=, cells= and home=1 runs), e.g.
 #                       env=CMUX_NEXT_CHIEF_START=visible: a base that does not read it ignores it
 #   cells=C,C           in the place of chats= (the two together are refused): each cell is CHATS:REPOSITORY:MOTION, one launch for each arm and
 #                       round. CHATS agent chats at rest (1 or more); REPOSITORY small or large is a visible
@@ -36,6 +38,10 @@
 #                       (default 300; its timer is then 30 s, not 4 s). measure=S is its window with the focus.
 #                       With cells=, measure= is a multiple of 4 and unfocused= a multiple of 30 (the page's
 #                       2 timers), so each window holds a whole count of reads.
+#   home=1              after each arm's idle launches of a round, one more fresh launch of that arm
+#                       (scripts/cmux-next/chief-start-probe.py): at rest, whether the Chief's brain host runs and
+#                       which Home view asked for it; then Home's first open and the first Chief reply after it.
+#                       Prints IDLE-AB home <arm> <round> ... and IDLE-AB home median <metric> base ... head ...
 # The harness (bench_memory.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
 # copied before the arms are checked out, so a base that predates it runs the same harness.
 # Each arm is built in this checkout (its warm DerivedData, so the second arm builds incrementally), the
@@ -68,7 +74,7 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
 own_sha="$(git rev-parse HEAD)"
-base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 chats_given=false
+base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 settings_open=0 chats_given=false home=0
 relaunch=0 app_env=()
 for arg in "$@"; do
   case "$arg" in
@@ -81,6 +87,8 @@ for arg in "$@"; do
     kinds=*) kinds="${arg#kinds=}" ;;
     cells=*) cells="${arg#cells=}" ;;
     unfocused=*) unfocused="${arg#unfocused=}" ;;
+    settings_open=*) settings_open="${arg#settings_open=}" ;;
+    home=*) home="${arg#home=}" ;;
     relaunch=*) relaunch="${arg#relaunch=}" ;;
     env=*) app_env+=(--env "${arg#env=}") ;;
     *) echo "perf-idle-ab.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -117,11 +125,16 @@ disk start
 out="$here/.build/perf-idle-ab"
 rm -rf "$out" && mkdir -p "$out/runs" "$out/harness"
 for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/thread_wakes.py scripts/cmux-next/diff_tab_cells.py \
-         scripts/cmux-next/tag_teardown.py \
+         scripts/cmux-next/tag_teardown.py scripts/cmux-next/chief-start-probe.py \
          cmux-tui/crates/acpmux/tests/fake_agent.py; do
   cp "$f" "$out/harness/" || { echo "perf-idle-ab: no $f in this checkout" >&2; exit 3; }
 done
 harness="$out/harness"
+[[ "$settings_open" =~ ^[0-9]+$ ]] && (( settings_open <= 10 )) || { echo "settings_open= must be 0 to 10" >&2; exit 2; }
+if (( settings_open )); then
+  # bench-settings-open.py and the modules it loads from its own folder (bench-stalls, bench-startup and theirs).
+  mkdir -p "$harness/next" && cp scripts/cmux-next/*.py "$harness/next/" || { echo "perf-idle-ab: no scripts/cmux-next" >&2; exit 3; }
+fi
 app_base="" app_head=""
 scratch=""
 app_of() { if [ "$1" = base ]; then echo "$app_base"; else echo "$app_head"; fi; }
@@ -180,6 +193,16 @@ build_arm() {  # build_arm ARM SHA: checks the commit out here and builds its ta
   if ! ./scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null | grep -q ': ready ('; then
     echo "IDLE-AB $arm: cmux-tui tree not published, building the client set on this host"
     export CMUX_TUI_CLIENT_TARGET_DIR="${CI_SHARED_CACHE_DIR:-/Users/Shared/cmux-build-fleet/cache}/perf-idle-ab/cmux-tui-target"
+    # Bounded: each commit's build adds to the target and nothing evicts it (no disk owner counts it). On
+    # 2026-11-21 it held 11 GB of cmux20-bench, which sat under the 44 GiB a measurement needs to start, so the
+    # perf cron ran no Mac part there (cmuxterm-hq#16657). Past the cap the next build starts cold; the step
+    # is exclusive, so no other build is using the folder.
+    local cap_kib=$(( ${CMUX_IDLE_AB_TARGET_CAP_GIB:-6} * 1024 * 1024 )) used_kib
+    used_kib="$(du -sk "$CMUX_TUI_CLIENT_TARGET_DIR" 2>/dev/null | cut -f1)"
+    if [ "${used_kib:-0}" -gt "$cap_kib" ]; then
+      echo "IDLE-AB $arm: cmux-tui target is $(( used_kib / 1024 / 1024 )) GiB, over its ${CMUX_IDLE_AB_TARGET_CAP_GIB:-6} GiB cap: removing it"
+      rm -rf "$CMUX_TUI_CLIENT_TARGET_DIR"
+    fi
     mkdir -p "$CMUX_TUI_CLIENT_TARGET_DIR" cmux-tui/target
     client_local="$(CI=1 ./scripts/cmux-next/build-cmux-tui-client.sh --print-path 2> >(tee "$out/cmux-tui-$arm.log" >&2))" || return 3
   fi
@@ -250,12 +273,44 @@ run_arm() {  # run_arm ARM ROUND
     rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-cell$k.log"; }
     python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
   done
+  if [ "$home" = 1 ]; then
+    # Not a .json: the summary below reads every runs/*.json as a bench_memory report.
+    python3 "$harness/chief-start-probe.py" --app "$app" ${app_env[@]+"${app_env[@]}"} --out "$out/runs/$arm-$i-home.probe" > "$out/runs/$arm-$i-home.log" 2>&1
+    rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-home.log"; }
+    grep -h '^CHIEF-START ' "$out/runs/$arm-$i-home.log" | sed "s/^CHIEF-START /IDLE-AB home $arm $i /"
+    python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
+  fi
   grep -h '^PERF-ATTR .* wakes ' "$out/runs/$arm-$i-"*.log 2>/dev/null | head -n 80 | sed "s/^/IDLE-AB $arm $i /"
 }
 for i in $(seq 1 "$rounds"); do
   # ABBA order: a drift across the step falls on both arms alike.
   if (( i % 2 )); then run_arm base "$i"; run_arm head "$i"; else run_arm head "$i"; run_arm base "$i"; fi
 done
+
+if (( settings_open )); then
+  # Cmd-, on the same builds and host as the idle RAM: settings_open= launches per arm, interleaved by the bench
+  # (base, head, base, ...), 4 opens each; the first open of a launch is cold, the others warm.
+  echo "IDLE-AB settings-open load $(uptime | sed 's/.*load averages*: //')"
+  python3 "$harness/next/bench-settings-open.py" --app "$app_base" --app "$app_head" --runs "$settings_open" \
+    --json "$out/settings-open.json" > "$out/settings-open.log" 2>&1 || status=1
+  sed 's/^/IDLE-AB settings-open /' "$out/settings-open.log"
+  python3 -I - "$out/settings-open.json" "$(basename "$app_base")" "$(basename "$app_head")" <<'PY' || status=1
+import json, statistics, sys
+data = json.load(open(sys.argv[1]))
+def tag(name):
+    return name.removeprefix("cmux DEV ").removesuffix(".app").lower()
+def p90(xs):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(round(0.9 * (len(xs) - 1))))] if xs else None
+for arm, name in (("base", sys.argv[2]), ("head", sys.argv[3])):
+    runs = data.get(tag(name), [])
+    cold = [r[0]["visible_ms"] for r in runs if r and not r[0].get("already_open") and r[0].get("visible_ms") is not None]
+    warm = [o["visible_ms"] for r in runs for o in r[1:] if not o.get("already_open") and o.get("visible_ms") is not None]
+    claims = sorted({str(o.get("claim")) for r in runs for o in r})
+    print(f"IDLE-AB settings-open {arm} cold_median {statistics.median(cold) if cold else None} cold_max {max(cold) if cold else None} "
+          f"n {len(cold)} warm_median {statistics.median(warm) if warm else None} warm_p90 {p90(warm)} n {len(warm)} claims {claims}")
+PY
+fi
 
 python3 -I - "$out/runs" "$rounds" "$cells" <<'PY' || status=1
 import collections, glob, json, os, statistics, sys
@@ -313,8 +368,11 @@ for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
                         cpu[(chats, name)][arm].append(e[key])
                         total += e[key]
             cpu[(chats, "total")][arm].append(round(total, 3))
-        footprints[chats][arm].append({**{kind: e.get("footprint_mb") or 0.0 for kind, e in s["kinds"].items()},
-                                       "total": s.get("total_footprint_mb") or 0.0})
+        # Only the footprints the sample measured: one with none (an older sampler) prints no footprint line.
+        run = {kind: e["footprint_mb"] or 0.0 for kind, e in s["kinds"].items() if "footprint_mb" in e}
+        if "total_footprint_mb" in s:
+            run["total"] = s["total_footprint_mb"] or 0.0
+        footprints[chats][arm].append(run)
         for kind, e in s["kinds"].items():
             if e.get("wakeups_per_s") is None:
                 continue
@@ -375,7 +433,42 @@ for cell, what in faults:
     print(f"IDLE-AB fault cell {cell} {what}")
 sys.exit(1 if faults else 0)
 PY
+# The memory of each sample (phys_footprint summed over the app's processes, bench_memory's
+# total_footprint_mb) and, with home=1, the probe's times: medians per arm.
+python3 -I - "$out/runs" <<'PY' || status=1
+import collections, glob, json, os, statistics, sys
+runs = sys.argv[1]
+mem = collections.defaultdict(lambda: collections.defaultdict(list))
+for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
+    arm, i, mode = os.path.basename(path)[:-5].split("-")
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError):
+        continue
+    for s in data.get("samples", []):
+        brains = sum(1 for p in s.get("processes", []) if "optchat-chief" in p.get("command", ""))
+        print(f"IDLE-AB footprint {arm} {i} {mode} {s['label']} total_mb {s.get('total_footprint_mb')} chief_processes {brains}")
+        mem[(mode, s["label"])][arm].append(s.get("total_footprint_mb"))
+home = collections.defaultdict(lambda: collections.defaultdict(list))
+for path in sorted(glob.glob(os.path.join(runs, "*-home.probe"))):
+    arm = os.path.basename(path).split("-")[0]
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError):
+        continue
+    for key in ("home_open_ms", "brain_after_open_ms", "brain_logged_ms", "typing_ms", "first_text_ms", "reply_ms"):
+        if data.get(key) is not None:
+            home[key][arm].append(data[key])
+    home["brain_at_rest"][arm].append(1 if data.get("brain_at_rest") else 0)
+def med(xs):
+    xs = [x for x in xs if x is not None]
+    return f"{round(statistics.median(xs), 1)} [{min(xs)}-{max(xs)}] n {len(xs)}" if xs else "none"
+for (mode, label), arms in sorted(mem.items()):
+    print(f"IDLE-AB footprint median {mode} {label} base {med(arms['base'])} head {med(arms['head'])}")
+for key, arms in home.items():
+    print(f"IDLE-AB home median {key} base {med(arms['base'])} head {med(arms['head'])}")
+PY
 echo "IDLE-AB verdict exit $status base $base head $head rounds $rounds"
 # Packed beside the folder, then moved in: a tar of the folder it writes into reads its own output.
-tar -czf "$out.tgz" -C "$out" runs summary.json build-base.log build-head.log 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
+tar -czf "$out.tgz" -C "$out" runs summary.json build-base.log build-head.log $( (( settings_open )) && echo settings-open.json settings-open.log) 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
 exit $status

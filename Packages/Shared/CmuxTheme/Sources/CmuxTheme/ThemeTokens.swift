@@ -121,6 +121,20 @@ public struct ThemeTokens: Hashable, Sendable {
         return min(max(themeFloor + (1 - contrastHeadroom) * 0.10 + luminanceBias, 0.52), 0.76)
     }
 
+    /// The most theme tint a glass window (`background-blur` below 0) lays over its glass: the reference's theme
+    /// background at about 40% (hq docs/design/glass-raycast-parity.md), and 0.55 on a light theme, the command
+    /// palette's measured glass tint. Below it the Opacity asked for is kept; at Opacity 1 the glass tinted solid,
+    /// terminals and panes included (Leo, 2026-10-18: "if we're doing glass, we're doing glass, period").
+    public static func glassTintCeiling(isDark: Bool) -> Double { isDark ? 0.40 : 0.55 }
+    /// ``glassTintCeiling(isDark:)`` for this theme.
+    public var glassTintCeiling: Double { Self.glassTintCeiling(isDark: isDark) }
+
+    /// The tint a window of `opacity` and `blur` shows over what is behind it: `opacity`, at most
+    /// ``glassTintCeiling(isDark:)`` for glass.
+    public static func windowTintOpacity(_ opacity: Double, blur: Int, isDark: Bool) -> Double {
+        blur < 0 ? min(opacity, glassTintCeiling(isDark: isDark)) : opacity
+    }
+
     /// Minimum contrast for primary and secondary chrome text.
     public static let minimumTextContrast = 4.5
     /// Minimum contrast for tertiary text and status marks.
@@ -149,18 +163,22 @@ public struct ThemeTokens: Hashable, Sendable {
         // selected and hovered row is the foreground at 8% dark and 5% light (`--app-color-background-button-
         // secondary-hover`), its press 12% dark. The 10% selection and 6% hover read as a bright gray pill.
         let hover = fg.withAlpha(isDark ? 0.05 : 0.04)
-        // An accent selection is the app theme's (`AppTheme` .selection: the accent over the background).
-        let selection = accent?.withAlpha(isDark ? 0.26 : 0.16) ?? fg.withAlpha(isDark ? 0.08 : 0.06)
+        // An accent selection is the app theme's (`AppTheme` .selection: the accent over the background);
+        // `appearance.selection: neutral` keeps the neutral card whatever the accent.
+        let selectionAccent = input.selection == .accent ? accent : nil
+        let selection = selectionAccent?.withAlpha(isDark ? 0.26 : 0.16) ?? fg.withAlpha(isDark ? 0.08 : 0.06)
         // The other rows of a multi-selection: the selection's own color at 0.7 of its weight, so an accent
         // theme's drag-selected rows read as one selection, as the neutral fills always did.
-        let secondarySelection = accent?.withAlpha(isDark ? 0.18 : 0.11) ?? fg.withAlpha(isDark ? 0.056 : 0.042)
+        let secondarySelection = selectionAccent?.withAlpha(isDark ? 0.18 : 0.11) ?? fg.withAlpha(isDark ? 0.056 : 0.042)
         let pressed = fg.withAlpha(isDark ? 0.12 : 0.10)
         // Text must hold its contrast on the strongest fill it can sit on.
         let worstSurface = [pressed, selection].map { $0.composited(over: bg) }
             .min { fg.contrast(with: $0) < fg.contrast(with: $1) }!
         // In a see-through window the quieter inks also hold over the tint on the worst desktop for
         // the theme (sidebar sweep 2026-10-21); the tint stays the opacity asked for (#22566).
-        let seeThrough = seeThroughSurfaces(bg: bg, opacity: input.backgroundOpacity, isDark: isDark, fills: [pressed, selection])
+        let seeThrough = seeThroughSurfaces(bg: bg, opacity: windowTintOpacity(input.backgroundOpacity, blur: input.backgroundBlur,
+                                                                                isDark: isDark),
+                                             isDark: isDark, fills: [pressed, selection])
         let (primary, secondary, tertiary) = inks(fg, rows: [worstSurface, bg], seeThrough: seeThrough, background: bg)
 
         // The config's selection fill, when text reads on it. Many themes select by inverse video

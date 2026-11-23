@@ -190,16 +190,6 @@ public final class CmuxDialogButtonView: ClickableButton {
         }
     }
 
-    /// The overlay surface (the dialog's card) this button draws on, if any.
-    private var enclosingSurface: OverlaySurfaceView? {
-        var view = superview
-        while let current = view {
-            if let surface = current as? OverlaySurfaceView { return surface }
-            view = current.superview
-        }
-        return nil
-    }
-
     /// How far outside the button the focus ring reaches: the gap (``focusGap``, on a solid fill)
     /// then the ring's line. Dialog button rows are `Metrics.space2` (4 pt) apart, and a ring
     /// reaching 4 pt ran into the next button; 2.5 pt leaves 1.5 pt to it. On a translucent fill
@@ -224,16 +214,10 @@ public final class CmuxDialogButtonView: ClickableButton {
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
             // A quiet button is a destructive one, or a stacked request's Deny (its cancel answer) in the same red text.
-            let lift = ChromeTunables.opaqueOverlayLift.value
             // On a menu or popover's glass (the bookmark bubble) the page shows through unscrimmed: fit to any page.
             // Outside any card the button sits on the window, see-through or not.
-            let card = switch enclosingSurface?.tintLevel {
-            case nil: CmuxDialogButtonLook.windowSurfaces(tokens)
-            case .menu?: CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
-            default: CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
-            }
             return CmuxDialogButtonLook(role: isQuiet ? .destructive : button.role, tokens: tokens, state: state, quiet: isQuiet,
-                                        isEnabled: isEnabled, card: card)
+                                        isEnabled: isEnabled, card: buttonGround(tokens))
         }
     }
 
@@ -249,10 +233,10 @@ public final class CmuxDialogButtonView: ClickableButton {
             // Only a solid fill needs the gap: a translucent one already reads apart from the ring.
             focusGap.isHidden = !hasFocus || look.fill.alpha < 1
             // The card's own color: the opaque surface under Reduce Transparency, else the glass.
-            let onOpaqueCard = enclosingSurface?.material == .opaque
+            let onOpaqueCard = enclosingOverlaySurface?.material == .opaque
             focusGap.borderColor = (onOpaqueCard ? look.opaqueCard : look.card).nsColor.cgColor
             CATransaction.commit()
-            let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
+            let font = button.role == .default ? Typography.cardTitle : Typography.cardMessage
             if let keycapView {
                 keycapView.paint(ink: look.title.nsColor, glyph: look.keyHint.nsColor)
                 let title = NSMutableAttributedString(string: button.title, attributes: [.foregroundColor: look.title.nsColor, .font: font])
@@ -291,13 +275,14 @@ enum CmuxDialogMetrics {
     /// The dialog card (``CmuxDialogView``): its width, wider with an icon so the text column keeps its width.
     static var width: CGFloat { 380 * Typography.userScale }
     static var widthWithIcon: CGFloat { 432 * Typography.userScale }
-    static var cardPadding: CGFloat { 16 * Typography.userScale }
+    /// The card's padding: the density's dialog padding (``Metrics/dialogPadding``, 16 pt at Default; #49579).
+    static var cardPadding: CGFloat { Metrics.dialogPadding }
     /// The card's concentric geometry (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
     /// inside"): the buttons on its bottom row sit ``cardPadding`` from the bottom and the sides, so the card
     /// rounds by the button corner plus that padding.
     static var card: ConcentricContainer { Metrics.buttonContainer(padding: cardPadding) }
-    static var spacing: CGFloat { 8 * Typography.userScale }
-    static var subtitleGap: CGFloat { 4 * Typography.userScale }
+    static var spacing: CGFloat { Metrics.space4 }
+    static var subtitleGap: CGFloat { Metrics.space2 }
     static var buttonsGap: CGFloat { 12 * Typography.userScale }
     static var fieldHeight: CGFloat { 24 * Typography.userScale }
     static var iconSize: CGFloat { 40 * Typography.userScale }

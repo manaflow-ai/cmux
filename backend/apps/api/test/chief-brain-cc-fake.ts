@@ -38,6 +38,8 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
   // Client sessions (sandbox-access.ts): identities with VM grants and tokens; every sandbox exec's credential.
   const identities = new Map<string, { grants: Map<string, Array<string> | null> }>()
   const tokens = new Map<string, { id: string; identity: string; revoked: boolean; expires: number }>()
+  // Every poll of a background exec's stored answer, by request id.
+  const background: Array<string> = []
   const execAuth: Array<{ vm: string; by: string; user: string | null }> = []
   const states = new Map<string, string>()
   const patches: Array<{ vm: string; body: any }> = []
@@ -71,6 +73,14 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
     // An identity token reaches only a granted VM's exec route; everything else needs the team key.
     if (idToken !== null) {
       expect(req.headers.get("authorization")).toBeNull()
+      // The stored answer of a background exec (`sleep past the edge` below), polled with the same token.
+      const bg = /^\/v5\/background-requests\/([^/]+)$/.exec(url.pathname)
+      if (bg && req.method === "GET") {
+        const t = tokens.get(idToken)
+        if (!t || t.revoked || t.expires < Date.now()) return Response.json({ code: "UNAUTHORIZED", message: "invalid identity access token" }, { status: 401 })
+        background.push(bg[1]!)
+        return background.filter((x) => x === bg[1]).length === 1 ? Response.json({ status: "pending" }, { status: 202 }) : Response.json({ statusCode: 0, stdout: "done\n", stderr: "" })
+      }
       const ex = /^\/v5\/vms\/([^/]+)\/exec-await$/.exec(url.pathname)
       if (!ex || req.method !== "POST") return Response.json({ code: "FORBIDDEN", message: "identity tokens reach exec and pty only" }, { status: 403 })
       const t = tokens.get(idToken)
@@ -81,6 +91,11 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
       execAuth.push({ vm: ex[1]!, by: `identity:${t.identity}`, user: body.linuxUser ?? null })
       execs.push({ vm: ex[1]!, command: body.command, stdin: body.stdin ? Uint8Array.from(atob(body.stdin), (c) => c.charCodeAt(0)) : new Uint8Array() })
       if (/(^|[;( ])poweroff/.test(body.command)) states.set(ex[1]!, "stopped")
+      // The edge cuts a request held open past about 125 s (524) unless it went to the background after 60 s.
+      if (body.command === "sleep past the edge") {
+        if (req.headers.get("x-freestyle-background-after-secs") !== "60") return new Response("edge timeout", { status: 524 })
+        return Response.json({ requestId: `bg-${execs.length}` }, { status: 202 })
+      }
       if (body.command.includes("resize2fs")) return Response.json({ statusCode: 0, stdout: "/dev/vda 63G 1.2G 62G 2% /\n", stderr: "" })
       if (body.command === "printenv GREETING; cat") return Response.json({ statusCode: 0, stdout: `${body.env?.GREETING ?? ""}\n${body.stdin ? atob(body.stdin) : ""}`, stderr: "" })
       if (body.command === "whoami") return Response.json({ statusCode: 0, stdout: `${body.linuxUser}\n`, stderr: "" })
@@ -246,7 +261,7 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
     }
     return new Response("unexpected", { status: 500 })
   })
-  return { events, made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches, files, uploads, snapshots, lifecycle }
+  return { events, made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, background, execAuth, states, patches, files, uploads, snapshots, lifecycle }
 }
 
 export const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })

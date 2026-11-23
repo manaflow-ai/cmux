@@ -339,6 +339,218 @@ def built_source(source: str, built: set[str], root: str) -> bool:
     return crate == root or source[len(crate) + 1:].split("/", 1)[0] not in verdict.UNBUILT_TARGET_DIRS
 
 
+SKIP_IF = jobs.PR_SKIP_IF
+SKIP_WORKFLOW = f"""name: s
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+  push:
+    branches: [feat-cmux-next]
+jobs:
+  heavy:
+    if: ${{{{ !cancelled() && {SKIP_IF} }}}}
+    runs-on: x
+  after:
+    needs: [heavy]
+    if: ${{{{ !cancelled() }}}}
+    runs-on: x
+"""
+
+
+class PullRequestSkip(unittest.TestCase):
+    """Tier A of the merged pull request replay: a job that caught nothing of its own skips on a pull request, and the
+    feat-cmux-next push runs it."""
+
+    def check(self, workflow_text: str, skipped=((".github/workflows/s.yml", "heavy"),)) -> list[str]:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/s.yml").write_text(workflow_text)
+            return jobs.check_pr_skip(root, list(skipped))
+
+    def test_a_pull_request_skips_it_and_a_push_or_the_label_runs_it(self):
+        skip = {"workflows": {".github/workflows/s.yml": {"heavy": "x"}}}
+        text = json.dumps({**json.loads(MAP), "pull_request_skip": skip})
+        key = (".github/workflows/s.yml", "heavy")
+        for kwargs, runs in (({}, False), ({"event": "push"}, True), ({"labels": ["full-ci"]}, True),
+                             ({"labels": ["other"]}, False), ({"base_ref": "main"}, True),
+                             ({"base_ref": "main", "labels": ["other"]}, True)):
+            with self.subTest(kwargs=kwargs), fake_tree(FILES) as tree:
+                result = jobs.route(tree, ["scripts/run-app.sh"], map_text=text, **kwargs)
+                self.assertEqual(result.pr_skip, {key: runs}, result.lines())
+                self.assertTrue(any(line.startswith(".github/workflows/s.yml heavy=") for line in result.lines()))
+        with fake_tree(FILES) as tree:  # a router change runs every routed job, never a skipped one
+            result = jobs.route(tree, ["scripts/ci/affected_jobs.py"], map_text=text)
+            self.assertEqual(result.pr_skip, {key: False})
+            result = jobs.route(tree, [], map_text=text, workflow=".github/workflows/s.yml")
+            self.assertEqual((result.run, result.pr_skip), ({}, {key: False}))
+
+    def test_a_wired_job_with_a_push_net_passes(self):
+        self.assertEqual(self.check(SKIP_WORKFLOW), [])
+        self.assertEqual(self.check(SKIP_WORKFLOW.replace("    branches: [feat-cmux-next]\njobs", "jobs")), [])
+
+    def test_an_if_without_the_guard_is_named(self):
+        problems = self.check(SKIP_WORKFLOW.replace(f" && {SKIP_IF}", ""))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("does not carry", problems[0])
+
+    def test_a_gate_that_runs_on_an_empty_output_of_a_skipped_job_is_named(self):
+        # cmux-tui-sdks.yml's conformance read contract's sdk_inputs as != 'false'; once contract was Tier A, the
+        # empty output of the skipped job ran conformance on every pull request (148 of 154 runs on 11-21).
+        after = "    if: ${{ !cancelled() }}\n"
+        for gate in ("(github.event_name != 'pull_request' || needs.heavy.outputs.inputs != 'false')",
+                     "needs.heavy.result != 'success'"):
+            with self.subTest(gate=gate):
+                problems = self.check(SKIP_WORKFLOW.replace(after, f"    if: ${{{{ !cancelled() && {gate} }}}}\n"))
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn("runs on every pull request", problems[0])
+        # Carrying the clause, reading the output as == 'true', or never running on a pull request passes.
+        for gate in (f"{SKIP_IF} && needs.heavy.outputs.inputs != 'false'", "needs.heavy.outputs.inputs == 'true'",
+                     "github.event_name != 'pull_request' && needs.heavy.outputs.inputs != 'false'"):
+            with self.subTest(gate=gate):
+                self.assertEqual(self.check(SKIP_WORKFLOW.replace(after, f"    if: ${{{{ !cancelled() && {gate} }}}}\n")), [])
+
+    def test_no_push_net_is_named(self):
+        for text in (SKIP_WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]\n", ""),
+                     SKIP_WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]", "  push:\n    branches: [main]")):
+            with self.subTest(text=text):
+                problems = self.check(text)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn("no push to feat-cmux-next", problems[0])
+
+    def test_a_post_merge_batch_suite_is_the_net(self):
+        import tempfile
+        text = SKIP_WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]\n", "  workflow_call:\n")
+        key = (".github/workflows/s.yml", "heavy")
+        for paths, count in (([], 0), (["a/**"], 1)):
+            with self.subTest(paths=paths), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / ".github/workflows").mkdir(parents=True)
+                (root / ".github/workflows/s.yml").write_text(text)
+                (root / ".github/post-merge-batch.json").write_text(json.dumps(
+                    {"suites": {"s": {"workflow": "s.yml", "paths": paths, "jobs": {"heavy": "heavy"}}}}))
+                problems = jobs.check_pr_skip(root, [key])
+                self.assertEqual(len(problems), count, problems)
+
+    def test_a_push_that_starts_on_fewer_paths_is_named(self):
+        text = SKIP_WORKFLOW.replace("    branches: [feat-cmux-next]\n  push:\n    branches: [feat-cmux-next]\n",
+                                     "    branches: [feat-cmux-next]\n    paths:\n      - a/**\n      - b/**\n"
+                                     "  push:\n    branches: [feat-cmux-next]\n    paths:\n      - a/**\n")
+        problems = self.check(text)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("fewer paths", problems[0])
+        self.assertEqual(self.check(text.replace("      - a/**\njobs", "      - a/**\n      - b/**\njobs")), [])
+        # A job the crate graph routes too: `check` holds the push paths to its inputs, not to the pull_request paths.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".github/workflows").mkdir(parents=True)
+            (Path(tmp) / ".github/workflows/s.yml").write_text(text)
+            key = (".github/workflows/s.yml", "heavy")
+            self.assertEqual(jobs.check_pr_skip(Path(tmp), [key], {key}), [])
+
+    def test_a_pull_request_exclude_or_a_path_under_a_pushed_glob_is_no_gap(self):
+        # The docs-only block narrows the pull request (`!a/**/*.md`) and puts a read doc back by name; a push
+        # that keeps a/** whole still starts on every path the pull request does.
+        text = SKIP_WORKFLOW.replace("    branches: [feat-cmux-next]\n  push:\n    branches: [feat-cmux-next]\n",
+                                     "    branches: [feat-cmux-next]\n    paths:\n      - a/**\n"
+                                     "      - \"!a/**/*.md\"\n      - a/read.md\n"
+                                     "  push:\n    branches: [feat-cmux-next]\n    paths:\n      - a/**\n")
+        self.assertEqual(self.check(text), [])
+        self.assertEqual(jobs.uncovered_by_push(["a/**", "!a/**/*.md", "a/x/read.md", "b/c.md"], ["a/**"]),
+                         {"b/c.md"})
+        self.assertEqual(jobs.uncovered_by_push(["ab/x.md"], ["a/**"]), {"ab/x.md"})
+
+    def test_a_job_that_runs_only_on_the_push_paths_needs_no_wider_push(self):
+        # cmux-tui-spec.yml's shape: every pull request starts it, and its `changes` job runs a job only when the
+        # change touches the push trigger's paths, so the push covers every change the job runs on.
+        text = SKIP_WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]\n",
+                                     "  push:\n    branches: [feat-cmux-next]\n    paths:\n      - a/**\n")
+        self.assertIn("fewer paths", "".join(self.check(text)))
+        routed = text.replace(
+            "jobs:\n  heavy:\n    if: ${{ !cancelled() && ",
+            "jobs:\n  changes:\n    runs-on: x\n    steps:\n      - run: python3 .github/scripts/cmux-tui-spec-changed.py"
+            " --workflow s.yml\n  heavy:\n    needs: changes\n"
+            "    if: ${{ !cancelled() && needs.changes.outputs.run == 'true' && ")
+        self.assertEqual(self.check(routed), [])
+        self.assertIn("fewer paths", "".join(self.check(routed.replace("cmux-tui-spec-changed.py", "other.py"))))
+
+    def test_a_job_that_needs_it_and_would_skip_with_it_is_named(self):
+        text = SKIP_WORKFLOW.replace("    needs: [heavy]\n    if: ${{ !cancelled() }}\n", "    needs: heavy\n")
+        problems = self.check(text)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("job after needs heavy", problems[0])
+        listed = SKIP_WORKFLOW.replace("    needs: [heavy]\n    if: ${{ !cancelled() }}\n",
+                                       "    needs:\n      - other\n      - heavy\n    if: success()\n")
+        self.assertEqual(len(self.check(listed)), 1)
+        self.assertEqual(self.check(text, skipped=((".github/workflows/s.yml", "heavy"),
+                                                   (".github/workflows/s.yml", "after"))),
+                         [".github/workflows/s.yml: job after's `if:` does not carry " + SKIP_IF
+                          + ", so a pull request still runs it (scripts/ci/affected-jobs.json pull_request_skip)"])
+
+    def test_a_job_that_never_runs_on_a_pull_request_may_need_it(self):
+        folded = SKIP_WORKFLOW.replace("    needs: [heavy]\n    if: ${{ !cancelled() }}\n",
+                                       "    needs: heavy\n    if: >-\n      github.event_name != 'pull_request'\n"
+                                       "      && github.ref == 'refs/heads/main'\n")
+        self.assertEqual(self.check(folded), [])
+        self.assertEqual(jobs.job_if("    if: >-\n      a\n      && b\n    runs-on: x\n"), "a && b")
+
+    def test_the_lane_reader_counts_the_push_as_its_lane(self):
+        # tests/test_pr_lane_coverage.py reads which jobs a pull request runs; a listed job's lane is the push.
+        try:
+            import pr_test_lanes  # noqa: PLC0415 - needs PyYAML
+        except ImportError:
+            self.skipTest("PyYAML")
+        self.assertEqual(pr_test_lanes.PR_SKIP_IF, jobs.PR_SKIP_IF)
+        context = pr_test_lanes.event_context("feat-cmux-next")
+        self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", context), True)
+        self.assertIs(pr_test_lanes.evaluate("${{ github.event_name != 'pull_request' }}", context), False)
+        # A pull request into main runs every skipped job: no push of main would (SKIP_BASE).
+        self.assertIn("!startsWith(github.event.pull_request.base.ref, '" + jobs.SKIP_BASE + "')", jobs.PR_SKIP_IF)
+        # A pull request into a branch stacked on feat-cmux-next (feat-cmux-next-ios-infinite-scroll) skips the same
+        # jobs: that branch reaches feat-cmux-next through a PR that skips them too, and the feat-cmux-next push runs
+        # them (Aziz's App Review gate walked 26-30 min on every push into it, 2026-11-22).
+        stacked = pr_test_lanes.event_context("feat-cmux-next-ios-infinite-scroll")
+        self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", stacked), True)
+        tier = "${{ !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') }}"
+        self.assertIs(pr_test_lanes.evaluate(tier, stacked), False)
+        self.assertIs(pr_test_lanes.evaluate(tier, context), False)
+        self.assertIs(pr_test_lanes.evaluate(tier, pr_test_lanes.event_context("main")), True)
+
+    def follows(self, gate_line: str, followed: str = ".github/workflows/s.yml heavy") -> list[str]:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/s.yml").write_text(SKIP_WORKFLOW)
+            (root / ".github/workflows/fix.yml").write_text(
+                "jobs:\n  repair:\n    steps:\n      - env:\n" + gate_line + "        run: true\n")
+            skip = {"workflows": {".github/workflows/s.yml": {"heavy": "x"}},
+                    "follows": {".github/workflows/fix.yml": {"GATE_HEAVY": followed}}}
+            return jobs.check_follows(root, json.dumps({"pull_request_skip": skip}))
+
+    def test_a_gate_set_to_the_skip_clause_passes(self):
+        self.assertEqual(self.follows(f"          GATE_HEAVY: ${{{{ {SKIP_IF} }}}}\n"), [])
+
+    def test_a_gate_that_drifted_from_the_skip_clause_is_named(self):
+        problems = self.follows(f"          GATE_HEAVY: ${{{{ {SKIP_IF.replace('full-ci', 'dev-build')} }}}}\n")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("different heads", problems[0])
+
+    def test_a_gate_never_set_or_following_an_unlisted_job_is_named(self):
+        self.assertIn("never sets", self.follows("")[0])
+        problems = self.follows(f"          GATE_HEAVY: ${{{{ {SKIP_IF} }}}}\n", ".github/workflows/s.yml after")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("does not list", problems[0])
+
+    def test_every_listed_job_is_named_in_the_map_with_its_replay(self):
+        data = json.loads((ROOT / jobs.MAP).read_text())
+        for workflow, entry in data.get("pull_request_skip", {}).get("workflows", {}).items():
+            for job_id, why in entry.items():
+                with self.subTest(job=f"{workflow} {job_id}"):
+                    self.assertRegex(why, r"\d+ runs? on \d+ merged pull requests")
+
+
 BINARIES_MAP = json.dumps({
     "workspace_inputs": ["cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock"],
     "workflows": {

@@ -39,9 +39,10 @@ enum SidebarSectionHandlers {
         let sidebarDoc = services.sidebarDoc
         ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
-            openWorkspace: { session, host in try services.chatsOpener.pending.work(services.registry) { try AgentSessionWorkspace.open(session: session, name: nil, cwd: nil, host: host, focus: true, services: services) } }, openRight: { services.agentTabs.openRight?($0, $1, $2) ?? false }, keeps: { [weak services] in await services?.agentTabs.chiefHomes?.keeps(session: $0, host: $1) ?? false }))
-        // Agent chats on other machines are transient rows owned by each window's SidebarBridge; they are
-        // intentionally absent from the durable sidebar document and cannot be moved or hidden here.
+            openWorkspace: { session, host in try services.chatsOpener.pending.work(services.registry) { try AgentSessionWorkspace.open(session: session, name: nil, cwd: nil, host: host, focus: true, services: services) } }, openRight: { services.agentTabs.openRight?($0, $1, $2) ?? false }, keeps: { [weak services] in await services?.agentTabs.chiefHomes?.keeps(session: $0, host: $1) ?? false }, openSidePanel: { [weak services] in services.map { $0.chiefSidePanel.open(host: $0) } ?? false }))
+        // Agent chats on other machines are not sidebar rows (the top band holds what the person put there,
+        // Lawrence 2026-10-26). Only the Labs Hosts section (`labs.hostsSidebar`, off by default) binds
+        // `RemoteMachinesSidebar`, per window (`SidebarMachineSections`), and never in the durable document.
         SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.

@@ -41,10 +41,10 @@ struct NewTabHoldCloseKeyTests {
         override func keyDown(with event: NSEvent) { typed += event.characters ?? "" }
     }
 
-    /// One workspace with one pane, or with two side by side; each pane has one tab. `secondWorkspace`: one more
-    /// workspace with one pane, for a second window.
+    /// One workspace with one pane, or with two side by side; each pane has 2 tabs and shows the first (the second is
+    /// for the page of an opening: `NewTabHoldByHandOpening`). `secondWorkspace`: one more workspace with one pane, for a second window.
     private static func tree(panes: Int, secondWorkspace: Bool = false) -> DaemonTree {
-        let all = (1...panes).map { PaneSnapshot(id: PaneID(rawValue: UInt64($0)), tabs: [TabSnapshot(surface: SurfaceID(rawValue: UInt64($0)), title: "~")]) }
+        let all = (1...panes).map { pane in PaneSnapshot(id: PaneID(rawValue: UInt64(pane)), tabs: [UInt64(pane), UInt64(pane) + 100].map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") }) }
         let layout: LayoutNode = panes == 1 ? .leaf(all[0].id)
             : .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(all[0].id), b: .leaf(all[1].id))
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: all)
@@ -177,10 +177,10 @@ struct NewTabHoldCloseKeyTests {
         let pane = try #require(content.paneController(key: models[count - 1].id))
         for _ in 0..<100 where pane.currentTabKey == nil { try await Task.sleep(for: .milliseconds(10)) }
         if pane.currentTabKey == nil { pane.showSelected() }
-        let tab = try #require(pane.currentTabKey, "the pane shows no tab")
+        let tab = try NewTabHoldByHandOpening.pagesTab(of: pane, shownTab: incoming || newWindowHold)
         pageKey = tab
 
-        // The pane's tab is a New Tab page whose field has not reported ready.
+        // The page of the tab `tab` is a New Tab page whose field has not reported ready. An opening in this pane: the pane shows that tab after its hold began (below).
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: "index.html")
         try Data("<html><body><input></body></html>".utf8).write(to: file)
@@ -243,7 +243,7 @@ struct NewTabHoldCloseKeyTests {
         input.scheduleDeadline = { _, _ in Task {} }
         // `byScript`: the opening is a run of the CLI that may not change the view, as `ActionRegistry` binds it.
         var token = try #require(ActionRunScope.$current.withValue(byScript ? scriptRun : nil) { newWindowHold ? input.beginIncoming(in: window, followsNewWindow: true) : incoming ? input.beginIncoming(in: window) : input.begin(for: pane) })
-        if !incoming, !newWindowHold { input.didShow(in: window) }
+        if !incoming, !newWindowHold { try await NewTabHoldByHandOpening.showsItsPage(in: tab, of: pane, hold: input, controller: controller, focused: focused, keyboard: probe) }
         // `thenAScriptOpens`: a script's opening in the same window replaces the hold before the first key.
         if thenAScriptOpens { token = try #require(ActionRunScope.$current.withValue(scriptRun) { input.begin(for: pane) }, "the script's opening began no hold") }
         let line = [try keyDown("l", keyCode: 37, in: window), try keyDown("s", keyCode: 1, in: window), try keyDown("\r", keyCode: 36, in: window)]

@@ -6,6 +6,7 @@
 
 pub mod app_bridge;
 pub mod app_open;
+pub(crate) mod archive;
 pub mod beads;
 pub mod bg;
 pub(crate) use crate::bounded_child;
@@ -40,6 +41,7 @@ pub mod host_candidates;
 pub mod host_enroll;
 pub mod host_join_doctor;
 pub mod host_peering;
+pub(crate) mod host_sandbox;
 pub mod host_ssh_key;
 pub mod host_steps;
 pub mod host_vault;
@@ -48,6 +50,7 @@ pub mod join_input;
 pub(crate) mod last_reply;
 pub mod ledger;
 pub(crate) mod list_read;
+pub(crate) mod ls_far;
 pub(crate) mod ls_ssh;
 pub mod ls_table;
 pub mod machine_auth;
@@ -64,6 +67,8 @@ pub mod pairing;
 pub mod peer_status;
 pub mod place;
 pub mod process;
+#[cfg(unix)]
+pub mod process_census;
 #[cfg(unix)]
 pub mod process_owner;
 pub mod race;

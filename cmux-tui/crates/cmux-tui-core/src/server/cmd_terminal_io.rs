@@ -17,6 +17,7 @@ use super::get_surface;
 use super::image_paste;
 use super::optional_surface_size;
 use super::require_pty;
+use super::send_once;
 use super::terminal_snapshot;
 use crate::Actor;
 use crate::DefaultColors;
@@ -120,6 +121,12 @@ pub(super) struct SendParams {
     /// flows); only recorded, never acted on. An older daemon ignores it.
     #[serde(default)]
     pub(super) flow: Option<u64>,
+    /// `send-key-v1`: an id for this input. A `send` whose key the daemon already applied is
+    /// answered with the same success reply and writes nothing (`send_once`), so a client that
+    /// lost the reply can send it again safely. Applies to `text` and `bytes` alike. An older
+    /// daemon ignores it.
+    #[serde(default)]
+    pub(super) key: Option<String>,
 }
 
 /// The terminal a key (`send`, `send-key`) goes to. A client attached to it (the app's terminal view) keeps its handle
@@ -171,6 +178,48 @@ pub(super) fn send(
     mux: &Arc<Mux>,
     client: u64,
     writer: &MessageWriter,
+    mut params: SendParams,
+) -> anyhow::Result<Value> {
+    let Some(key) = params.key.take() else {
+        return send_unkeyed(mux, client, writer, params);
+    };
+    if key.is_empty() || key.len() > send_once::MAX_KEY_LEN {
+        return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+            "bad request: key must be 1 to {} bytes",
+            send_once::MAX_KEY_LEN
+        )));
+    }
+    let claimed = send_once::sent_keys()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .claim(&key, Instant::now());
+    if !claimed {
+        // Applied already (the client lost the first reply): the same success, nothing written.
+        return Ok(json!({}));
+    }
+    let result = send_unkeyed(mux, client, writer, params);
+    if let Err(error) = &result
+        && known_not_delivered(error)
+    {
+        send_once::sent_keys()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .forget(&key);
+    }
+    result
+}
+
+/// The error says nothing was written (a refused check), so the same key may write later.
+fn known_not_delivered(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<DeliveryClassifiedError>().is_some_and(|classified| {
+        matches!(classified.delivery, super::ResponseErrorDelivery::KnownNotDelivered)
+    })
+}
+
+fn send_unkeyed(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
     params: SendParams,
 ) -> anyhow::Result<Value> {
     let SendParams {
@@ -183,6 +232,7 @@ pub(super) fn send(
         expect_agent,
         submit,
         flow,
+        key: _,
     } = params;
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
