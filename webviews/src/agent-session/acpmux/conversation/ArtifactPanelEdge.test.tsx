@@ -125,7 +125,9 @@ test("opening and closing the side panel declare the chat's resize beside it, on
   // What an earlier test opened or closed has lapsed by now.
   openDeclarations(performance.now() + 1000);
   render(<section className="acpmux-shell">{panel}</section>);
-  expect(resizes("side panel opens").map(({ scope, once }) => ({ scope, once }))).toEqual([{ scope: "all", once: true }]);
+  expect(resizes("side panel opens").map(({ scope, once }) => ({ scope, once }))).toEqual([
+    { scope: "all", once: true },
+  ]);
   render(<section className="acpmux-shell" />);
   expect(resizes("side panel closes")).toHaveLength(1);
 });
