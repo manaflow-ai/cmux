@@ -14692,8 +14692,9 @@ export class AcpmuxDirectClient {
   /// The chat's every prompt older than its open page, read from acpmux's prompt index
   /// (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): each bounded reply is
   /// newest-first by page but oldest-first within it, so older pages prepend until `hasMore` ends.
-  /// Today's daemon returns the whole index with `hasMore: false`; a daemon without the index
-  /// reads the bounded `user_message` page the request also names, which covers what it holds.
+  /// The daemon bounds each page by `limit` and `maxBytes` (one older daemon returned the whole
+  /// index with `hasMore: false`); a daemon without the index reads the bounded `user_message`
+  /// page the request also names, which covers what it holds.
   private promptIndex?: PromptIndexRead;
   /// `shownEarlierPrompts`' last answer, by what it was read from.
   private earlierShown?: { heads: PromptHeads; before: number; list: PromptHeads; shed: number };
