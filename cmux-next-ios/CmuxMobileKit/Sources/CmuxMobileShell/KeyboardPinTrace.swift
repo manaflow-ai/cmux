@@ -160,9 +160,9 @@ public final class KeyboardPinTrace: NSObject {
 
     /// Notes every touch the window gets and never takes one: it fails at once.
     private final class TouchMarker: UIGestureRecognizer {
-        var onTouch: ((UIView?) -> Void)?
+        var onTouch: ((UIView?, CGPoint?) -> Void)?
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-            onTouch?(touches.first?.view)
+            onTouch?(touches.first?.view, touches.first.map { $0.location(in: nil) })
             state = .failed
         }
     }
@@ -172,9 +172,11 @@ public final class KeyboardPinTrace: NSObject {
         marker.cancelsTouchesInView = false
         marker.delaysTouchesBegan = false
         marker.delaysTouchesEnded = false
-        marker.onTouch = { [weak self] view in
+        marker.onTouch = { [weak self] view, point in
             guard let self else { return }
-            self.write(String(format: "t=%.4f ev=touchBegan", CACurrentMediaTime() - self.start))
+            // Where and on what: a step that lost the keyboard says what the touch hit.
+            self.write(String(format: "t=%.4f ev=touchBegan x=%.1f y=%.1f view=%@", CACurrentMediaTime() - self.start,
+                              point?.x ?? -1, point?.y ?? -1, view.map { KeyboardInputInjector.name($0) } ?? "-"))
             self.injector?.touchBegan(view: view)
         }
         return marker

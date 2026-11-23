@@ -179,6 +179,15 @@ final class KeyboardInputInjector {
         }
         // Where the user sees the target: the field on a show, the content on a hide.
         let field = KeyboardPinTrace.composerField(in: window)
+        // No field to touch yet (the chat's collapsed capsule builds its field
+        // about 140 ms after willShow): a touch at a guessed point lands on the
+        // transcript, whose rows open a file or the diff and whose end-editing
+        // tap takes the keyboard down, and every later step of the run is lost.
+        if show, field == nil {
+            write(String(format: "t=%.4f ev=injectSkip id=%d mode=%@ dir=%@ off=%@ due=%.4f lag=%.2f why=nofield",
+                         t, id, mode.rawValue, dir, off, due, lag))
+            return
+        }
         var target: UIView?
         var point = CGPoint(x: window.bounds.midX, y: window.bounds.height * 0.4)
         if show, let field {

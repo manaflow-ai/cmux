@@ -32,6 +32,8 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         var field: (XCUIApplication) -> XCUIElement
         var key: ((XCUIApplication) -> XCUIElement)?
         var hideByTap: ((XCUIApplication) -> Void)?
+        /// Brings the field up ready for the rounds; false when it could not.
+        var prepare: ((XCUIApplication) -> Bool)?
     }
 
     private static let base = ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-kbd-pin-trace"]
@@ -42,14 +44,36 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         field: { $0.textViews["terminal.composer.field"] },
         key: { $0.buttons["terminal.key.keyboard"] }) }
 
+    /// The chat opens on a question card with the composer folded into the
+    /// "Reply to Claude" capsule. A tap on the capsule expands it but does not
+    /// always focus the field (ComposerGrowUpUITests and
+    /// TranscriptTapDismissUITests tap the field again), and an empty composer
+    /// folds back on every hide: tapped once per round, the capsule brought no
+    /// keyboard in 79 of 80 rounds (step cb5cfa1c). A draft keeps the field
+    /// built, so every round taps the field itself, as on the other surfaces.
     @MainActor private static var chat: Surface { Surface(
         name: "chat",
         arguments: ["-cmux-mobile-demo", "kbd-chat"],
-        field: { app in
-            let text = app.textViews["chat.composer.field"]
-            return text.exists ? text : app.descendants(matching: .any).matching(identifier: "Reply to Claude").firstMatch
-        },
-        hideByTap: { $0.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap() }) }
+        field: { $0.textViews["chat.composer.field"] },
+        // Inside the transcript's 16 pt margin: a tap at the middle of the
+        // screen opened the file row under it (transport-report.html, the
+        // Changes card) and left the chat (steps 9fb294f9 and cb5cfa1c).
+        hideByTap: { $0.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.3)).tap() },
+        prepare: { app in
+            let field = app.textViews["chat.composer.field"]
+            let capsule = app.descendants(matching: .any).matching(identifier: "Reply to Claude").firstMatch
+            for _ in 0..<4 where !(field.exists && app.keyboards.firstMatch.exists) {
+                if !field.exists, capsule.waitForExistence(timeout: 10) { capsule.tap() }
+                guard field.waitForExistence(timeout: 5) else { continue }
+                if !app.keyboards.firstMatch.exists { field.tap() }
+                _ = app.keyboards.firstMatch.waitForExistence(timeout: 5)
+            }
+            guard field.exists, app.keyboards.firstMatch.exists else { return false }
+            if !((field.value as? String) ?? "").contains(Self.draft) { field.typeText(Self.draft) }
+            return ((field.value as? String) ?? "").contains(Self.draft)
+        }) }
+
+    private static let draft = "Keyboard bench draft"
 
     @MainActor private static var chief: Surface { Surface(
         name: "chief",
@@ -77,19 +101,39 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         let path = (probe.value as? String ?? "").split(separator: " ").first { $0.hasPrefix("file=") }
             .map { String($0.dropFirst(5)).replacingOccurrences(of: "%20", with: " ") }
         let name = "\(surface.name)-\(mode)"
-        guard surface.field(app).waitForExistence(timeout: 30) else {
-            XCTFail("\(name): no field to focus")
+        // On the surface before the first round: its field exists and, where
+        // the surface needs one, the field is up with its draft.
+        guard ready(surface, app, name: name, label: "setup") else {
+            XCTFail("\(name): not on the \(surface.name) surface with a field to focus\n\(app.debugDescription)")
+            attachScreen(app, "\(name)-setup")
             attachTrace(name, path)
             return
         }
-        if keyboardUp(app) { hide(surface, app, label: "setup.hide.0", name: name) }
         settle()
         var notes: [String] = []
         for round in 0..<rounds {
+            // Still on the surface: a touch that opened another screen ends
+            // here with a note and a way back, not in a failed tap on a field
+            // that is gone (and the trace lost with it).
+            if !surface.field(app).exists {
+                notes.append("\(mode).show.\(round): off the surface (\(app.navigationBars.firstMatch.identifier))")
+                attachScreen(app, "\(name)-off-\(round)")
+                let back = app.navigationBars.buttons["BackButton"].firstMatch
+                if back.exists { back.tap() }
+                settle()
+                guard ready(surface, app, name: name, label: "reset.\(round)") else {
+                    XCTFail("\(name): left the \(surface.name) surface at round \(round) and could not return\n\(app.debugDescription)")
+                    break
+                }
+                settle()
+            }
             mark(name, "\(mode).show.\(round)")
             surface.field(app).tap()
             settle()
-            if !keyboardUp(app) { notes.append("\(mode).show.\(round): no keyboard") }
+            if !keyboardUp(app) {
+                notes.append("\(mode).show.\(round): no keyboard")
+                if notes.count <= 3 { attachScreen(app, "\(name)-nokb-\(round)") }
+            }
             mark(name, "\(mode).hide.\(round)")
             if let tap = surface.hideByTap { tap(app) } else { surface.key?(app).tap() }
             settle()
@@ -102,6 +146,30 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         settle(0.5)
         log("kbm-notes \(name) \(notes.isEmpty ? "-" : notes.joined(separator: "; "))")
         attachTrace(name, path)
+    }
+
+    /// The field exists, prepared where the surface needs it, the keyboard down.
+    @MainActor
+    private func ready(_ surface: Surface, _ app: XCUIApplication, name: String, label: String) -> Bool {
+        if let prepare = surface.prepare {
+            guard prepare(app) else { return false }
+        } else {
+            guard surface.field(app).waitForExistence(timeout: 30) else { return false }
+        }
+        if keyboardUp(app) { hide(surface, app, label: "\(label).hide.0", name: name) }
+        return surface.field(app).exists
+    }
+
+    @MainActor
+    private func attachScreen(_ app: XCUIApplication, _ name: String) {
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "kbm-screen-\(name)"
+        shot.lifetime = .keepAlways
+        add(shot)
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "kbm-tree-\(name).txt"
+        tree.lifetime = .keepAlways
+        add(tree)
     }
 
     @MainActor
