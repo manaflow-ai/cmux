@@ -239,6 +239,16 @@ Takeover and parking:
 - A laptop's lease that runs out gives the chat to the Auto machine when `needsRun` was set **or an inbox message
   is unacked**; otherwise it is parked. No machine set: parked, `needsRun` kept, `blocked: "no_machine"`; setting
   the machine later moves it.
+- A message alone moves a chat to a machine only once the store has a snapshot of it (`snapshot > 0`): at the
+  lease's end, for a parked chat, and at a laptop's `release`. Before that the laptop has the only chat there
+  is. A machine cannot import events without a snapshot, and one given an empty copy would start a second chat
+  from the repository. So the chat is parked without `blocked`, the sender is told `queued`, and the laptop reads
+  the message when it takes the chat back. `needsRun` needs no such check: a laptop says it only once its
+  snapshot is stored.
+- Setting the Auto machine also moves a chat given to another machine that was never heard from since: no
+  renewal, no ack of its assignment and no ack of a message (`leaseExpiresAt` still 0). A machine that was heard
+  from keeps the chat even with its assignment unacked, because a message it acked is in its log alone until its
+  next copy. An inbox ack by a machine counts as hearing from it.
 - A machine's start is retried while it has something unacked (every 5 s while it starts and for its first
   120 s, then every 60 s, for up to 6 h).
 
@@ -259,13 +269,18 @@ Assignments, release and inbox:
   same epoch with a `deliver`; released by a laptop, it goes to the Auto machine as a `takeover`; no machine,
   parked with `blocked: "no_machine"`.
 - Inbox `state`: `delivered` for a laptop holder or an acked machine with a live lease; `resuming` while a
-  machine is being started; `queued` when no machine is set.
+  machine is being started; `queued` when no machine is set, or for a parked chat with no snapshot (it waits for
+  its laptop).
 
 `PUT :id`:
 
 - `auto: false` is refused `auto.held_in_cloud` while a machine holds the chat, for a parked chat a machine ran
   last, and for a parked chat with an unread message. A laptop takes it as standby first.
 - `auto: true` on a closed chat reopens it, empty, at the next epoch. Closed chats are not listed.
+- `auto: true` from the laptop a parked chat was parked from takes the chat back as it is, at the next epoch, as
+  that laptop's renewal would (nobody ran it since). A registration whose first answer was lost and whose retry
+  came after the lease ran out so answers that laptop as the holder; before this it read as a chat another
+  holder ran, and the laptop killed its own chat and imported an empty copy over it.
 
 Wire:
 
@@ -280,6 +295,17 @@ Wire:
   capped at 512 MiB apart.
 - The view: `standby` lists live standbys only; `leaseExpiresAt` is 0 for a parked chat and for a machine before
   its first ack; times are milliseconds.
+
+Known limits of the store's rules:
+
+- A chat past the size cap. The laptop finds this before it uploads, so the store only sees copies stop. If the
+  laptop then goes away and a message arrives, the machine goes on from the last snapshot that fit, with the log
+  up to date and the folder as old as that snapshot. What the laptop wrote since is kept as its leftover patch
+  when it returns. Telling the store that its copy is frozen needs one more field on the lease; not built.
+- A machine that was heard from and then deleted keeps its chat: a machine's lease never runs out to another
+  holder while it has work or something uncopied. Nothing moves that chat today.
+- `delivered` to a laptop holder means the store took the message for a holder whose lease is live. A laptop that
+  has just gone to sleep reads it when it wakes, or the machine does after the takeover.
 
 ## The daemons and the core crate as built (2026-11-23)
 

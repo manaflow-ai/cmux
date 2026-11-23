@@ -12,8 +12,8 @@ use cmux_auto_session::cloud::{AutoCloud, AutoCloudError, CloudResult};
 use cmux_auto_session::fake::FakeAutoCloud;
 use cmux_auto_session::wire::{
     Assignment, CreateRequest, EventsAppend, EventsPage, Fence, Holder, InboxAck, InboxMessage, InboxPost,
-    InboxPosted, LeaseAnswer, LeaseRequest, MachineSetting, PutRequest, Repo, SeqRecord, SessionList,
-    SessionView, SnapshotAnswer, SnapshotPost,
+    InboxPosted, LeaseAnswer, LeaseRequest, MachineSetting, Manifest, PutRequest, Repo, SeqRecord,
+    SessionList, SessionView, SnapshotAnswer, SnapshotPost,
 };
 use serde_json::{Value, json};
 
@@ -73,6 +73,18 @@ pub fn store() -> FakeAutoCloud {
     let owner = with_machine();
     ready(owner.put(CHAT, &put_request("Fix the build", Some(repo("app", "main"))))).expect("the chat");
     owner
+}
+
+/// The laptop's first copy of the chat is in the store: a snapshot with no files. From here a
+/// message alone can start a machine for the chat.
+pub fn copied(cloud: &FakeAutoCloud) {
+    let manifest: Manifest = serde_json::from_value(json!({
+        "v": 1, "at": 0, "lastSeq": 0, "harness": "claude", "harnessSessionId": "h",
+        "cwd": { "kind": "folder", "tar": [] },
+    }))
+    .expect("a manifest");
+    let post = SnapshotPost { holder: mac(), epoch: 1, manifest };
+    ready(cloud.post_snapshot(CHAT, &post)).expect("the snapshot");
 }
 
 pub fn chat(cloud: &FakeAutoCloud) -> SessionView {

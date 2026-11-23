@@ -146,6 +146,7 @@ fn a_laptops_release_parks_the_chat_for_any_laptop_to_take() {
 fn a_release_with_an_unread_message_keeps_or_reassigns() {
     // A laptop gives up a chat with a message it never took: the Auto machine gets it.
     let (owner, machine) = store();
+    snapshot_as(&owner, &mac(), 1, b"folder", 0).expect("stored");
     send(&owner, "m1", "are you there");
     let released = ready(owner.release(CHAT, &Fence::new(mac(), 1))).expect("released");
     assert_eq!(
@@ -163,7 +164,9 @@ fn a_release_with_an_unread_message_keeps_or_reassigns() {
     assert_eq!((released.holder.clone(), released.epoch), (vm(), 2));
     assert_eq!(kinds(&machine), [AssignmentKind::Deliver]);
 
-    // Another machine releases with a message unread: the chat goes to the Auto machine.
+    // Another machine releases with a message unread: the chat goes to the Auto machine, which
+    // has the releasing machine's snapshot to start from.
+    snapshot_as(&machine, &vm(), 2, b"folder", 0).expect("stored");
     let next = MachineSetting { team: TEAM.into(), machine: "vm_2".into() };
     ready(owner.set_machine(&next)).expect("the Auto machine");
     let released = ready(machine.release(CHAT, &Fence::new(vm(), 2))).expect("released");
@@ -173,8 +176,20 @@ fn a_release_with_an_unread_message_keeps_or_reassigns() {
     // With no Auto machine the message waits with the parked chat.
     let owner = FakeAutoCloud::new();
     ready(owner.put(CHAT, &put_request("mac"))).expect("the chat");
+    snapshot_as(&owner, &mac(), 1, b"folder", 0).expect("stored");
     send(&owner, "m1", "are you there");
     let released = ready(owner.release(CHAT, &Fence::new(mac(), 1))).expect("released");
     assert_eq!((released.holder.clone(), released.epoch), (Holder::Parked, 2));
     assert_eq!(released.blocked, Some(Blocked::NoMachine));
+
+    // Before the chat's first snapshot no machine could go on with it: parked, not blocked,
+    // and the message waits for the laptop.
+    let (owner, machine) = store();
+    send(&owner, "m1", "are you there");
+    let released = ready(owner.release(CHAT, &Fence::new(mac(), 1))).expect("released");
+    assert_eq!(
+        (released.holder.clone(), released.epoch, released.blocked),
+        (Holder::Parked, 2, None)
+    );
+    assert!(kinds(&machine).is_empty());
 }

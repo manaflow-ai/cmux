@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest"
 import { planAppend } from "../src/auto-sessions/events.ts"
 import { MAX_CHAT_BYTES, MAX_CHUNK_BYTES } from "../src/auto-sessions/model.ts"
 import { chunkNames } from "../src/auto-sessions/snapshots.ts"
-import { advance, as, call, chatStub, fakeClock, fakeCloud, get, getChunk, indexStub, lapse, LAPTOP, open, person, post, putChunk, runIn, setMachine, sha256, VM, vmBearer } from "./auto-sessions-support.ts"
+import { advance, as, call, chatStub, copied, fakeClock, fakeCloud, get, getChunk, indexStub, lapse, LAPTOP, open, person, post, putChunk, runIn, setMachine, sha256, VM, vmBearer } from "./auto-sessions-support.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /** Auto mode's Cloud copy of a chat (src/auto-sessions): its events, chunks and snapshot, its inbox, and a chat started with no laptop. */
@@ -95,6 +95,8 @@ describe("auto sessions: the chat's Cloud copy", { timeout: 60_000 }, () => {
     await setMachine(a)
     const vm = await vmBearer(a, M_HOLDER)
     await open(a.session, "talk")
+    // The laptop's first copy is stored: from here a message alone can start a machine for the chat.
+    expect((await copied(a.session, "talk")).body).toEqual({ snapshot: 1 })
     // A laptop holds it: the message waits for its next renewal.
     const sent = await post(a.session, "talk", "inbox", { id: "m1", text: "first" })
     expect(sent.body).toMatchObject({ state: "delivered", session: { holder: LAPTOP, inbox: 1, inboxAcked: 0 } })

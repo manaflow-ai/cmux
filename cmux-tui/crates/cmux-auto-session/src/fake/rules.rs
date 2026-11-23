@@ -124,10 +124,17 @@ fn assign(r: &Record, m: &MachineSetting, kind: AssignmentKind) -> Record {
     }
 }
 
+/// Whether a message alone may send the chat to a machine: the store has a snapshot to import.
+/// A machine given a chat with events and no snapshot cannot import it, and one given an empty
+/// copy would start a chat the laptop already has.
+fn has_copy(r: &Record) -> bool {
+    r.snapshot > 0
+}
+
 /// A parked chat with a message waiting goes to the Auto machine, or is marked as waiting for
-/// one.
+/// one. Without a snapshot it stays as it is: the message waits for the laptop.
 fn settle(r: Record, machine: Option<&MachineSetting>) -> Record {
-    if !r.holder.is_parked() || !pending_inbox(&r) {
+    if !r.holder.is_parked() || !pending_inbox(&r) || !has_copy(&r) {
         return r;
     }
     match machine {
@@ -241,13 +248,16 @@ pub(super) fn cloud_record(
 }
 
 /// A later `PUT` with Auto on: the chat's title, harness, keep-in-Cloud and repository follow;
-/// a closed chat opens again, empty, at the next epoch.
+/// a closed chat opens again, empty, at the next epoch. From the laptop a parked chat was
+/// parked from, it also takes the chat back as it is (nobody ran it since): a registration
+/// whose first answer was lost, sent again after the lease ran out, still answers that laptop
+/// as the holder. Its renewal at the epoch it held is then that renewal (`resumed_epoch`).
 pub(super) fn edit(r: &Record, input: &PutRequest, now: u64) -> Decision<()> {
     let title = input.title.trim().to_owned();
     let harness = input.harness.clone();
     let repo = input.repo.clone().or_else(|| r.repo.clone());
+    let me = Holder::device(input.device.clone());
     if !r.auto {
-        let me = Holder::device(input.device.clone());
         let keep_in_cloud = input.keep_in_cloud.unwrap_or(false);
         let opened = taken_by(r, &me, false, now);
         return Ok(Step::loud(
@@ -256,6 +266,14 @@ pub(super) fn edit(r: &Record, input: &PutRequest, now: u64) -> Decision<()> {
         ));
     }
     let keep_in_cloud = input.keep_in_cloud.unwrap_or(r.keep_in_cloud);
+    if r.holder.is_parked() && r.parked_from.as_ref() == Some(&me) {
+        let taken = taken_by(r, &me, false, now);
+        let resumed_epoch = r.epoch.saturating_sub(1);
+        return Ok(Step::loud(
+            (),
+            Record { title, harness, keep_in_cloud, repo, resumed_epoch, ..taken },
+        ));
+    }
     let same = title == r.title
         && harness == r.harness
         && keep_in_cloud == r.keep_in_cloud
@@ -426,20 +444,25 @@ pub(super) fn release(
         return Ok(Step::loud((), taken_by(r, &home, false, now)));
     }
     let unread = pending_inbox(r);
-    if let (true, Some(m)) = (unread, machine) {
-        if Holder::vm(m.machine.clone()) != r.holder {
-            return Ok(Step::loud((), assign(r, m, AssignmentKind::Takeover)));
-        }
+    if let (true, Some(m)) = (unread, machine)
+        && Holder::vm(m.machine.clone()) == r.holder
+    {
         return Ok(if r.assignment.is_some() {
             Step::same(())
         } else {
             Step::loud((), Record { assignment: Some(AssignmentKind::Deliver), ..r.clone() })
         });
     }
+    // To another machine only with a snapshot to import; without one the message waits in the
+    // parked chat.
+    let movable = unread && has_copy(r);
+    if let (true, Some(m)) = (movable, machine) {
+        return Ok(Step::loud((), assign(r, m, AssignmentKind::Takeover)));
+    }
     let parked = park(r, r.holder.is_device().then(|| r.holder.clone()));
     Ok(Step::loud(
         (),
-        if unread { Record { blocked: Some(Blocked::NoMachine), ..parked } } else { parked },
+        if movable { Record { blocked: Some(Blocked::NoMachine), ..parked } } else { parked },
     ))
 }
 
@@ -463,10 +486,27 @@ pub(super) fn ack_assignment(
     Ok(Step::loud((), Record { assignment: left, lease_expires_at, ..r.clone() }))
 }
 
+/// `POST inbox/ack`: the holder took every message through `through` into its own log. None
+/// when that acks nothing new. A machine that was not heard from since it was given the chat is
+/// heard from now: from here some of the chat's messages are only in its log, so the chat no
+/// longer follows a change of the Auto machine ([`machine_set`]).
+pub(super) fn acked_inbox(r: &Record, through: u64, now: u64) -> Option<Record> {
+    let acked = through.min(r.inbox);
+    if acked <= r.inbox_acked {
+        return None;
+    }
+    let lease_expires_at = if r.holder.is_vm() && r.lease_expires_at == 0 {
+        now.saturating_add(LEASE_MS)
+    } else {
+        r.lease_expires_at
+    };
+    Some(Record { inbox_acked: acked, lease_expires_at, ..r.clone() })
+}
+
 /// A new inbox message (already counted in `r.inbox`): who gets it, and what the sender is
 /// told. `delivered`: a holder that is running reads it; `resuming`: a machine is being
 /// started for it; `queued`: nobody can run the chat until the owner has an Auto machine or a
-/// laptop comes back.
+/// laptop comes back (always a laptop, for a chat with no snapshot).
 pub(super) fn deliver(r: Record, machine: Option<&MachineSetting>, now: u64) -> (Record, Delivery) {
     match r.holder {
         Holder::Device(_) => (r, Delivery::Delivered),
@@ -490,10 +530,11 @@ pub(super) fn lease_due(r: &Record, now: u64) -> bool {
 
 /// The alarm's move: a laptop's lease that ran out gives the chat to the Auto machine when
 /// work waits, parks it otherwise; standbys that stopped renewing are dropped. None when
-/// nothing is due.
+/// nothing is due. A message is work for a machine only with a snapshot to import
+/// ([`has_copy`]); without one the chat is parked and the message waits for the laptop.
 pub(super) fn tick(r: &Record, machine: Option<&MachineSetting>, now: u64) -> Option<Record> {
     let moved = lease_due(r, now).then(|| {
-        let work = r.needs_run || pending_inbox(r);
+        let work = r.needs_run || (pending_inbox(r) && has_copy(r));
         match machine {
             Some(m) if work => assign(r, m, AssignmentKind::Takeover),
             Some(_) | None => Record {
@@ -512,9 +553,11 @@ pub(super) fn tick(r: &Record, machine: Option<&MachineSetting>, now: u64) -> Op
 }
 
 /// The owner set their Auto machine: a chat that was waiting for one goes to it. So does a
-/// chat given to another machine that never picked it up (nothing ran there, so nothing is
-/// lost): a machine that was deleted or cannot start does not keep the chat for good. None
-/// when the chat stays as it is.
+/// chat given to another machine that was never heard from since (`lease_expires_at` is still
+/// 0: no renewal, no ack of the assignment or of a message), so nothing of the chat is only
+/// there: a machine that was deleted or cannot start does not keep the chat for good. A machine
+/// that was heard from keeps it, acked assignment or not: the messages it acked are in its log
+/// alone until its next copy. None when the chat stays as it is.
 pub(super) fn machine_set(r: &Record, machine: &MachineSetting) -> Option<Record> {
     if !r.auto {
         return None;
@@ -523,7 +566,8 @@ pub(super) fn machine_set(r: &Record, machine: &MachineSetting) -> Option<Record
         (Holder::Parked, _) => (r.blocked == Some(Blocked::NoMachine))
             .then(|| assign(r, machine, AssignmentKind::Takeover)),
         (Holder::Vm(held), Some(kind @ (AssignmentKind::Takeover | AssignmentKind::Create))) => {
-            (*held != machine.machine).then(|| assign(r, machine, kind))
+            let unheard = r.lease_expires_at == 0;
+            (*held != machine.machine && unheard).then(|| assign(r, machine, kind))
         }
         (Holder::Vm(_) | Holder::Device(_), _) => None,
     }

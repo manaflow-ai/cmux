@@ -87,18 +87,18 @@ impl Store {
     ) -> CloudResult<SessionView> {
         writer(&ack.holder)?;
         self.admitted(caller, id, true)?;
-        let acked = self.apply(id, |chat, _| {
+        let acked = self.apply(id, |chat, now| {
             rules::fence(&chat.rec, caller, &ack.holder, ack.epoch)?;
-            let through = ack.through.min(chat.rec.inbox);
-            if through <= chat.rec.inbox_acked {
+            let Some(next) = rules::acked_inbox(&chat.rec, ack.through, now) else {
                 return Ok(Step::same(()));
-            }
+            };
+            let through = next.inbox_acked;
             let forgotten = through.saturating_sub(KEEP_ACKED);
             chat.inbox.retain(|message| message.n > forgotten);
             for message in chat.inbox.iter_mut().filter(|message| message.n <= through) {
                 message.text = None;
             }
-            Ok(Step::loud((), Record { inbox_acked: through, ..chat.rec.clone() }))
+            Ok(Step::loud((), next))
         });
         acked.map(|((), view)| view)
     }

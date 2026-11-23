@@ -3,7 +3,7 @@ import { DurableObject } from "cloudflare:workers"
 import type { Env, RawEnv } from "../env.ts"
 import { appendEvents, dropEvents, EVENTS_TABLE, planAppend, readEvents, type EventIn, type EventOut } from "./events.ts"
 import { ackInbox, addMessage, dropInbox, INBOX_TABLE, readInbox, sentState, type InboxMessage } from "./inbox.ts"
-import { ackAssignment, close, cloudRecord, deliver, edit, fence, keep, leaseDue, machineSet, nextDue, openRecord, release, renew, tick, type LeaseRole, type OpenInput, type Refuse, type RenewInput, type Step } from "./lease.ts"
+import { ackAssignment, ackedInbox, close, cloudRecord, deliver, edit, fence, keep, leaseDue, machineSet, nextDue, openRecord, release, renew, tick, type LeaseRole, type OpenInput, type Refuse, type RenewInput, type Step } from "./lease.ts"
 import { isVm, LEASE_MS, MAX_CHAT_BYTES, MAX_CHUNK_BYTES, MAX_INBOX_PENDING, MAX_WAIT_MS, viewOf, vmHolder, type AutoCaller, type AutoIndexEntry, type AutoMachine, type AutoRecord, type AutoRefusal, type AutoRepo, type AutoResult, type AutoSessionView, type InboxState } from "./model.ts"
 import { armIndexRetry, indexState, insertRecord, loadRecord, markIndexed, saveRecord } from "./record-store.ts"
 import { acceptSnapshot, chunkNames, CHUNKS_TABLE, dropSnapshots, getChunk, hasChunk, putChunk, readSnapshot, roomForChunk, sha256Hex, SNAPSHOTS_TABLE, weighChunks } from "./snapshots.ts"
@@ -347,13 +347,13 @@ export class AutoSessionDO extends DurableObject<Env> {
 
   async ackInbox(by: AutoCaller, holder: string, epoch: number, through: number): Promise<AutoResult<AutoSessionView>> {
     if (!this.admitted(by, true)) return NOT_FOUND
-    const r = await this.apply<null>((current) => {
+    const r = await this.apply<null>((current, now) => {
       const refused = fence(current, by, holder, epoch)
       if (refused) return refused
-      const acked = Math.min(through, current.inbox)
-      if (acked <= current.inboxAcked) return { out: null }
-      ackInbox(this.sql, acked)
-      return { out: null, loud: true, rec: { ...current, inboxAcked: acked } }
+      const next = ackedInbox(current, through, now)
+      if (!next) return { out: null }
+      ackInbox(this.sql, next.inboxAcked)
+      return { out: null, loud: true, rec: next }
     })
     return r.ok ? ok(r.value.session) : r
   }

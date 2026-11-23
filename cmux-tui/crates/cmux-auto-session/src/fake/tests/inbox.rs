@@ -43,6 +43,8 @@ fn a_laptop_reads_and_acks_its_inbox() {
 #[test]
 fn a_message_for_a_parked_chat_starts_the_auto_machine() {
     let (owner, machine) = store();
+    // The laptop's first copy is stored: from here a message alone can start a machine.
+    snapshot_as(&owner, &mac(), 1, b"folder", 0).expect("stored");
     owner.advance(LEASE_MS);
     assert_eq!(chat(&owner).state, State::Parked);
 
@@ -119,6 +121,7 @@ fn an_assignment_ack_with_unread_inbox_leaves_a_deliver() {
 fn with_no_auto_machine_a_message_for_a_parked_chat_waits() {
     let owner = FakeAutoCloud::new();
     ready(owner.put(CHAT, &put_request("mac"))).expect("the chat");
+    snapshot_as(&owner, &mac(), 1, b"folder", 0).expect("stored");
     owner.advance(LEASE_MS);
 
     let posted = send(&owner, "m1", "go on");
@@ -136,10 +139,13 @@ fn with_no_auto_machine_a_message_for_a_parked_chat_waits() {
 
 #[test]
 fn a_laptop_that_comes_back_takes_the_waiting_message_itself() {
-    let owner = FakeAutoCloud::new();
-    ready(owner.put(CHAT, &put_request("mac"))).expect("the chat");
+    // The store has no snapshot of the chat, so no machine could go on with it: Auto machine
+    // or not, the message waits for the laptop.
+    let (owner, machine) = store();
     owner.advance(LEASE_MS);
-    assert_eq!(send(&owner, "m1", "go on").state, Delivery::Queued);
+    let posted = send(&owner, "m1", "go on");
+    assert_eq!((posted.state, posted.session.blocked), (Delivery::Queued, None));
+    assert!(kinds(&machine).is_empty() && owner.machine_starts().is_empty());
 
     let back = renew(&owner, &mac(), 1, false);
     assert_eq!((back.role, back.session.epoch, back.session.blocked), (Role::Holder, 3, None));

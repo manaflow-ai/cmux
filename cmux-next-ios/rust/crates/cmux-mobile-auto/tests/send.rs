@@ -89,6 +89,7 @@ fn a_send_with_no_network_fails_and_stores_nothing() {
 #[test]
 fn a_message_for_a_chat_nobody_runs_says_resuming_until_the_machine_takes_it() {
     let owner = store();
+    copied(&owner);
     owner.advance(LEASE_MS);
     let session = ChatSession::new(owner.clone(), CHAT);
     assert_eq!(ready(session.open()).expect("opened").chat.expect("the chat").place, Place::Idle);

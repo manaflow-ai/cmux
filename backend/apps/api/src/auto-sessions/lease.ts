@@ -10,14 +10,19 @@ import { isDevice, isVm, LEASE_MS, liveStandby, MAX_STANDBY, PARKED, pendingInbo
  * - A laptop's lease runs out with work waiting (`needsRun`, or a message nobody acked): the chat goes to the
  *   owner's Auto machine with a `takeover` assignment. With nothing waiting it is parked. No machine set: parked
  *   and `blocked: "no_machine"`.
+ * - A message alone sends a chat to a machine only once the store has a snapshot of it (`hasCopy`). Before that the
+ *   laptop has the only chat there is: the chat is parked, the message waits, and the laptop reads it when it takes
+ *   the chat back. (`needsRun` is the laptop's word, and a laptop says it only once its snapshot is stored.)
  * - A machine's lease never runs out to someone else: a paused machine is not a lost one.
  * - A message for a parked chat gives it to the Auto machine.
+ * - A `PUT` from the laptop a parked chat was parked from takes it back as it is, as that laptop's renewal would.
  * - A laptop renewing on a parked chat takes it: as it is when it was the last to hold it (nobody ran it since),
  *   else by renewing as standby, the path on which it imports the Cloud copy first.
  * - A laptop renewing as standby while a machine holds the chat is remembered. When the machine releases, or renews
  *   with nothing left to run, the chat goes to that laptop unless it is kept in the Cloud. A machine that had
  *   nothing left to run and stopped renewing (it is paused) gives the chat to the standby at the standby's renewal.
- * - A chat waiting for an Auto machine, or given to one that never picked it up, goes to the machine the owner sets.
+ * - A chat waiting for an Auto machine, or given to one that was never heard from since, goes to the machine the
+ *   owner sets. A machine that renewed or acked a message has the chat: what it took from the inbox is in its log.
  *
  * Every move keeps one rule: the epoch grows by exactly one when the holder changes, and never otherwise
  * (test/auto-sessions-lease.test.ts walks every move to check it).
@@ -45,9 +50,15 @@ export const fence = (r: AutoRecord, by: AutoCaller, holder: string, epoch: numb
 const park = (r: AutoRecord, from: string | null): AutoRecord => ({ ...r, holder: PARKED, epoch: r.epoch + 1, parkedFrom: from, resumedEpoch: 0, assignment: null, needsRun: false, leaseExpiresAt: 0 })
 /** The chat goes to a Cloud machine, which has to pick it up (`kind`) before it shows as running there. */
 const assign = (r: AutoRecord, m: AutoMachine, kind: AssignmentKind): AutoRecord => ({ ...r, holder: vmHolder(m.machine), epoch: r.epoch + 1, team: m.team, machine: m.machine, assignment: kind, blocked: null, parkedFrom: null, resumedEpoch: 0, needsRun: true, leaseExpiresAt: 0 })
-/** A parked chat with a message waiting goes to the Auto machine, or is marked as waiting for one. */
+/**
+ * Whether a message alone may send the chat to a machine: the store has a snapshot to import. A machine given a
+ * chat with events and no snapshot cannot import it, and one given an empty copy would start a chat the laptop
+ * already has.
+ */
+const hasCopy = (r: AutoRecord): boolean => r.snapshot > 0
+/** A parked chat with a message waiting goes to the Auto machine, or is marked as waiting for one. Without a snapshot it stays as it is: the message waits for the laptop. */
 const settle = (r: AutoRecord, machine: AutoMachine | null): AutoRecord => {
-  if (r.holder !== PARKED || !pendingInbox(r)) return r
+  if (r.holder !== PARKED || !pendingInbox(r) || !hasCopy(r)) return r
   return machine ? assign(r, machine, "takeover") : { ...r, blocked: "no_machine" }
 }
 
@@ -117,10 +128,17 @@ export const cloudRecord = (id: string, owner: string, machine: AutoMachine, inp
   leaseExpiresAt: 0
 })
 
-/** A later `PUT` with Auto on: the chat's title, harness, keep-in-Cloud and repository follow; a closed chat opens again, empty, at the next epoch. */
+/**
+ * A later `PUT` with Auto on: the chat's title, harness, keep-in-Cloud and repository follow; a closed chat opens
+ * again, empty, at the next epoch. From the laptop a parked chat was parked from, it also takes the chat back as it
+ * is (nobody ran it since): a registration whose first answer was lost, sent again after the lease ran out, still
+ * answers that laptop as the holder. Its renewal at the epoch it held is then that renewal (`resumedEpoch`).
+ */
 export const edit = (r: AutoRecord, input: OpenInput, now: number): Step<null> => {
   const named = { title: input.title, harness: input.harness, keepInCloud: input.keepInCloud ?? r.keepInCloud, repo: input.repo === undefined ? r.repo : input.repo }
-  if (!r.auto) return { out: null, loud: true, rec: { ...takenBy(r, `device:${input.device}`, false, now), ...named, auto: true, keepInCloud: input.keepInCloud ?? false } }
+  const me = `device:${input.device}`
+  if (!r.auto) return { out: null, loud: true, rec: { ...takenBy(r, me, false, now), ...named, auto: true, keepInCloud: input.keepInCloud ?? false } }
+  if (r.holder === PARKED && r.parkedFrom === me) return { out: null, loud: true, rec: { ...takenBy(r, me, false, now), ...named, resumedEpoch: r.epoch - 1 } }
   const same = named.title === r.title && named.harness === r.harness && named.keepInCloud === r.keepInCloud && named.repo?.remote === r.repo?.remote && named.repo?.branch === r.repo?.branch
   return same ? { out: null } : { out: null, loud: true, rec: { ...r, ...named } }
 }
@@ -201,12 +219,12 @@ export const release = (r: AutoRecord, by: AutoCaller, holder: string, epoch: nu
   const home = isVm(r.holder) ? handbackTo(r, now) : null
   if (home) return { out: null, loud: true, rec: takenBy(r, home.holder, false, now) }
   const unread = pendingInbox(r)
-  if (unread && machine) {
-    if (vmHolder(machine.machine) !== r.holder) return { out: null, loud: true, rec: assign(r, machine, "takeover") }
-    return r.assignment !== null ? { out: null } : { out: null, loud: true, rec: { ...r, assignment: "deliver" } }
-  }
+  if (unread && machine && vmHolder(machine.machine) === r.holder) return r.assignment !== null ? { out: null } : { out: null, loud: true, rec: { ...r, assignment: "deliver" } }
+  // To another machine only with a snapshot to import; without one the message waits in the parked chat.
+  const movable = unread && hasCopy(r)
+  if (movable && machine) return { out: null, loud: true, rec: assign(r, machine, "takeover") }
   const parked = park(r, isDevice(r.holder) ? r.holder : null)
-  return { out: null, loud: true, rec: unread ? { ...parked, blocked: "no_machine" } : parked }
+  return { out: null, loud: true, rec: movable ? { ...parked, blocked: "no_machine" } : parked }
 }
 
 /**
@@ -223,9 +241,20 @@ export const ackAssignment = (r: AutoRecord, by: AutoCaller, holder: string, epo
 }
 
 /**
+ * `POST inbox/ack`: the holder took every message through `through` into its own log. Null when that acks nothing
+ * new. A machine that was not heard from since it was given the chat is heard from now: from here some of the
+ * chat's messages are only in its log, so the chat no longer follows a change of the Auto machine (`machineSet`).
+ */
+export const ackedInbox = (r: AutoRecord, through: number, now: number): AutoRecord | null => {
+  const acked = Math.min(through, r.inbox)
+  if (acked <= r.inboxAcked) return null
+  return { ...r, inboxAcked: acked, leaseExpiresAt: isVm(r.holder) && r.leaseExpiresAt === 0 ? now + LEASE_MS : r.leaseExpiresAt }
+}
+
+/**
  * A new inbox message (already counted in `r.inbox`): who gets it, and what the sender is told. `delivered`: a
  * holder that is running reads it; `resuming`: a machine is being started for it; `queued`: nobody can run the
- * chat until the owner has an Auto machine or a laptop comes back.
+ * chat until the owner has an Auto machine or a laptop comes back (always a laptop, for a chat with no snapshot).
  */
 export const deliver = (r: AutoRecord, machine: AutoMachine | null, now: number): { readonly rec: AutoRecord; readonly state: InboxState } => {
   if (isDevice(r.holder)) return { rec: r, state: "delivered" }
@@ -238,12 +267,13 @@ export const leaseDue = (r: AutoRecord, now: number): boolean => r.auto && isDev
 
 /**
  * The alarm's move: a laptop's lease that ran out gives the chat to the Auto machine when work waits, parks it
- * otherwise; standbys that stopped renewing are dropped. Null when nothing is due.
+ * otherwise; standbys that stopped renewing are dropped. Null when nothing is due. A message is work for a machine
+ * only with a snapshot to import (`hasCopy`); without one the chat is parked and the message waits for the laptop.
  */
 export const tick = (r: AutoRecord, machine: AutoMachine | null, now: number): AutoRecord | null => {
   let next = r
   if (leaseDue(r, now)) {
-    const work = r.needsRun || pendingInbox(r)
+    const work = r.needsRun || (pendingInbox(r) && hasCopy(r))
     next = work && machine ? assign(r, machine, "takeover") : { ...park(r, r.holder), needsRun: work, blocked: work ? "no_machine" : null }
   }
   const live = liveStandby(next, now)
@@ -253,13 +283,15 @@ export const tick = (r: AutoRecord, machine: AutoMachine | null, now: number): A
 
 /**
  * The owner set their Auto machine: a chat that was waiting for one goes to it. So does a chat given to another
- * machine that never picked it up (nothing ran there, so nothing is lost): a machine that was deleted or cannot
- * start does not keep the chat for good. Null when the chat stays as it is.
+ * machine that was never heard from since (`leaseExpiresAt` is still 0: no renewal, no ack of the assignment or of
+ * a message), so nothing of the chat is only there: a machine that was deleted or cannot start does not keep the
+ * chat for good. A machine that was heard from keeps it, acked assignment or not: the messages it acked are in its
+ * log alone until its next copy. Null when the chat stays as it is.
  */
 export const machineSet = (r: AutoRecord, machine: AutoMachine): AutoRecord | null => {
   if (!r.auto) return null
   if (r.holder === PARKED) return r.blocked === "no_machine" ? assign(r, machine, "takeover") : null
-  if (isVm(r.holder) && r.holder !== vmHolder(machine.machine) && (r.assignment === "takeover" || r.assignment === "create")) return assign(r, machine, r.assignment)
+  if (isVm(r.holder) && r.holder !== vmHolder(machine.machine) && (r.assignment === "takeover" || r.assignment === "create") && r.leaseExpiresAt === 0) return assign(r, machine, r.assignment)
   return null
 }
 

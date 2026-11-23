@@ -41,6 +41,7 @@ fn the_list_says_where_each_chat_is() {
 #[test]
 fn a_chat_being_started_says_resuming() {
     let owner = store();
+    copied(&owner);
     owner.advance(LEASE_MS);
     assert_eq!(ready(rows::list(&owner)).expect("the list").chats[0].place, Place::Idle);
 

@@ -237,6 +237,7 @@
       "steps": [
         {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_a"}},
         {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}},
+        {"by": "owner", "op": "post_snapshot", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "manifest": {"v": 1, "at": 0, "lastSeq": 0, "harness": "claude", "harnessSessionId": "s1", "cwd": {"kind": "folder", "tar": []}}}, "expect": {"snapshot": 1}},
         {"advanceMs": 50000, "by": "owner", "op": "post_inbox", "id": "chat", "body": {"id": "m1", "text": "hello"}, "expect": {"state": "resuming", "session": {"holder": "vm:vm_a", "epoch": 3, "state": "resuming", "needsRun": true, "inbox": 1, "inboxAcked": 0}}},
         {"by": "owner", "op": "post_inbox", "id": "chat", "body": {"id": "m1", "text": "hello"}, "expect": {"state": "resuming", "session": {"epoch": 3, "inbox": 1}}},
         {"by": "machine:vm_a", "op": "assignments", "query": {"timeoutMs": 0}, "expect": {"assignments": [{"kind": "takeover", "session": {"id": "chat", "holder": "vm:vm_a", "epoch": 3}}]}},
@@ -263,6 +264,7 @@
       "steps": [
         {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_a"}},
         {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}},
+        {"by": "owner", "op": "post_snapshot", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "manifest": {"v": 1, "at": 0, "lastSeq": 0, "harness": "claude", "harnessSessionId": "s1", "cwd": {"kind": "folder", "tar": []}}}, "expect": {"snapshot": 1}},
         {"by": "owner", "op": "post_inbox", "id": "chat", "body": {"id": "m1", "text": "hello"}, "expect": {"state": "delivered"}},
         {"advanceMs": 50000, "by": "owner", "op": "get", "id": "chat", "expect": {"session": {"holder": "vm:vm_a", "epoch": 2, "state": "resuming", "inbox": 1, "inboxAcked": 0}}},
         {"by": "machine:vm_a", "op": "assignments", "query": {"timeoutMs": 0}, "expect": {"assignments": [{"kind": "takeover", "session": {"id": "chat", "epoch": 2}}]}},
@@ -274,6 +276,7 @@
       "steps": [
         {"by": "owner", "op": "machine", "refuse": {"status": 404, "code": "auto.no_machine"}},
         {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}},
+        {"by": "owner", "op": "post_snapshot", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "manifest": {"v": 1, "at": 0, "lastSeq": 0, "harness": "claude", "harnessSessionId": "s1", "cwd": {"kind": "folder", "tar": []}}}, "expect": {"snapshot": 1}},
         {"advanceMs": 50000, "by": "owner", "op": "post_inbox", "id": "chat", "body": {"id": "m1", "text": "hello"}, "expect": {"state": "queued", "session": {"holder": "parked", "epoch": 2, "state": "parked", "blocked": "no_machine", "inbox": 1}}},
         {"by": "owner", "op": "put", "id": "chat", "body": {"auto": false, "title": "Fix it", "harness": "claude", "device": "mac1"}, "refuse": {"status": 409, "code": "auto.held_in_cloud", "session": {"auto": true, "holder": "parked"}}},
         {"by": "owner", "op": "post_inbox", "id": "chat", "body": {"id": "m1", "text": "hello"}, "expect": {"state": "queued", "session": {"inbox": 1}}},
@@ -463,6 +466,7 @@
       "name": "a laptop releasing with a message unread and no Auto machine leaves the chat parked and blocked",
       "steps": [
         {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}},
+        {"by": "owner", "op": "post_snapshot", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "manifest": {"v": 1, "at": 0, "lastSeq": 0, "harness": "claude", "harnessSessionId": "s1", "cwd": {"kind": "folder", "tar": []}}}, "expect": {"snapshot": 1}},
         {"by": "owner", "op": "post_inbox", "id": "chat", "body": {"id": "m1", "text": "hello"}, "expect": {"state": "delivered"}},
         {"by": "owner", "op": "release", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1}, "expect": {"session": {"holder": "parked", "epoch": 2, "blocked": "no_machine", "inbox": 1, "inboxAcked": 0}}},
         {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_a"}},
@@ -474,6 +478,7 @@
       "steps": [
         {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_a"}},
         {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}},
+        {"by": "owner", "op": "post_snapshot", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "manifest": {"v": 1, "at": 0, "lastSeq": 0, "harness": "claude", "harnessSessionId": "s1", "cwd": {"kind": "folder", "tar": []}}}, "expect": {"snapshot": 1}},
         {"by": "owner", "op": "post_inbox", "id": "chat", "body": {"id": "m1", "text": "hello"}, "expect": {"state": "delivered"}},
         {"by": "owner", "op": "release", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1}, "expect": {"session": {"holder": "vm:vm_a", "epoch": 2, "state": "resuming"}}},
         {"by": "machine:vm_a", "op": "assignments", "query": {"timeoutMs": 0}, "expect": {"assignments": [{"kind": "takeover", "session": {"id": "chat", "epoch": 2}}]}}
@@ -595,6 +600,50 @@
         {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "vm:vm_a", "epoch": 1, "needsRun": false}, "refuse": {"status": 409, "code": "auto.not_holder"}},
         {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "parked", "epoch": 1, "needsRun": false}, "refuse": {"status": 400, "code": "validation.invalid"}},
         {"by": "owner", "op": "get", "id": "chat", "expect": {"session": {"holder": "device:mac1", "epoch": 1, "lastSeq": 0, "inbox": 0}}}
+      ]
+    },
+    {
+      "name": "before the first snapshot a message starts no machine: the chat is parked, the message waits, and its laptop takes the chat back and reads it",
+      "steps": [
+        {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_a"}},
+        {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}},
+        {"by": "owner", "op": "append_events", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "events": [{"seq": 1, "record": {"k": "a"}}]}, "expect": {"lastSeq": 1}},
+        {"by": "owner", "op": "post_inbox", "id": "chat", "body": {"id": "m1", "text": "hello"}, "expect": {"state": "delivered"}},
+        {"advanceMs": 50000, "by": "owner", "op": "get", "id": "chat", "expect": {"session": {"holder": "parked", "epoch": 2, "state": "parked", "blocked": null, "needsRun": false, "snapshot": 0, "inbox": 1, "inboxAcked": 0}}},
+        {"by": "machine:vm_a", "op": "assignments", "query": {"timeoutMs": 0}, "expect": {"assignments": []}},
+        {"by": "owner", "op": "post_inbox", "id": "chat", "body": {"id": "m2", "text": "second"}, "expect": {"state": "queued", "session": {"holder": "parked", "epoch": 2, "blocked": null, "inbox": 2}}},
+        {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_b"}, "expect": {"machine": "vm_b"}},
+        {"by": "owner", "op": "get", "id": "chat", "expect": {"session": {"holder": "parked", "epoch": 2}}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "needsRun": false}, "expect": {"role": "holder", "session": {"holder": "device:mac1", "epoch": 3, "state": "local", "inbox": 2, "inboxAcked": 0}}},
+        {"by": "owner", "op": "inbox", "id": "chat", "query": {"after": 0}, "expect": {"messages": [{"n": 1, "id": "m1", "text": "hello"}, {"n": 2, "id": "m2", "text": "second"}]}}
+      ]
+    },
+    {
+      "name": "a machine that acked a message keeps the chat when the owner sets another Auto machine: the message is in its log alone",
+      "steps": [
+        {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_a"}},
+        {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}},
+        {"by": "owner", "op": "post_snapshot", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "manifest": {"v": 1, "at": 0, "lastSeq": 0, "harness": "claude", "harnessSessionId": "s1", "cwd": {"kind": "folder", "tar": []}}}, "expect": {"snapshot": 1}},
+        {"by": "owner", "op": "post_inbox", "id": "chat", "body": {"id": "m1", "text": "hello"}, "expect": {"state": "delivered"}},
+        {"advanceMs": 50000, "by": "owner", "op": "get", "id": "chat", "expect": {"session": {"holder": "vm:vm_a", "epoch": 2, "state": "resuming", "inbox": 1, "inboxAcked": 0}}},
+        {"by": "machine:vm_a", "op": "ack_inbox", "id": "chat", "body": {"holder": "vm:vm_a", "epoch": 2, "through": 1}, "expect": {"session": {"inboxAcked": 1, "state": "resuming"}}},
+        {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_b"}, "expect": {"machine": "vm_b"}},
+        {"by": "owner", "op": "get", "id": "chat", "expect": {"session": {"holder": "vm:vm_a", "epoch": 2, "state": "resuming", "inboxAcked": 1}}},
+        {"by": "machine:vm_b", "op": "assignments", "query": {"timeoutMs": 0}, "expect": {"assignments": []}},
+        {"by": "machine:vm_a", "op": "assignments", "query": {"timeoutMs": 0}, "expect": {"assignments": [{"kind": "takeover", "session": {"id": "chat", "holder": "vm:vm_a", "epoch": 2}}]}},
+        {"by": "machine:vm_a", "op": "ack_assignment", "id": "chat", "body": {"holder": "vm:vm_a", "epoch": 2}, "expect": {"session": {"holder": "vm:vm_a", "epoch": 2, "state": "cloud"}}}
+      ]
+    },
+    {
+      "name": "a PUT from the laptop a parked chat was parked from takes it back as it is; from another laptop it changes nothing",
+      "steps": [
+        {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}},
+        {"advanceMs": 50000, "by": "owner", "op": "get", "id": "chat", "expect": {"session": {"holder": "parked", "epoch": 2, "state": "parked"}}},
+        {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac2"}, "expect": {"session": {"holder": "parked", "epoch": 2}}},
+        {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}, "expect": {"session": {"holder": "device:mac1", "epoch": 3, "state": "local"}}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "needsRun": false}, "expect": {"role": "holder", "session": {"holder": "device:mac1", "epoch": 3}}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac1", "epoch": 2, "needsRun": false}, "expect": {"role": "lost", "session": {"holder": "device:mac1", "epoch": 3}}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac1", "epoch": 3, "needsRun": false}, "expect": {"role": "holder", "session": {"holder": "device:mac1", "epoch": 3}}}
       ]
     }
   ]

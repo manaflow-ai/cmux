@@ -83,6 +83,8 @@ export const lapse = async (owner: string, id: string): Promise<void> => {
   advance(46_000)
   await fireAlarm(chatStub(owner, id))
 }
+/** The store takes a snapshot of the chat with no files: enough for a machine to start from. */
+export const copied = (t: string, id: string, holder = LAPTOP, epoch = 1) => post(t, id, "snapshot", { holder, epoch, manifest: { v: 1, at: 1, lastSeq: 0, harness: "claude", cwd: { kind: "folder", tar: [] }, queue: [] } })
 /** A chat its laptop left with a turn running: the Auto machine holds it at epoch 2 with a `takeover` to pick up. */
 export const takenOver = async (a: Person, id: string): Promise<void> => {
   await open(a.session, id)

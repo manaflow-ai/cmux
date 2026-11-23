@@ -73,7 +73,9 @@ fn a_lease_that_runs_out_with_work_goes_to_the_auto_machine() {
 #[test]
 fn a_lease_that_runs_out_with_an_unacked_message_goes_to_the_auto_machine() {
     let (owner, machine) = store();
-    // The laptop said it had nothing to run, and a message came that it never took.
+    // The laptop's copy is stored. It said it had nothing to run, and a message came that it
+    // never took.
+    snapshot_as(&owner, &mac(), 1, b"folder", 0).expect("stored");
     renew(&owner, &mac(), 1, false);
     send(&owner, "m1", "are you there");
     owner.advance(LEASE_MS);
