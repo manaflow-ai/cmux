@@ -25,6 +25,7 @@ mod prompt_coach;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 pub use person_hold::PromptTriager;
+pub(crate) mod restricted;
 mod rolling_summary;
 pub(crate) mod stop_condition;
 mod surge_triage;
@@ -51,6 +52,7 @@ mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod settled_view;
+mod subagent_expiry;
 pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
 pub(crate) use crate::turn_errors;
@@ -196,10 +198,12 @@ pub(crate) use log_load::AdoptionReady;
 mod model_options;
 mod new_request;
 pub use model_options::{
-    current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
+    current_effort, current_model, current_option, resolve_config_id, spawn_effort, web_url,
+    web_url_for_session,
 };
 pub mod ledger;
 mod list_order;
+mod model_alias;
 mod model_hint;
 mod model_probe;
 mod models_view;
@@ -248,6 +252,7 @@ pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 mod credentials;
 mod live_name;
 mod profile_respawn;
@@ -429,6 +434,7 @@ pub(crate) mod outbox;
 mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
+pub(crate) mod pause;
 pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;

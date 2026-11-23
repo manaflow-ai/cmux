@@ -6,6 +6,7 @@ import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextRemoteView
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextTestSupport
 import CmuxNextWakeups
 import CmuxScreenKit
@@ -226,12 +227,12 @@ struct MacScreenScrollTests {
 @Suite(.closesItsWindows)
 struct MacScreenDevelopmentSettingsRouteTests {
     @Test func developmentRoutesOnlyInDevBuilds() {
-        #expect(SettingsWindowService.route(section: .development, setting: nil, devBuild: true) == "#/settings/development")
-        #expect(SettingsWindowService.route(section: .development, setting: nil, devBuild: false) == nil)
-        #expect(SettingsWindowService.route(section: nil, setting: "macScreen.debug.relayOnly", devBuild: true)
+        #expect(SettingsDeepLink.route(section: .development, setting: nil, devBuild: true) == "#/settings/development")
+        #expect(SettingsDeepLink.route(section: .development, setting: nil, devBuild: false) == nil)
+        #expect(SettingsDeepLink.route(section: nil, setting: "macScreen.debug.relayOnly", devBuild: true)
             == "#/settings/development?focus=macScreen.debug.relayOnly")
-        #expect(SettingsWindowService.route(section: nil, setting: "macScreen.debug.relayOnly", devBuild: false) == nil)
-        #expect(SettingsWindowService.route(section: .advanced, setting: nil, devBuild: false) == "#/settings/advanced")
+        #expect(SettingsDeepLink.route(section: nil, setting: "macScreen.debug.relayOnly", devBuild: false) == nil)
+        #expect(SettingsDeepLink.route(section: .advanced, setting: nil, devBuild: false) == "#/settings/advanced")
     }
 }
 
