@@ -165,6 +165,10 @@ public final class SidebarView: NSView {
     var bandsDirty = true
     /// The size the bands were laid out for (app sections take a share of the height).
     private var bandsSize: CGSize?
+    /// The last `updateBands` gave an app section a height from the sidebar's (`appHeights`): only then does a new
+    /// height alone change the bands. Without one a window resize step (the width stays, the height moves) makes no
+    /// band content again; the width, the model and the tokens (`bandsDirty`) still do.
+    var bandsFollowHeight = true
     /// App section contributions the bands showed at the last update (`releaseAppSections`).
     var shownAppContributions: Set<String> = []
     /// The `sidebar.*` settings this sidebar draws from (tests give their own).
@@ -460,7 +464,7 @@ public final class SidebarView: NSView {
         // the sidebar's metrics, the switcher's own tokens and the app sections): a layout for a new size only does not
         // make the switcher again (a window resize step).
         let spacesChanged = bandsDirty
-        if bandsDirty || bandsSize != b.size {
+        if bandsDirty || bandsSize?.width != b.width || (bandsFollowHeight && bandsSize?.height != b.height) {
             (bandsDirty, bandsSize) = (false, b.size)
             updateBands()
         }
