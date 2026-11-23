@@ -18,17 +18,19 @@ echo "== host before build"; host
 cargo build --release -p acpmux --bin acpmux
 exe="$(cargo test -p acpmux --release --test duress_daemon --no-run --message-format=json \
   | grep '"executable":"[^"]*duress_daemon' | sed 's/.*"executable":"\([^"]*\)".*/\1/' | tail -1)"
-echo "test binary: $exe"
-cp target/release/acpmux "$bins/after"
+tgt="$(dirname "$(dirname "$exe")")"
+bin="$tgt/acpmux"
+echo "test binary: $exe; daemon binary: $bin"
+cp "$bin" "$bins/after"
 (cd "$tui/.." && git apply -R "$here/fix.patch")
 cargo build --release -p acpmux --bin acpmux
-cp target/release/acpmux "$bins/before"
+cp "$bin" "$bins/before"
 (cd "$tui/.." && git apply "$here/fix.patch")
 sha256sum "$bins/before" "$bins/after"
 
 run() {
   local label="$1" which="$2"
-  cp "$bins/$which" target/release/acpmux
+  cp "$bins/$which" "$bin"
   mkdir -p "$out/$label"
   echo "== $label ($which)"; host | tee "$out/$label/host.txt"
   # The daemon's nice, sampled every 5 s while the bench runs.
@@ -40,6 +42,7 @@ run() {
   kill "$sampler" 2>/dev/null || true
   echo "-- $label daemon nice samples:"; awk '{print $2}' "$out/$label/daemon-nice.txt" | sort | uniq -c
   echo "-- $label host after"; host
+  echo "-- $label duress-bench.md:"; cat "$out/$label/duress-bench.md" 2>/dev/null || echo "(no md)"
 }
 run r1-before before
 run r2-after after
