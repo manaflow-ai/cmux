@@ -286,10 +286,6 @@ path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_lint_ios_conventions_scope.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_job_inputs.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, AGENTS.md:214). Checks that every pull-request job declares its inputs (a router map or scripts/ci/job-inputs-always.json) via scripts/ci/job_inputs.py; run python3 tests/test_ci_job_inputs.py yourself after changing job_inputs.py, job-inputs-always.json or a router map (seconds, no build)."
@@ -335,6 +331,10 @@ reason = "Cross-branch integration: the end-to-end cases need RUNNER_POOL_POLICY
 
 [[test]]
 path = "tests/test_ci_linux_single_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_mac_grants.py"
 lane = "linux-guard"
 
 [[test]]
@@ -446,6 +446,10 @@ path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_oops_isolate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_overflow_pick_reads_pool.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). #30878 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks that no Linux runs-on picks a fixed Blacksmith size where the live pool (RUNNER_POOLS.linux) would pick; run python3 tests/test_ci_overflow_pick_reads_pool.py yourself after changing a Linux runs-on or the pool picker (about 2 s, no build)."
@@ -514,17 +518,11 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_piece_swap.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_piece_swap.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pool_snapshot_job_cache.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_routed_jobs_check_needs.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_routed_jobs_check_needs.py"
 
 [[test]]
 path = "tests/test_ci_post_merge_batch.py"
@@ -709,6 +707,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_route_refusal_detail.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_routed_jobs_check_needs.py"
 lane = "linux-guard"
 
 [[test]]

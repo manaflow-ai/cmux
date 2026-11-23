@@ -205,6 +205,9 @@ jobs:
         run: |
           python3 tests/test_ci_post_merge_checks.py
           python3 tests/test_ci_post_merge_batch.py
+          python3 tests/test_ci_routed_jobs_check_needs.py
+          python3 tests/test_ci_oops_isolate.py
+          python3 tests/test_ci_piece_swap.py
 
       - name: Validate the step table
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -353,6 +356,8 @@ jobs:
           python3 tests/test_ci_mac_grants.py
           python3 tests/test_mac_live_delivery.py
           python3 tests/test_nightly_next_signer_pick.py
+          python3 tests/test_macos_cross_builds_have_go.py
+          python3 tests/test_nightly_job_sdkroot.py
 
       - name: Validate the CEF shim C++ tests run without a Mac
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -940,7 +945,9 @@ jobs:
 
       - name: Validate the nightly builder
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_nightly_builder.py
+        run: |
+          python3 tests/test_nightly_builder.py
+          python3 tests/test_nightly_early_webviews.py
 
       - name: Validate shallow complexity comparison fetching
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1319,6 +1326,7 @@ jobs:
         run: |
           python3 tests/test_ci_tui_routes_avoid_nightly_label.py
           python3 tests/test_ci_tui_rerun_leg_rereads_pool.py
+          python3 tests/test_cmux_tui_fallback_lost_leg.py
 
       - name: Validate the cmux_next_ daemon-tests gate and its marker
         if: ${{ !cancelled() && matrix.group == 'ci' }}
