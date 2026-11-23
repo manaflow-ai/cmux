@@ -210,7 +210,7 @@ try {
     const view = shown();
     expect(view.tile).not.toBeNull();
     expect(view.tile?.closest("[data-inline-attachment-strip]")).not.toBeNull();
-    expect(view.tile?.style.width).toBe("120px");
+    expect(view.tile?.style.width).toBe("160px"); // SENT_IMAGE_HEIGHT, square (userBubbleModel.ts, #48558)
     expect(view.title).toBe("screen-demo.mov");
     expect(view.files.join("")).not.toContain("screen-demo.mov");
     expect(view.bubble).toBe("look");
@@ -245,7 +245,7 @@ try {
       ]);
       expect(view.poster).toBe("data:image/jpeg;base64,cmVhZA==");
       expect(view.length).toBe("0:42");
-      expect(view.tile?.style.width).toBe("120px");
+      expect(view.tile?.style.width).toBe("160px"); // SENT_IMAGE_HEIGHT, square (userBubbleModel.ts, #48558)
     } finally {
       setChipHost(async (method, params) => {
         calls.push({ method, params });
