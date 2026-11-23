@@ -2,11 +2,12 @@
 //!
 //! `TcpStream::connect(host:port)` and `connect_async` try a name's addresses one at a time, so a
 //! first address whose SYNs go nowhere (a family with a lossy or missing route) costs the kernel's
-//! whole SYN retry window before the second is tried. [`connect_tcp`] resolves the name, keeps the
-//! resolver's order (the host's own policy picks the preferred family; nothing here prefers v4 or
-//! v6), interleaves the two families starting with the first address's ([`interleave`]), and
-//! starts the next attempt [`STAGGER`] after the previous one when it has not connected (RFC 8305,
-//! happy eyeballs). The first connect wins and the other attempts are dropped. The caller bounds
+//! whole SYN retry window before the second is tried. [`connect_tcp`] resolves the name, puts
+//! IPv6 first with the families alternating ([`interleave`], RFC 8305), and starts the next
+//! attempt [`STAGGER`] after the previous one when it has not connected (happy eyeballs). The
+//! resolver's own order is not kept: this is a static musl binary, and musl sorts IPv4 first on a
+//! host whose only IPv6 address is ULA and reads no `/etc/gai.conf`
+//! ([`cmux_vault_egress::happy`]). The first connect wins and the other attempts are dropped. The caller bounds
 //! the whole dial with its own timeout; dropping the future drops every attempt.
 
 use std::future::Future;
@@ -24,25 +25,14 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 /// How long an attempt has alone before the next address is also tried (RFC 8305's "connection
 /// attempt delay" recommends 250 ms).
-pub const STAGGER: Duration = Duration::from_millis(250);
+pub const STAGGER: Duration = cmux_vault_egress::happy::STAGGER;
 
 /// A WebSocket over [`connect_tcp`]'s stream, as `connect_async` returns it.
 pub type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-/// `addresses` with the two families alternating, beginning with the first address's family; the
-/// order within a family is kept.
+/// `addresses` IPv6 first, the two families alternating; the order within a family is kept.
 pub fn interleave(addresses: &[SocketAddr]) -> Vec<SocketAddr> {
-    let Some(first) = addresses.first() else { return Vec::new() };
-    let (mut same, mut other): (Vec<_>, Vec<_>) =
-        addresses.iter().copied().partition(|a| a.is_ipv4() == first.is_ipv4());
-    same.reverse();
-    other.reverse();
-    let mut out = Vec::with_capacity(addresses.len());
-    while !same.is_empty() || !other.is_empty() {
-        out.extend(same.pop());
-        out.extend(other.pop());
-    }
-    out
+    cmux_vault_egress::happy::v6_first(addresses)
 }
 
 /// Connect to the first of `addresses` that answers: attempts start in order, `stagger` apart,
@@ -89,7 +79,7 @@ where
 }
 
 /// Resolve `host` (a name, or an IP literal, with or without brackets) and connect to `port`:
-/// [`race`] over the resolver's order with the families interleaved, Nagle off.
+/// [`race`] over the addresses IPv6 first, families interleaved, Nagle off.
 pub async fn connect_tcp(host: &str, port: u16) -> io::Result<TcpStream> {
     let bare = host.trim_start_matches('[').trim_end_matches(']');
     let addresses: Vec<SocketAddr> = tokio::net::lookup_host((bare, port)).await?.collect();
