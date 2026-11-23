@@ -73,7 +73,7 @@ import {
   cmuxTuiServiceInstallCommand,
   type CmuxTuiSource,
 } from "../../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/workUser";
 import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
@@ -88,7 +88,7 @@ import {
   devboxSnapshotClockCommand,
   devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
-} from "../devbox-image-common";
+} from "./machine-commands";
 import {
   devTreeCredentialCheckCommand,
   devTreeLock,
@@ -152,7 +152,7 @@ import {
   metadataGuardProblems,
   metadataGuardRules,
   metadataGuardUnit,
-} from "../../services/vms/images/metadataGuard";
+} from "./metadata-guard";
 import {
   cronAtAllowCommand,
   cronAtAllowProblems,
