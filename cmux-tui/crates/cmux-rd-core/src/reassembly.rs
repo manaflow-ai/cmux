@@ -329,7 +329,7 @@ impl Reassembler {
         let expired: Vec<u32> = self
             .pending
             .iter()
-            .filter(|(&f, p)| !Self::decodable(p) && now_us > self.expires_after_us(f, p))
+            .filter(|(f, p)| !Self::decodable(p) && now_us > self.expires_after_us(**f, p))
             .map(|(&f, _)| f)
             .collect();
         for frame in expired {
