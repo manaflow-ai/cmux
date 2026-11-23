@@ -11,6 +11,7 @@ use cmux_auto_session::wire::{Assignment, Holder, SessionView};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{mpsc, watch};
 
+use super::away::Look;
 use super::chats::{LaneOp, Tracked, WorkRead, frozen};
 use super::signals::{self, Signal};
 use super::tasks::Ctx;
@@ -24,6 +25,8 @@ pub(super) struct Loop<C> {
     pub ctx: Ctx<C>,
     pub side: Side,
     pub chats: HashMap<String, Tracked>,
+    /// The read of the owner's chats, when one is on its way.
+    pub look: Look,
     network: Option<watch::Receiver<u64>>,
     new_chats: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
@@ -57,6 +60,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
             ctx,
             side,
             chats: HashMap::new(),
+            look: Look::Idle,
             network: options.network,
             new_chats: options.new_chats,
         }
@@ -71,6 +75,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
         let mut events = self.hub.subscribe();
         let mut network = self.network.take();
         self.resume_chats().await;
+        // The person's chats this laptop does not have yet (`away.rs`).
+        self.look();
         loop {
             let due = self.chats.values().filter_map(|tracked| tracked.timer).min();
             let clock = self.ctx.clock.clone();
@@ -147,7 +153,9 @@ impl<C: AutoCloud + 'static> Loop<C> {
                 for id in self.ids() {
                     self.step(&id, Event::Wake).await;
                 }
+                self.look();
             }
+            Command::Listed { result } => self.listed(result).await,
             Command::Assigned(assignment) => self.assigned(*assignment).await,
             Command::Away { id, post, reply } => self.away(&id, post, reply),
             Command::Copied { id, copy, result } => self.copied(&id, copy, result).await,
@@ -211,9 +219,17 @@ impl<C: AutoCloud + 'static> Loop<C> {
                 tracked.timer = None;
             }
             self.step(&id, Event::Tick).await;
-            if self.side == Side::Laptop && self.hub.auto_session(&id).is_none() {
-                // The chat was deleted here: Auto is off for it, once the store agrees.
-                self.step(&id, Event::AutoOff).await;
+            // No session here is not a chat the person deleted when it is one of the owner's
+            // list that never had one, or when an import is replacing it right now.
+            let expected = self.chats.get(&id).is_some_and(|tracked| {
+                tracked.absent || matches!(tracked.chat.state, State::ComingHome { .. })
+            });
+            let here = self.side == Side::Machine || self.hub.auto_session(&id).is_some();
+            if !here {
+                if !expected {
+                    // The chat was deleted here: Auto is off for it, once the store agrees.
+                    self.step(&id, Event::AutoOff).await;
+                }
             } else if let Some(chat) = self.chats.get(&id).map(|tracked| tracked.chat)
                 && chat.may_run()
             {
@@ -235,6 +251,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
                 self.step(&id, Event::Wake).await;
             }
         }
+        // The store may have chats this laptop has not heard of (`away.rs`).
+        self.look();
     }
 
     fn read_all(&mut self) {

@@ -59,6 +59,10 @@ pub(super) struct Tracked {
     pub work: WorkRead,
     /// The folder's tree as the last acknowledged snapshot has it.
     pub anchor: Option<String>,
+    /// The chat never had a session on this laptop: it is one of the owner's list
+    /// (`away.rs`), and its first import makes it one. A session that is missing is then not
+    /// one the person deleted.
+    pub absent: bool,
 }
 
 impl Tracked {
@@ -77,6 +81,7 @@ impl Tracked {
             streamed_at: 0,
             work: WorkRead::Idle,
             anchor: None,
+            absent: false,
         }
     }
 

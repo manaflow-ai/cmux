@@ -13,6 +13,7 @@
 //!   and comes back as a [`Command`], so a slow answer never holds another chat's renewal.
 //! - [`inbox`]: the Cloud inbox's messages into the chat's queue, each once.
 //! - [`switch`]: Auto switched on or off for a chat, and a prompt to a chat held elsewhere.
+//! - [`away`]: the person's Auto chats this laptop does not have, which it stands by for.
 //! - [`chats`]: what the loop keeps of each chat, and the chat's record and row kept in step.
 //! - [`clock`]: the wall clock, injected.
 //!
@@ -22,6 +23,7 @@
 //! changes the folder and an ack follows its drain. Renewals, registrations and copies go at
 //! once, beside the lane: a slow copy or import never holds a lease.
 
+mod away;
 mod chats;
 pub mod clock;
 mod effects;
@@ -81,6 +83,8 @@ pub(crate) enum Command {
     Switch { id: String, auto: bool, keep: Option<bool>, reply: Option<Reply> },
     /// The system woke.
     Wake,
+    /// The owner's open chats were read (`away.rs`).
+    Listed { result: Result<Vec<SessionView>, AutoCloudError> },
     /// The store assigned a chat to this Cloud machine.
     Assigned(Box<Assignment>),
     /// A prompt for a chat this machine may not run now.

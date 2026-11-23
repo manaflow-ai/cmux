@@ -206,6 +206,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
                     tracked.sent = imported.last_seq;
                     tracked.anchor = None;
                     tracked.tool = None;
+                    // The import made the chat a session of this daemon.
+                    tracked.absent = false;
                 }
                 Event::ImportDone { epoch: imported.epoch, snapshot: imported.snapshot }
             }
