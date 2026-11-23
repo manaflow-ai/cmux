@@ -21,6 +21,9 @@ class FakeClient:
         self.calls = []
         self.decl = {"alcoholTobaccoOrDrugUseOrReferences": "NONE", "unrestrictedWebAccess": False}
         self.detail = None
+        self.locs = {"l-en": {"locale": "en-US", "whatsNew": None, "promotionalText": "promo"},
+                     "l-de": {"locale": "de-DE", "whatsNew": None, "promotionalText": None}}
+        self.reject_whats_new = False
 
     def get(self, path):
         return self.call("GET", path)
@@ -36,6 +39,16 @@ class FakeClient:
         if method == "PATCH" and path.startswith("/v1/appStoreReviewDetails/"):
             self.detail["attributes"].update(body["data"]["attributes"])
             return {}
+        if method == "PATCH" and path.startswith("/v1/appStoreVersionLocalizations/"):
+            if self.reject_whats_new:
+                raise SystemExit(f"PATCH {path}: HTTP 409: whatsNew cannot be edited")
+            self.locs[path.split("/")[3]].update(body["data"]["attributes"])
+            return {}
+        if path.startswith("/v1/appStoreVersions/v2/appStoreVersionLocalizations?"):
+            return {"data": [{"id": k, "attributes": dict(v)} for k, v in self.locs.items()]}
+        if path.startswith("/v1/appStoreVersionLocalizations/"):
+            loc_id = path.split("/")[3].split("?")[0]
+            return {"data": {"id": loc_id, "attributes": dict(self.locs[loc_id])}}
         if path.startswith("/v1/apps/6791408425/appStoreVersions"):
             return {"data": [{"id": "v1", "attributes": {"versionString": "1.2.0", "appStoreState": "READY_FOR_SALE"}},
                              {"id": "v2", "attributes": {"versionString": "1.3.0",
@@ -114,6 +127,47 @@ class WriteTest(unittest.TestCase):
     def test_review_detail_sync_refuses_unknown_keys(self):
         with self.assertRaises(SystemExit):
             run(["review-detail-sync", "--attributes", '{"bogus": 1}'], FakeClient())
+
+    def test_version_localization_patch_writes_whats_new_and_reads_back(self):
+        client = FakeClient()
+        _, out = run(["version-localization-patch", "--attributes", '{"whatsNew": "cmux on iPhone."}'], client)
+        patch = [c for c in client.calls if c[0] == "PATCH"]
+        self.assertEqual(len(patch), 1)
+        self.assertEqual(patch[0][1], "/v1/appStoreVersionLocalizations/l-en")
+        self.assertEqual(patch[0][2]["data"]["attributes"], {"whatsNew": "cmux on iPhone."})
+        self.assertIsNone(out["result"]["before"]["whatsNew"])
+        self.assertEqual(out["result"]["after"]["whatsNew"], "cmux on iPhone.")
+        self.assertEqual(out["result"]["after"]["promotionalText"], "promo")
+        self.assertEqual(out["result"]["version"]["versionString"], "1.3.0")
+
+    def test_version_localization_patch_picks_locale(self):
+        client = FakeClient()
+        run(["version-localization-patch", "--locale", "de-DE", "--attributes", '{"whatsNew": "x"}'], client)
+        self.assertEqual(client.locs["l-de"]["whatsNew"], "x")
+        self.assertIsNone(client.locs["l-en"]["whatsNew"])
+
+    def test_version_localization_patch_refuses_other_fields_and_bad_input(self):
+        for attrs in ('{"description": "x"}', '{"keywords": "a"}', '{"whatsNew": 3}',
+                      json.dumps({"whatsNew": "x" * 4001})):
+            with self.assertRaises(SystemExit):
+                run(["version-localization-patch", "--attributes", attrs], FakeClient())
+        for locale in ("fr-FR", "en US", "../x"):
+            with self.assertRaises(SystemExit):
+                run(["version-localization-patch", "--locale", locale, "--attributes", '{"whatsNew": "x"}'],
+                    FakeClient())
+
+    def test_version_localization_patch_refuses_a_version_on_sale(self):
+        client = FakeClient()
+        with self.assertRaises(SystemExit):
+            run(["version-localization-patch", "--version", "1.2.0", "--attributes", '{"whatsNew": "x"}'], client)
+        self.assertFalse([c for c in client.calls if c[0] == "PATCH"])
+
+    def test_version_localization_patch_reports_asc_refusal(self):
+        client = FakeClient()
+        client.reject_whats_new = True
+        with self.assertRaises(SystemExit) as err:
+            run(["version-localization-patch", "--attributes", '{"whatsNew": "x"}'], client)
+        self.assertIn("HTTP 409", str(err.exception))
 
 
 class JwtTest(unittest.TestCase):
