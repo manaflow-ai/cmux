@@ -1881,6 +1881,923 @@
         }
       }
     },
+    "settings.agents.env": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Environment"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بيئة الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okruženje agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentmiljø"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent-Umgebung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entorno del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Environnement de l’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ambiente dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの環境変数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បរិស្ថានភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 환경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentmiljø"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Środowisko agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ambiente do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Окружение агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สภาพแวดล้อมของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan Ortamı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Середовище агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Môi trường tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理环境"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理環境"
+          }
+        }
+      }
+    },
+    "settings.agents.env.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Variables every new chat's agent and its tools get. A value an agent profile already sets wins."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "متغيرات يحصل عليها وكيل كل محادثة جديدة وأدواته. القيمة التي يحددها ملف تعريف الوكيل لها الأولوية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varijable koje dobija agent svakog novog chata i njegovi alati. Vrijednost koju profil agenta već postavlja ima prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Variabler, som agenten i hver ny chat og dens værktøjer får. En værdi, som en agentprofil allerede angiver, vinder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Variablen, die der Agent jedes neuen Chats und seine Werkzeuge erhalten. Ein Wert, den ein Agentenprofil schon setzt, hat Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Variables que recibe el agente de cada chat nuevo y sus herramientas. Un valor que ya fija un perfil de agente tiene prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Variables que reçoivent l’agent de chaque nouvelle discussion et ses outils. Une valeur déjà définie par un profil d’agent l’emporte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Variabili che ricevono l’agente di ogni nuova chat e i suoi strumenti. Un valore già impostato da un profilo agente ha la precedenza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいチャットのエージェントとそのツールが受け取る変数。エージェントのプロファイルが設定している値が優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អថេរដែលភ្នាក់ងារនៃការជជែកថ្មីនីមួយៗ និងឧបករណ៍របស់វាទទួលបាន។ តម្លៃដែលប្រវត្តិរូបភ្នាក់ងារបានកំណត់រួចមានអាទិភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 채팅의 에이전트와 그 도구가 받는 변수입니다. 에이전트 프로필이 이미 설정한 값이 우선합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Variabler som agenten i hver ny chat og verktøyene dens får. En verdi som en agentprofil allerede setter, vinner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmienne, które otrzymuje agent każdego nowego czatu i jego narzędzia. Wartość ustawiona już przez profil agenta ma pierwszeństwo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Variáveis que o agente de cada novo chat e suas ferramentas recebem. Um valor que um perfil de agente já define prevalece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переменные, которые получают агент каждого нового чата и его инструменты. Значение, уже заданное профилем агента, важнее."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวแปรที่เอเจนต์ของแชทใหม่ทุกแชทและเครื่องมือของมันได้รับ ค่าที่โปรไฟล์เอเจนต์ตั้งไว้แล้วจะมีผลก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her yeni sohbetin ajanının ve araçlarının aldığı değişkenler. Bir ajan profilinin zaten ayarladığı değer önceliklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Змінні, які отримують агент кожного нового чату та його інструменти. Значення, вже задане профілем агента, має перевагу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các biến mà tác tử của mỗi cuộc trò chuyện mới và công cụ của nó nhận được. Giá trị do hồ sơ tác tử đặt sẵn sẽ được ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个新聊天的代理及其工具获得的变量。代理配置文件已设置的值优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個新聊天的代理及其工具取得的變數。代理設定檔已設定的值優先。"
+          }
+        }
+      }
+    },
+    "settings.agents.envExclude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden from Agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مخفية عن الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriveno od agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjult for agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vor Agenten verborgen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultas a los agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masquées aux agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nascoste agli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントに渡さない変数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លាក់ពីភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트에게 숨김"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjult for agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukryte przed agentami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultas dos agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрыто от агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซ่อนจากเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanlardan Gizli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приховано від агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ẩn khỏi tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对代理隐藏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對代理隱藏"
+          }
+        }
+      }
+    },
+    "settings.agents.envExclude.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Variable names agents never get, such as AWS_SECRET_ACCESS_KEY or AWS_*."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أسماء متغيرات لا يحصل عليها الوكلاء أبدًا، مثل AWS_SECRET_ACCESS_KEY أو AWS_*."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nazivi varijabli koje agenti nikad ne dobijaju, npr. AWS_SECRET_ACCESS_KEY ili AWS_*."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Variabelnavne, som agenter aldrig får, f.eks. AWS_SECRET_ACCESS_KEY eller AWS_*."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Variablennamen, die Agenten nie erhalten, etwa AWS_SECRET_ACCESS_KEY oder AWS_*."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nombres de variables que los agentes nunca reciben, como AWS_SECRET_ACCESS_KEY o AWS_*."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noms de variables que les agents ne reçoivent jamais, comme AWS_SECRET_ACCESS_KEY ou AWS_*."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nomi di variabili che gli agenti non ricevono mai, come AWS_SECRET_ACCESS_KEY o AWS_*."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントに決して渡さない変数名（AWS_SECRET_ACCESS_KEY や AWS_* など）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈ្មោះអថេរដែលភ្នាក់ងារមិនដែលទទួលបាន ដូចជា AWS_SECRET_ACCESS_KEY ឬ AWS_*។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 절대 받지 않는 변수 이름입니다(예: AWS_SECRET_ACCESS_KEY 또는 AWS_*)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Variabelnavn agenter aldri får, for eksempel AWS_SECRET_ACCESS_KEY eller AWS_*."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nazwy zmiennych, których agenci nigdy nie dostają, np. AWS_SECRET_ACCESS_KEY lub AWS_*."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nomes de variáveis que os agentes nunca recebem, como AWS_SECRET_ACCESS_KEY ou AWS_*."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Имена переменных, которые агенты никогда не получают, например AWS_SECRET_ACCESS_KEY или AWS_*."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชื่อตัวแปรที่เอเจนต์จะไม่ได้รับเลย เช่น AWS_SECRET_ACCESS_KEY หรือ AWS_*"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanların hiçbir zaman almadığı değişken adları, örneğin AWS_SECRET_ACCESS_KEY veya AWS_*."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Назви змінних, які агенти ніколи не отримують, наприклад AWS_SECRET_ACCESS_KEY або AWS_*."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tên biến mà tác tử không bao giờ nhận, chẳng hạn AWS_SECRET_ACCESS_KEY hoặc AWS_*."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理永远不会获得的变量名，例如 AWS_SECRET_ACCESS_KEY 或 AWS_*。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理永遠不會取得的變數名稱，例如 AWS_SECRET_ACCESS_KEY 或 AWS_*。"
+          }
+        }
+      }
+    },
+    "settings.agents.envExclude.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NAME or PREFIX_*"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME أو PREFIX_*"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME ili PREFIX_*"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME eller PREFIX_*"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME oder PREFIX_*"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME o PREFIX_*"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME ou PREFIX_*"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME o PREFIX_*"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME または PREFIX_*"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME ឬ PREFIX_*"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME 또는 PREFIX_*"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME eller PREFIX_*"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME lub PREFIX_*"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME ou PREFIX_*"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME или PREFIX_*"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME หรือ PREFIX_*"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME veya PREFIX_*"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME або PREFIX_*"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME hoặc PREFIX_*"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME 或 PREFIX_*"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NAME 或 PREFIX_*"
+          }
+        }
+      }
+    },
+    "settings.agents.additionalDirectories": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folders Every Chat Sees"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مجلدات تراها كل محادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mape koje vidi svaki chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mapper, som hver chat ser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordner, die jeder Chat sieht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carpetas que ve cada chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dossiers visibles par chaque discussion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartelle visibili a ogni chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべてのチャットが見るフォルダ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថតដែលការជជែកនីមួយៗមើលឃើញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 채팅이 보는 폴더"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mapper hver chat ser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foldery widoczne dla każdego czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pastas que todo chat vê"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папки, которые видит каждый чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฟลเดอร์ที่ทุกแชทเห็น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her Sohbetin Gördüğü Klasörler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Теки, які бачить кожен чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thư mục mọi cuộc trò chuyện đều thấy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个聊天都能看到的文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個聊天都能看到的資料夾"
+          }
+        }
+      }
+    },
+    "settings.agents.additionalDirectories.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added to every new chat's Sources. Use full or ~/ paths."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُضاف إلى مصادر كل محادثة جديدة. استخدم مسارات كاملة أو ~/."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaju se u Izvore svakog novog chata. Koristite pune ili ~/ putanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Føjes til hver ny chats kilder. Brug fulde stier eller ~/-stier."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Werden den Quellen jedes neuen Chats hinzugefügt. Volle oder ~/-Pfade verwenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se añaden a las fuentes de cada chat nuevo. Usa rutas completas o ~/."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajoutés aux sources de chaque nouvelle discussion. Utilisez des chemins complets ou ~/."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiunte alle fonti di ogni nuova chat. Usa percorsi completi o ~/."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいチャットのソースに追加されます。フルパスか ~/ パスを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែមទៅប្រភពនៃការជជែកថ្មីនីមួយៗ។ ប្រើផ្លូវពេញ ឬ ~/។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 새 채팅의 소스에 추가됩니다. 전체 경로나 ~/ 경로를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legges til i kildene til hver ny chat. Bruk fulle stier eller ~/-stier."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodawane do źródeł każdego nowego czatu. Użyj pełnych ścieżek lub ~/."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionadas às fontes de cada novo chat. Use caminhos completos ou ~/."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавляются к источникам каждого нового чата. Используйте полные пути или ~/."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่มลงในแหล่งข้อมูลของทุกแชทใหม่ ใช้พาธเต็มหรือ ~/"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her yeni sohbetin Kaynaklarına eklenir. Tam veya ~/ yolları kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додаються до джерел кожного нового чату. Використовуйте повні шляхи або ~/."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Được thêm vào Nguồn của mọi cuộc trò chuyện mới. Dùng đường dẫn đầy đủ hoặc ~/."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "添加到每个新聊天的来源中。使用完整路径或 ~/ 路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "加入每個新聊天的來源。使用完整路徑或 ~/ 路徑。"
+          }
+        }
+      }
+    },
     "settings.agents.promptCache": {
       "extractionState": "manual",
       "localizations": {
