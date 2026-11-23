@@ -230,7 +230,7 @@ fn begin(
         let status = Status {
             state: "awaiting_approval".into(),
             port,
-            setup: recipe.setup.clone(),
+            setup: recipe.setup,
             approval: Some(fingerprint.clone()),
             started_ms: now_ms(),
             ..Status::default()
