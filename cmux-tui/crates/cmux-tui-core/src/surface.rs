@@ -121,6 +121,8 @@ mod host_frames;
 mod hosted_callbacks;
 #[cfg(any(unix, windows))]
 mod hosted_reader;
+#[cfg(unix)]
+mod idle_links;
 #[cfg(any(unix, windows))]
 use hosted_callbacks::hosted_terminal_callbacks;
 #[cfg(any(unix, windows))]

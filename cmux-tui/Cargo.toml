@@ -499,6 +499,9 @@ ip_network = "0.4"
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
 libc = "0.2"
+# One poller for every idle terminal-host link (cmux-tui-core surface/idle_links.rs); tokio
+# already links mio with these features.
+mio = { version = "1", features = ["os-poll", "os-ext"] }
 memchr = "2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 # Debug-only daemon hot-patching (cmux-tui-core feature `hotpatch`); pinned to
