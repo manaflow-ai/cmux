@@ -52,6 +52,7 @@ import {
   ROTATE_FAVORITES_KEY,
   THEME_FILE_KEY,
   SELECTION_KEY,
+  DOCTOR_NOTICE_KEY,
 } from "../cardRows";
 
 export {
@@ -159,6 +160,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const highlightRow = rowsByKey.get(HIGHLIGHT_COLOR_KEY);
   const rotateRow = rowsByKey.get(ROTATE_FAVORITES_KEY);
   const themeFileRow = rowsByKey.get(THEME_FILE_KEY);
+  const doctorNoticeRow = rowsByKey.get(DOCTOR_NOTICE_KEY);
   const accentState = useRowState(ACCENT_KEY);
   // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
   // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
@@ -473,6 +475,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               </Button>
             </StudioRow>
           )}
+          {doctorNoticeRow && <SettingRow row={doctorNoticeRow} focused={focused === DOCTOR_NOTICE_KEY} />}
         </div>
       </section>
     </div>

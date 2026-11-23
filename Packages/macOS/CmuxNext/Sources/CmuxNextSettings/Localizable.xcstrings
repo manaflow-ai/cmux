@@ -208176,7 +208176,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je"
+            "value": "Smiju li agenti u cmuxu upravljati i mijenjati aplikaciju"
           }
         },
         "da": {
@@ -208260,19 +208260,19 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği"
+            "value": "cmux ajanları uygulamayı yönetip değiştirebilir mi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чи можуть агенти в cmux керувати застосунком і змінювати його"
+            "value": "Чи можуть агенти cmux керувати застосунком і змінювати його"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không"
+            "value": "Tác nhân cmux có được điều khiển và sửa ứng dụng không"
           }
         },
         "zh-Hans": {
@@ -249929,10 +249929,10 @@
         "ar": {"stringUnit": {"state": "translated", "value": "أخبرني عندما يغيّر ملف أو طبقة إعداداتي"}},
         "bs": {"stringUnit": {"state": "translated", "value": "Obavijesti me kada datoteka ili sloj promijeni moje postavke"}},
         "da": {"stringUnit": {"state": "translated", "value": "Fortæl mig, når en fil eller et lag ændrer min opsætning"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Mich informieren, wenn eine Datei oder Ebene meine Einrichtung ändert"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Avisarme cuando un archivo o una capa cambie mi configuración"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Me prévenir quand un fichier ou une couche modifie ma configuration"}},
-        "it": {"stringUnit": {"state": "translated", "value": "Avvisami quando un file o un livello modifica la mia configurazione"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Melden, wenn eine Datei oder Ebene mein Setup ändert"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Avisarme si un archivo o capa cambia mi configuración"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Prévenir quand un fichier ou une couche change ma config"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Avvisami se un file o un livello cambia la mia config"}},
         "ja": {"stringUnit": {"state": "translated", "value": "ファイルやレイヤーが設定を変えたときに知らせる"}},
         "km": {"stringUnit": {"state": "translated", "value": "ប្រាប់ខ្ញុំនៅពេលឯកសារ ឬស្រទាប់ផ្លាស់ប្ដូរការរៀបចំរបស់ខ្ញុំ"}},
         "ko": {"stringUnit": {"state": "translated", "value": "파일이나 레이어가 내 설정을 바꾸면 알림"}},
@@ -249941,7 +249941,7 @@
         "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisar quando um arquivo ou camada mudar minha configuração"}},
         "ru": {"stringUnit": {"state": "translated", "value": "Сообщать, когда файл или слой меняет мою настройку"}},
         "th": {"stringUnit": {"state": "translated", "value": "แจ้งฉันเมื่อไฟล์หรือเลเยอร์เปลี่ยนการตั้งค่าของฉัน"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Bir dosya veya katman düzenimi değiştirdiğinde bana haber ver"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir dosya veya katman düzenimi değiştirince haber ver"}},
         "uk": {"stringUnit": {"state": "translated", "value": "Повідомляти, коли файл або шар змінює моє налаштування"}},
         "vi": {"stringUnit": {"state": "translated", "value": "Báo cho tôi khi một tệp hoặc lớp thay đổi thiết lập của tôi"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "当文件或图层更改我的设置时通知我"}},

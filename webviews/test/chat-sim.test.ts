@@ -54,12 +54,13 @@ const turnTwo = (name: string) => {
 // Since #49052 a turn another agent's message opened draws its "Working for" over that message from its
 // first frame, where "Worked for" lands when it ends (Leo: "the jostles and shifts and spacing are still
 // bad here"): Working for is the turn's head, and the live Thinking line is the first row under the message.
+// Since #50242 the running Working for and the ended Worked for are one row of kind "worked" in two phases.
 // Rule (a) above checks the gap over Working for; the Thinking line under the message still stands the
 // head gap (Leo's screenshot).
 for (const name of ["incoming-notice-turn", "incoming-message-turn"])
   test(`chat simulator: ${name}: Working for heads the turn over another agent's line, and Thinking stands the head gap under it (Leo's screenshot)`, () => {
     const { head, under } = turnTwo(name);
-    expect(head).toEqual({ kind: "working", overOpener: true });
+    expect(head).toEqual({ kind: "worked", overOpener: true });
     const want = ROW_GAP_LOOKS.shipped.workedAfterLine;
     expect(want).toBeGreaterThan(0);
     expect(under.thinking).toBe(want);
@@ -89,8 +90,9 @@ test("chat simulator: received-sent-as-activity: received and sent rows stand a 
 
 test("chat simulator: a person's prompt keeps the block gap over Working for", () => {
   const result = runSimulation(SCENARIOS.basic!());
-  const trace = result.traces.find((step) => step.rows?.some((row) => row.kind === "working" && row.head));
-  const head = trace!.rows!.find((row) => row.kind === "working" && row.head)!;
+  // Since #50242 the running Working for is the turn's "worked" header row in its running phase.
+  const trace = result.traces.find((step) => step.rows?.some((row) => row.kind === "worked" && row.head));
+  const head = trace!.rows!.find((row) => row.kind === "worked" && row.head)!;
   expect(head.gap).toBeGreaterThanOrEqual(24);
 });
 

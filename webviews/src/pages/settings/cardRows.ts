@@ -97,6 +97,9 @@ export const ROTATE_FAVORITES_KEY = "appearance.rotateFavoriteThemes";
 /** appearance.themeFile: the look from a file in the themes folder, drawn here as its setting row
  * after the Highlight Color (another App Theme key: its group would draw a second card for it). */
 export const THEME_FILE_KEY = "appearance.themeFile";
+/** customize.doctorNotice: the customization notices toggle, drawn here as its setting row after the
+ * theme file (the App Theme group's last key: its group would draw a second card for it). */
+export const DOCTOR_NOTICE_KEY = "customize.doctorNotice";
 /** appearance.favoriteThemes: the starred themes, shared by every theme picker on the page. */
 export const FAVORITE_THEMES_KEY = "appearance.favoriteThemes";
 
