@@ -68,6 +68,15 @@ pub struct Scenario {
     /// redraw, what a phone that declares nothing gets.
     #[serde(default)]
     pub coalesce_ms: Option<u64>,
+    /// `terminal` with `[tui]` only: a fixed cost per `output` event on the phone, in ms, on top
+    /// of what the run times (a main-thread hop, the app's own decode and paint, which this model
+    /// cannot see). A phone slower than the events backs up the Mac's socket.
+    #[serde(default)]
+    pub phone_event_ms: Option<f64>,
+    /// `terminal` with `[tui]` only: when the Mac's writer frees, the PTY reads already pending go
+    /// out as one `output` event (no timer). Not with `coalesce_ms`.
+    #[serde(default)]
+    pub merge_ready: bool,
     #[serde(default, rename = "event")]
     pub events: Vec<Event>,
     #[serde(default, rename = "check")]
@@ -333,10 +342,17 @@ impl Scenario {
         }
         match (self.path, &self.tui) {
             (PathKind::Projection, None) => return Err("path = \"projection\" needs [tui]".into()),
-            (PathKind::Terminal, None) if self.coalesce_ms.is_some() => {
-                return Err("coalesce_ms needs [tui]".into());
+            (PathKind::Terminal, None)
+                if self.coalesce_ms.is_some()
+                    || self.phone_event_ms.is_some()
+                    || self.merge_ready =>
+            {
+                return Err("coalesce_ms, phone_event_ms and merge_ready need [tui]".into());
             }
             _ => {}
+        }
+        if self.merge_ready && self.coalesce_ms.is_some_and(|ms| ms > 0) {
+            return Err("merge_ready and coalesce_ms are two senders: one at a time".into());
         }
         for event in &self.events {
             let terminal_only = !matches!(event, Event::Scroll { .. } | Event::Echo { .. });

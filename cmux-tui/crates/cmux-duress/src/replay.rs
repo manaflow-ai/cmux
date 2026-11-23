@@ -530,7 +530,13 @@ fn projection_run(
         let started = Instant::now();
         let decoded = decoder.decode(&lean).ok_or("a lean frame the decoder reads")?;
         let decode_ms = ms(started);
-        let ready = arrived.max(phone_free) + decode_ms;
+        let took = arrived.max(phone_free);
+        {
+            let mut unread = unread.borrow_mut();
+            unread.retain(|(read, _)| *read > start);
+            unread.push_back((took, event.len()));
+        }
+        let ready = took + decode_ms + event_ms;
         let started = Instant::now();
         if let Some(bytes) = vt::frame_bytes(&decoded.frame, rows, decoded.cursor) {
             phone.vt_write(&bytes);
@@ -585,8 +591,13 @@ fn tui_bytes_run(
     let mut phone = terminal(cols, rows)?;
     let mut wire = Link::new(link.clone(), Rng::new(knobs.seed ^ SCENARIO_SALT).split(20));
     let mut phone_state = RenderState::new().map_err(vt_err)?;
-    let (mut mac_free, mut phone_free) = (0.0f64, 0.0f64);
+    let mut phone_free = 0.0f64;
     let (mut events, mut wire_total) = (0u64, 0u64);
+    // The Mac's writer, and the events the phone has not read yet (when it reads each, its
+    // bytes): past `SOCKET_WINDOW` unread bytes the writer waits for the phone.
+    let mac_free = std::cell::Cell::new(0.0f64);
+    let unread = std::cell::RefCell::new(std::collections::VecDeque::<(f64, usize)>::new());
+    let event_ms = scenario.phone_event_ms.unwrap_or(0.0).max(0.0);
     let trim = |text: &str| text.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
 
     // One `output` event leaving the Mac's attach worker at `due` (virtual ms): `held` are the
@@ -597,7 +608,7 @@ fn tui_bytes_run(
                     mac: &mut Terminal,
                     metrics: &mut Metrics|
      -> Result<(), String> {
-        let start = due.max(mac_free);
+        let start = writer_ready(due, mac_free.get(), &unread.borrow());
         let started = Instant::now();
         let event = serde_json::json!({
             "event": "output",
@@ -606,8 +617,8 @@ fn tui_bytes_run(
         })
         .to_string();
         let encode_ms = ms(started);
-        mac_free = start + encode_ms;
-        let sent = mac_free;
+        mac_free.set(start + encode_ms);
+        let sent = mac_free.get();
         let arrived = wire.deliver((sent * 1000.0) as u64, event.len()) as f64 / 1000.0;
         let started = Instant::now();
         let value: serde_json::Value =
@@ -627,6 +638,7 @@ fn tui_bytes_run(
         let _ = phone_state.build_frame().map_err(vt_err)?;
         let build_ms = ms(started);
         let paint_ms = parse_ms + build_ms;
+        metrics.push("phone_wait_ms", "ms", took - arrived);
         phone_free = ready + paint_ms;
         let present = (phone_free / FRAME_MS).ceil() * FRAME_MS;
 
@@ -685,6 +697,23 @@ fn tui_bytes_run(
     let mut pending: Vec<u8> = Vec::new();
     let mut held: Vec<(f64, Write)> = Vec::new();
     let mut last_sent: Option<f64> = None;
+    if scenario.merge_ready {
+        // Fix (a): what is pending when the writer frees goes out as one event.
+        let mut writes = writes.into_iter().peekable();
+        while let Some((t, write, bytes)) = writes.next() {
+            let start = writer_ready(t, mac_free.get(), &unread.borrow());
+            let (mut merged, mut held) = (bytes, vec![(t, write)]);
+            while let Some((t, write, bytes)) =
+                writes.next_if(|(t, _, _)| *t <= start && merged.len() < MERGE_MAX_BYTES)
+            {
+                merged.extend_from_slice(&bytes);
+                held.push((t, write));
+            }
+            send(start, &merged, &held, &mut mac, metrics)?;
+        }
+        finish_tui_bytes_run(scenario, metrics, events, wire_total);
+        return Ok(());
+    }
     for (t, write, bytes) in writes {
         let Some(interval) = interval else {
             send(t, &bytes, &[(t, write)], &mut mac, metrics)?;
@@ -711,12 +740,38 @@ fn tui_bytes_run(
         let due = last_sent.map_or(0.0, |sent| sent + interval.unwrap_or(0.0));
         send(due, &pending, &held, &mut mac, metrics)?;
     }
-    drop(send);
+    finish_tui_bytes_run(scenario, metrics, events, wire_total);
+    Ok(())
+}
+
+/// The socket's unread bytes past which the Mac's writer blocks (a send buffer plus a receive
+/// buffer, about macOS's defaults).
+const SOCKET_WINDOW: usize = 128 * 1024;
+/// `merge_ready`'s cap per event, `OUTPUT_COALESCE_MAX_BYTES`'s value.
+const MERGE_MAX_BYTES: usize = 1 << 20;
+
+/// When the writer can start an event due at `due`: after its last write, and once the phone has
+/// read enough of `unread` (in order) to leave at most `SOCKET_WINDOW` bytes unread.
+fn writer_ready(due: f64, mac_free: f64, unread: &std::collections::VecDeque<(f64, usize)>) -> f64 {
+    let mut start = due.max(mac_free);
+    let mut waiting: usize = unread.iter().filter(|(read, _)| *read > start).map(|e| e.1).sum();
+    for &(read, len) in unread {
+        if waiting <= SOCKET_WINDOW {
+            break;
+        }
+        if read > start {
+            start = read;
+            waiting -= len;
+        }
+    }
+    start
+}
+
+fn finish_tui_bytes_run(scenario: &Scenario, metrics: &mut Metrics, events: u64, wire_total: u64) {
     let seconds = scenario.tui.as_ref().map_or(1, |tui| tui.seconds.max(1)) as f64;
     metrics.push("events_per_s", "events/s", events as f64 / seconds);
     metrics.push("wire_bytes_per_s", "bytes/s", wire_total as f64 / seconds);
     metrics.declare("scroll_to_paint_ms", "ms");
-    Ok(())
 }
 
 /// The terminal's screen as the hybrid stream sends it, and its cursor (`tests/parity.rs`

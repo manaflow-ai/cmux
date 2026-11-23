@@ -6,6 +6,7 @@
 //! cmux-duress scenario list [--dir DIR]
 //! cmux-duress scenario run NAME|all [--sim] [--dir DIR] [--repo ROOT]
 //!     [--spec SPEC] [--link NAME] [--path terminal|projection] [--cols N] [--coalesce-ms MS]
+//!     [--phone-event-ms MS] [--merge-ready]
 //! ```
 //!
 //! `scenario run` replays a named scenario (`scenarios/NAME.toml`) headless through the phone's
@@ -26,7 +27,8 @@ const USAGE: &str = "usage:
   cmux-duress presets
   cmux-duress scenario list [--dir DIR]
   cmux-duress scenario run NAME|all [--sim] [--dir DIR] [--repo ROOT]
-      [--spec SPEC] [--link NAME] [--path terminal|projection] [--cols N] [--coalesce-ms MS]";
+      [--spec SPEC] [--link NAME] [--path terminal|projection] [--cols N] [--coalesce-ms MS]
+      [--phone-event-ms MS] [--merge-ready]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -112,6 +114,7 @@ fn scenario(mut args: impl Iterator<Item = String>) -> Result<bool, String> {
     // Overrides of each scenario's own fields: the same case under another link, path or width.
     let (mut spec, mut path, mut cols, mut coalesce_ms) = (None, None, None, None);
     let mut link: Option<String> = None;
+    let (mut phone_event_ms, mut merge_ready) = (None, false);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--sim" => sim = true,
@@ -134,6 +137,12 @@ fn scenario(mut args: impl Iterator<Item = String>) -> Result<bool, String> {
                 coalesce_ms =
                     Some(value.parse::<u64>().map_err(|_| format!("--coalesce-ms {value}"))?);
             }
+            "--phone-event-ms" => {
+                let value = args.next().ok_or("--phone-event-ms needs a value")?;
+                phone_event_ms =
+                    Some(value.parse::<f64>().map_err(|_| format!("--phone-event-ms {value}"))?);
+            }
+            "--merge-ready" => merge_ready = true,
             "--dir" => dir = Some(args.next().ok_or("--dir needs a value")?),
             "--repo" => repo = Some(args.next().ok_or("--repo needs a value")?),
             flag if flag.starts_with('-') => return Err(format!("unknown flag {flag}\n{USAGE}")),
@@ -174,6 +183,10 @@ fn scenario(mut args: impl Iterator<Item = String>) -> Result<bool, String> {
                 if coalesce_ms.is_some() {
                     scenario.coalesce_ms = coalesce_ms;
                 }
+                if phone_event_ms.is_some() {
+                    scenario.phone_event_ms = phone_event_ms;
+                }
+                scenario.merge_ready |= merge_ready;
                 scenario.validate()?;
             }
             if sim {
