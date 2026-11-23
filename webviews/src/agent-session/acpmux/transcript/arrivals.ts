@@ -54,28 +54,6 @@ export class TokenRows {
   }
 }
 
-export type ReaderRoom = { followed: boolean; left?: true; kept?: { room: number; prompt: string | undefined } };
-
-/// The room under the last row this pass, and what of it is kept for the reader (`heldRoom.reader`): followed,
-/// the stack's room (`followedRoom`), or more where the reader came back down to room held while they were
-/// scrolled up; scrolled up, the room held (`held`).
-export function roomUnderRows(
-  { room: held, reader }: { room: number; reader: ReaderRoom },
-  pass: { following: boolean; sessionSwitched: boolean; followedRoom: number; prompt: string | undefined },
-): { room: number; kept: ReaderRoom["kept"] } {
-  if (pass.sessionSwitched) return { room: pass.followedRoom, kept: undefined };
-  if (!pass.following) return { room: held, kept: undefined };
-  const kept = !reader.followed
-    ? reader.left && held > pass.followedRoom + 0.5
-      ? { room: held, prompt: pass.prompt }
-      : undefined
-    : reader.kept?.prompt === pass.prompt
-      ? reader.kept
-      : undefined;
-  // No room kept: the stack's room as it is, below zero too (what an opened tray lies over, `trayHold`).
-  return { room: kept ? Math.max(pass.followedRoom, kept.room) : pass.followedRoom, kept };
-}
-
 /// The newest prompt's row id (a user row that is no line), or undefined: the turn the room the reader
 /// came back to is kept for (`heldRoom.reader`). Reads back from the end to that prompt only.
 export function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {

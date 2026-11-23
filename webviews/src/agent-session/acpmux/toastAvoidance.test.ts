@@ -63,7 +63,7 @@ describe("toast avoidance", () => {
     place("form.acpmux-composer", { left: 20, top: 660, width: 860, height: 90 });
     const stop = watchToastAvoidance(dock, (box) => sent.push(box));
     flush();
-    expect(sent).toEqual([{ left: 20, top: 660, right: 880, bottom: 750 }]);
+    expect(sent).toEqual([{ left: 20, top: 660, right: 880, bottom: 750, zoom: 1 }]);
     // A resize that leaves the box where it was says nothing.
     resized.forEach((callback) => callback());
     flush();
@@ -72,7 +72,13 @@ describe("toast avoidance", () => {
     place("form.acpmux-composer", { left: 20, top: 640, width: 860, height: 110 });
     resized.forEach((callback) => callback());
     flush();
-    expect(sent.at(-1)).toEqual({ left: 20, top: 640, right: 880, bottom: 750 });
+    expect(sent.at(-1)).toEqual({ left: 20, top: 640, right: 880, bottom: 750, zoom: 1 });
+    // Cmd +: the same CSS box sits elsewhere in the App's points, so it is sent again at the new zoom.
+    dom.window.document.documentElement.style.setProperty("--cmux-ui-scale", "1.25");
+    view.dispatchEvent(new dom.window.Event("cmux-ui-scale-change"));
+    flush();
+    expect(sent.length).toBe(3);
+    expect(sent.at(-1)).toEqual({ left: 20, top: 640, right: 880, bottom: 750, zoom: 1.25 });
     stop();
     expect(sent.at(-1)).toBeUndefined();
   });
@@ -97,17 +103,17 @@ describe("toast avoidance", () => {
       place("form.acpmux-composer", { left: 20, top: 660, width: 860, height: 90 });
       const chat = reportToastAvoidance(dock);
       flush();
-      expect(heard.at(-1)).toEqual([{ left: 20, top: 660, right: 880, bottom: 750 }]);
+      expect(heard.at(-1)).toEqual([{ left: 20, top: 660, right: 880, bottom: 750, zoom: 1 }]);
       // A New Tab composer card mounts over it (the chat's stack stays mounted a moment).
       const card = document.createElement("div");
       document.body.append(card);
       place("body > div", { left: 40, top: 600, width: 820, height: 100 });
       const newTab = reportToastAvoidance(card, elementBox);
       flush();
-      expect(heard.at(-1)).toEqual([{ left: 40, top: 600, right: 860, bottom: 700 }]);
+      expect(heard.at(-1)).toEqual([{ left: 40, top: 600, right: 860, bottom: 700, zoom: 1 }]);
       // The chat's stack goes first: the card is still what the toasts avoid.
       chat();
-      expect(heard.at(-1)).toEqual([{ left: 40, top: 600, right: 860, bottom: 700 }]);
+      expect(heard.at(-1)).toEqual([{ left: 40, top: 600, right: 860, bottom: 700, zoom: 1 }]);
       newTab();
       expect(heard.at(-1)).toEqual([]);
     } finally {
@@ -145,7 +151,7 @@ describe("toast avoidance", () => {
       place("body > div", { left: 40, top: 600, width: 820, height: 100 });
       const stop = reportToastAvoidance(card, elementBox);
       flush();
-      const box = [{ left: 40, top: 600, right: 860, bottom: 700 }];
+      const box = [{ left: 40, top: 600, right: 860, bottom: 700, zoom: 1 }];
       expect(hostBox).toEqual(box);
       // The handshake retries in the same document; the card has not moved.
       await postNative("ready", { reconnect: true });

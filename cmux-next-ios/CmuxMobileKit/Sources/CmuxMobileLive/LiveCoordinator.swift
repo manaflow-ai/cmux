@@ -129,6 +129,10 @@ public final class LiveCoordinator {
     @ObservationIgnored let incidents: ConnectivityIncidentReporter
     @ObservationIgnored private var teamTask: Task<Void, Never>?
     @ObservationIgnored var bannerTask: Task<Void, Never>?
+    /// The banner's slot: quiet link states wait out their bound before they show (`phaseChanged`).
+    @ObservationIgnored lazy var bannerHold = HeldNotice<ConnectionBannerState>(clock: clock) { [weak self] in
+        self?.banner = $0
+    }
     @ObservationIgnored var everConnected = false
     /// Macs a link was connected to: a failed redial to one says
     /// "Reconnecting", not "Can't reach" (the link keeps retrying).
