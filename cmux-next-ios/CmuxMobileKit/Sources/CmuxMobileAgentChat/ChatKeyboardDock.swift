@@ -570,6 +570,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if !positionedInitially, contentHeight > 0 || surfaceIsEmpty {
             positionedInitially = true
             scrollView.contentOffset = bottomOffset
+        } else if positionedInitially, scrollView.isDecelerating {
+            // The person's fling or rubber band owns the offset until it rests (Leo,
+            // 2026-11-23: "i scroll a bit up then down. it jumps at the bottom"): a
+            // following reader's glide into the bottom, or its bounce past it, was cut to
+            // the resting offset by the next layout pass (a row measured as it came into
+            // view, the jump button hiding). The keyboard's move still carries the
+            // content; the glide ends where UIKit takes it, and a newest row that grew
+            // meanwhile is caught up when it rests (`scrollViewDidEndDecelerating`).
+            if bottomDelta != 0 { scrollView.contentOffset.y += bottomDelta }
         } else if positionedInitially, surface.following {
             // Inside the keyboard's animation: the newest turn rides the
             // stack frame by frame and the top of the transcript is covered.
@@ -950,17 +959,29 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
     #endif
 
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        // A following reader's glide ended short of a newest row that grew while it ran
+        // (`updateInsets` leaves a fling alone): it settles onto that row.
+        guard surface.following, !foldHolding, positionedInitially, abs(distanceFromBottom) > 0.5 else { return }
+        scroll(to: bottomOffset, animated: true)
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let y = scrollView.contentOffset.y
         if scrollView.isTracking { onUserScroll?(lastOffsetY - y) }
         lastOffsetY = y
         updateJump()
-        let away = scrolledDistanceFromBottom > 80
+        // Following means resting on the newest row (or pulling past it), never "near" it:
+        // with an 80 pt band a reader who scrolled a bit up still followed, so the next
+        // layout pass (a row measured, the stack settling, a streamed line) cut the offset
+        // to the bottom under them (Leo, 2026-11-23: "i scroll a bit up then down. it jumps
+        // at the bottom"). The rubber band counts as the bottom (the distance clamps it off).
+        let atBottom = scrolledDistanceFromBottom < 2
         // A disclosure's glide is not the reader's scroll: following is settled when it ends.
         if foldHolding, !scrollView.isTracking { return }
         if scrollView.isTracking || scrollView.isDecelerating {
-            surface.following = !away
-        } else if !away, surface.find?.currentMatch == nil {
+            surface.following = atBottom
+        } else if atBottom, surface.find?.currentMatch == nil {
             // A Find jump that lands near the bottom keeps the reader on its match: only the
             // person's own scroll resumes following while a match is shown.
             surface.following = true

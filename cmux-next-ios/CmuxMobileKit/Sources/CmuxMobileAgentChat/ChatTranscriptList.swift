@@ -601,7 +601,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         super.init()
         lookup.showAll = { [weak self] id in self?.showAll(id) }
         collectionView.prefetchDataSource = self
-        layout.followsBottom = { [weak surface] in surface?.following ?? true }
+        // A reader following the newest row is pinned to the bottom only at rest: while their
+        // drag or fling moves the list, a row above what they see that changes height keeps
+        // what they see in place, as it does for a reader scrolled up (Leo, 2026-11-23).
+        layout.followsBottom = { [weak self] in self?.pinnedToBottom ?? true }
         layout.measuresSettle = { [weak self] item in self?.measureSettles(item) ?? true }
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
@@ -654,6 +657,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         cell.contentView.alpha = 0
         // motion: allow a 0.15 s fade of a newly arrived row; Reduce Motion skips it.
         UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) { cell.contentView.alpha = 1 }
+    }
+
+    /// Following the newest row with no drag or fling under way: the layout pass that places
+    /// the content against the stack then keeps it on the bottom, so rows may change height
+    /// without an anchor. While the person scrolls, rows keep what they see in place instead.
+    var pinnedToBottom: Bool {
+        surface.following && !collectionView.isTracking && !collectionView.isDecelerating
     }
 
     /// The transcript controller's scroll handling (follow mode, the jump button, the keyboard).
@@ -1026,7 +1036,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         applies += 1
         lastReconfigured = changed.count
-        let anchor = surface.following || !loaded ? nil : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
+        let anchor = pinnedToBottom || !loaded ? nil : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
         layout.setItems(items)
         // A row whose cell type changes (native and SwiftUI) is reloaded; reconfiguring one
         // must dequeue the same cell type.
