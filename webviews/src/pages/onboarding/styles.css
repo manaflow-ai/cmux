@@ -1213,16 +1213,17 @@ img.onb-make-tile-image {
 
 /* Form: the question on the left, its control on the right, as a Settings pane. */
 .onb-make[data-look="form"] {
-  gap: var(--ds-space-5, 20px);
+  --onb-make-legend-w: 136px;
+  gap: 24px;
 }
 .onb-make[data-look="form"] .onb-make-label {
   float: left;
-  width: 136px;
+  width: var(--onb-make-legend-w);
   margin: 0;
   padding-top: var(--ds-space-1);
 }
 .onb-make[data-look="form"] .onb-make-control {
-  margin-left: 152px;
+  margin-left: calc(var(--onb-make-legend-w) + 16px);
 }
 .onb-make[data-look="form"] .onb-make-options {
   grid-template-columns: 1fr;
@@ -1295,9 +1296,9 @@ img.onb-make-tile-image {
 /* A radio's dot, drawn: the native input stays (invisible) for roles, arrows and focus. */
 .onb-make-option-mark {
   flex: none;
-  width: 14px;
-  height: 14px;
-  margin-top: 2px;
+  width: var(--cmux-menu-icon-size); /* a menu's state mark, as a radio's dot is */
+  height: var(--cmux-menu-icon-size);
+  margin-top: var(--grid-half-step);
   border: 1px solid color-mix(in srgb, var(--ds-color-fg) 35%, transparent);
   border-radius: 50%;
   transition:
@@ -1309,15 +1310,18 @@ img.onb-make-tile-image {
   box-shadow: inset 0 0 0 3.5px var(--ds-color-accent);
 }
 
-/* The little window. Every gap comes from the density, so a pick reflows it in one transition. */
+/* The little window. Every gap comes from the density, so a pick reflows it in one transition.
+ * A miniature, so its parts are drawn in half-steps of the grid (--w-u), not at control sizes. */
 .onb-make-window {
+  --w-u: var(--grid-half-step, 2px);
+  --w-h: calc(84 * var(--w-u));
   --w-gap: 4px;
   --onb-make-term: light-dark(#1d1d1f, #0c0c0d); /* colour-allow: a drawn terminal, dark in both schemes as a default terminal theme is */
   --onb-make-term-ink: light-dark(#f2f2f4, #e6e6ea); /* colour-allow: light ink on the terminal and on a painting */
   position: relative;
   display: flex;
   flex-direction: column;
-  height: 168px;
+  height: var(--w-h);
   overflow: hidden;
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
@@ -1345,11 +1349,11 @@ img.onb-make-tile-image {
   position: relative;
   display: flex;
   gap: 4px;
-  padding: 6px 8px 0;
+  padding: calc(3 * var(--w-u)) 8px 0;
 }
 .onb-make-window-bar span {
-  width: 5px;
-  height: 5px;
+  width: calc(3 * var(--w-u));
+  height: calc(3 * var(--w-u));
   border-radius: 50%;
   background: color-mix(in srgb, var(--ds-color-fg) 30%, transparent);
 }
@@ -1366,14 +1370,14 @@ img.onb-make-tile-image {
   gap: var(--w-gap);
   min-height: 0;
   padding: calc(var(--w-gap) + 4px);
-  padding-top: calc(var(--w-gap) + 2px);
+  padding-top: calc(var(--w-gap) + var(--w-u));
 }
 .onb-make-pane {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--w-gap) + 2px);
+  gap: calc(var(--w-gap) + var(--w-u));
   min-width: 0;
-  padding: calc(var(--w-gap) + 3px);
+  padding: calc(var(--w-gap) + 1.5 * var(--w-u));
   border-radius: var(--ds-radius-sm);
   border: 1px solid color-mix(in srgb, var(--ds-color-fg) 10%, transparent);
   background: color-mix(in srgb, var(--ds-color-surface, Canvas) 62%, transparent);
@@ -1399,8 +1403,8 @@ img.onb-make-tile-image {
 }
 .onb-make-line {
   flex: none;
-  height: 3px;
-  border-radius: 2px;
+  height: calc(1.5 * var(--w-u));
+  border-radius: var(--w-u);
   background: color-mix(in srgb, var(--ds-color-fg) 22%, transparent);
 }
 .onb-make-line.is-short {
@@ -1428,21 +1432,21 @@ img.onb-make-tile-image {
   flex: none;
   align-self: flex-end;
   width: 55%;
-  height: 8px;
+  height: calc(4 * var(--w-u));
   border-radius: 4px;
   background: color-mix(in srgb, var(--ds-color-fg) 14%, transparent);
 }
 .onb-make-composer {
   flex: none;
-  height: 10px;
+  height: calc(5 * var(--w-u));
   margin-top: auto;
   border: 1px solid color-mix(in srgb, var(--ds-color-fg) 18%, transparent);
   border-radius: 4px;
 }
 .onb-make-block {
   flex: none;
-  height: 26px;
-  border-radius: 3px;
+  height: calc(13 * var(--w-u));
+  border-radius: calc(1.5 * var(--w-u));
   background: color-mix(in srgb, var(--ds-color-fg) 10%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
