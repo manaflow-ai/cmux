@@ -169,7 +169,8 @@ import Testing
 
     /// The toolbar's profile menu for tab `tab-1`, whose profile is `current`.
     static func toolbarProfileMenu(_ services: AppServices, current: String = BrowserProfileRecord.defaultID,
-                                   profileActions: Bool = true, header: BrowserProfileMenuHeader? = nil, workspace: String? = nil) -> NSMenu {
+                                   profileActions: Bool = true, header: (title: String, subtitle: String?, image: NSImage?)? = nil,
+                                   workspace: String? = nil) -> NSMenu {
         services.registry.makeBrowserProfileMenu(tabKey: "tab-1", current: current, profiles: profiles.map { ($0.id, $0.name) },
                                                  profileActions: profileActions, header: header, workspace: workspace)
     }
@@ -181,7 +182,7 @@ import Testing
         let services = Self.services()
         let registry = services.registry
         registry.context = registry.descriptors.reduce(into: ActionContext()) { $0.formUnion($1.requires) }
-        let menu = Self.toolbarProfileMenu(services, current: "work", header: BrowserProfileMenuHeader(title: "Work", reason: .workspace),
+        let menu = Self.toolbarProfileMenu(services, current: "work", header: BrowserProfileBadge(monogram: "W", color: nil, name: "Work").menuHeader(.workspace),
                                            workspace: "ws-1")
         let palette = Self.paletteIDs(registry)
         let gaps = Self.gaps(in: [("toolbar profile menu with a header", menu)], registry: registry, palette: palette)
@@ -189,7 +190,9 @@ import Testing
 
         let header = try #require(menu.items.first)
         #expect(header.identifier == ActionRegistry.browserProfileHeaderID && header.title == "Work")
-        #expect(header.subtitle?.isEmpty == false && !header.isEnabled && ActionRegistry.menuRun(of: header) == nil)
+        #expect(header.subtitle == BrowserProfileStrings.reason(.workspace) && header.image != nil)
+        #expect(!header.isEnabled && ActionRegistry.menuRun(of: header) == nil)
+        #expect(BrowserProfileBadge(monogram: "D", color: nil, name: "Default").menuHeader(.builtIn).subtitle == nil)
         #expect(menu.items.filter { $0.state == .on }.isEmpty, "the header names the tab's profile: no checked row repeats it")
 
         let runs = menu.items.compactMap { item in ActionRegistry.menuRun(of: item).map { (item, $0) } }

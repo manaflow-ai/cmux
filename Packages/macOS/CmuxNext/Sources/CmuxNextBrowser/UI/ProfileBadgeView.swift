@@ -20,29 +20,27 @@ extension BrowserProfileBadge {
     /// The avatar as an image of side `side` (the profile menu's header row): the disc in the profile's
     /// color, its letter or symbol on it, drawn for the appearance it is shown in.
     @MainActor public func avatarImage(side: CGFloat) -> NSImage {
-        let badge = self
+        let size = TypeScale.caption
+        let fill = color?.fill ?? Palette.hoverFill, ink = Palette.textSecondary
+        let symbol = ProfileBadgeView.symbolImage(monogram)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .semibold).applying(.init(paletteColors: [ink])))
+        let text = NSAttributedString(string: monogram, attributes: [.font: NSFont.systemFont(ofSize: size, weight: .semibold), .foregroundColor: ink])
         return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            (badge.color?.fill ?? Palette.hoverFill).setFill()
+            fill.setFill()
             NSBezierPath(ovalIn: rect).fill()
-            if let symbol = ProfileBadgeView.symbolImage(badge.monogram)?
-                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.55, weight: .semibold)) {
-                let size = symbol.size
-                let tinted = NSImage(size: size, flipped: false) { box in
-                    symbol.draw(in: box)
-                    Palette.textSecondary.set()
-                    box.fill(using: .sourceAtop)
-                    return true
-                }
-                tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
-            } else {
-                let text = NSAttributedString(string: badge.monogram, attributes: [
-                    .font: NSFont.systemFont(ofSize: side * 0.55, weight: .semibold), .foregroundColor: Palette.textSecondary,
-                ])
-                let size = text.size()
-                text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
-            }
+            let box = symbol?.size ?? text.size()
+            let frame = NSRect(x: rect.midX - box.width / 2, y: rect.midY - box.height / 2, width: box.width, height: box.height)
+            if let symbol { symbol.draw(in: frame) } else { text.draw(at: frame.origin) }
             return true
         }
+    }
+}
+
+extension BrowserProfileBadge {
+    /// The profile menu's first row for a tab with this profile: its name, why the tab has it (`source`; the
+    /// built-in default says nothing) and its avatar.
+    @MainActor public func menuHeader(_ source: BrowserProfileCascade.Source) -> (title: String, subtitle: String?, image: NSImage?) {
+        (name, BrowserProfileStrings.reason(source), avatarImage(side: 20))
     }
 }
 
@@ -75,10 +73,10 @@ final class ProfileBadgeView: NSView {
         layer?.cornerRadius = side / 2
         translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 11, weight: .semibold)
+        label.font = .systemFont(ofSize: TypeScale.caption, weight: .semibold)
         label.alignment = .center
         symbol.translatesAutoresizingMaskIntoConstraints = false
-        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.caption, weight: .semibold)
         symbol.isHidden = true
         addSubview(label)
         addSubview(symbol)

@@ -1,29 +1,11 @@
 public import AppKit
 
-/// The first row of the browser toolbar's profile menu: the tab's profile, and why the tab has it.
-public struct BrowserProfileMenuHeader {
-    /// Why the tab has its profile (`BrowserProfileCascade.Source`, read by the App).
-    public enum Reason: Sendable { case workspace, space, tab }
-
-    /// The profile's name.
-    public var title: String
-    public var reason: Reason?
-    /// The profile's avatar, as the toolbar button draws it.
-    public var image: NSImage?
-
-    public init(title: String, reason: Reason? = nil, image: NSImage? = nil) {
-        self.title = title
-        self.reason = reason
-        self.image = image
-    }
-}
-
 extension ActionRegistry {
     /// The browser toolbar's profile button menu for the tab `tabKey` (https://github.com/manaflow-ai/cmux/issues/42437),
     /// in the order of cmuxterm-hq RFD 0050, D2:
     ///
-    /// 1. the tab's own profile (`current`): with `header`, one row of its avatar, its name and why the tab has it; without,
-    ///    its checked row among the others. It runs nothing.
+    /// 1. the tab's own profile (`current`): with `header`, one row of its avatar (`image`), its name (`title`) and why the
+    ///    tab has it (`subtitle`, `BrowserProfileBadge.menuHeader`); without, its checked row among the others. It runs nothing.
     /// 2. one row per other profile in `profiles` (`id`, shown `title`), moving the tab with `browserProfile.moveTab`. With
     ///    `workspace`, holding Option turns the row into "Use … for This Workspace" (`browserProfile.setWorkspaceDefault`).
     /// 3. New Browser Profile and New Incognito Window.
@@ -34,14 +16,15 @@ extension ActionRegistry {
     ///
     /// Every row is a palette action (`MenuPaletteParityTests`).
     public func makeBrowserProfileMenu(tabKey: String, current: String, profiles: [(id: String, title: String)],
-                                       profileActions: Bool = true, header: BrowserProfileMenuHeader? = nil,
+                                       profileActions: Bool = true,
+                                       header: (title: String, subtitle: String?, image: NSImage?)? = nil,
                                        workspace: String? = nil) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: tabKey)
         let menu = NSMenu()
         if let header {
             let item = NSMenuItem(title: header.title, action: nil, keyEquivalent: "")
             item.image = header.image
-            item.subtitle = header.reason.map(Self.browserProfileReason)
+            item.subtitle = header.subtitle
             item.isEnabled = false
             item.identifier = Self.browserProfileHeaderID
             menu.addItem(item)
@@ -105,20 +88,6 @@ extension ActionRegistry {
 
     /// The header row's identifier (tests, UI automation).
     public static let browserProfileHeaderID = NSUserInterfaceItemIdentifier("browser.profileMenu.header")
-
-    static func browserProfileReason(_ reason: BrowserProfileMenuHeader.Reason) -> String {
-        switch reason {
-        case .workspace:
-            String(localized: "menu.browserProfile.reason.workspace", defaultValue: "This workspace's profile",
-                   table: "BrowserProfileActions", bundle: .localizedModule)
-        case .space:
-            String(localized: "menu.browserProfile.reason.space", defaultValue: "This space's profile",
-                   table: "BrowserProfileActions", bundle: .localizedModule)
-        case .tab:
-            String(localized: "menu.browserProfile.reason.tab", defaultValue: "Chosen for this tab",
-                   table: "BrowserProfileActions", bundle: .localizedModule)
-        }
-    }
 
     static func browserProfileUseForWorkspace(_ name: String) -> String {
         String(format: String(localized: "menu.browserProfile.useForWorkspace", defaultValue: "Use %@ for This Workspace",
