@@ -193,7 +193,7 @@ final class MacScreenCardView: MacScreenThemedView {
         let info = MacScreenGlyph("info.circle", font: MacScreenType.body, ink: \.secondary)
         info.toolTip = text
         info.setAccessibilityElement(true)
-        info.setAccessibilityRole(.help)
+        info.setAccessibilityRole(.staticText)
         info.setAccessibilityLabel(text)
         info.setAccessibilityIdentifier("macScreen.card.info")
         line.addArrangedSubview(info)
