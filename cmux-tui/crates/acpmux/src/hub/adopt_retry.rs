@@ -103,6 +103,7 @@ mod tests {
             socket,
             claude_translator: false,
             host_level: 0,
+            holder: None,
         };
         let started = tokio::time::Instant::now();
         let result = super::adoption_hello_scope(agent_host::link::connect(record, 0)).await;

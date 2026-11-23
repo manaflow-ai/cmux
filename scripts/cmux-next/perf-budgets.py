@@ -47,6 +47,8 @@ Local, on a built app (never on a laptop that is in use):
 import argparse, importlib.util, json, os, platform, re, statistics, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from state_wait import wait_until  # noqa: E402
 BUDGETS_FILE = os.path.join(HERE, "perf-budgets.json")
 BASELINE_DIR = os.path.join(HERE, "perf-budgets-baseline")
 REGRESSION = 0.10
@@ -151,7 +153,7 @@ LOAD_TIERS = {"default": [], "agent": ["taskpolicy", "-c", "utility", "-d", "uti
 
 
 def start_load(tier, scratch):
-    """The load workers for `tier`, started and given 5 s to ramp; stop_load ends them."""
+    """The load workers for `tier`, started and running (CPU spent, the disk writer writing); stop_load ends them."""
     os.makedirs(os.path.join(scratch, "tree"), exist_ok=True)
     tree = os.path.join(scratch, "tree")
     if not os.path.exists(os.path.join(tree, "done")):
@@ -168,7 +170,19 @@ def start_load(tier, scratch):
     argvs += [sh('while :; do cat "$1"/f* | shasum >/dev/null; done', tree) for _ in range(2)]
     procs = [subprocess.Popen(a, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
              for a in argvs]
-    time.sleep(5)  # test harness: let the load ramp
+    # The load ramped: every worker is alive, each `yes` has been scheduled (CPU time spent), and a dd writer's
+    # file exists in scratch.
+    spinners = [p.pid for p, a in zip(procs, argvs) if a[-1] == "yes"]
+
+    def ramped():
+        dead = [a for p, a in zip(procs, argvs) if p.poll() is not None]
+        if dead:
+            raise SystemExit(f"a load worker exited at start: {dead[0]}")
+        times = subprocess.run(["ps", "-o", "time=", "-p", ",".join(map(str, spinners))],
+                               capture_output=True, text=True).stdout.split()
+        busy = len(times) == len(spinners) and all(any(c in t.replace("0", "") for c in "123456789") for t in times)
+        return busy and any(name.startswith("w") for name in os.listdir(scratch))
+    wait_until(ramped, f"the {tier} load to ramp", timeout=30, interval=0.2)
     return procs
 
 

@@ -121,6 +121,8 @@ mod host_frames;
 mod hosted_callbacks;
 #[cfg(any(unix, windows))]
 mod hosted_reader;
+#[cfg(unix)]
+mod idle_links;
 #[cfg(any(unix, windows))]
 use hosted_callbacks::hosted_terminal_callbacks;
 #[cfg(any(unix, windows))]
@@ -1064,6 +1066,15 @@ impl Surface {
             Surface::Pty(surface) => Some(surface),
             Surface::Browser(_) => None,
         }
+    }
+
+    /// The terminal runs on the holder (its PTY master lives in the holder process).
+    #[cfg(test)]
+    pub(crate) fn runs_on_holder(&self) -> bool {
+        self.as_pty().is_some_and(|pty| {
+            let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. })
+        })
     }
 
     pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {

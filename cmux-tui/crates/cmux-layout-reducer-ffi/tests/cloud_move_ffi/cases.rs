@@ -218,6 +218,42 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
     assert_eq!(legacy["answer"]["errorCode"], "machine_update_failed");
 }
 
+#[test]
+fn a_move_says_its_step_and_about_how_long_is_left() {
+    let copying = ok(
+        c"cloud_move_progress",
+        json!({"direction": "move", "stage": "copy", "name": "dev", "stageMs": 10_000,
+               "copy": {"phase": "copy", "filesDone": 301, "filesTotal": 1_204}}),
+    );
+    assert_eq!(copying["text"], "2 of 4 · Copying the folder (1,204 files) · about 45 s left");
+    assert_eq!((copying["step"].clone(), copying["steps"].clone()), (json!(2), json!(4)));
+    assert_eq!(copying["etaMs"], 43_000);
+    assert_eq!(copying["nextMs"], 3_000, "a measured copy counts down to its next text");
+    let stale = ok(
+        c"cloud_move_progress",
+        json!({"stage": "copy", "name": "dev", "stageMs": 120_000, "copyMs": 10_000,
+               "copy": {"phase": "copy", "filesDone": 99, "filesTotal": 100}}),
+    );
+    assert_eq!(
+        stale["text"],
+        "2 of 4 · Copying the folder (100 files) · taking longer than its progress said"
+    );
+    assert_eq!((stale["etaMs"].clone(), stale["nextMs"].clone()), (Value::Null, Value::Null));
+    let back = ok(
+        c"cloud_move_progress",
+        json!({"direction": "bringBack", "stage": "machine", "machine": "paused", "name": "dev"}),
+    );
+    assert_eq!(back["text"], "1 of 4 · Resuming dev · about 1 min left");
+    let running = ok(
+        c"cloud_move_progress",
+        json!({"stage": "machine", "machine": "running", "name": "dev"}),
+    );
+    assert_eq!(running["text"], "1 of 4 · Connecting to dev · about 35 s left");
+    assert_eq!(running["nextMs"], 3_000);
+    let (code, _) = call(c"cloud_move_progress", &json!({"stage": "teleport"}));
+    assert_eq!(code, ERR_INVALID);
+}
+
 /// Move to… an SSH machine: one added in the sidebar (Add Machine) and one only acpmux knows
 /// (`cmux setup machine`), each listed once with its label; a machine that is down takes no chat.
 fn ssh_machines() -> Value {
@@ -475,4 +511,32 @@ fn auto_move_choices_and_confirmation_cross_the_ffi() {
     assert_eq!(moved["moved"], true);
     assert_eq!(moved["host"], "box");
     assert_eq!(moved["targetSessionId"], "new-chat");
+}
+
+#[test]
+fn a_session_moves_run_says_what_the_tab_opens() {
+    let run = |row: Value, status: i32, moved: &str, destination: &str, dry_run: bool| {
+        let stdout = serde_json::to_string_pretty(&json!({"moves": [row]})).unwrap();
+        ok(
+            c"cloud_move_ssh_move_run",
+            json!({"stdout": stdout, "stderr": "", "status": status, "moved": moved,
+                "destination": destination, "dryRun": dry_run}),
+        )
+    };
+    let done = json!({"moved": true, "host": "mini", "targetSessionId": "new"});
+    assert_eq!(
+        run(done.clone(), 0, "", "auto", false),
+        json!({"kind": "moved", "session": "mini/new"})
+    );
+    assert_eq!(run(done, 0, "chat-1", "local", false), json!({"kind": "moved", "session": "new"}));
+    let asks = json!({"error": "uncommitted changes", "errorCode": "dirty_worktree",
+        "preflight": {"running": false, "dirty": true}});
+    assert_eq!(
+        run(asks, 1, "box/chat-1", "box", false),
+        json!({"kind": "needs_confirmation", "code": "dirty_worktree", "dirty": true})
+    );
+    assert_eq!(
+        run(json!({"moved": false, "error": "nope"}), 1, "box/chat-1", "box", false),
+        json!({"kind": "failed", "message": "nope"})
+    );
 }
