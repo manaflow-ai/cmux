@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: b0cbd5c892d7e97aa60e943471f210c04952a86c86524af223fe6694d95a4513
+// app-ffi-pin-checksum: 7fb10210d2c6aa2364b0e13403ab4cb224e20e16a22592b338185c0b665b87de
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
