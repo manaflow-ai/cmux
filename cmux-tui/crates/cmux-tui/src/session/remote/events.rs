@@ -344,7 +344,7 @@ impl RemoteSession {
             Some("detached") => {
                 // cmux-terminal-sizing's detach_reason::DISCONNECTED_BY: a
                 // kick, after which the client must not reconnect by itself.
-                if value["reason"].as_str() == Some("disconnected-by") {
+                if value.get("reason").and_then(Value::as_str) == Some("disconnected-by") {
                     self.disconnect_state.record_disconnected_by_peer();
                 }
                 if let Some(id) = surface_id() {

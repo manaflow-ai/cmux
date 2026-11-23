@@ -36,6 +36,7 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::{
@@ -143,7 +144,7 @@ pub(super) fn cannot_exec(error: &Value) -> bool {
 /// again by itself (`retryable`).
 fn pending_retryable(mut outcome: Outcome) -> Outcome {
     if let Outcome::Failed { error, .. } = &mut outcome {
-        error["retryable"] = json!(true);
+        error.set("retryable", json!(true));
     }
     outcome
 }
@@ -221,7 +222,7 @@ pub(super) fn wait(
             75,
         );
         if let Outcome::Failed { error, .. } = &mut outcome {
-            error["retryable"] = json!(true);
+            error.set("retryable", json!(true));
         }
         outcome
     };

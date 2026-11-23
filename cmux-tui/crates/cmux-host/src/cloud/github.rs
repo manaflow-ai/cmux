@@ -10,6 +10,7 @@
 //! caches and audits each mint.
 
 use crate::json::JsonField;
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::sender::Answer;
@@ -175,7 +176,7 @@ pub fn rate_limited(service: &str, retry_after: Option<u64>) -> Value {
     };
     let mut reply = transient_refusal("rate_limited", &message);
     if let Some(secs) = retry_after {
-        reply["retry_after"] = json!(secs);
+        reply.set("retry_after", json!(secs));
     }
     reply
 }

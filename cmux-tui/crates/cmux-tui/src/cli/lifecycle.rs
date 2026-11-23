@@ -289,7 +289,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 );
             }
         };
-        if identity["app"] == "cmux-tui"
+        if identity.get("app").and_then(Value::as_str) == Some("cmux-tui")
             && identity.get("lifecycle_ready") == Some(&Value::Bool(false))
         {
             // Still starting: it takes lifecycle commands once it is ready.
