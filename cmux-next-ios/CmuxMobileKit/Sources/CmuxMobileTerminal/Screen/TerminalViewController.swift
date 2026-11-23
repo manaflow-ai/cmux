@@ -3782,7 +3782,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     /// The rows on screen between the top chrome and the dock.
-    private var visibleRowRange: Range<Int>? {
+    private var rowsBetweenChrome: Range<Int>? {
         guard let document, cell.height > 0 else { return nil }
         let top = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
         let bottom = scrollView.contentOffset.y + scrollView.bounds.height - scrollView.adjustedContentInset.bottom
@@ -3796,7 +3796,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard let host = lastSentHost else { return }
         if lastSentTop.constant != chromeTop { lastSentTop.constant = chromeTop }
         var text: String?
-        if let lastSent, let visible = visibleRowRange, !jumpingToLastSent,
+        if let lastSent, let visible = rowsBetweenChrome, !jumpingToLastSent,
            TerminalLastSent.stripShows(row: lastSent.row, visibleRows: visible, isTUI: model.isTUI) {
             text = lastSent.preview
         }
