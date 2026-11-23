@@ -30,7 +30,7 @@ fn ultra_uses_measured_capacity_and_configurable_wire_ceiling() {
     assert!(cc.target_bps() <= cc.wire_budget_bps());
     cc.configure_ultra(UltraConfig { max_wire_bps: 120_000_000, ..UltraConfig::default() });
     cc.on_probe_capacity(cc.probe_generation(), 100_000_000);
-    assert_eq!(cc.wire_budget_bps(), 80_000_000);
+    assert_eq!(cc.wire_budget_bps(), 100_000_000);
     cc.on_probe_capacity(cc.probe_generation(), u64::MAX);
     assert_eq!(cc.wire_budget_bps(), 120_000_000);
     cc.on_probe_capacity(cc.probe_generation(), 0);
@@ -191,9 +191,9 @@ fn unmeasured_ultra_moves_like_standard_until_a_train_counts() {
     }
     assert!(standard.target_bps() > CcConfig::default().start_bps, "it grew on evidence");
 
-    // A train that counts takes over: held at 0.8 x capacity from then on.
+    // A train that counts takes over at the delivered goodput.
     assert!(unmeasured.on_probe_capacity(unmeasured.probe_generation(), 100_000_000));
-    assert_eq!(unmeasured.wire_budget_bps(), 80_000_000);
+    assert_eq!(unmeasured.wire_budget_bps(), 100_000_000);
 }
 
 /// Ultra's encoder targets the held rate; its strict pacer releases at the probed capacity
@@ -207,7 +207,7 @@ fn ultra_paces_at_the_probed_capacity_over_the_held_rate() {
     let start = CcConfig::default().start_bps;
     assert_eq!(cc.pacing_bps(), start * 5 / 2, "unmeasured: 2.5x the start rate");
     cc.on_probe_capacity(cc.probe_generation(), 100_000_000);
-    assert_eq!(cc.wire_budget_bps(), 80_000_000);
+    assert_eq!(cc.wire_budget_bps(), 100_000_000);
     assert_eq!(cc.pacing_bps(), 100_000_000, "paced at the capacity");
     cc.on_probe_capacity(cc.probe_generation(), 1_000_000_000);
     assert_eq!(cc.wire_budget_bps(), 150_000_000, "held under the ceiling");

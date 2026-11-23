@@ -56,9 +56,9 @@ const LOSS_SAMPLE_GAP_US: u64 = 750_000;
 impl UltraState {
     pub fn held_wire_bps(&self, path_ceiling: u64) -> Option<u64> {
         self.capacity_bps.map(|capacity| {
-            // Integer division first is safe even for a malformed u64::MAX sample.
-            let usable = (u128::from(capacity) * 4 / 5) as u64;
-            usable.min(self.config.max_wire_bps).min(path_ceiling).max(1)
+            // Probe capacity is already the delivered goodput sample. Hold the
+            // smaller of that sample and the profile/path ceilings.
+            capacity.min(self.config.max_wire_bps).min(path_ceiling).max(1)
         })
     }
 

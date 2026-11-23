@@ -3,7 +3,7 @@
 //! one; standard keeps the balanced pacer); its
 //! probe train leaves at once with each departure told to the engine, its bytes are
 //! charged to that budget, and the viewer's probe arrivals raise the held rate to at most
-//! 0.8 times the measured capacity.
+//! the measured goodput.
 
 use super::outage_drop_tests::{feedback, header, QuietDesktop, RecordingCarrier, SizedEncoder};
 use super::*;
@@ -98,7 +98,7 @@ fn an_ultra_probe_train_leaves_at_once_and_its_arrivals_raise_the_held_rate() {
     let _ = s.engine.on_datagram(&feedback(arrivals, 0), false, now_us());
     let held = s.engine.target_bps();
     assert!(held > START_BPS, "the probe's capacity reached the controller: {held}");
-    assert!(held <= 38_400_000, "at most 0.8 x the measured 48 Mbps: {held}");
+    assert_eq!(held, 48_000_000, "held at the measured 48 Mbps goodput: {held}");
 
     // From the next send on, the strict budget paces at the measured capacity (the
     // encoder targets the held rate under it).
