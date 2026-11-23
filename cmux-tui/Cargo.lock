@@ -61,6 +61,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-session-cloud",
  "cmux-share-approval",
  "cmux-signed-bundle",
  "cmux-source-scan",
@@ -83,6 +84,7 @@ dependencies = [
  "futures",
  "futures-util",
  "getrandom 0.3.4",
+ "glob",
  "hpke",
  "imbl",
  "inotify",
@@ -1372,6 +1374,9 @@ dependencies = [
 [[package]]
 name = "cmux-auth-coordinator"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-automations"
@@ -1698,6 +1703,7 @@ dependencies = [
  "base64",
  "cmux-embed",
  "cmux-json",
+ "cmux-layout-reducer",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
@@ -2312,7 +2318,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2390,6 +2396,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-signed-envelope",
  "cmux-tui-core",
  "cmux-unix-socket",
  "cmux-wg",
@@ -2511,6 +2518,24 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "time",
+]
+
+[[package]]
+name = "cmux-session-cloud"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chacha20poly1305",
+ "getrandom 0.3.4",
+ "hex",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "zstd",
 ]
 
 [[package]]
@@ -2786,6 +2811,7 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-signed-bundle",
+ "cmux-stack-auth",
  "cmux-terminal-client",
  "cmux-theme-pack",
  "cmux-theme-tokens",
