@@ -16,12 +16,29 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public var actionTitle: String? = nil
     /// Stable identity so two Macs with the same state still refresh the banner.
     public var identity: String? = nil
+    /// A link state (reconnecting, offline): drawn as a ``ConnectionChip`` of this kind, not as
+    /// the banner. Nil for states with a sentence the person must read (signed out, pairing, a
+    /// failure).
+    public var chipKind: ConnectionChip.Kind? = nil
+    /// The Mac a link state is about, for the chip's VoiceOver sentence.
+    public var macName: String? = nil
 
-    public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
-    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true)
-    public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac) }
+    /// The chip for a link state; nil draws the banner.
+    public var chip: ConnectionChip.Content? {
+        chipKind.map { ConnectionChip.Content($0, sentence: sentence) }
+    }
+
+    /// What VoiceOver reads for the chip: the words plus the Mac, when the state names one.
+    var sentence: String {
+        guard let macName, !macName.isEmpty else { return chipKind == .cantReach ? String(localized: "Can't reach your Mac") : text }
+        return showsSpinner ? String(localized: "Reconnecting to \(macName)…") : String(localized: "\(macName) is offline")
+    }
+
+    public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac, chipKind: .reconnecting, macName: mac) }
+    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true, chipKind: .offline)
+    public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac, chipKind: .macOffline, macName: mac) }
     public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
-    public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
+    public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac, chipKind: .reconnecting, macName: mac) }
     /// The account's session was revoked: nothing reconnects until the person
     /// signs in again, which the banner's one button starts.
     public static let signedOut = Self(symbol: "person.crop.circle.badge.exclamationmark", showsSpinner: false,
@@ -32,7 +49,7 @@ public struct ConnectionBannerState: Sendable, Hashable {
         Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: String(localized: "Couldn't refresh"),
              offersRetry: true, identity: identity)
     }
-    public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true)
+    public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true, chipKind: .cantReach)
     /// An application failure distinct from connection state.
     public static func failed(_ text: String, identity: String? = nil) -> Self {
         Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text, identity: identity)

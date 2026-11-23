@@ -72,7 +72,10 @@ public struct RootView: View {
     @State private var sidebar = SidebarModel()
     /// The app's keyboard notifications, for every keyboard-pinned composer.
     @State private var keyboard = MobileKeyboardFrameTracker()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var launchFinished = false
+    /// The startup spring: the shell's arrival from the launch mark.
+    private static let startupSpring = Animation.spring(response: 0.55, dampingFraction: 0.86)
     @State private var previewSweepStarted = false
     /// Live data from sign-in on (setup included); nil in mock mode.
     @State private var live: LiveCoordinator?
@@ -163,7 +166,17 @@ public struct RootView: View {
                 // after sign-in included.
                 .transition(welcomeCut && destination == .welcome
                     ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
-                    : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                    : destination == .shell
+                        // Startup (Leo, 2026-11-22: "claude code has such a nice animation on
+                        // startup"): as the launch chevron shrinks away, the shell settles in from
+                        // just past full size on a soft spring, so the app arrives rather than
+                        // swaps. Render only: the shell is laid out and takes touches from its
+                        // first frame. A new chat it opens on then plays its own entrance. The
+                        // same arrival follows sign-in and setup.
+                        ? .asymmetric(insertion: .opacity.combined(with: .scale(scale: 1.04))
+                                        .animation(Self.startupSpring.unlessReduceMotion),
+                                      removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                        : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
             } else {
                 // Welcome redraws this mark on its first frame and animates it
                 // from there, so on that path the swap is a true cut: an
@@ -179,6 +192,15 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        // Back in the app: a keyboard the tracker holds as up while nothing
+        // takes keys went away unannounced; every composer docked to it rests
+        // at the bottom again (MobileKeyboardFrameTracker.dropKeyboardWithoutOwner).
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                keyboard.dropKeyboardWithoutOwner()
+                HomeNewMessage.appActiveChanged()
+            }
+        }
         // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
         .onGeometryChange(for: Bool.self) { proxy in
             let insets = proxy.safeAreaInsets
@@ -554,7 +576,6 @@ struct ShellView: View {
     /// App Store plans from the root (nil hides Settings → Plan).
     @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var shell: ShellModel
-    @State private var inviteEmail = ""
     private let options: ShellLaunchOptions
     /// RootView's coordinator; it can arrive after the shell is built.
     private let live: LiveCoordinator?
@@ -628,14 +649,16 @@ struct ShellView: View {
             get: { shell.invitingTeam != nil },
             set: { if !$0 { shell.invitingTeam = nil } }
         )) {
-            TextField("Email", text: $inviteEmail)
+            // The address stays until it is sent (ShellModel.inviteEmailDraft); Send waits for one.
+            TextField("Email", text: $shell.inviteEmailDraft)
                 .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
                 .keyboardType(.emailAddress)
-            Button("Cancel", role: .cancel) { inviteEmail = "" }
+            Button("Cancel", role: .cancel) { shell.inviteEmailDraft = "" }
             Button("Send") {
-                if let team = shell.invitingTeam { shell.sendInvite(email: inviteEmail, to: team) }
-                inviteEmail = ""
+                if let team = shell.invitingTeam { shell.sendInvite(email: shell.inviteEmailDraft, to: team) }
             }
+                .disabled(!InviteEmail.isPlausible(shell.inviteEmailDraft))
                 .keyboardShortcut(.defaultAction)
         } message: {
             Text("They'll get an email invitation to join.")
@@ -879,10 +902,16 @@ struct ShellTabs: View {
 
     var body: some View {
         @Bindable var shell = shell
-        TabView(selection: $shell.tab) {
+        // SwiftUI writes the selection on every tap of a tab, the selected one too: a write of the
+        // value it already has is that re-tap (pop to the root, then scroll to the top).
+        let selection = Binding<RootTab>(get: { shell.tab }, set: { tab in
+            if tab == shell.tab { shell.retapped(tab) } else { shell.tab = tab }
+        })
+        TabView(selection: selection) {
             Tab("Home", systemImage: "house", value: RootTab.home) {
                 HomeScreen(shell: shell)
                     .modifier(TabBarVisibility(shell: shell, tab: .home))
+                    .modifier(TabRetapScroll(shell: shell, tab: .home))
                     .modifier(TabBarProbeHost())
             }
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
@@ -890,6 +919,7 @@ struct ShellTabs: View {
                     .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.workspacesPath.isEmpty,
                                    started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .workspaces))
+                    .modifier(TabRetapScroll(shell: shell, tab: .workspaces))
                     .modifier(TabBarProbeHost())
             }
             .badge(shell.store.attentionCount)
@@ -923,12 +953,16 @@ struct ShellTabs: View {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
                 .modifier(TabBarVisibility(shell: shell, tab: .settings))
+                .modifier(TabRetapScroll(shell: shell, tab: .settings))
                 .modifier(TabBarProbeHost())
             }
         }
         .tabBarMinimizeBehavior(.never)
+        // One pane on a phone, a list beside its detail unfolded (Rust's `window_layout`).
+        .modifier(ShellWindowLayoutReader())
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+        .cmuxMobileSensoryFeedback(.selection, trigger: shell.tabRetaps)
         // A closed ask's notification leaves Notification Center; only when an ask opens or
         // closes, or the Feed finishes reading its Macs.
         .task(id: NeedsYouNotices.key(FeedStore.shared)) { await NeedsYouNotices.sync(FeedStore.shared) }
@@ -955,7 +989,7 @@ private struct FeedTabContent: View {
 
     var body: some View {
         @Bindable var shell = shell
-        CmuxMobileFeed.FeedScreen(path: $shell.feedPath, reconnect: {
+        CmuxMobileFeed.FeedScreen(path: $shell.feedPath, scrollToTop: shell.topRequests[.feed, default: 0], reconnect: {
             await shell.live?.reconnectFeeds()
         }) { SidebarToolbarItem(sidebar: shell.sidebar) }
     }
