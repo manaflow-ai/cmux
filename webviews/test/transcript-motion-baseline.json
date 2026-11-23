@@ -13,7 +13,7 @@
       "move": 24,
       "resize": 0,
       "off-curve": 38,
-      "offscreen-start": 0,
+      "offscreen-start": 1,
       "scroll-start": 0
     },
     "3": {
@@ -34,7 +34,7 @@
       "move": 10,
       "resize": 0,
       "off-curve": 95,
-      "offscreen-start": 0,
+      "offscreen-start": 3,
       "scroll-start": 0
     },
     "6": {
@@ -48,7 +48,7 @@
       "move": 3,
       "resize": 0,
       "off-curve": 45,
-      "offscreen-start": 0,
+      "offscreen-start": 1,
       "scroll-start": 0
     },
     "8": {
@@ -111,7 +111,7 @@
       "move": 60,
       "resize": 0,
       "off-curve": 77,
-      "offscreen-start": 0,
+      "offscreen-start": 2,
       "scroll-start": 0
     },
     "17": {

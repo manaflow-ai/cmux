@@ -46,6 +46,9 @@
 //   wipes off view there, and again on the one-at-a-time replay, where this box's two plays saw none, and seed 10
 //   one `translate`. This residual depends on timing (it starts on a pass after a scroll), so its seed list is the
 //   union of the plays read, as the counts above are their max. A key that a scroll does not change takes it to zero.
+//   CI's play after the feat-cmux-next merge (run 45257884164, job 138000452268, 2026-11-23) confirmed seeds 2, 5,
+//   7 and 16 on the one-at-a-time replay (1, 3, 1 and 2 starts: `translate` from tailGlide `place`, `clip-path`
+//   from turnEndFold `play`), so they join the union too.
 //   - 32 `translate` starts from `tailGlide.ts:378` (`place`, through VirtualTranscript's `current`).
 //   - 7 CSS entrance and shimmer starts (`cv-roll-in-even`, `cv-enter-fade`, the cadenced shimmers): class
 //     changes, which no JS gate in `turnEndFold.ts` can see.
