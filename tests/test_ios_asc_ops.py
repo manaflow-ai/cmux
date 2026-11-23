@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -168,6 +169,235 @@ class WriteTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as err:
             run(["version-localization-patch", "--attributes", '{"whatsNew": "x"}'], client)
         self.assertIn("HTTP 409", str(err.exception))
+
+
+class FakeAsc:
+    """A stateful App Store Connect with subscription groups, products, prices and localizations."""
+
+    TERRITORIES = ["USA", "JPN", "DEU"]
+
+    def __init__(self, app="6783338052", legacy=True):
+        self.app = app
+        self.calls = []
+        self.n = 0
+        self.groups = {}
+        self.group_locs = []
+        self.subs = {}
+        self.locs = {}
+        self.prices = []
+        self.avail = {}
+        self.shots = {}
+        if legacy:
+            gid = self._new_group("cmux Plans")
+            for level, plan in enumerate(("max", "pro", "go"), start=1):
+                self._new_sub(gid, f"com.cmux.app.{plan}.monthly", level)
+        self.opener = None
+
+    def _id(self):
+        self.n += 1
+        return str(1000 + self.n)
+
+    def _new_group(self, name):
+        gid = self._id()
+        self.groups[gid] = name
+        return gid
+
+    def _new_sub(self, gid, pid, level):
+        sid = self._id()
+        self.subs[sid] = {"group": gid, "productId": pid, "groupLevel": level, "state": "MISSING_METADATA",
+                          "name": pid}
+        return sid
+
+    @staticmethod
+    def point(territory, usd):
+        return f"pp-{territory}-{usd}"
+
+    def _sub_json(self, sid):
+        return {"id": sid, "type": "subscriptions", "attributes": {
+            k: v for k, v in self.subs[sid].items() if k != "group"}}
+
+    def get(self, path):
+        return self.call("GET", path)
+
+    def call(self, method, path, body=None):
+        self.calls.append((method, path, body))
+        base = path.split("?")[0]
+        query = path.split("?")[1] if "?" in path else ""
+        parts = base.strip("/").split("/")
+        attrs = (body or {}).get("data", {}).get("attributes", {})
+        rels = (body or {}).get("data", {}).get("relationships", {})
+        if method == "GET" and base == f"/v1/apps/{self.app}/subscriptionGroups":
+            return {"data": [{"id": g, "type": "subscriptionGroups", "attributes": {"referenceName": n}}
+                             for g, n in self.groups.items()]}
+        if method == "POST" and base == "/v1/subscriptionGroups":
+            return {"data": {"id": self._new_group(attrs["referenceName"]), "attributes": attrs}}
+        if base.endswith("/subscriptionGroupLocalizations"):
+            if method == "POST":
+                self.group_locs.append(attrs["locale"])
+                return {}
+            return {"data": [{"id": l, "attributes": {"locale": l}} for l in self.group_locs]}
+        if method == "GET" and len(parts) == 4 and parts[1] == "subscriptionGroups" and parts[3] == "subscriptions":
+            return {"data": [self._sub_json(s) for s, v in self.subs.items() if v["group"] == parts[2]]}
+        if method == "POST" and base == "/v1/subscriptions":
+            sid = self._new_sub(rels["group"]["data"]["id"], attrs["productId"], len(self.subs) + 1)
+            return {"data": self._sub_json(sid)}
+        if method == "PATCH" and parts[:2] == ["v1", "subscriptions"]:
+            self.subs[parts[2]].update(attrs)
+            return {}
+        if base.endswith("/subscriptionLocalizations") and method == "GET":
+            sid = parts[2]
+            return {"data": [{"id": f"{sid}-{loc}", "attributes": {"locale": loc, **v}}
+                             for loc, v in self.locs.get(sid, {}).items()]}
+        if method == "POST" and base == "/v1/subscriptionLocalizations":
+            sid = rels["subscription"]["data"]["id"]
+            self.locs.setdefault(sid, {})[attrs["locale"]] = {"name": attrs["name"],
+                                                              "description": attrs["description"]}
+            return {}
+        if method == "PATCH" and parts[:2] == ["v1", "subscriptionLocalizations"]:
+            sid, loc = parts[2].split("-", 1)
+            self.locs[sid][loc].update(attrs)
+            return {}
+        if base.endswith("/appStoreReviewScreenshot"):
+            if parts[2] not in self.shots:
+                raise SystemExit(f"GET {path}: HTTP 404: none")
+            return {"data": {"id": "shot", "attributes": {"assetDeliveryState": {"state": "COMPLETE"}}}}
+        if base.endswith("/subscriptionAvailability"):
+            if parts[2] not in self.avail:
+                raise SystemExit(f"GET {path}: HTTP 404: none")
+            return {"data": {"id": f"av-{parts[2]}", "attributes": {"availableInNewTerritories": True}}}
+        if base.endswith("/availableTerritories"):
+            return {"data": [{"id": t} for t in self.avail[parts[2][3:]]]}
+        if method == "POST" and base == "/v1/subscriptionAvailabilities":
+            self.avail[rels["subscription"]["data"]["id"]] = [t["id"] for t in rels["availableTerritories"]["data"]]
+            return {}
+        if base == "/v1/territories":
+            return {"data": [{"id": t} for t in self.TERRITORIES]}
+        if base.endswith("/pricePoints"):
+            assert "filter[territory]=USA" in query
+            # Two pages, to exercise pagination.
+            if "page=2" in path:
+                return {"data": [{"id": self.point("USA", u), "attributes": {"customerPrice": u}}
+                                 for u in ("29.99", "74.99", "299.99", "21.99")]}
+            return {"data": [{"id": self.point("USA", "14.99"), "attributes": {"customerPrice": "14.99"}}],
+                    "links": {"next": ops.API + base + "?" + query + "&page=2"}}
+        if base.endswith("/equalizations"):
+            usd = parts[2].rsplit("-", 1)[1]
+            return {"data": [{"id": self.point(t, usd), "relationships": {"territory": {"data": {"id": t}}}}
+                             for t in self.TERRITORIES if t != "USA"]}
+        if base.endswith("/prices") and method == "GET":
+            rows = [r for r in self.prices if r["sub"] == parts[2]]
+            return {"data": [{"id": f"pr{i}", "attributes": {"startDate": None},
+                              "relationships": {"territory": {"data": {"id": r["territory"]}},
+                                                "subscriptionPricePoint": {"data": {"id": r["point"]}}}}
+                             for i, r in enumerate(rows)],
+                    "included": [{"type": "subscriptionPricePoints", "id": r["point"],
+                                  "attributes": {"customerPrice": r["point"].rsplit("-", 1)[1]}} for r in rows]}
+        if method == "POST" and base == "/v1/subscriptionPrices":
+            sid = rels["subscription"]["data"]["id"]
+            territory = rels["territory"]["data"]["id"]
+            self.prices = [r for r in self.prices if not (r["sub"] == sid and r["territory"] == territory)]
+            self.prices.append({"sub": sid, "territory": territory,
+                                "point": rels["subscriptionPricePoint"]["data"]["id"]})
+            return {}
+        raise AssertionError(f"unexpected {method} {path}")
+
+
+def writes(client):
+    return [(m, p) for m, p, _ in client.calls if m != "GET"]
+
+
+class PriceBookTest(unittest.TestCase):
+    def test_sync_creates_next_products_and_reads_back_live(self):
+        asc = FakeAsc()
+        code, out = run(["price-book-sync", "--app", "6783338052"], asc)
+        self.assertEqual(code, 0, out["result"]["errors"])
+        after = {s["productId"]: s for g in out["result"]["after"]["groups"] for s in g["subscriptions"]}
+        self.assertTrue(out["result"]["after"]["priceBookLive"])
+        self.assertEqual(after["com.cmux.app.next_plus.monthly"]["usPrice"], "29.99")
+        self.assertEqual(after["com.cmux.app.next_pro.monthly"]["usPrice"], "74.99")
+        self.assertEqual(after["com.cmux.app.next_max.monthly"]["usPrice"], "299.99")
+        self.assertEqual(after["com.cmux.app.next_plus.monthly"]["territoriesPriced"], 3)
+        levels = {pid: s["groupLevel"] for pid, s in after.items()}
+        self.assertEqual(levels, {"com.cmux.app.next_max.monthly": 1, "com.cmux.app.next_pro.monthly": 2,
+                                  "com.cmux.app.next_plus.monthly": 3, "com.cmux.app.max.monthly": 4,
+                                  "com.cmux.app.pro.monthly": 5, "com.cmux.app.go.monthly": 6})
+        self.assertEqual(after["com.cmux.app.next_plus.monthly"]["localizations"]["ja"]["description"],
+                         "毎月30,000マシン分とChief 1体")
+        # The legacy products keep their (absent) prices and text.
+        self.assertIsNone(after["com.cmux.app.go.monthly"]["usPrice"])
+
+    def test_sync_is_idempotent(self):
+        asc = FakeAsc()
+        run(["price-book-sync", "--app", "6783338052"], asc)
+        asc.calls.clear()
+        code, out = run(["price-book-sync", "--app", "6783338052"], asc)
+        self.assertEqual(code, 0)
+        self.assertEqual(writes(asc), [])
+        self.assertEqual(out["result"]["log"], [])
+
+    def test_internal_app_gets_a_new_group(self):
+        asc = FakeAsc(app="6791408425", legacy=False)
+        code, out = run(["price-book-sync", "--app", "6791408425"], asc)
+        self.assertEqual(code, 0)
+        self.assertEqual(list(asc.groups.values()), ["cmux Plans"])
+        self.assertEqual(sorted(asc.group_locs), ["en-US", "ja"])
+        pids = sorted(s["productId"] for s in asc.subs.values())
+        self.assertEqual(pids, ["dev.cmux.app.internal.next_max.monthly", "dev.cmux.app.internal.next_plus.monthly",
+                                "dev.cmux.app.internal.next_pro.monthly"])
+
+    def test_classic_beta_reprices_go_and_fixes_its_text(self):
+        asc = FakeAsc(app="6757092429", legacy=False)
+        gid = asc._new_group("cmux Plans")
+        go = None
+        for level, plan in enumerate(("max", "pro", "go"), start=1):
+            sid = asc._new_sub(gid, f"dev.cmux.app.beta.{plan}.monthly", level)
+            go = sid if plan == "go" else go
+        asc.locs[go] = {"en-US": {"name": "cmux Go", "description": "1 Cloud VM, 40 VM-hours a month"}}
+        for t in asc.TERRITORIES:
+            asc.prices.append({"sub": go, "territory": t, "point": asc.point(t, "14.99")})
+        code, out = run(["price-book-sync", "--app", "6757092429"], asc)
+        self.assertEqual(code, 0)
+        after = {s["productId"]: s for g in out["result"]["after"]["groups"] for s in g["subscriptions"]}
+        self.assertEqual(after["dev.cmux.app.beta.go.monthly"]["usPrice"], "21.99")
+        self.assertNotIn("VM-hours", json.dumps(after["dev.cmux.app.beta.go.monthly"]["localizations"]))
+        self.assertEqual(len(asc.subs), 3)
+
+    def test_subscriptions_read_writes_nothing(self):
+        asc = FakeAsc()
+        code, out = run(["subscriptions", "--app", "6783338052"], asc)
+        self.assertEqual(code, 0)
+        self.assertEqual(writes(asc), [])
+        self.assertFalse(out["result"]["priceBookLive"])
+
+    def test_review_screenshot_needs_the_file(self):
+        with self.assertRaises(SystemExit):
+            ops.review_screenshot_sync(FakeAsc(), "6783338052", Path("/nonexistent/paywall.png"))
+
+    def test_price_book_matches_the_server_config(self):
+        """PRICE_BOOK equals web/services/billing/apple/config.ts: product IDs and USD list prices."""
+        config = ROOT / "web/services/billing/apple/config.ts"
+        if not config.is_file():
+            self.skipTest("web/services/billing/apple/config.ts not checked out")
+        text = config.read_text(encoding="utf-8")
+        block = re.search(r"APPLE_USD_LIST_PRICE[^=]*=\s*\{(.*?)\};", text, re.S)
+        self.assertIsNotNone(block)
+        listed = {k: v for k, v in re.findall(r"(\w+):\s*([0-9.]+)", block.group(1))}
+        if "next_plus" not in listed:
+            self.skipTest("config.ts predates the NEXT App Store products (cmux#50896)")
+        self.assertIn("`${bundleId}.${planId}.${period}`", text)
+        for app, products in ops.PRICE_BOOK.items():
+            for product in products:
+                self.assertEqual(float(listed[product["plan"]]), float(product["usd"]), product["plan"])
+                self.assertEqual(ops.product_id(app, product["plan"]), f"{ops.BUNDLES[app]}.{product['plan']}.monthly")
+        self.assertEqual(ops.BUNDLES["6783338052"], re.search(r'APP_STORE_BUNDLE_ID = "([^"]+)"', text).group(1))
+        self.assertEqual(ops.BUNDLES["6757092429"], re.search(r'CLASSIC_APPLE_BUNDLE_ID = "([^"]+)"', text).group(1))
+
+    def test_texts_fit_app_store_limits(self):
+        for products in ops.PRICE_BOOK.values():
+            for product in products:
+                for locale, (name, description) in product["localizations"].items():
+                    self.assertLessEqual(len(name), 30, name)
+                    self.assertLessEqual(len(description), 55, description)
 
 
 class JwtTest(unittest.TestCase):
