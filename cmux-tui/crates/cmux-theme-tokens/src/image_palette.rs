@@ -259,7 +259,7 @@ pub(crate) fn hsl(c: Rgb) -> (f64, f64, f64) {
     (h.rem_euclid(360.0), s.clamp(0.0, 1.0), l)
 }
 
-fn from_hsl(h: f64, s: f64, l: f64) -> Rgb {
+pub(crate) fn from_hsl(h: f64, s: f64, l: f64) -> Rgb {
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
     let hp = h.rem_euclid(360.0) / 60.0;
     let x = c * (1.0 - (hp.rem_euclid(2.0) - 1.0).abs());
@@ -297,7 +297,7 @@ fn toward(color: Rgb, pole: Rgb, done: impl Fn(Rgb) -> bool) -> Rgb {
 }
 
 /// ANSI 1...6's hues: red, green, yellow, blue, magenta, cyan.
-const ANSI_HUES: [f64; 6] = [0.0, 120.0, 55.0, 220.0, 300.0, 185.0];
+pub(crate) const ANSI_HUES: [f64; 6] = [0.0, 120.0, 55.0, 220.0, 300.0, 185.0];
 
 /// The scheme for an image's pixels. `appearance` `None` picks dark or
 /// light from the image's average lightness.
