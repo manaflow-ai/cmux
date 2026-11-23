@@ -483,7 +483,10 @@ impl Hub {
         // uploaded block can block in a worker, and a later prompt must not claim the chat while
         // the earlier one is still on its way to the queue. The guard is dropped immediately
         // after `queue_slot`, before the admitted prompt reads its uploads for dispatch.
-        let _prompt_admission = session.prompt_admission.lock().await;
+        let _prompt_admission = match opts.prompt_admission.take() {
+            Some(guard) => guard,
+            None => session.prompt_admission.clone().lock_owned().await,
+        };
         #[cfg(test)]
         {
             let seam = self.prompt_admission_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
