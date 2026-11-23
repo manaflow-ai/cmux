@@ -81,6 +81,7 @@ pub(super) fn claude_transcript_through_checked(
     let mut copy = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(file.with_file_name(format!("{id}.jsonl")))?;
     for line in lines {
         writeln!(copy, "{line}")?;
@@ -225,6 +226,7 @@ pub(super) fn claude_transcript_now(
     let mut copy = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(file.with_file_name(format!("{id}.jsonl")))?;
     for line in lines {
         writeln!(copy, "{line}")?;
@@ -324,6 +326,7 @@ pub(super) fn codex_rollout_through_checked(
     let mut copy = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(file.with_file_name(copy_name))?;
     for line in lines {
         writeln!(copy, "{line}")?;
@@ -410,6 +413,15 @@ mod streamed_reply_tests {
             ("msg_empty".to_owned(), " ".to_owned()),
         ];
         let id = claude_transcript_now(&root, "parent-1", &streamed).unwrap();
+        // The copy is the owner's only, whatever the umask (review F2 on #41462).
+        #[cfg(unix)]
+        {
+            let file = root.join("projects").join("p").join(format!("{id}.jsonl"));
+            let mode = std::os::unix::fs::PermissionsExt::mode(
+                &std::fs::metadata(&file).unwrap().permissions(),
+            );
+            assert_eq!(mode & 0o777, 0o600, "mode {mode:o}");
+        }
         let lines = copy(&root, &id);
         assert_eq!(lines.len(), 4, "{lines:#?}");
         let last = &lines[3];

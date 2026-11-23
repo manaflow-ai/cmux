@@ -29,6 +29,7 @@ mod automation_secret;
 #[path = "automation_webhook.rs"]
 mod automation_webhook;
 mod events;
+mod local_webhook;
 mod teleport;
 mod triggers;
 
@@ -340,7 +341,12 @@ fn dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
         "logs" | "log" => logs(rest, out),
         "seen" | "read" => seen(rest, out),
         "delete" | "rm" => delete(rest, out),
-        "webhook" | "webhooks" => automation_webhook::webhook(rest, global, out),
+        "webhook" | "webhooks" => match rest.split_first() {
+            Some((verb, words)) if local_webhook::VERBS.contains(&verb.as_str()) => {
+                local_webhook::run(verb, words, out)
+            }
+            _ => automation_webhook::webhook(rest, global, out),
+        },
         "teleport" | "move" => teleport::run(rest, global, out, false),
         "import" => teleport::import(rest, out),
         "runner" => runner(rest, out),
@@ -434,12 +440,17 @@ fn parse_trigger(a: &Args, now: i64) -> Result<Option<Trigger>, Failure> {
         .iter()
         .copied()
         .filter(|f| a.value(f).is_some())
-        .chain(["hourly", "manual"].into_iter().filter(|f| a.flag(f)))
+        .chain(["hourly", "manual", local_webhook::FLAG].into_iter().filter(|f| a.flag(f)))
         .collect();
     if chosen.len() > 1 {
         return usage(messages().one_schedule.replace("{flags}", &chosen.join(", --")));
     }
     let Some(kind) = chosen.first() else { return Ok(None) };
+    if *kind != local_webhook::FLAG
+        && let Some(flag) = local_webhook::option_given(a)
+    {
+        return Err(local_webhook::options_need_webhook(flag));
+    }
     let value = a.value(kind).unwrap_or_default();
     let trigger = match *kind {
         "hourly" => Trigger::preset_hourly(zone),
@@ -465,6 +476,7 @@ fn parse_trigger(a: &Args, now: i64) -> Result<Option<Trigger>, Failure> {
         "cron" => Trigger::Cron { expr: value.to_string(), tz: zone.name().to_string() },
         "watch" => triggers::watch_trigger(a, value)?,
         "when" => triggers::event_trigger(a, value)?,
+        "webhook" => local_webhook::trigger(a, None)?,
         _ => return Ok(None),
     };
     trigger.validate().map_err(|e| Failure::Usage(e.0))?;
@@ -586,7 +598,7 @@ fn runner_running(store: &Store) -> bool {
 
 fn create(args: &[String], out: &Out) -> Outcome {
     let output = out.mode;
-    let a = Args::parse(args, SPEC_VALUED, SPEC_FLAGS)?;
+    let a = local_webhook::spec_args(args, SPEC_VALUED, SPEC_FLAGS)?;
     let name = match (a.value("name"), a.words.as_slice()) {
         (Some(n), []) => n.to_string(),
         (None, [n]) => n.clone(),
@@ -596,8 +608,12 @@ fn create(args: &[String], out: &Out) -> Outcome {
         }
     };
     let now = now();
-    let trigger =
-        parse_trigger(&a, now)?.ok_or_else(|| Failure::Usage(messages().need_schedule.into()))?;
+    let Some(trigger) = parse_trigger(&a, now)? else {
+        return Err(match local_webhook::option_given(&a) {
+            Some(flag) => local_webhook::options_need_webhook(flag),
+            None => Failure::Usage(messages().need_schedule.into()),
+        });
+    };
     let folder = folder_arg(&a)?;
     let body = match (a.value("prompt"), a.value("command")) {
         (Some(prompt), None) => Body::Prompt {
@@ -630,6 +646,7 @@ fn create(args: &[String], out: &Out) -> Outcome {
         if let Value::Object(map) = &mut v {
             map.insert("runner_running".into(), json!(runner));
         }
+        local_webhook::after_create(&store, &created, out, &mut v)?;
         out.value(&v);
     } else if output != OutputMode::Quiet {
         println!(
@@ -644,6 +661,7 @@ fn create(args: &[String], out: &Out) -> Outcome {
             println!("{}", messages().next_run.replace("{time}", &when(next)));
         }
         triggers::print_event_source(&created.trigger);
+        local_webhook::after_create(&store, &created, out, &mut Value::Null)?;
         if !runner && !matches!(created.trigger, Trigger::Manual) {
             println!("{}", messages().runner_hint);
         }
@@ -737,6 +755,7 @@ fn show(args: &[String], out: &Out) -> Outcome {
         println!("  {}: {f}", messages().folder_label);
     }
     triggers::show_lines(&x, store.state(&x.id)?.dropped);
+    local_webhook::show_line(&store, &x);
     if let Some(next) = v.get("next_run_at").and_then(Value::as_i64) {
         println!("  {}: {}", messages().next_label, when(next));
     }
@@ -804,7 +823,7 @@ fn set_enabled(args: &[String], enabled: bool, out: &Out) -> Outcome {
 
 fn edit(args: &[String], out: &Out) -> Outcome {
     let output = out.mode;
-    let a = Args::parse(args, SPEC_VALUED, SPEC_FLAGS)?;
+    let a = local_webhook::spec_args(args, SPEC_VALUED, SPEC_FLAGS)?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
     let now = now();
@@ -812,8 +831,19 @@ fn edit(args: &[String], out: &Out) -> Outcome {
     if let Some(name) = a.value("name") {
         spec.name = name.into();
     }
-    if let Some(trigger) = parse_trigger(&a, now)? {
+    if a.flag(local_webhook::FLAG) {
+        // `--webhook` again keeps the filters and window no option replaces.
+        parse_trigger(&a, now)?;
+        spec.trigger = local_webhook::trigger(&a, Some(&x.trigger))?;
+        spec.trigger.validate().map_err(|e| Failure::Usage(e.0))?;
+    } else if let Some(trigger) = parse_trigger(&a, now)? {
         spec.trigger = trigger;
+    } else if let Some(flag) = local_webhook::option_given(&a) {
+        if !matches!(x.trigger, Trigger::Webhook { .. }) {
+            return Err(local_webhook::options_need_webhook(flag));
+        }
+        spec.trigger = local_webhook::trigger(&a, Some(&x.trigger))?;
+        spec.trigger.validate().map_err(|e| Failure::Usage(e.0))?;
     } else if a.value("debounce").is_some() {
         spec.trigger = match &spec.trigger {
             Trigger::Watch { command, .. } => triggers::watch_trigger(&a, &command.clone())?,
@@ -1098,6 +1128,9 @@ fn serve(once: bool, out: &Out) -> Outcome {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "cmux".to_string());
     let mut watches = Watches::new(store.clone()).with_program(program);
+    // A loopback listener, open only while an enabled automation has `--webhook`.
+    let hooks = watches.sender();
+    let mut listener = local_webhook::Listener::default();
     let mut next_tick_ms = 0i64;
     // The heartbeat (`.runner.json`): at least once a minute, as the loop wakes
     // at least that often, so a hung runner shows as stalled.
@@ -1138,6 +1171,7 @@ fn serve(once: bool, out: &Out) -> Outcome {
             }
             let automations = store.list()?;
             watches.reconcile(&automations, now_ms());
+            listener.reconcile(&store, &automations, &hooks);
             let t = now();
             let next = automations
                 .iter()
