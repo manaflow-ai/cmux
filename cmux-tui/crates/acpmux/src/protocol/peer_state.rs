@@ -231,6 +231,10 @@ pub struct PeerStateChanged {
     /// What a person does about `reason`; null when there is none.
     #[serde(default)]
     pub action: Option<OfflineAction>,
+    /// The composer status dot's item for this link (`composer_status::machine_link_item`);
+    /// null while the link is up or paused, and from an older acpmux.
+    #[serde(default)]
+    pub status: Option<super::composer_status::StatusItem>,
     /// The last frame from the peer, ms since the epoch.
     pub last_seen: Option<u64>,
     /// Why the link is down, when it is.

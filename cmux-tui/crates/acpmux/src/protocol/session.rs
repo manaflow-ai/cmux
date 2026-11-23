@@ -346,6 +346,12 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub time_breakdown: Option<crate::time_breakdown::TimeBreakdown>,
+    /// The composer footer's status dot and quiet metadata, decided from this row's own fields
+    /// (`protocol/composer_status.rs`); set on the row after it is built, and again by this
+    /// daemon on a peer's row (with `peer`). Absent from an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub composer_status: Option<super::composer_status::ComposerStatus>,
 }
 
 /// The bounded diagnosis shown beside a looping chat. The daemon emits one event when this

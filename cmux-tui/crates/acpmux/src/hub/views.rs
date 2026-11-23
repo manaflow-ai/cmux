@@ -364,6 +364,17 @@ pub fn decide(summary: &mut Value) {
     summary.set("lane", lane);
 }
 
+/// Set the summary's `composerStatus` from its own fields (`protocol/composer_status.rs`): a
+/// fixed set of key reads and at most a handful of items and nine facts, whatever the row holds.
+pub(crate) fn set_composer_status(summary: &mut Value) {
+    use crate::protocol::composer_status::{SessionFacts, composer_status};
+    if !summary.is_object() {
+        return;
+    }
+    let status = composer_status(&SessionFacts::from_summary(summary));
+    summary.set("composerStatus", serde_json::to_value(status).unwrap_or(Value::Null));
+}
+
 /// The summary's `lastMessage`, one sidebar line: the last line of words in
 /// the agent's reply, or the prompt while the turn has not answered yet.
 /// Null before the first prompt.
@@ -926,6 +937,8 @@ impl Hub {
             usage_stats: self.usage_stats_of(session, &m),
             // A detail/attach read seeds this lazily; census rows never scan journals.
             time_breakdown: with_tools.then(|| self.cached_time_breakdown(session)).flatten(),
+            // Set from the row's own fields below (`set_composer_status`).
+            composer_status: None,
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -995,6 +1008,7 @@ impl Hub {
         let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
         summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
+        set_composer_status(&mut summary);
         summary
     }
 

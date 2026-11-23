@@ -317,6 +317,14 @@ export interface ChatRouteSetParams {
   when?: unknown;
 }
 
+/** A session's composer footer (`composerStatus`). */
+export type ComposerStatus = {
+  /** In footer order (`FactKind::ALL`); a fact with nothing to say is left out. */
+  facts: FooterFact[];
+  /** Worst level first, then the oldest `since` (an unknown one last). */
+  items: StatusItem[];
+} & Record<string, unknown>;
+
 export type CoverageLabel = "acp_requests_only";
 
 /**
@@ -441,6 +449,22 @@ export type EventsResult = {
    * to its end; else (`beforeSeq`, or `hasMore`) the page's own last record.
    */
   pageThrough: number;
+} & Record<string, unknown>;
+
+/** What a footer fact is about. */
+export type FactKind = ("machine" | "folder" | "branch" | "harness" | "model" | "context" | "subagents" | "queued" | "turn");
+
+/** One piece of the footer's quiet metadata. */
+export type FooterFact = {
+  count?: (number | null);
+  /** The share of the context window used, 0 to 1. */
+  fraction?: (number | null);
+  kind: FactKind;
+  /** Worth a counter in the footer row itself now; else the hover card lists it only. */
+  live: boolean;
+  /** The running turn's start, ms since the epoch. */
+  since?: (number | null);
+  text?: (string | null);
 } & Record<string, unknown>;
 
 /**
@@ -909,6 +933,11 @@ export type PeerStateChanged = {
   since: number;
   /** `link` folded to the older five words, for an app that predates `link`. */
   state: PeerLinkState;
+  /**
+   * The composer status dot's item for this link (`composer_status::machine_link_item`);
+   * null while the link is up or paused, and from an older acpmux.
+   */
+  status: (StatusItem | null);
 } & Record<string, unknown>;
 
 export interface PeersParams {
@@ -1536,6 +1565,12 @@ export type SessionDetail = {
   backgroundsWork: boolean;
   /** Its sub-sessions that are not closed. */
   children: number;
+  /**
+   * The composer footer's status dot and quiet metadata, decided from this row's own fields
+   * (`protocol/composer_status.rs`); set on the row after it is built, and again by this
+   * daemon on a peer's row (with `peer`). Absent from an older acpmux.
+   */
+  composerStatus?: (ComposerStatus | null);
   configOptions?: unknown;
   createdAt: number;
   /**
@@ -1917,6 +1952,12 @@ export type SessionSummary = {
   backgroundsWork: boolean;
   /** Its sub-sessions that are not closed. */
   children: number;
+  /**
+   * The composer footer's status dot and quiet metadata, decided from this row's own fields
+   * (`protocol/composer_status.rs`); set on the row after it is built, and again by this
+   * daemon on a peer's row (with `peer`). Absent from an older acpmux.
+   */
+  composerStatus?: (ComposerStatus | null);
   createdAt: number;
   /**
    * Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
@@ -2306,6 +2347,33 @@ export interface StartModeParams {
   harness?: unknown;
   preset?: unknown;
 }
+
+/** The one thing a person does about an item. */
+export type StatusAction = ("reconnect" | "resumeQueue" | "signIn" | "update");
+
+/** One entry of the dot's rundown. */
+export type StatusItem = {
+  /** The one thing a person does about it; absent when there is none. */
+  action?: (StatusAction | null);
+  kind: StatusKind;
+  level: StatusLevel;
+  /** The dot shows it no earlier than this, ms since the epoch; absent: at once. */
+  showAt?: (number | null);
+  /** Since when it holds, ms since the epoch; absent when unknown. */
+  since?: (number | null);
+  /** The machine or harness the words name as `{subject}`; absent when they name none. */
+  subject?: (string | null);
+  /** When it ends on its own (a rate limit's reset), ms since the epoch; absent otherwise. */
+  until?: (number | null);
+  /** A string-catalog key (`status.machineLink.reconnecting`), never English. */
+  words: string;
+} & Record<string, unknown>;
+
+/** What an item is about. One words-key prefix each ([`StatusKind::words_prefix`]). */
+export type StatusKind = ("machineLink" | "rateLimited" | "stuck" | "queuePaused" | "harnessSandbox" | "agentService" | "restoringSessions" | "sendsHeld");
+
+/** How much an item matters; ordered, `problem` worst. */
+export type StatusLevel = ("info" | "attention" | "problem");
 
 export interface StatusParams {
   _meta?: RequestMeta;
