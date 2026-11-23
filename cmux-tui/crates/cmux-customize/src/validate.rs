@@ -104,7 +104,13 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
                 json_object(path, text, &mut found);
             }
             Part::Views => view(path, text, files, &mut found),
-            Part::Styles => {}
+            Part::Styles => {
+                if let Some(why) =
+                    crate::tree::undrawn_style(path).filter(|_| !text.trim().is_empty())
+                {
+                    found.push(Problem::at(path, None, None, why));
+                }
+            }
         }
     }
     // Whatever a validator quoted from a file goes through the same masking
@@ -437,6 +443,18 @@ mod tests {
             check("agent-pane/theme.css", ":root { --agent-gap: 4px }"),
             Vec::<String>::new()
         );
+        assert_eq!(check("diff/theme.css", ":root { --cmux-diff-gap: 4px }"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_stylesheet_nothing_draws_says_so_instead_of_passing() {
+        let lines = check("picker/theme.css", ":root { color: red }");
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].starts_with("picker/theme.css: no cmux surface reads this"), "{lines:?}");
+        let lines = check("fileViewer/theme.css", ":root { color: red }");
+        assert!(lines[0].contains("editor/theme.css"), "{lines:?}");
+        // An empty one changes nothing either way.
+        assert_eq!(check("picker/theme.css", "\n"), Vec::<String>::new());
     }
 
     #[test]
