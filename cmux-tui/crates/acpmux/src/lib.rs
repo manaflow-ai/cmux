@@ -84,6 +84,7 @@ pub(crate) mod daemon_parts;
 pub mod daemon_priority;
 pub mod daemon_skew;
 mod dead_temps;
+pub mod death_route;
 mod default_harness;
 pub mod deliver;
 pub mod deps;
