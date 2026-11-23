@@ -783,7 +783,9 @@ grep -h '^ios-ffi cache:' "$ffi_log" || true
 note "- FFI: $((SECONDS - t0)) s ($ffi_how)"
 (cd cmux-next-ios && "$xcodegen" generate -q) >"$work/xcodegen.log" 2>&1 || {
   cat "$work/xcodegen.log"; echo "error: xcodegen failed" >&2; exit 1; }
-dd="$work/dd"
+# A runner with the glaeda disk registry exports CMUX_DERIVED_DATA_SLOT: its per-stream DerivedData root.
+dd_root="${CMUX_DERIVED_DATA_SLOT:-$work}"
+dd="$dd_root/dd"
 # Demo builds the Swift packages as Release (no DEBUG), so the flood benchmark
 # and terminal demo would be missing; the command-line conditions reach the
 # packages too (verify/terminal-flood.md, Reproducing).
@@ -808,7 +810,7 @@ if [[ "$mode" == try ]]; then
   build_settings+=("CMUX_MOBILE_TAG=.dev" "CMUX_MOBILE_DISPLAY_NAME=cmux Dev" "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
   set +e
   xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
-    -destination 'generic/platform=iOS' -derivedDataPath "$work/dd-device" \
+    -destination 'generic/platform=iOS' -derivedDataPath "$dd_root/dd-device" \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=7WLXT3NR37 \
     ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${build_settings[@]}" build >"$work/build-device.log" 2>&1
   status=$?
@@ -816,7 +818,7 @@ if [[ "$mode" == try ]]; then
   grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build-device.log" | sort -u | head -40 || true
   cp "$work/build-device.log" "$out/build-device.log" 2>/dev/null || true
   [[ $status -eq 0 ]] || { tail -40 "$work/build-device.log"; exit 1; }
-  device_app="$work/dd-device/Build/Products/Demo-iphoneos/CmuxMobileApp.app"
+  device_app="$dd_root/dd-device/Build/Products/Demo-iphoneos/CmuxMobileApp.app"
   bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$device_app/Info.plist")"
   [[ "$bundle_id" == dev.cmux.mobile.dev ]] || { echo "error: the cmux Dev app is $bundle_id, not dev.cmux.mobile.dev" >&2; exit 1; }
   build_s=$((SECONDS - t0))
@@ -865,14 +867,14 @@ if [[ "$mode" == handoff ]]; then
   # Info.plist's CmuxMobileKeychainGroup is the group the local signature grants.
   set +e
   xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
-    -destination 'generic/platform=iOS' -derivedDataPath "$work/dd-device" \
+    -destination 'generic/platform=iOS' -derivedDataPath "$dd_root/dd-device" \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=7WLXT3NR37 \
     ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${build_settings[@]}" build >"$work/build-device.log" 2>&1
   status=$?
   set -e
   grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build-device.log" | sort -u | head -40 || true
   [[ $status -eq 0 ]] || { tail -40 "$work/build-device.log"; exit 1; }
-  device_app="$work/dd-device/Build/Products/Demo-iphoneos/CmuxMobileApp.app"
+  device_app="$dd_root/dd-device/Build/Products/Demo-iphoneos/CmuxMobileApp.app"
   device_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$device_app/Info.plist")"
   [[ "$device_bundle" == "$bundle_id" ]] || { echo "error: the device app is $device_bundle, not $bundle_id" >&2; exit 1; }
   note "- device build: $((SECONDS - t0)) s (Demo, unsigned), bundle $device_bundle"
@@ -911,7 +913,7 @@ build_base_app() {
     cat "$work/xcodegen-base.log"; echo "error: base xcodegen failed" >&2; exit 1; }
   set +e
   xcodebuild -project "$base_src/cmux-next-ios/CmuxMobileApp.xcodeproj" -scheme CmuxMobileApp -configuration Demo \
-    -destination 'generic/platform=iOS Simulator' -derivedDataPath "$work/dd-base" \
+    -destination 'generic/platform=iOS Simulator' -derivedDataPath "$dd_root/dd-base" \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
     "${build_settings[@]}" build >"$work/build-base.log" 2>&1
   status=$?
@@ -919,7 +921,7 @@ build_base_app() {
   cp "$work/build-base.log" "$out/build-base.log" 2>/dev/null || true
   grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build-base.log" | sort -u | head -40 || true
   [[ $status -eq 0 ]] || { tail -40 "$work/build-base.log"; exit 1; }
-  base_app="$work/dd-base/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
+  base_app="$dd_root/dd-base/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
   base_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$base_app/Info.plist")" || exit 1
   [[ "$base_bundle" == "$bundle_id" ]] || { echo "error: base bundle $base_bundle is not the head's $bundle_id" >&2; exit 1; }
   note "- base build: $((SECONDS - t0)) s at $listperf_base (FFI: $base_ffi_how)"
@@ -931,7 +933,7 @@ elif [[ "$mode" == clips && -n "$listperf_base" ]]; then
   # A clip's before is its own: a base that does not fetch or build leaves the after to record.
   base_src="$work/base-src"  # set here, so the EXIT trap removes a worktree the subshell made
   if ( build_base_app ) >"$work/base-app.log" 2>&1; then
-    base_app="$work/dd-base/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
+    base_app="$dd_root/dd-base/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
   else
     tail -40 "$work/base-app.log" || true
     note "- before: no app at $listperf_base: $(tail -n 1 "$work/base-app.log")"
@@ -1103,7 +1105,7 @@ if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$test_udid" "kit test"
   set +e
   (cd cmux-next-ios/CmuxMobileKit && env ${kit_env[@]+"${kit_env[@]}"} xcodebuild test -scheme CmuxMobileKit-Package \
-    -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
+    -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$dd_root/dd-test" \
     -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet ${kit_only[@]+"${kit_only[@]}"}) >"$work/test.log" 2>&1
   test_status=$?
   set -e
@@ -1384,7 +1386,7 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   fi
   [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$ui_udid" "UI test"
   ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug
-    -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui"
+    -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$dd_root/dd-ui"
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet)
   ui_action=test
   ui_status=0
@@ -1533,7 +1535,7 @@ if [[ "$mode" == chief-live-perf || "$mode" == chief-live-perf-baseline ]]; then
       -scheme CmuxMobileKit-Package -destination "id=$perf_udid,arch=arm64" \
       -enableCodeCoverage NO -parallel-testing-enabled NO \
       -only-testing:CmuxMobileChiefTests/ChiefLiveLayoutPerformanceTests \
-      -derivedDataPath "$work/dd-chief-perf" \
+      -derivedDataPath "$dd_root/dd-chief-perf" \
       -resultBundlePath "$out/bench/chief-live-$run.xcresult" \
       CODE_SIGNING_ALLOWED=NO "${perf_flags[@]}") > "$out/bench/chief-live-$run.log" 2>&1
     run_status=$?
