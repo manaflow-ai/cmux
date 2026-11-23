@@ -91,6 +91,7 @@ import {
 } from "./conversation/promptCollapse";
 import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
 import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
+import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
 import { SENT_IMAGE_HEIGHT, SENT_IMAGE_MAX_WIDTH, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
@@ -1472,6 +1473,10 @@ export type AcpmuxSnapshot = {
   /// The selected chat's rows are in this snapshot (its attach page, or a kept tail), or none is
   /// selected: the first-paint report may say the chat is on screen (App.tsx `chatDrawn`).
   chatRead?: true;
+  /// acpmux's attach of the selected chat answered: its rows and its running turn are acpmux's,
+  /// not only a kept tail's (which keeps rows, not whether a turn runs). App.tsx holds the last
+  /// launch's copy for it while that copy shows a running turn the tail cannot draw.
+  chatAttached?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The current turn's daemon start time, in the session clock. Unset when no turn is running.
@@ -3334,11 +3339,11 @@ function measuredRowHeight(
   }
   // A prompt drawn in its parts' order (conversation/InlinePromptContent.tsx) measures what its
   // bubble draws, never its recorded text: a text file's body is behind its chip, and the runs of
-  // a placed prompt join as the draft had them. Its attachments draw in one block above the bubble
-  // (UserBubble.tsx, bubbleParts.ts `bubbleLayout`), in every attachment view.
+  // a placed prompt join as the draft had them. The pane's attachment view says which attachments
+  // draw in the row above the bubble instead (UserBubble.tsx: the strip view draws them all there).
   const layout =
     row.kind === "user" && row.inlineParts && row.from !== "chief" && !chiefEnvelope(row.text)
-      ? bubbleLayout(row)
+      ? bubbleLayout(row, composerSettingsSnapshot().attachmentView)
       : undefined;
   const inline = layout?.parts;
   const plainUser =
@@ -3353,6 +3358,19 @@ function measuredRowHeight(
   const contentWidth = Math.max(80, row.kind === "user" ? userBubbleShare() * width - userBubbleSides() : width);
   const picks = row.kind === "user" && !inline && !pasted && !plainUser ? sentUIPickSegments(row.text) : undefined;
   const usedPrepared = new Set<string>();
+  // A long prompt shut on its fold draws its first lines and Show more whatever follows them
+  // (collapsedPromptHeight, below): when its head is past the fold already, the head is all there
+  // is to lex and measure. Measured whole, a prompt sent from a draft of thousands of lines laid
+  // out every line in the send's own task, which the composer's collapse waited on (Leo, 2026-11-22:
+  // "THE FUCSKING COLLAPSING OF THE FUCKING COMPOSER / IT TAKES TOO FUCKING LONG"). A head that is
+  // not past the fold (a very wide bubble) measures the whole text, as before.
+  const foldLimit = COLLAPSED_PROMPT_LINES * metrics().lineHeight + 1;
+  const shutLong =
+    row.kind === "user" &&
+    !promptOpen &&
+    row.from !== "chief" &&
+    !chiefEnvelope(row.text) &&
+    row.text.length > HUGE_PROMPT_HEAD_CHARS;
   let contentHeight: number;
   if (plainUser) {
     // UserBubble -> PromptText draws this as literal spans, so avoid preparing Markdown tokens.
@@ -3361,12 +3379,17 @@ function measuredRowHeight(
     const plainKey = `${measureFont}\n${lineHeight}\n${plainWidth}\n${row.text}`;
     if (entry.plainHeight?.key === plainKey) contentHeight = entry.plainHeight.height;
     else {
-      contentHeight = textHeight(row.text, plainWidth, entry.prepared, usedPrepared);
+      const head = shutLong
+        ? textHeight(promptHead(row.text, HUGE_PROMPT_HEAD_CHARS), plainWidth, entry.prepared, usedPrepared)
+        : 0;
+      contentHeight = head > foldLimit ? head : textHeight(row.text, plainWidth, entry.prepared, usedPrepared);
       entry.plainHeight = { key: plainKey, height: contentHeight };
     }
   } else {
-    if (!inline && !pasted && !picks && (entry.text !== row.text || entry.lexedLength === 0)) {
-      lexIncrementally(entry, row.text);
+    // The text lexed: a shut long prompt's head first (`shutLong`).
+    let lexed = shutLong ? promptHead(row.text, HUGE_PROMPT_HEAD_CHARS) : row.text;
+    if (!inline && !pasted && !picks && (entry.text !== lexed || entry.lexedLength === 0)) {
+      lexIncrementally(entry, lexed);
     }
     if (inline) {
       contentHeight = inlinePromptHeight(row, inline, contentWidth, entry.prepared, usedPrepared);
@@ -3396,8 +3419,16 @@ function measuredRowHeight(
           );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-      contentHeight = (entry.blocks.length - 1) * blockGap();
-      for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
+      const blocksHeight = () =>
+        entry.blocks.reduce(
+          (sum, block) => sum + blockHeight(block, contentWidth, entry.prepared, usedPrepared),
+          (entry.blocks.length - 1) * blockGap(),
+        );
+      contentHeight = blocksHeight();
+      if (lexed !== row.text && contentHeight <= foldLimit) {
+        lexIncrementally(entry, (lexed = row.text));
+        contentHeight = blocksHeight();
+      }
     }
   }
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
