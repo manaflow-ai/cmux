@@ -853,13 +853,19 @@ fn files_of(params: &Value) -> Result<Vec<(std::path::PathBuf, Vec<u8>)>, RpcErr
 }
 
 /// `path` when it is a file in chat `id`'s uploads folder (`hub/file_uploads.rs`): absolute,
-/// under it, with no `..`.
-fn upload_path(id: &str, path: &str) -> Option<std::path::PathBuf> {
+/// under it, with no `..`. A Windows drive-qualified path leads with a `Prefix` component, which
+/// is as plain as the root: `starts_with` below still holds it to the chat's folder.
+pub(super) fn upload_path(id: &str, path: &str) -> Option<std::path::PathBuf> {
     let root = super::file_uploads::session_dir(id)?;
     let path = std::path::PathBuf::from(path);
-    let plain = path
-        .components()
-        .all(|c| matches!(c, std::path::Component::RootDir | std::path::Component::Normal(_)));
+    let plain = path.components().all(|c| {
+        matches!(
+            c,
+            std::path::Component::Prefix(_)
+                | std::path::Component::RootDir
+                | std::path::Component::Normal(_)
+        )
+    });
     (plain && path.is_absolute() && path.starts_with(&root) && path != root).then_some(path)
 }
 

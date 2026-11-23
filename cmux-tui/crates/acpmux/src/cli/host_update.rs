@@ -1017,18 +1017,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
 /// (acpmux-build-id's `COMMIT_STAMP`), read from its bytes as the host's
 /// `acpmux_ct` reads it; None without one.
 fn embedded_commit_time(bytes: &[u8]) -> Option<u64> {
-    const KEY: &[u8] = b"acpmux-commit-time=";
-    let mut from = 0;
-    while let Some(i) = bytes.get(from..)?.windows(KEY.len()).position(|w| w == KEY) {
-        let start = from.saturating_add(i).saturating_add(KEY.len());
-        let rest = bytes.get(start..)?;
-        let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
-        if digits > 0 && rest.get(digits) == Some(&b';') {
-            return std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok();
-        }
-        from = start;
-    }
-    None
+    crate::daemon::start_exe::embedded_commit_time(bytes)
 }
 
 /// Why the host would refuse `binary` as built from an older commit than
