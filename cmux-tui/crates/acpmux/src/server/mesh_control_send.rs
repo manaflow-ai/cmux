@@ -77,7 +77,10 @@ pub(super) async fn handle(
         Some("start") => {
             let start = start_params(
                 &params["params"],
-                crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+                crate::hub::cmux_tools_answer::here_for(
+                    crate::user_settings::text().as_deref(),
+                    &params["params"],
+                ),
             )?;
             // The person's start level, or a full-access caller's, as a start through an ssh
             // peer carries it (`hub/full_access_children.rs`): the machine serves the relay as a
