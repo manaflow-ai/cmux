@@ -151,7 +151,18 @@ if (( hz > 0 )); then
     display_line="$display_line: $(head -c 300 "$vd/clang.err" 2>/dev/null | tr '\n' ' ')"
   fi
   if [[ "$display_line" =~ ^ready\ ([0-9]+)\ [0-9.]+\ main=([0-9]+) ]] && [[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]]; then
-    sleep 2  # let WindowServer settle the new main display before the first app opens on it
+    # Until a new process sees the virtual display as its main display (what the app opens on), 15 s.
+    # Only when the helper's ready line says it made the display main (main=ID).
+    vd_id="$(sed -n 's/^ready \([0-9]*\) [0-9.]* main=\1 .*/\1/p' "$vd/out" 2>/dev/null | head -1 || true)"
+    if [[ -n "$vd_id" ]]; then
+      vd_main="" vd_deadline=$((SECONDS + 15))
+      while (( SECONDS < vd_deadline )); do
+        vd_main="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | awk '$1 == "main" {print $2}' || true)"
+        [[ "$vd_main" == "$vd_id" ]] && break
+        sleep 0.2
+      done
+      [[ "$vd_main" == "$vd_id" ]] || echo "warning: a new process still sees display ${vd_main:-?} as main, not the virtual display $vd_id, after 15 s" >&2
+    fi
   else
     echo "CHAT-TYPING-AB VDISPLAY-FALLBACK no $hz Hz main display of this step ($display_line); the arms make their own"
     if [ -n "$vdisplay_pid" ]; then kill "$vdisplay_pid" 2>/dev/null; wait "$vdisplay_pid" 2>/dev/null; vdisplay_pid=""; fi
