@@ -233,7 +233,10 @@ jobs:
 
   web-typecheck:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' && (inputs.only == '' || inputs.only == 'web-typecheck') }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `web-typecheck`
+    # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run them
+    # here. Web status counts the skip as fine only on such a pull request.
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' && (inputs.only == '' || inputs.only == 'web-typecheck') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Matches the 10-minute siblings in this workflow.
     timeout-minutes: 10
@@ -578,6 +581,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           shared-key: agent-pane-real-acpmux
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' || github.base_ref == 'feat-cmux-next' }}
@@ -2403,6 +2408,8 @@ jobs:
         env:
           WEB_INPUTS: ${{ toJSON(inputs) }}
           WEB_NEEDS: ${{ toJSON(needs) }}
+          WEB_EVENT: ${{ github.event_name }}
+          WEB_BASE_REF: ${{ github.base_ref }}
         run: |
           python3 - <<'PY'
           import json
@@ -2477,7 +2484,11 @@ jobs:
               "web-db-migrations": inputs["web"] == "true" and subareas.get("db") == "true",
           }
           results.update({job: needs[job]["result"] for job in sorted(required)})
-          exit_with_verdict(results, "Web status", {job for job, is_required in required.items() if not is_required})
+          may_skip = {job for job, is_required in required.items() if not is_required}
+          # A feat-cmux-next pull request runs it as the ci/steps.toml step (pr-pipeline.yml): the job skips.
+          if os.environ.get("WEB_EVENT") == "pull_request" and os.environ.get("WEB_BASE_REF") == "feat-cmux-next":
+              may_skip.add("web-typecheck")
+          exit_with_verdict(results, "Web status", may_skip)
           for job, is_required in sorted(required.items()):
               print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")
           PY
