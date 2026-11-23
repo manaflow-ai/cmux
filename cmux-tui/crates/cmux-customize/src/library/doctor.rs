@@ -889,7 +889,8 @@ pub fn fix_kind(word: &str) -> Option<FixKind> {
     }
 }
 
-/// `2 customization problems: a; b`, or one: `Customization: a`.
+/// `3 customization problems: a; b and 1 more`, or one: `Customization: a` (issue 52838: it
+/// read "17 things change your customization: …").
 fn line_of<'a>(findings: impl Iterator<Item = &'a Finding>) -> Option<String> {
     let findings: Vec<&Finding> = findings.collect();
     let warnings: Vec<&&Finding> = findings.iter().filter(|f| f.level == Level::Warning).collect();
@@ -903,7 +904,7 @@ fn line_of<'a>(findings: impl Iterator<Item = &'a Finding>) -> Option<String> {
     let mut line = if findings.len() == 1 {
         format!("Customization: {first}")
     } else {
-        format!("{} things change your customization: {}", findings.len(), shown.join("; "))
+        format!("{} customization problems: {}", findings.len(), shown.join("; "))
     };
     if rest > 0 {
         line.push_str(&format!(" and {rest} more"));

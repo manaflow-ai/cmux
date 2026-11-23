@@ -161,10 +161,12 @@ export function recoverPlan(findings: readonly DoctorFinding[]): DoctorRecover |
 export function doctorLine(findings: readonly DoctorFinding[]): string | null {
   const open = findings.filter((one) => !one.dismissed);
   if (open.length === 0) return null;
-  const head = open.length === 1 ? "1 customization problem" : `${open.length} customization problems`;
+  // The CLI (doctor.rs `line_of`) names its warnings first, so this matches it only for fixtures
+  // whose first two open findings are the ones it names.
+  if (open.length === 1) return `Customization: ${open[0]!.title}`;
   const names = open.slice(0, 2).map((one) => one.title);
-  const more = open.length > 2 ? `; and ${open.length - 2} more` : "";
-  return `${head}: ${names.join("; ")}${more}`;
+  const more = open.length > 2 ? ` and ${open.length - 2} more` : "";
+  return `${open.length} customization problems: ${names.join("; ")}${more}`;
 }
 
 /** A report of `findings`, its line computed as the CLI does. */
@@ -187,6 +189,21 @@ export const mockEmptyDoctor = (): DoctorReport => report([]);
  * where the default shows it (Leo's pane dividers). */
 export const mockDoctor = (): DoctorReport =>
   report([DOCTOR_FINDINGS.layer!, DOCTOR_FINDINGS.broken!, DOCTOR_FINDINGS.notDefault!]);
+
+/** Seventeen stale layers with long names, the report issue 52838's chip clipped mid-line. */
+export const mockManyDoctor = (): DoctorReport =>
+  report(
+    Array.from({ length: 17 }, (_, index) =>
+      finding({
+        id: `layer-on:app-sidebar-compact-tint-${index + 1}`,
+        kind: "layer-on",
+        title: `app-sidebar-compact-tint-${index + 1} is still on`,
+        detail: "It changes the sidebar's tint in place of your build's.",
+        place: "Customization Library",
+        fixes: [OFF],
+      }),
+    ),
+  );
 
 /** One finding of every kind. */
 export const mockAllDoctor = (): DoctorReport => report(Object.values(DOCTOR_FINDINGS));
