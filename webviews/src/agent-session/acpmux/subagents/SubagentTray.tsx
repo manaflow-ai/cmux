@@ -864,6 +864,7 @@ export const SubagentTray = memo(function SubagentTray({
                   tone={mark.tone}
                   size={ROW_ICON}
                   fallback={mark.icon}
+                  plain
                 />
               ))}
             </span>
@@ -1148,6 +1149,7 @@ export const SubagentTray = memo(function SubagentTray({
               icon={SUBAGENT_FALLBACK}
               mark={item.agent.harness ?? chatHarness}
               tone={agentTone(item.agent.id)}
+              plainMark
               doneLook={doneLook}
               status={subagentStatus(item.agent, waiting)}
               working={subagentStatus(item.agent, waiting) === "running"}
@@ -1317,6 +1319,7 @@ export const SubagentTray = memo(function SubagentTray({
           title={item.session.doing}
           mark={item.session.harness}
           tone={agentTone(item.session.sessionId)}
+          plainMark
           chevron
           icon="agent.chat"
           status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
@@ -1605,6 +1608,7 @@ function HeadKind({
           tone={agentTone(agent.id)}
           size={ROW_ICON}
           fallback={part.icon}
+          plain
         />
       ) : (
         <Icon name={part.icon} size={ROW_ICON} row />
