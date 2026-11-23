@@ -738,6 +738,16 @@ Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
 takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
 --public-egress, --idle-timeout SECONDS and --idempotency-key KEY.
+
+--provider freestyle (the default) is all of the above. --provider gcp makes a
+fleet VM on our own Compute Engine capacity (the CI builder pool, lanes),
+never a customer's: it goes straight to the cmux API with --cloud-api URL (or
+CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and
+--team TEAM_ID (or CMUX_CLOUD_TEAM), takes only --name, --size and
+--idempotency-key, and is refused unless the deployment's CLOUD_GCE_TEAMS
+names the team.
+
+  cmux vm new --provider gcp --name ci-builder-1 --size large --team TEAM_ID
 ";
 
 /// What a person reads after `cmux vm new` (the app's `cloud new-machine`)
@@ -863,6 +873,23 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             print!("{NEW_HELP}");
             return Some(0);
         }
+        // `--provider gcp`: our own Compute Engine capacity, headless through the cmux API (vm_gcp.rs);
+        // `--provider freestyle` (or none) is the create below, unchanged.
+        let (provider, unprovided) = match super::vm_gcp::take_provider(tail) {
+            Ok(taken) => taken,
+            Err(error) => {
+                return Some(super::app::failure(
+                    "usage.invalid",
+                    &format!("cmux: {}", error.0),
+                    global.output,
+                    2,
+                ));
+            }
+        };
+        if provider == Some(super::vm_gcp::Provider::Gcp) {
+            return Some(super::vm_gcp::run_new(&global, &unprovided));
+        }
+        let tail = unprovided.as_slice();
         // A `--socket` counts only when it answers as the app: a daemon's socket would refuse
         // the app action (`socket.wrong_kind`), so the VM API takes it as before.
         let app_present = app_present(
