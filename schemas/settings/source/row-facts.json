@@ -20,6 +20,7 @@
       "appearance.backgroundSchedule": "domain:backdrop_schedule",
       "appearance.backgroundLocation": "domain:backdrop_location",
       "appearance.backgroundMemory": "domain:backdrop_memory",
+      "appearance.backgroundPlacement": "domain:backdrop_placement",
       "appearance.backgroundRecents": "domain:backdrop_recents",
       "appearance.customDensities": "domain:custom_densities",
       "agentPane.display.commandLabels": "domain:command_labels",
