@@ -62,7 +62,7 @@ test("a lost link reads again on its own, shows nothing until it lasts, then one
   const rootElement = document.createElement("div");
   document.body.append(rootElement);
   const root = createRoot(rootElement);
-  const notice = () => rootElement.querySelector("[role=status] p")?.textContent ?? null;
+  const notice = () => rootElement.querySelector("output p")?.textContent ?? null;
   try {
     await act(async () => {
       root.render(
