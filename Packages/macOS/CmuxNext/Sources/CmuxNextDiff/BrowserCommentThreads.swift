@@ -143,6 +143,8 @@ public final class BrowserCommentThreads {
         if let folder, let repository = try? await DiffPageRuntime.repository(at: URL(fileURLWithPath: folder, isDirectory: true), git: git) {
             root = repository.root
         }
+        // Resolved while the root was read: nothing was saved, nothing goes.
+        guard threads[key] != nil else { return BrowserCommentThread(commentID: nil, state: .failed) }
         guard root.hasPrefix("/") else {
             update(key, BrowserCommentThread(commentID: nil, state: .failed))
             throw .host(.failed)
@@ -168,7 +170,7 @@ public final class BrowserCommentThreads {
         guard userGesture else { throw .gestureRequired }
         guard store.keepsThreads else { throw .threadsUnavailable }
         homes[key] = (store, root)
-        update(key, BrowserCommentThread(commentID: nil, state: .sending))
+        if threads[key]?.state != .sending { update(key, BrowserCommentThread(commentID: nil, state: .sending)) }
         let saved: JSONValue
         do {
             saved = try await store.saveComment(root: root, comment: comment.record, key: opid + "-save")
