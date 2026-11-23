@@ -1,3 +1,4 @@
+import CoreGraphics
 import XCTest
 
 /// Leo, 2026-11-23: "i want to be able to click (tap) the top bit of the
@@ -69,6 +70,49 @@ final class TerminalLastSentStripUITests: XCTestCase {
         XCTAssertNotEqual(field.value(forKey: "hasKeyboardFocus") as? Bool, true, "a near miss does not focus the composer")
     }
 
+    /// Leo, 2026-11-23: "it seems like y'all have added an additional row of
+    /// blanking? ... bring it back down to where it was". With the pill
+    /// shown, the page's rows still draw beside it, down to the key row: no
+    /// blank band the pill's height above the key row.
+    @MainActor
+    func testJumpToBottomTakesNoRowOfThePage() throws {
+        let app = launch()
+        send(app, "cargo build")
+        let jump = app.buttons["terminal.jumpToBottom"]
+        XCTAssertTrue(scroll(app, up: true, until: jump), "scrolled up: Jump to bottom shows\n\(app.debugDescription)")
+        Thread.sleep(forTimeInterval: 0.5)
+        let shot = app.screenshot()
+        attach(app, "pill-over-rows")
+        let window = app.windows.firstMatch.frame
+        let visible = Self.visiblePill(in: jump.frame)
+        // Left of the pill, over the band its target covers: the rows there are drawn.
+        let band = CGRect(x: window.minX + 2, y: jump.frame.minY - window.minY, width: visible.minX - window.minX - 8, height: jump.frame.height)
+        let lit = try Self.brightPixels(shot, in: band, scale: CGFloat(try XCTUnwrap(shot.image.cgImage).height) / window.height)
+        XCTAssertGreaterThan(lit, 20, "rows draw beside the pill (\(lit) lit pixels in \(band)): no blank row for Jump to bottom")
+    }
+
+    /// Leo, 2026-11-23: "theres also these weird dead zones in the jump to
+    /// bottom in terminal". Every part of the drawn pill takes the tap: its
+    /// four corners (3 pt in) and its middle each go to the bottom.
+    @MainActor
+    func testEveryPartOfTheDrawnPillJumps() throws {
+        let app = launch()
+        let jump = app.buttons["terminal.jumpToBottom"]
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        XCTAssertTrue(scroll(app, up: true, until: jump), "scrolled up: Jump to bottom shows")
+        let pill = Self.visiblePill(in: jump.frame).insetBy(dx: 3, dy: 3)
+        let spots = [("top left", CGPoint(x: pill.minX, y: pill.minY)), ("top right", CGPoint(x: pill.maxX, y: pill.minY)),
+                     ("middle", CGPoint(x: pill.midX, y: pill.midY)),
+                     ("bottom left", CGPoint(x: pill.minX, y: pill.maxY)), ("bottom right", CGPoint(x: pill.maxX, y: pill.maxY))]
+        for (name, spot) in spots {
+            if !jump.exists { XCTAssertTrue(scroll(app, up: true, until: jump), "scrolled up again for the \(name)") }
+            origin.withOffset(CGVector(dx: spot.x, dy: spot.y)).tap()
+            XCTAssertTrue(jump.waitForNonExistence(timeout: 4), "a tap on the pill's \(name) (\(spot)) went to the bottom: no dead zone")
+            Thread.sleep(forTimeInterval: 0.7)
+            XCTAssertFalse(app.keyboards.firstMatch.exists, "the \(name) tap showed no keyboard")
+        }
+    }
+
     // MARK: Helpers
 
     @MainActor
@@ -104,6 +148,30 @@ final class TerminalLastSentStripUITests: XCTestCase {
             if target.waitForExistence(timeout: 1) { return true }
         }
         return false
+    }
+
+    /// The pill as drawn inside its tap target (`TerminalJumpToBottomRow`:
+    /// 44 pt each side, 28 pt tall, 8 pt above the target's bottom).
+    private static func visiblePill(in target: CGRect) -> CGRect {
+        CGRect(x: target.minX + 44, y: target.maxY - 8 - 28, width: target.width - 88, height: 28)
+    }
+
+    /// Pixels well above the terminal's black in `rect` (points).
+    @MainActor
+    private static func brightPixels(_ shot: XCUIScreenshot, in rect: CGRect, scale: CGFloat) throws -> Int {
+        let image = try XCTUnwrap(shot.image.cgImage)
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                              space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var lit = 0
+        for y in Int(rect.minY * scale)..<min(height, Int(rect.maxY * scale)) {
+            for x in max(0, Int(rect.minX * scale))..<min(width, Int(rect.maxX * scale)) where pixels[y * width + x] > 110 {
+                lit += 1
+            }
+        }
+        return lit
     }
 
     @MainActor

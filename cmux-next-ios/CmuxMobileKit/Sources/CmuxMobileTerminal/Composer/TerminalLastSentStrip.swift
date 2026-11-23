@@ -17,7 +17,7 @@ struct TerminalLastSentStrip: View {
     /// The look. The page uses `.pill`; the gallery shows all three
     /// (`-cmux-mobile-recovery-gallery lastsent`).
     enum Style: String, CaseIterable, Identifiable {
-        /// A: a centered glass capsule, like Jump to bottom at the other end.
+        /// A: a centered solid capsule, like Jump to bottom at the other end.
         case pill
         /// B: a full-width bar under the status bar.
         case bar
@@ -64,7 +64,10 @@ struct TerminalLastSentStrip: View {
 
         var body: some View {
             Button(action: action) { label }
-                .buttonStyle(.cmuxPressGlass)
+                // A solid fill, no blur, as Jump to bottom (Leo, 2026-11-23:
+                // "dont add blur there"): interactive glass's own touch
+                // handling left dead spots in the drawn pill.
+                .buttonStyle(.cmuxPressFillInLabel)
                 .accessibilityLabel("Jump to last sent: \(text)")
                 .accessibilityIdentifier("terminal.lastSentStrip")
         }
@@ -85,7 +88,8 @@ struct TerminalLastSentStrip: View {
                 .frame(height: TerminalLastSentStrip.pillHeight)
                 .frame(maxWidth: TerminalLastSentStrip.pillMaxWidth)
                 .fixedSize(horizontal: true, vertical: false)
-                .glassSurface(in: .capsule)
+                .cmuxMobilePressBackground(TerminalJumpToBottomRow.pillFill, in: .capsule)
+                .overlay { Capsule().strokeBorder(TerminalJumpToBottomRow.pillEdge, lineWidth: 0.5) }
                 // The capsule as drawn; the target reaches 8 pt past it on
                 // each side and down into the page, to `hitHeight` (past
                 // Apple's 44 pt: HIG, Accessibility).
@@ -109,7 +113,7 @@ struct TerminalLastSentStrip: View {
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 14)
                 .frame(maxWidth: .infinity, minHeight: TerminalLastSentStrip.hitHeight)
-                .background(.ultraThinMaterial)
+                .cmuxMobilePressBackground(TerminalJumpToBottomRow.pillFill, in: .rect)
                 .overlay(alignment: .bottom) { Divider() }
                 .contentShape(.rect)
             case .edge:
@@ -121,6 +125,7 @@ struct TerminalLastSentStrip: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: TerminalLastSentStrip.hitHeight, alignment: .top)
                 .padding(.top, 4)
+                .cmuxMobilePressBackground(Color.clear, in: .rect)
                 .contentShape(.rect)
             }
         }
