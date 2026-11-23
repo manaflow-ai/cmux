@@ -35,6 +35,8 @@ public final class AddressBarView: NSView {
     private let backdrop = OmnibarCardTopView()
     /// The card top is fading out after the card closed.
     private var backdropClosing = false
+    /// The bar's card top is drawn (tests: it goes with the card).
+    var debugCardTopShown: Bool { !backdrop.isHidden }
     /// The card top's reach above the bar (`OmnibarStyle.cardTopOutset(bar:)`), measured at each layout from where the
     /// bar sits in its window.
     private lazy var backdropTop = backdrop.topAnchor.constraint(equalTo: topAnchor)
