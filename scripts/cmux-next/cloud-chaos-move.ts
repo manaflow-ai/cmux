@@ -119,6 +119,8 @@ const ID_OF = /"id"\s*:\s*(\d+)/;
  */
 export class MoveTripwire {
   fired = false;
+  /** The step's own answer came back a refusal, so the step never happened. */
+  refused = false;
   firedAt = 0;
   begun = false;
   writes = 0;
@@ -154,6 +156,8 @@ export class MoveTripwire {
       if (!this.begun || dir !== "request") return;
       this.note(`${role} sync request ${(/"cmd"\s*:\s*"([^"]+)"/.exec(line)?.[1] ?? line.slice(0, 40))}`);
     } else if (cmd !== t.cmd) return;
+    // An answer step happened only when the side said yes: a refusal there is the move ending early, not the step.
+    else if (dir === "answer" && !/"ok"\s*:\s*true/.test(line)) { this.refused = true; return; }
     this.fired = true;
     this.firedAt = Date.now();
     this.note(`trigger: holding the ${dir}; fault in`);
@@ -319,13 +323,16 @@ export class LocalMachine {
   }
 
   /** The model stub on this machine's loopback, and Claude Code's settings pointed at it. */
+  private stubProc: ChildProcess | null = null;
   private async startStub(): Promise<void> {
+    if (this.stubProc && this.stubProc.exitCode === null && this.stubProc.signalCode === null) return;
     const script = path.join(this.dir, "stub.json");
     const ready = path.join(this.dir, "stub.ready");
     writeFileSync(script, JSON.stringify(this.stubScript));
     spawnSync("rm", ["-f", ready]);
     const p = spawn("python3", ["-I", this.stubPy, "--port", "0", "--script", script, "--ready-file", ready, "--log", path.join(this.dir, "stub.log")], { env: this.env, stdio: "ignore", detached: true });
     p.unref();
+    this.stubProc = p;
     for (let i = 0; i < 100 && !existsSync(ready); i++) await sleep(100);
     this.stubPort = Number(JSON.parse(readFileSync(ready, "utf8")).port);
     const settings = path.join(this.home, ".claude/settings.json");
@@ -396,24 +403,33 @@ export class CarrierServe {
   }
 }
 
-/** One request on a daemon socket, answered (events and other ids skipped). */
-export function daemonRpc(socket: string, frame: Record<string, unknown>, timeoutMs = 60_000): Promise<any> {
+/**
+ * Requests on one daemon connection, in order, each answered before the next goes (events and other ids skipped):
+ * the last one's answer, or the first refusal. A prompt goes after an attach on the same connection, as the app's.
+ */
+export function daemonRpc(socket: string, frame: Record<string, unknown> | Array<Record<string, unknown>>, timeoutMs = 60_000): Promise<any> {
+  const frames = Array.isArray(frame) ? frame : [frame];
   return new Promise((resolve, reject) => {
-    const id = Math.floor(Math.random() * 1e9);
+    const base = Math.floor(Math.random() * 1e9);
+    let at = 0;
     const s = createConnection(socket);
     let buf = "";
-    const t = setTimeout(() => { s.destroy(); reject(new Error(`${String(frame.cmd)}: no answer in ${timeoutMs} ms`)); }, timeoutMs);
-    s.on("connect", () => s.write(`${JSON.stringify({ ...frame, id })}\n`));
+    const name = frames.map((f) => String(f.cmd)).join("+");
+    const t = setTimeout(() => { s.destroy(); reject(new Error(`${name}: no answer in ${timeoutMs} ms`)); }, timeoutMs);
+    const send = () => s.write(`${JSON.stringify({ ...frames[at], id: base + at })}\n`);
+    s.on("connect", send);
     s.on("data", (d) => {
       buf += d;
       let nl: number;
       while ((nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
-        try {
-          const m = JSON.parse(line);
-          if (m?.id === id) { clearTimeout(t); s.destroy(); resolve(m); return; }
-        } catch { /* not JSON */ }
+        let m: any;
+        try { m = JSON.parse(line); } catch { continue; }
+        if (m?.id !== base + at) continue;
+        if (!m.ok || at === frames.length - 1) { clearTimeout(t); s.destroy(); resolve(m); return; }
+        at++;
+        send();
       }
     });
     s.on("error", (e) => { clearTimeout(t); reject(e); });
@@ -629,7 +645,7 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
       ctx.log(`move: ${run} ${r.outcome}: lost ${r.lost.join("; ") || "nothing"}; pump ${r.pump_first}${r.pump_retry !== "not run" ? ` then ${r.pump_retry}` : ""}; ${r.detail}`);
       if (r.outcome !== "pass") ctx.log(`move: ${run} seed ${plan.seed} trace:\n  ${r.trace.join("\n  ")}`);
       // Every side healthy before the next run, whatever this one did.
-      await bringBack(ctx, local, carriers, [localSide, cloudSide(0), cloudSide(1)], () => undefined).catch((e: Error) => ctx.log(`move: sides not all back after ${run}: ${e.message}`));
+      await bringBack(ctx, carriers, [localSide, cloudSide(0), cloudSide(1)], () => undefined).catch((e: Error) => ctx.log(`move: sides not all back after ${run}: ${e.message}`));
     }
   } finally {
     for (const c of carriers) c.stop();
@@ -638,7 +654,7 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
   return results;
 }
 
-type RunArgs = { direction: MoveDirection; step: MoveStep; kill: MoveKill; seed: string; run: string; root: string; src: MoveSide; dst: MoveSide; local: LocalMachine; carriers: CarrierServe[] };
+export type RunArgs = { direction: MoveDirection; step: MoveStep; kill: MoveKill; seed: string; run: string; root: string; src: MoveSide; dst: MoveSide; local: LocalMachine; carriers: CarrierServe[]; /** The harness's own self-test between two local daemons, which serve no file ops: no folder sync. */ noSync?: boolean };
 
 async function waitIdentify(socket: string, ms: number): Promise<boolean> {
   for (const until = Date.now() + ms; Date.now() < until; await sleep(2_000)) {
@@ -649,10 +665,14 @@ async function waitIdentify(socket: string, ms: number): Promise<boolean> {
 }
 
 /** Brings every side back: the local machine and the carriers running, each Cloud machine running and answering. */
-async function bringBack(ctx: MoveContext, local: LocalMachine, carriers: CarrierServe[], sides: MoveSide[], note: (s: string) => void): Promise<void> {
-  if (!(await daemonRpc(local.socket, { cmd: "identify" }, 5_000).then((r) => r?.ok, () => false)) || !local.daemonPids().length) {
-    note("local machine: starting again");
-    await local.start();
+export async function bringBack(ctx: Pick<MoveContext, "status" | "start" | "ensureStub">, carriers: CarrierServe[], sides: MoveSide[], note: (s: string) => void): Promise<void> {
+  for (const s of sides) {
+    const local = s.local;
+    if (!local) continue;
+    if (!(await daemonRpc(local.socket, { cmd: "identify" }, 5_000).then((r) => r?.ok, () => false)) || local.daemonPids().length < 2) {
+      note(`local machine ${s.name}: starting again`);
+      await local.start();
+    }
   }
   for (const c of carriers) if (!c.proc || c.proc.exitCode !== null) { note(`carrier ${c.machine}: serving again`); await c.start(); }
   for (const s of sides.filter((x) => x.kind === "cloud")) {
@@ -668,7 +688,7 @@ async function bringBack(ctx: MoveContext, local: LocalMachine, carriers: Carrie
   }
 }
 
-async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult> {
+export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult> {
   const rng = moveRng(a.seed);
   const tag = a.run.replace(/[^A-Za-z0-9-]/g, "-");
   const dir = path.join(a.root, `r${tag.slice(-6)}`);
@@ -691,7 +711,9 @@ async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult> {
   // 2. The folder's first sync, as the app makes it before a move (none for a relay: the move carries it all).
   const pumpEnv = a.local.env;
   const cm = (args: string[], ms = 180_000) => runPump(ctx.cmux, args, pumpEnv).then((p) => (p.ok ? p : Promise.reject(new Error(`${args.slice(0, 3).join(" ")}: ${pumpText(p)}`))));
-  if (a.direction === "local-cloud") {
+  if (a.noSync) {
+    await a.dst.exec(`mkdir -p ${shq(dstFolder)}`);
+  } else if (a.direction === "local-cloud") {
     await cm(["link", "seed", "push", "--socket", a.dst.socket, srcFolder, dstFolder]);
   } else if (a.direction === "cloud-local") {
     await cm(["link", "seed", "fetch", "--socket", a.src.socket, dstFolder, srcFolder, "--find-root", "--adopt"]).catch(async (e: Error) => {
@@ -704,9 +726,9 @@ async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult> {
   if (!sha) throw new Error(`git dirty on ${a.src.name}: ${(dirty.stdout + dirty.stderr).slice(-200)}`);
 
   // 3. The chat: a tab, a start in the folder, the counting turn, the queued prompt, the draft.
-  const rpc = async (side: MoveSide, frame: Record<string, unknown>, ms = 60_000) => {
+  const rpc = async (side: MoveSide, frame: Record<string, unknown> | Array<Record<string, unknown>>, ms = 60_000) => {
     const r = await daemonRpc(side.socket, frame, ms);
-    if (!r?.ok) throw new Error(`${String(frame.cmd)} on ${side.name}: ${r?.error_code ?? ""} ${String(r?.error ?? "").slice(0, 200)}`);
+    if (!r?.ok) throw new Error(`${[frame].flat().map((f) => String(f.cmd)).join("+")} on ${side.name}: ${r?.error_code ?? ""} ${String(r?.error ?? "").slice(0, 200)}`);
     return r.data;
   };
   const tab = async (side: MoveSide, folder: string): Promise<number> => {
@@ -723,7 +745,7 @@ async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult> {
   if (!session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
   // A local target folder the person trusted (Transfer to This Mac lands a chat in a folder of this Mac).
   if (a.dst.kind === "local") await tab(a.dst, dstFolder).catch((e: Error) => note(`target trust: ${e.message}`));
-  await rpc(a.src, { cmd: "agent-session-prompt", surface, prompt_id: `kmm-count-${tag}`, text: `${moveCountMarker(tag)} ${a.step} ${a.kill}: read the counting files in ${countDir}/ in order.` });
+  await rpc(a.src, [{ cmd: "agent-session-attach", surface, limit: 1 }, { cmd: "agent-session-prompt", surface, prompt_id: `kmm-count-${tag}`, text: `${moveCountMarker(tag)} ${a.step} ${a.kill}: read the counting files in ${countDir}/ in order.` }]);
   const turnRunning = async (min: number) => {
     for (const until = Date.now() + 120_000; Date.now() < until; await sleep(1_500)) {
       const s = await acpmuxOn(a.src, "summary", session).catch(() => null);
@@ -732,7 +754,7 @@ async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult> {
     throw new Error(`the counting turn is not running (queued ≥ ${min}) on ${a.src.name} after 120 s`);
   };
   await turnRunning(0);
-  await rpc(a.src, { cmd: "agent-session-prompt", surface, prompt_id: queuedId, text: `${queued} the prompt the person queued.` });
+  await rpc(a.src, [{ cmd: "agent-session-attach", surface, limit: 1 }, { cmd: "agent-session-prompt", surface, prompt_id: queuedId, text: `${queued} the prompt the person queued.` }]);
   await turnRunning(1);
   await acpmuxOn(a.src, "draft_set", session, moveDraft(tag));
   const before = await acpmuxOn(a.src, "events", session) as Array<{ seq: number; kind: string; promptId: string | null; text: string }>;
@@ -801,7 +823,9 @@ async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult> {
   const from = await proxy("from", a.src.socket);
   const to = await proxy("to", a.dst.socket);
   const args = ["link", "agent", "move", "--from-socket", from, "--surface", String(surface), "--to-socket", to, "--cwd", dstFolder, "--interrupt", "--state-dir", path.join(dir, "pump")];
-  if (a.direction === "local-cloud") {
+  if (a.noSync) {
+    // no --sync
+  } else if (a.direction === "local-cloud") {
     args.push("--sync", "seed", "--sync-socket", await proxy("sync", a.dst.socket), "--sync-local", srcFolder, "--sync-remote", dstFolder, "--vm-kind", "owner");
   } else if (a.direction === "cloud-local") {
     args.push("--sync", "pull", "--sync-socket", await proxy("sync", a.src.socket), "--sync-local", dstFolder, "--sync-remote", srcFolder);
@@ -816,14 +840,14 @@ async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult> {
   if (!wire.fired) {
     return {
       run: a.run, seed: a.seed, direction: a.direction, step: a.step, kill: a.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1, draft: "", edit: "", commit: "",
-      pump_first: pumpText(first), pump_retry: "not run", seen_ms: null, fault_s: faultS, detail: `the pump never reached ${a.step} (${a.step === "mid-copy" ? `${wire.writes} writes` : "no such request"})`, trace,
+      pump_first: pumpText(first), pump_retry: "not run", seen_ms: null, fault_s: faultS, detail: `the pump never reached ${a.step} (${wire.refused ? `the step's answer was a refusal: ${pumpText(first)}` : a.step === "mid-copy" ? `${wire.writes} writes` : "no such request"})`, trace,
     };
   }
 
   // 5. The survivors back, then the app's Retry if the move did not finish.
   if (resumeAt) await resumeDone;
   if (a.kill === "cut") await sleep(Math.max(0, wire.firedAt + cutS * 1000 + 2_000 - Date.now()));
-  await bringBack(ctx, a.local, a.carriers, [a.src, a.dst], note);
+  await bringBack(ctx, a.carriers, [a.src, a.dst], note);
   let retry: PumpAnswer | null = null;
   if (!first.ok) {
     const direct = args.map((x) => (x === from ? a.src.socket : x === to ? a.dst.socket : x.startsWith(dir) && x.endsWith(".sock") ? (x.endsWith("sync-from.sock") ? a.src.socket : a.direction === "cloud-local" ? a.src.socket : a.dst.socket) : x));
