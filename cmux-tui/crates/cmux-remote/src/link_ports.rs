@@ -143,7 +143,7 @@ impl LinkPorts {
                         ROUTE_TIMEOUT.as_secs()
                     )
                 })??;
-        let listen: SocketAddr = "127.0.0.1:0".parse().expect("loopback address is valid");
+        let listen = SocketAddr::from(([127, 0, 0, 1], 0));
         let forward = match LocalPortForward::bind(multiplexer, route, listen).await {
             Ok(forward) => forward,
             Err(error) => {
