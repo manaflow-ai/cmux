@@ -7,12 +7,16 @@ whoever holds it now, read from the live sessions at push time, in this order:
 
 1. a live session tagged `owns=` with the row's workstream (`acpmux session tag SESSION owns=PL-acpmux`; a comma list holds
    several): a holder takes a workstream by tagging itself, and gives it up by ending;
-2. the session the cell names (`session cmux-4f`), if it is live;
-3. its successor: a live session tagged `succeeds=` with the named session's id, or the named row's `failover=HOST/NEW`,
+2. a live lane the row's role names: `lanes tabs-refine|tab-strip-*` (fnmatch globs on the session's short name, `|`
+   between them), the most recently active one. A role outlives every session that fills it, so a row written
+   `lanes ...` does not go dead when one lane ends (2026-11-23: seven rows named ended sessions, cmux-b6, cmux-4f,
+   a590, and their pushes went to the coordinator);
+3. the session the cell names (`session cmux-4f`), if it is live;
+4. its successor: a live session tagged `succeeds=` with the named session's id, or the named row's `failover=HOST/NEW`,
    followed to the end of the chain;
-4. the row's fallback, as OWNERS.md says ("When a workstream ends, its row goes back to the Performance Lead"): a
+5. the row's fallback, as OWNERS.md says ("When a workstream ends, its row goes back to the Performance Lead"): a
    live session tagged `owns=PL-lead`;
-5. the coordinator: a live session tagged `owns=coordinator`, else the fleet registry's `coordinators.current`
+6. the coordinator: a live session tagged `owns=coordinator`, else the fleet registry's `coordinators.current`
    (`CMUX_FLEET_REGISTRY`, else ~/Projects/leo-workspace/machines/fleet-registry.json), followed through
    `coordinators.retired` to its successor, if that session is live.
 
@@ -24,6 +28,7 @@ LIST_TIMEOUT_S plus SEND_TIMEOUT_S, and never a refusal: a failed listing or sen
 """
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import os
@@ -40,6 +45,7 @@ NOTICES_KEEP = 500
 DEAD = {"closed", "stopped", "failed", "dead", "disconnected", "retired"}
 WORKSTREAM = re.compile(r"\bPL-[A-Za-z0-9][\w-]*")
 SESSION = re.compile(r"\bsessions? ([A-Za-z0-9][\w./-]*[A-Za-z0-9])")
+LANES = re.compile(r"\blanes ([A-Za-z0-9*?\[\]][\w*?\[\]./|-]*)")
 LEAD = "PL-lead"
 COORDINATOR = "coordinator"
 
@@ -47,6 +53,11 @@ COORDINATOR = "coordinator"
 def cell_names(cell: str) -> tuple[list[str], list[str]]:
     """(workstreams, sessions) an owner cell names: `PL-acpmux`, and `cmux-4f` from "session cmux-4f"."""
     return list(dict.fromkeys(WORKSTREAM.findall(cell or ""))), list(dict.fromkeys(SESSION.findall(cell or "")))
+
+
+def cell_lanes(cell: str) -> list[str]:
+    """The lane-name globs a role cell names: `tabs-refine` and `tab-strip-*` from "lanes tabs-refine|tab-strip-*"."""
+    return [g for m in LANES.findall(cell or "") for g in m.split("|") if g]
 
 
 def _tags(row: dict) -> dict:
@@ -126,6 +137,12 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None) -> tuple
         tagged = sorted((r for r in live if owns(r, w)), key=lambda r: -(r.get("updatedAt") or 0))
         if tagged:
             return _name(tagged[0]), f"holds owns={w}"
+    globs = cell_lanes(cell)
+    if globs:
+        lanes = sorted((r for r in live if any(fnmatch.fnmatchcase(_short(_name(r)), g) for g in globs)),
+                       key=lambda r: -(r.get("updatedAt") or 0))
+        if lanes:
+            return _name(lanes[0]), f"a lane of {'|'.join(globs)}"
     for s in sessions:
         named = _named(rows, s)
         if named and is_live(named[0]):
@@ -134,7 +151,7 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None) -> tuple
         heir = successor(rows, s)
         if heir:
             return heir, f"successor of {s}"
-    gone = ", ".join(sessions) + " gone" if sessions else "no live holder"
+    gone = ", ".join(sessions) + " gone" if sessions else (f"no live lane of {'|'.join(globs)}" if globs else "no live holder")
     if workstreams:
         lead = sorted((r for r in live if owns(r, LEAD)), key=lambda r: -(r.get("updatedAt") or 0))
         if lead:
