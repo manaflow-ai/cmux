@@ -59,9 +59,9 @@ const TREATMENTS: readonly { fka: FkaTreatment; label: string }[] = [
 /** The look before given names reached the app: the chat's old name and its harness mark only. */
 function Before() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0, flex: "1 1 0" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0, flex: "1 1 0" }}>
       {SAMPLES.map((sample) => (
-        <div key={sample.state} style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+        <div key={sample.state} style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
           <span style={{ color: "var(--agent-soft)", fontSize: "var(--text-caption)" }}>{sample.state}</span>
           <span style={{ display: "flex", minWidth: 0, color: "var(--agent-text)", fontSize: "var(--text-control)" }}>
             <AgentIdentityChip
@@ -78,10 +78,10 @@ function Before() {
 
 function Column({ fka, label }: { fka: FkaTreatment; label?: string }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0, flex: "1 1 0" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0, flex: "1 1 0" }}>
       {label && <div style={{ color: "var(--agent-muted)", fontSize: "var(--text-caption)" }}>{label}</div>}
       {SAMPLES.map((sample) => (
-        <div key={sample.state} style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+        <div key={sample.state} style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
           <span style={{ color: "var(--agent-soft)", fontSize: "var(--text-caption)" }}>{sample.state}</span>
           <span
             style={{
@@ -116,7 +116,7 @@ function AgentIdentityGallery({ fka }: { fka: FkaTreatment | "compare" | "before
   }
   return (
     <div className="acpmux-shell" style={{ padding: 16, background: "var(--agent-page-bg)" }}>
-      <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+      <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
         {fka === "compare" ? (
           TREATMENTS.map((treatment) => <Column key={treatment.fka} {...treatment} />)
         ) : (

@@ -1,7 +1,7 @@
 .acpmux-identity {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-1);
   min-width: 0;
   max-width: 100%;
   vertical-align: middle;
@@ -13,7 +13,7 @@
 .acpmux-identity__text {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--ds-space-1);
   min-width: 0;
 }
 .acpmux-identity__name,
