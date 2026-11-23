@@ -192,6 +192,20 @@ held=""
 # Only a hold writes it (held_exit): a run that pushed nothing for another reason (the branch kept
 # moving, a rejection, an unreadable tip) leaves it empty, so no stale list reads as a hold.
 held_exit=0
+# Catalog parity (swift_parity) on the checkout at DIR. land.sh injects its write token through
+# git's config environment. Cargo executes build scripts/tests: none may inherit publication
+# credentials. The parent retains its authentication for fetch/push; only this check runs without it.
+parity_at() (
+  cd "$1"
+  unset TOKEN GH_TOKEN GITHUB_TOKEN COMPILE_GATE_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
+  for auth_var in "${!GIT_CONFIG_KEY_@}" "${!GIT_CONFIG_VALUE_@}"; do
+    [[ -z "$auth_var" ]] || unset "$auth_var"
+  done
+  cargo test --locked --manifest-path "$1/cmux-tui/Cargo.toml" \
+    -p cmux-action-catalog --test swift_parity
+)
+# The names of the tests a swift_parity log reports FAILED, sorted, one per line.
+parity_failed_tests() { sed -n 's/^test \([^ ]*\) \.\.\. FAILED$/\1/p' "$1" | LC_ALL=C sort -u; }
 trap 'if [[ -n "${CMUX_BASE_AUTOFIX_HELD:-}" ]]; then if ((held_exit)); then printf "%s" "$held"; fi > "$CMUX_BASE_AUTOFIX_HELD"; fi' EXIT
 # The tip the last rejected push went onto; a rejection that did not move the branch is no race.
 rejected_on=""
@@ -467,21 +481,38 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   # Judge the final candidate, including a repair reconstructed on a moved tip. A source,
   # export or re-pin marker disagreement is never safe progress. Keep this inside the retry
   # loop: a green result for the old candidate does not cover the next one.
-  if ! (
-    # land.sh injects its write token through git's config environment. Cargo executes
-    # build scripts/tests: none may inherit publication credentials. The parent retains
-    # its authentication for fetch/push; only this check runs without it.
-    unset TOKEN GH_TOKEN GITHUB_TOKEN COMPILE_GATE_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
-    for auth_var in "${!GIT_CONFIG_KEY_@}" "${!GIT_CONFIG_VALUE_@}"; do
-      [[ -z "$auth_var" ]] || unset "$auth_var"
-    done
-    cargo test --locked --manifest-path "$(git rev-parse --show-toplevel)/cmux-tui/Cargo.toml" \
-      -p cmux-action-catalog --test swift_parity
-  ); then
-    echo "::error::swift_parity failed at $(git rev-parse HEAD); no automatic repair was pushed." >&2
-    echo "next: regenerate all action exports at this head and reconcile the re-pin markers in a reviewed fix, then rerun base autofix." >&2
-    exit 1
+  #
+  # A candidate that fails only tests the tip already fails is no worse than the tip and lands:
+  # a repair that never touches the catalog (the CI target graph) was refused for hours while the
+  # tip's own action exports were stale (job 137598172367, 2026-11-23), and with it the base
+  # stayed red on a file the repair would have fixed. Any test that passes at the tip and fails
+  # on the candidate, or a failure whose tests cannot be named (a compile error), still refuses.
+  parity_log="$(mktemp)"
+  if ! parity_at "$(git rev-parse --show-toplevel)" 2>&1 | tee "$parity_log"; then
+    candidate_failed="$(parity_failed_tests "$parity_log")"
+    tip_failed=""
+    if [[ -n "$candidate_failed" ]]; then
+      tip_tree="$(mktemp -d)"
+      if git worktree add --quiet --detach "$tip_tree/tree" "$tip" >/dev/null 2>&1; then
+        echo "swift_parity failed on the candidate ($(echo $candidate_failed)); checking the tip ${tip:0:12}."
+        CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(git rev-parse --show-toplevel)/cmux-tui/target}" \
+          parity_at "$tip_tree/tree" > "$parity_log.tip" 2>&1 || true
+        tip_failed="$(parity_failed_tests "$parity_log.tip")"
+        git worktree remove --force "$tip_tree/tree" >/dev/null 2>&1 || true
+      fi
+      rm -rf "$tip_tree" "$parity_log.tip"
+    fi
+    new_failed="$(LC_ALL=C comm -23 <(printf '%s\n' "$candidate_failed") <(printf '%s\n' "$tip_failed") | sed '/^$/d')"
+    rm -f "$parity_log"
+    if [[ -z "$candidate_failed" || -n "$new_failed" ]]; then
+      echo "::error::swift_parity failed at $(git rev-parse HEAD); no automatic repair was pushed." >&2
+      [[ -z "$new_failed" ]] || echo "failing here but passing at the tip ${tip:0:12}: $(echo $new_failed)" >&2
+      echo "next: regenerate all action exports at this head and reconcile the re-pin markers in a reviewed fix, then rerun base autofix." >&2
+      exit 1
+    fi
+    echo "::warning::swift_parity fails at the tip ${tip:0:12} too ($(echo $tip_failed)); this repair adds no failure, so it lands. The tip's own red needs the action exports regenerated."
   fi
+  rm -f "$parity_log"
   # A plain push: it fails rather than overwrite a commit pushed meanwhile.
   if git push --quiet "$remote" "HEAD:refs/heads/$branch"; then
     echo "Pushed $(git rev-parse --short HEAD) to $branch."
