@@ -7,8 +7,16 @@ tour whose merge base was that commit waited in reload.sh for it, ~37 min
 (jobs 118261657253, 118263198175). The tour's "Use a published cmux-tui tree"
 step now gives the base build the newest published tree in the merge base's
 history, and the head build the same tree when the pull request changes no
-cmux-tui tree input, so before and after still run one daemon. A head that
-changes cmux-tui keeps its own tree, and a published base tree is used as is.
+cmux-tui tree input, so before and after still run one daemon. A pull
+request head that changes cmux-tui keeps its own tree, and a published base
+tree is used as is.
+
+When the head changes cmux-tui, the base's own tree may never publish (its
+artifacts run superseded, or the commit off feat-cmux-next's first-parent
+line): every nightly tour from 2026-11-22 23:52Z to 2026-11-23 04:10Z waited
+45 min for one and failed (nightly-next 45103578485, base eeee23affafe). The
+base then takes a published stand-in, and a nightly tip (push) whose own tree
+is unpublished does too, as the nightly itself does.
 The step's shell runs here against a fake pin-cmux-tui.sh.
 """
 
@@ -90,6 +98,7 @@ class TreeFallbackTest(unittest.TestCase):
         self.outputs.write_text("")
         env_file = self.tmp / "env"
         env_file.write_text("")
+        job_env.setdefault("GITHUB_EVENT_NAME", "pull_request")
         env = dict(os.environ, GITHUB_WORKSPACE=str(self.workspace), RUNNER_TEMP=str(self.tmp / "runner"),
                    GITHUB_ENV=str(env_file), GITHUB_OUTPUT=str(self.outputs),
                    GITHUB_STEP_SUMMARY=str(self.tmp / "summary"), CAPS_PATH=CAPS_PATH, **job_env)
@@ -136,12 +145,44 @@ class TreeFallbackTest(unittest.TestCase):
         checkout(self.workspace, "e" * 40)
         self.assertEqual(self.run_step(CMUX_TUI_TREE_KEY="f" * 40), {})
 
-    def test_a_head_that_changes_cmux_tui_keeps_both_trees_exact(self) -> None:
-        # The head waits for its own tree anyway; a stand-in base would credit
-        # the daemon changes between it and the merge base to the pull request.
-        checkout(self.base, "b" * 40, resolved("c" * 40, 2))
-        checkout(self.workspace, "e" * 40)
+    def test_a_pull_request_head_that_changes_cmux_tui_keeps_its_own_tree(self) -> None:
+        # The head's daemon is what the pull request changes: it is never swapped.
+        # The base's own tree is published here, so both stay exact.
+        checkout(self.base, "b" * 40, resolved("b" * 40, 0))
+        checkout(self.workspace, "e" * 40, resolved("c" * 40, 2))
         self.assertEqual(self.run_step(), {})
+
+    def test_an_unpublished_base_under_a_cmux_tui_change_takes_a_stand_in(self) -> None:
+        # nightly-next 45103578485: the base's own tree never published, and the
+        # tour waited 45 min for it and failed. The head keeps its own tree.
+        checkout(self.base, "b" * 40, resolved("c" * 40, 2))
+        checkout(self.workspace, "e" * 40, resolved("d" * 40, 1))
+        env = self.run_step()
+        self.assertEqual(env.get("BASE_TUI_TREE_KEY"), "c" * 40)
+        self.assertNotIn("HEAD_TUI_TREE_KEY", env)
+        self.assertIn("note=The before app runs cmux-tui", self.outputs.read_text())
+
+    def test_a_nightly_tip_with_an_unpublished_tree_takes_a_stand_in_too(self) -> None:
+        # A push tour builds the nightly tip, which the nightly itself bundles with the
+        # newest published tree: the tour never waits for the tip's own.
+        checkout(self.base, "b" * 40, resolved("c" * 40, 2))
+        checkout(self.workspace, "e" * 40, resolved("d" * 40, 1))
+        env = self.run_step(GITHUB_EVENT_NAME="push")
+        self.assertEqual(env.get("BASE_TUI_TREE_KEY"), "c" * 40)
+        self.assertEqual(env.get("HEAD_TUI_TREE_KEY"), "d" * 40)
+        self.assertIn("The after app runs cmux-tui", self.outputs.read_text())
+
+    def test_a_nightly_tip_with_its_own_tree_published_keeps_it(self) -> None:
+        checkout(self.base, "b" * 40, resolved("b" * 40, 0))
+        checkout(self.workspace, "e" * 40, resolved("e" * 40, 0))
+        self.assertEqual(self.run_step(GITHUB_EVENT_NAME="push"), {})
+
+    def test_the_search_window_is_wider_than_an_hour_of_merges(self) -> None:
+        # 50 commits is about an hour of feat-cmux-next; the step searches by the
+        # resolver's 24 h age bound with a wide commit window.
+        m = re.search(r"CMUX_TUI_TREE_SEARCH_COMMITS:-(\d+)", self.step["run"])
+        self.assertIsNotNone(m)
+        self.assertGreaterEqual(int(m.group(1)), 200)
 
     def test_a_published_base_tree_is_used_as_is(self) -> None:
         checkout(self.base, "b" * 40, resolved("b" * 40, 0))
