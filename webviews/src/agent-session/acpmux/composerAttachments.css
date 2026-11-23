@@ -12,6 +12,16 @@
   --acpmux-attach-height: 64px;
   --acpmux-attach-radius: max(4px, calc(var(--acpmux-composer-radius, 22px) - var(--acpmux-attach-inset)));
 }
+/* The strip's tile size (composer/attachStrip.experiment.ts, `data-attach-size` on the box): every
+   tile, the band the prompt gives up and the pending tile follow --acpmux-attach-height. */
+.acpmux-composer-box[data-attach-size="compact"] {
+  --acpmux-attach-height: 44px;
+  --acpmux-attach-top: 6px;
+}
+.acpmux-composer-box[data-attach-size="chips"] {
+  --acpmux-attach-height: 32px;
+  --acpmux-attach-top: 6px;
+}
 .acpmux-attachments {
   /* A column flex item: a 100% basis would be the box's height, and shrinking would clip the
      thumbnails under the prompt. */
@@ -84,6 +94,12 @@
    had, so it stood taller than the prompt it replaced. */
 .acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-field {
   padding-top: var(--acpmux-attach-gap);
+  /* The strip lives inside the top of the card's inner area and shares the prompt's max height
+     (Leo 2026-11-23, ask-525a5e502a: attachments sit within the top part of the composer, the inner
+     area grows at the top, no shift). The prompt gives up the strip's band (its top inset and a
+     tile), so at the cap adding or removing attachments leaves the card, the transcript and the hat
+     where they were; a short draft grows by the band less the top inset the prompt drops. */
+  --acpmux-attach-band: calc(var(--acpmux-attach-top) + var(--acpmux-attach-height));
 }
 .acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-placeholder {
   top: var(--acpmux-attach-gap);

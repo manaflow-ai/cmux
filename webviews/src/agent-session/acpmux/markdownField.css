@@ -7,10 +7,13 @@
      how big claude code can grow"): up to 60% of the pane, thirty lines at most. Was twelve lines or
      40vh (#24984, Lawrence: "too big" then), which capped a pasted page at a third of the pane. Short
      panes still give up height (bottomStack.css). */
-  max-height: min(
+  --acpmux-md-max-height: min(
     calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 30) + var(--cmux-control-height, 23px)),
     60vh
   );
+  /* The attachment strip above the prompt takes its height out of this one (composerAttachments.css
+     --acpmux-attach-band), so adding an attachment never makes a capped card taller. */
+  max-height: calc(var(--acpmux-md-max-height) - var(--acpmux-attach-band, 0px));
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
