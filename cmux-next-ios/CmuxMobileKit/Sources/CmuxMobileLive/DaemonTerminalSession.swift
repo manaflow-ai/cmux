@@ -996,7 +996,7 @@ public final class DaemonTerminalSession: TerminalSession {
             info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
             // Which attach the Mac sends (byte stream, or lean frames at most one per 100 ms):
             // the setting this phone holds, read in its log beside the link's path and rtt.
-            log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(agentCLIHybridDefaults), privacy: .public) wanted=\(hybridWanted, privacy: .public)")
+            log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(self.agentCLIHybridDefaults), privacy: .public) wanted=\(self.hybridWanted, privacy: .public)")
             var batch: [(cmd: String, params: [String: Any])] = [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             if let quickSize { batch.append((cmd: "attach-surface", params: historyAttachParams(size: quickSize))) }
             let setup = await client.requests(batch)

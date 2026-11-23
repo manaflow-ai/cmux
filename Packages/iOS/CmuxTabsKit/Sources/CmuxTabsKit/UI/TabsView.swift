@@ -286,17 +286,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             staticCardID = source.showStaticCard(for: new) ? new : nil
         }
         .onAppear {
-            zoomDriver.onSettle = { phase in
-                if phase == .page {
-                    zoomTabId = nil
-                    queuedOpen = nil
-                    chrome.expand(tap: true, theme)
-                }
-                if phase == .overview, let id = queuedOpen {
-                    queuedOpen = nil
-                    if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
-                }
-            }
+            zoomDriver.onSettle = { phase in zoomSettled(phase) }
         }
         #if DEBUG
         // Screenshot harness: use the same action and menu as a toolbar tap.
@@ -641,6 +631,21 @@ struct TabsScreen<Source: TabsDataSource>: View {
             prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
         }
         zoomDriver.go(toOverview: true)
+    }
+
+    /// The zoom came to rest on the page or the grid. A method, not a closure in `body`'s
+    /// modifier chain: there the compiler gave up type-checking it ("unable to type-check
+    /// this expression in reasonable time", kit run 45162895110).
+    private func zoomSettled(_ phase: TabZoomState.Phase) {
+        if phase == .page {
+            zoomTabId = nil
+            queuedOpen = nil
+            chrome.expand(tap: true, theme)
+        }
+        if phase == .overview, let id = queuedOpen {
+            queuedOpen = nil
+            if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
+        }
     }
 
     /// Done or a card: grid -> page, or reverse a zoom heading to the grid.
