@@ -278,6 +278,20 @@ public final class AgentChatStore {
         guard let title = sessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return "Reply…" }
         return "Reply to \(title)"
     }
+
+    public nonisolated static func chatTitle(sessionTitle: String?, name: String, firstPrompt: String?) -> String {
+        if let sessionTitle, !sessionTitle.isEmpty { return sessionTitle }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty, trimmedName != untitledName { return trimmedName }
+        let prompt = (firstPrompt ?? "").split(whereSeparator: \.isNewline).first.map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        guard !prompt.isEmpty else { return trimmedName.isEmpty ? untitledName : trimmedName }
+        guard prompt.count > 40 else { return prompt }
+        let cut = prompt.prefix(40)
+        // Cut at a word boundary when one is close, then add an ellipsis.
+        let word = cut.lastIndex(of: " ").map { cut[..<$0] } ?? cut
+        return (word.count >= 24 ? String(word) : String(cut)).trimmingCharacters(in: .whitespaces) + "…"
+    }
     /// Every subagent seen, nested ones included, in start order.
     public private(set) var subagents: [AgentSubagent] = []
     /// Every file, folder, link and image the session referenced (`SessionArtifacts.collect`),
