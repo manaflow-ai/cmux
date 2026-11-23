@@ -15,6 +15,8 @@ agent runs `cmux ext dev --once --json` after each edit and reads its exit code,
 errors and `scene` (an outline of what rendered). Before saying it is done, it runs
 `cmux ext shot --json` and looks at `shot.path`, a picture of the cmux window that
 shows the extension ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
+The same output's `design` list is the design check: fix every entry before calling a view done,
+from the type roles, `SPACE` and components in [extension-design.md](extension-design.md).
 To share one, `cmux ext share` prints the link; `cmux ext add LINK` (or `OWNER/NAME`, a git URL,
 a folder) installs someone else's, and `cmux ext search` lists the ones tagged `cmux-extension`
 on GitHub. To find what a person wants, search before building it.
@@ -105,7 +107,9 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
 | A whole New Tab page | `implements["cmux.newtab/1"]`; shows only once the person runs `cmux settings set tabs.newTabApp <app id>` (unset: cmux's own page; a missing, hidden or failing app: cmux's own page); render gets `{ surface: "newTab", cwd? }`. The web page only, not `tabs.nativeNewTabPage`. | none |
-| A widget (New Tab grid, sidebar) | `implements["cmux.widget/1"]` with `options.sizes` (`small`, `medium`, `large`), `refresh.everySeconds` (at least 60) and `places` (`newtab`, `sidebar`; missing means both); the person adds it from Edit Widgets > Add Widget; render gets `{ surface: "widget", place, size, instance, settings, refresh, now() }`. Scaffold: `cmux ext new NAME --kind widget`; layout helpers `WidgetFrame`, `BigNumber`, `RowList` in cmux-extension-sdk | none |
+| A New Tab page's recent chats, waiting-on-you chats, All chats | `recentChats({ limit: 3 })`, `recentChats({ limit: 5, state: "input" })`, a page of All chats with `after` the last chat of the page before (cmux-extension-sdk; `agent_chat.list` / `chat.list` with `limit`, `state`, `before_ms` + `before_id` + `before_machine`). Newest first, read from cmux's ordered chat index: never list every chat and sort it in the app. Each row's `preview` is its last reply (a card's message). | `agent_chat:read` |
+| Recently Closed | `cmux.closed.list({ limit: 5 })` (newest first) and `cmux.closed.reopen({ closed: item.id })` | `closed:read`, `closed:write` |
+| A widget (New Tab grid, sidebar) | `implements["cmux.widget/1"]` with `options.sizes` (`small`, `medium`, `large`), `refresh.everySeconds` (at least 60) and `places` (`newtab`, `sidebar`; missing means both); the person adds it from Edit Widgets > Add Widget; render gets `{ surface: "widget", place, size, instance, settings, refresh, now() }`. Scaffold: `cmux ext new NAME --kind widget`; layout helpers `WidgetFrame`, `BigNumber`, `RowList`, type roles (`Headline`, `Body`, `Caption`, `TextIn(role, ...)`) and `SPACE` in cmux-extension-sdk; fix every `design` warning from `cmux ext shot --json` before calling it done ([extension-design.md](extension-design.md)) | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |
 | Run my own command | `cmux.actions.run("cmuxConfig.<name>")` from a click | `actions:run` |
 | Run a built-in action | `cmux.actions.run(id, args)` from a click; ids from `cmux.actions.list()`. Actions that sign in, quit, change the system or act on live input are refused | `actions:run` |
