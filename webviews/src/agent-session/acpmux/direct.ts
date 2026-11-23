@@ -11705,13 +11705,36 @@ export class AcpmuxDirectClient {
                 backgroundsWork: this.summary?.backgroundsWork,
               })
             : undefined;
-        if (event.kind === "turn_result")
-          this.rows.set(summaryId, {
-            id: summaryId,
+        // acpmux logs a named turn's `turn_end` and then its `turn_result`, with the turn's git
+        // stats read between them (hub/turns.rs `write_turn_result`). A pane that drew the end alone
+        // drew the turn's work as it came, then folded it under "Worked for" a frame or more later,
+        // after the turn's end fold had played: the reply jumped up by the fold's height. The end
+        // draws the turn as its result will, under the summary its result then fills in.
+        const endTurnId =
+          event.kind === "turn_end" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        if (endTurnId !== undefined && this.interrupting === undefined && !this.rows.has(`summary-${endTurnId}`)) {
+          const ending = `summary-${endTurnId}`;
+          this.rows.set(ending, {
+            id: ending,
             version: 1,
             at: event.at,
             kind: "turnSummary",
             ...(turnStartedAtMs !== undefined && { turnStartedAtMs }),
+            turnId: endTurnId,
+            ...this.turnTotals(event.at, endedTurnStartedAt),
+            status: msg.stopReason === "cancelled" ? "cancelled" : "completed",
+          });
+        }
+        // The summary the turn's end drew, if it drew one: the result takes its place and its start.
+        const endDrawn = event.kind === "turn_result" ? this.rows.get(summaryId) : undefined;
+        const resultStartedAtMs = turnStartedAtMs ?? endDrawn?.turnStartedAtMs;
+        if (event.kind === "turn_result")
+          this.rows.set(summaryId, {
+            id: summaryId,
+            version: (endDrawn?.version ?? 0) + 1,
+            at: event.at,
+            kind: "turnSummary",
+            ...(resultStartedAtMs !== undefined && { turnStartedAtMs: resultStartedAtMs }),
             // A turn paged in from the transcript (`fetchNativeOlder`) is in no log: nothing forks or
             // edits through it, as acpmux forks only through a logged record (`fork_through.rs`).
             ...(event.seq >= 1 ? { seq: event.seq } : {}),
