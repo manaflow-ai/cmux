@@ -20,6 +20,9 @@ Usage: pane-zoom-terminal.py --tag <tag> --app PATH [--layouts 1x2,2x2,2x4] [--r
 """
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable, wait_until  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -67,8 +70,22 @@ def rpc(method, params=None, timeout=30):
 def action(name, args=None, settle=0.0, timeout=60):
     reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
     if settle:
-        time.sleep(settle)  # test harness: the layout settles before the next step
+        layout_still(f"the layout after {name}", timeout=max(10.0, settle * 10))
     return reply
+
+
+GEOMETRY = ("id", "pane", "kind", "focused", "selected_tab", "shown_tab", "cell", "grid", "border", "frame")
+
+
+def panes(text=False):
+    return [p for w in ((rpc("debug.surfaces", {"text": True} if text else {}) or {}).get("windows") or [])
+            for p in w.get("panes", [])]
+
+
+def layout_still(what, timeout=10.0):
+    """Until the panes' geometry and focus hold still (debug.surfaces, no text: a streaming terminal never does)."""
+    wait_stable(lambda: json.dumps([{k: p.get(k) for k in GEOMETRY} for p in panes()], sort_keys=True, default=str),
+                what, timeout=timeout, interval=0.05, reads=4, raise_on_timeout=False)
 
 
 def wait(check, seconds, step=0.1):
@@ -116,7 +133,17 @@ def layout(columns, rows):
     action("equalizeSplits", settle=0.8)
     for _ in range(columns):
         action("focusLeft", settle=0.2)
-    time.sleep(2.0 if opts.scrollback else 0.5)  # test harness: seq fills the scrollback
+    if opts.scrollback:
+        # Until every terminal printed seq's last line (or, with --stream, its stream).
+        last = str(opts.scrollback)
+
+        def filled():
+            shown = [p for p in panes(text=True) if p.get("kind") == "terminal"]
+            return bool(shown) and all(any(line.strip() == last for line in (p.get("text") or "").splitlines())
+                                       or "streaming output line" in (p.get("text") or "") for p in shown)
+        if not wait_until(filled, "seq to fill every terminal's scrollback", timeout=30, interval=0.1, raise_on_timeout=False):
+            print(f"  (not every terminal showed seq's last line {last} in 30 s)", flush=True)
+    layout_still("the layout")
 
 
 def measure(label):
@@ -125,7 +152,9 @@ def measure(label):
     rpc("debug.frames", {"action": "start"})
     rpc("debug.window_transition", {"action": "start"})
     reply = action("toggleSplitZoom")
-    time.sleep(1.2)  # test harness: the zoom spring lands (rest is under 0.5 s) and the PTY owner answers
+    # sleep-ok: the measured window; every row counts frames and grid reports over the same 1.2 s, past the zoom
+    # spring's landing (rest is under 0.5 s) and the PTY owner's answer.
+    time.sleep(1.2)
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
@@ -191,7 +220,7 @@ def main():
         log.flush()
         print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
         sys.exit(1)
-    time.sleep(5)  # test harness: launch work settles
+    layout_still("the launch's first layout", timeout=30)
     report = {"tag": TAG, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
     for name in opts.layouts.split(","):
         columns, rows = (int(v) for v in name.split("x"))
