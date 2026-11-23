@@ -48,21 +48,6 @@ pub(super) fn handle(
         let meta = s.meta();
         (meta.last_seq, meta.created_at)
     };
-    // The prompt index (`Hub::prompt_index`): every prompt before `beforeSeq`, cut short, in one
-    // reply, so the rail draws a long chat's every turn before its history pages in. A daemon
-    // without it reads `promptIndex` as nothing and answers the bounded page the pane also asks for.
-    if params.get("promptIndex").and_then(Value::as_bool) == Some(true) {
-        let records =
-            hub.prompt_index(&s.id, before).map_err(|e| RpcError::internal(e.to_string()))?;
-        let through = newest_seq(&records);
-        return Ok(json!({
-            "events": values(&s.id, records),
-            "hasMore": false,
-            "lastSeq": last,
-            "pageThrough": through,
-            "createdAt": created,
-        }));
-    }
     if after > last {
         return Err(RpcError::invalid_params(format!(
             "cursor_future: afterSeq {after} is beyond the last event {last}"
@@ -77,6 +62,31 @@ pub(super) fn handle(
     if let Some((key, stamp)) = &kept
         && let Some(reply) = hub.page_replies.get(&s.id, key, last, *stamp)
     {
+        return Ok(reply);
+    }
+    // The prompt index (`Hub::prompt_index`): the newest prompts before `beforeSeq`, cut short,
+    // in a page `limit` and `maxBytes` bound, so the rail draws a long chat's every turn before
+    // its history pages in, and asks for the older pages by `hasMore`. A daemon without it reads
+    // `promptIndex` as nothing and answers the bounded page the pane also asks for. Kept while the
+    // log is unchanged, as the other pages are: no prompt reads as live state.
+    if params.get("promptIndex").and_then(Value::as_bool) == Some(true) {
+        let page = hub
+            .prompt_index(&s.id, before, limit, max_bytes)
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+        let through = newest_seq(&page.events);
+        let keep = kept.filter(|(_, stamp)| {
+            s.meta().last_seq == last && hub.page_log_stamp(&s.id) == Some(*stamp)
+        });
+        let reply = json!({
+            "events": values(&s.id, page.events),
+            "hasMore": page.has_more,
+            "lastSeq": last,
+            "pageThrough": through,
+            "createdAt": created,
+        });
+        if let Some((key, stamp)) = keep {
+            hub.page_replies.put(&s.id, key, last, stamp, reply.clone());
+        }
         return Ok(reply);
     }
     // beforeSeq pages backwards: the newest `limit` records before it.
