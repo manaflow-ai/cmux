@@ -390,8 +390,8 @@ function ChatHeaderToolsView({
     ? new Map(tools.map(({ id }) => [id, nativeCustomizeMenu(customizeItems(actions, id, onCustomize, t, true))]))
     : undefined;
   // The native row's "..." is built now, so its dormant icons go in before it is; the web row resets
-  // this below once it knows what folds.
-  live.current.overflow = relevance.dormant;
+  // this below once it knows what folds. `standard` keeps today's order untouched.
+  if (headerIcons !== "standard") live.current.overflow = relevance.dormant;
   const chatRows = rows();
   const chatMenu = nativeChatMenu(chatRows);
   const nativeSearch: RowToolBinding[] =
