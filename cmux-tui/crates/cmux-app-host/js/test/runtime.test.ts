@@ -76,6 +76,19 @@ describe("lists", () => {
     globalThis.setItems = setItems
     return { render: () => VStack([ForEach({ items, key: (x) => x.id }, (x) => Text(() => x().t))]) }`)
 
+  test("a movable list publishes stable row keys and receives the final index", () => {
+    const host = new FakeHost(app(`
+      return { render: () => Reorderable({ items: () => ["pin-a", "pin-b"], key: x => x,
+        onMove: (id, index) => globalThis.moved = [id, index] }, x => Text(x)) }`))
+    host.mount("pins", "render")
+    const nodes = host.lastBatch("pins").filter(op => op.op === "create")
+    expect(nodes.filter(node => node.type === "Text").map(node => node.props?.reorderKey)).toEqual(["pin-a", "pin-b"])
+    const list = nodes.find(node => node.type === "Reorderable")!
+    expect(list.props?.onMove).toBe(true)
+    host.dispatch("pins", list.id, "move", { id: "pin-b", index: 0 })
+    expect(host.eval("moved")).toEqual(["pin-b", 0])
+  })
+
   test("keyed reorder emits only a children op", async () => {
     const host = new FakeHost(listApp)
     host.mount("m1", "render")
@@ -217,6 +230,25 @@ describe("cmux global", () => {
     await host.settle()
     expect(host.eval("out")).toEqual([true, "https://api.github.com/x"])
   })
+
+  test("cmux.time.zone answers from the host's zone function, synchronously, and throws zone.unknown", () => {
+    const host = new FakeHost()
+    expect(host.eval(`cmux.time.zone("Asia/Tokyo", 0)`)).toEqual({ zone: "Asia/Tokyo", offsetMinutes: 540, abbreviation: "GMT+9" })
+    expect(host.eval(`cmux.time.zone("America/New_York", Date.UTC(2026, 6, 1, 12))`)).toEqual({ zone: "America/New_York", offsetMinutes: -240, abbreviation: "EDT" })
+    expect(host.eval(`cmux.time.zone("America/New_York", Date.UTC(2026, 0, 15, 12)).offsetMinutes`)).toBe(-300)
+    expect(host.eval(`(() => { try { cmux.time.zone("Mars/Olympus") } catch (e) { return [e.name, e.code] } })()`)).toEqual(["CmuxError", "zone.unknown"])
+    expect(host.calls).toEqual([])
+  })
+
+  test("cmux.time.zone falls back to Intl on a host without the zone function, and says so without either", () => {
+    const host = new FakeHost()
+    host.eval(`delete __cmuxAppNative.zone`)
+    expect(host.eval(`cmux.time.zone("Asia/Kolkata", 0).offsetMinutes`)).toBe(330)
+    expect(host.eval(`cmux.time.zone("America/New_York", Date.UTC(2026, 6, 1, 12) + 999).offsetMinutes`)).toBe(-240)
+    expect(host.eval(`(() => { try { cmux.time.zone("Mars/Olympus") } catch (e) { return e.code } })()`)).toBe("zone.unknown")
+    host.eval(`globalThis.Intl = undefined`)
+    expect(host.eval(`(() => { try { cmux.time.zone("Asia/Tokyo") } catch (e) { return e.code } })()`)).toBe("operation.unsupported")
+  })
 })
 
 describe("compat with old sidebars", () => {
@@ -245,6 +277,8 @@ describe("node budget accounting", () => {
       await host.settle(1)
     }
     expect(host.logs.filter(([l]) => l === "error")).toEqual([])
+    expect(host.tree("m1").nodes.size).toBe(5)
+    expect(host.findNode("m1", (n) => n.props.text === "a")).toBeUndefined()
   })
 
   test("removing list rows releases their whole subtree", async () => {
@@ -258,5 +292,10 @@ describe("node budget accounting", () => {
       await host.settle(1)
     }
     expect(host.logs.filter(([l]) => l === "error")).toEqual([])
+    expect(host.tree("m1").nodes.size).toBe(402)
+    host.eval("setItems([])")
+    await host.settle()
+    expect(host.tree("m1").nodes.size).toBe(2)
+    expect(host.findNode("m1", (n) => n.type === "Text")).toBeUndefined()
   })
 })

@@ -72,11 +72,10 @@ IMPORT_BASELINE = frozenset((
     "CmuxNextApp: CmuxNextFileGrid",
     "CmuxNextBridge: CmuxNextDesign", "CmuxNextBridge: CmuxNextWakeups",
     "CmuxNextControlTests: CmuxNextDesign",
-    "CmuxNextCookieImport: CmuxNextCompat",
-    "CmuxNextPaletteTests: CmuxNextActions", "CmuxNextPaletteTests: CmuxNextDesign",
+    "CmuxNextPaletteTests: CmuxNextDesign",
     "CmuxNextPhoneAccessTests: CmuxNextMobile",
 ) + tuple(f"CmuxNextAppTests: {module}" for module in (
-    "CmuxNextAccounts", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextBookmarks", "CmuxNextBridge",
+    "CmuxNextAccounts", "CmuxNextAgentActivity", "CmuxNextBookmarks", "CmuxNextBridge",
     "CmuxNextBrowser", "CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextControl", "CmuxNextDesignTokens",
     "CmuxNextDevices", "CmuxNextErrorJournal", "CmuxNextHostPressure", "CmuxNextIcons",
     "CmuxNextPages", "CmuxNextPopups", "CmuxNextRemoteBrowser", "CmuxNextRemoteLocalhost", "CmuxNextRemoteView",
@@ -438,26 +437,35 @@ def undeclared_imports(text: str, package_root: Path) -> list[str]:
     found = set()
     for name, (kind, declared, path) in targets.items():
         folder = package_root / (path or (("Tests" if kind == "testTarget" else "Sources") + "/" + name))
+        undeclared = [module for module in targets if module != name and module not in declared]
         for source in sorted(folder.rglob("*.swift")):
+            raw = source.read_text(encoding="utf-8", errors="replace")
+            # The masker only turns characters into spaces, so a masked line can name an undeclared module only
+            # where the raw text already does: a file naming none of them needs no mask (most files; the mask
+            # of every file took the check past the pre-push gate's 120 s limit on a 2-core host).
+            if "import" not in raw or not any(module in raw for module in undeclared):
+                continue
             # Comments and string contents masked: a test's golden source that says `import X` imports nothing.
-            for line in mask_swift_source(source.read_text(encoding="utf-8", errors="replace")).split("\n"):
+            for line in mask_swift_source(raw).split("\n"):
                 match = IMPORT.match(line)
                 if match and match.group(5) in targets and match.group(5) != name and match.group(5) not in declared:
                     found.add(f"{name}: {match.group(5)}")
     return sorted(found)
 
 
-def missing_imports(text: str, package_root: Path) -> list[tuple[str, str]]:
-    """(target, module) for each undeclared import IMPORT_BASELINE does not hold: what --fix-imports declares."""
-    return [tuple(pair.split(": ", 1)) for pair in undeclared_imports(text, package_root) if pair not in IMPORT_BASELINE]
+def missing_imports(text: str, package_root: Path, found: list[str] | None = None) -> list[tuple[str, str]]:
+    """(target, module) for each undeclared import IMPORT_BASELINE does not hold: what --fix-imports declares.
+    FOUND is `undeclared_imports(text, package_root)` when the caller has it: the scan reads every source."""
+    found = undeclared_imports(text, package_root) if found is None else found
+    return [tuple(pair.split(": ", 1)) for pair in found if pair not in IMPORT_BASELINE]
 
 
-def import_problems(text: str, package_root: Path) -> list[str]:
-    found = undeclared_imports(text, package_root)
+def import_problems(text: str, package_root: Path, found: list[str] | None = None) -> list[str]:
+    found = undeclared_imports(text, package_root) if found is None else found
     problems = [f"{target}: imports {module} but does not declare it in its dependencies (an incremental build then "
                 f"keeps objects compiled against its old interface). Fix: add \"{module}\" to the dependencies of {target}, "
                 "or run scripts/cmux-next/check-package-dependency-lists.py --fix-imports"
-                for target, module in missing_imports(text, package_root)]
+                for target, module in missing_imports(text, package_root, found)]
     problems += [f"IMPORT_BASELINE lists {pair}, which is declared or gone now: drop its line"
                  for pair in sorted(IMPORT_BASELINE - set(found))]
     return problems
@@ -555,7 +563,9 @@ def main() -> int:
         problems, _ = check(fixed, False)
         text = fixed
     package_tree = (args.manifest.parent / "Sources").is_dir()  # a package tree, not a bare manifest (the tests' --fix runs)
-    missing = missing_imports(text, args.manifest.parent) if package_tree else []
+    # One scan of every source per manifest text: `missing` and the import problems both come from it.
+    found = undeclared_imports(text, args.manifest.parent) if package_tree else []
+    missing = missing_imports(text, args.manifest.parent, found)
     if args.fix_imports and missing:
         declared = text
         for target, module in missing:
@@ -568,9 +578,10 @@ def main() -> int:
         args.manifest.write_text(declared, encoding="utf-8")
         text = declared
         problems, _ = check(text, False)
-        missing = missing_imports(text, args.manifest.parent)
+        found = undeclared_imports(text, args.manifest.parent)
+        missing = missing_imports(text, args.manifest.parent, found)
     if package_tree:
-        problems += import_problems(text, args.manifest.parent)
+        problems += import_problems(text, args.manifest.parent, found)
     if args.json:
         print(json.dumps({"problems": problems, "missing": [{"target": t, "module": m} for t, m in missing]}))
     for problem in problems:

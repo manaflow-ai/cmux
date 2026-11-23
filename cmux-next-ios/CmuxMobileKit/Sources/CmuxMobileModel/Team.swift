@@ -6,6 +6,9 @@ public struct Team: Identifiable, Hashable, Sendable {
     public var name: String
     public var appearance: TeamAppearance
     public var macs: [MacDevice]
+    /// The Mac this phone picked in this team, or was sent to by a pairing code (the coordinator's
+    /// remembered Mac): on a computer with several cmux builds, the one listed for it (``MacRoster``).
+    public var pickedMacID: String?
 
     /// The account's personal space (PROTOCOL.md "Personal space"): just you,
     /// so it has no invites.

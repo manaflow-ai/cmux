@@ -1,4 +1,5 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import CmuxAgentBrands
 import CmuxMobileDesign
 import CmuxMobileMarkdown
@@ -140,6 +141,7 @@ struct SessionInfoScreen: View {
                 .confirmationDialog("Revoke Allow for This Chat?", isPresented: $confirmsRevoke, titleVisibility: .visible) {
                     Button("Revoke", role: .destructive) { revoke() }
                         .accessibilityIdentifier("chat.info.revokeConfirm")
+                    Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("\(store.summary.agentName) asks again before each change in this chat.")
                 }
@@ -227,7 +229,7 @@ struct SessionInfoScreen: View {
     }
 
     static func message(_ error: any Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        UserFacingError.message(error)
     }
 }
 
@@ -419,6 +421,7 @@ final class ChatReplayPlayer {
         summary = chat.summary
         do {
             recording = try await chat.source.replayRecording()
+            toolCallTimes = Array(Set(recording.steps.filter(\.isToolCall).map(\.time))).sorted()
         } catch {
             state = .failed(SessionInfoScreen.message(error))
             return
@@ -434,7 +437,9 @@ final class ChatReplayPlayer {
 
     var duration: TimeInterval { recording.duration }
     /// The tool calls' times (the scrubber's ticks), each once.
-    var toolCallTimes: [TimeInterval] { Array(Set(recording.steps.filter(\.isToolCall).map(\.time))).sorted() }
+    /// Worked out once per load: the controls redraw on every 100 ms tick, and a recording
+    /// holds up to 20,000 steps.
+    private(set) var toolCallTimes: [TimeInterval] = []
 
     func play() {
         guard state == .ready else { return }
@@ -534,6 +539,24 @@ final class ReplaySource: AgentSessionSource {
     var isReadOnly: Bool { true }
 }
 
+/// The scrubber's tool-call ticks. Its own Equatable view, so the playhead's 100 ms tick, which
+/// redraws the controls, does not rebuild one mark per tool call.
+private struct ChatReplayTicks: View, Equatable {
+    let times: [TimeInterval]
+    let duration: TimeInterval
+
+    var body: some View {
+        GeometryReader { proxy in
+            ForEach(times, id: \.self) { time in
+                Rectangle()
+                    .fill(.secondary)
+                    .frame(width: 1.5, height: 6)
+                    .offset(x: (proxy.size.width - 28) * time / max(duration, 0.1) + 14, y: proxy.size.height - 4)
+            }
+        }
+    }
+}
+
 struct ChatReplayControls: View {
     let player: ChatReplayPlayer
 
@@ -556,16 +579,10 @@ struct ChatReplayControls: View {
                     .accessibilityValue(Text("\(AgentReplayRecording.clock(player.time)) of \(AgentReplayRecording.clock(player.duration))"))
                     .accessibilityIdentifier("chat.replay.position")
                 // Tool-call ticks under the track.
-                GeometryReader { proxy in
-                    ForEach(player.toolCallTimes, id: \.self) { time in
-                        Rectangle()
-                            .fill(.secondary)
-                            .frame(width: 1.5, height: 6)
-                            .offset(x: (proxy.size.width - 28) * time / max(player.duration, 0.1) + 14, y: proxy.size.height - 4)
-                    }
-                }
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+                ChatReplayTicks(times: player.toolCallTimes, duration: player.duration)
+                    .equatable()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
             HStack(spacing: 20) {
                 Text("\(AgentReplayRecording.clock(player.scrubTime ?? player.time)) / \(AgentReplayRecording.clock(player.duration))")

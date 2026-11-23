@@ -253,6 +253,12 @@ impl ForkView {
         if let Some(e) = failed {
             return Err(e);
         }
+        // From the commit on, the fork's history is its own segment `000000`, each record written
+        // again: a line may read differently than the chat's line did. Its count (its own plus
+        // its chat's, `log_stamp`) goes past what it was before the write: no read under `dropping`
+        // sees it in between, and after the drop it reads its own count alone.
+        let shown = self.log_stamp(&reference.session)?;
+        self.inner.bump_log_stamp(id, shown.saturating_add(1))?;
         writer.commit()?;
         // The meta first: if its save fails, the reference stands on disk and here, and the next
         // write replaces segment `000000` whole (review of #37020: a failed save left the
@@ -385,6 +391,90 @@ impl Store for ForkView {
     fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
         self.inner.kept_parked(id)
     }
+    /// The held tool output bodies of a chat (`store/deferred.rs`): the store's own, beside its
+    /// log, a fork's beside its own.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        self.inner.keep_held(id, slot, held)
+    }
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        self.inner.kept_held(id)
+    }
+    /// A fork's lines are its chat's history lines through the seq it was forked through, then
+    /// its own, as `scan` shows them. A chunk ends where the history does.
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else {
+            return self.inner.read_log(id, from, filter, stamp, marks, out);
+        };
+        let mut read = 0;
+        if from <= r.through_seq {
+            let history = LogFilter {
+                through: filter.through.min(r.through_seq),
+                kinds: Some(HISTORY_KINDS),
+            };
+            let chunk = self.read_log(&r.session, from, history, stamp, marks, out)?;
+            if !out.is_empty() || !chunk.at_end || filter.through <= r.through_seq {
+                return Ok(LogChunk {
+                    at_end: chunk.at_end && filter.through <= r.through_seq,
+                    ..chunk
+                });
+            }
+            read = chunk.read;
+        }
+        let from = from.max(r.through_seq.saturating_add(1));
+        let chunk = self.inner.read_log(id, from, filter, stamp, marks, out)?;
+        Ok(LogChunk { read: chunk.read + read, ..chunk })
+    }
+    /// A fork's line at a seq through the one it was forked through is its chat's history line,
+    /// read from that chat's log; a later one is its own.
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            Some(r) if seq <= r.through_seq => {
+                self.read_log_part(&r.session, seq, offset, max, stamp, marks, out)
+            }
+            _ => self.inner.read_log_part(id, seq, offset, max, stamp, marks, out),
+        }
+    }
+    /// A fork by reference reads its own count plus its chat's: a change to either log's lines
+    /// changes what the fork shows.
+    fn log_stamp(&self, id: &str) -> Result<u64> {
+        let _held = self.shared();
+        let own = self.inner.log_stamp(id)?;
+        match self.reference(id)? {
+            Some(r) => Ok(own.saturating_add(self.log_stamp(&r.session)?)),
+            None => Ok(own),
+        }
+    }
+    fn bump_log_stamp(&self, id: &str, by: u64) -> Result<()> {
+        self.inner.bump_log_stamp(id, by)
+    }
+    fn sync_log_through(&self, id: &str, seq: u64) -> Result<()> {
+        let _held = self.shared();
+        if let Some(r) = self.reference(id)?
+            && seq <= r.through_seq.saturating_add(1)
+        {
+            return self.sync_log_through(&r.session, seq);
+        }
+        self.inner.sync_log_through(id, seq)
+    }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let _held = self.shared();
         let Some(r) = self.reference(id)? else { return self.inner.events(id, after, limit) };
@@ -475,6 +565,21 @@ impl Store for ForkView {
     ) -> Result<()> {
         self.back(id, after, before, skip, visit, true)
     }
+    /// A fork's view joins two logs: it keeps no restore point, and its load reads it whole.
+    fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
+        let _held = self.shared();
+        match self.reference(id) {
+            Ok(None) => self.inner.restore_point(id),
+            _ => None,
+        }
+    }
+    fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            None => self.inner.save_restore_point(id, bytes),
+            Some(_) => Ok(()),
+        }
+    }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         let _held = self.shared();
         let Some(r) = self.reference(id)? else { return self.inner.tail_after(id, after) };
@@ -486,6 +591,17 @@ impl Store for ForkView {
         })?;
         let (own, own_last) = self.inner.tail_after(id, after.max(r.through_seq))?;
         Ok((count + own, if own > 0 { own_last } else { last }))
+    }
+    /// A fork's own log alone takes its store's read; one that shows its chat's history reads
+    /// the joined view back (`scan_back`).
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        {
+            let _held = self.shared();
+            if self.reference(id)?.is_none() {
+                return self.inner.newest_window(id, before, n);
+            }
+        }
+        newest_window_by_scan(self, id, before, n)
     }
     fn scan_kinds(
         &self,
@@ -510,6 +626,36 @@ impl Store for ForkView {
             return Ok(());
         }
         self.inner.scan_kinds(id, kinds, &mut |rec| rec.seq <= r.through_seq || visit(rec))
+    }
+    /// `scan_kinds`'s join, `keep` shown the heads of both sides: the parent's past the fork
+    /// point and the fork's own before it are shown and never visited, which only keeps more.
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&super::KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else {
+            return self.inner.scan_kinds_keyed(id, kinds, keep, visit);
+        };
+        let shown: Vec<&str> = kinds.iter().copied().filter(|k| is_history(k)).collect();
+        let mut going = true;
+        if !shown.is_empty() {
+            self.scan_kinds_keyed(&r.session, &shown, keep, &mut |rec| {
+                if rec.seq > r.through_seq {
+                    return false;
+                }
+                going = visit(rec);
+                going
+            })?;
+        }
+        if !going {
+            return Ok(());
+        }
+        self.inner
+            .scan_kinds_keyed(id, kinds, keep, &mut |rec| rec.seq <= r.through_seq || visit(rec))
     }
     fn scan_kinds_strict(
         &self,
@@ -537,6 +683,34 @@ impl Store for ForkView {
         }
         self.inner.scan_kinds_strict(id, kinds, &mut |rec| rec.seq <= r.through_seq || visit(rec))
     }
+    /// A fork's view is read whole (it keeps no restore point): its kinds as `scan_kinds` joins
+    /// them, past `after`.
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_kinds_after(id, after, kinds, visit);
+        }
+        self.scan_kinds(id, kinds, &mut |rec| rec.seq <= after || visit(rec))
+    }
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_kinds_after_strict(id, after, kinds, visit);
+        }
+        self.scan_kinds_strict(id, kinds, &mut |rec| rec.seq <= after || visit(rec))
+    }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         let _held = self.shared();
         let Some(r) = self.reference(id)? else { return self.inner.scan_heads(id, visit) };
@@ -555,6 +729,34 @@ impl Store for ForkView {
         }
         self.inner.scan_heads(id, &mut |head| head.seq <= r.through_seq || visit(head))
     }
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else { return self.inner.search_records(id, visit) };
+        self.search_records(&r.session, &mut |rec| {
+            if rec.seq <= r.through_seq {
+                visit(rec);
+            }
+        })?;
+        self.inner.search_records(id, &mut |rec| {
+            if rec.seq > r.through_seq {
+                visit(rec);
+            }
+        })
+    }
+
+    fn conversation_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        // A commit to cold storage or a fork's materialization cannot cross the read.
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.conversation_entries(id, visit);
+        }
+        crate::session_search::project_records(|feed| self.search_records(id, feed), visit)
+    }
+
     fn text_entries(
         &self,
         id: &str,

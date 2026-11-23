@@ -15,11 +15,15 @@ public nonisolated struct SidebarCustomSection: Hashable, Sendable {
     public var id: String
     public var title: String?
     public var showsTitle: Bool
+    /// The document band that owns this section. Projection customization
+    /// reorders only inside this band, preserving fixed app/sidebar regions.
+    public var region: SidebarRegion
 
-    public init(id: String, title: String? = nil, showsTitle: Bool = false) {
+    public init(id: String, title: String? = nil, showsTitle: Bool = false, region: SidebarRegion = .middle) {
         self.id = id
         self.title = title
         self.showsTitle = showsTitle
+        self.region = region
     }
 }
 
@@ -90,6 +94,13 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     public var name: String
     public var kind: Kind
     public var status: Status
+    /// A verified macOS device in the device hub; nil for Linux or an unresolved machine.
+    public var screenDeviceID: String?
+    /// A known Mac stays visible while offline, with its screen action disabled.
+    public var screenAvailable = true
+    /// This Mac shares its screen now (`HubDevice.macScreenShared`): the row on screen and the headers draw the
+    /// sharing badge at rest. Always false for other machines.
+    public var screenShared = false
     /// Tooltip for the header: why an update is needed and what it enables.
     public var detail: String?
     /// The machine's own icon (`session-icon-v1`, from the home session
@@ -102,6 +113,25 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     /// Connecting for less than its grace (`SidebarPlaceholderGrace.holdingConnectingLabels`): one list
     /// does not name "Connecting…" on its workspace rows yet, so a launch or a quick reconnect shows none.
     public var holdsStatusLabel = false
+
+    /// The header's screen control, one rule for its hover button and its right-click rows: Share on
+    /// This Mac; View screen on Cloud machines and authenticated Mac devices. SSH and server rows need
+    /// the daemon's screen identity before offering View screen (a Linux machine never has one).
+    public var screenAction: SidebarIntent? {
+        switch kind {
+        case .local: .shareScreen(id)
+        case .cloud: .viewScreen(id)
+        case .ssh, .server: screenDeviceID == nil ? nil : .viewScreen(id)
+        }
+    }
+
+    /// Whether ``screenAction`` can run now: a known Mac's View screen waits for its screen device to be online.
+    public var screenActionEnabled: Bool {
+        switch kind {
+        case .local, .cloud: true
+        case .ssh, .server: screenAvailable
+        }
+    }
 
     public init(id: MachineID, name: String, kind: Kind, status: Status = .connected, detail: String? = nil,
                 icon: WorkspaceIcon? = nil, cost: Cost? = nil) {

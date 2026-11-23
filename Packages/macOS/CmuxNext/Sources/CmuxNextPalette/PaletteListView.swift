@@ -5,7 +5,7 @@ import CmuxNextCompat
 /// The result list: an `NSTableView` with reused row views. Only visible
 /// rows exist. Results reload in place without animation (no flicker);
 /// selection and hover update just the affected row views.
-final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegate {
+final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableViewDelegate {
     enum DisplayRow {
         case header(String)
         case item(PaletteRow)
@@ -32,7 +32,9 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         super.init(frame: frame)
         drawsBackground = false
         hasVerticalScroller = true
-        SystemScrollers.follow(self)
+        // The sidebar's thin knob on no track: the stock scroller drew a gray track on a Mac set to
+        // show legacy scroll bars and took its width from every row (Lawrence 2026-11-15).
+        SystemScrollers.followThin(self)
         automaticallyAdjustsContentInsets = false
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("palette.column"))
         table.addTableColumn(column)

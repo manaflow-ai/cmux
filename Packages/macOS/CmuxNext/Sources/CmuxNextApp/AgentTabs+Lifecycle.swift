@@ -248,7 +248,7 @@ extension AgentTabStore {
     /// Local tab `key`, which shows this Mac's chat `session`, adopts the prewarmed, connected `spare`:
     /// the page switches to the chat in place (``AgentPaneView/adoptSession(_:revealTurn:moved:)``).
     /// A spare that refuses (no longer an untouched New Tab page) goes back to the pool or is retired,
-    /// and the tab gets nothing from it.
+    /// and the tab gets nothing from it. A released chat's kept place rides on the adopt event, then is dropped.
     @discardableResult
     func adoptSpare(_ spare: AgentPaneView, key: String, session: String, revealTurn: String?) -> Bool { adoptSpare(spare, key: tabKey(key), session: session, revealTurn: revealTurn) }
 
@@ -258,15 +258,15 @@ extension AgentTabStore {
             guard let window = spare?.window else { return }
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
-        guard spare.adoptSession(session, tab: key.key, revealTurn: revealTurn, moved: moved) else {
-            AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal)
+        guard spare.adoptSession(session, tab: key.key, revealTurn: revealTurn, place: wakeStates[key]?.place, moved: moved) else {
+            AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal, why: spare.model.spareRefusalReason, into: retirer.sources)
             if let revealTurn { pendingTurns[key] = revealTurn }
             if recycle?(spare) != true { retirer.retire(spare) }
             return false
         }
-        AgentPaneSpareOutcome.adopted.trace()
+        AgentPaneSpareOutcome.adopted.trace(into: retirer.sources)
         standaloneViews.remove(spare)
-        (views[key], spare.model.allowsTabConversion) = (spare, true)
+        (views[key], spare.model.allowsTabConversion, wakeStates[key]) = (spare, true, nil)
         wire(spare.model, key: key.key, machine: key.machine)
         return true
     }
@@ -331,6 +331,13 @@ extension AgentTabStore {
         return key
     }
 
+    /// The outside chat tab `key` resumes (``tab(resuming:)`` the other way round), if any.
+    func adoption(of key: String) -> AgentPaneAdopt? {
+        guard let entry = adoptions.first(where: { AgentTabKey(relaunchStorageKey: $0.value).key == key }),
+              let colon = entry.key.firstIndex(of: ":") else { return nil }
+        return AgentPaneAdopt(harness: String(entry.key[..<colon]), agentSessionId: String(entry.key[entry.key.index(after: colon)...]))
+    }
+
     /// "This chat runs on <machine>" for tab `key`, whose session another Mac's acpmux runs.
     func notice(for key: String) -> AgentTabElsewhereView? {
         let scoped = tabKey(key)
@@ -386,12 +393,8 @@ extension AgentTabStore {
         remoteCreations[scoped] = nil
         remoteStarts.removeValue(forKey: scoped)?.cancel()
         adoptions = adoptions.filter { $0.value != scoped.relaunchKeyCandidates[0] }
-        for entry in aliases.entries where (entry.key.machine == scoped.machine || entry.key.machine.isEmpty) && (entry.value == key || entry.key.key == key) {
-            aliases.removeValue(forKey: entry.key)
-        }
-        for entry in remoteAliases.entries where (entry.key.machine == scoped.machine || entry.key.machine.isEmpty) && (entry.value == key || entry.key.key == key) {
-            remoteAliases.removeValue(forKey: entry.key)
-        }
+        aliases.removeAliases(of: key, machine: scoped.machine)
+        remoteAliases.removeAliases(of: key, machine: scoped.machine)
         linkedSessions.remove(tabKey(key, machine: machine))
         pendingTurns[scoped] = nil
         wakeStates[scoped] = nil
@@ -400,7 +403,7 @@ extension AgentTabStore {
         launchImages.drop(launchImages.slot(key, machine: scoped.machine))
         seenLive.remove(scoped)
         forgetUnusedStores()
-        stopCustomizationWhenUnused()
+        stopCustomizationWhenUnused(); if !frontedChats.isEmpty, record(for: scoped) == nil { frontedChats.gone(scoped) } // a gone tab ends its Cloud chat shown in place, or its Mac tab shows its own page (CloudFrontedChats)
     }
 
     /// Lets go of the view state of tabs `store` listed and no longer lists, once it is connected

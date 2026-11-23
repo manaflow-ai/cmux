@@ -119,7 +119,7 @@ fn byo_endpoint_anthropic_profile_runs_claude_with_a_keychain_token() {
             .unwrap();
     let (profile, _) = load(&added.path, "dflt");
     assert!(!profile.env.contains_key("ANTHROPIC_AUTH_TOKEN"), "{:?}", profile.env);
-    let item = crate::cli::harness_secret::reference("dflt", "ANTHROPIC_AUTH_TOKEN");
+    let item = crate::harness_secret_ref::reference("dflt", "ANTHROPIC_AUTH_TOKEN");
     let reply = serde_json::to_value(&added).unwrap();
     assert_eq!(reply["secret"]["keychainItem"], json!(item), "{reply}");
 }
@@ -388,7 +388,7 @@ fn byo_endpoint_secret_set_stores_through_stdin_and_never_echoes() {
     let reply = serde_json::to_value(&done).unwrap();
     assert!(!reply.to_string().contains(GOOD_KEY), "{reply}");
     assert_eq!(reply["profile"], "written", "{reply}");
-    let item = crate::cli::harness_secret::reference("plain", "ACME_API_KEY");
+    let item = crate::harness_secret_ref::reference("plain", "ACME_API_KEY");
     assert_eq!(reply["keychainItem"], json!(item), "{reply}");
     {
         let seen = seen.lock().unwrap();
@@ -827,6 +827,7 @@ fn options(key: &'static str, prompt: bool) -> DoctorOptions {
             ("byo-test", Some("key")) => Ok(key.to_owned()),
             _ => Err("not found".into()),
         }),
+        extra_env: Default::default(),
     }
 }
 

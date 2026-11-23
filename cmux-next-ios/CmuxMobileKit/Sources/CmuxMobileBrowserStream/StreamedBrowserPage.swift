@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
@@ -35,11 +36,15 @@ public struct StreamedBrowserPage: View {
             } else if case let .waiting(reason) = model.phase {
                 if model.canReopen {
                     reopen(reason)
+                } else if let chip = StreamedBrowserModel.linkChip(for: reason) {
+                    // The link is coming back: a chip over the last frame, not a sentence (Leo,
+                    // 2026-11-21: "a symbol or short thing, not a sentence. stop layout shifting").
+                    linkChip(chip)
                 } else {
                     status(reason)
                 }
             } else if model.phase == .connecting {
-                status("Opening on your Mac…")
+                status(String(localized: "Loading browser session…"))
             } else if let notice = model.notice {
                 refusal(notice)
             }
@@ -53,7 +58,7 @@ public struct StreamedBrowserPage: View {
                         .font(.system(size: 17, weight: .medium))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressGlass)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .padding(12)
                 .accessibilityLabel(Text("Keyboard"))
@@ -163,7 +168,7 @@ public struct StreamedBrowserPage: View {
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, 14).padding(.vertical, 10)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
         .padding(.horizontal, 16).padding(.top, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -178,6 +183,23 @@ public struct StreamedBrowserPage: View {
             .padding(.horizontal, 14).padding(.vertical, 8)
             .glassEffect(.regular, in: .capsule)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func linkChip(_ chip: ConnectionChip.Content) -> some View {
+        ConnectionChip(chip)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .accessibilityIdentifier("browser.reconnecting")
+    }
+}
+
+extension StreamedBrowserModel {
+    /// A `.waiting` reason that is the link coming back, as one or two words for
+    /// ``ConnectionChip`` (the sentence stays its VoiceOver label); nil for any other reason
+    /// (the Mac ended the page, reopening), which keeps its words.
+    static func linkChip(for reason: String) -> ConnectionChip.Content? {
+        guard reason == reconnectingText || reason == linkReconnectingText else { return nil }
+        return ConnectionChip.Content(.reconnecting, sentence: reason)
     }
 }
 
@@ -845,7 +867,7 @@ struct StreamedSelectSheet: View {
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .disabled(!item.enabled)
             .accessibilityAddTraits(picked.contains(index) ? .isSelected : [])
             .accessibilityIdentifier("browser.select.option.\(index)")

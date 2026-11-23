@@ -59,9 +59,9 @@ enum DebugNotifications {
         let windows: [JSONValue] = services.windows.controllers.map { controller in
             let marks = controller.content?.layoutModel.attention ?? [:]
             return [
-                "id": .string(controller.state.id),
+                "id": .string(controller.state.id), "window_key": .bool(controller.focus.state.windowKey), "viewed": .bool(NotificationCenterService.shownFocus(controller).flatMap(\.tab).map(center.isViewed) ?? false),
                 "attention": .array(marks.keys.sorted().map { .string($0.rawValue) }),
-                "focused_tab": NotificationCenterService.shownFocus(controller).flatMap(NotificationCenterService.contentTab).map(JSONValue.string) ?? .null,
+                "focused_tab": NotificationCenterService.shownFocus(controller).flatMap(\.tab).map(JSONValue.string) ?? .null,
             ]
         }
         let prefs = center.preferences
@@ -87,18 +87,11 @@ enum DebugNotifications {
         ]
     }
 
-    /// One banner the app asked for, with its status badge (`attachment`:
-    /// byte count and the PNG as base64, null when the banner had none).
+    /// One banner the app asked for, as `notifications.banners` lists it (`Posted.controlJSON`), with
+    /// its status badge (`attachment`: byte count and the PNG as base64, null when the banner had none).
     static func banner(_ banner: DesktopNotifier.Posted) -> JSONValue {
-        [
-            "id": .string(banner.id), "title": .string(banner.title),
-            "subtitle": banner.subtitle.map(JSONValue.string) ?? .null, "body": .string(banner.body),
-            "surface": banner.surface.map { .number(Double($0)) } ?? .null,
-            "reply": .bool(banner.reply), "approval": .bool(banner.approval),
-            "category": banner.category.map(JSONValue.string) ?? .null,
-            "attachment": banner.attachment.map { data in
-                ["bytes": .number(Double(data.count)), "png_base64": .string(data.base64EncodedString())]
-            } ?? .null,
-        ]
+        var fields = banner.controlJSON.objectValue ?? [:]
+        fields["attachment"] = banner.attachment.map { ["bytes": .number(Double($0.count)), "png_base64": .string($0.base64EncodedString())] } ?? .null
+        return .object(fields)
     }
 }

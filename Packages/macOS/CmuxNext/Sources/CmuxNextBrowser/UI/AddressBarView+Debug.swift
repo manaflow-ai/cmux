@@ -19,6 +19,26 @@ public struct OmnibarDebugSnapshot: Sendable, Equatable {
     public var highlighted: Int?
     /// What Copy would put on the pasteboard now (nothing is written).
     public var copyText: String?
+    /// Omnibox preloading: whether a tab preloads for this omnibar, the last request's text and
+    /// default match, what the tab answered (prerender, preconnect, none, unavailable) and the last
+    /// end sent (the opened URL, and whether the predictor learned from it).
+    public var preloadBound = false
+    public var preloadText: String?
+    public var preloadDefault: String?
+    public var preloadAction: String?
+    public var preloadEndOpened: String?
+    public var preloadEndLearn: Bool?
+
+    /// The preload fields as `debug.omnibar`'s `preload` object (absent values left out).
+    public var preloadReport: [String: String] {
+        var report = ["bound": preloadBound ? "true" : "false"]
+        report["text"] = preloadText
+        report["default"] = preloadDefault
+        report["action"] = preloadAction
+        report["end_opened"] = preloadEndOpened
+        report["end_learn"] = preloadEndLearn.map { $0 ? "true" : "false" }
+        return report
+    }
 }
 
 /// A synthesized mouse gesture over the omnibar text (`debug.mouse`).
@@ -51,7 +71,7 @@ extension AddressBarView {
         case .editing: "editing"
         case .committing: "committing"
         }
-        return OmnibarDebugSnapshot(
+        var snapshot = OmnibarDebugSnapshot(
             phase: phase,
             hasFocus: state.hasFocus,
             elided: state.elided,
@@ -64,7 +84,49 @@ extension AddressBarView {
             highlighted: presentation.highlighted,
             copyText: OmnibarReducer.copyContent(of: state, resolver: suggestionEngine.resolver)?.text
         )
+        snapshot.preloadBound = controller.preloader != nil
+        snapshot.preloadText = controller.lastPreload?.text
+        snapshot.preloadDefault = controller.lastPreload?.matches.first?.url.absoluteString
+        snapshot.preloadAction = controller.lastPreloadAction.map { action in
+            switch action {
+            case .prerender: "prerender"
+            case .preconnect: "preconnect"
+            case .none: "none"
+            case .unavailable: "unavailable"
+            }
+        }
+        snapshot.preloadEndOpened = controller.lastPreloadEnd?.opened?.absoluteString
+        snapshot.preloadEndLearn = controller.lastPreloadEnd?.learn
+        return snapshot
     }
+
+    /// `debug.omnibar`'s `preload` object; with `pageTiming`, also `page_timing`: the bound tab's
+    /// navigation timing as JSON (`url`, `origin`, `fcp`, `activation`; bench `omnibar`). It is read
+    /// with no gesture and no agent mark: an agent's `browser.page.eval` marks the tab agent-driven,
+    /// and such a tab never preloads. Each call starts a read and reports the one before.
+    public func debugPreloadReport(pageTiming: Bool) -> [String: String] {
+        var report = debugSnapshot.preloadReport
+        guard pageTiming, let tab = controller.preloader as? any BrowserTab else { return report }
+        report["page_timing"] = controller.debugPageTiming
+        guard !controller.debugPageTimingReading else { return report }
+        controller.debugPageTimingReading = true
+        Task { [weak controller] in  // inherits the view's main actor
+            let value = try? await tab.evaluate(Self.pageTimingScript, world: .isolated, gesture: .cmux)
+            if case .string(let json)? = value { controller?.debugPageTiming = json }
+            controller?.debugPageTimingReading = false
+        }
+        return report
+    }
+
+    /// The shown document's URL, time origin, first contentful paint and prerender activation start (ms).
+    static let pageTimingScript = """
+        (() => {
+          const n = performance.getEntriesByType('navigation')[0];
+          const f = performance.getEntriesByName('first-contentful-paint')[0];
+          return JSON.stringify({url: location.href, origin: performance.timeOrigin,
+                                 fcp: f ? f.startTime : null, activation: n ? (n.activationStart || 0) : 0});
+        })()
+        """
 
     /// Dispatches a press (and drag) and release over the omnibar text the
     /// way `NSWindow.sendEvent` does for a key window: the hit view becomes
@@ -162,6 +224,12 @@ extension AddressBarView {
             "draws_background": String(editor.drawsBackground),
             "layer_backed": String(editor.layer != nil),
             "editor_class": String(describing: type(of: editor)),
+            // The fonts the omnibar draws with: the style's, the field's, the editor's typed text and its typing font.
+            "font_style": String(format: "%.2f", OmnibarStyle.font.pointSize),
+            "font_field": String(format: "%.2f", field.font?.pointSize ?? 0),
+            "font_typed": editor.textStorage.flatMap { $0.length > 0 ? $0.attribute(.font, at: 0, effectiveRange: nil) as? NSFont : nil }
+                .map { String(format: "%.2f", $0.pointSize) } ?? "-",
+            "font_typing": (editor.typingAttributes[.font] as? NSFont).map { String(format: "%.2f", $0.pointSize) } ?? "-",
         ]
         // The field in global top-left screen points (screencapture -R).
         if let window, let screen = window.screen ?? NSScreen.screens.first {
@@ -186,5 +254,14 @@ extension AddressBarView {
         guard let editor = field.currentEditor() as? NSTextView else { return false }
         let length = (editor.string as NSString).length
         return length > 0 && editor.selectedRange() == NSRange(location: 0, length: length)
+    }
+}
+
+extension AddressBarView {
+    /// The omnibar edits and holds its window's keyboard: the window's first responder is its field
+    /// (editor), so a key typed now lands in it (benches: `debug.new_tab` `omnibar.focus_ms`).
+    public var editsAsFirstResponder: Bool {
+        guard isEditing, let responder = window?.firstResponder as? NSView else { return false }
+        return responder.isDescendant(of: self)
     }
 }

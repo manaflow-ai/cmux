@@ -1,7 +1,8 @@
-# Builds the app's ONE Rust static library, CCmuxAppFFI.xcframework
+# Builds the app's ONE Rust library, CCmuxAppFFI.xcframework
 # (cmux-tui/crates/cmux-app-ffi: the remote desktop core, the sidebar layout
 # reducer and the cmux-motion C ABIs over one Rust runtime, universal macOS arm64 + x86_64; see
-# scripts/cmux-next/build-app-ffi.sh), and publishes it as a prerelease in this
+# scripts/cmux-next/build-app-ffi.sh), a dynamic library the app carries at
+# Contents/Frameworks/libcmux_app_ffi.dylib, and publishes it as a prerelease in this
 # repository, tagged cmux-app-ffi-<full commit sha>.
 # Packages/macOS/CmuxNext/app-ffi-pin.json pins one release by URL and SwiftPM
 # checksum (Package.swift reads it at manifest time), so every build (app,
@@ -43,14 +44,18 @@ on:
   push:
     branches: [feat-cmux-next]
     paths:
+      - "cmux-tui/crates/acpmux-client/**"
+      - "cmux-tui/crates/acpmux-list-types/**"
       - "cmux-tui/crates/cmux-app-ffi/**"
       - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
       - "cmux-tui/crates/cmux-bookmarks-core/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
+      - "cmux-tui/crates/cmux-cloud-environment/**"
       - "cmux-tui/crates/cmux-cloud-handlers/**"
       - "cmux-tui/crates/cmux-cloud-machine/**"
       - "cmux-tui/crates/cmux-cloud-start-core/**"
+      - "cmux-tui/crates/cmux-tab-discard/**"
       - "cmux-tui/crates/cmux-cloud-tasks/**"
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
@@ -58,10 +63,13 @@ on:
       - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
+      - "cmux-tui/crates/cmux-launch-record/**"
+      - "cmux-tui/crates/cmux-launch-shell/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
       - "cmux-tui/crates/cmux-local-auth/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
       - "cmux-tui/crates/cmux-palette-ranker/**"
+      - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
@@ -85,6 +93,27 @@ on:
       # cmux-rd-ffi's line reader test includes cmux-rd-proto/tests/vectors/app_lines.json.
       - "cmux-tui/crates/cmux-rd-proto/tests/**"
   workflow_dispatch:
+    inputs:
+      rescue:
+        # Set only by this workflow's own `rescue` job (scripts/ci/app_ffi_rescue.py, hq#3690), after an earlier
+        # run's build sat queued with no runner for 20 minutes: `blacksmith` takes a Blacksmith macOS slot the
+        # placement found live, else rescue_pool; `owned` (the Blacksmith switch off) takes rescue_pool only. Empty
+        # (a person's dispatch) keeps the ordinary routes.
+        description: "Internal: `blacksmith` or `owned`, the build rescue's route (the build rescue sets it)"
+        type: string
+        default: ""
+      rescue_pool:
+        # The rescue's owned pool, another than the one the build sat on: `ffi-pool` (vars.CI_FFI_RELEASE_POOL),
+        # `promote` (vars.CI_NEXT_PROMOTE_POOL) or `side` (vars.CI_SIDE_LANE_RUNNER).
+        description: "Internal: the build rescue's owned pool, ffi-pool, promote or side (the build rescue sets it)"
+        type: string
+        default: ""
+      rescue_tried:
+        # The owned pools (ffi-pool, promote, side) this rescue chain has named, comma-separated, never empty: a rescued run whose build also
+        # gets no runner rescues again to an owned pool not in it (never Blacksmith), and leaves the build queued once all are tried.
+        description: "Internal: the owned pools the build rescue already named (the build rescue sets it)"
+        type: string
+        default: ""
 
 # No run-level group: with one (cancel-in-progress: false) a newer FFI push
 # waited for the whole older run, publish and re-pin included, before its own
@@ -99,28 +128,51 @@ on:
 
 permissions: {}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   # The build's runner, as cmux-next.yml's macos-placement places a feat-cmux-next
   # push's Release compile (side_lane_placement.py PLACEMENT=promote): an idle
   # vars.CI_NEXT_PROMOTE_POOL runner (attempt 1 of a push only), else a free
   # Blacksmith macOS slot, 12 vCPU then 6, ranked as a feed's compile
-  # (FRESH_JOBS), else 6 vCPU's queue while it moves. Never a side mini: the
-  # build publishes a release. On 2026-11-10 the promote pool was unset and every
+  # (FRESH_JOBS), else 6 vCPU's queue while it moves. Blacksmith macOS is off
+  # unless vars.CI_BLACKSMITH_MACOS is `on` (cmux#43103's switch; Leo,
+  # 2026-11-11: "just stop using blacksmith temporarily"): with it off, the
+  # build takes vars.CI_SIDE_LANE_RUNNER after an idle promote runner, the
+  # owned pool the other cmux-next Mac jobs and, with the switch off,
+  # cmux-next.yml's push Release compile take. The build job holds no secret
+  # (the Linux publish job does). Never the nightly-only Macs: nightly
+  # comes first on the fleet (the per-mini nightly slot, below, ranks this
+  # build with nightly jobs instead). On 2026-11-14 the promote pool was unset and
+  # blacksmith-6vcpu-macos-26 stalled (104 queued, oldest 106 min): ead26e75's
+  # build queued 140 min, and "Check the app FFI pin" went red on every push
+  # (hq#10943). On 2026-11-10 the promote pool was unset and every
   # build queued on blacksmith-6vcpu-macos-26 behind PR CI for 11 to 66 minutes,
   # with feat-cmux-next red until the re-pin landed. SIDE_LABEL only says the
   # run is on the owned pools (next_macos_cascade.skipped()). A failed or
   # skipped placement leaves the build its earlier route. Known limit: the
   # reading is taken when the run starts, so a build that first waits in its
   # concurrency group for an older build starts on that reading.
+  # LINUX ROUTE (2026-11-19): the Linux jobs (placement, rescue, publish, re-pin) take the nightly lane's
+  # reserved label cmux-gcp-nightly-x64 first, attempts 1 and 2 (the build's RELEASE_FIRST rule, same switch
+  # vars.CI_RELEASE_PIN_SLOT). On vars.LINUX_RUNNER they queued behind all of cmux's PR CI: runs 44600407530 and
+  # 44612287186 sat in "place the build" on cmux-fleet-linux-x64 (2,600 jobs queued, 0 idle runners) for hours, and
+  # the pin guard went 30 h stale. That label's runners are one-job JIT VMs (signing rule 7), which the HQ booter
+  # (gha_runners.py LANE_POOLS) starts per queued job ahead of the PR lanes. Attempt 3 takes the old route.
   placement:
     name: place the build
     if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     # The routing App's read-only key, in the environment cmux-next's placement uses.
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
+    # actions: write only for ffi_build_supersede.py's cancel of an older run whose build waits for a runner.
     permissions:
-      actions: read
+      actions: write
       contents: read
     outputs:
       promote_runner: ${{ steps.place.outputs.promote_runner }}
@@ -158,6 +210,9 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
           CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
+          # Unset is off here, as in cmux-next.yml: the cascade places nothing on Blacksmith macOS.
+          # A rescued run (inputs.rescue) places on Blacksmith macOS: its build's runs-on reads the 12 vCPU pick.
+          CI_BLACKSMITH_MACOS: ${{ inputs.rescue == 'blacksmith' && 'on' || vars.CI_BLACKSMITH_MACOS }}
           SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
           PROMOTE_LABEL: ${{ github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || '' }}
           JOBS: app-ffi-build
@@ -166,6 +221,17 @@ jobs:
           PROMOTE_JOBS: app-ffi-build
           FRESH_JOBS: app-ffi-build
         run: python3 scripts/ci/side_lane_placement.py
+
+      # A build queued for a runner holds the build group as a running one does: run 43978720557's build
+      # queued for hours on side-std while every newer FFI run went pending behind it and was replaced
+      # (2026-11-16). Cancel an older run whose build has not started on a runner, so the group keeps the
+      # newest run; a running build is never cancelled. About 1 to 3 calls; a failure changes nothing.
+      - name: Replace an older build still waiting for a runner
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/ffi_build_supersede.py
 
   build:
     name: build xcframework
@@ -177,14 +243,38 @@ jobs:
     # attempt 1 of a push takes vars.CI_NEXT_PROMOTE_POOL, the reserved trusted
     # promote runners (trustedRef feat-cmux-next): on Blacksmith 12 vCPU alone
     # the build once sat queued for 12 hours (run 39402525970, 2026-10-20). A
-    # re-run, a dispatch or an empty variable takes Blacksmith 6 vCPU. Queued
+    # re-run, a dispatch or an empty variable takes Blacksmith 6 vCPU, and with
+    # vars.CI_BLACKSMITH_MACOS not `on` every attempt without an idle promote
+    # runner takes vars.CI_SIDE_LANE_RUNNER instead (see placement). Queued
     # on a Blacksmith label, the build holds it against pull request placements
     # as a nightly job does (the queue janitor's reserved_queued,
     # queue_janitor.RESERVED_POOL_WORKFLOW).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # RESCUE (hq#3690): a run the `rescue` job dispatched with rescue=blacksmith takes the Blacksmith macOS slot
+    # its placement (run with the switch on) found, 12 vCPU, else 6 vCPU; the placement names none for a dead,
+    # stalled or full label. Without one, and for rescue=owned (the switch off), it takes its rescue_pool, another
+    # owned pool than the one the earlier build sat on. A rescue never reaches Blacksmith macOS any other way.
+    # FFI_POOL: vars.CI_FFI_RELEASE_POOL, when set, is this build's own owned pool (one trusted runner that
+    # refuses PR jobs: glaeda-promote-trusted-light-xcode-26.6), every attempt, push or dispatch. Only this
+    # workflow reads it, so cmux-next.yml's push Release compile keeps vars.CI_NEXT_PROMOTE_POOL. Unset keeps
+    # the routes below.
+    # RELEASE_FIRST (claude-sr2-coord, 2026-11-16: "release and pin jobs ...
+    # and nightlies ... go ahead of PR jobs"): every attempt, push or dispatch,
+    # first takes glaeda's nightly slot label, glaeda-nightly-std-xcode-26.6,
+    # one runner per owned std mini that no pull request job asks for. glaeda's
+    # hook ranks this build as a nightly job there (teamleaderleo/glaeda#2037,
+    # release_pin_build): it is admitted ahead of every PR job waiting on the
+    # mini, and no PR job is refused for it. Run 43869638705 (a dispatch at
+    # 4c6b1efc) queued 1 to 4 hours on glaeda-side-std-xcode-26.6 behind PR
+    # jobs while the nightly slots sat idle. vars.CI_RELEASE_PIN_SLOT `off`
+    # restores the routes below. Order: a rescue dispatch, then CI_FFI_RELEASE_POOL when set, then this slot.
+    # A bot's re-run past attempt 2 (the owned-pool rescue's move) leaves the slot for the routes below, so the
+    # rescue cannot loop on the minis (tests/test_seed_derived_data.py); a person's re-run keeps it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.rescue == 'blacksmith' && needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || inputs.rescue == 'blacksmith' && needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.rescue != '' && inputs.rescue_pool == 'ffi-pool' && vars.CI_FFI_RELEASE_POOL || inputs.rescue != '' && inputs.rescue_pool == 'promote' && vars.CI_NEXT_PROMOTE_POOL || inputs.rescue != '' && inputs.rescue_pool == 'side' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.CI_FFI_RELEASE_POOL != '' && vars.CI_FFI_RELEASE_POOL || vars.CI_RELEASE_PIN_SLOT != 'off' && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && 'glaeda-nightly-std-xcode-26.6' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26_large) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 45
     # A newer push or dispatch on the same ref waits for this build, never
-    # cancels it; a still newer one replaces it while it waits.
+    # cancels it; a still newer one replaces it while it waits. A build that has
+    # not started on a runner is cancelled by a newer run's placement instead
+    # (scripts/ci/ffi_build_supersede.py), so it never holds the group.
     concurrency:
       group: app-ffi-release-build-${{ github.ref }}
       cancel-in-progress: false
@@ -199,6 +289,20 @@ jobs:
       # tags merged into HEAD), but trees and blobs only for HEAD; the few the
       # diffs below read are fetched on demand. The full clone of every ref took
       # 5 to 10 minutes of a 7 to 15 minute build; treeless takes about one.
+      # A reused work checkout an earlier job left shallow makes the treeless full-history
+      # checkout below run `git fetch --filter=tree:0 --unshallow` into it, and git 2.55/2.56
+      # aborts in pack-objects ("BUG: ... should_include_obj should only be called on
+      # existing objects") on all three tries: app FFI release run 43863985334, 2026-11-16.
+      # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
+      - name: Drop a reused shallow checkout
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/.git/shallow" ]]; then
+            echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
+            rm -rf "$GITHUB_WORKSPACE/.git"
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -285,18 +389,22 @@ jobs:
         run: |
           set -euo pipefail
           xcf="$OUT/CCmuxAppFFI.xcframework"
-          lib="$(find "$xcf" -name 'libcmux_app_ffi.a' | head -n 1)"
-          test -f "$lib"
+          lib="$xcf/macos-arm64_x86_64/libcmux_app_ffi.dylib"
+          test -f "$lib" || { echo "::error::$lib is missing (build-app-ffi.sh builds the dynamic library)" >&2; exit 1; }
           archs="$(lipo -archs "$lib")"
           echo "architectures: $archs"
           for arch in arm64 x86_64; do
             [[ " $archs " == *" $arch "* ]] || { echo "::error::$lib has no $arch slice" >&2; exit 1; }
           done
+          # The app finds it at Contents/Frameworks through its @rpath, and a
+          # hot apply swaps that file: the install name must be the @rpath one.
+          install_name="$(otool -D "$lib" | sed -n '2p')"
+          [[ "$install_name" == "@rpath/libcmux_app_ffi.dylib" ]] || { echo "::error::$lib install name is '$install_name', not @rpath/libcmux_app_ffi.dylib" >&2; exit 1; }
+          test -d "$xcf/macos-arm64_x86_64/dSYMs/libcmux_app_ffi.dylib.dSYM" || { echo "::error::the xcframework carries no dSYM for libcmux_app_ffi.dylib" >&2; exit 1; }
           # Prove each slice links with Apple's toolchain and exports every C
           # entry point: a C program takes the address of each header function
-          # and links against the archive (Apple's nm cannot read objects that
-          # carry a newer rustc's embedded bitcode, so symbol listing is not
-          # the check; the link is what the app needs). The arm64 program runs.
+          # and links against the library (the link is what the app needs).
+          # The arm64 program runs, loading the library through its @rpath.
           headers="$xcf/macos-arm64_x86_64/Headers"
           smoke="$RUNNER_TEMP/smoke"
           mkdir -p "$smoke"
@@ -308,7 +416,8 @@ jobs:
             printf '%s\n' '  printf("abi %u\n", cmux_layout_reducer_ffi_abi_version());' '  return 0;' '}'
           } > "$smoke/smoke.c"
           for arch in arm64 x86_64; do
-            xcrun clang -target "$arch-apple-macos14.0" -I "$headers" "$smoke/smoke.c" "$lib" -o "$smoke/smoke-$arch"
+            xcrun clang -target "$arch-apple-macos14.0" -I "$headers" "$smoke/smoke.c" "$lib" \
+              -Wl,-rpath,"$(dirname "$lib")" -o "$smoke/smoke-$arch"
           done
           "$smoke/smoke-arm64"
           dist="$RUNNER_TEMP/dist"
@@ -325,6 +434,10 @@ jobs:
           printf '%s\n' "$checksum" > "$archive.sha256"
           printf '%s  %s\n' "$checksum" CCmuxAppFFI.xcframework.zip > "$dist/SHA256SUMS"
           printf '%s\n' "$GITHUB_SHA" > "$dist/SOURCE_SHA"
+          # The prelinked object the library is linked from, as an archive: the
+          # Linux cross-compile shadow builds the same one and compares them. Not
+          # a release asset (publish uploads the files it names).
+          cp "$OUT/macos/libcmux_app_ffi.a" "$dist/libcmux_app_ffi-prelinked.a"
           echo "tag=cmux-app-ffi-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
           echo "checksum: $checksum"
@@ -344,13 +457,50 @@ jobs:
   # conclusion, and it holds no write permission
   # (tests/test_ci_macos_cross_shadow_jobs.py). It becomes blocking only after
   # three clean publishes. The report is the job summary and an artifact.
+  # The build's runs-on is fixed when its job is created, and GitHub never re-routes a queued job: on 2026-11-16 run
+  # 43978720557's build sat queued on glaeda-side-std-xcode-26.6 from 23:23Z to 02:38Z with no runner. This job
+  # watches its own run's build (scripts/ci/app_ffi_rescue.py, hq#3690): queued with no runner for 20 minutes, it
+  # dispatches this workflow on the same ref with the rescue inputs and cancels this run. The script reads the
+  # Blacksmith switch: allowed, rescue=blacksmith (a live Blacksmith slot its placement finds, else rescue_pool; the
+  # build holds no secret); off or unset, rescue=owned (rescue_pool, never Blacksmith). A rescued run rescues again only
+  # to an owned pool no build of its chain sat on (inputs.rescue_tried; 2026-11-20, run 44734106982's build sat 110 min
+  # on the pool its rescue picked), so a chain ends after at most one rescue per owned pool. Nothing needs this job, so
+  # its result never gates the publish or the re-pin.
+  rescue:
+    name: rescue a build no runner took
+    needs: placement
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (inputs.rescue == '' || inputs.rescue_tried != '') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 110
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # app_ffi_rescue.py imports deadline_http.py from its own folder.
+          sparse-checkout: |
+            scripts/ci/app_ffi_rescue.py
+            scripts/ci/deadline_http.py
+          sparse-checkout-cone-mode: false
+      - name: Watch the build and rescue it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
+          CI_FFI_RELEASE_POOL: ${{ vars.CI_FFI_RELEASE_POOL }}
+          CI_NEXT_PROMOTE_POOL: ${{ vars.CI_NEXT_PROMOTE_POOL }}
+          CI_SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          RESCUE_TRIED: ${{ inputs.rescue_tried }}
+        run: python3 scripts/ci/app_ffi_rescue.py
+
   macos-cross-shadow:
     name: macOS cross-compile shadow (Linux, compare only)
     needs: build
     # !cancelled(): the placement is an ancestor, and a failed placement must
     # not skip what follows a build that ran past it.
     if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
     continue-on-error: true
     permissions:
@@ -388,6 +538,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -418,7 +572,7 @@ jobs:
           set -euo pipefail
           mac="$RUNNER_TEMP/macos-cross/mac"
           (cd "$mac" && sha256sum --check --strict SHA256SUMS && unzip -q CCmuxAppFFI.xcframework.zip)
-          lib="$mac/CCmuxAppFFI.xcframework/macos-arm64_x86_64/libcmux_app_ffi.a"
+          lib="$mac/libcmux_app_ffi-prelinked.a"
           ./scripts/ci/macos-cross.sh toolchain "$(./scripts/ci/macos-cross.sh ref-sdk "$lib")"
           start=$(date +%s)
           ./scripts/ci/macos-cross.sh ffi
@@ -430,7 +584,7 @@ jobs:
           status=0
           report="$RUNNER_TEMP/macos-cross-parity.txt"
           mac="$RUNNER_TEMP/macos-cross/mac/CCmuxAppFFI.xcframework/macos-arm64_x86_64"
-          ./scripts/ci/macos-cross.sh parity-ffi "$mac/libcmux_app_ffi.a" > "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh parity-ffi "$RUNNER_TEMP/macos-cross/mac/libcmux_app_ffi-prelinked.a" > "$report" 2>&1 || status=1
           # The headers the app imports come straight from the crates.
           for h in cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI; do
             if cmp -s "${h%%:*}" "$mac/Headers/${h##*:}/$(basename "${h%%:*}")"; then
@@ -464,7 +618,7 @@ jobs:
     # !cancelled(): a failed placement (an ancestor the build runs past) must
     # not skip the publish of a build that succeeded.
     if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     # Never cancelled. Two runs of one commit (a push and a dispatch, or two
     # dispatches) publish one at a time, so the second sees the first's
@@ -533,7 +687,7 @@ jobs:
           set -euo pipefail
           (cd "$RUNNER_TEMP/assets" && sha256sum --check --strict SHA256SUMS)
           [[ "$(tr -d '[:space:]' < "$RUNNER_TEMP/assets/SOURCE_SHA")" == "$GITHUB_SHA" ]]
-          notes="The cmux app FFI (remote desktop core + sidebar layout reducer) as CCmuxAppFFI.xcframework (one static library, universal macOS arm64/x86_64). Source $GITHUB_SHA. SwiftPM binaryTarget checksum (SHA-256 of the zip): $CHECKSUM"
+          notes="The cmux app FFI (remote desktop core + sidebar layout reducer) as CCmuxAppFFI.xcframework (one dynamic library, libcmux_app_ffi.dylib, universal macOS arm64/x86_64). Source $GITHUB_SHA. SwiftPM binaryTarget checksum (SHA-256 of the zip): $CHECKSUM"
           # Only gh's "release not found" means absent; any other failed read
           # (a 502) is asked again, so a rerun never creates over its release.
           exists=""
@@ -651,8 +805,12 @@ jobs:
     # re-pin either, until the next FFI push or pin merge; dispatch app-ffi-repin.yml by hand after any force-cancel.
     if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    # 20, not 10 (2026-11-20): checkout alone took about 1.5 min and one healthy re-pin about 8 (run 44655157417),
+    # so runs 44660432819, 44661713537, 44662970467 and 44664319551 hit the 10 min bound and re-dispatched. 30, not
+    # 20: publish-app-ffi-repin.sh may also wait up to 10 min (REPIN_RATE_LIMIT_WAIT_S) for GitHub's rate limit, and
+    # a timeout in that wait would hide its "Re-pin rate-limited" reason.
+    timeout-minutes: 30
     # actions: write only for the failure step's dispatch of app-ffi-repin.yml; the re-pin script reads runs and
     # jobs with this token (READ_TOKEN) and writes nothing with it.
     permissions:
@@ -661,7 +819,9 @@ jobs:
       checks: read
       statuses: read
     concurrency:
-      group: app-ffi-repin
+      # -v2 (2026-11-20): GitHub kept the old key held after runs 44636531297 and 44645693256 were cancelled; every
+      # later re-pin sat PENDING with no holder (run 44651765158). A new key keeps the same one-at-a-time rule.
+      group: app-ffi-repin-v2
       cancel-in-progress: false
     steps:
       # Workflows too: the force push moves app-ffi-repin from an older base to
@@ -711,6 +871,20 @@ jobs:
 
       # Treeless with full history: the re-pin walks feat-cmux-next's commits
       # back to the current pin to find the newest published release.
+      # A reused work checkout an earlier job left shallow makes the treeless full-history
+      # checkout below run `git fetch --filter=tree:0 --unshallow` into it, and git 2.55/2.56
+      # aborts in pack-objects ("BUG: ... should_include_obj should only be called on
+      # existing objects") on all three tries: app FFI release run 43863985334, 2026-11-16.
+      # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
+      - name: Drop a reused shallow checkout
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/.git/shallow" ]]; then
+            echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
+            rm -rf "$GITHUB_WORKSPACE/.git"
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: feat-cmux-next
@@ -725,7 +899,7 @@ jobs:
       # commit whose release is not published (SOURCE_SHA or SHA256SUMS is a
       # 404: its build was cancelled or is still running) is skipped, not
       # waited for, and the base's FFI sources may be ahead of the pin:
-      # merge_hold accepts such a pin once the app compiles against it
+      # land-judge accepts such a pin once the app compiles against it
       # (scripts/ci/base_red_excuse.py, the published base pin). The script
       # checks the release's SOURCE_SHA and SHA256SUMS. The commit goes through
       # GitHub's contents API, so it is written by the release App and signed
@@ -744,6 +918,10 @@ jobs:
           BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
+          # A stalled git transfer (a lazy tree fetch of this treeless clone, or `git fetch origin $previous`) aborts
+          # after 60 s under 1 KB/s instead of hanging the job to its timeout; the script treats a failed read as before.
+          GIT_HTTP_LOW_SPEED_LIMIT: "1000"
+          GIT_HTTP_LOW_SPEED_TIME: "60"
         shell: bash
         run: bash scripts/cmux-next/publish-app-ffi-repin.sh
 

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
 import Testing
@@ -56,30 +57,34 @@ import Testing
         return out
     }
 
-    @Test(arguments: cases)
-    func everyRowGlyphHasOneOpticalSize(_ c: Case) throws {
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+    @Test(arguments: cases, DensityPreset.allCases)
+    func everyRowGlyphHasOneOpticalSize(_ c: Case, preset: DensityPreset) throws {
+        try HomePinnedRowAlignmentTests.at(c, preset: preset) {
             let (list, window) = SidebarLeadingEdgeTests.list(width: c.width)
             defer { window.close() }
-            let size = SidebarStyle.workspaceFaviconSide
             for g in try Self.glyphs(list) {
-                let longest = max(g.ink.width, g.ink.height)
+                // A favicon takes its tab's size, a pack glyph the glyphs' (#49583: "the same size as the horizontal tabs").
+                let size = g.name.contains("favicon") ? SidebarStyle.rowFaviconOpticalSide : SidebarStyle.rowGlyphOpticalSide
+                let longest = SidebarOpticalGlyph.fittedExtent(g.ink.size)
                 #expect(abs(longest - size) <= Self.tolerance,
                         "\(c.testDescription): \(g.name)'s ink is \(g.ink.width) x \(g.ink.height), the rows' optical size is \(size)")
             }
         }
     }
 
-    @Test(arguments: cases)
-    func everyGlyphKeepsOneGapBeforeItsTitle(_ c: Case) throws {
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+    @Test(arguments: cases, DensityPreset.allCases)
+    func everyGlyphKeepsOneGapBeforeItsTitle(_ c: Case, preset: DensityPreset) throws {
+        try HomePinnedRowAlignmentTests.at(c, preset: preset) {
             let (list, window) = SidebarLeadingEdgeTests.list(width: c.width)
             defer { window.close() }
             // The pin is a narrow mark (its ink about a third as wide as tall): its title starts on the one text column with
             // the others, so the room after its slender ink is wider by design. The gap holds for the glyphs that fill
             // the column's width: Home's house, a favicon, a symbol.
             let glyphs = try Self.glyphs(list).filter { $0.name != "a pin" }
-            let gaps = glyphs.map { ($0.name, $0.titleX - $0.ink.maxX) }
+            // A glyph wider than tall (Home's house at the rows' glyph height) spills evenly past its column: measure its
+            // gap from the column's end, its ink's end less that spill.
+            let side = SidebarStyle.rowGlyphOpticalSide
+            let gaps = glyphs.map { ($0.name, $0.titleX - ($0.ink.maxX - max(0, ($0.ink.width - side) / 2))) }
             let first = try #require(gaps.first).1
             // Each glyph's frame snaps its origin and its size to whole pixels (`SidebarOpticalGlyph`, a crisp bitmap), up
             // to half a 1x pixel each, so two glyphs' gaps can differ by up to one pixel more than the contract's point.
@@ -87,5 +92,25 @@ import Testing
                 #expect(abs(gap - first) <= Self.tolerance + 0.5, "\(c.testDescription): \(name) is \(gap) pt from its title, Home's house \(first)")
             }
         }
+    }
+
+    /// A tuned glyph size (`sidebarRows.glyphSize`) wins over a density's icon box: the glyphs fill the tuned side at
+    /// Default, Comfortable and Spacious too (Codex review).
+    @Test(arguments: [DensityPreset.cozy, .comfortable, .spacious])
+    func aTunedGlyphSizeWinsOverTheIconBox(preset: DensityPreset) {
+        let design = DesignSettings.shared
+        let saved = design.densityTokens
+        defer { design.densityTokens = saved }
+        design.densityTokens = preset.tokens
+        #expect(SidebarStyle.rowGlyphOptics.box != nil, "\(preset): the density draws its rows at the tab's box")
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register([SidebarRowTuning.glyphSize.descriptor])
+        let key = SidebarRowTuning.glyphSize.tunable.key
+        let savedOverride = TunableStore.shared.override(key)
+        #expect(TunableStore.shared.set(key, .number(22)) == .number(22))
+        defer { TunableStore.shared.set(key, savedOverride) }
+        let optics = SidebarStyle.rowGlyphOptics
+        #expect(optics.box == nil, "\(preset): a tuned glyph size still draws at the box \(String(describing: optics.box))")
+        #expect(optics.target == 22, "\(preset): the glyphs fill \(optics.target), not the tuned 22")
     }
 }

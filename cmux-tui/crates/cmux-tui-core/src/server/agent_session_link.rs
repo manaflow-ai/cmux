@@ -23,12 +23,22 @@ use serde_json::{Value, json};
 
 #[path = "agent_message_acpmux.rs"]
 mod agent_message_acpmux;
+#[path = "chat_marks.rs"]
+pub(crate) mod chat_marks;
 
 #[path = "agent_session_list_gate.rs"]
 pub(crate) mod list_gate;
 #[cfg(test)]
 #[path = "agent_session_list_gate_tests.rs"]
 mod list_gate_tests;
+#[cfg(all(test, unix))]
+#[path = "agent_session_list_scan_tests.rs"]
+mod list_scan_tests;
+#[path = "agent_session_list_source.rs"]
+pub(crate) mod list_source;
+#[cfg(test)]
+#[path = "agent_session_list_source_tests.rs"]
+mod list_source_tests;
 #[cfg(test)]
 #[path = "agent_session_link_tests.rs"]
 mod tests;
@@ -376,6 +386,31 @@ impl AcpmuxLink {
             .map_err(|_| LinkError::Closed)
     }
 
+    /// Sends a request whose reply goes to `reply` (a closed link sends it `Closed`), and answers
+    /// its id; the caller [`AcpmuxLink::forget`]s it once it stops listening, and a reply after
+    /// that is dropped. It takes no [`MAX_IN_FLIGHT`] slot: its caller bounds how many it holds
+    /// (a prompt's, while it waits for `prompt_accepted`, `agent_session_attach::submit_prompt`).
+    pub(super) fn send_replying_to(
+        &self,
+        method: &str,
+        params: Value,
+        reply: SyncSender<Result<Value, LinkError>>,
+    ) -> Result<u64, LinkError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(LinkError::Closed);
+        }
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, reply);
+        if self
+            .write(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))
+            .is_err()
+        {
+            self.forget(id);
+            return Err(LinkError::Closed);
+        }
+        Ok(id)
+    }
+
     /// Sends a notification (no reply).
     pub(super) fn notify(&self, method: &str, params: Value) -> Result<(), LinkError> {
         if self.closed.load(Ordering::Acquire) {
@@ -404,7 +439,7 @@ impl AcpmuxLink {
         stream.flush()
     }
 
-    fn forget(&self, id: u64) {
+    pub(super) fn forget(&self, id: u64) {
         self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
     }
 }

@@ -3,31 +3,147 @@ name: cmux-tui Windows check
 # A fast compile check of cmux-tui-core and the cmux-tui bins for
 # x86_64-pc-windows-gnu, cross-compiled on Linux. Two feat-cmux-next landings
 # broke the Windows build on 2026-10-08 and only the dispatch-only full-mode
-# cmux-tui.yml run (test (windows)) caught them hours later. This runs on every
-# same-repository pull request into feat-cmux-next that touches cmux-tui, so a
-# unix-only item is caught within minutes, before it lands; the base push's
-# cmux-tui artifacts run builds the Windows daemon after it lands. It used to
-# run on pushes to feat-cmux-next-* side branches, which also started it for
-# side branches with no pull request (the 2026-10-27 push flood).
+# cmux-tui.yml run (test (windows)) caught them hours later. It ran on every
+# same-repository pull request until 2026-11-21; it now runs after merge, in the
+# feat-cmux-next post-merge batch when cmux-tui changed (CI 10x: 1.33% of pull request
+# runner-minutes for 1.36% of heads), so a unix-only item shows red on the tip
+# within one batch, and a pull request runs it on the full-ci label. The base
+# push's cmux-tui artifacts run builds the Windows daemon after it lands. It
+# used to run on pushes to feat-cmux-next-* side branches, which also started it
+# for side branches with no pull request (the 2026-10-27 push flood).
 on:
+  # feat-cmux-next runs this in the post-merge batch (cmux-next-post-merge.yml, suite
+  # cmux-tui-windows-check in .github/post-merge-batch.json), not once per merge: sha is the commit
+  # to test, only one job id a bisect probe runs alone. Pull requests run it only with the full-ci
+  # label (the jobs' `if:`).
+  workflow_call:
+    inputs:
+      sha:
+        description: Commit to test (empty is the caller's commit).
+        type: string
+        default: ""
+      only:
+        description: Run only this job id (a bisect probe); empty runs every job.
+        type: string
+        default: ""
   pull_request:
     branches: [feat-cmux-next]
     paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/settings/source/general.json"
+      - "web/public/tui/install-static.sh"
       - "cmux-tui/**"
       - "ghostty-next"
       - ".github/workflows/cmux-tui-windows-check.yml"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/actions/runner-cargo-home/**"
+      # The router's own files (affected_jobs.py SELF): a change to them runs every routed job, so it starts this workflow.
+      - "scripts/ci/affected-jobs.json"
+      - "scripts/ci/affected_jobs.py"
+      - "scripts/ci/cargo_test_verdict.py"
+      - "scripts/ci/git_tree.py"
+      - "scripts/ci/affected_jobs_replay.py"
+      - "scripts/ci/tree_result.py"
+      - ".github/actions/tree-result/**"
+      - "tests/test_ci_tree_result.py"
+      - "tests/test_ci_affected_jobs.py"
+      # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
+      # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
+      - ".github/actions/ghostty-zig-packages/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "Resources/cmux-cli-path/fish/vendor_conf.d/cmux-cli-path.fish"
+      - "Resources/cmux-cli-path/zsh/.zshenv"
+      - "Resources/theme-files/**"
+      - "Resources/sidebar-looks/**"
+      - "backend/catalog/cloud-operations.json"
+      - "backend/packages/home-core/conformance/conversation-import-cases.json"
+      - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/**"
+      - "docs/remote-agents-and-cloud.md"
+      - "plans/cmux-next/action-surfaces.json"
+      - "plans/cmux-next/daemon-capabilities.json"
+      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "schemas/agent-url-policy/vectors.json"
+      - "schemas/automation-input/vectors.json"
+      - "schemas/automation-lease/vectors.json"
+      - "schemas/build-identity/vectors.json"
+      - "schemas/chief-cmux-target/vectors.json"
+      - "schemas/chief-home/vectors.json"
+      - "schemas/deeplinks/agent-link.json"
+      - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/link-token/keyset-vectors.json"
+      - "schemas/settings/retired-keys.json"
+      - "schemas/settings/settings-schema.json"
+      - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/mcp-servers.json"
+      - "schemas/settings/source/subsessions.json"
+      - "schemas/settings/source/trust.json"
+      - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/theme/slots.json"
+      - "schemas/transcript-look/transcript-look.json"
+      - "schemas/theme/theme-ink-vectors.json"
+      - "scripts/cmux-next/cargo-locks.py"
+      - "scripts/install-zig-ci.sh"
+      - "skills/cmux-acpmux/SKILL.md"
+      - "skills/cmux-browser/SKILL.md"
+      - "skills/cmux-browser/references/authentication.md"
+      - "skills/cmux-browser/references/commands.md"
+      - "skills/cmux-browser/references/proxy-support.md"
+      - "skills/cmux-browser/references/session-management.md"
+      - "skills/cmux-browser/references/snapshot-refs.md"
+      - "skills/cmux-browser/references/surface-discovery.md"
+      - "skills/cmux-browser/references/video-recording.md"
+      - "skills/cmux-browser/templates/authenticated-session.sh"
+      - "skills/cmux-browser/templates/capture-workflow.sh"
+      - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-computer-use/SKILL.md"
+      - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-customization/SKILL.md"
+      - "skills/cmux-customization/references/examples.md"
+      - "skills/cmux-customization/references/local-app-views.md"
+      - "skills/cmux-customization/references/viewer-types.md"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
+      - "skills/cmux-live/SKILL.md"
+      - "skills/cmux/SKILL.md"
+      - "web/public/tui/install-static.sh"
+      - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
+      - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
+      - "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm/src/**"
+      # Customize inputs of the routed jobs: the seven-language conformance and
+      # Windows check read these, so a change to them must start this workflow
+      # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
+      - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/**"
+      - "schemas/settings/source/mcp-servers.json"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
   workflow_dispatch:
 
 concurrency:
-  group: cmux-tui-windows-check-${{ github.ref }}
-  cancel-in-progress: true
+  # A pull request's newer push supersedes its run. A batch run and its bisect probes (one commit, one job
+  # each) never cancel one another.
+  group: cmux-tui-windows-check-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # libghostty-vt always builds from the ghostty-next gitlink: an empty
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
@@ -35,27 +151,79 @@ env:
   GHOSTTY_ZIG_SOURCE: ghostty-next
 
 jobs:
+  route:
+    name: route (crate graph)
+    # Off pull requests (CI 10x, 2026-11-21: 1.33% of PR runner-minutes, 1.36% of heads it alone caught): it runs
+    # after merge on feat-cmux-next pushes, and on a same-repository pull request only with the full-ci label.
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      windows_gnu_check: ${{ steps.graph.outputs.windows_gnu_check }}
+      windows_gnu_check_tree: ${{ steps.graph.outputs.windows_gnu_check_tree }}
+    steps:
+      # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
+          fetch-depth: 2
+
+      # Jobs routed by the crate graph (scripts/ci/affected_jobs.py, scripts/ci/affected-jobs.json): each runs
+      # when the change touches an input of a crate it builds (the crate, its path dependencies with their
+      # features, the files their sources name) or of its own steps. A push, a dispatch, the full-ci label, a
+      # change to the router and a cmux-tui path it cannot place run every job; so does a failed router (the
+      # jobs read `!= 'false'`).
+      - name: Which jobs can the change affect (crate graph)
+        id: graph
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          base=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=$(git rev-parse HEAD^1 2>/dev/null || true)
+          fi
+          python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-windows-check.yml \
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+
   windows-gnu-check:
     name: cargo check (x86_64-pc-windows-gnu)
     # Forks never ran this (it was push-only), so its runner pool stays
-    # for this repository's own branches.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # for this repository's own branches. It runs by the crate graph (the route job); a failed
+    # router never skips it.
+    needs: route
+    if: ${{ (inputs.only == '' || inputs.only == 'windows-gnu-check') && (!cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
+
+      # A green result of this job for the same input tree (affected_jobs.py result_key) is this
+      # run's result: the tested steps are skipped and the job reports green with that run named.
+      - name: Reuse a green result for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: windows-gnu-check
+          key: ${{ needs.route.outputs.windows_gnu_check_tree }}
 
       - name: Init ghostty submodule
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux and MinGW build dependencies
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
 
       - name: Cache Zig package downloads
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
@@ -64,20 +232,25 @@ jobs:
             cmux-tui-zig-
 
       - name: Install zig
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/ghostty-zig-packages
 
       - name: Set up pinned Rust
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Install the Windows GNU Rust target
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: rustup target add x86_64-pc-windows-gnu
 
       # One key for every pull request; each restores the newest cache its
       # scope can read and builds incrementally.
       - name: Cache cargo build
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -85,14 +258,34 @@ jobs:
           shared-key: cmux-tui-windows-gnu-check
 
       - name: cargo check cmux-tui-core, cmux-tui and acpmux for Windows
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         run: |
           set -o pipefail
           # cargo's output is kept so a stale Cargo.lock is named as such, not as a broken
           # Windows build (cargo-locks.py explain).
           log="$RUNNER_TEMP/windows-check.log"
-          if ! cargo check --locked --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui -p acpmux 2>&1 | tee "$log"; then
-            if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
-            echo "::error title=Windows build broken::cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui -p acpmux failed. A #[cfg(unix)] covers one item only; wrap whole blocks, and give Windows its own arm."
-            exit 1
-          fi
+          # The tests too, not only the libraries and bins: a unix-only test (std::os::unix,
+          # libc::mkfifo) with no cfg landed through this check because it never compiled test
+          # code, and then broke the Windows jobs that do (2026-11-16: cmux-tui.yml's test
+          # (windows) checks acpmux --all-targets; cmux-tui-build-package.yml's long-path step
+          # builds cmux-tui-core's lib tests). Each line is what one of those compiles.
+          for targets in "-p cmux-tui-core -p cmux-tui -p acpmux" \
+                         "-p acpmux --all-targets" \
+                         "-p cmux-tui-core --lib --tests" \
+                         "-p cmux-tui --lib --bins --tests"; do
+            # shellcheck disable=SC2086 # $targets is a list of cargo arguments
+            if ! cargo check --locked --target x86_64-pc-windows-gnu $targets 2>&1 | tee "$log"; then
+              if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
+              echo "::error title=Windows build broken::cargo check --target x86_64-pc-windows-gnu $targets failed. A #[cfg(unix)] covers one item only; wrap whole blocks, and give Windows its own arm (a unix-only test gets #[cfg(unix)])."
+              exit 1
+            fi
+          done
+
+      - name: Record this green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: windows-gnu-check
+          key: ${{ needs.route.outputs.windows_gnu_check_tree }}

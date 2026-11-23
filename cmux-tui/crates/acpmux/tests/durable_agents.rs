@@ -4,6 +4,8 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "durable_agents/adoption_unlogged_tail.rs"]
+mod adoption_unlogged_tail;
 #[path = "durable_agents/ancestor_answer.rs"]
 mod ancestor_answer;
 #[path = "durable_agents/answer_link_down.rs"]
@@ -17,12 +19,23 @@ mod bg_replaced_binary;
 mod caller_identity_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
+#[cfg(target_os = "linux")]
+#[path = "durable_agents/credential_restart.rs"]
+mod credential_restart;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
+#[path = "durable_agents/host_crash.rs"]
+mod host_crash;
+#[path = "durable_agents/host_level_move.rs"]
+mod host_level_move;
+#[path = "durable_agents/host_reboot.rs"]
+mod host_reboot;
 #[path = "durable_agents/idle_adopted.rs"]
 mod idle_adopted;
+#[path = "durable_agents/idle_subsessions_restart.rs"]
+mod idle_subsessions_restart;
 #[path = "durable_agents/late_hello_adoption.rs"]
 mod late_hello_adoption;
 #[path = "durable_agents/lost_link_turn.rs"]
@@ -33,6 +46,8 @@ mod queue_edit_parts;
 mod queue_restore;
 #[path = "durable_agents/reconnect_priority.rs"]
 mod reconnect_priority;
+#[path = "durable_agents/restart_exactly_once.rs"]
+mod restart_exactly_once;
 #[path = "durable_agents/restart_fence.rs"]
 mod restart_fence;
 #[path = "durable_agents/restart_reattach.rs"]
@@ -43,8 +58,14 @@ mod retry_restore;
 mod stalled_turn;
 #[path = "durable_agents/stop_if_idle_unadopted.rs"]
 mod stop_if_idle_unadopted;
+#[path = "durable_agents/streaming_restart_gap.rs"]
+mod streaming_restart_gap;
+#[path = "durable_agents/take_over_under_load.rs"]
+mod take_over_under_load;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
+#[path = "durable_agents/translator_panic.rs"]
+mod translator_panic;
 #[path = "durable_agents/unread_store.rs"]
 mod unread_store;
 #[path = "durable_agents/update_tool_call.rs"]
@@ -59,6 +80,9 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_REATTACH_SCAN_DELAY_MS",
     "ACPMUX_REATTACH_BUDGET_MS",
     "ACPMUX_REATTACH_OPEN_BUDGET_MS",
+    "ACPMUX_IDLE_SUBS",
+    "ACPMUX_IDLE_SUBS_WINDOW_S",
+    "ACPMUX_IDLE_SUBS_OUT",
 ]);
 
 use serde_json::{Value, json};
@@ -161,11 +185,25 @@ impl Daemon {
     }
 
     fn start(&mut self) {
+        self.start_with(&[]);
+    }
+
+    /// A new daemon takes this home over while this one runs (`daemon run --take-over`, as each
+    /// cmux NIGHTLY install starts one): the running one hands over and exits, its agents kept.
+    fn take_over(&mut self) {
+        let mut old = self.child.take().expect("a daemon runs");
+        self.start_with(&["--take-over"]);
+        let status = old.wait().unwrap();
+        assert!(status.success(), "the daemon taken over exited badly: {status}");
+    }
+
+    fn start_with(&mut self, extra: &[&str]) {
         assert!(self.child.is_none());
         let mut command = std::process::Command::new(&self.exe);
         daemon_env::apply(&mut command, &self.home, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
+            .args(extra)
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
             // No catalog fetch: a test never reaches the network, and the fetch's
@@ -2437,6 +2475,95 @@ async fn a_full_access_stop_is_bounded_when_the_host_never_takes_the_terminate()
         gone_within(harness_pid, Duration::from_secs(10)),
         "the full-access agent ran on after its host ignored the terminate"
     );
+}
+
+/// A restart's detach ends its agent within a bound, also when its host never takes the terminate
+/// (its link stopped reading; the debug seam `ACPMUX_TEST_STALL_HOST_TERMINATE`). The host is then
+/// ended by its nonce. Before, the detach held the session's agent slot for good, and
+/// `_acpmux/status`, which reads every slot, never answered.
+#[tokio::test]
+async fn a_detach_is_bounded_when_the_host_never_takes_the_terminate() {
+    let env = [("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")];
+    let fake = json!({"argv": ["python3", FAKE]});
+    let (daemon, mut rpc) = proven_daemon("stalldetach", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    let mut restarter = daemon.rpc().await;
+    prove(&mut restarter).await;
+    let named = session.clone();
+    let restart = tokio::spawn(async move {
+        restarter.reply("_acpmux/sessions/restart_harness", json!({"sessions": [named]})).await
+    });
+    // The restart's detach holds the agent slot by now.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let status =
+        tokio::time::timeout(Duration::from_secs(10), rpc.call("_acpmux/status", json!({})))
+            .await
+            .expect("status waited on a detach whose host never takes the terminate");
+    assert!(status["pid"].is_number(), "{status}");
+    let r = tokio::time::timeout(Duration::from_secs(20), restart)
+        .await
+        .expect("the restart waited on a host that never takes the terminate")
+        .unwrap();
+    assert!(r["error"].is_null(), "{r}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the agent ran on after its host ignored the terminate"
+    );
+    daemon.wait_event(&session, "host_ended", |e| e["kind"] == "host_ended");
+}
+
+/// A session closed while its host never takes the terminate: the close ends the host by its
+/// nonce, so no agent runs on behind a session that reads closed.
+#[tokio::test]
+async fn a_close_ends_the_agent_when_the_host_never_takes_the_terminate() {
+    let env = [("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")];
+    let fake = json!({"argv": ["python3", FAKE]});
+    let (daemon, mut rpc) = proven_daemon("stallclose", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    let killed = rpc.reply("_acpmux/kill", json!({"sessionId": session, "purge": false}));
+    let r = tokio::time::timeout(Duration::from_secs(20), killed)
+        .await
+        .expect("the close waited on a host that never takes the terminate");
+    assert!(r["error"].is_null(), "{r}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the agent ran on after its session closed"
+    );
+}
+
+/// A Stop that an agent works through restarts the agent. When its host never takes the
+/// terminate, the restart ends the host by its nonce: the stopped agent does not run on, and the
+/// agent that starts again is not that same host adopted.
+#[tokio::test]
+async fn a_stop_restart_ends_the_agent_when_the_host_never_takes_the_terminate() {
+    let env = [("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")];
+    let fake = json!({"argv": ["python3", FAKE]});
+    let (daemon, mut rpc) = proven_daemon("stallstop", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    let deaf =
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "deaf-to-cancel"}]});
+    rpc.send("session/prompt", deaf).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let cancel =
+        json!({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": session}});
+    rpc.wr.write_all(format!("{cancel}\n").as_bytes()).await.unwrap();
+
+    // Two cancel graces (10 s and 5 s) pass before the restart, then the host's own end.
+    let gone =
+        tokio::task::spawn_blocking(move || gone_within(harness_pid, Duration::from_secs(40)));
+    assert!(gone.await.unwrap(), "the stopped agent ran on after its restart");
 }
 
 /// MDM's off as a push recorded it in start-mode.json, for the next daemon to load.

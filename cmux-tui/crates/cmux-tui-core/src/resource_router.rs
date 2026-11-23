@@ -8,6 +8,8 @@ use cmux_json::JsonSet as _;
 mod auxiliary;
 mod browser_engine;
 pub(crate) mod browser_import;
+mod chat_column;
+mod chats;
 mod close_value;
 mod config;
 mod content;
@@ -19,6 +21,7 @@ mod owner;
 pub(crate) mod palette_rank;
 mod revision_conflict;
 mod session;
+pub(crate) mod theme_scheme;
 mod topology;
 mod wait_text;
 pub(crate) use wait_text::WaitText;
@@ -53,8 +56,6 @@ use mouse::{validate_browser_mouse, validate_terminal_mouse};
 mod catalog_validation;
 use catalog_validation::*;
 pub(crate) use catalog_validation::{validate_operation_error, validate_operation_outcome};
-
-const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
 
 /// Resolve a live terminal path or an unscoped durable terminal receipt.
 /// Nested selectors keep normal topology containment, so a detached receipt
@@ -272,6 +273,11 @@ fn dispatch_resource_request(
     browser_engine::route_to_frontend(mux, &mut request)?;
     browser_engine::refuse_without_provider(mux, &request)?;
     crate::debug_spans::mark("router.provider_checked");
+    // A terminal for a workspace that holds only an agent chat: a new
+    // column on the chat's right, never a tab among the chat's own.
+    if let Some(created) = chat_column::dispatch(mux, &request)? {
+        return Ok(created);
+    }
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
         OperationOwner::Content => content::dispatch(mux, request),
@@ -292,6 +298,8 @@ fn dispatch_resource_request(
             crate::state::conductor_import_router::dispatch(mux, request)
         }
         OperationOwner::PaletteRank => palette_rank::dispatch(mux, request),
+        OperationOwner::Chat => chats::dispatch(mux, request),
+        OperationOwner::ThemeScheme => theme_scheme::dispatch(mux, request),
         OperationOwner::BrowserImport => browser_import::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
@@ -432,10 +440,10 @@ fn resolve_list_scope(
 /// projection lock that every command of the session waits on, so a large
 /// session's commands slowed with its size (a classic migration of 512
 /// workspaces went O(n²)).
+/// The selector resolves as `terminal.wait_exit`'s does, so the get also reads
+/// an ended terminal with no tab, which `terminal.list` gives until a close.
 fn get_terminal(mux: &Mux, selectors: &ResourceSelectors) -> Result<Value, ResourceError> {
-    let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
-    let terminal_id =
-        path.terminal.ok_or_else(|| ResourceError::not_found("terminals", "<resolved>"))?;
+    let terminal_id = resolve_terminal_wait_exit_id(mux, selectors)?;
     // The snapshot publishes every terminal's pending directory before it
     // reads; this one's is enough. Outside the projection lock, as there:
     // publishing takes the state lock itself.

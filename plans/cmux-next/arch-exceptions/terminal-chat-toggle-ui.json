@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-14",
+  "row": "app_lines",
+  "allow": 85,
+  "why": "Toggle Terminal and Chat's visible control and its surviving pair (Leo 2026-11-12: 'we can toggle it, like from the terminal into the GUI, or vice versa, back and forth'). The view is in CmuxNextTabs (PaneTerminalChatToggleView); the App keeps only what needs App-only types: the toggle facts shared by TerminalChatHandler and PaneToolbar (AgentTabStore adoptions, AppServices, TabModel), the toolbar's state and press wiring, and the hand-off's View Only chat open (AgentTabStore.open, NewTabSlot.placing, PaneController). The Handlers folder has no domain package yet (architecture-refactor-DESIGN.md B5). The route stays Rust (cmux-window-rules tabs::terminal_chat_toggle).",
+  "author": "good-error-states lane (claude opus 5.5)",
+  "owner": "good-error-states lane",
+  "receipt": "Review (claude opus subagent afbcbdcc): SHIP at 2adaad04784f2969cd7cb5f3b8df90cf770c45af",
+  "expiry": "2026-11-28",
+  "applied_sha": "a85ec3631770a91c48265f27288b53ceaaec5b2d"
+}

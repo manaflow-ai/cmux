@@ -1,3 +1,5 @@
+public import CmuxNextCompat
+
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.pinnedBandsScroll` and
@@ -40,6 +42,10 @@ public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
+    /// The document projection overrides from `sidebar.sections` and
+    /// `sidebar.workspaces`. The document remains the persistence owner;
+    /// these values only choose what the native view projects.
+    public var projection = SidebarProjectionCustomization.defaults
     /// A `SectionsLookVariant` raw value (CmuxNextSidebar); unknown = quiet.
     public var look: String
     /// Share of the sidebar height the band above the list takes before it
@@ -105,10 +111,18 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// On by default.
     public var floatOnHover = true
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
-    /// people like minimal mode"): workspace rows draw only their icon, name,
-    /// unread mark and attention state (no second line, no counts or badges,
-    /// no tab rows), and section headers become thin lines (the `lines` look).
+    /// people like minimal mode"): the window's chrome hides until hover
+    /// (``hidesControlsUntilHover``). It never changes density (Lawrence
+    /// 2026-11-15: "minimal mode should not change density at all"): rows,
+    /// headers and section looks are as `sidebar.density` makes them.
     public var minimal = false
+    /// Whether the window's hover chrome hides until the pointer is over it: Minimal Mode (user
+    /// 2026-11-15: "only when minimal mode is enabled, we should hide the buttons, spaces, and bottom
+    /// left profile picture, and sidebar buttons and back/forth and plus buttons in sidebar, unless user
+    /// is hovered on sidebar/hovered on tabbar"), or the older sidebar-only Show Sidebar Controls Only on
+    /// Hover. Off (the default), every button shows at rest; only a tab's or a workspace's close X waits
+    /// for hover.
+    public var hidesControlsUntilHover: Bool { minimal || controlsOnHover }
     /// `sidebar.detailedStatusIcons`: a workspace row's badge draws each state apart (working,
     /// waiting for input, error, done, as agents and OSC 7501 programs report them). Off by default:
     /// the row says Working (one spinner) or Ready (the blue dot) only (Lawrence 2026-10-18).
@@ -117,6 +131,14 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.
     public var showTimestamps = false
+    /// `sidebar.settleFinished`: an agent chat whose last turn finished and that the person has read folds into a
+    /// "Settled (N)" row at the end of its list until its next turn, question or failure (the rule is Rust's,
+    /// `cmux-layout-reducer` `settle`). Off by default; the Studio look turns it on.
+    public var settleFinished = false
+    /// `sidebar.showAutomaticSessions`: sessions no person started and no chat's subagent (a script, an automation, a
+    /// launcher; the daemon records `created_by` kind `script`) draw in place. Off by default: they fold into an
+    /// "Automatic (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
+    public var showAutomaticSessions = false
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all
@@ -137,16 +159,17 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.unreadCount`: a collapsed group's header shows its members' unread
     /// total on the right. Off by default, as ``groupHeaderMemberCount``.
     public var groupHeaderUnreadCount = false
-    /// `sidebar.groupHeader.background`: a group header's background is glass, solid, or (the default, `auto`)
-    /// glass where the sidebar is see-through and solid where it is opaque. It always shows (Lawrence 2026-11-05).
-    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
+    /// `sidebar.groupHeader.background`: a group draws as a plain folder (the default, `folder`: David Beyer
+    /// 2026-11-20, groups as plain folders with every thread in the one list), as glass, solid, or `auto` (glass where
+    /// the sidebar is see-through and solid where it is opaque), or as a plain section heading.
+    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .folder
     /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
     /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
     public var groupPalette: GroupPalette = .glass
     /// `sidebar.groupGradient` (``GroupGradient``): the gradient the ``GroupPalette/gradient`` palette steps through.
     public var groupGradient: GroupGradient = .sunset
     /// Compact (the default), comfortable or expanded workspace rows
-    /// (`sidebar.density`); minimal mode wins over expanded content.
+    /// (`sidebar.density`); minimal mode does not change them.
     public var density: SidebarDensity = .compact
     /// How large the list's text, leading glyphs and rows are (`sidebar.textSize`, ``SidebarTextSize``):
     /// the original size by default; Larger matches the ChatGPT app's sidebar.
@@ -174,6 +197,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var sessionTree = false
     /// `sidebar.style`: the standard sidebar (default) or the thin rail.
     public var style: SidebarLayoutStyle = .standard
+    /// `sidebar.nav`: the nav block a look puts at the top of the sidebar, one plain row per cmux action
+    /// (Codex's New chat, Search, Pull requests). Empty by default: no block, today's sidebar.
+    public var nav: [SidebarNavRow] = []
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true) {
@@ -187,4 +213,31 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public static let shareRange: ClosedRange<Double> = 0.1...0.9
     /// The two shares together leave at least this much for the list.
     public static let maxShareSum = 0.8
+}
+
+/// Settings > Advanced > Experiments, `experiments.agentBadges` and `experiments.agentBadgesBeam` (taste build 5,
+/// 2026-11-19): agent counts and status on the tab strip and the sidebar. `off` (the default) is the shipped tabs and
+/// rows. `pills`: a tab shows a neutral count pill (unread agent messages plus pending approvals) in a slot its width
+/// always reserves, so no tab moves as the count comes and goes, and a sidebar row shows one tinted status pill
+/// (Running, Needs approval, Done). `beam`: `pills`, plus a thin light that travels along the edge of a row whose agent
+/// is running.
+public nonisolated enum AgentBadgesExperiment: String, Hashable, Sendable, CaseIterable {
+    case off
+    case pills
+    case beam
+
+    /// The arm the two switches pick (`CmuxConfigSnapshot.experimentSwitches`, keyed by the path's last part): the
+    /// beam switch does nothing while Agent Badges is off.
+    public init(switches: [String: Bool]) {
+        guard switches["agentBadges"] == true else {
+            self = .off
+            return
+        }
+        self = switches["agentBadgesBeam"] == true ? .beam : .pills
+    }
+
+    /// Whether tabs and rows draw the pills.
+    public var showsPills: Bool { self != .off }
+    /// Whether a running row draws the edge beam.
+    public var showsBeam: Bool { self == .beam }
 }

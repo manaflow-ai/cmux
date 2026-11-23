@@ -41,11 +41,6 @@ extension PaneContentView {
         PageWebView.syncChromiumVisibility(in: content)
     }
 
-    /// Whether `view` replacing `hosted` waits for its first frame.
-    func holdsForFirstPaint(_ view: NSView?, replacing hosted: NSView?) -> Bool {
-        PanePaintHold.holds(view, replacing: hosted)
-    }
-
     /// `incoming` stays invisible until it paints; `outgoing` stays shown until then.
     /// A strip that hides with this swap stays, and `outgoing` keeps its place under it: the pane changes in
     /// one frame, when the swap shows (cx-f6i7).
@@ -55,7 +50,7 @@ extension PaneContentView {
             // The host is not flipped: a fixed height on the strip's far side.
             outgoing.autoresizingMask = barPosition == .top ? [.width, .maxYMargin] : [.width, .minYMargin]
         }
-        paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost, release: { [weak self] outgoing in
+        paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost, keepingPlaceIn: holdKeepsStrip ? nil : self, release: { [weak self] outgoing in
             guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
             retire(outgoing)
             (outgoing as? PaneContentChrome)?.onPaneHeaderHeightChange = nil

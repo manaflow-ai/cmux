@@ -228,12 +228,18 @@ public struct CmuxMobileToast: Sendable, Hashable, Identifiable {
 }
 
 extension View {
-    /// Shows `state` as a banner under the top safe area, entering from
-    /// y - 12. It takes its own room: the content below (a list) is inset
-    /// by the banner's height at every text size, so it covers nothing (R2-4).
-    /// A swipe up or sideways, or a tap, hides it until the state changes.
+    /// Shows `state` under the top safe area, entering from y - 12, floating
+    /// over the content: it takes no room, so the list under it never moves
+    /// when it comes or goes (this replaces R2-4's inset, which pushed the
+    /// list down). A link state (reconnecting, offline) is a ``ConnectionChip``
+    /// a few words wide; a state with a sentence to read or an action (signed
+    /// out, pairing) is the banner. A swipe up or sideways, or a tap, hides it
+    /// until the state changes.
     public func cmuxMobileBanner(_ state: ConnectionBannerState?, retry: (() -> Void)? = nil) -> some View {
-        safeAreaInset(edge: .top, spacing: 0) { BannerHost(state: state, retry: retry) }
+        // An overlay, not a safe-area inset: showing or hiding it moves nothing under it (Leo,
+        // 2026-11-21: "these messages should not be pushing up the text ... stop layout
+        // shifting"). A link state is a chip a few words wide, top center.
+        overlay(alignment: .top) { BannerHost(state: state, retry: retry) }
     }
 
     /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
@@ -252,7 +258,13 @@ private struct BannerHost: View {
     var body: some View {
         ZStack {
             if let state, state != dismissed {
-                ConnectionBanner(state, retry: retry)
+                Group {
+                    if let chip = state.chip {
+                        ConnectionChip(chip, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
+                    } else {
+                        ConnectionBanner(state, retry: retry)
+                    }
+                }
                     .cmuxMobileDismissibleToast(entry: .top, announcement: state.text,
                                                tapDismisses: !(state.offersRetry && retry != nil)) {
                         withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { dismissed = state }
@@ -296,7 +308,8 @@ private struct ToastHost: View {
                 .font(theme.type.meta.weight(.semibold))
                 .foregroundStyle(theme.colors.label)
                 .padding(.horizontal, 14)
-                .frame(height: 36)
+                .padding(.vertical, 8)
+                .frame(minHeight: 36)
                 .glassEffect(.regular, in: .capsule)
                 .padding(.top, 8)
                 .transition(.opacity.combined(with: .offset(y: -12)))

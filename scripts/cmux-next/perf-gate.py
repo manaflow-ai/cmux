@@ -59,7 +59,9 @@ warnings only.
                  row and tab of the session; host-independent, blocks); the main-thread time of the
                  become notices over ACTIVATION_BUDGET_MS p95 is a warning.
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
-                 0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
+                 0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3), and at
+                 most one sidebar row mapped per tick (debug.sidebar_perf row_maps: O(changed rows), at any
+                 count of workspaces).
 
 The drag lag, the theme blend and the tab switch and new workspace timings (the app times them
 per frame) need a window that draws. On a console without a lit display (fleet minis, CI VMs)
@@ -109,6 +111,8 @@ BUDGET = {
     # snapshot when the pane mounts on its restored tabs, no re-run as the restore goes on (cx-8w027.23).
     "restore": {"pane_snapshots": 1},
 }
+# Status ticks: rows the sidebar's row feed maps per tick (`row_maps`, SidebarRowFeed): its own row at most.
+STATUS_ROW_MAPS_PER_TICK = 1
 # Known breaches of a budget above: (scenario, counter) -> (the value measured today, the bead that
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
@@ -1036,6 +1040,13 @@ class Gate:
               f" (budget {BUDGET['status']})", "status")
         check(measured.get("row_patches", 0) > 0, f"the ticks reach the sidebar as row patches ({measured.get('row_patches', 0)})",
               "status")
+        # O(changed), never O(all): a tick maps its own workspace's row at most (frames coalesce several), so the rows the
+        # feed mapped stay at or under the ticks however many workspaces the window lists. A row mapping that reads a
+        # session-wide value maps every listed row per tick (Leo's NIGHTLY 2026-11-21: 18 % of the main thread).
+        maps = measured.get("row_maps", 0)
+        check(maps <= ticks * STATUS_ROW_MAPS_PER_TICK,
+              f"{maps} row maps for {ticks} ticks of {tickers} of {len(app.workspace_ids())} workspaces "
+              f"(budget {STATUS_ROW_MAPS_PER_TICK} per tick: each tick maps its own row only)", "status")
 
 
 def cols(value):

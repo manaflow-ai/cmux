@@ -2,20 +2,14 @@ import CmuxNextHomeEngine
 import Observation
 import Testing
 
-/// A first launch with no workspace of the person's own lands on Home, the Chief's workspace,
-/// instead of making an empty New Tab workspace (Leo 2026-10-19: the Chief as the front door).
-/// Classic Home keeps the New Tab workspace.
+/// Once the launch rule (cmux-window-rules `launch::fresh_landing`) answered Home, the first launch waits for the
+/// store to list the Home workspace `ensure_home` named. Home or a New Tab workspace (classic Home, no Home
+/// workspace) is the rule's decision, tested in Rust (`launch_tests.rs`).
 struct FirstWorkspaceLandingTests {
-    @Test func homeIsTheFrontDoorByDefault() {
-        #expect(FirstWorkspaceLanding(classic: false).home("ws_home") == "ws_home")
-    }
-
-    @Test func classicHomeMakesANewTabWorkspace() {
-        #expect(FirstWorkspaceLanding(classic: true).home("ws_home") == nil)
-    }
-
-    @Test func noHomeWorkspaceYetMakesANewTabWorkspace() {
-        #expect(FirstWorkspaceLanding(classic: false).home(nil) == nil)
+    @MainActor @Test func aListedHomeLandsAtOnce() async {
+        let store = ListedHome()
+        store.id = "ws_home"
+        #expect(await FirstWorkspaceLanding(deadline: .seconds(30)).home { store.id } == "ws_home")
     }
 
     /// A fresh store can answer `ensure_home` before its snapshot lists the workspace: the launch
@@ -24,23 +18,14 @@ struct FirstWorkspaceLandingTests {
         let store = ListedHome()
         // task-owner: the test; lists Home once the wait has started
         Task { @MainActor in store.id = "ws_home" }
-        let home = await FirstWorkspaceLanding(classic: false, deadline: .seconds(30)).home(ensured: true) { store.id }
+        let home = await FirstWorkspaceLanding(deadline: .seconds(30)).home { store.id }
         #expect(home == "ws_home")
     }
 
     @MainActor @Test func aHomeNeverListedFallsBackAfterTheDeadline() async {
         let store = ListedHome()
-        let home = await FirstWorkspaceLanding(classic: false, deadline: .milliseconds(50)).home(ensured: true) { store.id }
+        let home = await FirstWorkspaceLanding(deadline: .milliseconds(50)).home { store.id }
         #expect(home == nil)
-    }
-
-    @MainActor @Test func noEnsureHomeOrClassicHomeDoesNotWait() async {
-        let store = ListedHome()
-        store.id = "ws_home"
-        let notEnsured = await FirstWorkspaceLanding(classic: false, deadline: .seconds(30)).home(ensured: false) { store.id }
-        let classic = await FirstWorkspaceLanding(classic: true, deadline: .seconds(30)).home(ensured: true) { store.id }
-        #expect(notEnsured == nil)
-        #expect(classic == nil)
     }
 }
 

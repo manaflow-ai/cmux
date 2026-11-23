@@ -308,6 +308,12 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
 pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
     let state = super::state(flags)?;
     let _lock = ensure_lock(&state)?;
+    // The acpmux home `serve` adopts the node key of, resolved here with the app's
+    // environment (`key_lock.rs`). Without it the link keeps its own key, and acpmux its
+    // transport: never a Mac with neither.
+    if let Err(error) = super::key_lock::record_home(&state) {
+        eprintln!("warning: could not record the link's acpmux home: {error:#}");
+    }
     // An agent installed before `--key-lock-dir` gets it (`launchd.rs`).
     #[cfg(target_os = "macos")]
     if let Err(error) = super::launchd::refresh_key_lock_dir(

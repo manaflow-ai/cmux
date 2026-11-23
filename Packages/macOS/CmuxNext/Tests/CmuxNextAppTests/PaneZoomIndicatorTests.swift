@@ -65,7 +65,7 @@ import Testing
     @Test func theIndicatorSitsLeftOfThePanesMoreButton() throws {
         let harness = Harness()
         defer { harness.closeWindow() }
-        let toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { nil })
         harness.pane.toolbar = toolbar
         toolbar.update(target: "tab0", kind: .terminal, zoomed: false, paneKinds: [.terminal])
         harness.settle()
@@ -86,7 +86,7 @@ import Testing
         for cell in pane.stripView.cells.values {
             #expect(!frame.intersects(pane.stripView.convert(cell.frame, to: pane)), "clear of every tab")
         }
-        #expect(pane.zoomIndicator.isHidden, "no second indicator over the content's corner")
+        #expect(pane.zoomIndicator?.isHidden ?? true, "no second indicator over the content's corner")
         let center = pane.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
         let root = try #require(harness.window.contentView)
         let hit = try #require(root.hitTest(root.superview.map { $0.convert(center, from: nil) } ?? center))
@@ -99,6 +99,18 @@ import Testing
         let harness = Harness()
         defer { harness.closeWindow() }
         #expect(harness.indicator == nil)
+    }
+
+    /// A pane that never zoomed makes no indicator (its glass and button): a launch builds every
+    /// shown pane in one main-thread turn before the first frame, and none of them is zoomed then.
+    /// The first zoom makes it, in the layout that shows it.
+    @Test func theIndicatorIsMadeAtThePanesFirstZoom() {
+        let harness = Harness()
+        defer { harness.closeWindow() }
+        #expect(harness.pane.zoomIndicator == nil, "an unzoomed pane made its zoom indicator")
+        harness.setZoomed(true)
+        #expect(harness.pane.zoomIndicator?.superview === harness.pane)
+        #expect(harness.indicator != nil)
     }
 
     /// Zoomed in a pane with no tab bar controls: the indicator shows at the content's top-right, under

@@ -55,6 +55,8 @@ public final class RemoteMachinesSidebar {
         public var chats: [Chat]
         /// Its room from acpmux's last reading (nil: unknown).
         public var resources: AcpmuxPeerList.Resources?
+        /// The SF Symbol of its device kind, as it reported (nil: an older build; the cloud glyph).
+        public var symbol: String?
     }
 
     /// A machine's closed chats read so far (its Older row), newest first.
@@ -173,7 +175,7 @@ public final class RemoteMachinesSidebar {
         let connected = state == "connected"
         guard list[i].connected != connected else { return .same }
         let old = list[i]
-        list[i] = AcpmuxPeerList.Peer(name: old.name, connected: connected, resources: old.resources, url: old.url)
+        list[i] = AcpmuxPeerList.Peer(name: old.name, connected: connected, resources: old.resources, url: old.url, symbol: old.symbol)
         return .list(list)
     }
 
@@ -264,10 +266,10 @@ public final class RemoteMachinesSidebar {
     /// Three machines for captures: two reachable with chats in each state, one offline.
     static let fixturePeers = [
         AcpmuxPeerList.Peer(name: "linux-box", connected: true,
-                            resources: .init(ramFreeGB: 31, coresBusy: 12, cores: 32, diskFreeGB: 180, over: false)),
+                            resources: .init(ramFreeGB: 31, coresBusy: 12, cores: 32, diskFreeGB: 180, over: false), symbol: "server.rack"),
         AcpmuxPeerList.Peer(name: "build-mac", connected: true,
-                            resources: .init(ramFreeGB: 2, coresBusy: 12, cores: 12, diskFreeGB: 40, over: true)),
-        AcpmuxPeerList.Peer(name: "gpu-box", connected: false),
+                            resources: .init(ramFreeGB: 2, coresBusy: 12, cores: 12, diskFreeGB: 40, over: true), symbol: "macmini"),
+        AcpmuxPeerList.Peer(name: "gpu-box", connected: false, symbol: "pc"),
     ]
     static var fixtureLanes: [AgentActivityLane] {
         let chats: [(String, String, AgentActivityLane.State, String)] = [
@@ -315,11 +317,13 @@ public final class RemoteMachinesSidebar {
         }
         let online = Dictionary((peers ?? []).map { ($0.name, $0.connected) }, uniquingKeysWith: { first, _ in first })
         let room = Dictionary((peers ?? []).map { ($0.name, $0.resources) }, uniquingKeysWith: { first, _ in first })
+        let symbols = Dictionary((peers ?? []).map { ($0.name, $0.symbol) }, uniquingKeysWith: { first, _ in first })
         let names = peers.map { $0.map(\.name) } ?? Array(byPeer.keys)
         return Set(names).map { peer in
             let isOnline = online[peer] ?? true
             let chats = isOnline ? (byPeer[peer] ?? []).sorted(by: newer).map(chat) : []
-            return Machine(peer: peer, online: isOnline, chats: chats, resources: isOnline ? room[peer] ?? nil : nil)
+            return Machine(peer: peer, online: isOnline, chats: chats, resources: isOnline ? room[peer] ?? nil : nil,
+                           symbol: symbols[peer] ?? nil)
         }
         // Reachable machines first, each part by name.
         .sorted { ($0.online ? 0 : 1, $0.peer) < ($1.online ? 0 : 1, $1.peer) }
@@ -362,7 +366,9 @@ public final class RemoteMachinesSidebar {
             let room = machine.online ? machine.resources : nil
             let title = if let room, style == .header { RemoteMachinesStrings.named(name, RemoteMachinesStrings.ramFree(room.ramFreeGB)) }
                 else { name }
-            var header = SidebarItemInfo(title: machine.online ? title : RemoteMachinesStrings.offline(name), symbol: "cloud", icon: .cloud,
+            // The machine's own device glyph (cmux-device-kind's SF Symbol); an older peer keeps the cloud.
+            var header = SidebarItemInfo(title: machine.online ? title : RemoteMachinesStrings.offline(name), symbol: machine.symbol ?? "cloud",
+                                         icon: machine.symbol == nil ? .cloud : nil,
                                          badge: machine.online && !machine.chats.isEmpty ? machine.chats.count : nil, isMissing: !machine.online)
             header.activity = activity(machine.chats)
             add(machinePrefix + machine.peer, header)
@@ -415,35 +421,35 @@ public final class RemoteMachinesSidebar {
 enum RemoteMachinesStrings {
     /// A machine's group header while this Mac's acpmux cannot reach it.
     static func offline(_ name: String) -> String {
-        String(format: String(localized: "sidebar.remoteMachines.offline", defaultValue: "%@ · Offline", bundle: .module), name)
+        String(format: String(localized: "sidebar.remoteMachines.offline", defaultValue: "%@ · Offline", bundle: .localizedModule), name)
     }
     /// A machine's room on one line that fits the sidebar: "31 GB free · CPU 12/32", led by "Busy"
     /// when its own budget says it is over, and ending with its free disk only when that is low.
     /// "CPU n/m" names no counted noun, so it reads right for any count.
     static func resources(_ r: AcpmuxPeerList.Resources) -> String {
         var parts = [ramFree(r.ramFreeGB),
-                     String(format: String(localized: "sidebar.remoteMachines.cpu", defaultValue: "CPU %1$lld/%2$lld", bundle: .module),
+                     String(format: String(localized: "sidebar.remoteMachines.cpu", defaultValue: "CPU %1$lld/%2$lld", bundle: .localizedModule),
                             r.coresBusy, r.cores)]
         if let disk = r.diskFreeGB, disk < lowDiskGB {
-            parts.append(String(format: String(localized: "sidebar.remoteMachines.disk", defaultValue: "%lld GB disk", bundle: .module), disk))
+            parts.append(String(format: String(localized: "sidebar.remoteMachines.disk", defaultValue: "%lld GB disk", bundle: .localizedModule), disk))
         }
-        if r.over { parts.insert(String(localized: "sidebar.remoteMachines.overBudget", defaultValue: "Busy", bundle: .module), at: 0) }
+        if r.over { parts.insert(String(localized: "sidebar.remoteMachines.overBudget", defaultValue: "Busy", bundle: .localizedModule), at: 0) }
         return parts.joined(separator: " · ")
     }
     /// What VoiceOver reads for a machine's room row: the machine, then its room.
     static func resourcesLabel(_ name: String, _ r: AcpmuxPeerList.Resources) -> String {
-        String(format: String(localized: "sidebar.remoteMachines.resourcesLabel", defaultValue: "%1$@: %2$@", bundle: .module),
+        String(format: String(localized: "sidebar.remoteMachines.resourcesLabel", defaultValue: "%1$@: %2$@", bundle: .localizedModule),
                name, resources(r))
     }
     /// Free disk under this many GB shows on the row (lane hosts' usual floor in fleet-registry.json).
     static let lowDiskGB = 20
     static func ramFree(_ gb: Int) -> String {
-        String(format: String(localized: "sidebar.remoteMachines.ramFree", defaultValue: "%lld GB free", bundle: .module), gb)
+        String(format: String(localized: "sidebar.remoteMachines.ramFree", defaultValue: "%lld GB free", bundle: .localizedModule), gb)
     }
     /// A header with something after the machine's name.
     static func named(_ name: String, _ detail: String) -> String { name + " · " + detail }
     /// The row under an unfolded group's live chats that opens its closed ones.
-    static var older: String { String(localized: "sidebar.remoteMachines.older", defaultValue: "Older", bundle: .module) }
+    static var older: String { String(localized: "sidebar.remoteMachines.older", defaultValue: "Older", bundle: .localizedModule) }
     /// The row under an unfolded group's last shown chat when it has more.
-    static var showMore: String { String(localized: "sidebar.remoteMachines.showMore", defaultValue: "Show More", bundle: .module) }
+    static var showMore: String { String(localized: "sidebar.remoteMachines.showMore", defaultValue: "Show More", bundle: .localizedModule) }
 }

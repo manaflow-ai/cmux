@@ -13,6 +13,7 @@ on:
   # detect-ios-changes narrows pull-request work further (and decides the
   # conventions lint).
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "ios/**"
       - "Packages/**"
@@ -30,6 +31,8 @@ on:
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
       - "scripts/cmux-next/swift_scope.py"
+      - "scripts/cmux-next/caller_isolation.py"
+      - "scripts/cmux-next/caller-isolated-blocking-pending.json"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
@@ -112,12 +115,14 @@ env:
   # ...) is a style guard. For pull requests and merge groups into
   # feat-cmux-next it prints its findings as warnings and passes (Leo,
   # 2026-10-19), and the iOS suites run whatever it reports. The lint's own
-  # tests still fail the job, and so the ios-tests gate.
+  # tests still fail the job, and so the ios-tests gate. One rule still fails a
+  # pull request: a namespace type it adds that --namespace-fix rewrites
+  # (scripts/ci/pr_added_namespace_types.py; label namespace-lint-override skips it).
   # Everywhere else it still fails. Change `warn` to `fail` to make it block
   # feat-cmux-next again.
   CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.event.merge_group.base_ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 
 # A newer push to the same pull request replaces its run; dispatches never
@@ -130,6 +135,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   runner:
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     # The macOS pool mobile-core-package and ios-simulator-build run on.
     # ios_runner_pool.py still sizes the simulator need for the deleted
@@ -150,7 +156,7 @@ jobs:
     # owned Mac leaves queued or refuses is re-run by ci-owned-pool-rescue.yml
     # (its sweeper), and every re-run attempt takes retry_runs_on (Blacksmith).
     # scripts/ci/ios_runner_pool.py has the rules.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
     # (see ios_runner_pool.py for the API budget).
@@ -164,9 +170,16 @@ jobs:
       retry_label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.retry_label }}
       # runs-on as JSON: a label, or an owned pool label with glaeda-ios-sim.
       runs_on: ${{ steps.pool.outputs.runs_on }}
+      # ios-simulator-build's own: glaeda's sim-first label alone when an owned run sees one of those runners
+      # idle (glaeda#2057 admits the build there), else runs_on (ios_runner_pool.py, Build placement).
+      build_runs_on: ${{ steps.pool.outputs.build_runs_on }}
       # mobile-core-package needs no simulator: the pool label alone.
       package_runs_on: ${{ steps.pool.outputs.package_runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
+      # The picker's own re-run route (Blacksmith), which a bot's re-run takes even on a cmux-next lane: the
+      # owned-pool rescue re-runs a job past its owned wait bound as the bot (OWNED_WAIT_BOUND_SECONDS).
+      bot_retry_label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.bot_retry_label }}
+      bot_retry_runs_on: ${{ steps.pool.outputs.bot_retry_runs_on }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
@@ -193,7 +206,7 @@ jobs:
         # Same-repository runs only, on this ephemeral Linux runner: a fork
         # run never sees the key, and no Mac ever holds it. Any failure leaves
         # the token empty, and the choice falls back to the janitor snapshot.
-        if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -262,8 +275,17 @@ jobs:
             --seed-cache "$SEED_CACHE")"
           echo "$route" >> "$GITHUB_OUTPUT"
           echo "$route"
+          # The picker's re-run route, kept for a bot's re-run (the owned-pool
+          # rescue's move past its wait bound) before the override below.
+          {
+            echo "bot_retry_label=$(printf '%s\n' "$route" | sed -n 's/^retry_label=//p' | tail -n1)"
+            echo "bot_retry_runs_on=$(printf '%s\n' "$route" | sed -n 's/^retry_runs_on=//p' | tail -n1)"
+          } | tee -a "$GITHUB_OUTPUT"
           # The picker's re-run label is a Blacksmith pool; a cmux-next lane
-          # re-runs on the same owned pool instead (the later output wins).
+          # re-runs a person's re-run on the same owned pool instead (the later
+          # output wins). The bot's re-run takes bot_retry_runs_on (Leo,
+          # 2026-11-16: "no required check waits past a bound on any owned
+          # label; past it, it moves to Blacksmith").
           if [ -n "$NEXT_LANE" ]; then
             label="$(printf '%s\n' "$route" | sed -n 's/^label=//p' | tail -n1)"
             case "$label" in
@@ -325,7 +347,8 @@ jobs:
           retention-days: 1
 
   detect-ios-changes:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
@@ -431,8 +454,8 @@ jobs:
           # 128 if that fetch fails. It also hides a file moved out of ios/
           # behind its new path; without it both paths are listed, so the
           # greps below stay conservative.
-          git diff --name-only --no-renames HEAD^1 HEAD > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' /tmp/changed-files.txt; then
+          git diff --name-only --no-renames HEAD^1 HEAD > "${RUNNER_TEMP}/changed-files.txt"
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -440,7 +463,7 @@ jobs:
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
-          if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/tests/test_pr_scoped_lint_gates\.py$|scripts/ci/package-conventions-gate\.sh$|scripts/ci/crash-class-gate\.sh$|scripts/cmux-next/check-concurrency\.sh$|scripts/cmux-next/check-main-actor-work\.py$|scripts/cmux-next/swift_scope\.py$|scripts/ci/pr_owned_findings\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/tests/test_pr_scoped_lint_gates\.py$|scripts/ci/package-conventions-gate\.sh$|scripts/ci/crash-class-gate\.sh$|scripts/cmux-next/check-concurrency\.sh$|scripts/cmux-next/check-main-actor-work\.py$|scripts/cmux-next/swift_scope\.py$|scripts/cmux-next/caller_isolation\.py$|scripts/cmux-next/caller-isolated-blocking-pending\.json$|scripts/ci/pr_owned_findings\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' "${RUNNER_TEMP}/changed-files.txt"; then
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
           else
             echo "No package-owned files changed; skipping conventions lint."
@@ -449,8 +472,8 @@ jobs:
 
   package-conventions-lint:
     needs: detect-ios-changes
-    if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (needs.detect-ios-changes.outputs.should_lint == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -466,12 +489,18 @@ jobs:
       - name: Lint iOS package conventions
         env:
           GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
+          NAMESPACE_OVERRIDE: ${{ contains(github.event.pull_request.labels.*.name, 'namespace-lint-override') }}
         run: |
           # The lint's own tests always gate: they protect the lint itself.
           python3 scripts/tests/test_ios_package_conventions.py
           python3 scripts/tests/test_pr_scoped_lint_gates.py
           rc=0
           scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"} || rc=$?
+          # Warn-only still fails a pull request that adds a namespace type the
+          # safe rewrite fixes: each one that merged turned the base red.
+          if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn && -n "$GATE_SCOPE" && "$NAMESPACE_OVERRIDE" != true ]]; then
+            python3 scripts/ci/pr_added_namespace_types.py || exit 1
+          fi
           if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
             echo "::warning title=package conventions (warn-only)::the package conventions lint reported findings; see this step's log"
             exit 0
@@ -481,14 +510,16 @@ jobs:
   mobile-core-package:
     needs: [runner, detect-ios-changes, package-conventions-lint]
     if: >-
-      ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
+      ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (
+      !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
           && (needs.package-conventions-lint.result == 'success'
               || needs.detect-ios-changes.outputs.style_guards == 'warn'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
-          && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}
+          && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '')
+      ) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}
     # Focused runs build the shell and its macros from a cold SwiftPM cache.
     timeout-minutes: ${{ inputs.swift_package != '' && 25 || 10 }}
     env:
@@ -510,12 +541,12 @@ jobs:
       # feat-cmux-next pull request that touches Packages/, so such a pull
       # request runs them here only with the full-ci label; pushes, dispatches
       # and other bases still run them on the Mac.
-      MAC_RUNS_LINUX_PACKAGES: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+      MAC_RUNS_LINUX_PACKAGES: ${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     steps:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
+          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_label || github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           # The self-hosted fleet also carries a macos-26 label, so a macos-*
@@ -597,11 +628,16 @@ jobs:
       # tier do; a kept build recompiles only what the change touched.
       # scripts/ci/owned_spm_scratch.py has the rules (fingerprint per Xcode,
       # Swift, workspace path and bonsplit commit; least recently used pruning).
-      # Any failure leaves the packages to build cold as before.
+      # Any failure leaves the packages to build cold as before. The runner slots
+      # share one SwiftPM artifact cache; seeding it first keeps two slots from
+      # downloading one new binary artifact at once ("already exists in file
+      # system"): scripts/ci/swiftpm_prefetch_binary_artifacts.py.
       - name: Keep Swift package builds on this owned Mac
         if: ${{ contains(runner.name, '-glaeda') }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+          python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
 
       - name: Run CMUXMobileCore package tests
         if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CMUXMobileCore' }}
@@ -677,14 +713,16 @@ jobs:
     # An unrelated lint lane may be skipped. Explicit status checks retain
     # that route while preventing a failed lint from buying a native build.
     if: >-
-      ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
+      ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (
+      !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
           && (needs.package-conventions-lint.result == 'success'
               || needs.detect-ios-changes.outputs.style_guards == 'warn'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
-          && inputs.swift_package == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+          && inputs.swift_package == ''
+      ) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 35
     env:
@@ -700,7 +738,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
+          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_label || github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           # The self-hosted fleet also carries a macos-26 label, so a macos-*
@@ -1114,8 +1152,8 @@ jobs:
       - ios-simulator-build
     # Preserve the aggregate verdict after a failed suite, but do not allocate
     # a Blacksmith runner after the workflow has been cancelled.
-    if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled()) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check iOS test routing

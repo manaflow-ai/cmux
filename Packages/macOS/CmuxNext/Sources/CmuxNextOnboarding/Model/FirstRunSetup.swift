@@ -6,19 +6,16 @@ import CmuxNextWakeups
 /// Whether Home shows the Set Up cmux card (goal next-first-run-setup; Lawrence 2026-10-09: "i do not want new
 /// window ... just drop user into main screen asap"). A first run starts it in place of the first-run windows:
 /// the Agents window and the CLI toast at launch mark themselves shown, so their rows on the card are the one
-/// place they are offered. Bring your history keeps its own once flag: the card's chat history row sets it
-/// only once that page showed or the row (or the card) was dismissed. The launch's classic import asks on its cmux
-/// Classic row (``askClassic(_:)``) instead of a dialog beside it. Hide or every row done ends it for good, per
-/// channel (`defaults`). Settings keeps every row.
+/// place they are offered. The launch's classic import asks on its cmux Classic row (``askClassic(_:)``) instead of a
+/// dialog beside it. Hide or every row done ends first-run setup, per channel (`defaults`), and marks this Mac's first
+/// launch finished (``OnboardingWindowPresenter/historyShownKey``). An explicit reopen keeps the card visible until Hide.
 @MainActor
 @Observable
 public final class FirstRunSetup {
-    /// UserDefaults: "pending" while the card shows, "ended" once hidden or done.
+    /// UserDefaults: "pending" for first run, "reopened" for an explicit visit, "ended" once hidden or done.
     public static let stateKey = "home.firstRun.setupCard"
     /// Whether Home shows the card now.
     public private(set) var shows: Bool
-    /// Bring your history showed, or its row was dismissed (``OnboardingWindowPresenter/historyShownKey``).
-    public private(set) var historyDone: Bool
     @ObservationIgnored private let defaults: UserDefaults
 
     /// `skipsOnboarding` (`--skip-onboarding`, `CMUX_NEXT_SKIP_ONBOARDING=1`): the card stays away for this launch
@@ -29,15 +26,56 @@ public final class FirstRunSetup {
         self.defaults = defaults
         self.skipsOnboarding = skipsOnboarding
         self.cardWait = cardWait
-        shows = !skipsOnboarding && defaults.string(forKey: Self.stateKey) == "pending"
-        historyDone = defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey)
+        shows = !skipsOnboarding && ["pending", "reopened"].contains(defaults.string(forKey: Self.stateKey) ?? "")
     }
 
     @ObservationIgnored private let skipsOnboarding: Bool
     @ObservationIgnored private let cardWait: Duration
     /// Hands an ask to the dialog when no card was drawn within ``cardWait``.
     @ObservationIgnored private let cardDeadline = DemandTimer(owner: "onboarding.classic-card-wait")
-    @ObservationIgnored private var agentsModel: AgentsStepModel?
+    /// Observed (not ignored): ``needsChiefAgent`` reads it, so a model made after a reader subscribed wakes it.
+    private var agentsModel: AgentsStepModel?
+
+    /// The agent Chief answers through when no route is configured: the person's own Claude Code.
+    public static let chiefAgentID = "claude"
+
+    /// Hide on the Chief card: it stays away until the next launch.
+    private var chiefAgentHidden = false
+
+    /// Whether Home's Chief chat shows the card's Chief form (first-run findings rows 1 and 4: with onboarding off,
+    /// a fresh Mac opened straight into Home and Chief refused every message). True only on evidence that Chief
+    /// cannot answer: acpmux answered and Claude Code is not installed, or its sign-in check says signed out or
+    /// expired, or its login opened here waits to be confirmed. A read not made yet, a list acpmux did not answer
+    /// (Claude Code not listed at all), an unknown sign-in (a Keychain login) and a configured Claude route never
+    /// show it. Independent of the onboarding switch.
+    public var needsChiefAgent: Bool {
+        guard !chiefAgentHidden, let model = agentsModel, model.loaded, model.source?.chiefUsesRoute != true else { return false }
+        if model.installable.contains(where: { $0.id == Self.chiefAgentID }) { return true }
+        guard let agent = model.agents.first(where: { $0.id == Self.chiefAgentID }) else { return false }
+        return agent.auth == .signedOut || agent.auth == .expired || model.awaitsConfirmation(agent)
+    }
+
+    /// Which Set Up card Chief's chat shows (``SetupCardHost``).
+    public enum CardForm: Sendable, Equatable {
+        /// The whole Set Up cmux card, while ``FirstRunSetup/shows``.
+        case full
+        /// Only the agent Chief answers through, while ``FirstRunSetup/needsChiefAgent``.
+        case chief
+    }
+
+    /// The card Chief's chat shows now, or `nil` for none: the whole card while ``shows``, else its Chief form while
+    /// ``needsChiefAgent``.
+    public var cardForm: CardForm? { shows ? .full : needsChiefAgent ? .chief : nil }
+
+    /// Reads the agents once (the shared model's first read), so ``needsChiefAgent`` can answer.
+    public func checkChiefAgent(source: (any AgentSignInSource)?) {
+        agents(source: source).start()
+    }
+
+    /// Hide on the Chief card: away for this launch; Chief's own reply still says what is missing.
+    public func hideChiefAgent() {
+        chiefAgentHidden = true
+    }
 
     /// The card's agent installs and sign-ins, one for every card this launch: a card made again (another Home
     /// conversation, a new window) shows an install already running, starts no second one, and the install's
@@ -47,12 +85,6 @@ public final class FirstRunSetup {
         let model = AgentsStepModel(source: source)
         agentsModel = model
         return model
-    }
-
-    /// The chat history row is answered: its page showed, or the person dismissed it.
-    public func historyAnswered() {
-        defaults.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
-        historyDone = true
     }
 
     /// At launch, after the classic migration: a first run starts the card and marks the windows it replaces
@@ -71,13 +103,13 @@ public final class FirstRunSetup {
     }
 
     /// What a launch's first-run steps do: start the card now, leave them to a card that started on an earlier
-    /// launch (pending or ended: the old windows never run after it, so Bring your history's flag stays the row's),
+    /// launch (pending or ended: the old windows never run after it),
     /// or run the first-run windows (no card ever started).
     public enum Route: Equatable, Sendable { case startCard, cardOwns, windows }
 
     /// The launch's first-run route; starts the card when ``begin(isFirstRun:replacedKeys:screenReader:)`` does. Decided
     /// before the launch's classic migration: a card that shows waits for it (``awaitsClassic``) from here, before any
-    /// card is drawn, until ``classicMigration(seam:dialog:screenReader:_:)`` ends or ``classicSettled()`` says it does not run.
+    /// card is drawn, until ``classicMigration(seam:offer:dialog:screenReader:imported:_:)`` ends or ``classicSettled()`` says it does not run.
     public func route(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Route {
         let route: Route = begin(isFirstRun: isFirstRun, replacedKeys: replacedKeys, screenReader: screenReader) ? .startCard
             : defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
@@ -93,7 +125,7 @@ public final class FirstRunSetup {
     /// What the launch's classic import would bring, shown on the card's cmux Classic row until answered.
     public struct ClassicOffer: Equatable, Sendable {
         public var workspaces: Int
-        /// The classic app that saved it, as its Dock names it (``ClassicImportPlan/Source/appName``).
+        /// The classic app that saved it, as its Dock names it (`ClassicImportPreviewStrings.appName`).
         public var app: String
         /// When it saved (seconds since 1970), and whether that app is still open (its autosave, not its quit save).
         public var savedAt: Double
@@ -108,11 +140,6 @@ public final class FirstRunSetup {
             (self.browserTabs, self.sshWorkspaces, self.agentChats) = (browserTabs, sshWorkspaces, agentChats)
         }
 
-        public init(_ plan: ClassicImportPlan) {
-            self.init(workspaces: plan.workspaces.count, app: plan.source.appName, savedAt: plan.savedAt, running: plan.classicRunning,
-                      browserTabs: plan.browserTabs, sshWorkspaces: plan.sshWorkspaces, agentChats: plan.agentChats)
-        }
-
         /// Import does more than make workspaces: it loads pages, connects to hosts or resumes chats.
         public var resumes: Bool { browserTabs + sshWorkspaces + agentChats > 0 }
     }
@@ -125,7 +152,7 @@ public final class FirstRunSetup {
     /// The row says Imported only from this, never from the click alone.
     public private(set) var classicImported: Bool?
     /// The launch's classic migration has not decided yet whether it asks: the card does not end before it has,
-    /// so a migration that reads slowly cannot lose its row (as the chat history row waits for its read).
+    /// so a migration that reads slowly cannot lose its row (as an agent row waits for acpmux's read).
     public private(set) var awaitsClassic = false
     /// The answer to the ask on the row: nil when no card is left to ask on (the dialog asks then).
     @ObservationIgnored private var classicReply: CheckedContinuation<ClassicImportAnswer?, Never>?
@@ -133,22 +160,23 @@ public final class FirstRunSetup {
     @ObservationIgnored private var cardsOpen = 0
 
     /// Runs the launch's classic migration (`run`, given its confirmation): while the card shows, the card waits for
-    /// it and its cmux Classic row asks (``askClassic(_:)``); otherwise `dialog` asks, as before. `seam` (a test's
-    /// answer) wins over both. `imported` says whether an accepted import made anything (an import whose every
+    /// it and its cmux Classic row asks (``askClassic(_:)``, with `offer` of the daemon's preview); otherwise `dialog`
+    /// asks, as before. `seam` (a test's answer) wins over both. `imported` says whether an accepted import made anything (an import whose every
     /// workspace failed returns without throwing): the row says Imported only then. With VoiceOver on when it asks (`screenReader`, read then: a card left pending by an
     /// earlier launch still shows) the dialog asks, since VoiceOver cannot press the card's WebKit buttons
     /// (manaflow-ai/cmux#37809).
-    public func classicMigration<T>(seam: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)?,
-                                    dialog: @escaping @MainActor (ClassicImportPlan) async -> ClassicImportAnswer,
+    public func classicMigration<Preview, T>(seam: (@MainActor (Preview) async -> ClassicImportAnswer)?,
+                                    offer: @escaping @MainActor (Preview) -> ClassicOffer,
+                                    dialog: @escaping @MainActor (Preview) async -> ClassicImportAnswer,
                                     screenReader: @escaping @MainActor () -> Bool = FirstRunSetup.voiceOverOn,
                                     imported: (T) -> Bool = { _ in true },
-                                    _ run: (@escaping @MainActor (ClassicImportPlan) async -> ClassicImportAnswer) async throws -> T) async rethrows -> T {
+                                    _ run: (@escaping @MainActor (Preview) async -> ClassicImportAnswer) async throws -> T) async rethrows -> T {
         defer { awaitsClassic = false }
         if let seam { return try await run(seam) }
         if shows { awaitsClassic = true }
         do {
             let result = try await run { [weak self] plan in
-                if !screenReader(), let answer = await self?.askClassic(ClassicOffer(plan)) { return answer }
+                if !screenReader(), let answer = await self?.askClassic(offer(plan)) { return answer }
                 return await dialog(plan)
             }
             if classicAnswer == .accepted { classicImported = imported(result) }
@@ -159,7 +187,7 @@ public final class FirstRunSetup {
         }
     }
 
-    /// Whether VoiceOver runs now (``classicMigration(seam:dialog:screenReader:_:)``'s default).
+    /// Whether VoiceOver runs now (``classicMigration(seam:offer:dialog:screenReader:imported:_:)``'s default).
     public static func voiceOverOn() -> Bool { NSWorkspace.shared.isVoiceOverEnabled }
 
     /// The launch's classic import asks on the cmux Classic row: the answer is the person's own click there (Import,
@@ -211,13 +239,28 @@ public final class FirstRunSetup {
         resolveClassic(answer)
     }
 
-    /// Hide, or every row done: the card leaves for good, and its chat history row with it. An import still asking
-    /// on the cmux Classic row is left unanswered, so the next launch asks again with its dialog.
+    /// Hide, or first-run completion: the card leaves until explicitly reopened, and this Mac's first launch is finished.
+    /// An import still asking on the cmux Classic row is left unanswered, so the next launch asks again with its dialog.
     public func end() {
         guard defaults.string(forKey: Self.stateKey) != "ended" else { return }
         resolveClassic(.unanswered)
-        historyAnswered()
+        defaults.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
         defaults.set("ended", forKey: Self.stateKey)
         shows = false
+    }
+
+    /// Shows the card again from a release action, preserving rows that were already answered.
+    /// This explicit request works even when automatic onboarding is skipped. It never changes first-run
+    /// markers or reopens the first-run windows, and refreshes the shared agent model without restarting installs.
+    public func reopen() {
+        defaults.set("reopened", forKey: Self.stateKey)
+        agentsModel?.refresh(recheck: true)
+        shows = true
+    }
+
+    /// Automatically dismisses first-run setup; a requested visit stays so completed rows can be reviewed.
+    func complete() {
+        guard defaults.string(forKey: Self.stateKey) != "reopened" else { return }
+        end()
     }
 }

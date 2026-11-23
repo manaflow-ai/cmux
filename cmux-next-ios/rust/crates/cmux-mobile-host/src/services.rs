@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
-use cmux_mobile_link::{ChannelEvent, IncomingChannel};
+use cmux_mobile_link::{ChannelEvent, IncomingChannel, names};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -34,6 +34,15 @@ pub struct Peer {
     /// phone and this Mac negotiated one.
     pub video: Option<cmux_mobile_link::media::VideoOut>,
     pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    /// The link's path now (direct, TURN, TURN over TLS), if the link reports one.
+    pub path: Option<tokio::sync::watch::Receiver<cmux_mobile_link::dial::LinkPath>>,
+}
+
+impl Peer {
+    /// The wire name of the link's path now (`direct`, `turn`, `turn-tls`, `none`).
+    pub fn path_name(&self) -> Option<&'static str> {
+        self.path.as_ref().map(|path| crate::control::path_name(*path.borrow()))
+    }
 }
 
 /// Serve one incoming channel to completion. With pairing on, only `auth`
@@ -46,7 +55,11 @@ pub async fn serve(
     incoming: IncomingChannel,
 ) {
     let IncomingChannel { service, args, lane, channel } = incoming;
-    let (sender, mut receiver) = channel.split();
+    let (mut sender, mut receiver) = channel.split();
+    // Every payload byte of the channel counts toward its kind (traffic.rs).
+    let meter = crate::traffic::TRAFFIC.meter(crate::traffic::Kind::of_service(&service, &args));
+    sender.count_into(Arc::clone(&meter));
+    receiver.count_into(meter);
     tracing::info!(
         service,
         channel = sender.id(),
@@ -96,16 +109,19 @@ pub async fn serve(
         }
     }
     let result = match service.as_str() {
-        "auth" => crate::pairing::serve(
-            config.pairing.as_ref(),
-            &peer.device_id,
-            &link,
-            &args,
-            &sender,
-            &mut receiver,
-        )
-        .await
-        .map_err(|(code, reason)| Refusal::new(code, reason)),
+        "auth" => {
+            crate::pairing::note_phone_app(&peer.device_id, &args, peer.path_name());
+            crate::pairing::serve(
+                config.pairing.as_ref(),
+                &peer.device_id,
+                &link,
+                &args,
+                &sender,
+                &mut receiver,
+            )
+            .await
+            .map_err(|(code, reason)| Refusal::new(code, reason))
+        }
         _ if gate == crate::pairing::Gate::Busy => {
             Err(Refusal::new("busy", "too many channels wait for this iPhone's pairing"))
         }
@@ -128,11 +144,25 @@ pub async fn serve(
             crate::machine::serve(&sender, &name, &grants).await
         }
         "needs-you" => crate::needs_you::serve(&sender, receiver).await,
-        "appearance" => crate::appearance::serve(&sender, receiver).await,
+        "pair-requests" => {
+            crate::pair_requests::serve(config.pairing.as_ref(), &peer.device_id, &link, &args, &sender)
+                .await
+                .map_err(|(code, reason)| Refusal::new(code, reason))
+        }
+        "appearance" => crate::appearance::serve(&sender, receiver, &peer.device_id).await,
         "appearance-wallpaper" => crate::appearance::serve_wallpaper(&sender, &args).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
+        "phone-frames" => {
+            crate::phone_frames::serve(
+                &peer.device_id,
+                &crate::phone_frames::default_path(),
+                &sender,
+                receiver,
+            )
+            .await
+        }
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -206,26 +236,33 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// `needs-you-v1`: the `needs-you` service (the Mac app's own open Feed requests, `needs_you.rs`).
 /// `appearance-v1`: the `appearance` and `appearance-wallpaper` services (the Mac's theme and
 /// wallpaper, `appearance.rs`).
-pub const CAPABILITIES: [&str; 7] = [
-    "removal-v1",
-    "file-preview-v1",
-    "localhost-forward-v1",
-    "cloud-directory-v1",
-    "cloud-acpmux-v1",
-    "needs-you-v1",
-    "appearance-v1",
+/// `pair-requests-v1`: the `pair-requests` service (a paired device answers a pairing request
+/// waiting on this Mac, `pair_requests.rs`).
+/// `phone-frames-v1`: the `phone-frames` service (the phone's terminal scroll frame times,
+/// logged to `phone-frames.jsonl`, `phone_frames.rs`).
+/// The names are declared once in `cmux_mobile_link::names`.
+pub const CAPABILITIES: [&str; 9] = [
+    names::REMOVAL,
+    names::FILE_PREVIEW,
+    names::LOCALHOST_FORWARD,
+    names::CLOUD_DIRECTORY,
+    names::CLOUD_ACPMUX,
+    names::NEEDS_YOU,
+    names::APPEARANCE,
+    names::PAIR_REQUESTS,
+    names::PHONE_FRAMES,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
-pub const BROWSER_STREAM: &str = "browser-stream-v1";
+pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
 /// video on the link's media lane when the link has one.
-pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
+pub const BROWSER_VIDEO_TRACK: &str = names::BROWSER_VIDEO_TRACK;
 /// Added when this Mac streams its phone tabs' simulators (`surface`), with
 /// `video: "track"` as for browser tabs.
-pub const SURFACE_STREAM: &str = "surface-stream-v1";
+pub const SURFACE_STREAM: &str = names::SURFACE_STREAM;
 /// Added with [`SURFACE_STREAM`]: `surface` also streams the owner's own Cloud
 /// machine desktop, view only (`c~<machine_id>~<team_id>`, `surface.rs`).
-pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
+pub const CLOUD_DESKTOP: &str = names::CLOUD_DESKTOP;
 
 /// What this host does that a phone may rely on.
 pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
@@ -430,7 +467,7 @@ where
         serde_json::json!({"cmd":"identify","id":"cloud-mobile-identify"}),
         serde_json::json!({"cmd":"set-client-info","id":"cloud-mobile-host",
             "kind":"ios","device_kind":"iphone",
-            "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}),
+            "capabilities":[names::CLOUD_MOBILE_CHAT,names::CONVERSATION_TABS,names::AGENT_SESSION_TABS]}),
     ] {
         write
             .write_all(request.to_string().as_bytes())
@@ -449,7 +486,7 @@ where
             && !response
                 .pointer("/data/capabilities")
                 .and_then(Value::as_array)
-                .is_some_and(|caps| caps.iter().any(|cap| cap == "cloud-mobile-chat-v1"))
+                .is_some_and(|caps| caps.iter().any(|cap| cap == names::CLOUD_MOBILE_CHAT))
         {
             return Err(Refusal::new(
                 "forbidden",
@@ -1124,6 +1161,14 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
     Ok(socket)
 }
 
+/// Session bindings the two halves of one `acpmux` relay share.
+#[derive(Default)]
+struct AcpmuxRelayState {
+    bound_sessions: HashSet<String>,
+    pending_new: HashSet<String>,
+    server_reply_ids: std::collections::HashMap<String, String>,
+}
+
 /// `acpmux`: splice to the acpmux loopback WebSocket. One link data frame
 /// carries one WebSocket text message in each direction.
 ///
@@ -1160,54 +1205,73 @@ async fn acpmux(
     let deflate = crate::link_deflate::asked(args);
     let mut message = MessageAssembler::default();
     let mut exposure = peer.session_exposure.clone();
-    let mut bound_sessions = HashSet::<String>::new();
-    let mut pending_new = HashSet::<String>::new();
-    let mut server_reply_ids = std::collections::HashMap::<String, String>::new();
+    // What both directions learn about the sessions this phone touches. Locked only for a
+    // moment, never across an await.
+    let shared = std::sync::Mutex::new(AcpmuxRelayState::default());
     // A second connection of hostd's own, for `_acpmux/info` (the mode check).
     let mut side: Option<AcpmuxSocket> = None;
-    loop {
-        tokio::select! {
-            changed = async {
-                let Some(exposure) = exposure.as_mut() else { std::future::pending().await };
-                exposure.changed().await
-            }, if exposure.is_some() => {
-                if changed.is_err() { break; }
-                let state = exposure.as_ref().expect("exposure receiver").borrow().clone();
-                if !state.available || bound_sessions.iter().any(|session| state.blocked.contains(session)) {
-                    break;
-                }
-            }
-            event = receiver.recv() => match event {
+    // Two independent halves (contract point 5, input never head-of-line blocked behind
+    // bulk): a big frame waiting for room toward the phone (`downstream`) no longer stops
+    // `upstream` reading the phone's next prompt. When either half ends, the other is
+    // dropped and the socket closed.
+    let exposure_down = exposure.clone();
+    let shared = &shared;
+    let upstream = async {
+        loop {
+            let event = receiver.recv().await;
+            match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(text) = message.push(&bytes)? else { continue };
-                    let Some((text, dependencies)) = canonicalize_requests(&config.acpmux, &text).await else {
+                    let Some((text, dependencies)) = canonicalize_requests(&config.acpmux, &text).await
+                    else {
                         let answer = serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string();
                         let _ = sender.send(Bytes::from(answer)).await;
                         continue;
                     };
-                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    if !state.available || dependencies.iter().any(|session| state.blocked.contains(session)) {
+                    let state =
+                        exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    if !state.available || dependencies.iter().any(|session| state.blocked.contains(session))
+                    {
                         break;
                     }
-                    if let Some(answer) = crate::acpmux_policy::exposure_refusal_with_replies(&text, &state, &bound_sessions, &server_reply_ids) {
-                        if sender.send(Bytes::from(answer.into_bytes())).await.is_err() { break; }
+                    let refusal = {
+                        let relay = shared.lock().expect("acpmux relay state");
+                        crate::acpmux_policy::exposure_refusal_with_replies(
+                            &text,
+                            &state,
+                            &relay.bound_sessions,
+                            &relay.server_reply_ids,
+                        )
+                    };
+                    if let Some(answer) = refusal {
+                        if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
+                            break;
+                        }
                         continue;
                     }
-                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                        let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
-                        for request in requests {
-                            if request.get("method").and_then(Value::as_str).is_some_and(|method| method == "session/new" || method == "acp.session.new")
-                                && let Some(id) = request.get("id") {
-                                pending_new.insert(id.to_string());
+                    {
+                        let mut relay = shared.lock().expect("acpmux relay state");
+                        if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                            let requests = match &value {
+                                Value::Array(items) => items.iter().collect::<Vec<_>>(),
+                                other => vec![other],
+                            };
+                            for request in requests {
+                                if request.get("method").and_then(Value::as_str).is_some_and(|method| {
+                                    method == "session/new" || method == "acp.session.new"
+                                }) && let Some(id) = request.get("id")
+                                {
+                                    relay.pending_new.insert(id.to_string());
+                                }
                             }
                         }
-                    }
-                    bound_sessions.extend(dependencies);
-                    // Bind every accepted session-targeting request, not only
-                    // prompt/retry methods; info, events and mode changes also
-                    // keep a live channel's exposure alive.
-                    for (_, session) in crate::acpmux_policy::request_targets(&text) {
-                        bound_sessions.insert(session.clone());
+                        relay.bound_sessions.extend(dependencies);
+                        // Bind every accepted session-targeting request, not only
+                        // prompt/retry methods; info, events and mode changes also
+                        // keep a live channel's exposure alive.
+                        for (_, session) in crate::acpmux_policy::request_targets(&text) {
+                            relay.bound_sessions.insert(session.clone());
+                        }
                     }
                     // An agent a phone drives stays in a mode that asks
                     // (`acpmux_policy`): a refused mode set is answered here.
@@ -1235,56 +1299,126 @@ async fn acpmux(
                         }
                         continue;
                     }
-                    let latest = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    if !latest.available || bound_sessions.iter().any(|session| latest.blocked.contains(session))
-                        || crate::acpmux_policy::exposure_refusal_with_replies(&text, &latest, &bound_sessions, &server_reply_ids).is_some() { break; }
-                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                        let methodless = match &value { Value::Array(items) => items.iter().all(|item| item.get("method").is_none()), other => other.get("method").is_none() };
-                        if methodless { for id in crate::acpmux_policy::response_ids(&text) { server_reply_ids.remove(&id); } }
+                    let latest =
+                        exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    {
+                        let mut relay = shared.lock().expect("acpmux relay state");
+                        if !latest.available
+                            || relay.bound_sessions.iter().any(|session| latest.blocked.contains(session))
+                            || crate::acpmux_policy::exposure_refusal_with_replies(
+                                &text,
+                                &latest,
+                                &relay.bound_sessions,
+                                &relay.server_reply_ids,
+                            )
+                            .is_some()
+                        {
+                            break;
+                        }
+                        if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                            let methodless = match &value {
+                                Value::Array(items) => items.iter().all(|item| item.get("method").is_none()),
+                                other => other.get("method").is_none(),
+                            };
+                            if methodless {
+                                for id in crate::acpmux_policy::response_ids(&text) {
+                                    relay.server_reply_ids.remove(&id);
+                                }
+                            }
+                        }
                     }
                     if ws_sink.send(Message::Text(text.into())).await.is_err() {
                         break;
                     }
                 }
                 _ => break,
-            },
-            message = ws_source.next() => match message {
+            }
+        }
+        Ok::<(), Refusal>(())
+    };
+    let downstream = async {
+        loop {
+            match ws_source.next().await {
                 Some(Ok(Message::Text(text))) => {
-                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    if !state.available || bound_sessions.iter().any(|session| state.blocked.contains(session)) { break; }
-                    for (id, session) in crate::acpmux_policy::returned_sessions(&text) {
-                        if pending_new.remove(&id) { bound_sessions.insert(session); }
-                    }
-                    let Some(text) = crate::acpmux_policy::filter_response(&text, &state, &bound_sessions) else { continue };
-                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                        let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
-                        for request in requests {
-                            if request.get("method").is_some() {
-                                for (id, session) in crate::acpmux_policy::request_targets(&request.to_string()) {
-                                    bound_sessions.insert(session.clone());
-                                    server_reply_ids.insert(id, session);
+                    let state =
+                        exposure_down.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    let filtered = {
+                        let mut relay = shared.lock().expect("acpmux relay state");
+                        if !state.available
+                            || relay.bound_sessions.iter().any(|session| state.blocked.contains(session))
+                        {
+                            break;
+                        }
+                        for (id, session) in crate::acpmux_policy::returned_sessions(&text) {
+                            if relay.pending_new.remove(&id) {
+                                relay.bound_sessions.insert(session);
+                            }
+                        }
+                        let Some(text) =
+                            crate::acpmux_policy::filter_response(&text, &state, &relay.bound_sessions)
+                        else {
+                            continue;
+                        };
+                        if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                            let requests = match &value {
+                                Value::Array(items) => items.iter().collect::<Vec<_>>(),
+                                other => vec![other],
+                            };
+                            for request in requests {
+                                if request.get("method").is_some() {
+                                    for (id, session) in
+                                        crate::acpmux_policy::request_targets(&request.to_string())
+                                    {
+                                        relay.bound_sessions.insert(session.clone());
+                                        relay.server_reply_ids.insert(id, session);
+                                    }
                                 }
                             }
                         }
-                    }
-                    if sender.send(crate::link_deflate::frame(deflate, &text).await).await.is_err() {
+                        text
+                    };
+                    if sender.send(crate::link_deflate::frame(deflate, &filtered).await).await.is_err() {
                         break;
                     }
                 }
                 Some(Ok(Message::Binary(bytes))) => {
-                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    if state.configured || !state.available { break; }
+                    let state =
+                        exposure_down.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    if state.configured || !state.available {
+                        break;
+                    }
                     if sender.send(bytes).await.is_err() {
                         break;
                     }
                 }
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                 Some(Ok(_)) => {}
-            },
+            }
         }
-    }
+    };
+    let exposure_watch = async {
+        let mut exposure = exposure_down.clone();
+        let Some(exposure) = exposure.as_mut() else { return std::future::pending::<()>().await };
+        loop {
+            if exposure.changed().await.is_err() {
+                return;
+            }
+            let state = exposure.borrow().clone();
+            let relay = shared.lock().expect("acpmux relay state");
+            if !state.available || relay.bound_sessions.iter().any(|session| state.blocked.contains(session))
+            {
+                return;
+            }
+        }
+    };
+    let outcome = tokio::select! {
+        outcome = upstream => outcome,
+        () = downstream => Ok(()),
+        () = exposure_watch => Ok(()),
+    };
+    // The unfinished halves are dropped by the select; now the socket can close.
     let _ = ws_sink.close().await;
-    Ok(())
+    outcome
 }
 
 /// The acpmux WebSocket on the dashboard token. Supervised, the app's acpmux may have
@@ -1737,6 +1871,15 @@ impl crate::browser_policy::MacPages for ServiceConfig {
     }
 }
 
+/// The surface check's query: page records (`page-tabs-v1`), then `list-workspaces`.
+fn surface_query() -> String {
+    format!(
+        "{{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"{}\",\"{}\"]}}\n{{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}}\n",
+        names::CONVERSATION_TABS,
+        names::PAGE_TABS
+    )
+}
+
 /// A phone tab is one this Mac's daemon lists now (`list-workspaces`); no
 /// answer streams nothing.
 impl crate::surface::SurfaceTabs for ServiceConfig {
@@ -1744,13 +1887,9 @@ impl crate::surface::SurfaceTabs for ServiceConfig {
         Box::pin(async move {
             // Page tabs read as their record (`conversation.page`) only for a client
             // that negotiated `page-tabs-v1`; without it every page tab reads `browser`.
-            daemon_query(
-                &self.daemon_socket(),
-                b"{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}\n",
-                "cmux-mobile-surface",
-            )
-            .await
-            .is_ok_and(|reply| crate::surface::phone_tab_in(&reply, surface))
+            daemon_query(&self.daemon_socket(), surface_query().as_bytes(), "cmux-mobile-surface")
+                .await
+                .is_ok_and(|reply| crate::surface::phone_tab_in(&reply, surface))
         })
     }
 }
@@ -2050,6 +2189,15 @@ async fn receive_upload(
 mod tests {
     use super::*;
 
+    /// The query is the bytes hostd always sent, its capability names now from the registry.
+    #[test]
+    fn surface_query_is_unchanged() {
+        assert_eq!(
+            surface_query(),
+            "{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}\n"
+        );
+    }
+
     /// A reply in one frame past tungstenite's default 16 MiB frame limit reads whole: an older
     /// acpmux sends its whole watch list so (24.8 MB on one Mac, 2026-11-06), and the push
     /// watcher dropped it and asked again about every minute.
@@ -2186,7 +2334,9 @@ mod tests {
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",
-                "appearance-v1"
+                "appearance-v1",
+                "pair-requests-v1",
+                "phone-frames-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2203,6 +2353,8 @@ mod tests {
                 "cloud-acpmux-v1",
                 "needs-you-v1",
                 "appearance-v1",
+                "pair-requests-v1",
+                "phone-frames-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
@@ -2298,6 +2450,20 @@ mod tests {
         config.surface = config.surface.clone().without_simulators();
         assert!(!capabilities(&config).contains(&SURFACE_STREAM));
         assert!(capabilities(&config).ends_with(&[CLOUD_DESKTOP]));
+    }
+
+    /// Everything `version` can list is a host name in the registry, and every host name there
+    /// is one `version` can list.
+    #[test]
+    fn version_capabilities_are_the_registry_host_names() {
+        let listed: Vec<&str> = CAPABILITIES
+            .iter()
+            .copied()
+            .chain([BROWSER_STREAM, BROWSER_VIDEO_TRACK, SURFACE_STREAM, CLOUD_DESKTOP])
+            .collect();
+        let host: Vec<&str> =
+            names::ALL.iter().filter(|c| c.side == names::Side::Host).map(|c| c.name).collect();
+        assert_eq!(listed, host);
     }
 
     #[test]

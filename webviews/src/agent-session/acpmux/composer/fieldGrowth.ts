@@ -37,8 +37,9 @@ import { sliceHoldsInline } from "./inlineNode";
 //
 // An edit that lands while the field moves retargets from the height drawn, keeping the motion's
 // end. A value set from outside (a send clearing the prompt, a chat's draft), Reduce Motion and
-// motion off change the height in the frame, as before. Nothing runs at rest: the animation and the
-// text's observer exist only while the field moves, and both go when it lands or the editor goes.
+// motion off change the height in the frame, as before; motion turned off mid-growth lands it at once.
+// Nothing runs at rest: the animation, the text's observer and the motion gate's watch exist only
+// while the field moves, and all go when it lands or the editor goes.
 
 /** The spring arms' springs; `ease` and `instant` have none. */
 const SPRINGS: Partial<Record<FieldGrowthArm, SpringParameters>> = {
@@ -62,7 +63,49 @@ type Motion = {
   reveal: boolean;
   /** The text's own size changes while it moves (a rewrap): retarget. */
   observer: ResizeObserver | undefined;
+  /** Stops watching the motion gate (`watchMotionGate`). */
+  unwatch: () => void;
+  /** Stops holding the text's top (`holdTop`); nothing for a reveal. */
+  release: () => void;
 };
+
+/** While a growth keeps the text's top on the moving edge, keeps the field's scroll at `top`. The
+ *  engine's own caret reveal at each key typed while the field still moves (the letters after the
+ *  one that wrapped; it runs past ProseMirror's handleScrollToSelection) scrolled the text up inside
+ *  the box that was still a line short, and the retarget kept that scroll, so the first line jumped
+ *  up and slid back as the edge came down (Lawrence 2026-11-15, a 120 fps capture of the New Tab field: "on
+ *  newline, there is a frame of weirdness"). A scroll event runs in the frame's steps before paint,
+ *  so the reset lands in the frame the reveal would have drawn. The person's own scroll (wheel,
+ *  drag) cannot reach it: mid-move the text fits the height it lands on. */
+function holdTop(field: HTMLElement, top: number): () => void {
+  const hold = () => {
+    if (field.scrollTop !== top) field.scrollTop = top;
+  };
+  hold();
+  field.addEventListener("scroll", hold, { passive: true });
+  return () => field.removeEventListener("scroll", hold);
+}
+
+/** Calls `still` when the motion gate of `field`'s page leaves full motion while a growth runs: the
+ *  app's switch (`data-cmux-motion`), the pane's (`data-agent-motion`, its zero tokens on the root's
+ *  style) and Reduce Motion (ui/motion/motionMode.ts). Only while the field moves. */
+function watchMotionGate(field: HTMLElement, still: () => void): () => void {
+  const doc = field.ownerDocument;
+  const check = () => {
+    if (motionMode(doc) !== "full") still();
+  };
+  const observer = typeof MutationObserver === "function" ? new MutationObserver(check) : undefined;
+  observer?.observe(doc.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-cmux-motion", "data-agent-motion", "style"],
+  });
+  const media = doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
+  media?.addEventListener?.("change", check);
+  return () => {
+    observer?.disconnect();
+    media?.removeEventListener?.("change", check);
+  };
+}
 
 /** Whether a transaction placed an attachment's node: its steps' own slices, O(the edit). */
 const placesAttachment = (tr: Transaction) =>
@@ -134,6 +177,8 @@ export function fieldGrowth(external: () => boolean): Plugin {
         moving.delete(field);
         field.removeAttribute(SETTLING_SCROLLER_ATTRIBUTE);
         motion.observer?.disconnect();
+        motion.unwatch();
+        motion.release();
         motion.animation.cancel();
       };
       /** Runs `motion` as `animation`, and lets the field rest when it ends. */
@@ -144,6 +189,8 @@ export function fieldGrowth(external: () => boolean): Plugin {
           moving.delete(field);
           field.removeAttribute(SETTLING_SCROLLER_ATTRIBUTE);
           motion.observer?.disconnect();
+          motion.unwatch();
+          motion.release();
         };
         animation.addEventListener("finish", done, { once: true });
         animation.addEventListener("cancel", done, { once: true });
@@ -162,27 +209,36 @@ export function fieldGrowth(external: () => boolean): Plugin {
         running?.animation.cancel();
         const to = field.getBoundingClientRect().height;
         shown = to;
-        if (running && !atOnce && Math.abs(to - running.to) < 0.5) {
+        // Read before the same-end path: an edit after motion went off (or a value set from outside)
+        // lands a running growth instead of playing it on.
+        const moves = !atOnce && arm !== "instant" && !external() && motionMode(field.ownerDocument) === "full";
+        if (running && moves && Math.abs(to - running.to) < 0.5) {
           // The same end (a second edit on the same line, the text's observer's first call): the
           // motion goes on where it was, on the same curve and clock. A started animation given its
           // start time runs from the next frame; left pending it would hold a frame still.
           const again = field.animate(running.keyframes, running.timing);
           if (started !== null) again.startTime = started;
-          field.scrollTop = scrolled;
+          // A reveal keeps the scroll it drew with; a growth that holds the text's top keeps it at the
+          // top, never a scroll the engine's caret reveal made in the short box since (`holdTop`).
+          field.scrollTop = running.reveal ? scrolled : 0;
           run(field, running, again);
           return;
         }
         if (running) land(field);
         if (from < 0 || Math.abs(to - from) < 0.5) return;
-        if (atOnce || arm === "instant" || external() || motionMode(field.ownerDocument) !== "full") return;
+        if (!moves) return;
         const lineHeight = Number.parseFloat(getComputedStyle(field).lineHeight) || 20;
         const capped = field.scrollHeight > field.clientHeight + 1;
-        const reveal = capped || Math.abs(to - from) > lineHeight * REVEAL_LINES || (running?.reveal ?? false);
+        // The rects include the composer's density zoom; line height and keyframes are in its CSS pixels. Unscaled, a
+        // zoomed composer (every density but Default) animated toward the wrong height and jumped at the end.
+        const cssHeight = Number.parseFloat(getComputedStyle(field).height);
+        const scale = cssHeight > 0 ? to / cssHeight : 1;
+        const reveal = capped || Math.abs(to - from) / scale > lineHeight * REVEAL_LINES || (running?.reveal ?? false);
         const now = performance.now();
         const { keyframes, duration, easing, progress } = growthFrames(
           arm,
-          from,
-          to,
+          from / scale,
+          to / scale,
           running ? running.end - now : undefined,
         );
         const timing = { duration, easing };
@@ -192,7 +248,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         // on in the next frame from where the field is drawn.
         const timeline = field.ownerDocument.timeline?.currentTime;
         if (typeof timeline === "number") animation.startTime = timeline;
-        if (running) field.scrollTop = scrolled;
+        if (running) field.scrollTop = reveal ? scrolled : 0;
         // The text rewrapped meanwhile (the actions beside it changed width): move to its height. Its
         // first call is the observation starting, with nothing changed.
         let observed = false;
@@ -206,7 +262,18 @@ export function fieldGrowth(external: () => boolean): Plugin {
                 if (moving.get(field) === motion) follow();
               })
             : undefined;
-        const motion: Motion = { animation, keyframes, timing, to, end: now + duration, reveal, observer };
+        const motion: Motion = {
+          animation,
+          keyframes,
+          timing,
+          to,
+          end: now + duration,
+          reveal,
+          observer,
+          unwatch: watchMotionGate(field, () => land(field)),
+          // The text fits the height it lands on, so at rest its scroll is 0: the top it rides.
+          release: reveal ? () => {} : holdTop(field, 0),
+        };
         moving.set(field, motion);
         // Read at the end height above: the text fits the field it lands on, so no thumb meanwhile.
         field.toggleAttribute(SETTLING_SCROLLER_ATTRIBUTE, !capped);

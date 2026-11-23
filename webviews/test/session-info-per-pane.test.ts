@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import { SESSION_INFO_SHOWN, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-per-pane.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -59,8 +60,8 @@ await requireBrowserLane("session-info-per-pane.test.ts", async () => {
         .cmuxAcpmuxBridge;
       bridge.applyHeaderState({ inspector: true, version: 2 });
     });
-  const shown = (page: Page) => page.locator('aside.acpmux-session-info[data-presence="shown"]');
-  const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
+  const shown = (page: Page) => page.locator(SESSION_INFO_SHOWN);
+  const toggle = (page: Page) => page.locator(SESSION_INFO_TOGGLE);
   /// Waits until `page` sees another page's toggle (the chat's own saved state, `open`, in the storage
   /// they share; its storage event comes with it) and has painted two frames after it, so a pane that
   /// followed the event would show it. Closing is the chat's own choice (sessionInfoState.ts): the

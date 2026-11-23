@@ -86,10 +86,11 @@ resolve() { # [env...] -> stdout+stderr in $out, exit in $status
 }
 
 # The tip and the next cmux-tui commit are unusable; the published tree wins at once.
+# A wait would sleep a whole 600 s poll; a loaded Mac takes about 21 s to resolve without one.
 started=$SECONDS
-resolve
+resolve CMUX_TUI_TREE_POLL_SECONDS=600
 [[ "$status" == 0 ]] || fail "resolve-newest-published failed (exit $status):" "$out" "$err"
-(( SECONDS - started < 20 )) || fail "the resolver waited $((SECONDS - started))s; it must not wait for the tip's tree"
+(( SECONDS - started < 300 )) || fail "the resolver waited $((SECONDS - started))s; it must not wait for the tip's tree"
 grep -qx "commit=$published" <<<"$out" || fail "expected commit=$published (newest published tree), got:" "$out" "$err"
 grep -qx "key=$(key "$published")" <<<"$out" || fail "expected the published tree's key, got:" "$out"
 grep -qx "source_commit=$published" <<<"$out" || fail "expected source_commit=$published, got:" "$out"
@@ -242,5 +243,42 @@ resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48
 [[ "$status" == 0 ]] && grep -qx "key=$lk" <<<"$out" \
   && grep -qx "commit=$legacy_commit" <<<"$out" \
   || fail "a tree published only under its v2-legacy key must resolve with that key (exit $status):" "$out" "$err"
+# macOS curl 8.7.1 over HTTP/2 exits 56, not 22, on a --fail 404. download() took that for a dropped
+# connection and fetched every unpublished key 4 times with 12 s of backoff: the nightly's fallback search
+# spent 6 to 12 min of each build in it (nightly-next runs 44990363506, 44992267457, 44993740115). With a
+# curl that answers a miss that way, each unpublished tree is read once and the search still resolves.
+mkdir -p "$TMP/bin56"
+cat > "$TMP/bin56/curl" <<STUB
+#!/usr/bin/env bash
+out="" url="" fail_flag="" write_out=""
+while [[ \$# -gt 0 ]]; do
+  case "\$1" in
+    -o) out="\$2"; shift 2 ;;
+    -w) write_out="\$2"; shift 2 ;;
+    --proto|--retry|--retry-delay|--connect-timeout|--max-time) shift 2 ;;
+    -*f*) fail_flag=1; shift ;;
+    -*) shift ;;
+    *) url="\$1"; shift ;;
+  esac
+done
+echo "\$url" >> "$TMP/curl56.log"
+path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
+if [[ "\$path" == "\$url" || ! -f "$cdn/\$path" ]]; then
+  [[ -n "\$write_out" ]] && printf 404
+  [[ -n "\$fail_flag" ]] && { echo "curl: (56) The requested URL returned error: 404" >&2; exit 56; }
+  exit 0
+fi
+if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
+[[ -n "\$write_out" ]] && printf 200
+exit 0
+STUB
+chmod +x "$TMP/bin56/curl"
+: > "$TMP/curl56.log"
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 CMUX_TUI_DOWNLOAD_BACKOFF_SECONDS=0 PATH="$TMP/bin56:$PATH"
+[[ "$status" == 0 ]] && grep -qx "key=$lk" <<<"$out" \
+  || fail "with a curl that exits 56 on a 404 the search must still resolve (exit $status):" "$out" "$err"
+repeated=$(sed 's/?.*//' "$TMP/curl56.log" | sort | uniq -d)
+[[ -z "$repeated" ]] || fail "a 404 that curl reports as exit 56 must not be retried; read more than once:" "$repeated"
+if grep -q "retrying" <<<"$err"; then fail "a 404 is not a failed transfer:" "$err"; fi
 : "$old"
 echo "PASS: resolve-newest-published picks the newest verified published tree without waiting"

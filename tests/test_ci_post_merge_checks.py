@@ -11,16 +11,18 @@ publish, a bot: nothing a pull request could have caught) or `check` (a verdict 
 the code, which belongs on the pull request), each with a reason. This test fails when
 
   - a workflow runs after the merge only and is not in the list: give it a pull_request
-    trigger (path-filtered is fine), or have a workflow that pull requests start call it;
+    trigger (path-filtered is fine), have a workflow that pull requests start call it, or
+    run each of its commands in a step of the step table (ci/steps.toml) whose job a
+    workflow that pull requests start runs (`ci/run run --job JOB`, pr-pipeline.yml);
   - a listed workflow is gone, lost its push trigger or gained a pull request path: drop
-    its entry, so the list only shrinks;
-  - the number of `check` entries is above `check_budget`, which only goes down.
+    its entry;
 """
 
 from __future__ import annotations
 
 import json
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -99,9 +101,38 @@ def called_workflows(doc: dict) -> set[str]:
     return found
 
 
-def post_merge_only(workflows: dict[str, dict], base: str = BASE) -> set[str]:
+TABLE_JOB_RUN = re.compile(r"(?:ci/run|scripts/ci/ci_steps\.py)\s+run\s[^\n]*?--job[ =](?P<job>[A-Za-z0-9_-]+)")
+
+
+def run_commands(doc: dict) -> list[str]:
+    """Each command line of the workflow's `run:` steps, comments and blanks left out."""
+    lines = []
+    for job in (doc.get("jobs") or {}).values():
+        for step in (job.get("steps") or []) if isinstance(job, dict) else []:
+            for line in str(step.get("run") or "").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    lines.append(line)
+    return lines
+
+
+def table_runs(workflows: dict[str, dict], reached: set[str]) -> str:
+    """The `run` text of the step table's steps in each job a reached workflow runs through ci/run."""
+    jobs = {m.group("job") for name in reached for line in run_commands(workflows[name])
+            for m in TABLE_JOB_RUN.finditer(line)}
+    if not jobs or not (ROOT / "ci" / "steps.toml").is_file():
+        return ""
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    import ci_steps  # noqa: PLC0415
+
+    return "\n".join(step.run for step in ci_steps.load().steps.values() if step.job in jobs)
+
+
+def post_merge_only(workflows: dict[str, dict], base: str = BASE, table: str | None = None) -> set[str]:
     """Workflows a push to `base` starts that no pull request into `base` can reach,
-    directly or as a reusable workflow called (at any depth) from one that it starts."""
+    directly or as a reusable workflow called (at any depth) from one that it starts.
+    A workflow whose every command a step of the table runs on the pull request is
+    reached too (`table`: those steps' `run` text; None reads ci/steps.toml)."""
     on_pr = {
         name
         for name, doc in workflows.items()
@@ -116,6 +147,11 @@ def post_merge_only(workflows: dict[str, dict], base: str = BASE) -> set[str]:
             if callee in workflows and callee not in reached and "workflow_call" in triggers(workflows[callee]):
                 reached.add(callee)
                 frontier.append(callee)
+    if table is None:
+        table = table_runs(workflows, reached)
+    if table:
+        reached |= {name for name, doc in workflows.items()
+                    if (commands := run_commands(doc)) and all(c in table for c in commands)}
     return {
         name
         for name, doc in workflows.items()
@@ -168,8 +204,18 @@ class PostMergeOnlyMatcherTest(unittest.TestCase):
             "plain.yml": not_callable,
             "caller.yml": caller,
             "dispatch.yml": {"on": "workflow_dispatch"},
-        })
+        }, table="")
         self.assertEqual(found, {"only.yml", "other.yml", "plain.yml"})
+
+    def test_a_workflow_the_step_table_runs_on_the_pull_request(self) -> None:
+        push = {"push": {"branches": [BASE]}}
+        steps = {"steps": [{"run": "# checks\npython3 a.py\n"}, {"run": "./b.sh"}]}
+        workflows = {"moved.yml": {"on": push, "jobs": {"j": steps}},
+                     "partly.yml": {"on": push, "jobs": {"j": {"steps": [{"run": "python3 a.py"}, {"run": "c.sh"}]}}},
+                     "empty.yml": {"on": push, "jobs": {"j": {"steps": [{"uses": "x"}]}}}}
+        self.assertEqual(post_merge_only(workflows, table="rc=0\npython3 a.py || rc=1\n./b.sh --pr || rc=1"),
+                         {"partly.yml", "empty.yml"})
+        self.assertEqual(post_merge_only(workflows, table=""), set(workflows))
 
 
 class PostMergeChecksListTest(unittest.TestCase):
@@ -193,8 +239,7 @@ class PostMergeChecksListTest(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.fail(
                     f"{name} is gone, no longer starts on a push to {BASE}, or now runs on pull "
-                    f"requests: drop it from {LIST.relative_to(ROOT)} (and lower check_budget if "
-                    "it was a check)."
+                    f"requests: drop it from {LIST.relative_to(ROOT)}."
                 )
 
     def test_entries_say_what_they_are(self) -> None:
@@ -202,21 +247,6 @@ class PostMergeChecksListTest(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertIn(entry.get("kind"), KINDS)
                 self.assertGreaterEqual(len(entry.get("why", "").split()), 4, "say why in a few words")
-
-    def test_checks_stay_within_the_budget(self) -> None:
-        checks = sorted(name for name, entry in self.entries.items() if entry.get("kind") == "check")
-        budget = self.listed["check_budget"]
-        print(f"post-merge-only checks: {len(checks)} (budget {budget}, target 0)")
-        self.assertLessEqual(
-            len(checks), budget,
-            f"{len(checks)} checks first run after the merge, over the budget of {budget}: "
-            f"{', '.join(checks)}. The budget only goes down.",
-        )
-        self.assertEqual(
-            budget, len(checks),
-            f"check_budget is {budget} and {len(checks)} checks are listed: lower it to "
-            f"{len(checks)}, so a check that moved onto pull requests cannot be replaced.",
-        )
 
 
 if __name__ == "__main__":

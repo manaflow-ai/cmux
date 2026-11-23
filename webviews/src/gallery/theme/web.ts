@@ -25,6 +25,7 @@ import {
   MINIMUM_TEXT_CONTRAST,
   parseHex,
   readable,
+  wallpaperTintOpacity,
   withAlpha,
   type ThemeInput,
   type ThemeTokens,
@@ -91,6 +92,12 @@ export function webThemePayload(
     variables: {
       "--cmux-surface-background": css(seeThrough ? withAlpha(page, 0) : page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
+      // WebTheme's window tint: over a picture the theme's wallpaper tint (frame/background.ts paints it).
+      "--cmux-window-tint": css(
+        seeThrough
+          ? withAlpha(tokens.windowBackground, wallpaperTintOpacity(tokens))
+          : withAlpha(tokens.windowBackground, 1),
+      ),
       "--cmux-surface-solid": css(page),
       // Reading pages (the Markdown viewer): clear over a picture, else opaque (WebTheme's rule).
       "--cmux-reading-background": css(seeThrough ? withAlpha(page, 0) : page),
@@ -122,6 +129,8 @@ export function webThemePayload(
       // no sidebar color.
       "--cmux-sidebar-surface": shade > 0 ? css(withAlpha(BLACK, shade)) : "transparent",
       "--cmux-hover": css(tokens.hoverFill),
+      // A pressed row's fill, as WebTheme.swift sends it (Palette.pressedFill).
+      "--cmux-pressed": css(tokens.pressedFill),
       "--cmux-selection": css(tokens.selectionFill),
       // The gallery has no Ghostty cursor color: the text color. Selected text is the app's one
       // highlight (WebTheme.swift), the same token native text fields use.
@@ -147,6 +156,9 @@ export function webThemePayload(
     statusIndicators: options.reducedMotion ? "static" : "animated",
     workingLook: "spinner",
     motion: options.reducedMotion ? "reduced" : "full",
+    // The gallery keeps glass by default, though the app sends "off" until Settings > Appearance >
+    // Liquid Glass is on: its states show each glass surface, and the off look has its own states
+    // (agent-pane.composer-look/composer-material-liquid-glass-off).
     glass: options.glass ?? "plain",
   };
 }

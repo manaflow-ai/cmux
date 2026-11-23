@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the page host (Localizable.xcstrings): the native confirmation sheet.
 nonisolated enum PageStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var installTitle: String { t("pages.confirm.installTitle", "Install “%@”?") }
@@ -34,7 +34,9 @@ nonisolated enum PageStrings {
     static var cloudBilling: String { t("pages.confirm.cloud.billing", "Open billing in your browser?") }
     static var cloudSignIn: String { t("pages.confirm.cloud.signIn", "Sign in to cmux Cloud?") }
     static var cloudSignOut: String { t("pages.confirm.cloud.signOut", "Sign out of cmux Cloud?") }
-    static var cloudConnect: String { t("pages.confirm.cloud.connect", "Connect to “%@”?") }
+    static var cloudConnect: String { t("pages.confirm.cloud.connect", "Open “%@”") }
+    static var cloudMachine: String { t("pages.confirm.cloud.machine", "Cloud machine") }
+    static var cloudConnectDetail: String { t("pages.confirm.cloud.connectDetail", "Connect opens this machine in cmux so you can see what is running.") }
 
     static func risk(_ risk: String) -> String {
         switch risk {

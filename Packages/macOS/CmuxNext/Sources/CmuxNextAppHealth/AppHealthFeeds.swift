@@ -20,7 +20,7 @@ public import Foundation
 /// - the session daemon connection (`acpmux`, "Connection to the session service"): connected or not,
 ///   answering its heartbeat and its requests or not (`DaemonHealthSink`: the first
 ///   timed-out request shows it at once). Repairs: Retry Now, then a reconnect with a fresh drop budget;
-///   never a kill;
+///   never a kill. A connection that is up and answering also tells `sessionDaemon` its owner is ready;
 /// - the page host (`pageHost`): page loads and the daemon's page listener (asked for when a page
 ///   found no listener credential). Repair: `DaemonService.ensurePageListener()`.
 @MainActor
@@ -38,20 +38,24 @@ public final class AppHealthFeeds {
     private var connectionFeed: Task<Void, Never>?
     /// Each window's footer line (``makeIndicator(over:)``) and the headline they show.
     private let indicators = NSHashTable<AppHealthIndicatorView>.weakObjects()
+    /// Where each part is (the chat a page shows), for the footer line's words and the card.
+    private let places: AppHealthPlaces
     private var headline: AppHealth.Headline?
 
     /// - Parameters:
     ///   - stateDirectory: The session daemon's state directory, whose registry size is read once.
     ///   - work: The app's blocking-work lanes (the size read runs on `.files`).
-    ///   - overlayProcess: The overlay pages' one web content process, for the popover's panel.
-    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork, overlayProcess: PageOverlayProcess?) {
+    ///   - places: Where each part is; nil: the pages' tabs in `daemon`'s store (``AppHealthPlaces/init(store:)``).
+    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork, places: AppHealthPlaces? = nil) {
         let health = AppHealth()
         self.health = health
         self.daemon = daemon
         self.stateDirectory = stateDirectory
         self.work = work
+        let places = places ?? AppHealthPlaces(store: daemon.store)
+        self.places = places
         pageFeed = AppHealthPageFeed(health: health)
-        popover = AppHealthPopover(health: health, overlayProcess: overlayProcess)
+        popover = AppHealthPopover(health: health, places: places)
     }
 
     /// Before the daemon starts (its first ensure is a health fact). The debug socket's `debug.health`
@@ -62,7 +66,8 @@ public final class AppHealthFeeds {
         // The footer lines follow the snapshot, in order, on main (one subscription for the app's life, as this object's).
         health.subscribe { [self] snapshot in
             let headline = AppHealth.headline(of: snapshot)
-            MainDelivery().later { self.show(headline) } // always queued, so the lines keep the snapshots' order
+            // Always queued, so the lines keep the snapshots' order; named by the chat on main, where the panes are.
+            MainDelivery().later { self.show(self.places.headline(headline)) }
         }
         // A restore that still makes progress holds the watch's automatic replace.
         daemon.recovery.holdsReplace = { health.holdsReplace }
@@ -172,30 +177,44 @@ public final class AppHealthFeeds {
 @MainActor
 enum AppHealthConnectionFeed {
     enum Link: Equatable, Sendable {
-        case starting, up, down
+        /// Before this launch's first connection: the daemon is still starting.
+        case starting
+        /// Connected and answering; `pid` is the owner's when the handshake named it.
+        case up(pid: Int32?)
+        case down
     }
 
     static func follow(_ daemon: DaemonService, health: AppHealth) -> Task<Void, Never> {
         let links = ObservationStream { [weak daemon] () -> Link in
             guard let daemon else { return .starting }
-            if case .connected = daemon.store.connectionState { return daemon.recovery.daemonNotAnswering ? .down : .up }
+            if case .connected = daemon.store.connectionState {
+                return daemon.recovery.daemonNotAnswering ? .down : .up(pid: daemon.store.identity?.pid)
+            }
             // Before the first connection of this launch the daemon is still starting.
             return daemon.store.connects > 0 ? .down : .starting
         }
         // task-owner: AppHealthFeeds (`connectionFeed`), for the app's life; event driven (Observation).
         return Task {
-            for await link in links {
-                switch link {
-                case .starting:
-                    break
-                case .up:
-                    health.event(AppHealth.acpmuxID, .connected)
-                    health.visibility(AppHealth.acpmuxID, visible: false)
-                case .down:
-                    health.visibility(AppHealth.acpmuxID, visible: true)
-                    health.event(AppHealth.acpmuxID, .disconnected)
-                }
-            }
+            for await link in links { apply(link, to: health) }
+        }
+    }
+
+    /// One change of the connection, told to app health.
+    nonisolated static func apply(_ link: Link, to health: AppHealth) {
+        switch link {
+        case .starting:
+            break
+        case .up(let pid):
+            health.event(AppHealth.acpmuxID, .connected)
+            health.visibility(AppHealth.acpmuxID, visible: false)
+            // An owner that is connected and answers is serving: it is not restoring and not in a
+            // start loop, whatever an earlier ensure or replace left (a progress line seen after its
+            // end, a replace refused after it wrote). Without this a stale restore read as stalled
+            // and showed "Session service isn't responding" until the next launch (2026-11-13).
+            health.noteDaemonReady(pid: pid ?? 0)
+        case .down:
+            health.visibility(AppHealth.acpmuxID, visible: true)
+            health.event(AppHealth.acpmuxID, .disconnected)
         }
     }
 }
@@ -241,6 +260,31 @@ final class AppHealthStoppedOwner {
             return Darwin.kill(stopped, SIGCONT) == 0
         default:
             return false
+        }
+    }
+}
+#endif
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension AppHealthFeeds {
+    /// `debug.app_health_card {state, close?}` (DEBUG and bench builds), for captures of app health's card over the
+    /// main window: `state` failed (Agent chat needs a repair, with Repair Now), repairing, or quiet (all clear),
+    /// from a fixture snapshot; the model is not touched. `close` takes the card away.
+    public func debugMethod() -> ControlMethod {
+        .mainActor("debug.app_health_card") { [weak self] call in
+            guard let self else { return .value(.null) }
+            if call.params["close"]?.boolValue == true {
+                popover.close()
+                popover.fixture = nil
+                return .value(["shown": false])
+            }
+            let state = call.params["state"]?.stringValue ?? "failed"
+            popover.fixture = AppHealthCard.fixture(state: state)
+            popover.close()
+            popover.open(over: NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain })
+            // A capture host's app is not active: the card stays up as it would over the person's active window.
+            popover.panel?.hidesWhenInactive = false
+            return .value(["shown": true, "state": .string(state)])
         }
     }
 }

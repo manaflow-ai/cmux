@@ -27,8 +27,15 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[path = "register_auto.rs"]
+mod auto;
+
 /// The tag a registered chat carries.
 pub const REGISTERED_TAG: &str = "bridge.registered";
+
+/// The daemon takes `auto` on `_acpmux/register` (`register_auto.rs`): a CLI asks for it only
+/// when the daemon lists this, since an older one ignores `auto` and delivers a code each time.
+pub const AUTO_FEATURE: &str = "registerAuto";
 
 /// The chats `acpmux register` registered, kept by the daemon alone (`bridge-registered.json` in
 /// its home, owner-only): the tag shows it, but a client can set tags (`_acpmux/tag`), so the tag
@@ -86,6 +93,16 @@ pub struct RegisterRequest {
     pub token: Option<String>,
     /// The one-time code acpmux delivered into the session's inbox (`--code`): the second step.
     pub code: Option<String>,
+    /// `acpmux send` from an unregistered chat's shell asks (`cli/reply_address.rs`): the first
+    /// step only when it is needed. A chat already registered with the caller's inbox and token,
+    /// or with a code still waiting for its echo, gets none (the answer says which); otherwise
+    /// the code goes as `acpmux register NAME` sends it, with why it came.
+    pub auto: bool,
+    /// `acpmux register --renew`, run by a Claude Code hook in every session (SessionStart,
+    /// Stop): the new token for a chat already registered, after its Claude Code restarted with
+    /// `--resume` that conversation, with no code. Anything else gets nothing: no code is ever
+    /// delivered for it, so a hook never wakes a session (`renewed_name`).
+    pub renew: bool,
 }
 
 impl RegisterRequest {
@@ -101,7 +118,22 @@ impl RegisterRequest {
         if code.as_ref().is_some_and(|c| c.len() > 128) {
             return Err(RpcError::invalid_params("code is not a register code"));
         }
-        Ok(Self { name: name.to_owned(), socket: text("socket").map(PathBuf::from), token, code })
+        let auto = params.get("auto").and_then(Value::as_bool) == Some(true);
+        if auto && code.is_some() {
+            return Err(RpcError::invalid_params("auto is the first step only, never with a code"));
+        }
+        let renew = params.get("renew").and_then(Value::as_bool) == Some(true);
+        if renew && code.is_some() {
+            return Err(RpcError::invalid_params("renew takes no code"));
+        }
+        Ok(Self {
+            name: name.to_owned(),
+            socket: text("socket").map(PathBuf::from),
+            token,
+            code,
+            auto,
+            renew,
+        })
     }
 }
 
@@ -111,7 +143,7 @@ enum Found {
 }
 
 /// The nearest of `ancestry` that `live` lists, with `socket` its inbox when one is given.
-pub(super) fn nearest_claude(
+pub(crate) fn nearest_claude(
     ancestry: &[u32],
     live: &[crate::claude_peers::Peer],
     socket: Option<&std::path::Path>,
@@ -124,7 +156,7 @@ pub(super) fn nearest_claude(
 }
 
 /// `ancestry` (the caller first) up to, not including, this daemon's own pid.
-fn below_daemon(mut ancestry: Vec<u32>) -> Vec<u32> {
+pub(crate) fn below_daemon(mut ancestry: Vec<u32>) -> Vec<u32> {
     let me = std::process::id();
     if let Some(at) = ancestry.iter().position(|p| *p == me) {
         ancestry.truncate(at);
@@ -133,8 +165,39 @@ fn below_daemon(mut ancestry: Vec<u32>) -> Vec<u32> {
 }
 
 impl Hub {
-    /// Registers the conversation the process `peer_pid` runs in under `req.name`.
+    /// Registers the conversation the process `peer_pid` runs in under `req.name`. An automatic
+    /// first step (`req.auto`) is answered first from what the daemon already holds, with no
+    /// proof and no change (`register_auto.rs`), and proves the caller only when that holds
+    /// nothing for its inbox and token.
     pub async fn register_caller(
+        self: &Arc<Self>,
+        peer_pid: u32,
+        req: RegisterRequest,
+    ) -> Result<Value, RpcError> {
+        let (Some(socket), Some(token)) = (req.socket.clone(), req.token.clone()) else {
+            return self.register_proven(peer_pid, req).await;
+        };
+        if !req.auto && !req.renew {
+            return self.register_proven(peer_pid, req).await;
+        }
+        let reserved = match self.auto_answer(&crate::config::home(), &socket, &token) {
+            auto::Step::Answer(answer) => return Ok(answer),
+            auto::Step::Go(reserved) => reserved,
+        };
+        let out = self.register_proven(peer_pid, req).await;
+        match &out {
+            Err(e) => reserved.failed(&e.message),
+            // Nothing to renew: kept like a failure, so a hook that asks on every turn is
+            // answered from memory, never proven again, until it may have changed.
+            Ok(v) if v.get("renewed").and_then(Value::as_bool) == Some(false) => {
+                reserved.failed(NOT_RENEWABLE);
+            }
+            Ok(_) => {}
+        }
+        out
+    }
+
+    async fn register_proven(
         self: &Arc<Self>,
         peer_pid: u32,
         req: RegisterRequest,
@@ -169,10 +232,40 @@ impl Hub {
         let inbox = req.socket.clone().unwrap_or_default();
         let token = req.token.clone().unwrap_or_default();
         let (started, launched_for) = prove_claude(claimed, &claude_home, &inbox).await?;
-        let Some(code) = req.code.as_deref() else {
-            return send_code(claimed, &claude_home, &token, &req.name, started).await;
+        // A chat registered before its Claude Code restarted takes the new process's token with
+        // no code when the kernel's record of that process's launch names its conversation
+        // (`--resume ID`): the code already went once, and the takeover rule below holds it to
+        // the same proof. A hook asks this on every session's start.
+        let renewed = if req.code.is_none() && (req.auto || req.renew) {
+            self.renewed_name(claimed, launched_for.as_deref()).await
+        } else {
+            None
         };
-        take_code(claimed.pid, code, started, &inbox, &token, &req.name)?;
+        if req.renew && renewed.is_none() {
+            return Ok(json!({"renewed": false, "reason": NOT_RENEWABLE}));
+        }
+        if let Some(code) = req.code.as_deref() {
+            take_code(claimed.pid, code, started, &inbox, &token, &req.name)?;
+        } else if renewed.is_none() {
+            let (name, why) = if req.auto {
+                match self.auto_plan(claimed, &req.name).await {
+                    auto::Plan::Reachable(name) => {
+                        return Ok(json!({"reachable": true, "name": name}));
+                    }
+                    auto::Plan::Taken => {
+                        return Err(RpcError::invalid_params(format!(
+                            "session name {:?} is taken: run `acpmux register NAME` with another name",
+                            req.name
+                        ))
+                        .with_data(json!({"reason": "register.name_taken"})));
+                    }
+                    auto::Plan::Code(name) => (name, Why::Send(crate::host_pressure::host_name())),
+                }
+            } else {
+                (req.name.clone(), Why::Asked)
+            };
+            return send_code(claimed, &claude_home, &token, &name, started, why).await;
+        }
         let (family, agent_session_id, cwd, tags, pid) = match &found {
             Found::Claude(p) => (
                 "claude",
@@ -182,7 +275,8 @@ impl Hub {
                 Some(p.pid),
             ),
         };
-        let name = req.name.clone();
+        // A renewal keeps the chat's own name: it is the address senders use.
+        let name = renewed.clone().unwrap_or_else(|| req.name.clone());
         // One registration at a time: the name check below and the rename after it are one step,
         // so two sessions registering the same name at once never both get it.
         static REGISTERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -233,7 +327,7 @@ impl Hub {
         let session = match shown {
             Some(s) => {
                 if s.meta().name != name {
-                    self.rename(&s, name.clone()).await?;
+                    self.rename_as(&s, name.clone(), super::task_names::Naming::Address).await?;
                 }
                 s
             }
@@ -270,7 +364,10 @@ impl Hub {
             }
             mark_registered(&session.id)
                 .map_err(|e| RpcError::internal(format!("could not keep the registration: {e}")))?;
-            self.set_tags(&session, tags.as_object(), &[], None);
+            // A stale or contested registration this one replaces no longer holds
+            // (`bridge.rs` `note_unreached`).
+            let unreachable = [super::bridge::UNREACHABLE_TAG.to_owned()];
+            self.set_tags(&session, tags.as_object(), &unreachable, None);
             let home = crate::config::home();
             match (&found, req.token, req.socket) {
                 (Found::Claude(peer), Some(token), Some(socket)) => {
@@ -294,7 +391,7 @@ impl Hub {
             "registered",
             json!({"name": name, "family": family, "pid": pid, "token": token_kept}),
         );
-        Ok(json!({
+        let mut out = json!({
             "sessionId": session.id,
             "name": name,
             "family": family,
@@ -302,7 +399,62 @@ impl Hub {
             "pid": pid,
             "bridged": watched,
             "token": if token_kept { "registered" } else { "none" },
-        }))
+        });
+        if let (Some(_), Some(obj)) = (&renewed, out.as_object_mut()) {
+            obj.insert("renewed".into(), json!(true));
+        }
+        Ok(out)
+    }
+
+    /// The name of the registered chat that shows `claimed`'s conversation, when `claimed` was
+    /// launched for that conversation (`launched_for`, from the kernel's record of its launch):
+    /// such a chat takes the new process's token with no code ([`renewable`]).
+    async fn renewed_name(
+        &self,
+        claimed: &crate::claude_peers::Peer,
+        launched_for: Option<&str>,
+    ) -> Option<String> {
+        let stores = super::adoption::store_families(&*self.config.read().await);
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let shown = super::adoption::adopted_in(&sessions, &stores, "claude", &claimed.session_id)?;
+        let name = shown.read_meta(|m| m.name.clone());
+        renewable(is_registered(&shown), launched_for, &claimed.session_id).then_some(name)
+    }
+}
+
+/// Why `--renew` did nothing: the session is not a registered chat restarted for its own
+/// conversation. Its first registration is `acpmux register NAME`, or its first `acpmux send`.
+pub const NOT_RENEWABLE: &str = "register.not_renewable";
+
+/// Whether a chat (`registered` or not) renews to a process launched for `launched_for`, the
+/// conversation `session_id` names: only a registered chat, and only for a launch that named its
+/// own conversation. A launch that names none (a fresh `claude`, `--continue`) proves nothing.
+fn renewable(registered: bool, launched_for: Option<&str>, session_id: &str) -> bool {
+    registered && launched_for == Some(session_id)
+}
+
+/// Why a code goes to a session: `acpmux register NAME` asked, or `acpmux send` from the chat's
+/// own shell, which has no reply address until it registers (on this machine, by its host name).
+enum Why {
+    Asked,
+    Send(String),
+}
+
+/// The message that carries `code`.
+fn code_text(name: &str, code: &str, why: &Why) -> String {
+    match why {
+        Why::Asked => format!(
+            "acpmux register: to finish registering this session as {name}, run this in your shell: \
+             acpmux register {name} --code {code}\n(If neither you nor the person asked to register \
+             this session, ignore it. The code is good for ten minutes.)"
+        ),
+        Why::Send(host) => format!(
+            "acpmux register: your `acpmux send` went out from a chat acpmux cannot reach, so its \
+             receiver cannot answer you. Register this session as {name} by running this in your \
+             shell: acpmux register {name} --code {code}\nThen replies reach {host}/{name}, and \
+             every send from this chat names that address: send again what still needs an answer. \
+             (If this session ran no `acpmux send`, ignore it. The code is good for ten minutes.)"
+        ),
     }
 }
 
@@ -372,15 +524,12 @@ async fn send_code(
     token: &str,
     name: &str,
     started: u64,
+    why: Why,
 ) -> Result<Value, RpcError> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|e| RpcError::internal(format!("no randomness: {e}")))?;
     let code = cmux_local_auth::frontend_proof::hex(&bytes);
-    let text = format!(
-        "acpmux register: to finish registering this session as {name}, run this in your shell: \
-         acpmux register {name} --code {code}\n(If neither you nor the person asked to register \
-         this session, ignore it. The code is good for ten minutes.)"
-    );
+    let text = code_text(name, &code, &why);
     let socket = claimed.socket.clone().unwrap_or_default();
     let pending = Pending {
         code: code.clone(),
@@ -523,6 +672,49 @@ mod tests {
         assert!(take_code(900_005, "c0de", 7, sock, "tok", "other-name").is_err());
         put(900_006);
         assert!(take_code(900_006, "c0de", 7, sock, "other", "desktop-zoe").is_err());
+    }
+
+    #[test]
+    fn an_automatic_code_says_why_it_came_and_where_replies_go() {
+        let text = code_text("claude-desktop-03214b87", "c0de", &Why::Send("cosmic-gray".into()));
+        assert!(text.contains("its receiver cannot answer you"), "{text}");
+        assert!(text.contains("acpmux register claude-desktop-03214b87 --code c0de"), "{text}");
+        assert!(text.contains("replies reach cosmic-gray/claude-desktop-03214b87"), "{text}");
+        let asked = code_text("desktop-zoe", "c0de", &Why::Asked);
+        assert!(asked.contains("acpmux register desktop-zoe --code c0de"), "{asked}");
+        assert!(!asked.contains("acpmux send"), "{asked}");
+    }
+
+    #[test]
+    fn auto_is_the_first_step_only() {
+        let first =
+            json!({"name": "claude-desktop-0321", "socket": "/s", "token": "t", "auto": true});
+        assert!(RegisterRequest::from_params(&first).unwrap().auto);
+        let manual = json!({"name": "desktop-zoe", "socket": "/s", "token": "t"});
+        assert!(!RegisterRequest::from_params(&manual).unwrap().auto);
+        let both = json!({"name": "desktop-zoe", "token": "t", "auto": true, "code": "c0de"});
+        assert!(RegisterRequest::from_params(&both).is_err());
+    }
+
+    /// Repro (Leo, 2026-11-20, of a terminal coordinator restarted with `--resume`: "isn't one I
+    /// can message through acpmux"): the restarted process handed acpmux no token, so sends
+    /// waited on `bridge.registration_stale` until a person ran `acpmux register` in it.
+    #[test]
+    fn only_a_registered_chat_resumed_for_its_own_conversation_renews() {
+        assert!(renewable(true, Some("6e0bad7d"), "6e0bad7d"));
+        assert!(!renewable(false, Some("6e0bad7d"), "6e0bad7d"), "never registered");
+        assert!(!renewable(true, None, "6e0bad7d"), "a launch that names no conversation");
+        assert!(!renewable(true, Some("other"), "6e0bad7d"), "another conversation");
+    }
+
+    #[test]
+    fn renew_takes_no_code() {
+        let renew =
+            json!({"name": "claude-code-6e0bad7d", "socket": "/s", "token": "t", "renew": true});
+        assert!(RegisterRequest::from_params(&renew).unwrap().renew);
+        let both =
+            json!({"name": "claude-code-6e0bad7d", "token": "t", "renew": true, "code": "c"});
+        assert!(RegisterRequest::from_params(&both).is_err());
     }
 
     #[test]

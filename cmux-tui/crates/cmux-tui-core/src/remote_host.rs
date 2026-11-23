@@ -29,6 +29,29 @@
 /// Advertised by `identify` once `remote-host-status` and `remote-host-call` exist.
 pub(crate) const REMOTE_HOST_CAPABILITY: &str = "remote-host-v1";
 
+/// The cmux app's own macOS grants, as the verified app read them
+/// (`remote-host-config` `app_permissions`). In a build without cmux Remote
+/// (Release and NIGHTLY) the app captures the screen itself, so these are the
+/// grants that matter there. Kept in memory only, never in `config.json`: the
+/// app reports them again at each connect and when it becomes active.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub(crate) struct AppPermissions {
+    #[serde(default)]
+    pub(crate) screen_recording: Option<bool>,
+    #[serde(default)]
+    pub(crate) accessibility: Option<bool>,
+}
+
+impl AppPermissions {
+    /// `remote-host-status`'s `app.permissions`.
+    pub(crate) fn status(&self) -> serde_json::Value {
+        serde_json::json!({
+            "screen_recording": self.screen_recording,
+            "accessibility": self.accessibility,
+        })
+    }
+}
+
 #[cfg(unix)]
 #[path = "remote_host/unix.rs"]
 mod imp;
@@ -47,19 +70,36 @@ mod imp {
         pub(crate) fn status(&self) -> Value {
             json!({"state": "off", "reason": "cmux Remote runs on macOS only"})
         }
+        pub(crate) fn screen_device_id(&self) -> Option<String> {
+            None
+        }
+        pub(crate) fn capture(
+            &self,
+            _method: &str,
+            _params: Value,
+            _app: Value,
+            _peer: Option<cmux_link::app_caller::PeerToken>,
+        ) -> Result<Value, String> {
+            Err("cmux Remote capture runs on macOS only".into())
+        }
         pub(crate) fn call(&self, _method: &str, _params: Value) -> Result<Value, String> {
             Err("cmux Remote runs on macOS only".into())
         }
         pub(crate) fn set_config(&self, _update: &Value) -> Result<Value, String> {
             Err("cmux Remote runs on macOS only".into())
         }
+        pub(crate) fn set_app_permissions(&self, _permissions: super::AppPermissions) -> Value {
+            self.status()
+        }
     }
 
     impl crate::mux::Mux {
-        pub fn configure_remote_host(
-            self: &std::sync::Arc<Self>,
-            _daemon_socket: &std::path::Path,
-        ) {
+        pub fn configure_remote_host(self: &std::sync::Arc<Self>, daemon_socket: &std::path::Path) {
+            // Windows runs Computer Use in the daemon's own worker.
+            #[cfg(windows)]
+            self.configure_computer_use(daemon_socket);
+            #[cfg(not(windows))]
+            let _ = daemon_socket;
         }
     }
 }

@@ -6,6 +6,7 @@ import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-find-position.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -158,7 +159,7 @@ await requireBrowserLane("agent-pane-find-position.test.ts", async () => {
       await scroller.hover({ position: { x: 80, y: 120 } });
       await page.mouse.wheel(0, -450);
       await page.waitForFunction((top) => document.querySelector(".acpmux-scroll")!.scrollTop < top - 100, fourth.top);
-      await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").click();
+      await page.locator(JUMP_LATEST_SHOWN).click();
       await page.waitForFunction(() => {
         const node = document.querySelector(".acpmux-scroll")!;
         return node.scrollHeight - node.clientHeight - node.scrollTop <= 1;

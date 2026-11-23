@@ -1,7 +1,8 @@
 public import AppKit
 public import CmuxNextDesignTokens
 
-/// The flush corner (Debug Settings, `chrome.cornerFlush`; Thunderdome round 2, direction A).
+/// The flush corner (`appearance.cornerFlush`, overridden by the Debug Settings tunable `chrome.cornerFlush`;
+/// Thunderdome round 2, direction A).
 ///
 /// Leo, 2026-11-05: the top area is the implicit top bar of everything, and the sidebar and the
 /// tabs must look like they come from one place. Under a flush value the sidebar, the titlebar
@@ -17,8 +18,8 @@ public import CmuxNextDesignTokens
 /// The default is `flush`, no goo, over the stock chrome (``defaultFits``): the selected tab runs into
 /// the card with no fillets (Leo, 2026-11-13: "lawrence wanted no goo by default"). `flush-goo`, the
 /// folder tab with fillets (Leo, 2026-11-10: "morph it in as like, you know how folder tabs look"),
-/// stays one Debug Settings choice away. Compact density keeps the pill under every value. `off`
-/// keeps the older pill look.
+/// is one `appearance.cornerFlush` choice away, which a theme file or a setup may set too. Compact density
+/// keeps the pill under every value. `off` keeps the older pill look.
 public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoice {
     /// The older corner: the selected tab is a gray pill on the frame.
     case off
@@ -41,16 +42,24 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public static let tunable = Tunable<CornerFlush>.choice(
         "chrome.cornerFlush", .sidebar, "Corner flush",
-        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. The default is flush, no goo, over the stock chrome; goo adds the folder tab's fillets. Off: the gray pill.",
+        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. The default is flush, no goo, over the stock chrome; goo adds the folder tab's fillets. Off: the gray pill. A pick here overrides the appearance.cornerFlush setting.",
         default: .flush, code: "CornerFlush.tunable")
 
     /// The value in effect: `off` at compact density, which keeps the pill; else a Debug Settings
-    /// value, else the default where the default chrome fits it (``defaultFits``), else `off`.
-    @MainActor public static var current: CornerFlush {
+    /// value, else `appearance.cornerFlush` when set (``chosen``), else the default where the default
+    /// chrome fits it (``defaultFits``), else `off`.
+    @MainActor public static var current: CornerFlush { Metrics.memo.cornerFlush.value { uncachedCurrent } }
+    @MainActor private static var uncachedCurrent: CornerFlush {
         if Metrics.density == .compact { return .off }
-        if let chosen = tunable.override { return chosen }
+        if let chosen { return chosen }
         return defaultFits ? tunable.defaultValue : .off
     }
+
+    /// The value picked rather than defaulted: a Debug Settings pick of `chrome.cornerFlush` (DEV and NIGHTLY
+    /// only; it overrides the setting there), else `appearance.cornerFlush` (cmux-next.json, a theme file or a
+    /// setup; Leo, 2026-11-18: the gooey look "we have as a toggle maybe, and we can like do more stuff with
+    /// that"). Either draws over any chrome; nil leaves the default to ``defaultFits``.
+    @MainActor static var chosen: CornerFlush? { tunable.override ?? DesignSettings.shared.cornerFlush }
 
     /// The default draws only over the stock chrome: the shipped chrome style (`flat`, the
     /// `appearance.chromeStyle` fallback, or `default`), tabs on top and above a page's toolbar (a strip
@@ -69,9 +78,10 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
             && ChromeTunables.mainPaneCornerRadius.override == nil
     }
 
-    /// The flush corner was picked in Debug Settings, not taken by default, and draws (compact keeps
-    /// the pill): only then does it replace the sidebar's edge line, which `sidebar.border` sets otherwise.
-    @MainActor public static var isChosen: Bool { tunable.override != nil && current.isOn }
+    /// The flush corner was picked (Debug Settings or `appearance.cornerFlush`), not taken by default, and
+    /// draws (compact keeps the pill): only then does it replace the sidebar's edge line, which
+    /// `sidebar.border` sets otherwise.
+    @MainActor public static var isChosen: Bool { chosen != nil && current.isOn }
 
     public var isOn: Bool { self != .off }
 
@@ -106,6 +116,10 @@ public protocol TabStripCorner: AnyObject {
     var cornerFrameInWindow: CGRect { get }
     /// The selected tab is the strip's first, unscrolled, so its leading side is the pane's edge.
     var selectsLeadingTab: Bool { get }
+    /// The pane's content starts with a toolbar row right under the strip (a browser's omnibar): the tab row's
+    /// divider leaves this pane out, so its tabs and its toolbar read as one surface (Lawrence, 2026-11-13: "get rid
+    /// of border between tabs and omnibar, at all density levels").
+    var meetsToolbar: Bool { get }
     /// Whether the strip is on the card's top row, where the frame's shade is behind it: only there does
     /// its selected tab run into the card. A strip inside the card (a lower split pane's) tones its own row
     /// instead (``setTonedInCard(_:)``): a tab in the card's own color would hide on an untoned row.
@@ -189,7 +203,10 @@ public final class CornerFlushChrome: NSView {
     static func topInset(of root: NSView) -> CGFloat? {
         guard CornerFlush.current.isOn, DesignSettings.shared.tabBarPosition != .bottom, let window = root.window,
               let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return nil }
-        let centerFromTop = root.bounds.maxY - root.convert(lights, from: nil).midY
+        // The top row's one line (``WindowTitlebar/topRowLine(in:look:)``, from the density's tokens) where the window has one,
+        // never the lights' frame of the moment: AppKit puts them back at its own place when it lays its titlebar out again,
+        // and a card read from there moved the tabs with them. A standard titlebar keeps the lights' own line.
+        let centerFromTop = WindowTitlebar.topRowLine(in: window)?.centerY ?? root.bounds.maxY - root.convert(lights, from: nil).midY
         let scale = window.backingScaleFactor
         let chrome = PaneChromeMetrics.current
         let pillCenter = chrome.panePadding + chrome.pillTop(scale: scale) + Metrics.tabHeight / 2
@@ -252,8 +269,10 @@ public final class CornerFlushChrome: NSView {
             wedges.path = nil
             markTopRow(card: nil, in: root)
             if let content { Self.roundBottomOnly(content, false) }
+            let edge = tabRowEdge(card: card, in: root)
             shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha,
-                          divider: Self.dividerLine(card: tabRowEdge(card: card, in: root), radius: 0, squareLeading: true))
+                          dividers: Self.dividerSegments(Self.dividerLine(card: edge, radius: 0, squareLeading: true),
+                                                         leaving: toolbarPanes(card: edge, in: root)))
             return
         }
         if let content { Self.roundBottomOnly(content, true) }
@@ -262,9 +281,11 @@ public final class CornerFlushChrome: NSView {
         wedges.path = Self.wedgePath(card: card, radius: drawn.radius, squareLeading: square)
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // Each wedge shades its corner once, including over transparent content.
+        let edge = tabRowEdge(card: card, in: root)
         shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopCorners: true,
                       folders: folderHoles(card: card, in: root),
-                      divider: Self.dividerLine(card: tabRowEdge(card: card, in: root), radius: drawn.radius, squareLeading: square))
+                      dividers: Self.dividerSegments(Self.dividerLine(card: edge, radius: drawn.radius, squareLeading: square),
+                                                     leaving: toolbarPanes(card: edge, in: root)))
     }
 
     /// The tab row's divider: the card's top edge (maxY is the top) between its rounded corners, as a rect of no
@@ -276,6 +297,33 @@ public final class CornerFlushChrome: NSView {
         let r = min(radius, card.width / 2, card.height / 2)
         let minX = card.minX + (squareLeading ? 0 : r), maxX = card.maxX - r
         return CGRect(x: minX, y: card.maxY, width: max(0, maxX - minX), height: 0)
+    }
+
+    /// The divider's segments: `line` less the horizontal spans in `gaps` (the panes whose toolbar meets their tabs,
+    /// ``TabStripCorner/meetsToolbar``), left to right; empty segments are dropped. O(gaps log gaps).
+    static func dividerSegments(_ line: CGRect, leaving gaps: [ClosedRange<CGFloat>]) -> [CGRect] {
+        guard line.width > 0 else { return [] }
+        var segments: [CGRect] = []
+        var start = line.minX
+        for gap in gaps.sorted(by: { $0.lowerBound < $1.lowerBound }) where gap.upperBound > start && gap.lowerBound < line.maxX {
+            if gap.lowerBound > start { segments.append(CGRect(x: start, y: line.minY, width: gap.lowerBound - start, height: 0)) }
+            start = max(start, gap.upperBound)
+        }
+        if start < line.maxX { segments.append(CGRect(x: start, y: line.minY, width: line.maxX - start, height: 0)) }
+        return segments
+    }
+
+    /// The horizontal spans, in `root`, of the panes on the tab row (their strip's bottom on `card`'s top) whose toolbar
+    /// meets their tabs: the whole pane, its trailing buttons included, so the divider stops at its split lines. O(strips).
+    private func toolbarPanes(card: CGRect, in root: NSView) -> [ClosedRange<CGFloat>] {
+        var spans: [ClosedRange<CGFloat>] = []
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window && strip.meetsToolbar {
+            guard let pane = strip.superview, !strip.isHiddenOrHasHiddenAncestor,
+                  abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - card.maxY) < 2 else { continue }
+            let frame = root.convert(pane.bounds, from: pane)
+            spans.append(frame.minX...frame.maxX)
+        }
+        return spans
     }
 
     /// `card` with its top on the top row's strips' bottom edge, where the tab row's divider sits. The card's top

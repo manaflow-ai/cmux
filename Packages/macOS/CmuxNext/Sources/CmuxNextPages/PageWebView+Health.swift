@@ -10,11 +10,20 @@ import WebKit
 @MainActor
 public protocol PageHealthFeed: AnyObject {
     /// The page's heartbeat (`cmux.page.heartbeat`), with the key and pointer presses it handled.
-    func pageBeat(_ page: PageWebView, handled: UInt64)
+    /// `resting`: its last beat before a rest; it beats again when something happens in it (input, a
+    /// scroll, an edit, a host call) or it is shown, and its silence until then is no hang.
+    func pageBeat(_ page: PageWebView, handled: UInt64, resting: Bool)
+    /// Whether a page's `rest` beat stops the timing of its silence here (the linked health model
+    /// knows rest beats); false keeps the page beating every 2 s, as before rests.
+    var takesRestBeats: Bool { get }
     /// A real key or mouse event reached the page's view (its first since the last beat matters).
     func pageInput(_ page: PageWebView)
     /// The page's view may have been shown or hidden; read ``PageWebView/isShownForHealth``.
     func pageVisibilityChanged(_ page: PageWebView)
+    /// The page's document started loading: a navigation the host started (a reload for a web source
+    /// change, crash recovery, a repair) or a main-frame load WebKit began. The page loads and is not
+    /// hung until ``pageLoaded(_:)``.
+    func pageNavigationStarted(_ page: PageWebView)
     /// A document finished loading.
     func pageLoaded(_ page: PageWebView)
     /// A main-frame load failed (not a cancelled one).
@@ -41,7 +50,7 @@ extension PageWebView {
     /// the Dock) and under no hidden ancestor. A page that cannot be seen stops its heartbeat (the
     /// document is hidden), so health never times it.
     public var isShownForHealth: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare else { return false }
+        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare, !isDrawnAway else { return false }
         return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
@@ -84,6 +93,8 @@ extension PageWebView {
         guard loaded else { return reloadAfterCrashes() }
         rendererRestartPending = true
         if let chromiumPage {
+            // At once, not through the bridge's navigate (which waits on the renderer to turn the
+            // Runtime domain on): the new document gets the binding with its commit.
             chromiumPage.restartRenderer()
             return
         }

@@ -39,6 +39,8 @@ use std::sync::{Arc, Mutex as StdMutex};
 use crate::offer_mcp::{MAX_PROMPT_CHARS, MAX_TITLE_CHARS};
 pub(super) const OPEN_LIMIT: usize = 8;
 const MAX_NAME_CHARS: usize = 120;
+/// The records of a chat's offers: each offer, then its decision.
+const OFFER_KINDS: &[&str] = &["session_offer", "session_offer_decision"];
 /// Longest `groupId`, in bytes.
 const MAX_GROUP_BYTES: usize = 64;
 
@@ -245,25 +247,26 @@ impl Hub {
     /// The title of the chat's recorded offer `offer_id`.
     fn offer_title(&self, session: &Session, offer_id: &str) -> Option<String> {
         let mut title = None;
-        let _ = self.store.scan(&session.id, 0, &mut |event: EventRecord| {
-            if event.dir == "mux"
-                && event.kind == "session_offer"
-                && event.msg.get("offerId").and_then(Value::as_str) == Some(offer_id)
-            {
-                title = event.msg.get("title").and_then(Value::as_str).map(str::to_owned);
-                return false;
-            }
-            true
-        });
+        let _ =
+            self.store.scan_kinds(&session.id, &["session_offer"], &mut |event: EventRecord| {
+                if event.dir == "mux"
+                    && event.kind == "session_offer"
+                    && event.msg.get("offerId").and_then(Value::as_str) == Some(offer_id)
+                {
+                    title = event.msg.get("title").and_then(Value::as_str).map(str::to_owned);
+                    return false;
+                }
+                true
+            });
         title
     }
 
     /// The ids of the chat's recorded offers without a recorded decision.
     fn recorded_open_offers(&self, session: &Session) -> Result<HashMap<String, u64>, RpcError> {
-        // Streamed, not collected: a long chat's log stays on disk.
+        // Streamed, not collected, from the log's copies of its offers (`store/kind_index.rs`).
         let mut open = HashMap::new();
         self.store
-            .scan(&session.id, 0, &mut |event: EventRecord| {
+            .scan_kinds(&session.id, OFFER_KINDS, &mut |event: EventRecord| {
                 if event.dir == "mux"
                     && let Some(id) = event.msg.get("offerId").and_then(Value::as_str)
                 {

@@ -266,9 +266,35 @@ def test_tree_splits_the_app_code_by_language(tmp: Path) -> None:
     r = run("tree", str(app), "--json", str(out), "--jobs", "1")
     assert r.returncode == 0, r.stderr
     lang = json.loads(out.read_text())["code_by_language"]
+    # No CmuxNextApp.framework: a live code build links the code into the executable.
     assert lang["binary"] == "Contents/MacOS/cmux", lang
     assert lang["bytes"] == {"Swift": 710, "Rust": 280, "Zig": 40, "C++": 25, "C and other": 15}, lang["bytes"]
     assert "| Swift | 0.0 | 66.4% |" in r.stdout, r.stdout
+
+
+def test_tree_names_the_framework_that_holds_the_app_code(tmp: Path) -> None:
+    # The release app's code is CmuxNextApp.framework behind a stub executable (CMUX-629).
+    app = make_app(tmp)
+    fw = "Contents/Frameworks/CmuxNextApp.framework"
+    write(app, f"{fw}/Versions/A/CmuxNextApp", 900)
+    os.symlink("A", app / fw / "Versions/Current")
+    os.symlink("Versions/Current/CmuxNextApp", app / fw / "CmuxNextApp")
+    (app / "Contents/Resources/cmux-symbols.bin").write_bytes(symbol_map([("$s10CmuxNextApp4mainyyF", 700)]))
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "1")
+    assert r.returncode == 0, r.stderr
+    t = json.loads(out.read_text())
+    assert t["code_by_language"]["binary"] == f"{fw}/Versions/A/CmuxNextApp", t["code_by_language"]
+    sizes = {c["component"]: c["bytes"] for c in t["components"]}
+    assert sizes[fw] == 900 and sizes["Contents/MacOS/cmux"] == 1000, sizes
+
+
+def test_real_budget_caps_the_stub_executable_and_the_framework(tmp: Path) -> None:
+    # The code moved into the framework: an executable that grows back to the app's size fails.
+    for variant in ("arm64", "arm64-cef-on-demand"):
+        caps = json.loads(REAL_BUDGET.read_text())["variants"][variant]["components"]
+        assert caps["Contents/MacOS/cmux"] <= 1_000_000, (variant, caps)
+        assert caps["Contents/Frameworks/CmuxNextApp.framework"] >= 100_000_000, (variant, caps)
 
 
 def test_tree_without_a_symbol_map_has_no_language_split(tmp: Path) -> None:
@@ -278,6 +304,37 @@ def test_tree_without_a_symbol_map_has_no_language_split(tmp: Path) -> None:
     r = run("tree", str(app), "--json", str(out), "--jobs", "1")
     assert r.returncode == 0, r.stderr
     assert "code_by_language" not in json.loads(out.read_text())
+
+
+def test_breakdown_puts_every_file_in_one_category(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Resources/bin/cmux").write_bytes(macho(text=4000, unwind=1000, symbols=10, strsize=40))
+    (app / "Contents/Resources/bin/cmux-mobile-host").write_bytes(macho(text=900, unwind=100, symbols=1, strsize=4))
+    write(app, "Contents/Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)", 70)
+    write(app, "Contents/Frameworks/WebRTC.framework/Versions/A/WebRTC", 80)
+    write(app, "Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp", 600)
+    write(app, "Contents/Helpers/cmux-remote-browser-host.app/Contents/Info.plist", 5)
+    write(app, "Contents/Resources/CmuxNext_CmuxNextPages.bundle/home.html", 2048)
+    write(app, "Contents/Resources/markdown-viewer/index.js", 2048)  # identical to home.html
+    write(app, "Contents/Resources/fr.lproj/Localizable.strings", 300)
+    write(app, "Contents/Resources/Extensions/ublock/js/a.js", 30)
+    out = tmp / "b.json"
+    r = run("breakdown", str(app), "--json", str(out), "--jobs", "2")
+    assert r.returncode == 0, r.stderr
+    b = json.loads(out.read_text())
+    cats = {c["key"]: c["bytes"] for c in b["categories"]}
+    assert cats["cef"] == 3100 + 70, cats
+    assert cats["cmux_tui"] == len((app / "Contents/Resources/bin/cmux").read_bytes()), cats
+    assert cats["swift_app"] == 1000 + 600, cats
+    assert cats["other_executables"] == len((app / "Contents/Resources/bin/cmux-mobile-host").read_bytes()) + 5, cats
+    assert cats["other_frameworks"] == 80, cats
+    assert cats["webviews"] == 4096, cats
+    assert cats["assets"] == 330, cats
+    assert sum(cats.values()) == b["app_bytes"], (cats, b["app_bytes"])
+    assert b["symbols_bytes"] == 10 * 16 + 40 + 16 + 4, b
+    assert b["unwind_bytes"] == 1100, b
+    assert b["duplicate_extra_bytes"] == 2048, b
+    assert "| CEF (Chromium framework and its helper apps) |" in r.stdout, r.stdout
 
 
 def main() -> int:

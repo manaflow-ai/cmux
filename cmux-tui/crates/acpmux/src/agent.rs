@@ -17,7 +17,7 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
 pub(crate) mod foreign_login;
-mod leader_exit;
+pub(crate) mod leader_exit;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
 /// Tests read a built command without starting it; every spawn builds through
@@ -229,6 +229,16 @@ struct Hosted {
     /// Held across a reattach: two that a lost link starts at once (the hub's notice and a
     /// request, `ChildAgent::reattach_if_lost`) make one new link, not two.
     reattach_turn: tokio::sync::Mutex<()>,
+    /// The agent holder (`agent_host/custody.rs`): this daemon's copy of the harness's stdio,
+    /// output ring and pidfd, taken from the current host, so a host that dies is replaced
+    /// without the harness seeing its pipes close (`ChildAgent::recover_host`).
+    #[cfg(unix)]
+    custody: std::sync::Mutex<Option<Arc<crate::agent_host::custody::Custody>>>,
+    /// The ring offset after the last stdout line whose entries are all in the session log.
+    logged_o: std::sync::atomic::AtomicU64,
+    /// The start nonce the harness carries (`HOST_MARK`) when a replacement host holds it now
+    /// (`custody.rs`): its processes are found by it, not by the current host's nonce.
+    harness_mark: std::sync::Mutex<Option<String>>,
 }
 
 /// An answer [`Hosted::unlogged_answers`] keeps until the host logs it back.
@@ -601,7 +611,7 @@ impl Fence {
                 };
                 let ended = ended.unwrap_or(false);
                 if ended {
-                    crate::agent_host::link::settle_receipts_of(&record.incarnation);
+                    crate::agent_host::link::settle_receipts_of(&record.start_nonce);
                 }
                 ended
             }
@@ -840,6 +850,9 @@ pub struct ChildAgent {
     /// Present when the child is `codex app-server`, bridged in process
     /// (`codex_app_server.rs`) and run directly under acpmux.
     codex: Option<CodexLink>,
+    /// That `codex app-server` started with the PreToolUse hook that holds each of its tools until
+    /// the repository sync is done (`codex_repo_gate.rs`), read from the argv it started with.
+    pub(crate) codex_repo_gated: bool,
     hosted: Option<Hosted>,
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
@@ -849,7 +862,7 @@ pub struct ChildAgent {
     pub given_servers: std::sync::Mutex<Option<Value>>,
     /// The MCP servers its harness's configs named as it started (`LaunchServers::read`, before
     /// it started), for the idle census. None for a harness another daemon started.
-    pub(crate) launch: std::sync::Mutex<Option<crate::hub::LaunchServers>>,
+    pub(crate) launch: std::sync::Mutex<Option<crate::sidecar_census::LaunchServers>>,
     /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
     /// is not the chat's context any more, and is neither logged nor handed to the hub. A lock,
     /// not a flag: the reader holds it while it checks and logs such an answer (`tap_live`), so a
@@ -860,7 +873,7 @@ pub struct ChildAgent {
     ended_on_purpose: std::sync::atomic::AtomicBool,
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
-    pub preview_format: Option<crate::hub::questions::PreviewFormat>,
+    pub preview_format: Option<crate::questions::PreviewFormat>,
     /// The CPU class its harness runs at once its session's start is over (`cpu_class.rs`), set
     /// by the start that spawned it; unset for a harness another daemon started.
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
@@ -899,9 +912,11 @@ struct Spawned {
     stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send>,
     stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
     stderr: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
-    launch: Option<crate::hub::LaunchServers>,
-    preview_format: Option<crate::hub::questions::PreviewFormat>,
+    launch: Option<crate::sidecar_census::LaunchServers>,
+    preview_format: Option<crate::questions::PreviewFormat>,
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
+    /// Its command line carries the repository hook (`codex_repo_gate::in_args`).
+    repo_gated: bool,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
     #[cfg(feature = "sim")]
@@ -919,13 +934,14 @@ impl Spawned {
     ) -> Result<Self> {
         let mut cmd = harness_command_ready(name, profile, cwd, command_line, session).await?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
-        let launch = crate::hub::LaunchServers::read(
+        let launch = crate::sidecar_census::LaunchServers::read(
             &Launch::of(&cmd, cwd),
             crate::config::derive_family(name, profile),
             profile.kind,
         )
         .await;
         let preview_format = Some(pinned_preview_format(&cmd));
+        let repo_gated = crate::codex_repo_gate::in_args(cmd.as_std().get_args());
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
         // Never at background class while it starts; its class, from the harness's own env (its
@@ -974,6 +990,7 @@ impl Spawned {
             launch: Some(launch),
             preview_format,
             run_class: std::sync::OnceLock::from(run_class),
+            repo_gated,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -994,6 +1011,7 @@ impl Spawned {
             launch: None,
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
+            repo_gated: false,
             #[cfg(windows)]
             job: None,
             sim_alive: Some(pipes.alive),
@@ -1084,6 +1102,7 @@ impl ChildAgent {
             launch,
             preview_format,
             run_class,
+            repo_gated,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1106,6 +1125,7 @@ impl ChildAgent {
             inbound: inbound.clone(),
             pid,
             translator: translator.clone(),
+            codex_repo_gated: repo_gated && codex.is_some(),
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
@@ -1298,7 +1318,7 @@ impl ChildAgent {
                             }
                         };
                         if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
-                            let safe = crate::codex_app_server::redact(&raw);
+                            let safe = crate::codex_app_server::logged(&raw);
                             tap(Direction::In, &Message::notification(&kind, safe), None);
                         }
                         let order = cx.order.lock().await;
@@ -1566,7 +1586,13 @@ impl ChildAgent {
             if h.exited.load(Ordering::SeqCst) {
                 return;
             }
-            if h.link().terminate(grace).await.is_ok() {
+            // Bounded: a host whose link stopped reading (its queue full) never takes the frame.
+            // Its caller ends that host by its nonce (`host_unended`). The send goes on in its
+            // own task past the bound, so a host whose queue clears later still takes it.
+            let link = h.link();
+            let mut send = tokio::spawn(async move { link.terminate(grace).await });
+            let told = tokio::time::timeout(grace, &mut send).await;
+            if matches!(told, Ok(Ok(Ok(())))) {
                 // The host's exit entry ends the wait; the bound covers a
                 // host that cannot report it.
                 let _ =
@@ -1575,6 +1601,13 @@ impl ChildAgent {
             return;
         }
         let pgid = self.pid.map(|p| p as i32);
+        // A caller that stops waiting (the daemon's shutdown cuts its session cleanup at its
+        // deadline) drops this future inside the grace: the group still gets its SIGKILL then,
+        // or an agent that ignores SIGTERM outlives the daemon (Codex review of #42296). Armed
+        // before the first await: the helper scan below reads the whole process table, which
+        // on a loaded machine can outlast the caller's cut, and a cut there sent no signal.
+        #[cfg(unix)]
+        let escalate = KillGroupOnDrop(pgid);
         // Busy: the exit watcher holds it while it reaps the agent (its
         // stdout closed); a helper then is not taken here.
         #[cfg(unix)]
@@ -1588,11 +1621,6 @@ impl ChildAgent {
                 libc::killpg(pg, libc::SIGTERM);
             }
         }
-        // A caller that stops waiting (the daemon's shutdown cuts its session cleanup at its
-        // deadline) drops this future inside the grace: the group still gets its SIGKILL then,
-        // or an agent that ignores SIGTERM outlives the daemon (Codex review of #42296).
-        #[cfg(unix)]
-        let escalate = KillGroupOnDrop(pgid);
         // Windows: Ctrl+Break to the agent's process group first.
         #[cfg(windows)]
         if let Some(pg) = pgid {
@@ -1919,6 +1947,11 @@ impl ChildAgent {
                 tokio::select! {
                     () = fence.settled() => {}
                     answer = &mut rx => {
+                        // A direct child may answer its line before its writer, preempted
+                        // between the write and `written()`, marks it: every direct writer
+                        // settles it, so that answer waits for it. Only a host can answer with
+                        // no receipt to come.
+                        if self.hosted.is_none() { fence.settled().await; }
                         if fence.now() == Fence::WRITTEN { on_written(); }
                         return answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")));
                     }
@@ -2096,6 +2129,14 @@ impl ChildAgent {
         }
     }
 
+    /// Whether Claude Code's translator runs this agent, known without asking its host: a direct
+    /// child's own, or one its host's record says it runs (`HostRecord::claude_translator`).
+    /// False for a host of an older build, which never says.
+    pub fn runs_claude_translator(&self) -> bool {
+        self.translator.is_some()
+            || self.hosted.as_ref().is_some_and(|h| h.link().record.claude_translator)
+    }
+
     /// The Claude translator's state, wherever the translator runs.
     pub async fn claude_state(&self) -> Option<ClaudeState> {
         if let Some(tr) = &self.translator {
@@ -2165,7 +2206,8 @@ impl ChildAgent {
     #[cfg(unix)]
     pub(crate) async fn harness_processes(&self) -> Vec<crate::agent_host::tree::Started> {
         if let Some(record) = self.host_record() {
-            let nonce = record.start_nonce;
+            let mark = self.hosted.as_ref().and_then(|h| h.harness_mark.lock_or_recover().clone());
+            let nonce = mark.unwrap_or(record.start_nonce);
             return tokio::task::spawn_blocking(move || {
                 crate::agent_host::tree::marked(crate::agent_host::HOST_MARK, &nonce)
             })
@@ -2181,20 +2223,40 @@ impl ChildAgent {
         self.hosted.as_ref().map(|h| h.link().record.clone())
     }
 
+    /// Whether this agent runs under a host whose record says a level below `level`
+    /// (`HostRecord::host_level`) on another build than this one's (`hub/host_level.rs`).
+    pub fn host_below(&self, level: u32) -> bool {
+        self.hosted.as_ref().is_some_and(|h| {
+            let link = h.link();
+            link.record.host_level < level && link.record.host_build != crate::build_info::build()
+        })
+    }
+
     /// The build its host runs (`HostRecord::host_build`), when this agent runs under a host.
     pub fn host_build(&self) -> Option<String> {
         self.hosted.as_ref().map(|h| h.link().record.host_build.clone())
     }
 
-    /// The hosted harness exited (its host is finishing).
     /// Tests only: its child's slot, which its reaper locks (`Fence::cut_or_end`).
     #[cfg(test)]
     pub(crate) fn child_slot(&self) -> Arc<Mutex<Option<Child>>> {
         self.child.clone()
     }
 
+    /// The hosted harness exited (its host is finishing).
     pub fn has_exited(&self) -> bool {
         self.hosted.as_ref().is_some_and(|h| h.exited.load(Ordering::SeqCst))
+    }
+
+    /// Its host is still connected and reported no exit: after a [`Self::terminate`], the host
+    /// did not take it (its link stopped reading) or could not end the agent within the grace.
+    /// A host whose link closed is not judged here.
+    pub fn host_unended(&self) -> bool {
+        self.hosted.as_ref().is_some_and(|h| {
+            !h.exit_seen.load(Ordering::SeqCst)
+                && !h.exited.load(Ordering::SeqCst)
+                && !h.link().is_closed()
+        })
     }
 
     /// The reader stopped because an entry could not be logged.
@@ -2235,8 +2297,18 @@ impl ChildAgent {
 
     /// [`Self::reattach`] under `h.reattach_turn`.
     async fn reattach_now(self: &Arc<Self>, h: &Hosted) -> Result<()> {
-        use crate::agent_host::link::{Connect, connect};
         let record = h.link().record.clone();
+        self.reattach_to(h, record).await
+    }
+
+    /// [`Self::reattach_now`] to the host `record` names: the same one, or a replacement of a
+    /// host that died (`recover_host`).
+    async fn reattach_to(
+        self: &Arc<Self>,
+        h: &Hosted,
+        record: crate::agent_host::HostRecord,
+    ) -> Result<()> {
+        use crate::agent_host::link::{Connect, connect};
         let after = *h.logged.borrow();
         let link: Arc<crate::agent_host::link::Link> = match connect(record, after).await? {
             Connect::Ready(link, _) => Arc::from(link),
@@ -2422,6 +2494,7 @@ impl ChildAgent {
             pid: adopted.harness_pid,
             translator: None,
             codex: None,
+            codex_repo_gated: false,
             hosted: Some(Hosted {
                 link: std::sync::RwLock::new(link.clone()),
                 inbound,
@@ -2433,6 +2506,10 @@ impl ChildAgent {
                 stopped: std::sync::atomic::AtomicBool::new(false),
                 unlogged_answers: std::sync::Mutex::new(Vec::new()),
                 reattach_turn: tokio::sync::Mutex::new(()),
+                #[cfg(unix)]
+                custody: std::sync::Mutex::new(None),
+                logged_o: std::sync::atomic::AtomicU64::new(0),
+                harness_mark: std::sync::Mutex::new(None),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
@@ -2479,6 +2556,8 @@ impl ChildAgent {
     /// Read `link`'s entries: log each, act on it, then acknowledge it (one ack for a run of
     /// queued entries, at most [`ACK_BATCH`] apart).
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
+        #[cfg(unix)]
+        self.take_custody(&link);
         let reader = self.clone();
         tokio::spawn(async move {
             let Some(hosted) = reader.hosted.as_ref() else { return };
@@ -2521,8 +2600,17 @@ impl ChildAgent {
                 if fresh {
                     hosted.logged.send_replace(h);
                 }
+                // The ring offset of the last line logged through `h` (the agent holder).
+                if let Some(o) = link.take_offset_through(h) {
+                    hosted.logged_o.fetch_max(o, Ordering::SeqCst);
+                }
                 drop(turn);
                 if is_exit {
+                    // The harness ended: its stdio copies go (`custody.rs`).
+                    #[cfg(unix)]
+                    {
+                        *hosted.custody.lock_or_recover() = None;
+                    }
                     // Written before anyone hears of the exit: a daemon that
                     // ends the agent and exits at once still acks the Exit.
                     let acked = link.ack_written(h, EXIT_ACK_BUDGET).await;
@@ -2550,6 +2638,12 @@ impl ChildAgent {
             }
             #[cfg(debug_assertions)]
             reader_stop_hold().await;
+            // The agent holder (`agent_host/custody.rs`): a host that died while its harness
+            // runs is replaced, and nothing below happens: the turn and its requests go on.
+            #[cfg(unix)]
+            if Arc::ptr_eq(&hosted.link(), &link) && reader.recover_host().await {
+                return;
+            }
             // The host died or another owner took it, or an acknowledgement failed: the link is
             // not heard from here, before anything is told. A detach hands the agent and its open
             // requests to the next daemon; a replaced link hands them to its own reader. A host
@@ -2579,6 +2673,134 @@ impl ChildAgent {
             }
             let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
         });
+    }
+
+    /// Takes custody of `link`'s harness (`agent_host/custody.rs`) in the background, when the
+    /// holder is on, the host can hold (not a translated or bridged harness,
+    /// `HostRecord::may_hold`) and this agent has none of that host yet. Best effort: without it,
+    /// a host that dies cuts the turn as before.
+    #[cfg(unix)]
+    fn take_custody(self: &Arc<Self>, link: &Arc<crate::agent_host::link::Link>) {
+        let Some(hosted) = &self.hosted else { return };
+        if !crate::agent_host::custody::holder_on() || !link.record.may_hold() {
+            return;
+        }
+        let held = hosted.custody.lock_or_recover().clone();
+        if held.is_some_and(|c| c.record.start_nonce == link.record.start_nonce) {
+            return;
+        }
+        let agent = self.clone();
+        let record = link.record.clone();
+        // task-owner: one bounded exchange (its socket has a 10 s timeout); ends with it.
+        tokio::spawn(async move {
+            let nonce = record.start_nonce.clone();
+            let taken =
+                tokio::task::spawn_blocking(move || crate::agent_host::custody::take(&record))
+                    .await;
+            let Some(hosted) = &agent.hosted else { return };
+            match taken {
+                Ok(Ok(Some(custody))) => {
+                    // Only while that host is still this agent's.
+                    if hosted.link().record.start_nonce == nonce
+                        && !hosted.exit_seen.load(Ordering::SeqCst)
+                    {
+                        // A daemon that adopted the host logged at least what it acknowledged.
+                        hosted.logged_o.fetch_max(custody.acked_o, Ordering::SeqCst);
+                        if custody.harness_mark.as_ref().is_some_and(|m| *m != nonce) {
+                            *hosted.harness_mark.lock_or_recover() = custody.harness_mark.clone();
+                        }
+                        *hosted.custody.lock_or_recover() = Some(Arc::new(custody));
+                    }
+                }
+                Ok(Ok(None)) => {}
+                Ok(Err(e)) => {
+                    tracing::warn!(agent = %agent.name, "agent holder: no custody of the harness: {e:#}")
+                }
+                Err(e) => tracing::warn!(agent = %agent.name, "agent holder: custody task: {e}"),
+            }
+        });
+    }
+
+    /// The agent holder (`agent_host/custody.rs`): when this agent's host died while its harness
+    /// runs and this daemon holds custody of it, start a replacement host on the harness's stdio
+    /// and reattach to it, keeping every open request and the turn. True when the current link
+    /// is good after it (replaced here, or by another caller meanwhile); false when the host is
+    /// not dead, there is no custody, the harness ended, or the replacement failed: the caller
+    /// goes on as without the holder.
+    #[cfg(unix)]
+    pub async fn recover_host(self: &Arc<Self>) -> bool {
+        let Some(h) = &self.hosted else { return false };
+        if !crate::agent_host::custody::holder_on() {
+            return false;
+        }
+        let _turn = h.reattach_turn.lock().await;
+        let link = h.link();
+        let lost =
+            link.is_closed() || h.broken.load(Ordering::SeqCst) || h.stopped.load(Ordering::SeqCst);
+        let custody = h.custody.lock_or_recover().clone();
+        let Some(custody) = custody else { return !lost && !link.is_closed() };
+        if custody.record.start_nonce != link.record.start_nonce {
+            // Custody of an earlier host: the link was replaced meanwhile.
+            return !lost;
+        }
+        if h.detached.load(Ordering::SeqCst) || h.exit_seen.load(Ordering::SeqCst) {
+            return false;
+        }
+        // Its socket may close a moment before its live lock frees: a short bounded wait, as
+        // `hub/hosts.rs` `readopt` waits. A host that lives on is reached as a lost link instead.
+        let dead = crate::agent_host::host_dead_now(&link.record)
+            || crate::agent_host::wait_dead_async(
+                custody.spec.hosts_dir.clone(),
+                link.record.session_id.clone(),
+                link.record.start_nonce.clone(),
+                std::time::Duration::from_millis(500),
+            )
+            .await;
+        if !dead {
+            return false;
+        }
+        if !custody.harness_alive() {
+            return false;
+        }
+        let started = std::time::Instant::now();
+        let last_h = *h.logged.borrow();
+        let replay_from = h.logged_o.load(Ordering::SeqCst);
+        let max_out_id = self.next_id.load(Ordering::SeqCst).saturating_sub(1);
+        let launcher = match crate::agent_host::link::HostLauncher::current() {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::warn!(agent = %self.name, "agent holder: no launcher: {e:#}");
+                return false;
+            }
+        };
+        let record = match crate::agent_host::custody::respawn(
+            &launcher,
+            &custody,
+            last_h,
+            max_out_id,
+            replay_from,
+        )
+        .await
+        {
+            Ok(record) => record,
+            Err(e) => {
+                tracing::warn!(agent = %self.name, "agent holder: no replacement host: {e:#}");
+                return false;
+            }
+        };
+        // The dead host's lock file; its record and socket are the replacement's now.
+        crate::agent_host::remove_own_artifacts(&custody.spec.hosts_dir, &custody.record);
+        *h.custody.lock_or_recover() = None;
+        if let Err(e) = self.reattach_to(h, record).await {
+            tracing::warn!(agent = %self.name, "agent holder: replacement host not reached: {e:#}");
+            return false;
+        }
+        tracing::warn!(
+            agent = %self.name,
+            ms = started.elapsed().as_millis() as u64,
+            "agent holder: its host died; a replacement host took over the running harness"
+        );
+        true
     }
 
     /// The open requests of a link whose reader stopped while its host lived fail once that host is

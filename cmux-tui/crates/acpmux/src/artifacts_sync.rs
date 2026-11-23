@@ -781,7 +781,11 @@ impl std::error::Error for HttpStatusError {}
 /// client does) so a client built before the mesh's never panics.
 fn http_client() -> Result<Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    Ok(Client::builder().connect_timeout(CONNECT_TIMEOUT).read_timeout(READ_TIMEOUT).build()?)
+    Ok(Client::builder()
+        .default_headers(cmux_build_space::headers()?)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
+        .build()?)
 }
 
 /// The query string encoded by `url` (reqwest's own `query` needs a feature this workspace leaves off).

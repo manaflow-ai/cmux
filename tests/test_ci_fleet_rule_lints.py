@@ -45,7 +45,10 @@ KEYCHAIN_READ = re.compile(r"find-generic-password|SecItemCopyMatching|keyring\.
 # A kill whose PIDs a lookup supplies on the same command: `kill $(pgrep ...)`, `pgrep ... | xargs kill`.
 PKILL_LOOKUP = re.compile(r"(?<![\w-])kill\b[^\n;|&]*\$\(\s*(?:pgrep|pidof)\b"
                           r"|(?<![\w-])(?:pgrep|pidof)\b[^\n;]*\|\s*xargs\b[^\n;|]*\bkill\b")
-PKILL = re.compile(r"(?<![\w-])(?:pkill|killall)(?![\w-])|" + PKILL_LOOKUP.pattern)
+# `pkill [-SIG] -P PID` signals only the children of a PID the script holds: the
+# rule's own advice (HOW["pkill"]), so it is not a kill by name.
+PKILL_PARENT_ONLY = r"(?!(?:\s+-(?:[A-Z]+|\d+))*\s+-P\b)"
+PKILL = re.compile(r"(?<![\w-])(?:pkill(?![\w-])" + PKILL_PARENT_ONLY + r"|killall(?![\w-]))|" + PKILL_LOOKUP.pattern)
 # big-red, big_red, BIG_RED, bigred, Big Red; not prose like "a big red build".
 BIG_RED = re.compile(r"(?<![A-Za-z0-9])(?:(?i:big[-_]?red)|Big Red|BIG RED)(?![A-Za-z0-9])")
 
@@ -221,8 +224,18 @@ def grown(base: dict, allow: dict, rule: str) -> list[str]:
     """Entries added or raised since the base allowlist whose reason is not "safe:": debt only shrinks."""
     out = []
     old = base.get(rule, {})
+
+    def debt_in_dir(entries: dict, folder: str) -> int:
+        return sum(e.get("count", 0) for k, e in entries.items()
+                   if os.path.dirname(k) == folder and not str(e.get("reason", "")).startswith("safe:"))
+
     for rel, entry in sorted(allow.get(rule, {}).items()):
         was = old.get(rel, {}).get("count", 0)
+        # A test module moved out of its file (foo.rs -> foo_tests.rs) takes its entry along: the folder's debt
+        # did not grow, so the new row is not new debt.
+        if rel.endswith(("_tests.rs", "/tests.rs")) and \
+                debt_in_dir(allow[rule], os.path.dirname(rel)) <= debt_in_dir(old, os.path.dirname(rel)):
+            continue
         if entry.get("count", 0) > was and not str(entry.get("reason", "")).startswith("safe:"):
             out.append(f"{rel}: allowlist {was} -> {entry.get('count')} since the base: debt only shrinks "
                        f"(a genuinely safe new use gets a reason starting with \"safe:\" that says why)")
@@ -313,6 +326,9 @@ class Patterns(unittest.TestCase):
                      'while read -r pid; do\n  kill "$pid"\ndone < <(pgrep -f foo)'):
             self.assertGreaterEqual(pkill_lines(text), 1, text)
         self.assertEqual(pkill_lines('w="$(pgrep -P "$pid" | head -1)"\nkill -TERM "$w"'), 0)
+        for line in ('pkill -TERM -P "$worker" 2>/dev/null', 'pkill -P $$', "pkill -9 -P 4242"):
+            self.assertEqual(pkill_lines(line), 0, line)
+        self.assertEqual(pkill_lines('pkill -TERM -f "lane worker"'), 1)
         for line in ("kill -TERM -- -$pgid", "pkill_guard_test", "nx-pkill-shim", "skill", 'kill "$(cat pidfile)"',
                      "pgrep -f x >/dev/null && echo running"):
             self.assertEqual(pkill_lines(line), 0, line)

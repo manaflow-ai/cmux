@@ -62,7 +62,7 @@ extension AppleWallpapers {
     }
 
     /// The strings in a property list value, nested data decoded as one; at most 8 levels deep.
-    private nonisolated static func collectStrings(_ value: Any, into found: inout [String], depth: Int) {
+    nonisolated static func collectStrings(_ value: Any, into found: inout [String], depth: Int) {
         guard depth < 8 else { return }
         switch value {
         case let text as String:

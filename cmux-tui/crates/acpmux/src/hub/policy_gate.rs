@@ -167,6 +167,27 @@ impl Hub {
             tracing::info!(session = %session.id, "the gate refused a native SendMessage");
             return json!({"decision": GateDecision::Deny.as_str(), "reason": reason});
         }
+        // The remote floor (`remote_floor.rs`): no tool of a Web turn runs once the turn may not
+        // go on, whatever the policy says, and the turn ends. A turn the owner's phone drove in a
+        // mode that does not ask is held here the moment the phone is removed or its Full access
+        // turned off (`Hub::owner_phone_full_access`), even with no policy that narrows it.
+        if Self::web_turn(session)
+            && let Some(reason) = self.remote_floor_breach(session)
+        {
+            let record = json!({
+                "permissionId": uuid::Uuid::now_v7().to_string(),
+                "policy": Value::Null,
+                "optionId": "reject_once",
+                "request": request,
+                "gate": "preToolUse",
+                "reason": reason,
+            });
+            self.append(session, "mux", "permission_auto", record);
+            // Read before the cancel: the reason names the switch that lifts it.
+            let text = self.floor_refusal_text(session, reason);
+            self.remote_floor_cancel(session, reason);
+            return json!({"decision": GateDecision::Deny.as_str(), "reason": text});
+        }
         let default = self.config.read().await.permission_policy;
         let Some(policy) = gate_policy(&session.meta(), default) else {
             return json!({"decision": GateDecision::None.as_str()});

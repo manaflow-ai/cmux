@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deck title</title>
+<style>
+/* Theme: change a --cmux-* or --deck-* value here, never a color inside a rule below. */
+:root {
+  color-scheme: light dark;
+  --cmux-text: light-dark(#1d1d1f, #f2f2f4);
+  --cmux-muted: light-dark(#6e6e73, #a1a1a6);
+  --cmux-accent: light-dark(#0a64d8, #5aa2ff);
+  --cmux-border: light-dark(#d9d9de, #3a3a3e);
+  --cmux-control: light-dark(#ececf0, #2c2c30);
+  --cmux-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --cmux-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --deck-page: light-dark(#f2f2f4, #111113);
+  --deck-slide: light-dark(#ffffff, #1c1c1e);
+  --deck-title: 64px;
+  --deck-heading: 44px;
+  --deck-body: 28px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--deck-page); color: var(--cmux-text); font: var(--deck-body)/1.4 var(--cmux-font); -webkit-font-smoothing: antialiased; }
+
+/* A slide is 1280 x 720 CSS pixels; the runtime scales it to fit. */
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section { width: 1280px; height: 720px; padding: 72px 96px; background: var(--deck-slide); display: flex; flex-direction: column; gap: 24px; overflow: hidden; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section.title { justify-content: center; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section.title h1 { font-size: 88px; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section.center { justify-content: center; align-items: center; text-align: center; }
+section h1, section h2, section h3, section p, section ul, section ol, section blockquote, section pre, section figure { margin: 0; }
+section h1 { font-size: var(--deck-title); line-height: 1.1; letter-spacing: -0.02em; }
+section h2 { font-size: var(--deck-heading); line-height: 1.15; letter-spacing: -0.01em; }
+section h3 { font-size: 32px; color: var(--cmux-muted); font-weight: 500; }
+section ul, section ol { padding-left: 1.2em; display: grid; gap: 12px; }
+section li::marker { color: var(--cmux-accent); }
+section a { color: var(--cmux-accent); }
+section blockquote { border-left: 6px solid var(--cmux-accent); padding-left: 28px; font-size: 36px; }
+section pre, section code { font-family: var(--cmux-mono); font-size: 22px; }
+section pre { background: var(--cmux-control); border-radius: 12px; padding: 24px 28px; white-space: pre-wrap; }
+section img, section svg { max-width: 100%; max-height: 100%; object-fit: contain; }
+section .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; flex: 1; min-height: 0; align-items: start; }
+section .muted, section small { color: var(--cmux-muted); }
+section aside.notes { display: none; }
+
+/* The viewer: a slide strip, the slide, and a bar. */
+body.deck-ready { display: grid; grid-template: "strip bar" auto "strip stage" 1fr "strip notes" auto / 212px 1fr; height: 100vh; overflow: hidden; }
+.deck-strip { grid-area: strip; overflow-y: auto; padding: 12px; border-right: 1px solid var(--cmux-border); display: grid; align-content: start; gap: 10px; counter-reset: thumb; }
+.deck-thumb { all: unset; position: relative; width: 168px; height: 94.5px; margin-left: 20px; border-radius: 4px; outline: 1px solid var(--cmux-border); overflow: hidden; cursor: pointer; background: var(--deck-slide); counter-increment: thumb; }
+.deck-thumb::before { content: counter(thumb); position: absolute; left: -22px; top: 0; width: 16px; text-align: right; font-size: 11px; color: var(--cmux-muted); }
+.deck-thumb[aria-current="true"] { outline: 2px solid var(--cmux-accent); }
+.deck-thumb:focus-visible { outline: 2px solid var(--cmux-accent); outline-offset: 2px; }
+.deck-thumb > section { transform: scale(0.13125); transform-origin: 0 0; pointer-events: none; }
+.deck-thumb[data-skip] > section { opacity: 0.35; }
+.deck-thumb[data-skip]::after { content: "Skipped"; position: absolute; right: 6px; bottom: 6px; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--cmux-control); color: var(--cmux-muted); }
+.deck-bar { grid-area: bar; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; }
+.deck-bar .deck-count { min-width: 64px; text-align: center; color: var(--cmux-muted); font-variant-numeric: tabular-nums; }
+.deck-bar .deck-status { margin-left: auto; color: var(--cmux-muted); }
+.deck-bar button { font: 13px var(--cmux-font); color: var(--cmux-text); background: var(--cmux-control); border: 1px solid var(--cmux-border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.deck-bar button:disabled { opacity: 0.5; cursor: default; }
+.deck-present { position: relative; display: inline-flex; }
+.deck-present > button:first-child { border-radius: 6px 0 0 6px; }
+.deck-present > button:last-child { border-radius: 0 6px 6px 0; border-left: 0; padding: 4px 6px; }
+.deck-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 2; display: grid; min-width: 220px; padding: 4px; border-radius: 8px; background: var(--deck-slide); border: 1px solid var(--cmux-border); box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); }
+.deck-menu[hidden] { display: none; }
+.deck-bar .deck-menu button { border: 0; background: transparent; text-align: left; padding: 6px 10px; border-radius: 4px; }
+.deck-bar .deck-menu button:not(:disabled):hover { background: var(--cmux-control); }
+.deck-menu kbd { float: right; color: var(--cmux-muted); font: 12px var(--cmux-font); }
+main.deck { grid-area: stage; position: relative; overflow: hidden; }
+body.deck-ready main.deck > section { position: absolute; left: 50%; top: 50%; transform-origin: 0 0; display: none; box-shadow: 0 1px 3px rgb(0 0 0 / 0.18); }
+body.deck-ready main.deck > section[data-current] { display: flex; }
+.deck-notes { grid-area: notes; max-height: 22vh; overflow-y: auto; padding: 8px 16px 12px; font-size: 13px; color: var(--cmux-muted); border-top: 1px solid var(--cmux-border); white-space: pre-wrap; }
+.deck-notes:empty { display: none; }
+/* A narrow pane beside the chat: the slide takes the width; the strip comes back when the pane widens. */
+@media (max-width: 640px) {
+  body.deck-ready { grid-template: "bar" auto "stage" 1fr "notes" auto / 1fr; }
+  .deck-strip { display: none; }
+  .deck-bar { flex-wrap: wrap; }
+}
+
+/* Present: the slide alone, full screen, letterboxed in black. */
+html.deck-presenting body { grid-template: "stage" 1fr / 1fr; background: #000; }
+html.deck-presenting .deck-strip, html.deck-presenting .deck-bar, html.deck-presenting .deck-notes { display: none; }
+html.deck-presenting main.deck > section { box-shadow: none; }
+
+/* A slide arrives with a short cross-fade while presenting (Claude Slides' Present plays transitions too). */
+@keyframes deck-in { from { opacity: 0; } }
+html:is(.deck-presenting, .deck-console) main.deck > section[data-current] { animation: deck-in 240ms cubic-bezier(0, 0, 0.58, 1); }
+@media (prefers-reduced-motion: reduce) { html main.deck > section[data-current] { animation: none; } }
+
+/* Present with speaker notes: the presenter's own window (or this one, when a second window is not
+   allowed) shows the current slide, the next one, the notes, a clock and the time spoken. */
+html.deck-console { color-scheme: dark; }
+html.deck-console body { grid-template: "top top" auto "stage next" minmax(0, 1fr) "stage notes" minmax(0, 1.4fr) "foot foot" auto / minmax(0, 1.7fr) minmax(280px, 1fr); background: #101012; color: #f2f2f4; }
+html.deck-console .deck-strip, html.deck-console .deck-bar, html.deck-console .deck-notes { display: none; }
+html.deck-console main.deck > section { box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12); }
+.deck-console-top, .deck-console-foot, .deck-console-next, .deck-console-notes { display: none; }
+html.deck-console .deck-console-top { grid-area: top; display: flex; align-items: baseline; gap: 24px; padding: 14px 24px 6px; font-variant-numeric: tabular-nums; }
+.deck-console-top .clock { font-size: 15px; color: #a1a1a6; }
+.deck-console-top .timer { font-size: 34px; font-weight: 600; letter-spacing: -0.01em; }
+.deck-console-top .timer[data-paused] { color: #a1a1a6; }
+.deck-console-top .count { margin-left: auto; font-size: 15px; color: #a1a1a6; }
+html.deck-console .deck-console-next { grid-area: next; display: grid; grid-template-rows: auto 1fr; gap: 8px; padding: 12px 24px 0 0; min-height: 0; }
+.deck-console-next .label, .deck-console-notes .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #a1a1a6; }
+.deck-console-next .frame { position: relative; overflow: hidden; min-height: 0; }
+.deck-console-next .frame > section { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12); }
+.deck-console-next .end { display: grid; place-items: center; height: 100%; color: #a1a1a6; font-size: 15px; border: 1px dashed rgb(255 255 255 / 0.18); border-radius: 6px; }
+html.deck-console .deck-console-notes { grid-area: notes; display: grid; grid-template-rows: auto 1fr; gap: 8px; padding: 16px 24px 12px 0; min-height: 0; }
+.deck-console-notes .text { overflow-y: auto; white-space: pre-wrap; font-size: var(--deck-console-notes, 22px); line-height: 1.45; }
+.deck-console-notes .text:empty::before { content: "No notes for this slide."; color: #6e6e73; }
+html.deck-console .deck-console-foot { grid-area: foot; display: flex; align-items: center; gap: 8px; padding: 10px 24px 16px; }
+.deck-console-foot button { font: 13px var(--cmux-font); color: #f2f2f4; background: #2c2c30; border: 1px solid #3a3a3e; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+.deck-console-foot .spacer { flex: 1; }
+
+/* Export PDF: one slide per page, at full size, in the light theme. */
+@page { size: 1280px 720px; margin: 0; }
+@media print {
+  :root { color-scheme: light; }
+  html, body, body.deck-ready { display: block; height: auto; overflow: visible; background: #fff; }
+  .deck-strip, .deck-bar, .deck-notes { display: none !important; }
+  body.deck-ready main.deck > section[data-skip], main.deck > section[data-skip] { display: none !important; }
+  main.deck { overflow: visible; }
+  body.deck-ready main.deck > section, main.deck > section { display: flex !important; position: relative; left: 0; top: 0; transform: none !important; box-shadow: none; break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
+</style>
+</head>
+<body>
+<main class="deck">
+
+<section class="title">
+  <h1>Deck title</h1>
+  <h3>Subtitle, author or date</h3>
+  <aside class="notes">Speaker notes go in an aside.notes; they show under the slide and in the .pptx.</aside>
+</section>
+
+<section>
+  <h2>One idea per slide</h2>
+  <ul>
+    <li>Three to five short lines</li>
+    <li>Big type: the slide is read from across a room</li>
+    <li>Details go in the notes, not on the slide</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Two columns</h2>
+  <div class="cols">
+    <div><p>Text on the left.</p></div>
+    <figure><svg viewBox="0 0 400 240" role="img" aria-label="Bar chart"><g fill="currentColor"><rect x="20" y="140" width="70" height="100" rx="6"/><rect x="115" y="80" width="70" height="160" rx="6"/><rect x="210" y="110" width="70" height="130" rx="6"/><rect x="305" y="20" width="70" height="220" rx="6"/></g></svg></figure>
+  </div>
+</section>
+
+<section class="center">
+  <blockquote>A quote or a single number, large, alone on its slide.</blockquote>
+</section>
+
+</main>
+<script>
+// cmux deck runtime: slide strip, Present, Present with speaker notes, Export PDF and Export .pptx. Keep it as the file's last element.
+(() => {
+  const W = 1280, H = 720;
+  const PPTX = "https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js";
+  const PPTX_SRI = "sha384-qb0Xhi7LLYpvW1HCK6oMrmDLSY9sy7vwm6ZlV6KjtrlL9yg30+YN4neTwnmX+Kp8";
+  const deck = document.querySelector("main.deck");
+  const slides = [...deck.querySelectorAll(":scope > section")];
+  if (!slides.length) return;
+  const el = (tag, props = {}, ...kids) => { const node = Object.assign(document.createElement(tag), props); node.append(...kids); return node; };
+  const button = (text, title, onclick) => el("button", { type: "button", textContent: text, title, onclick });
+
+  const strip = el("nav", { className: "deck-strip", ariaLabel: "Slides" });
+  const thumbs = slides.map((slide, i) => {
+    const thumb = button("", `Slide ${i + 1}${slide.hasAttribute("data-skip") ? " (skipped)" : ""}`, () => go(i));
+    thumb.className = "deck-thumb";
+    thumb.toggleAttribute("data-skip", slide.hasAttribute("data-skip"));
+    const copy = slide.cloneNode(true);
+    copy.removeAttribute("id");
+    copy.inert = true;
+    thumb.append(copy);
+    strip.append(thumb);
+    return thumb;
+  });
+  const count = el("span", { className: "deck-count" });
+  const status = el("span", { className: "deck-status", role: "status" });
+  const pptxButton = button("Export .pptx", "Download as PowerPoint (loads a writer from cdn.jsdelivr.net once)", exportPptx);
+  // Present, as Claude Slides has it: the deck full screen, or with a presenter window beside it.
+  const hasNotes = slides.some((slide) => slide.querySelector("aside.notes")?.textContent.trim());
+  const menu = el("div", { className: "deck-menu", role: "menu", hidden: true });
+  const item = (text, key, onclick, disabled = false) => {
+    const node = button(text, "", () => { menu.hidden = true; onclick(); });
+    node.role = "menuitem";
+    node.disabled = disabled;
+    node.append(el("kbd", { textContent: key }));
+    return node;
+  };
+  menu.append(item("Present", "F", present),
+    item("Present with speaker notes", "S", presentWithNotes, !hasNotes));
+  const more = button("▾", "Present options", () => { menu.hidden = !menu.hidden; });
+  more.ariaHasPopup = "menu";
+  const presentGroup = el("span", { className: "deck-present" },
+    button("Present", "Present full screen (F; Esc exits)", present), more, menu);
+  document.addEventListener("pointerdown", (event) => { if (!presentGroup.contains(event.target)) menu.hidden = true; });
+  const bar = el("div", { className: "deck-bar" },
+    button("‹", "Previous (Left arrow)", () => go(current - 1)), count,
+    button("›", "Next (Right arrow)", () => go(current + 1)),
+    presentGroup,
+    button("Export PDF", "Print or save as PDF, one slide per page", () => window.print()),
+    pptxButton, status);
+  const notes = el("div", { className: "deck-notes", ariaLabel: "Speaker notes" });
+  document.body.prepend(strip, bar);
+  document.body.append(notes);
+  document.body.classList.add("deck-ready");
+
+  const root = document.documentElement;
+  const showing = () => root.classList.contains("deck-presenting") || root.classList.contains("deck-console");
+  let current = -1;
+  function fit() {
+    const box = deck.getBoundingClientRect();
+    const pad = root.classList.contains("deck-presenting") ? 0 : 24;
+    const scale = Math.max(0.05, Math.min((box.width - pad * 2) / W, (box.height - pad * 2) / H));
+    for (const slide of slides) slide.style.transform = `scale(${scale}) translate(-50%, -50%)`;
+    fitNext();
+    return scale;
+  }
+  // While presenting, a skipped slide is passed over in the direction of travel.
+  function shown(index, step) {
+    let at = Math.max(0, Math.min(slides.length - 1, index));
+    if (!showing()) return at;
+    while (slides[at]?.hasAttribute("data-skip")) {
+      const after = at + (step || 1);
+      if (after < 0 || after >= slides.length) return slides[current] && !slides[current].hasAttribute("data-skip") ? current : at;
+      at = after;
+    }
+    return at;
+  }
+  function go(index, step = Math.sign(index - current), quiet = false) {
+    const next = shown(index, step);
+    if (next === current) return;
+    slides[current]?.removeAttribute("data-current");
+    thumbs[current]?.setAttribute("aria-current", "false");
+    current = next;
+    slides[current].setAttribute("data-current", "");
+    thumbs[current].setAttribute("aria-current", "true");
+    thumbs[current].scrollIntoView({ block: "nearest" });
+    count.textContent = `${current + 1} / ${slides.length}`;
+    notes.textContent = slides[current].querySelector("aside.notes")?.textContent.trim() ?? "";
+    history.replaceState(null, "", `#${current + 1}`);
+    if (root.classList.contains("deck-console")) paintConsole();
+    if (!quiet) channel?.postMessage({ go: current });
+  }
+  async function present() {
+    root.classList.add("deck-presenting");
+    try { await root.requestFullscreen(); } catch { /* a frame without fullscreen still presents in place */ }
+    go(current, 1, true);
+    fit();
+  }
+  function stop() {
+    root.classList.remove("deck-presenting");
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    fit();
+  }
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement) root.classList.remove("deck-presenting");
+    fit();
+  });
+
+  // Present with speaker notes: this window presents and a second one, the presenter's, shows the
+  // notes, a clock, the time spoken and the next slide; the two follow each other's slide. Where a
+  // second window is not allowed (a pane that blocks pop-ups), this window becomes the presenter's.
+  const CONSOLE = "cmux-deck-presenter";
+  const channel = "BroadcastChannel" in window ? new BroadcastChannel(`cmux-deck:${location.pathname}`) : null;
+  channel?.addEventListener("message", ({ data }) => {
+    if (typeof data?.go === "number") go(data.go, Math.sign(data.go - current), true);
+    if (data?.end) root.classList.contains("deck-console") && window.name === CONSOLE ? window.close() : stop();
+    if (data?.hello && !root.classList.contains("deck-console")) channel.postMessage({ go: current });
+  });
+  function presentWithNotes() {
+    // Open beside the deck. A browser can report the page offscreen (screenX far outside the
+    // screen), so when the opener's geometry isn't on screen, fall back to the screen's top-left.
+    const w = 1180, h = 760, x0 = screen.availLeft || 0, y0 = screen.availTop || 0, aw = screen.availWidth || w;
+    const sx = window.screenX, sy = window.screenY, ow = window.outerWidth;
+    const onScreen = sx >= x0 - 16 && sx + ow <= x0 + aw + 16 && sy >= y0 - 16 && sy < y0 + (screen.availHeight || h);
+    // On screen: the side of the deck with more room, narrowed to fit there (at least 640 px), same aspect.
+    const roomRight = x0 + aw - (sx + ow) - 12, roomLeft = sx - x0 - 12;
+    const onRight = roomRight >= roomLeft;
+    const cw = onScreen ? Math.max(640, Math.min(w, onRight ? roomRight : roomLeft)) : w;
+    const ch = Math.round(cw * h / w);
+    const left = !onScreen ? x0 + 12 : onRight ? sx + ow + 12 : Math.max(x0, sx - cw - 12);
+    const top = onScreen ? sy : y0 + 96;
+    const win = window.open(location.href, CONSOLE, `popup,width=${cw},height=${ch},left=${left},top=${top}`);
+    if (win) present();
+    else openConsole();
+  }
+  const consoleTop = el("div", { className: "deck-console-top" });
+  const consoleNext = el("div", { className: "deck-console-next" });
+  const consoleNotes = el("div", { className: "deck-console-notes" });
+  const consoleFoot = el("div", { className: "deck-console-foot" });
+  const clock = el("span", { className: "clock" }), timer = el("span", { className: "timer", title: "Time spoken" });
+  const consoleCount = el("span", { className: "count" });
+  const nextFrame = el("div", { className: "frame" });
+  const notesText = el("div", { className: "text" });
+  let started = 0, pausedAt = 0, notesSize = 22, ticking = 0;
+  const pauseButton = button("Pause", "Pause the timer", () => {
+    if (pausedAt) { started += Date.now() - pausedAt; pausedAt = 0; } else pausedAt = Date.now();
+    tick();
+  });
+  function tick() {
+    const spoken = Math.max(0, (pausedAt || Date.now()) - started);
+    const s = Math.floor(spoken / 1000);
+    timer.textContent = `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}:` : ""}${String(Math.floor(s / 60) % 60).padStart(Math.floor(s / 3600) ? 2 : 1, "0")}:${String(s % 60).padStart(2, "0")}`;
+    timer.toggleAttribute("data-paused", Boolean(pausedAt));
+    pauseButton.textContent = pausedAt ? "Resume" : "Pause";
+    clock.textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  const sizeNotes = (by) => { notesSize = Math.max(14, Math.min(44, notesSize + by)); root.style.setProperty("--deck-console-notes", `${notesSize}px`); };
+  consoleTop.append(timer, clock, consoleCount);
+  consoleNext.append(el("span", { className: "label", textContent: "Next" }), nextFrame);
+  consoleNotes.append(el("span", { className: "label", textContent: "Notes" }), notesText);
+  consoleFoot.append(button("‹ Previous", "Previous (Left arrow)", () => go(current - 1)),
+    button("Next ›", "Next (Right arrow or Space)", () => go(current + 1)),
+    el("span", { className: "spacer" }),
+    button("A−", "Smaller notes", () => sizeNotes(-2)), button("A+", "Larger notes", () => sizeNotes(2)),
+    pauseButton, button("Reset", "Start the timer again", () => { started = Date.now(); pausedAt = 0; tick(); }),
+    button("End", "End the presentation (Esc)", endConsole));
+  function openConsole() {
+    root.classList.add("deck-console");
+    if (!consoleTop.isConnected) document.body.append(consoleTop, consoleNext, consoleNotes, consoleFoot);
+    started = Date.now(); pausedAt = 0;
+    tick();
+    ticking = window.setInterval(tick, 1000);
+    go(current, 1, true);
+    paintConsole();
+    fit();
+  }
+  function endConsole() {
+    channel?.postMessage({ end: true });
+    if (window.name === CONSOLE) { window.close(); return; }
+    root.classList.remove("deck-console");
+    window.clearInterval(ticking);
+    fit();
+  }
+  function upcoming() {
+    for (let at = current + 1; at < slides.length; at += 1) if (!slides[at].hasAttribute("data-skip")) return at;
+    return -1;
+  }
+  function paintConsole() {
+    const at = upcoming();
+    nextFrame.replaceChildren(at < 0 ? el("div", { className: "end", textContent: "End of the deck" }) : (() => {
+      const copy = slides[at].cloneNode(true);
+      copy.removeAttribute("id");
+      copy.removeAttribute("data-current");
+      copy.style.display = "flex";
+      copy.inert = true;
+      return copy;
+    })());
+    notesText.textContent = notes.textContent;
+    const order = slides.filter((slide) => !slide.hasAttribute("data-skip"));
+    consoleCount.textContent = `Slide ${order.indexOf(slides[current]) + 1} of ${order.length}`;
+    fitNext();
+  }
+  function fitNext() {
+    const copy = nextFrame.querySelector("section");
+    if (!copy) return;
+    const box = nextFrame.getBoundingClientRect();
+    copy.style.transform = `scale(${Math.max(0.05, Math.min(box.width / W, box.height / H))})`;
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.target.closest?.("input, textarea, [contenteditable]")) return;
+    const step = { ArrowRight: 1, ArrowDown: 1, PageDown: 1, " ": 1, n: 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1, Backspace: -1, p: -1 }[event.key];
+    if (step) go(current + (event.shiftKey && event.key === " " ? -1 : step));
+    else if (event.key === "Home") go(0);
+    else if (event.key === "End") go(slides.length - 1);
+    else if (event.key === "f" && !root.classList.contains("deck-console")) present();
+    else if (event.key === "s" && hasNotes && !showing()) presentWithNotes();
+    else if (event.key === "Escape") root.classList.contains("deck-console") ? endConsole() : root.classList.contains("deck-presenting") ? (channel?.postMessage({ end: true }), stop()) : (menu.hidden = true);
+    else return;
+    event.preventDefault();
+  });
+  window.addEventListener("hashchange", () => go(Number(location.hash.slice(1)) - 1));
+  new ResizeObserver(fit).observe(deck);
+  new ResizeObserver(fitNext).observe(nextFrame);
+  go((Number(location.hash.slice(1)) || 1) - 1);
+  fit();
+  // The presenter's window: open as the console and take the presenting window's slide.
+  if (window.name === CONSOLE && window.opener) { openConsole(); channel?.postMessage({ hello: true }); window.focus(); document.body.tabIndex = -1; document.body.focus({ preventScroll: true }); }
+
+  // Export .pptx: each slide's text, lists and pictures become native, editable PowerPoint shapes, placed
+  // where they sit on the slide. The writer (pptxgenjs, about 157 KB gzipped) loads on the first click only.
+  const loadWriter = () => window.PptxGenJS ? Promise.resolve() : new Promise((resolve, reject) => {
+    const script = el("script", { src: PPTX, integrity: PPTX_SRI, crossOrigin: "anonymous", onload: resolve });
+    script.onerror = () => reject(new Error("could not load the PowerPoint writer from cdn.jsdelivr.net"));
+    document.head.append(script);
+  });
+  const hex = (color) => {
+    const n = (color.match(/[\d.]+/g) || []).map(Number);
+    if (color.startsWith("color(")) n.splice(0, 3, ...n.slice(0, 3).map((v) => v * 255));
+    if (n.length < 3 || n[3] === 0) return null;
+    return n.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, "0")).join("").toUpperCase();
+  };
+  const TEXT = "h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, figcaption, th, td";
+  const dataUrl = async (src) => {
+    if (src.startsWith("data:")) return src;
+    const blob = await (await fetch(src)).blob();
+    return await new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(blob); });
+  };
+  async function exportPptx() {
+    pptxButton.disabled = true;
+    const started = performance.now();
+    const back = current;
+    let skipped = 0;
+    try {
+      status.textContent = window.PptxGenJS ? "Writing…" : "Loading the PowerPoint writer…";
+      await loadWriter();
+      const loaded = performance.now();
+      const pptx = new window.PptxGenJS();
+      pptx.layout = "LAYOUT_WIDE"; // 13.333 x 7.5 in, the slide's 16:9
+      pptx.title = document.title;
+      const inch = 13.333 / W;
+      for (const [i, slide] of slides.entries()) {
+        if (slide.hasAttribute("data-skip")) continue;
+        go(i, 1, true);
+        const scale = fit();
+        const origin = slide.getBoundingClientRect();
+        const box = (node) => {
+          const r = node.getBoundingClientRect();
+          return { x: (r.left - origin.left) / scale * inch, y: (r.top - origin.top) / scale * inch, w: r.width / scale * inch, h: r.height / scale * inch };
+        };
+        const page = pptx.addSlide();
+        page.background = { color: hex(getComputedStyle(slide).backgroundColor) || "FFFFFF" };
+        for (const node of slide.querySelectorAll(TEXT)) {
+          if (node.parentElement.closest(TEXT) || node.closest("aside.notes") || !node.textContent.trim()) continue;
+          const style = getComputedStyle(node);
+          page.addText(node.innerText.trim(), {
+            ...box(node), margin: 0, valign: "top", fit: "shrink",
+            fontSize: parseFloat(style.fontSize) * 0.75, fontFace: style.fontFamily.split(",")[0].replace(/["']/g, "").replace(/^-apple-system$|^system-ui$/, "Helvetica Neue"),
+            color: hex(style.color) || "000000", bold: Number(style.fontWeight) >= 600, italic: style.fontStyle === "italic",
+            align: { center: "center", right: "right", end: "right" }[style.textAlign] || "left",
+            bullet: node.tagName === "LI" ? (node.parentElement.tagName === "OL" ? { type: "number" } : true) : false,
+          });
+        }
+        for (const node of slide.querySelectorAll("img, svg")) {
+          if (node.parentElement.closest("svg") || node.closest("aside.notes")) continue;
+          try {
+            const data = node.tagName === "IMG" ? await dataUrl(node.currentSrc || node.src)
+              : "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(node.outerHTML.replace("<svg", `<svg xmlns="http://www.w3.org/2000/svg" color="${getComputedStyle(node).color}"`))));
+            page.addImage({ data, ...box(node) });
+          } catch { skipped += 1; }
+        }
+        const said = slide.querySelector("aside.notes")?.textContent.trim();
+        if (said) page.addNotes(said);
+      }
+      const name = (document.title || "deck").replace(/[\\/:*?"<>|]+/g, " ").trim() || "deck";
+      await pptx.writeFile({ fileName: `${name}.pptx` });
+      const ms = (t) => `${Math.round(t)} ms`;
+      status.textContent = `Saved ${name}.pptx (writer ${ms(loaded - started)}, file ${ms(performance.now() - loaded)})`
+        + (skipped ? `; ${skipped} picture${skipped > 1 ? "s" : ""} left out (the browser would not read the file)` : "");
+    } catch (error) {
+      status.textContent = `Export .pptx failed: ${error.message}`;
+    } finally {
+      go(back, 0, true);
+      fit();
+      pptxButton.disabled = false;
+    }
+  }
+})();
+</script>
+</body>
+</html>

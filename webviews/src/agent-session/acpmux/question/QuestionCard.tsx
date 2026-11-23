@@ -6,6 +6,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "../conversation/icons";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
+import { ANSWER_HOLD_MS, useAnswerHold } from "../answerHold";
 import { Keycap } from "../Keycap";
 import { NativeError } from "../nativeError";
 import { knownRefusalText } from "../transportErrors";
@@ -44,6 +45,9 @@ import {
 import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
 import { QUESTION_KEY_REQUEST_EVENT, type QuestionKeyRequestEvent } from "./keyReply";
 import { shownPreview, previewText } from "./questionCardModel";
+import { focusRoute } from "../../../ui/focusRoute";
+import { intl } from "../../../ui/intl";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
 /// Arrow keys may repeat; a held digit, Enter or Space answers once.
@@ -115,7 +119,11 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
     const reopened = open && !wasOpen.current;
     wasOpen.current = open;
     if (!reopened || !promptCard) return;
-    ask.current?.querySelector<HTMLElement>(".acpmux-question-other textarea, [data-row][data-highlighted]")?.focus();
+    focusRoute(
+      ask.current?.querySelector<HTMLElement>(".acpmux-question-other textarea, [data-row][data-highlighted]"),
+      "system",
+      "an agent's question",
+    );
   }, [open, promptCard]);
   return (
     <div
@@ -128,6 +136,7 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
         <button
           type="button"
           className="acpmux-question-status"
+          data-dock-clear=""
           aria-expanded={open}
           aria-controls={cardId}
           onClick={() => setOpen((shown) => !shown)}
@@ -209,14 +218,23 @@ function PendingQuestion({
   const previewId = useId();
   const hintId = useId();
   const language = usePaneLanguage();
-  const listFormat = new Intl.ListFormat(language, { type: "conjunction" });
+  const listFormat = intl.ListFormat(language, { type: "conjunction" });
   const group = useRef<HTMLFieldSetElement>(null);
   const bar = useRef<HTMLDivElement>(null);
   const [stored, setStored] = useState(() => cardState(question));
+  // The ask being answered, read at once: a second click before the card renders again (a
+  // consent's double click) must not answer twice.
+  const sending = useRef<string | undefined>(undefined);
   // The ask a person already answered: the owner clears it a moment later, and until then a
-  // second click or key must not answer it again. A refused reply clears it for a retry.
-  const [sentFor, setSentFor] = useState<string | undefined>();
-  const [keyPendingFor, setKeyPendingFor] = useState<string | undefined>();
+  // second click or key must not answer it again. A refused reply clears it for a retry. Held for
+  // ANSWER_HOLD_MS at most (answerHold.ts): an owner that never clears the ask (the agent
+  // exited, the link dropped) leaves the card taking an answer again, never dimmed for good.
+  const [sentFor, setSentFor] = useAnswerHold<string>(ANSWER_HOLD_MS, (askId) => {
+    if (sending.current === askId) sending.current = undefined;
+  });
+  const [keyPendingFor, setKeyPendingFor] = useAnswerHold<string>(ANSWER_HOLD_MS, (askId) => {
+    if (sending.current === askId) sending.current = undefined;
+  });
   // The last reply's refusal, shown until the next try: the card's sentence, then the pane's words
   // for a refusal it knows (transportErrors.ts) or a message already in the person's language (the
   // app's or the pane's own). acpmux's English is for its CLI.
@@ -235,25 +253,25 @@ function PendingQuestion({
   const item = activeItem(state);
   const highlighted = highlightedRow(state, item);
 
-  // The same, read at once: a second click before the card renders again (a consent's double click)
-  // must not answer twice either.
-  const sending = useRef<string | undefined>(undefined);
-  const refuseReply = useCallback((askId: string, error: unknown) => {
-    // The ask stays pending: say why on the card and take input again.
-    if (sending.current === askId) sending.current = undefined;
-    setSentFor((current) => (current === askId ? undefined : current));
-    const known = knownRefusalText(error);
-    if (known) {
-      setRefused({ reason: known });
-      return;
-    }
-    const reason = localizedMessage(error);
-    if (reason) setRefused({ reason });
-    else {
-      console.warn("agent pane: an answer was refused", error);
-      setRefused({});
-    }
-  }, []);
+  const refuseReply = useCallback(
+    (askId: string, error: unknown) => {
+      // The ask stays pending: say why on the card and take input again.
+      if (sending.current === askId) sending.current = undefined;
+      setSentFor((current) => (current === askId ? undefined : current));
+      const known = knownRefusalText(error);
+      if (known) {
+        setRefused({ reason: known });
+        return;
+      }
+      const reason = localizedMessage(error);
+      if (reason) setRefused({ reason });
+      else {
+        console.warn("agent pane: an answer was refused", error);
+        setRefused({});
+      }
+    },
+    [setSentFor],
+  );
   const send = (sentReply: QuestionReply | undefined) => {
     if (!sentReply || sent || sending.current === question.id) return;
     sending.current = question.id;
@@ -298,7 +316,7 @@ function PendingQuestion({
       currentRequest = undefined;
       view.removeEventListener(QUESTION_KEY_REQUEST_EVENT, receive);
     };
-  }, [question.id, question.source.session, question.source.permission, refuseReply]);
+  }, [question.id, question.source.session, question.source.permission, refuseReply, setKeyPendingFor, setSentFor]);
   /// Gives the keyboard back: the composer claims an idle keyboard on this event (composerFocus.ts).
   const resign = () => {
     const card = group.current;
@@ -431,7 +449,7 @@ function PendingQuestion({
     arrived.current = question.id;
     if (hidden || !keyboardIsIdle(card.ownerDocument)) return;
     const target = consent ? ".acpmux-question-submit" : `[data-row="${highlightedRow(state)}"]`;
-    card.querySelector<HTMLElement>(target)?.focus();
+    focusRoute(card.querySelector<HTMLElement>(target), "system", "an agent's question");
   });
   const goToItem = (index: number) => {
     if (sent || keyPendingFor === question.id) return;
@@ -482,17 +500,21 @@ function PendingQuestion({
           </p>
         )}
         <div className="acpmux-question-actions">
-          <button
-            type="button"
-            className="acpmux-question-skip"
-            aria-keyshortcuts="Escape"
-            title={reject.detail}
-            disabled={sent}
-            onClick={skip}
-          >
-            {inlineText(reject.label)}
-            <Keycap>esc</Keycap>
-          </button>
+          <WithFacts facts={[{ value: reject.detail ?? "" }]}>
+            {(facts) => (
+              <button
+                {...facts}
+                type="button"
+                className="acpmux-question-skip"
+                aria-keyshortcuts="Escape"
+                disabled={sent}
+                onClick={skip}
+              >
+                {inlineText(reject.label)}
+                <Keycap>esc</Keycap>
+              </button>
+            )}
+          </WithFacts>
           <button
             type="button"
             className="acpmux-question-submit"

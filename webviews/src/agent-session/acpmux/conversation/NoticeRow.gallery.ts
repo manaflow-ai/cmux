@@ -424,7 +424,66 @@ const openFold: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-notice.is-fire .cv-received__text"), { capMs: 10_000 });
 };
 
+/// A sender's notice of a title alone, as spend-watch's spend alarm goes in (Leo, 2026-11-14, on it
+/// opened to "No message text": "this is weird").
+const SPEND: Page = {
+  sender: "spend-watch",
+  host: "build-box",
+  severity: "warn",
+  title:
+    "spend-watch on build-box is spending REST at 336/h against its cap of 150 (141 in the last 10 minutes; top: pulls 88, checks 31)",
+  body: "",
+  links: [],
+};
+
+/// The spend alarm, then a FIRE with a body, each in its own turn.
+function senders() {
+  return chat(
+    [
+      ...opening,
+      notice(SPEND, 14),
+      assistant("Noted; the pool still has room.", 13.9),
+      summary(13.8, { status: "completed", durationMs: 3_000, toolCount: 0 }),
+      notice(FIRE, 6),
+      assistant("Looking at the fast tier failure on #32827 first.", 5.8),
+      summary(5.7, { status: "completed", durationMs: 14_000, toolCount: 0 }),
+    ],
+    { title: "coordinator", sessions },
+  );
+}
+
+/// Opens every notice line.
+const openAll: Play = async (ctx) => {
+  const lines = () => [...ctx.document.querySelectorAll(".cv-received.cv-notice .cv-disclosure__toggle")];
+  await ctx.waitFor(() => lines().length >= 2 || null, { capMs: 10_000 });
+  for (const line of lines()) if (line.getAttribute("aria-expanded") !== "true") (line as HTMLElement).click();
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-notice[data-open]").length >= 2 || null, {
+    capMs: 10_000,
+  });
+};
+
 const variants: Record<string, AgentPaneVariant> = {
+  "sender-open": {
+    note: 'Selected default (body look body): spend-watch\'s one-line WARN and a FIRE, opened. The head (mark, sender, machine) and title stay on the line; the panel says the rest: the one-liner its whole sentence, the FIRE its body and links. Never "No message text", never the title twice; Details is the raw prompt only.',
+    snapshot: senders(),
+    play: openAll,
+  },
+  "sender-open-title-body": {
+    note: "Gallery version (theme noticeBodyLook title-body): the panel starts with the title whole, then the body. Every notice's whole text in one place, but the title reads twice under its line, and a digest's or a cut title's body says it again.",
+    theme: { noticeBodyLook: "title-body" },
+    snapshot: senders(),
+    play: openAll,
+  },
+  "sender-open-wrap": {
+    note: "Gallery version (theme noticeBodyLook wrap): opened, the line's title wraps whole and the panel holds the body alone; a title-only notice opens to Details only.",
+    theme: { noticeBodyLook: "wrap" },
+    snapshot: senders(),
+    play: openAll,
+  },
+  "sender-closed": {
+    note: "The same two notices closed: one line each, the title cut to the line.",
+    snapshot: senders(),
+  },
   single: {
     note: "Selected default (look mark): a LANDED, a WARN and a FIRE, each its own line: the severity's mark in the icon column (red disc, quiet ring, amber triangle), the sender and its machine, the title.",
     snapshot: single(),
@@ -435,7 +494,7 @@ const variants: Record<string, AgentPaneVariant> = {
     play: async (ctx) => ctx.hover({ selector: ".cv-disclosure__toggle:not(.is-chevron) .cv-notice__lead" }),
   },
   "single-open": {
-    note: "The FIRE opened: its body as Markdown, then its links named as chips name them; no [notice from …] head, no Links: line.",
+    note: "The FIRE opened: its title whole, its body as Markdown, then its links named as chips name them; no [notice from …] head, no Links: line.",
     snapshot: single(),
     play: openFire,
   },
@@ -526,6 +585,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/NoticeMark.tsx",
     "agent-session/acpmux/conversation/NoticeMark.css",
     "agent-session/acpmux/conversation/noticeLook.ts",
+    "agent-session/acpmux/conversation/IncomingMessageCard.tsx",
   ],
   variants,
 });

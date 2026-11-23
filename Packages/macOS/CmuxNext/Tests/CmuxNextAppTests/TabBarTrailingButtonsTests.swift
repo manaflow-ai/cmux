@@ -50,11 +50,15 @@ import Testing
         return found
     }
 
-    @Test func thePaneTypeChevronDrawsNoBlockWhileItsMenuIsOpen() throws {
+    /// The stroke looks (`tabs.trailingButtons` glyphs, merged) draw no block behind the ⌄ while its menu is open. The
+    /// default split look (Lucas 2026-11-12, #41212) is checked by ``theSplitChevronFillsItsOwnSegmentWhileItsMenuIsOpen()``.
+    @Test(arguments: [TabTrailingButtons.glyphs, .merged])
+    func thePaneTypeChevronDrawsNoBlockWhileItsMenuIsOpen(style: TabTrailingButtons) throws {
         let harness = Harness()
         defer { harness.window.closeAfterTest() }
         let chooser = harness.strip.newTabMenuButton
         #expect(!chooser.isHidden, "the pane asks for its type chooser")
+        chooser.style = style
         chooser.isHighlighted = true // what the strip sets while the chooser's menu is open
         chooser.layoutSubtreeIfNeeded()
         let layer = try #require(chooser.layer)
@@ -62,15 +66,41 @@ import Testing
         #expect(blocks.isEmpty, "the ⌄ paints a rectangular block: \(blocks.map { "\($0.bounds.size) r\($0.cornerRadius)" })")
     }
 
-    @Test func thePaneMoreDrawsNoPlateWhileItsMenuIsOpen() throws {
+    /// The split `+ ⌄` (the default since Lucas 2026-11-12, #41212: "only on hover"): an open ⌄ menu fills the ⌄'s
+    /// whole segment, the ⋮'s height, with the group's trailing corners rounded as a tab's, in the pressed fill. It is
+    /// the right half of one control, not a square plate of its own.
+    @Test func theSplitChevronFillsItsOwnSegmentWhileItsMenuIsOpen() throws {
+        let harness = Harness()
+        defer { harness.window.closeAfterTest() }
+        let chooser = harness.strip.newTabMenuButton
+        chooser.style = .split
+        chooser.isHighlighted = true
+        chooser.layoutSubtreeIfNeeded()
+        let layer = try #require(chooser.layer)
+        let fills = filledLayers(layer)
+        #expect(fills.count == 1, "one fill: \(fills.map { "\($0.bounds.size)" })")
+        let fill = try #require(fills.first)
+        #expect(fill.frame == chooser.bounds, "the fill is the whole segment")
+        #expect(fill.cornerRadius == PlusButtonLook.splitCornerRadius, "the +'s corner, a tab's")
+        #expect(fill.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner], "only the group's trailing corners round")
+        chooser.isHighlighted = false
+        #expect(filledLayers(layer).isEmpty, "no fill once the menu closes and the pointer is away")
+    }
+
+    /// While its menu is open the pane's "…" shows one plate over its whole frame at the tabs' corner, as the ⌄ does
+    /// in the default split look (`tabs.trailingButtons`).
+    @Test func thePaneMoreShowsOnePlateWhileItsMenuIsOpen() throws {
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 80, height: TabStripView.preferredHeight))
         toolbar.show(more: true, lit: false)
         toolbar.layoutSubtreeIfNeeded()
         toolbar.moreButton.showsMenu = true
         toolbar.moreButton.updateLayer()
         let layer = try #require(toolbar.moreButton.layer)
-        let blocks = filledLayers(layer).filter { abs($0.bounds.width - $0.bounds.height) > 0.5 || $0.cornerRadius < $0.bounds.width / 2 - 0.5 }
-        #expect(blocks.isEmpty, "the ⋮ paints a plate: \(blocks.map { "\($0.bounds.size) r\($0.cornerRadius)" })")
+        let fills = filledLayers(layer)
+        #expect(fills.count == 1, "one plate: \(fills.map { "\($0.bounds.size)" })")
+        let plate = try #require(fills.first)
+        #expect(plate.bounds.size == toolbar.moreButton.bounds.size)
+        #expect(plate.cornerRadius == PaneToolbarView.moreCornerRadius(inset: PaneToolbarView.trailingGap))
     }
 
     @Test func theChevronIsDrawnAtThePlusStrokeWeight() throws {
@@ -97,9 +127,11 @@ import Testing
         #expect(cell.titleLayer.mask != nil, "the clipped title fades out at the tab's trailing end")
     }
 
-    @Test func aTabTitleIsChromesTwelvePoints() {
+    /// The density's `tabTitleSize`, 12.75 pt at Default (9 pt capitals, Lucas 2026-11-15), else Chrome's 12.
+    @Test func aTabTitleIsTheDensitysTitleSize() {
         let harness = Harness()
         defer { harness.window.closeAfterTest() }
-        for cell in harness.strip.cells.values { #expect(cell.titleFont.pointSize == 12 * Typography.userScale) }
+        let size = CGFloat(DesignSettings.shared.densityTokens.tokens["tabTitleSize"] ?? 12) * Typography.userScale
+        for cell in harness.strip.cells.values { #expect(cell.titleFont.pointSize == size) }
     }
 }

@@ -71,11 +71,14 @@ extension ScreenContentView {
     /// (`LayoutRootView.sync`), without telling them anything.
     func takeResizeGestureListeners() -> [PaneResizeGestureListener] {
         paneFrameNotices.release()
-        guard resizeGesture != .idle else { return [] }
+        // A window's live resize under way: its contents hear the end where they land, as a drag's do.
+        let windowListeners = windowResizeListeners ?? []
+        windowResizeListeners = nil
+        guard resizeGesture != .idle else { return windowListeners }
         let listeners = resizeGestureListeners
         resizeGesture = .idle
         resizeGestureListeners = []
-        return listeners
+        return listeners + windowListeners
     }
 
     /// Listeners whose panes came here from a screen that went away: they hear the end when this
@@ -92,15 +95,15 @@ extension ScreenContentView {
         context.requestFrames()
     }
 
-    /// Gives the pane views their frame notices back once no resize drag and no zoom moves them (``FrameNoticeHold``).
+    /// Gives the pane views their frame notices back once no resize drag or key resize moves them (``FrameNoticeHold``).
     func releasePaneFrameNoticesIfSettled() {
-        guard resizeGesture == .idle, zoomMotion.pane == nil, paneFrameNotices.isHolding else { return }
+        guard resizeGesture == .idle, !holdsContentForKeyResize, windowResizeListeners == nil, paneFrameNotices.isHolding else { return }
         paneFrameNotices.release()
     }
 
     /// Tells the contents that heard the start that the drag is over, now.
     func finishResizeGesture() {
-        // Each pane view the drag moved posts its one frame notice now (a zoom still on its spring keeps them).
+        // Each pane view the drag moved posts its one frame notice now.
         defer { releasePaneFrameNoticesIfSettled() }
         guard resizeGesture != .idle else { return }
         resizeGesture = .idle

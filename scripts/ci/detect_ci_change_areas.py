@@ -174,14 +174,52 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # Areas only gate ci.yml and the reusable workflows it calls. A helper no job in
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
-_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
+# Text nothing executes: prose, and captured CI logs (#41545's base_red_excuse
+# fixtures quote a run that printed tests/test_cmux_next_route.py, which made
+# every helper that test names route to every area).
+_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt", ".log")
+# Files where `#` starts a comment. Outside scripts/, actions and tests/, one
+# that names a helper only in a comment does not run it (a Cargo.toml's note on
+# the release strip routed that strip script to every lane, #42338).
+_HASH_COMMENT_SUFFIXES = (".toml", ".yml", ".yaml", ".sh", ".bash", ".zsh")
 # Data files that name helpers without running them: git attributes, the
-# warm-source table, whose entries describe a source in prose (#28568), and the
+# warm-source table, whose entries describe a source in prose (#28568), the
 # single-host fallback declaration, whose `fallback` lines name the rescue that
-# moves a stuck job (#40880).
+# moves a stuck job (#40880), and every other data file under .github/: tables
+# scripts read, issue templates, code owners, the run-request files whose edit
+# triggers a workflow. A file listed here is a dead end when ci_helper_areas()
+# walks back from a helper. A file under .github/ that is neither here nor a
+# workflow, action, script or documentation fails every helper it names open,
+# so test_every_github_file_is_placed_by_the_helper_walk fails on the pull
+# request that adds it: list it here if nothing executes what it names.
 _NON_RUNNING_FILES = frozenset({
     ".gitattributes",
+    ".github/CODEOWNERS",
+    ".github/ISSUE_TEMPLATE/bug_report.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+    ".github/ISSUE_TEMPLATE/feature_request.yml",
+    ".github/actionlint.yaml",
+    ".github/checkout-lean.json",
+    ".github/cloud-backend-paths.json",
+    ".github/cloud-machine-count-probe/request",
+    ".github/cloud-surge-proof/request",
+    ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
+    ".github/defaults-call-owners.json",
+    ".github/design-surfaces.json",
+    ".github/gateway-e2e/request",
+    ".github/github-token-budget.json",
+    ".github/ios-review-gate-devices.json",
+    ".github/labels.json",
+    ".github/language-boundaries.toml",
+    ".github/nightly-known-bad.json",
+    ".github/nightly-step-coverage.json",
+    ".github/post-merge-checks.json",
+    ".github/release-thanks.json",
+    ".github/review-fabric-policy.json",
+    ".github/runners.json",
+    ".github/rust-workspaces.toml",
     ".github/single-host-fallbacks.json",
+    ".github/swift-warning-budget.tsv",
     ".github/warm-sources.json",
 })
 
@@ -217,7 +255,8 @@ def _files_naming(root: Path, token: str) -> Optional[list[str]]:
     referrer and is judged by its own rule.
     """
     result = subprocess.run(
-        ["git", "-C", str(root), "grep", "-l", "-F", "-e", token],
+        # -I: a binary file (an image, an archive) names no helper.
+        ["git", "-C", str(root), "grep", "-I", "-l", "-F", "-e", token],
         capture_output=True, text=True,
     )
     if result.returncode not in (0, 1):
@@ -234,6 +273,46 @@ def _files_naming(root: Path, token: str) -> Optional[list[str]]:
     return named
 
 
+def searchable_files(root: Path, pathspec: str) -> Optional[frozenset[str]]:
+    """The tracked files under `pathspec` that _files_naming() can return: the
+    non-empty text files. None when git cannot search the tree."""
+    result = subprocess.run(
+        ["git", "-C", str(root), "grep", "-I", "-l", "-e", "", "--", pathspec],
+        capture_output=True, text=True,
+    )
+    if result.returncode not in (0, 1):
+        return None
+    return frozenset(result.stdout.splitlines())
+
+
+def referrer_role(path: str) -> Optional[str]:
+    """What ci_helper_areas() makes of a tracked file that names a helper, or
+    None when it cannot place the file and so answers every area.
+
+    "workflow": routed by its jobs, or a dead end outside ci.yml's call tree.
+    "documentation" and "data": a dead end. "action": followed through the jobs
+    that use its directory. "script": followed through whatever names it.
+    "test": placed by where the test runs.
+    """
+    if path.startswith(".github/workflows/"):
+        return "workflow"
+    if path.endswith(_DOCUMENTATION_SUFFIXES):
+        return "documentation"
+    if path in _NON_RUNNING_FILES:
+        return "data"
+    if path.startswith(".github/actions/") and path.endswith(("/action.yml", "/action.yaml")):
+        return "action"
+    if path.startswith("tests/"):
+        return "test"
+    if path.startswith("scripts/") or (
+        path.startswith(".github/") and path.endswith(_WALKABLE_SCRIPT_SUFFIXES)
+    ):
+        # A script under .github/ (an action's own script, .github/scripts/)
+        # runs wherever the files that name it run, like one under scripts/.
+        return "script"
+    return None
+
+
 def is_unowned_ci_helper(path: str) -> bool:
     return (
         path.startswith("scripts/ci/")
@@ -247,7 +326,8 @@ def is_unowned_ci_helper(path: str) -> bool:
 
 
 # Script sources ci_helper_areas() can trace through the tree by name.
-_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts")
+# .ps1: a Windows job's PowerShell script (#42833 added .github/scripts/cmux-rd-motion.ps1 unplaced).
+_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts", ".ps1")
 
 
 def is_walkable_script(path: str) -> bool:
@@ -268,28 +348,13 @@ _CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guar
 _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
-# ci-guards.yml's guard tests take a free mini from portable placement
-# (scripts/ci/portable_job_placement.py) only when cmux-next-guards.yml passes
-# one. That job runs the same Linux guard tests, not the app's macOS lanes, so
-# the term does not make the tests it names macOS-relevant.
-_PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
-# The credentialed `changes` router accepts only the current attempt's
-# validated Linux placement. Its test-path references still run on Linux;
-# an unknown needs expression must continue to fail open below.
-_PORTABLE_ROUTER_LINUX_TERM = (
-    "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
-    "contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && "
-    "needs.portable-placement.outputs.linux_runner ||"
-)
-
-
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "").replace(_PORTABLE_ROUTER_LINUX_TERM, "")
+    value = runs_on.strip()
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
-    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
+    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu|'cmux-linux'", value))
 
 
 _JOB_SPLIT_RE = re.compile(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)")
@@ -793,11 +858,10 @@ def ci_helper_areas(
                 continue
             visited_files.add(referrer)
             referenced = True
-            if referrer.endswith(_DOCUMENTATION_SUFFIXES) or referrer.startswith(".github/workflows/"):
+            role = referrer_role(referrer)
+            if role in ("workflow", "documentation", "data"):
                 continue
-            if referrer in _NON_RUNNING_FILES:
-                continue
-            if referrer.startswith(("scripts/", ".github/actions/")):
+            if role in ("script", "action") or referrer.startswith(".github/actions/"):
                 try:
                     text = (root / referrer).read_text(encoding="utf-8", errors="replace")
                 except OSError:
@@ -808,12 +872,19 @@ def ci_helper_areas(
                 )
                 if named is False or (named is None and not _names(text, token)):
                     continue
-            if referrer.startswith(".github/actions/") and referrer.endswith(("/action.yml", "/action.yaml")):
+            elif not referrer.startswith("tests/") and referrer.endswith(_HASH_COMMENT_SUFFIXES):
+                try:
+                    text = (root / referrer).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return every_area(f"could not read {referrer}")
+                if not _names(text, token):
+                    continue
+            if role == "action":
                 # An action runs in whatever job uses it; its directory is
                 # the token those jobs name.
                 tokens.append(str(Path(referrer).parent))
                 continue
-            if referrer.startswith("tests/"):
+            if role == "test":
                 if is_guard_only_test(referrer, test_references):
                     continue
                 if is_unrouted_test(referrer, test_references):
@@ -830,7 +901,11 @@ def ci_helper_areas(
                         and runner not in _TEST_PATH_LISTS
                         and not runner.endswith(_DOCUMENTATION_SUFFIXES)
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
-                        and not (runner.startswith("tests/") and runner.endswith(".py")
+                        # So does a script under scripts/ (scripts/cmux-next/tests/
+                        # test_build_names.py names tests/test_script_module_loads.py
+                        # in a comment; #44759 made that fail open for every helper
+                        # that test reaches).
+                        and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
                         # A test that runs this test is judged by the rule for a
                         # test that names the helper: a Linux guard test, or a
@@ -869,7 +944,7 @@ def ci_helper_areas(
                             tokens.append(Path(runner).stem)
                         continue
                 return every_area(f"{referrer} names {token} and runs outside the Linux guards")
-            if referrer.startswith("scripts/"):
+            if role == "script":
                 tokens.append(Path(referrer).stem)
                 continue
             return every_area(f"{referrer} names {token}")
@@ -1570,7 +1645,7 @@ def is_macos_neutral(
     if re.match(r"Packages/iOS/[^/]+/Tests/", path):
         return True
     # Agent instructions at any depth, and skill documentation. The app bundles
-    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
+    # skills/cmux-computer-use as a folder resource, and skill scripts and manifests are
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
@@ -1622,7 +1697,7 @@ def is_macos_neutral(
         return True
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return True
-    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
+    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/")
 
 
 def is_macos_change(

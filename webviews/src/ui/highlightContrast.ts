@@ -13,8 +13,9 @@
 // matches and a selection keep a smaller, still clearly visible step from the surface, and every
 // highlight keeps its text at WCAG AA (4.5:1), or, for text already fainter than that on its surface,
 // all the contrast the fill's step leaves it.
-import { parseComputedColor, type RGBA } from "../backdrop";
+import { DESKTOP_LEVELS, parseComputedColor, type RGBA } from "../backdrop";
 import { contrast, fromOklch, toOklch, BLACK, WHITE, type RGB } from "../theme/color";
+import { readBackdrop } from "./glass/glassState";
 
 /** How far a highlight's fill must stand from its surface, and its text from the fill. */
 export type HighlightFloor = {
@@ -108,16 +109,23 @@ export function fitHighlightOn(
   // surface leaves it when it is fainter than that already: contrast ratios multiply along lightness,
   // so asking more could never pass. A color the highlight draws its text in itself (`freeInk`, Find's
   // current match) is chosen for the fill and always keeps AA, switching to black or white if needed.
-  const inkFloor = (text: RGB, surface: RGB) =>
-    options.freeInk ? floor.ink : Math.min(floor.ink, contrast(text, surface) / (floor.surface * INK_SLACK));
+  // Over several surfaces (a selection from a bubble to the page, or one surface under a see-through
+  // window over any desktop) the text is held to what it has on the surface it reads worst on: the
+  // fill is one opaque color, so its text reads the same over all of them, and a floor taken from
+  // the best one (a dark desktop) could leave no fill that also stands off the lightest.
+  const inkFloor = (text: RGB) =>
+    options.freeInk
+      ? floor.ink
+      : Math.min(
+          floor.ink,
+          Math.min(...surfaces.map((surface) => contrast(text, surface))) / (floor.surface * INK_SLACK),
+        );
   const score = (fill: RGB, text: RGB) =>
     Math.min(
-      ...surfaces.map((surface) =>
-        Math.min(contrast(fill, surface) / floor.surface, contrast(text, fill) / inkFloor(text, surface)),
-      ),
+      contrast(text, fill) / inkFloor(text),
+      ...surfaces.map((surface) => contrast(fill, surface) / floor.surface),
     );
-  const readable = (fill: RGB, text: RGB) =>
-    surfaces.every((surface) => contrast(text, fill) >= inkFloor(text, surface));
+  const readable = (fill: RGB, text: RGB) => contrast(text, fill) >= inkFloor(text);
   if (score(start, ink) >= 1) return { fill: start, ink };
   // A highlight that draws its own text may take black or white where its own color cannot pass
   // (a 3:1 fill on a light gray surface is dark, and needs white text).
@@ -131,7 +139,8 @@ export function fitHighlightOn(
     const toward = textLightness !== surfaceLightness ? Math.sign(textLightness - surfaceLightness) : 1;
     for (const direction of [toward, -toward]) {
       for (let l = origin.l; l >= 0 && l <= 1; l += direction * LIGHTNESS_STEP) {
-        const fill = fromOklch({ ...origin, l });
+        // Scored as it will paint: 8 bits a channel (highlightCss), so a fill at the floor stays on it.
+        const fill = paintable(fromOklch({ ...origin, l }));
         const value = score(fill, text);
         if (value >= 1) return { fill, ink: text };
         if (value > bestScore) {
@@ -145,6 +154,12 @@ export function fitHighlightOn(
   }
   return best;
 }
+
+/** `color` at the 8 bits a channel `highlightCss` paints it in. */
+const paintable = (color: RGB): RGB => {
+  const channel = (value: number) => Math.round(Math.min(Math.max(value, 0), 1) * 255) / 255;
+  return { r: channel(color.r), g: channel(color.g), b: channel(color.b) };
+};
 
 /** A CSS color for `color`. Translucent by a hair, so WebKit paints a selection in it as is (an
  * opaque one it blends with white, webKitSelectionColor). */
@@ -203,10 +218,100 @@ function canvasOf(element: Element): RGB {
   return dark ? BLACK : WHITE;
 }
 
+/** On `<html>` while the page background is not opaque (pages/shared/desktop.ts SEE_THROUGH_ATTRIBUTE):
+ * the window draws its tint over a picture or the desktop under the page, natively. */
+const SEE_THROUGH_ATTRIBUTE = "data-cmux-see-through";
+
+/** The least tint a window lays over a background picture (ThemeTokens.wallpaperTintOpacity's floor),
+ * for a host that sends no tint of its own: the widest the desktop can show through. */
+const LEAST_WALLPAPER_TINT = 0.52;
+
+/** The window's tint under a see-through page: the host's `--cmux-window-tint` (WebTheme.swift), else
+ * the glass lens's wash (`cmuxTheme.backdrop`), else the page token at its own opacity, or at the least
+ * wallpaper tint where that token is opaque (a picture behind an Opacity 100% window). */
+function windowTint(doc: Document): RGBA {
+  const sent = resolveCssColor(doc, "var(--cmux-window-tint, transparent)");
+  if (sent && sent.a > 0) return sent;
+  const view = doc.defaultView;
+  const wash = view ? readBackdrop(view).tint : "transparent";
+  const lens = wash === "transparent" ? null : resolveCssColor(doc, wash);
+  if (lens && lens.a > 0) return lens;
+  const token = resolveCssColor(doc, "var(--cmux-surface-token, transparent)");
+  if (token && token.a > 0) return token.a < 1 ? token : { ...token, a: LEAST_WALLPAPER_TINT };
+  return { r: 0, g: 0, b: 0, a: 0 };
+}
+
+/**
+ * What lies under the page's root, as the eye sees it: the page canvas (black in a dark page, else
+ * white) when the page is opaque or has no host; under a see-through window, which draws its tint over
+ * a picture or the desktop that the page cannot see, that tint over every desktop from black to white.
+ * A highlight fit on all of them stands out whatever is behind the window. Before 2026-11-15 the
+ * see-through root was taken as black, so a bubble over a light picture measured far darker than it
+ * showed, and a selection the bubble's own color passed (Monokai Classic at Opacity 0.85: 1.02:1 on
+ * screen).
+ */
+export function pageCanvases(doc: Document): RGB[] {
+  const root = doc.documentElement;
+  if (!root.hasAttribute(SEE_THROUGH_ATTRIBUTE)) return [canvasOf(root)];
+  const tint = windowTint(doc);
+  return DESKTOP_LEVELS.map((level) => over(tint, { r: level, g: level, b: level }));
+}
+
+/** The backgrounds over the page's root under one element, bottom first: an opaque one starts the
+ * stack (`solid`), else the stack sits on the root's canvas. */
+type Stack = { solid: RGB | null; layers: RGBA[] };
+
+/** Stacks already read in one pass, per element (ancestors shared by many nodes read once). */
+export type StackMemo = Map<Element, Stack>;
+
+function stackUnder(element: Element, memo: StackMemo): Stack {
+  const known = memo.get(element);
+  if (known) return known;
+  const view = element.ownerDocument.defaultView;
+  const layers = view ? backgroundLayers(view.getComputedStyle(element)) : [];
+  const firstOpaque = layers.findIndex((layer) => layer.a >= 0.999);
+  const parent = parentOf(element);
+  // Anything under the first opaque layer is covered; its own layers go on top, bottom first.
+  const own = (firstOpaque >= 0 ? layers.slice(0, firstOpaque + 1) : layers).reverse();
+  const stack: Stack =
+    firstOpaque >= 0
+      ? { solid: own.slice(1).reduce((color, layer) => over(layer, color), over(own[0]!, WHITE)), layers: [] }
+      : (() => {
+          const below = parent ? stackUnder(parent, memo) : { solid: null, layers: [] };
+          return { solid: below.solid, layers: [...below.layers, ...own] };
+        })();
+  // A stack on a solid needs no canvas: fold it.
+  const folded: Stack = stack.solid
+    ? { solid: stack.layers.reduce((c, l) => over(l, c), stack.solid), layers: [] }
+    : stack;
+  memo.set(element, folded);
+  return folded;
+}
+
+/** Reads the surfaces under nodes of one document over each of its canvases (`pageCanvases`): each
+ * element's styles once per pass, then plain arithmetic per canvas. Equal surfaces come back once. */
+export function surfaceReader(doc: Document): (node: Node | null) => RGB[] {
+  const canvases = pageCanvases(doc);
+  const memo: StackMemo = new Map();
+  return (node) => {
+    const element = elementOf(node);
+    if (!element) return [canvases[0]!];
+    const stack = stackUnder(element, memo);
+    if (stack.solid) return [stack.solid];
+    const found: RGB[] = [];
+    for (const canvas of canvases) {
+      const surface = stack.layers.reduce((color, layer) => over(layer, color), canvas);
+      if (!found.some((one) => one.r === surface.r && one.g === surface.g && one.b === surface.b)) found.push(surface);
+    }
+    return found;
+  };
+}
+
 /**
  * The opaque color behind `node`: every background from it up to the page's root, composited, over
  * the page canvas. Reads one computed style per ancestor, so it costs the depth of the tree, never
- * its size; `memo` shares the ancestors' answers across one pass.
+ * its size; `memo` shares the ancestors' answers across one pass. A see-through page has more than
+ * one canvas: `surfaceReader` reads them all.
  */
 export function surfaceUnder(node: Node | null, memo?: SurfaceMemo): RGB {
   const element = elementOf(node);

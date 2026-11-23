@@ -36,7 +36,9 @@ await requireBrowserLane("apps-page-edges.test.ts", async () => {
   async function measure(width: number, layout: "grid" | "split") {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width, height: 640 } });
-    const app = layout === "split" ? "&app=cmux.coderouter" : "";
+    // The grid's default home (browse=hero) leads with Cloud as a hero, not the Cloud banner; the
+    // pair style keeps the banner and the plain grid this measures.
+    const app = layout === "split" ? "&app=cmux.coderouter" : "&browse=pair";
     await page.goto(`http://127.0.0.1:${port}${PAGE}?mock#/discover?layout=${layout}${app}`);
     await page.locator(".apps-chip").first().waitFor();
     await page.locator(".apps-cloud-feature").waitFor();

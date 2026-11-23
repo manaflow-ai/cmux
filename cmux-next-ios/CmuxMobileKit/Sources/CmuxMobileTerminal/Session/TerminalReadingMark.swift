@@ -30,13 +30,13 @@ struct TerminalReadingMark: Equatable {
     let anchorIndex: Int
     let rowsFromEnd: Int
     /// The anchor's row as it was, and its pixel remainder.
-    let row: Int
+    private(set) var row: Int
     let delta: CGFloat
     /// The document's last `tailLength` rows when marked (oldest first), and
     /// the total then: rows the replay still has near its end, readable
     /// when the anchor's rows are not (round 8, V2-3 residual).
     let tail: [String]
-    let totalRows: Int
+    private(set) var totalRows: Int
 
     /// Rows of the exact match at the anchor.
     static let length = 6
@@ -56,9 +56,27 @@ struct TerminalReadingMark: Equatable {
         guard anchor.row >= 0, anchor.row < totalRows else { return nil }
         let first = max(0, anchor.row - Self.rowsBefore)
         var rows: [String] = []
-        for row in first..<min(totalRows, anchor.row + Self.rowsAfter) {
+        var end = min(totalRows, anchor.row + Self.rowsAfter)
+        for row in first..<end {
             guard let text = rowText(row) else { return nil }
             rows.append(Self.normalized(text))
+        }
+        // Blank rows at the anchor (a window's top, where a mirror taller
+        // than the Mac's screen holds blank rows above the first history
+        // row): read on to the rows with text below them, which then vote for
+        // where the window starts (#43189, step 3cc159766081374998251de5: the
+        // reset marked nothing and the page fell to the Mac's screen).
+        // A read with text is kept as it was.
+        if !rows.contains(where: { !$0.isEmpty }) {
+            var firstWithText: Int?
+            while end < min(totalRows, anchor.row + Self.searchRows), let text = rowText(end) {
+                let row = Self.normalized(text)
+                rows.append(row)
+                if firstWithText == nil, !row.isEmpty { firstWithText = end }
+                end += 1
+                // A screen's worth of rows from the first with text.
+                if let firstWithText, end - firstWithText >= Self.rowsAfter { break }
+            }
         }
         guard rows.contains(where: { !$0.isEmpty }) else { return nil }
         self.rows = rows
@@ -69,6 +87,42 @@ struct TerminalReadingMark: Equatable {
         self.totalRows = totalRows
         let tailStart = max(0, totalRows - Self.tailLength)
         self.tail = (tailStart..<totalRows).map { rowText($0).map(Self.normalized) ?? "" }
+    }
+
+    /// The same rows, expected at the same distance from the end of a
+    /// scrollback of `totalRows` rows: a replay that starts at another row of
+    /// the Mac's history (a tab's new host, older rows fetched;
+    /// `TerminalScrollRestore`). The old end's rows move with it.
+    func rebased(totalRows: Int) -> TerminalReadingMark {
+        var copy = self
+        copy.row = totalRows - rowsFromEnd
+        copy.totalRows = totalRows
+        return copy
+    }
+
+    /// The anchor where its own rows (those with text) appear exactly once
+    /// within ``searchRows`` of its row in a scrollback of `totalRows` rows;
+    /// nil when they are not there, or appear more than once (a program
+    /// printing the same block over and over gives no single place).
+    func uniqueMatch(totalRows: Int, rowText: (Int) -> String?) -> TerminalScrollModel.Anchor? {
+        let head = Array(rows[anchorIndex..<min(rows.count, anchorIndex + Self.length)])
+        guard totalRows > 0, head.contains(where: { !$0.isEmpty }) else { return nil }
+        let center = min(max(0, row), totalRows - 1)
+        let low = max(0, center - Self.searchRows)
+        let high = min(totalRows - head.count, center + Self.searchRows)
+        guard low <= high else { return nil }
+        var found: Int?
+        for start in low...high {
+            var matches = true
+            for (index, expected) in head.enumerated() where rowText(start + index).map(Self.normalized) != expected {
+                matches = false
+                break
+            }
+            guard matches else { continue }
+            if found != nil { return nil }
+            found = start
+        }
+        return found.map { .init(row: $0, delta: delta) }
     }
 
     /// The anchor in a rebuilt scrollback of `totalRows` rows.

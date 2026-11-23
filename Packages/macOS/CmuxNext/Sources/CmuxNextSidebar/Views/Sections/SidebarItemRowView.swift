@@ -54,6 +54,12 @@ class SidebarItemRowView: NSView {
     /// hover close (Lawrence msg 19392); Close Workspace is in that menu.
     var onMore: (() -> Void)?
     var hoverMore: OverflowButton?
+    /// A pinned workspace tile's hover Unpin, left of its more button (David Beyer 2026-11-20: pinning by drag is
+    /// awkward): `isPinned` reads the workspace's pin when the controls show, nil when the App offers no pin;
+    /// `onUnpin` runs Pin/Unpin Workspace (`SidebarModel.workspacePin`).
+    var isPinned: (() -> Bool?)?
+    var onUnpin: (() -> Void)?
+    var hoverUnpin: SidebarIconButton?
     /// A double-click on a pinned workspace's row renames it in place (`SidebarItemRowView+Rename`).
     var onRename: (() -> Void)?
     /// The inline rename's editor draws over the title, which stays hidden until it ends.
@@ -93,6 +99,9 @@ class SidebarItemRowView: NSView {
     /// the trailing column, as a workspace row does; an icon look dots its glyph with `badge`.
     let rowBadge = RowBadgeView()
     let avatarView = SidebarAvatarView()
+    /// A Chief subagent's task count (`info.taskProgress`), "3/7" before the trailing marks, as a chat row draws its
+    /// one-line status (`WorkspaceRowView.timeLabel`); a row look only.
+    let taskCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// The workspace item's status: the shared indicator (`info.activity`).
     let activity: StatusIndicatorView = {
         let view = StatusIndicatorView()
@@ -142,7 +151,7 @@ class SidebarItemRowView: NSView {
         pin.imageScaling = .scaleProportionallyUpOrDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [pin, icon, title, badge, rowBadge, avatarView, activity].forEach(addSubview)
+        [pin, icon, title, taskCount, badge, rowBadge, avatarView, activity].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
@@ -160,6 +169,9 @@ class SidebarItemRowView: NSView {
     var onDragEnded: ((_ windowPoint: NSPoint) -> Void)? // the release, which decides the drop
     /// Every press, before it acts: a drag an earlier press left held ends (its release went elsewhere).
     var onPressBegan: (() -> Void)?
+    /// The menu this row's press opened (the profile control's) follows the rest of the press: the row holds the
+    /// mouse, so it hands the press's drags and its release to the menu, as an `NSMenu` tracks its button's press.
+    var pressTracker: ((NSEvent) -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
     /// The press's modifiers, which the release acts with (Option opens a workspace).
@@ -177,19 +189,24 @@ class SidebarItemRowView: NSView {
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly || isRenaming
-        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide) : nil
+        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide, style: .solid) : nil
         title.alignment = style == .favorite ? .center : .natural
         let trailingDot = info.unreadDot && !style.isIconOnly && style != .favorite
         rowBadge.configure(trailingDot ? [.success] : [], look: .plain)
         badge.notificationDot = info.unreadDot
         badge.configure(trailingDot ? .none : unreadState)
         activity.configure(info.activity, style: info.activityStyle)
-        // VoiceOver hears the count even where no badge draws (icons).
-        setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
-        // An icon names itself (and its shortcut) in its tooltip; a tile's
-        // caption can truncate, so it keeps the full title.
-        // The profile control draws no name, so its tooltip says who it is: the email.
-        themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
+        let tasks = style.isIconOnly || style == .chip || style == .favorite ? nil : info.taskProgress
+        taskCount.setString(tasks?.countText ?? "")
+        taskCount.isHidden = tasks == nil
+        // VoiceOver hears the count even where no badge draws (icons), and the task count in words.
+        let unread = info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) }
+        let words = info.taskProgress.map { Strings.taskProgress(done: $0.done, total: $0.total) }
+        let value = [unread, words].compactMap(\.self).joined(separator: ", ")
+        setAccessibilityValue(value.isEmpty ? nil : value)
+        // An icon names itself (and its shortcut) in its tooltip; an item that shows its title has none (a1315's
+        // cut 2). The profile control draws no name, so its tooltip says who it is: the email.
+        themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : nil)
         setAccessibilityLabel(info.accessibilityTitle ?? info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive || info.isSecondarySelected)
@@ -214,6 +231,8 @@ class SidebarItemRowView: NSView {
             chip.backgroundColor = showsSwatchDot ? info.color.map(SidebarStyle.color)?.cgColor
                 : wells ? ((info.favicon == nil ? info.color.map(SidebarStyle.color) : nil) ?? rest).cgColor : nil
             title.textColor = SidebarStyle.titleInk
+            // Quieter than the title by a full step, as a chat row's count (`WorkspaceRowView+Rendering`).
+            taskCount.setColor(Palette.textTertiary)
             icon.alphaValue = SidebarStyle.glyphOpacity
             pin.alphaValue = SidebarStyle.glyphOpacity
             // An icon is secondary at rest and full strength under the pointer
@@ -296,7 +315,7 @@ class SidebarItemRowView: NSView {
         // The pin's image follows `pinGlyphSide`, which moves with the density and type scale while `configure`
         // (which sets it) can skip an unchanged row: a stale, smaller image would draw off center in its frame.
         if showsPin, pin.image?.size.width != SidebarStyle.pinGlyphSide {
-            pin.image = NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide)
+            pin.image = NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide, style: .solid)
         }
         let pinFrame = showsPin ? pinGlyphFrame(side: SidebarStyle.pinGlyphSide, leading: columns.lead, height: b.height) : .zero
         // After a pin, the row's own icon, color dot and title move one icon column in.
@@ -344,10 +363,15 @@ class SidebarItemRowView: NSView {
         if layoutAvatar(in: b) { return }
         // Row size beside a title, like a workspace row's type glyph; inside a list well, the well's
         // glyph size; a rail button's own glyph size. A pinned workspace's icon is the size its list row draws
-        // (`SidebarStyle.workspaceFaviconSide`), so it grows with the density as that row's does (Lawrence 2026-11-03:
+        // (`SidebarStyle.rowGlyphOpticalSide`), so it grows with the density as that row's does (Lawrence 2026-11-03:
         // "make sure size of the pinned summary thing reflect size of ui compactness i chose"); compact is unchanged.
-        let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize
-            : info.workspace != nil ? SidebarStyle.workspaceFaviconSide : SidebarStyle.kindGlyphSize
+        let baseSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize
+            : info.workspace != nil ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.kindGlyphSize
+        // A bare glyph beside a title is fitted to the one optical size (`rowGlyphOptics`): it is drawn at 4/3 of it, as
+        // a favicon's bitmap is, so the fit only scales it down (Lucas 2026-11-13: drawn at the title's size and scaled
+        // up, Home's house looked uneven at Spacious).
+        let glyphSide = style == .builtIn && !isRailButton && info.workspace == nil
+            ? (SidebarStyle.rowGlyphOpticalSide * 4 / 3).rounded(.up) : baseSide
         if bare {
             icon.image = nil
             shownGlyph = nil
@@ -396,7 +420,32 @@ class SidebarItemRowView: NSView {
             // `slotted`: a text-only row keeps the empty icon slot; a pinned one has its pin there already.
             : inner.text(hasLeadingMark: !bare || showsSwatchDot || (SidebarStyle.textOnlyKeepsIconSlot && !showsPin)))
             - SidebarStyle.labelCellPadding
-        title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY), width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
+        // Beside a bare glyph (Home's house, a band row's or a pin's), the title drops 0.04 em: the capitals center on the
+        // row, so a word that is mostly lowercase read higher than the glyph, whose mass sits low (Lucas 2026-11-13:
+        // "Home is still a bit too high up" at Spacious). On the pixel grid; a flipped view, so down is +y.
+        let scale = window?.backingScaleFactor ?? 2
+        // A browser density places every title on Chromium's baseline (`SidebarStyle.lineBoxBaseline`), as Helium does,
+        // with no drop.
+        let opticalDrop = style == .builtIn && !bare && !isRailButton && SidebarStyle.capCenteredBaseline(title.font ?? SidebarStyle.titleFont, centerY: 0) == nil
+            ? (SidebarStyle.titleFont.pointSize * 0.04 * scale).rounded() / scale : 0
+        let textEnd = layoutTaskCount(before: activityLeading(before: badgeX), in: b)
+        title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY) + opticalDrop,
+                             width: max(0, textEnd - Metrics.space2 - textX), height: th)
+    }
+
+    /// Places the task count ("3/7") on the trailing columns before `marks` (where the row's trailing marks start), as a
+    /// chat row places its count (`WorkspaceRowView.layoutTime`), and returns where the title must end.
+    private func layoutTaskCount(before marks: CGFloat, in b: NSRect) -> CGFloat {
+        guard !taskCount.isHidden else { taskCount.frame = .zero; return marks }
+        let columns = bandColumns(in: b)
+        let hasMark = !badge.isHidden || !rowBadge.isHidden || activity.showsGlyph
+        let edge = hasMark ? marks : columns.trailingEdge
+        let width = ceil(max(taskCount.intrinsicContentSize.width,
+                             taskCount.attributedStringValue.size().width + 2 * WorkspaceRowView.labelInset))
+        let height = ceil(taskCount.intrinsicContentSize.height)
+        taskCount.frame = columns.trailingFrame(before: edge, centerY: b.midY, size: CGSize(width: width, height: height))
+        taskCount.frame.origin.y = SidebarStyle.textY(taskCount, centerY: b.midY)
+        return taskCount.frame.minX
     }
 
     /// Places the row's trailing mark as a workspace row places its own: the blue unread dot, else
@@ -459,7 +508,7 @@ class SidebarItemRowView: NSView {
     }
 
     /// The cache key of the pin's ink (`SidebarGlyphInk`).
-    static let pinGlyph = "pin|\(IconName.statePinned.rawValue)"
+    static let pinGlyph = "pin|\(IconName.statePinned.rawValue)|solid"
 
     /// The leading pin's frame: its drawn ink, not its square, centers in the rows' one optical glyph square starting at
     /// `leading` (`SidebarOpticalGlyph`), the line Home's glyph centers on (#42431), centered on the row, on the device
@@ -638,7 +687,6 @@ class SidebarItemRowView: NSView {
 
     // MARK: Pointer
 
-
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.
     override func mouseDown(with event: NSEvent) {
@@ -666,6 +714,7 @@ class SidebarItemRowView: NSView {
 
     /// Past the drag threshold the region reorders in place (R77). An item that cannot move drags nothing.
     override func mouseDragged(with event: NSEvent) {
+        if let pressTracker, pressLocation != nil { return pressTracker(event) }
         guard isMovable, let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
         didDrag = true
         isPressed = false
@@ -675,6 +724,10 @@ class SidebarItemRowView: NSView {
     /// button: a press that became a drag (or left the item first) never runs it. Acting
     /// on the press made a tab under a launcher the user only meant to move.
     override func mouseUp(with event: NSEvent) {
+        if let tracker = pressTracker, pressLocation != nil {
+            endPress()
+            return tracker(event)
+        }
         let dragged = didDrag
         let activated = activatedOnPress
         if dragged { onDragEnded?(event.locationInWindow) }
@@ -694,6 +747,7 @@ class SidebarItemRowView: NSView {
     /// `SidebarListView.endPointerGesture`), so its release never comes here. The pressed fill clears, and a later
     /// drag or release of that press does nothing.
     func endPress() {
+        pressTracker = nil
         pressLocation = nil
         didDrag = false
         activatedOnPress = false

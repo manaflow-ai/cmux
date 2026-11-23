@@ -403,6 +403,30 @@ pub(super) trait CarrierSource: Send + Sync {
     ) -> Result<ExecReply, SourceError> {
         Err(SourceError::fatal("this source runs no command"))
     }
+
+    /// `machine`'s status (`running`, `paused`, ...) from the platform's
+    /// machine read (`POST /v1/read` `cloud.machine.get`), which wakes no
+    /// machine: what `carrier serve`'s quiet socket reads before it dials
+    /// ([`super::serve_quiet`]). A source without it reads nothing.
+    async fn machine_status(&self, _machine: &str) -> Result<String, SourceError> {
+        Err(SourceError::fatal("this source reads no machine"))
+    }
+}
+
+/// The machine read's answer (`{op, value: {status, ...}, stream, revision}`):
+/// its status, else why there is none.
+pub(super) fn read_machine_status(status: u16, body: &Value) -> Result<String, SourceError> {
+    if status == 200
+        && let Some(text) = body.pointer("/value/status").and_then(Value::as_str)
+    {
+        return Ok(text.to_owned());
+    }
+    let detail = format!("the machine read answered HTTP {status}");
+    if matches!(status, 408 | 429 | 500..=599) {
+        Err(SourceError::retry(detail))
+    } else {
+        Err(SourceError::fatal(detail))
+    }
 }
 
 /// What an exec answered: its exit code and output.
@@ -431,18 +455,29 @@ pub(super) fn read_exec(status: u16, body: &Value) -> Result<ExecReply, SourceEr
     }
 }
 
+/// Asks for the person's credential afresh, off the async runtime (it may block, as asking
+/// the signed-in app does); `Err` names why there is none (signed out, no app).
+pub(crate) type AskCredential = Arc<dyn Fn() -> Result<Zeroizing<String>, String> + Send + Sync>;
+
 /// The person's credential: re-read from the file on every fetch (it may be
-/// renewed), or one value from the environment.
+/// renewed), one value from the environment, or asked for on every request
+/// (the cmux link's tunnel asks the signed-in app, `tunnel_keeper.rs`).
 #[derive(Clone)]
 pub(super) enum Credential {
     File(PathBuf),
     Value(Zeroizing<String>),
+    Ask(AskCredential),
 }
 
 impl Credential {
     fn current(&self) -> Result<Zeroizing<String>, SourceError> {
         let text = match self {
             Self::Value(value) => value.clone(),
+            // Asked only for a request (`HttpSource::request_credential`), never by a
+            // synchronous caller, which would block on the app.
+            Self::Ask(_) => {
+                return Err(SourceError::fatal("the cmux credential is asked per request"));
+            }
             Self::File(path) => Zeroizing::new(std::fs::read_to_string(path).map_err(|e| {
                 SourceError::fatal(format!(
                     "the credential file could not be read ({:?})",
@@ -467,7 +502,7 @@ pub(crate) struct HttpSource {
     replaced: Mutex<Option<Zeroizing<String>>>,
     /// Sent as `x-cmux-team` when set (a machine of a shared team).
     team: Option<String>,
-    client: reqwest::Client,
+    clients: cmux_cloud_client::connect_retry::Clients,
 }
 
 impl HttpSource {
@@ -478,13 +513,18 @@ impl HttpSource {
         team: Option<String>,
     ) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(FETCH_TIMEOUT)
-            .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|_| "the HTTP client is unavailable".to_owned())?;
-        Ok(Self { api, credential, replaced: Mutex::new(None), team, client })
+        let space = cmux_build_space::headers().map_err(|e| e.to_string())?;
+        // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
+        // try connects with no connect timeout. Both clients carry the space.
+        let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
+            reqwest::Client::builder()
+                .default_headers(space.clone())
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(FETCH_TIMEOUT)
+                .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+        })
+        .map_err(|_| "the HTTP client is unavailable".to_owned())?;
+        Ok(Self { api, credential, replaced: Mutex::new(None), team, clients })
     }
 
     /// Every later fetch uses `token`.
@@ -498,6 +538,26 @@ impl HttpSource {
             Some(token) => Ok(token),
             None => self.credential.current(),
         }
+    }
+
+    /// The credential for one request: as [`Self::current`], except that an asked one
+    /// ([`Credential::Ask`]) is asked afresh, on a blocking thread.
+    async fn request_credential(&self) -> Result<Zeroizing<String>, SourceError> {
+        let replaced = self.replaced.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(token) = replaced {
+            return Ok(token);
+        }
+        let Credential::Ask(ask) = &self.credential else { return self.credential.current() };
+        let ask = Arc::clone(ask);
+        let asked = tokio::task::spawn_blocking(move || ask())
+            .await
+            .map_err(|_| SourceError::retry("the cmux credential could not be asked for"))?;
+        let token = asked.map_err(|why| SourceError::fatal(format!("no cmux sign-in: {why}")))?;
+        let trimmed = token.trim();
+        if trimmed.is_empty() {
+            return Err(SourceError::fatal("the cmux credential is empty"));
+        }
+        Ok(Zeroizing::new(trimmed.to_owned()))
     }
 
     /// POSTs `body` to `path` on the platform with the person's credential
@@ -514,9 +574,10 @@ impl HttpSource {
         body: &Value,
         timeout: Duration,
     ) -> Result<(u16, Value), SourceError> {
-        let credential = self.current()?;
+        let credential = self.request_credential().await?;
         let mut request = self
-            .client
+            .clients
+            .fast
             .post(format!("{}{path}", self.api))
             .timeout(timeout)
             .bearer_auth(credential.as_str())
@@ -524,8 +585,10 @@ impl HttpSource {
         if let Some(team) = &self.team {
             request = request.header(TEAM_HEADER, team);
         }
-        let response =
-            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
+        // Sent again only when it did not connect: no byte of it reached the platform.
+        let response = cmux_cloud_client::connect_retry::send(&self.clients, request)
+            .await
+            .map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
         let status = response.status().as_u16();
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
@@ -615,6 +678,12 @@ impl CarrierSource for HttpSource {
             )
             .await?;
         read_exec(status, &body)
+    }
+
+    async fn machine_status(&self, machine: &str) -> Result<String, SourceError> {
+        let body = json!({ "op": "cloud.machine.get", "params": { "machine": machine } });
+        let (status, body) = self.post("/v1/read", &body).await?;
+        read_machine_status(status, &body)
     }
 }
 

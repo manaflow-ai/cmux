@@ -27,6 +27,8 @@ import Testing
         ])
         let design = DesignSettings()
         design.sidebarSections.minimal = minimal
+        // The band look (`sidebar.groupHeader.background` Automatic): the default is plain folders (`SidebarGroupsAsFoldersTests`).
+        design.sidebarSections.groupHeaderBackground = .auto
         let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         // The settings reach the list on an observation a turn later; draw them in this turn.
@@ -52,9 +54,9 @@ import Testing
 
     private func solidBar(minimal: Bool) throws {
         let sidebar = Self.sidebar(minimal: minimal)
-        // Minimal Mode is on when asked: the header row is shorter than the standard one.
+        // Minimal Mode never changes density (Lawrence 2026-11-15): the header row is the standard one.
         let row = try #require(sidebar.list.displayed.row(for: .group(Self.group)))
-        #expect((row.height < SidebarLayoutMetrics.standard.groupHeaderHeight) == minimal, "minimal \(minimal), header \(row.height) pt")
+        #expect(row.height == SidebarLayoutMetrics.standard.groupHeaderHeight, "minimal \(minimal), header \(row.height) pt")
         let header = try Self.header(sidebar)
         // The bar is the header's full-width rounded layer (as `SidebarGroupChromeLookTests` reads it).
         let bar = try #require(header.layer?.sublayers?.first { !$0.isHidden && $0.frame.width >= header.bounds.width - 0.5 && $0.cornerRadius > 0 },
