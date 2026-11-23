@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "5f963acceff58b6d665f5d2098b0f810afb945d2f8ed0d73cf6842acbda69584",
+  "catalog_sha256": "2a6ed455214d9862dcc5957bfa7d1bc25160dec7de6a746108485f960723d6cf",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -104,6 +104,12 @@
       "class": "mutation"
     },
     "chat.pin": {
+      "class": "mutation"
+    },
+    "chief.automation.list": {
+      "class": "read"
+    },
+    "chief.automation.update": {
       "class": "mutation"
     },
     "chief.continue": {
@@ -426,6 +432,9 @@
     },
     "git.worktree.setup": {
       "class": "read"
+    },
+    "git.worktree.setup.run": {
+      "class": "mutation"
     },
     "history.backups.purge": {
       "class": "mutation"

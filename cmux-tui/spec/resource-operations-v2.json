@@ -11001,7 +11001,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "none (the recipe copies and runs nothing) or copying (started; git.worktree.setup follows it)."
+          "description": "none (the recipe copies and runs nothing), copying (started; git.worktree.setup follows it) or awaiting_approval (the repository's setup waits for git.worktree.setup.run with approve)."
         },
         "port": {
           "required": false,
@@ -11010,6 +11010,14 @@
             "name": "uint16"
           },
           "description": "CMUX_PORT: the first of ten ports the worktree keeps until it is removed."
+        },
+        "approval": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "While awaiting_approval: the fingerprint of the recipe to approve."
         }
       },
       "extra": false
@@ -11023,7 +11031,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "succeeded, failed or timed_out (after one minute). A failed teardown does not keep the worktree."
+          "description": "succeeded, failed, timed_out (after one minute) or not_approved (a repository teardown nobody approved does not run). A failed teardown does not keep the worktree."
         },
         "exit_code": {
           "required": false,
@@ -11100,7 +11108,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "none, copying, running, succeeded, failed, timed_out (after 30 minutes) or interrupted (the session host restarted meanwhile)."
+          "description": "none, awaiting_approval (the repository's setup waits for the person), copying, running, succeeded, failed, timed_out (after 30 minutes) or interrupted (the session host restarted meanwhile)."
         },
         "port": {
           "required": false,
@@ -11177,6 +11185,14 @@
             "name": "decimal"
           },
           "description": "The byte offset output ends at; pass it as since to read on."
+        },
+        "approval": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "While awaiting_approval: the fingerprint of the recipe it waits on."
         }
       },
       "extra": false
@@ -11265,6 +11281,37 @@
             }
           },
           "description": "What was wrong with them."
+        },
+        "approval": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitWorktreeSetupApproval"
+          },
+          "description": "Present when the repository's own setup or teardown runs: those commands wait for one approval of this recipe on this machine."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeSetupApproval": {
+      "kind": "object",
+      "fields": {
+        "fingerprint": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The fingerprint of the repository's setup, teardown and include lines in effect; git.worktree.setup.run approve takes it."
+        },
+        "approved": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the person approved this recipe on this machine (kept in the repository's git folder, never committed)."
         }
       },
       "extra": false
@@ -19228,6 +19275,126 @@
         "acpmux keeps the change, so every window and device sees it; repeating it changes nothing more, so a replayed key does it again harmlessly.",
         "From an app it runs only with a live gesture token (a tap), so automation never changes what the person has seen or pinned.",
         "operation.failed details.reason is not_found (chat.list lists no such chat), unavailable (acpmux is not running here or did not answer) or refused (acpmux, or the chat's peer, refused it; extra.message says why)."
+      ]
+    },
+    "chief.automation.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set does). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "The brain's automations (optchat-chief automations.rs, issue 25573), owned by the brain and passed through unchanged: {automations: [{id, name, prompt, trigger: {type: schedule|agent_done, cron?, matches?, summary}, paused, created_ms, next_ms, last_fired_ms, runs}]}, oldest first."
+      ]
+    },
+    "chief.automation.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          },
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 32
+            },
+            "description": "The automation's id (au<N>) in the brain's list."
+          },
+          "action": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "pause",
+                "resume",
+                "delete",
+                "run"
+              ]
+            },
+            "description": "pause: it never fires until resumed; resume: it fires again from now (a schedule's next time after now); delete: it is gone; run: it fires once now."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set does). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "The brain's answer after the change, passed through unchanged: {automations: [...] as chief.automation.list, outcome: done|noop}. An automation the brain does not have: operation.failed details.reason not_found; an action it does not take: bad_request."
       ]
     },
     "chief.continue": {
@@ -29134,8 +29301,74 @@
       ],
       "constraints": [
         "The recipe is read from the main checkout: .worktreeinclude, and setup, run, teardown and include in .cmux/worktree.toml; the project's saved recipe (project.update worktree) wins command by command, and its include lines come after the repository's.",
-        "git.worktree.create starts the setup after its reply: it copies the .worktreeinclude files (never overwriting, never following a link out of the repository), then runs setup in the user's login shell in the worktree with CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME and CMUX_PORT (also as CONDUCTOR_*). A failed setup keeps the worktree.",
+        "git.worktree.create starts the setup after its reply: it copies the .worktreeinclude files (never overwriting, never following a link out of the repository), then runs setup in the user's login shell in the worktree with CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME and CMUX_PORT (also as CONDUCTOR_*). A failed setup keeps the worktree. A repository's own setup waits in awaiting_approval, copying nothing, until git.worktree.setup.run approves its recipe (recipe.approval).",
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
+      ]
+    },
+    "git.worktree.setup.run": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a linked worktree. Use it, or a workspace, pane, tab or terminal selector whose working directory names the worktree."
+          },
+          "approve": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The fingerprint of the recipe the person read and approved (git.worktree.setup recipe.approval.fingerprint). Needed only while that recipe is not approved."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitWorktreeSetupStart"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Runs the setup of a linked worktree again from the start, after a first approval or as a retry: it copies the .worktreeinclude files that are not there yet, then runs setup; the log goes on after a --- Setup started again --- line, and git.worktree.setup follows it.",
+        "A repository's own setup or teardown (.cmux/worktree.toml, not replaced by the saved recipe) runs only once the person approved that recipe on this machine; the answer is kept by fingerprint in the repository's git folder and a changed recipe asks again. The saved recipe and include-only recipes need no approval.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, approval_required, recipe_changed (extra.fingerprint is the recipe in effect), setup_running (extra.state), store_failed or git_failed."
       ]
     },
     "history.backups.purge": {
