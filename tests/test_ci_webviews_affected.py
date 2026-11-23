@@ -405,7 +405,7 @@ class PullRequestShardsTest(unittest.TestCase):
     def test_no_touched_test_runs_shard_1_and_all_means_all(self) -> None:
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("unrelated/tool.py")
-        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test", {}))
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test", {1: []}))
         run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--all", "--count", "3"],
                              capture_output=True, text=True, check=True)
         self.assertEqual(run.stdout.strip(), '[{"shard":1,"shard_count":3},{"shard":2,"shard_count":3},{"shard":3,"shard_count":3}]')
@@ -425,22 +425,29 @@ class PullRequestShardsTest(unittest.TestCase):
         finally:
             ps.shard_files = real
         self.assertEqual(seen, [1, 2])
+        # Shard 1 runs touched tests from the other shards' shares (--direct-out): those are its files too.
+        ps.shard_files = lambda repo, shard, count, selected: split[shard]
+        try:
+            self.assertEqual(ps.files_of(self.root, "HEAD^1", "HEAD", 3, [1], {"1": ["test/other.test.ts"]}),
+                             ["test/a.test.ts", "test/other.test.ts"])
+        finally:
+            ps.shard_files = real
 
-    def test_a_picked_shard_past_1_owns_only_its_touched_tests(self) -> None:
-        """--direct-out: one job past shard 1 runs the touched tests the pick found, not any shard's closure share."""
+    def test_shard_1_runs_the_touched_tests_of_the_shards_past_it(self) -> None:
+        """--direct-out: shard 1 runs the touched tests the pick found in every shard, and no second job does."""
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("webviews/src/leaf.ts")
-        split = {2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"},
-                 4: set()}
+        split = {1: {"webviews/test/a.test.ts"}, 2: {"webviews/test/leaf.test.ts", "webviews/test/b.test.ts"},
+                 3: {"webviews/test/other.test.ts"}, 4: set()}
         real = ps.shard_files
         ps.shard_files = lambda repo, shard, count, selected: split[shard]
         try:
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
-            self.assertEqual((shards, own), ([1, 2], {2: ["test/leaf.test.ts"]}))
-            # Touched tests in several shards past 1 become one job, under the lowest of them.
+            self.assertEqual((shards, own), ([1], {1: ["test/leaf.test.ts"]}))
+            # Touched tests in several shards past 1 all run in shard 1.
             self.touched("webviews/test/other.test.ts", "webviews/test/leaf.test.ts")
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
-            self.assertEqual((shards, own), ([1, 2], {2: ["test/leaf.test.ts", "test/other.test.ts"]}))
+            self.assertEqual((shards, own), ([1], {1: ["test/leaf.test.ts", "test/other.test.ts"]}))
         finally:
             ps.shard_files = real
         self.touched("webviews/package.json")
@@ -459,16 +466,16 @@ class PullRequestShardsTest(unittest.TestCase):
                 sample = ps.sampled_shards(head, 12)
                 self.assertEqual(len(sample), 2)
                 self.assertTrue(set(sample) <= set(range(2, 13)))
-                self.assertEqual((shards, own), ([1, *sample], {}))
+                self.assertEqual((shards, own), ([1, *sample], {1: []}))
                 self.assertIn(ps.SAMPLE_WHY, why)
-            # A source edit beside it adds its touched tests as one job, unless a sampled shard already runs them.
+            # A source edit beside it adds its touched tests to shard 1, unless a sampled shard already runs them.
             self.touched(".github/workflows/ci-web.yml", "webviews/src/leaf.ts")
             sample = ps.sampled_shards(git(self.root, "rev-parse", "HEAD").strip(), 12)
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 12)
             if 5 in sample:
-                self.assertEqual((shards, own), ([1, *sample], {}))
+                self.assertEqual((shards, own), ([1, *sample], {1: []}))
             else:
-                self.assertEqual((shards, own), (sorted({1, 5, *sample}), {5: ["test/leaf.test.ts"]}))
+                self.assertEqual((shards, own), ([1, *sample], {1: ["test/leaf.test.ts"]}))
         finally:
             ps.shard_files = real
         # A build input beside it still runs every shard.
@@ -561,7 +568,7 @@ class PushClassTest(unittest.TestCase):
         self.assertTrue(ps.comment_only("a.yml", "a: 1\n", "# why\na: 1\n"))
         self.assertFalse(ps.comment_only("a.sh", "echo\n", "#!/bin/bash\necho\n"))
         cls, shards, _, _ = self.classify({"webviews/src/leaf.ts": leaf + "// @ts-ignore\n"})
-        self.assertEqual((cls, shards), ("sampled", [1, 5]))
+        self.assertEqual((cls, shards), ("sampled", [1]))
 
     def test_a_doc_is_fast_unless_a_webviews_file_reads_it(self) -> None:
         self.assertEqual(self.classify({"docs/readme.md": "y\n"})[0], "fast")
@@ -570,7 +577,7 @@ class PushClassTest(unittest.TestCase):
 
     def test_a_code_edit_is_sampled_with_its_touched_tests(self) -> None:
         cls, shards, _, own = self.classify({"webviews/src/leaf.ts": 'import { hub } from "./hub";\nexport const leaf = hub + 1;\n'})
-        self.assertEqual((cls, shards, own), ("sampled", [1, 5], {5: ["test/leaf.test.ts"]}))
+        self.assertEqual((cls, shards, own), ("sampled", [1], {1: ["test/leaf.test.ts"]}))
         cls, shards, why, _ = self.classify({"unrelated/tool.py": "x = 2\n"})
         self.assertEqual((cls, shards), ("sampled", [1]))
         self.assertIn("touches no webviews test", why)
