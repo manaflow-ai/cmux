@@ -276,6 +276,31 @@
             "add",
             "terminal"
           ]
+        },
+        {
+          "key": "diagnostics.usageSharing",
+          "note": "Team usage sharing (cmuxterm-hq docs/design/usage-telemetry.md, build plan step 2; cmux-tui/crates/cmux-usage-share). On, acpmux appends one turn record per agent turn (tokens, wall time, tool calls, model, harness, outcome; session, repository and machine ids as salted hashes) to $ACPMUX_HOME/usage-share and uploads it every 10 min to the signed-in team's usage audit (cmux-platform /v1/usage). Never prompt or reply text, file paths, folders, branch names or tool arguments. Off by default: off records, creates and sends nothing. CMUX_USAGE_SHARING=on|off overrides it. Agents may not change it (privacy).",
+          "title": {
+            "key": "settings.diagnostics.usageSharing",
+            "text": "Share Usage with My Team"
+          },
+          "help": {
+            "key": "settings.diagnostics.usageSharing.help",
+            "text": "Sends each agent turn's tokens, time and model to your team's usage audit, never your prompts, replies or file names."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "usage",
+            "sharing",
+            "team",
+            "telemetry",
+            "audit",
+            "tokens",
+            "spend",
+            "privacy"
+          ]
         }
       ]
     }
