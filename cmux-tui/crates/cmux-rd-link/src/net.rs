@@ -21,6 +21,7 @@
 
 use crate::endpoint::{Endpoint, EndpointEvent, MAX_PATHS, Route};
 use crate::turn::{TurnClient, TurnEvent, TurnReceive};
+use crate::wake::{AddressWatch, SleepWatch};
 use crate::{KeyPair, LinkError, Role};
 use cmux_rd_proto::{DatagramDeparture, DatagramHeader, MAX_DEPARTURE_RECEIPTS};
 use cmux_transport::PathKind;
@@ -374,6 +375,23 @@ fn now_us(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
 }
 
+/// A clock that keeps counting while the machine sleeps, unlike `Instant`
+/// (macOS: `CLOCK_MONOTONIC` counts sleep, `Instant` reads uptime; Linux:
+/// `CLOCK_BOOTTIME`). Only its differences matter ([`SleepWatch`]).
+fn with_sleep_us() -> u64 {
+    #[cfg(target_vendor = "apple")]
+    const CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
+    #[cfg(not(target_vendor = "apple"))]
+    const CLOCK: libc::clockid_t = libc::CLOCK_BOOTTIME;
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: clock_gettime writes one timespec into a live local.
+    if unsafe { libc::clock_gettime(CLOCK, &mut ts) } != 0 {
+        return 0;
+    }
+    u64::try_from(ts.tv_sec).unwrap_or_default().saturating_mul(1_000_000)
+        + u64::try_from(ts.tv_nsec).unwrap_or_default() / 1_000
+}
+
 /// Grow both queues so a keyframe burst is not dropped before the driver can
 /// read it. The kernel may cap the request; the default is still useful on
 /// platforms that accept the larger value.
@@ -488,6 +506,8 @@ impl Net {
             start: Instant::now(),
             gathered: std::cell::Cell::new([0; 3]),
             heard: 0,
+            sleep_watch: SleepWatch::default(),
+            address_watch: AddressWatch::default(),
             phases: std::cell::Cell::new(0),
             refused: BTreeMap::new(),
         };
@@ -684,6 +704,9 @@ struct Driver {
     gathered: std::cell::Cell<[u32; 3]>,
     /// Packets from anywhere but a STUN or TURN server, handed to the link.
     heard: u64,
+    /// A sleep or an address change re-checks every path ([`crate::wake`]).
+    sleep_watch: SleepWatch,
+    address_watch: AddressWatch<IpAddr>,
     /// The [`ConnectPhase`]s already reported, one bit each.
     phases: std::cell::Cell<u8>,
     /// Sends the system refused, by OS error (`-1`: none given), for a failure's reason.
@@ -723,6 +746,20 @@ fn refused_text(refused: &BTreeMap<i32, u64>) -> String {
 }
 
 impl Driver {
+    /// The machine slept, or its addresses changed, since the last turn: the
+    /// path chosen before may be gone, so the next sends go on every path
+    /// while every path is probed at once ([`crate::wake`]). Runs before any
+    /// queued frame goes out.
+    fn watch_wake(&mut self, now: u64) {
+        let slept = self.sleep_watch.observe(now, with_sleep_us());
+        let moved =
+            self.address_watch.due(now) && self.address_watch.observe(interface_addresses(), now);
+        if slept || moved {
+            self.endpoint.set_local_networks(cmux_transport::local_networks());
+            self.endpoint.on_network_change();
+        }
+    }
+
     fn drain_media(&mut self, now: u64) -> Result<(), LinkError> {
         if !self.endpoint.link().is_established() {
             return Ok(());
@@ -1063,6 +1100,7 @@ impl Driver {
         let mut buf = vec![0u8; MAX_PACKET];
         loop {
             let now = now_us(self.start);
+            self.watch_wake(now);
             self.later_tick();
             self.stun_tick(now);
             self.turn_tick(now);
@@ -1080,6 +1118,7 @@ impl Driver {
                 > 0
             {}
             let now = now_us(self.start);
+            self.watch_wake(now);
             while let Ok(command) = self.commands.try_recv() {
                 match command {
                     Command::RemoteCandidate(c) => self.on_remote_candidate(c, now),
@@ -1102,6 +1141,10 @@ impl Driver {
                     }
                     Command::PeerLost(us) => self.endpoint.set_peer_lost(us),
                     Command::Close => {
+                        // What was queued before the close goes out first: a host's `ended`
+                        // reason sent just before it drops the link (`failed: <why>`) must reach
+                        // the viewer, not vanish behind the close packet.
+                        self.flush(now)?;
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
                                 let _ = self.send(t.route, &t.packet, now);

@@ -52,9 +52,9 @@ pub use machine_pipe::{
     machine_pipe_request,
 };
 pub use relay::{
-    RegistrationState, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
-    RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
-    register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
+    BoundCredential, RegistrationState, RelayClientConfig, RelayCredentialSource,
+    RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls,
+    register_relay_daemon, register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
     spawn_relay_daemon_registration,
 };
 pub use ssh::{
