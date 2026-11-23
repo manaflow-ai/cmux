@@ -114,6 +114,15 @@ impl AutoCloudError {
         }
     }
 
+    /// The store itself said it has no such chat for this caller (its `not_found` answer). A
+    /// 404 from anything between this machine and the store has no such body.
+    pub fn store_not_found(&self) -> bool {
+        matches!(
+            self,
+            AutoCloudError::Http { status: 404, raw_code, .. } if raw_code == "not_found"
+        )
+    }
+
     /// The status of an error answer; None when no answer arrived or it could not be read.
     pub fn status(&self) -> Option<u16> {
         match self {

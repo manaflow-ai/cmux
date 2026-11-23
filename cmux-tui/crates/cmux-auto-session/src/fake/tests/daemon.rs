@@ -84,11 +84,13 @@ impl Daemon {
             Effect::Renew { request, epoch, needs_run, standby } => {
                 let standby = standby.then_some(true);
                 let lease = LeaseRequest { holder: self.me.clone(), epoch, needs_run, standby };
-                Some(Event::from_renewal(request, &ready(self.cloud.lease(CHAT, &lease))))
+                Some(Event::from_renewal(request, &self.me, &ready(self.cloud.lease(CHAT, &lease))))
             }
             Effect::Close => {
                 let off = PutRequest { auto: false, ..put_request("mac") };
-                ready(self.cloud.put(CHAT, &off)).ok().map(|_| Event::Closed)
+                ready(self.cloud.put(CHAT, &off))
+                    .ok()
+                    .map(|view| Event::Closed { epoch: view.epoch })
             }
             // The snapshot's upload sends the events first.
             Effect::UploadEvents { .. } => None,

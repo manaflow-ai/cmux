@@ -157,13 +157,17 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Some(tracked) => std::mem::take(&mut tracked.closing),
             None => Vec::new(),
         };
-        let refused = match result {
-            Ok(_) => None,
-            Err(error) if gone(&error) => None,
-            Err(error) => Some(error),
+        // The chat's epoch in the store's answer tells the core whether a stopped tree is
+        // still the whole chat; an answer with no chat in it names none (0).
+        let (closed_at, refused) = match result {
+            Ok(view) => (Some(view.epoch), None),
+            Err(error) if gone(&error) => {
+                (Some(error.session().map_or(0, |session| session.epoch)), None)
+            }
+            Err(error) => (None, Some(error)),
         };
-        if refused.is_none() {
-            self.step(id, Event::Closed).await;
+        if let Some(epoch) = closed_at {
+            self.step(id, Event::Closed { epoch }).await;
         }
         for reply in waiting {
             let result = match &refused {

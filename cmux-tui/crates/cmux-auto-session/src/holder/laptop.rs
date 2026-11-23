@@ -21,6 +21,21 @@ fn close(out: &mut Out) {
     out.rest();
 }
 
+/// Auto went off while the tree was stopped; `at` is the chat's epoch in the store. A close
+/// moves the epoch one past its holder's, so one past this laptop's says nobody else held the
+/// chat since: the tree is the whole chat and goes on. At any other epoch another holder ran
+/// the chat, or the answer named none: the tree may be behind, so it is killed and what it
+/// wrote is kept.
+fn closed_while_stopped(out: &mut Out, epoch: u64, at: u64) {
+    if at == epoch.saturating_add(1) {
+        out.push(Effect::ContinueTree);
+    } else {
+        out.push(Effect::KillTree);
+        out.push(Effect::WriteLeftoverPatch);
+    }
+    close(out);
+}
+
 /// The store gave the chat to this laptop with a copy this laptop does not have: bring it in.
 fn come_home(out: &mut Out, epoch: u64) {
     out.to(State::ComingHome { epoch, failed: false });
@@ -58,7 +73,7 @@ pub(super) fn off(out: &mut Out, event: Event, now: u64) {
         | Event::ImportFailed { .. }
         | Event::SnapshotStored { .. }
         | Event::SnapshotFailed { .. }
-        | Event::Closed => {}
+        | Event::Closed { .. } => {}
     }
 }
 
@@ -93,7 +108,7 @@ pub(super) fn registering(out: &mut Out, event: Event, now: u64) {
         Event::Unanswered { request } => {
             out.answered(request);
         }
-        Event::Closed => close(out),
+        Event::Closed { .. } => close(out),
         Event::AutoOn
         | Event::Assigned { .. }
         | Event::ImportDone { .. }
@@ -106,8 +121,13 @@ pub(super) fn registering(out: &mut Out, event: Event, now: u64) {
 pub(super) fn holding(out: &mut Out, epoch: u64, event: Event, now: u64) {
     match event {
         Event::AutoOff => out.push(Effect::Close),
+        // A copy that did not reach the store is sent again, at work or idle: a chat that
+        // waits for its next change with a failed copy would be taken over a turn behind.
         Event::Tick => {
             if out.due(now) {
+                if out.chat.copy == CopyState::Failed && !out.chat.too_large {
+                    out.copy(now);
+                }
                 out.renew(now);
             }
         }
@@ -140,7 +160,7 @@ pub(super) fn holding(out: &mut Out, epoch: u64, event: Event, now: u64) {
             out.failed(copy, too_large);
             out.renew_if_work_changed(now);
         }
-        Event::Closed => close(out),
+        Event::Closed { .. } => close(out),
         Event::AutoOn
         | Event::Assigned { .. }
         | Event::ImportDone { .. }
@@ -170,10 +190,7 @@ pub(super) fn stopped(out: &mut Out, epoch: u64, event: Event, now: u64) {
                     held_again(out, answer, true);
                 }
                 Verdict::Standby | Verdict::Lost => lose(out, answer.epoch.max(epoch), now),
-                Verdict::Closed => {
-                    out.push(Effect::ContinueTree);
-                    close(out);
-                }
+                Verdict::Closed => closed_while_stopped(out, epoch, answer.epoch),
             }
         }
         Event::Unanswered { request } => {
@@ -185,12 +202,7 @@ pub(super) fn stopped(out: &mut Out, epoch: u64, event: Event, now: u64) {
             out.stored(copy, snapshot);
         }
         Event::SnapshotFailed { copy, too_large } => out.failed(copy, too_large),
-        // The store closes a chat only while the Cloud has nothing a laptop lacks, so this
-        // copy is the whole chat.
-        Event::Closed => {
-            out.push(Effect::ContinueTree);
-            close(out);
-        }
+        Event::Closed { epoch: at } => closed_while_stopped(out, epoch, at),
         Event::AutoOn
         | Event::Assigned { .. }
         | Event::ImportDone { .. }
@@ -226,7 +238,7 @@ pub(super) fn standby(out: &mut Out, epoch: u64, event: Event, now: u64) {
         Event::Unanswered { request } => {
             out.answered(request);
         }
-        Event::Closed => close(out),
+        Event::Closed { .. } => close(out),
         Event::AutoOn
         | Event::Assigned { .. }
         | Event::ImportDone { .. }
@@ -275,8 +287,11 @@ pub(super) fn coming_home(out: &mut Out, epoch: u64, failed: bool, event: Event,
             if done == epoch {
                 out.chat.snapshot = out.chat.snapshot.max(snapshot);
                 out.chat.too_large = false;
-                out.chat.copy = CopyState::Stored;
                 out.to(State::Holding { epoch });
+                // The store counts the Cloud copy as the only one until this laptop stores a
+                // copy of its own: that is how it learns the import is done, and from then on
+                // Auto off is allowed and a lapsed lease parks the chat as this laptop's.
+                out.copy(now);
                 // The answer says whether the inbox has messages to drain.
                 out.renew(now);
             }
@@ -286,7 +301,7 @@ pub(super) fn coming_home(out: &mut Out, epoch: u64, failed: bool, event: Event,
                 out.to(State::ComingHome { epoch, failed: true });
             }
         }
-        Event::Closed => close(out),
+        Event::Closed { .. } => close(out),
         Event::AutoOn
         | Event::Assigned { .. }
         | Event::SnapshotStored { .. }

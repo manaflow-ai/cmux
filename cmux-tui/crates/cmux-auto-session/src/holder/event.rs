@@ -118,10 +118,16 @@ impl Answer {
         Answer::of(verdict, session)
     }
 
-    /// An error that is an answer about the holder; None for one that says nothing (no
-    /// network, a 5xx), which is [`Event::Unanswered`]. A refusal that carries the chat gives
-    /// the answer its epoch.
-    pub fn from_error(error: &AutoCloudError) -> Option<Answer> {
+    /// An error that is an answer about the holder, read as this machine (`me`); None for one
+    /// that says nothing (no network, a 5xx), which is [`Event::Unanswered`]. A refusal that
+    /// carries the chat gives the answer its epoch.
+    ///
+    /// A 404 is never a laptop's answer. Only `auto.closed` closes a laptop's chat: a 404 can
+    /// come from another account's sign-in, a Worker that does not serve the routes or a
+    /// proxy, while a Cloud machine runs the chat. Read as "Auto is off" it would continue a
+    /// stopped tree beside that machine and end the renewals that would say so; read as no
+    /// answer, the chat stays stopped.
+    pub fn from_error(error: &AutoCloudError, me: &Holder) -> Option<Answer> {
         let of = |verdict| match error.session() {
             Some(session) => Answer::of(verdict, session),
             None => Answer::bare(verdict),
@@ -138,9 +144,10 @@ impl Answer {
                 | ErrorCode::ChunkMismatch
                 | ErrorCode::TooLarge,
             ) => None,
-            // The store has no such chat for this caller: Auto is off as far as a laptop can
-            // tell, and a machine's chat was moved to another machine.
-            None => (error.status() == Some(404)).then(|| Answer::bare(Verdict::Closed)),
+            // The store's own word that it has no such chat for this caller tells a machine
+            // its chat was moved to another machine.
+            None => (matches!(me, Holder::Vm(_)) && error.store_not_found())
+                .then(|| Answer::bare(Verdict::Closed)),
         }
     }
 }
@@ -180,21 +187,28 @@ pub enum Event {
     SnapshotStored { copy: u64, snapshot: u64 },
     /// The copy numbered `copy` did not reach the store. `too_large`: it is past the cap.
     SnapshotFailed { copy: u64, too_large: bool },
-    /// The store closed the chat: Auto is off.
-    Closed,
+    /// The store closed the chat on this machine's word: Auto is off. `epoch` is the chat's
+    /// epoch in the store's answer, 0 when the answer named none.
+    Closed { epoch: u64 },
 }
 
 impl Event {
-    /// The event for a renewal's result.
-    pub fn from_renewal(request: u64, result: &Result<LeaseAnswer, AutoCloudError>) -> Event {
+    /// The event for a renewal's result, read as `me`.
+    pub fn from_renewal(
+        request: u64,
+        me: &Holder,
+        result: &Result<LeaseAnswer, AutoCloudError>,
+    ) -> Event {
         let answer = match result {
             Ok(answer) => Some(Answer::from_lease(answer)),
-            Err(error) => Answer::from_error(error),
+            Err(error) => Answer::from_error(error, me),
         };
         Event::answer(request, answer)
     }
 
-    /// The event for a registration's result (`PUT /:id` with `auto: true`), read as `me`.
+    /// The event for a registration's result (`PUT /:id` with `auto: true`), read as `me`. A
+    /// 404 here says the store does not take Auto chats: nothing was registered, the chat runs
+    /// as any chat does, and Auto goes off for it.
     pub fn from_registration(
         request: u64,
         me: &Holder,
@@ -202,7 +216,8 @@ impl Event {
     ) -> Event {
         let answer = match result {
             Ok(session) => Some(Answer::from_session(session, me)),
-            Err(error) => Answer::from_error(error),
+            Err(error) => Answer::from_error(error, me)
+                .or_else(|| (error.status() == Some(404)).then(|| Answer::bare(Verdict::Closed))),
         };
         Event::answer(request, answer)
     }
@@ -246,7 +261,7 @@ impl Event {
             Event::ImportFailed { .. } => "import_failed",
             Event::SnapshotStored { .. } => "snapshot_stored",
             Event::SnapshotFailed { .. } => "snapshot_failed",
-            Event::Closed => "closed",
+            Event::Closed { .. } => "closed",
         }
     }
 }

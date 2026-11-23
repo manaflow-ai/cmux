@@ -114,7 +114,12 @@ pub fn sample_events() -> Vec<(&'static str, Event, u64)> {
         ("answered_holder_35s_late", answered(holder), SELF_STOP_MS),
         ("answered_standby", answered(answer(Verdict::Standby, SAMPLE_EPOCH + 1, 0)), 0),
         ("answered_lost", answered(answer(Verdict::Lost, SAMPLE_EPOCH + 1, 0)), 0),
-        ("answered_closed", answered(answer(Verdict::Closed, 0, 0)), 0),
+        ("answered_closed", answered(answer(Verdict::Closed, SAMPLE_EPOCH + 1, 0)), 0),
+        (
+            "answered_closed_after_another_holder",
+            answered(answer(Verdict::Closed, SAMPLE_EPOCH + 3, 0)),
+            0,
+        ),
         (
             "answered_other_request",
             Event::Answered { request: SAMPLE_REQUEST - 1, answer: holder },
@@ -134,7 +139,8 @@ pub fn sample_events() -> Vec<(&'static str, Event, u64)> {
         ),
         ("snapshot_failed", Event::SnapshotFailed { copy: SAMPLE_COPY, too_large: false }, 0),
         ("snapshot_too_large", Event::SnapshotFailed { copy: SAMPLE_COPY, too_large: true }, 0),
-        ("closed", Event::Closed, 0),
+        ("closed", Event::Closed { epoch: SAMPLE_EPOCH + 1 }, 0),
+        ("closed_after_another_holder", Event::Closed { epoch: SAMPLE_EPOCH + 3 }, 0),
     ]
 }
 
@@ -186,13 +192,14 @@ pub fn table() -> Value {
         "version": 1,
         "source": "cmux-tui/crates/cmux-auto-session/src/holder.rs",
         "design": "plans/cmux-next/auto-mode/DESIGN.md",
-        "samples": "Each sample chat is idle. It holds or last heard of epoch 4, stored snapshot 3, awaits the answer to request 7 where it awaits one, and was last stepped when that request was sent. The store has its newest copy (number 5) and was told the chat is idle; serving_uncopied is a serving machine whose copy 5 is still on its way, so the store was told it is at work. An event's row happens 0 ms later unless its name says a time: tick_early 1 s, tick_renewal_due and streaming_after_5s at their period, tick_unanswered_35s and answered_holder_35s_late at SELF_STOP_MS, tick_after_clock_jump just past LEASE_MS.",
+        "samples": "Each sample chat is idle. It holds or last heard of epoch 4, stored snapshot 3, awaits the answer to request 7 where it awaits one, and was last stepped when that request was sent. The store has its newest copy (number 5) and was told the chat is idle; serving_uncopied is a serving machine whose copy 5 is still on its way, so the store was told it is at work. answered_closed and closed name epoch 5, their after_another_holder rows epoch 7. An event's row happens 0 ms later unless its name says a time: tick_early 1 s, tick_renewal_due and streaming_after_5s at their period, tick_unanswered_35s and answered_holder_35s_late at SELF_STOP_MS, tick_after_clock_jump just past LEASE_MS.",
         "rules": [
             "The store answers a renewal with a role: holder (go on at the answer's epoch; to a standby's renewal, import first), standby, or lost (stop, then renew as standby).",
             "A Cloud machine tells the store it has nothing left to run only once the store has its newest copy. On that word the store gives the chat home to a laptop standing by, and answers the machine lost.",
             "A clock that jumped past LEASE_MS or went back is a wake: the chat is stepped with wake first, then with the event.",
             "A laptop that holds the chat and has had no renewal answered for SELF_STOP_MS stops its tree, whatever the event.",
             "Only the answer to the newest request counts; any other is ignored.",
+            "Auto off for a stopped chat continues its tree only at the epoch one past the laptop's (nobody else held the chat since); at any other the tree is killed and what it wrote is kept.",
             "show_blocked goes out when the chat's blocked reason changed, schedule_at when its next tick moved; a tick always schedules the next one.",
         ],
         "laptop": side(Side::Laptop),

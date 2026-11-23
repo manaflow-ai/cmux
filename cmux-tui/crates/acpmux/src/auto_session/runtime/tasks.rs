@@ -181,7 +181,7 @@ impl<C: AutoCloud + 'static> Ctx<C> {
             standby: standby.then_some(true),
         };
         let result = answered(self.cloud.lease(&id, &lease)).await;
-        let event = Event::from_renewal(request, &result);
+        let event = Event::from_renewal(request, &self.me, &result);
         let view = match &result {
             Ok(answer) => Some(Box::new(answer.session.clone())),
             Err(error) => error.session().cloned().map(Box::new),

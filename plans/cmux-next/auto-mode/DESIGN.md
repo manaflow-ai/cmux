@@ -296,7 +296,25 @@ Wire:
 - The view: `standby` lists live standbys only; `leaseExpiresAt` is 0 for a parked chat and for a machine before
   its first ack; times are milliseconds.
 
+Rules added after the correctness review (2026-11-23):
+
+- A laptop that is given a chat it did not hold last (a hand-back, the paused-machine rule, a standby taking a
+  parked chat another holder ran) owes an import (`owesImport` on the record, not in the view). Its first
+  accepted snapshot clears it; the laptop stores one right after its import. Until then Auto off answers
+  `auto.held_in_cloud`, and a lease that runs out parks the chat as the Cloud's (`parkedFrom` empty): that
+  laptop comes back as a standby and imports again, it does not take the chat back "as it is".
+- A `PUT` with Auto on from the laptop that holds the chat is also a renewal: the lease runs from it. The laptop
+  reads a registration's answer as a lease's, so a registration answered late no longer leaves it running past
+  a lease the store already ended.
+
 Known limits of the store's rules:
+
+- A chat whose machine cannot run it has one way back only when the machine was never heard from: the owner sets
+  another Auto machine. A machine whose start is refused or given up (deleted, the owner left its team, six hours
+  of failed starts) keeps the chat's `takeover`, and a laptop that returns stands by with nothing coming home.
+  The fix is a second `blocked` reason (the machine is unavailable) that parks the chat for a standby laptop or a
+  new machine; it adds a value to the wire's `blocked` and to both apps, so it is not in this change. `PUT
+  machine` also takes any well-formed id without reading the machine.
 
 - A chat past the size cap. The laptop finds this before it uploads, so the store only sees copies stop. If the
   laptop then goes away and a message arrives, the machine goes on from the last snapshot that fit, with the log
@@ -304,6 +322,11 @@ Known limits of the store's rules:
   when it returns. Telling the store that its copy is frozen needs one more field on the lease; not built.
 - A machine that was heard from and then deleted keeps its chat: a machine's lease never runs out to another
   holder while it has work or something uncopied. Nothing moves that chat today.
+- A machine whose copy is past the size cap keeps the chat: it never says it is idle with a copy missing, and it
+  does not try that copy again until the folder changes. The laptop sees `coming_back` and Auto off is refused.
+- What a laptop did after the last copy that reached the store is not in a takeover: the machine goes on from the
+  store's copy, and the laptop's later folder changes are kept as its leftover patch when it returns. Its later
+  conversation records stay in its own log only.
 - `delivered` to a laptop holder means the store took the message for a holder whose lease is live. A laptop that
   has just gone to sleep reads it when it wakes, or the machine does after the takeover.
 
@@ -321,7 +344,17 @@ Core crate (`cmux-auto-session`):
 - A laptop sends `needsRun: true` only once the store holds a snapshot and the chat is not too large, so the
   store never gives a machine a chat it cannot import.
 - A clock that went back by more than one second (`CLOCK_SLACK_MS`) is treated as a wake.
-- Turning Auto off is `Effect::Close` and the chat stays Auto until `Event::Closed`.
+- Turning Auto off is `Effect::Close` and the chat stays Auto until `Event::Closed`, which carries the chat's
+  epoch in the store's answer. A stopped tree is continued on Auto off only at the epoch one past the laptop's
+  own (a close moves the epoch by one, so nobody else held the chat since); at any other epoch, or with none in
+  the answer, the tree is killed and what it wrote is kept as the leftover patch.
+- A 404 is never a laptop's answer to a renewal: it is read as no answer, so the chat stays stopped and the
+  self-stop applies. Only `auto.closed` closes a laptop's chat. (A 404 can come from another account's sign-in,
+  a Worker that does not serve the routes, or a proxy, while a machine runs the chat.) A registration answered
+  404 still turns Auto off: nothing was registered and the chat runs as any chat does. A machine takes only the
+  store's own `not_found` as "the chat was moved to another machine".
+- A laptop sends a failed copy again at its next renewal, at work or idle, unless the chat is too large.
+- A laptop stores a copy of its own right after an import (see `owesImport` in the store's rules).
 - `ImportReason` and the `SessionImporter` trait (its `import` returns a boxed future) live in the core crate;
   a streamed turn is copied every 5 s (`STREAM_COPY_MS`).
 - Refusals carry the store's `session`, `lastSeq` and `missing` as typed fields.

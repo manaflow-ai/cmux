@@ -22,6 +22,7 @@
     "answered_standby",
     "answered_lost",
     "answered_closed",
+    "answered_closed_after_another_holder",
     "answered_other_request",
     "unanswered",
     "assigned_takeover_newer",
@@ -33,7 +34,8 @@
     "snapshot_stored",
     "snapshot_failed",
     "snapshot_too_large",
-    "closed"
+    "closed",
+    "closed_after_another_holder"
   ],
   "laptop": [
     "off",
@@ -57,9 +59,10 @@
     "A clock that jumped past LEASE_MS or went back is a wake: the chat is stepped with wake first, then with the event.",
     "A laptop that holds the chat and has had no renewal answered for SELF_STOP_MS stops its tree, whatever the event.",
     "Only the answer to the newest request counts; any other is ignored.",
+    "Auto off for a stopped chat continues its tree only at the epoch one past the laptop's (nobody else held the chat since); at any other the tree is killed and what it wrote is kept.",
     "show_blocked goes out when the chat's blocked reason changed, schedule_at when its next tick moved; a tick always schedules the next one."
   ],
-  "samples": "Each sample chat is idle. It holds or last heard of epoch 4, stored snapshot 3, awaits the answer to request 7 where it awaits one, and was last stepped when that request was sent. The store has its newest copy (number 5) and was told the chat is idle; serving_uncopied is a serving machine whose copy 5 is still on its way, so the store was told it is at work. An event's row happens 0 ms later unless its name says a time: tick_early 1 s, tick_renewal_due and streaming_after_5s at their period, tick_unanswered_35s and answered_holder_35s_late at SELF_STOP_MS, tick_after_clock_jump just past LEASE_MS.",
+  "samples": "Each sample chat is idle. It holds or last heard of epoch 4, stored snapshot 3, awaits the answer to request 7 where it awaits one, and was last stepped when that request was sent. The store has its newest copy (number 5) and was told the chat is idle; serving_uncopied is a serving machine whose copy 5 is still on its way, so the store was told it is at work. answered_closed and closed name epoch 5, their after_another_holder rows epoch 7. An event's row happens 0 ms later unless its name says a time: tick_early 1 s, tick_renewal_due and streaming_after_5s at their period, tick_unanswered_35s and answered_holder_35s_late at SELF_STOP_MS, tick_after_clock_jump just past LEASE_MS.",
   "source": "cmux-tui/crates/cmux-auto-session/src/holder.rs",
   "states": [
     {
@@ -132,6 +135,7 @@
   "transitions": {
     "away": {
       "answered_closed": "-",
+      "answered_closed_after_another_holder": "-",
       "answered_holder": "-",
       "answered_holder_35s_late": "-",
       "answered_holder_handback_due": "-",
@@ -147,6 +151,7 @@
       "auto_off": "-",
       "auto_on": "-",
       "closed": "-",
+      "closed_after_another_holder": "-",
       "import_done": "-",
       "import_failed": "-",
       "queue_changed": "-",
@@ -167,6 +172,7 @@
     },
     "coming_home": {
       "answered_closed": "off",
+      "answered_closed_after_another_holder": "off",
       "answered_holder": "-",
       "answered_holder_35s_late": "-",
       "answered_holder_handback_due": "-",
@@ -182,7 +188,8 @@
       "auto_off": "coming_home: close",
       "auto_on": "-",
       "closed": "off",
-      "import_done": "holding: renew",
+      "closed_after_another_holder": "off",
+      "import_done": "holding: upload_events, upload_snapshot, renew",
       "import_failed": "-",
       "queue_changed": "-",
       "snapshot_failed": "-",
@@ -202,6 +209,7 @@
     },
     "holding": {
       "answered_closed": "off",
+      "answered_closed_after_another_holder": "off",
       "answered_holder": "-",
       "answered_holder_35s_late": "stopped_offline: stop_tree, show_blocked(offline)",
       "answered_holder_handback_due": "-",
@@ -217,6 +225,7 @@
       "auto_off": "holding: close",
       "auto_on": "-",
       "closed": "off",
+      "closed_after_another_holder": "off",
       "import_done": "-",
       "import_failed": "-",
       "queue_changed": "holding: upload_events, upload_snapshot, renew(needs_run)",
@@ -237,6 +246,7 @@
     },
     "off": {
       "answered_closed": "-",
+      "answered_closed_after_another_holder": "-",
       "answered_holder": "-",
       "answered_holder_35s_late": "-",
       "answered_holder_handback_due": "-",
@@ -252,6 +262,7 @@
       "auto_off": "-",
       "auto_on": "registering: register, schedule_at",
       "closed": "-",
+      "closed_after_another_holder": "-",
       "import_done": "-",
       "import_failed": "-",
       "queue_changed": "-",
@@ -272,6 +283,7 @@
     },
     "registering": {
       "answered_closed": "off",
+      "answered_closed_after_another_holder": "off",
       "answered_holder": "holding: upload_events, upload_snapshot",
       "answered_holder_35s_late": "stopped_offline: stop_tree, upload_events, upload_snapshot, show_blocked(offline)",
       "answered_holder_handback_due": "holding: upload_events, upload_snapshot",
@@ -287,6 +299,7 @@
       "auto_off": "off: close",
       "auto_on": "-",
       "closed": "off",
+      "closed_after_another_holder": "off",
       "import_done": "-",
       "import_failed": "-",
       "queue_changed": "-",
@@ -307,6 +320,7 @@
     },
     "serving": {
       "answered_closed": "away: kill_tree, write_leftover_patch",
+      "answered_closed_after_another_holder": "away: kill_tree, write_leftover_patch",
       "answered_holder": "-",
       "answered_holder_35s_late": "-",
       "answered_holder_handback_due": "serving_uncopied: upload_events, upload_snapshot",
@@ -322,6 +336,7 @@
       "auto_off": "-",
       "auto_on": "-",
       "closed": "away: kill_tree, write_leftover_patch",
+      "closed_after_another_holder": "away: kill_tree, write_leftover_patch",
       "import_done": "-",
       "import_failed": "-",
       "queue_changed": "serving_uncopied: upload_events, upload_snapshot, renew(needs_run)",
@@ -342,6 +357,7 @@
     },
     "serving_uncopied": {
       "answered_closed": "away: kill_tree, write_leftover_patch",
+      "answered_closed_after_another_holder": "away: kill_tree, write_leftover_patch",
       "answered_holder": "-",
       "answered_holder_35s_late": "-",
       "answered_holder_handback_due": "-",
@@ -357,6 +373,7 @@
       "auto_off": "-",
       "auto_on": "-",
       "closed": "away: kill_tree, write_leftover_patch",
+      "closed_after_another_holder": "away: kill_tree, write_leftover_patch",
       "import_done": "-",
       "import_failed": "-",
       "queue_changed": "serving_uncopied: upload_events, upload_snapshot",
@@ -377,6 +394,7 @@
     },
     "standby": {
       "answered_closed": "off",
+      "answered_closed_after_another_holder": "off",
       "answered_holder": "coming_home: import(handback)",
       "answered_holder_35s_late": "coming_home: import(handback)",
       "answered_holder_handback_due": "coming_home: import(handback)",
@@ -392,6 +410,7 @@
       "auto_off": "standby: close",
       "auto_on": "-",
       "closed": "off",
+      "closed_after_another_holder": "off",
       "import_done": "-",
       "import_failed": "-",
       "queue_changed": "-",
@@ -412,6 +431,7 @@
     },
     "stopped_offline": {
       "answered_closed": "off: continue_tree, show_blocked(none)",
+      "answered_closed_after_another_holder": "off: kill_tree, write_leftover_patch, show_blocked(none)",
       "answered_holder": "holding: continue_tree, show_blocked(none)",
       "answered_holder_35s_late": "stopped_offline: renew, schedule_at",
       "answered_holder_handback_due": "holding: continue_tree, show_blocked(none)",
@@ -427,6 +447,7 @@
       "auto_off": "stopped_offline: close",
       "auto_on": "-",
       "closed": "off: continue_tree, show_blocked(none)",
+      "closed_after_another_holder": "off: kill_tree, write_leftover_patch, show_blocked(none)",
       "import_done": "-",
       "import_failed": "-",
       "queue_changed": "-",
@@ -447,6 +468,7 @@
     },
     "stopped_wake": {
       "answered_closed": "off: continue_tree",
+      "answered_closed_after_another_holder": "off: kill_tree, write_leftover_patch",
       "answered_holder": "holding: continue_tree",
       "answered_holder_35s_late": "stopped_wake: renew, schedule_at",
       "answered_holder_handback_due": "holding: continue_tree",
@@ -462,6 +484,7 @@
       "auto_off": "stopped_wake: close",
       "auto_on": "-",
       "closed": "off: continue_tree",
+      "closed_after_another_holder": "off: kill_tree, write_leftover_patch",
       "import_done": "-",
       "import_failed": "-",
       "queue_changed": "-",
@@ -482,6 +505,7 @@
     },
     "taking": {
       "answered_closed": "-",
+      "answered_closed_after_another_holder": "-",
       "answered_holder": "-",
       "answered_holder_35s_late": "-",
       "answered_holder_handback_due": "-",
@@ -497,6 +521,7 @@
       "auto_off": "-",
       "auto_on": "-",
       "closed": "away",
+      "closed_after_another_holder": "away",
       "import_done": "serving: drain_inbox, ack_assignment, renew(needs_run)",
       "import_failed": "-",
       "queue_changed": "-",

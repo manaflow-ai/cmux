@@ -117,7 +117,7 @@ pub(super) fn away(out: &mut Out, event: Event, now: u64) {
         | Event::ImportFailed { .. }
         | Event::SnapshotStored { .. }
         | Event::SnapshotFailed { .. }
-        | Event::Closed => {}
+        | Event::Closed { .. } => {}
     }
 }
 
@@ -167,7 +167,7 @@ pub(super) fn taking(
                 out.to(State::Taking { epoch, reason, failed: true });
             }
         }
-        Event::Closed => leave(out),
+        Event::Closed { .. } => leave(out),
         Event::AutoOn
         | Event::AutoOff
         | Event::Answered { .. }
@@ -213,7 +213,7 @@ pub(super) fn serving(out: &mut Out, epoch: u64, event: Event, now: u64) {
             }
         }
         Event::SnapshotFailed { copy, too_large } => out.failed(copy, too_large),
-        Event::Closed => gone(out),
+        Event::Closed { .. } => gone(out),
         Event::AutoOn | Event::AutoOff | Event::ImportDone { .. } | Event::ImportFailed { .. } => {}
     }
 }

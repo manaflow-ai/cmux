@@ -68,12 +68,12 @@ impl Out {
 
     /// The store has the copy numbered `copy`, as its snapshot `snapshot`. Answers whether
     /// that is the newest copy asked for; an older one landing changes nothing about the newer
-    /// one still on its way.
+    /// one still on its way, or that failed as too large.
     pub fn stored(&mut self, copy: u64, snapshot: u64) -> bool {
         self.chat.snapshot = self.chat.snapshot.max(snapshot);
-        self.chat.too_large = false;
         let newest = copy == self.chat.copies;
         if newest {
+            self.chat.too_large = false;
             self.chat.copy = CopyState::Stored;
         }
         newest

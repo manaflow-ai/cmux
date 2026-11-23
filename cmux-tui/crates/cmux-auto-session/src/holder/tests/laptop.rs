@@ -3,8 +3,9 @@
 
 use super::super::*;
 use super::{answer, has, kinds, request};
+use crate::cloud::AutoCloudError;
 use crate::consts::{LEASE_MS, RENEW_MS, SELF_STOP_MS, STREAM_COPY_MS};
-use crate::wire::Blocked;
+use crate::wire::{Blocked, ErrorCode, Holder};
 
 /// A laptop that switched Auto on at `now`, holds the chat at epoch 1 and stored snapshot 1.
 fn holding(now: u64) -> Chat {
@@ -293,7 +294,8 @@ fn a_standby_laptop_imports_the_handback_then_holds() {
     let (chat, effects) = step(chat, done, chat.seen_at + 10);
     assert_eq!(chat.state, State::Holding { epoch: 5 });
     assert_eq!(chat.snapshot, 8);
-    assert!(has(&effects, "renew"));
+    // Its own copy goes to the store at once: that is how the store learns the import is done.
+    assert_eq!(kinds(&effects), ["upload_events", "upload_snapshot", "renew", "schedule_at"]);
     assert!(chat.may_run());
 }
 
@@ -312,7 +314,7 @@ fn auto_off_takes_effect_when_the_store_confirms_it() {
     let (chat, effects) = step(chat, Event::AutoOff, 1_000);
     assert_eq!(effects, [Effect::Close]);
     assert_eq!(chat.state, State::Holding { epoch: 1 });
-    let (chat, effects) = step(chat, Event::Closed, 1_200);
+    let (chat, effects) = step(chat, Event::Closed { epoch: 2 }, 1_200);
     assert_eq!((chat.state, effects.len()), (State::Off, 0));
     assert_eq!(chat.wake_at(), None);
     assert!(chat.may_run() && !chat.here());
@@ -322,7 +324,34 @@ fn auto_off_takes_effect_when_the_store_confirms_it() {
     let (chat, effects) = step(chat, Event::AutoOff, chat.seen_at + 10);
     assert_eq!(effects, [Effect::Close]);
     assert!(!chat.may_run());
-    let (chat, effects) = step(chat, Event::Closed, chat.seen_at + 10);
+    let (chat, effects) = step(chat, Event::Closed { epoch: 2 }, chat.seen_at + 10);
+    assert_eq!(chat.state, State::Off);
+    assert_eq!(effects, [Effect::ContinueTree, Effect::ShowBlocked { blocked: None }]);
+}
+
+/// Auto off for a stopped chat continues the tree only when nobody else held the chat since:
+/// the store's epoch is then one past this laptop's. After another holder, or with no epoch in
+/// the answer, the tree is killed and what it wrote is kept.
+#[test]
+fn a_stopped_chat_closed_after_another_holder_is_killed_not_continued() {
+    let killed =
+        [Effect::KillTree, Effect::WriteLeftoverPatch, Effect::ShowBlocked { blocked: None }];
+    for at in [0, 1, 3, 4] {
+        // By this laptop's own switch.
+        let (chat, _) = stopped_offline(0);
+        let (chat, effects) = step(chat, Event::Closed { epoch: at }, chat.seen_at + 10);
+        assert_eq!((chat.state, effects.as_slice()), (State::Off, killed.as_slice()), "{at}");
+        // By its renewal's answer: another device switched Auto off.
+        let (chat, _) = stopped_offline(0);
+        let (chat, request, at_time) = next_renewal(chat);
+        let closed = Event::Answered { request, answer: answer(Verdict::Closed, at, 0) };
+        let (chat, effects) = step(chat, closed, at_time + 10);
+        assert_eq!((chat.state, effects.as_slice()), (State::Off, killed.as_slice()), "{at}");
+    }
+    let (chat, _) = stopped_offline(0);
+    let (chat, request, at_time) = next_renewal(chat);
+    let closed = Event::Answered { request, answer: answer(Verdict::Closed, 2, 0) };
+    let (chat, effects) = step(chat, closed, at_time + 10);
     assert_eq!(chat.state, State::Off);
     assert_eq!(effects, [Effect::ContinueTree, Effect::ShowBlocked { blocked: None }]);
 }
@@ -389,4 +418,59 @@ fn a_daemon_that_restarts_treats_its_chats_as_a_wake() {
     let (chat, effects) = Chat::resume(Side::Laptop, 6, 2, 0);
     assert_eq!(chat.state, State::Stopped { epoch: 6, why: Stop::Wake });
     assert_eq!(kinds(&effects)[..2], ["stop_tree", "renew"]);
+}
+
+/// A 404 is no answer to a laptop's renewal, whoever sent it: the chat stays stopped, and the
+/// laptop goes on asking. Only `auto.closed` closes its chat. A machine takes the store's own
+/// word that the chat is not its chat any more, and nobody else's.
+#[test]
+fn a_404_does_not_close_a_laptops_chat() {
+    let (mac, vm) = (Holder::Device("mac".to_owned()), Holder::Vm("vm_1".to_owned()));
+    let store = AutoCloudError::http(404, "not_found", "not found");
+    let proxy = AutoCloudError::from_response(404, b"<html>404</html>");
+    let unanswered = Event::Unanswered { request: 9 };
+    assert_eq!(Event::from_renewal(9, &mac, &Err(store.clone())), unanswered);
+    assert_eq!(Event::from_renewal(9, &mac, &Err(proxy.clone())), unanswered);
+    assert_eq!(Event::from_renewal(9, &vm, &Err(proxy.clone())), unanswered);
+    let gone = Event::Answered { request: 9, answer: answer(Verdict::Closed, 0, 0) };
+    assert_eq!(Event::from_renewal(9, &vm, &Err(store.clone())), gone);
+    let off = AutoCloudError::refused(ErrorCode::Closed, "Auto is off for this chat");
+    assert_eq!(Event::from_renewal(9, &mac, &Err(off)), gone);
+    // A store that does not take Auto chats answers the registration 404: Auto goes off.
+    assert_eq!(Event::from_registration(9, &mac, &Err(store)), gone);
+
+    // The laptop wakes while a machine runs the chat, and its renewal is answered 404: the
+    // tree stays stopped and the next renewal still goes out.
+    let (chat, effects) = step(holding(0), Event::Wake, 3_000);
+    let answered = Event::from_renewal(request(&effects), &mac, &Err(proxy));
+    let (chat, effects) = step(chat, answered, 3_100);
+    assert_eq!(chat.state, State::Stopped { epoch: 1, why: Stop::Offline });
+    assert!(!has(&effects, "continue_tree"), "{:?}", kinds(&effects));
+    let (chat, _, _) = next_renewal(chat);
+    assert!(matches!(chat.state, State::Stopped { .. }));
+    assert!(chat.awaiting.is_some());
+}
+
+/// A copy that did not reach the store is sent again at the next renewal, with nothing
+/// changing in the chat; one that is too large waits for the folder to change.
+#[test]
+fn an_idle_laptop_sends_a_failed_copy_again() {
+    let chat = holding(0);
+    let (chat, effects) =
+        step(chat, Event::Changed { change: Change::TurnEnded, needs_run: false }, 100);
+    let Some(Effect::UploadSnapshot { copy, .. }) =
+        effects.iter().find(|effect| matches!(effect, Effect::UploadSnapshot { .. }))
+    else {
+        panic!("a turn end copies: {:?}", kinds(&effects))
+    };
+    let (chat, _) = step(chat, Event::SnapshotFailed { copy: *copy, too_large: false }, 200);
+    let (chat, request, at) = next_renewal(chat);
+    assert_eq!(chat.copy, CopyState::Sending);
+    let again = chat.copies;
+    assert!(again > *copy);
+    let held = Event::Answered { request, answer: answer(Verdict::Holder, 1, 0) };
+    let (chat, _) = step(chat, held, at + 10);
+    let (chat, _) = step(chat, Event::SnapshotFailed { copy: again, too_large: true }, at + 20);
+    let (chat, _, _) = next_renewal(chat);
+    assert_eq!((chat.copy, chat.copies), (CopyState::Failed, again));
 }

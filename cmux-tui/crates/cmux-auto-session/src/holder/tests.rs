@@ -121,7 +121,8 @@ fn a_chat_stays_on_its_side() {
     }
 }
 
-/// SIGCONT only goes to a tree this laptop stopped, and never with a kill.
+/// SIGCONT only goes to a tree this laptop stopped, and never with a kill. A stopped tree that
+/// may run again was continued, or killed for a chat that starts over from what it kept.
 #[test]
 fn a_tree_is_continued_only_from_stopped_and_never_killed_too() {
     for (from, event, before, after, effects) in every_pair() {
@@ -131,7 +132,8 @@ fn a_tree_is_continued_only_from_stopped_and_never_killed_too() {
             assert!(after.may_run(), "{from} {event}");
         }
         if matches!(before.state, State::Stopped { .. }) && after.may_run() {
-            assert!(has(&effects, "continue_tree"), "{from} {event}");
+            let continued = has(&effects, "continue_tree");
+            assert!(continued || has(&effects, "kill_tree"), "{from} {event}");
         }
     }
 }
@@ -268,7 +270,7 @@ fn a_holding_laptop_stops_before_the_lease_runs_out() {
         .find(|(name, _)| *name == "holding")
         .expect("the holding sample");
     for (name, event, _) in sample_events() {
-        if matches!(event, Event::Answered { .. } | Event::Closed | Event::Wake) {
+        if matches!(event, Event::Answered { .. } | Event::Closed { .. } | Event::Wake) {
             continue;
         }
         // The event arrives at the moment the self-stop is due.
