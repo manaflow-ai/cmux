@@ -45,8 +45,12 @@ public protocol AppsTransport: AnyObject {
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel]
     /// The composer's extension slash commands and mention providers (`apps.composer.list`).
     func composerPlaces() async throws(AppsTransportError) -> AppJSON
+    /// The extension mention items that match a query (`apps.composer.mentions {query, prefix?, limit?}`).
+    func composerMentions(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON
     /// One read-only App Store op (`apps-store {op}`, no arguments), the reply as the daemon wrote it.
     func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON
+    /// One App Store op with arguments (`apps-store {op, args}`), the reply as the daemon wrote it.
+    func storeCall(_ op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON
     /// One App Store op with arguments and the caller's origin (`apps-store {op, args, origin}`): the
     /// widget ops (`apps.widgets.*`). `user` goes out as `user` only on a connection the daemon
     /// verified as the cmux app.
@@ -54,6 +58,9 @@ public protocol AppsTransport: AnyObject {
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)
+    /// A mount with the asker's origin: an overlay (`context.surface = overlay`) needs `user`,
+    /// which the transport sends only on the connection the daemon verified as the cmux app.
+    func mount(app: String, interface: String, mountID: String, context: AppJSON, origin: AppOrigin) async throws(AppsTransportError)
     /// Sent whenever a connection exists, also while the client shows the
     /// supervisor as unavailable (a policy turned apps off).
     func unmount(mountID: String) async throws(AppsTransportError)
@@ -70,9 +77,17 @@ public protocol AppsTransport: AnyObject {
     /// Offers a clicked link to the app whose `cmux.opener/1` matches it (`apps-open-link`; the
     /// daemon picks the app). The answer is `{handled, app?, error?}`.
     func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON
+    /// `apps.chat_widgets.route`: the daemon's choice of chat widget for a tool call or a widget part,
+    /// `{widget: null}` or `{widget: {app, interface, title, symbol?, context}}`.
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON
 }
 
 public extension AppsTransport {
+    /// The daemon's chat widget route, as a store op (`apps.chat_widgets.route`); a transport that
+    /// serves no store ops answers `{}`, which the page reads as no widget.
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        try await storeCall("apps.chat_widgets.route", args: args)
+    }
     /// A transport without web panes refuses every page call.
     func pageCall(app: String, page: String, message: String) async throws(AppsTransportError) -> AppJSON {
         // The wire command it lacks, not prose: the page shows the code.
@@ -86,8 +101,16 @@ extension AppsTransport {
 }
 
 extension AppsTransport {
+    /// A transport that sends no origin with a mount (a test fake) mounts as it always did.
+    public func mount(app: String, interface: String, mountID: String, context: AppJSON, origin: AppOrigin) async throws(AppsTransportError) {
+        try await mount(app: app, interface: interface, mountID: mountID, context: context)
+    }
+
+    /// A read with no arguments is a read with an empty argument object.
+    public func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { try await storeCall(op, args: .object([:])) }
+
     /// A transport that serves no App Store reads answers each with an empty object.
-    public func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { .object([:]) }
+    public func storeCall(_ op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON { .object([:]) }
 
     /// A transport that serves no App Store ops with arguments answers each with an empty object.
     public func storeCall(_ op: String, args: AppJSON, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON { .object([:]) }
@@ -99,4 +122,10 @@ extension AppsTransport {
     /// The agent chat composer's extension places (`apps.composer.list`): the reply as the daemon
     /// wrote it, `{commands, mentions}`.
     public func composerPlaces() async throws(AppsTransportError) -> AppJSON { try await storeCall("apps.composer.list") }
+
+    /// The installed extensions' `@` items for a query, ranked by the daemon (`apps.composer.mentions`):
+    /// `{mentions: [{app, extension, prefix, id, label, detail?, insert}]}`.
+    public func composerMentions(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        try await storeCall("apps.composer.mentions", args: args)
+    }
 }

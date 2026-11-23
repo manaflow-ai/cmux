@@ -363,6 +363,9 @@ class InputProofTests(unittest.TestCase):
         self.assertEqual(nsf.input_proof("t", 2, 2, 2, self.MARKS)[0], ["input: 2 keys sent, 1 `newTab.open` marks"])
 
 
+TITLE = "a title of the person's work"  # the shell window's title in the app's list of windows: in no report
+
+
 class FakeApp:
     """The app's answers to the tool's calls: each frame_strip opens `opens` tabs or workspaces for its keys."""
 
@@ -386,20 +389,28 @@ class FakeApp:
         # `records`: the spare flags of the opening records that each frame_strip makes (None: one, of a spare, for
         # each opening). The app's records and its openings are not one count: a Cmd-N of a reserved workspace makes none.
         self.records = None
-        # The app at its launch is not active and has no key window. `takes_focus`: False for an app that does not
-        # become active when it is asked. `window_calls`: each `debug.window.focus` call's params.
-        self.active, self.is_key, self.takes_focus, self.window_calls = False, False, True, []
+        # The app at its launch is not active and has no key window, as an app that takes no keyboard, and no call
+        # of the tool changes that. `window_calls`: each `debug.window.focus` call's params. `shell_window`: the
+        # app's one shell window in `debug.window_list` (a test changes a field of it; no report may keep its
+        # `title`). `other_windows`: each other entry of that list.
+        self.active, self.is_key, self.window_calls = False, False, []
+        self.shell_window = {"id": 41, "kind": "main", "title": TITLE, "frame": {"x": 40.0, "y": 230.0, "width": 1200.0, "height": 900.0},
+                             "visible": True, "parent": None, "class": "ShellWindow", "level": 0, "ignores_mouse": False,
+                             "occluded": False, "miniaturized": False, "alpha": 1.0}
+        self.other_windows = []
 
     def focus_fact(self, **window):
         """The app's `debug.focus` answer: whether the app is active, and its one window (a test's own fields in `window`)."""
         return {"app_active": self.active, "windows": [{"id": "window-1", "is_key": self.is_key, **window}]}
 
     def window_focus(self, params):
-        """`debug.window.focus`: the app becomes active, and its window the key window, only with `activate`."""
+        """`debug.window.focus`: the app keeps the call's params. The call makes no app active here."""
         self.window_calls.append(params)
-        if params.get("activate") is True and self.takes_focus:
-            self.active = self.is_key = True
         return {"key": "window-1" if self.is_key else None, "front": "window-1"}
+
+    def window_list(self):
+        """The app's `debug.window_list` answer: its shell window (`key` as the app says) and each other window."""
+        return {"windows": [{**self.shell_window, "key": self.is_key}, *self.other_windows]}
 
     def pause(self, _seconds):
         """The tool's pause. No clock: the app's call that goes on ends in the pause number `ends_in`."""
@@ -443,6 +454,8 @@ class FakeApp:
             return self.focus_fact()
         if method == "debug.window.focus":
             return self.window_focus(params)
+        if method == "debug.window_list":
+            return self.window_list()
         if method == "debug.agent_pane":
             return {"engine": self.engine} if action == "engine" else {"error": "the focused pane shows no agent page"}
         if action == "state":

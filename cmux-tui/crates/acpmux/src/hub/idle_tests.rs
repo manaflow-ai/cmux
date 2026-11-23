@@ -38,6 +38,8 @@ async fn each_gate_keeps_a_session_awake() {
         m.claude_unstored = true;
         m.turn_count = 1;
     }
+    assert!(hub.idle_eligible(&session), "a Claude chat whose unstored turns did no work");
+    session.meta.lock().unwrap_or_else(|e| e.into_inner()).claude_unstored_work = true;
     assert!(!hub.idle_eligible(&session), "a Claude chat whose turns are not stored");
     session.meta.lock().unwrap().claude_unstored = false;
     session.queued.fetch_add(1, Ordering::SeqCst);
@@ -189,4 +191,26 @@ async fn startup_settles_only_once_every_load_is_done() {
         gate.send_replace(true);
     }
     assert!(hub.startup_settled());
+}
+
+/// An update's restart (`restart_harnesses`, the stale-binary pass after an app relaunch) never
+/// ends work below a chat with no turn open: the chat keeps its agent and moves before its next
+/// turn. With nothing below, it restarts now.
+#[tokio::test]
+async fn an_update_restart_waits_for_work_below_and_restarts_a_quiet_chat_now() {
+    let (hub, session) = chat().await;
+    let ids: std::collections::BTreeSet<String> = [session.id.to_string()].into();
+    *session.work_below_since.lock().unwrap() = 1;
+    let held = hub.restart_harnesses(None, Some(&ids)).await;
+    assert_eq!((held.now, held.after_turn), (0, 1), "work below was cut: {held:?}");
+    assert!(session.route_switch.load(Ordering::SeqCst), "not marked to move before its next turn");
+    *session.work_below_since.lock().unwrap() = 0;
+    session.route_switch.store(false, Ordering::SeqCst);
+    let quiet = hub.restart_harnesses(None, Some(&ids)).await;
+    assert_eq!(
+        (quiet.now, quiet.after_turn),
+        (1, 0),
+        "a quiet chat did not restart now: {quiet:?}"
+    );
+    hub.shutdown_all().await;
 }

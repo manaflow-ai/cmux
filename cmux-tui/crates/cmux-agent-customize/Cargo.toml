@@ -5,12 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Reads and edits what the person configured for Claude Code and Codex in those agents' own files (MCP servers, skills and slash commands), for cmux Settings and `cmux agent-config`"
+description = "Reads and edits what the person configured for Claude Code and Codex in those agents' own files (MCP servers, hooks, skills and slash commands, settings), for cmux Settings and `cmux agent-config`"
 
 [lints]
 workspace = true
 
 [dependencies]
+# settings.json edits in place, byte for byte outside the edited value (cmux-config jsonc).
+cmux-config.workspace = true
 # Codex's app-server ends with the read that started it.
 cmux-process.workspace = true
 # The codex config.toml lock every cmux writer of it takes.

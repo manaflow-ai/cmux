@@ -55,6 +55,6 @@ nonisolated enum BrowserProfileAppStrings {
     }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "BrowserProfiles", bundle: .module)
+        String(localized: key, defaultValue: value, table: "BrowserProfiles", bundle: .module.inAppLanguage)
     }
 }

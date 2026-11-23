@@ -8,9 +8,12 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
 import { mockModels, runMockModels } from "./mockModels";
+import { mockAllotments, runMockAllotment } from "./mockAllotments";
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
 import { MockTeams } from "./mockTeams";
+import { ACCOUNT_ACTIONS } from "../shared/signIn/accountSignIn";
+import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 import { mockContextMenus, setMockMenuLayout } from "./mockMenus";
 import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
@@ -47,8 +50,6 @@ import {
   type AgentToolsCardRun,
   type AgentToolsCardState,
   type IntegrationsState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
   type McpServersRun,
   type McpServersState,
   type Diagnostic,
@@ -62,14 +63,26 @@ import {
   type ThemeOverride,
   type WorkspaceBackground,
   type CustomizeTryOn,
+  type DoctorReport,
+  type DoctorRun,
+  type LibraryAnswer,
   type LibraryListing,
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentConfigAgent,
+  type AgentConfigRun,
+  type AgentConfigState,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type AllotmentSet,
+  type AllotmentView,
+  type AccountsRunReply,
+  type AgentSkillRow,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -78,6 +91,8 @@ import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import { mockLibrary, runLibrary } from "./mockLibrary";
+import { mockEmptyDoctor, runDoctor } from "./mockDoctor";
+import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
 
@@ -109,6 +124,10 @@ export type MockOptions = {
   library?: LibraryListing;
   /** The CLI refuses every library change with this message (a preview is open). */
   libraryRefusal?: string;
+  /** `cmux customize doctor`'s report; default no findings (no card, no notice). */
+  doctor?: DoctorReport;
+  /** The CLI refuses every doctor change with this message. */
+  doctorRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
 };
@@ -262,6 +281,8 @@ export class MockSettingsProvider {
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     if (options.library) this.library = options.library;
     if (options.libraryRefusal) this.libraryRefusal = options.libraryRefusal;
+    if (options.doctor) this.doctor = options.doctor;
+    if (options.doctorRefusal) this.doctorRefusal = options.doctorRefusal;
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -533,6 +554,11 @@ export class MockSettingsProvider {
         ({
           general: [{ id: "palette.makeDefaultTerminal", title: "Make cmux the Default Terminal", enabled: true }],
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
+          appearance: [
+            { id: "space.setTheme", title: "Set Space Theme…", enabled: true },
+            { id: "workspace.setTheme", title: "Set Workspace Theme…", enabled: true },
+          ],
+          rooms: [{ id: "space.new", title: "New Space", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
       "cmux.settings.backdrop.wallpaper_settings": () => ({}),
@@ -576,6 +602,7 @@ export class MockSettingsProvider {
       "cmux.settings.app_update.run": () => ({}),
       "cmux.settings.web_updates.check": () => ({}),
       "cmux.settings.web_updates.rollback": () => ({}),
+      "cmux.settings.language.relaunch": () => ({}),
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -641,6 +668,21 @@ export class MockSettingsProvider {
         this.worktreeReadHold
           ? this.worktreeReadHold.then(() => this.readWorktree(params as { path: string }))
           : this.readWorktree(params as { path: string }),
+      "cmux.settings.cloud.allotment.get": () => {
+        if (!this.allotment) throw new ProtocolError("cmux.settings.unavailable", "this host has no Compute part");
+        return this.allotment;
+      },
+      "cmux.settings.cloud.allotment.set": (params) => {
+        const run = params as AllotmentSet;
+        this.allotmentRuns.push(run);
+        if (!this.allotment) throw new ProtocolError("cmux.settings.unavailable", "this host has no Compute part");
+        if (run.action !== undefined && run.action !== "down" && run.action !== "hold" && run.action !== "up")
+          throw new ProtocolError("cmux.settings.invalid", "action must be down, hold or up");
+        if (run.action === undefined && run.auto === undefined)
+          throw new ProtocolError("cmux.settings.invalid", "a set names an action or auto");
+        this.allotment = runMockAllotment(this.allotment, run);
+        return this.allotment;
+      },
       "cmux.settings.models.state": () => {
         if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
         return this.models;
@@ -730,6 +772,43 @@ export class MockSettingsProvider {
         const run = params as AgentSkillsRun;
         const shown = this.agentSkills;
         if (run.action === "refresh" || !shown.enabled) return this.agentSkills;
+        if (run.action === "add") {
+          // Like the CLI: a Claude Code command is listed; Codex's and cmux's are only reported.
+          this.agentSkillRuns.push(run);
+          const dir = { claude: "~/.claude/commands", codex: "~/.codex/prompts", cmux: "~/.config/cmux/commands" };
+          const path = `${dir[run.agent]}/${run.name}.md`;
+          const invocation = run.agent === "codex" ? `/prompts:${run.name}` : `/${run.name}`;
+          const taken = (entry: AgentSkillRow) =>
+            entry.agent === run.agent && entry.kind === "command" && entry.name === run.name;
+          if (shown.skills.some(taken)) {
+            this.agentSkills = {
+              ...shown,
+              refusal: { path: "new-command", message: `${path} already exists (--replace writes over it)` },
+            };
+            return this.agentSkills;
+          }
+          const listed: AgentSkillRow[] =
+            run.agent === "claude"
+              ? [
+                  {
+                    agent: "claude",
+                    kind: "command",
+                    scope: "user",
+                    name: run.name,
+                    description: run.description || run.prompt.split("\n")[0],
+                    path,
+                    enabled: true,
+                  },
+                ]
+              : [];
+          this.agentSkills = {
+            ...shown,
+            skills: [...shown.skills, ...listed],
+            refusal: null,
+            added: { agent: run.agent, invocation, path },
+          };
+          return this.agentSkills;
+        }
         const row = shown.skills.find((entry) => entry.path === run.path);
         // Like the host: only a listed file.
         if (!row) throw new ProtocolError("cmux.settings.invalid", "path must be a listed skill's file");
@@ -848,6 +927,18 @@ export class MockSettingsProvider {
         };
         return {};
       },
+      "cmux.settings.agentConfig": (params) => {
+        const run = params as AgentConfigRun;
+        // Like the host while labs.agentCustomization is off there.
+        if (this.agentConfigDisabled) return { enabled: false };
+        // Like the host: changes and opens are the person's; a get only reads.
+        if (run.verb !== "get") this.agentConfigRuns.push(run);
+        const current = this.agentConfig[run.agent];
+        if (!current) throw new ProtocolError("cmux.settings.invalid", "agent is claude or codex");
+        const { state, answer } = runAgentConfigMock(current, run);
+        this.agentConfig[run.agent] = state;
+        return answer;
+      },
       "cmux.app.clipboard.write": (params) => {
         this.clipboard = String(params.text);
         return {};
@@ -899,6 +990,8 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.run",
       "cmux.settings.models.state",
       "cmux.settings.models.run",
+      "cmux.settings.cloud.allotment.get",
+      "cmux.settings.cloud.allotment.set",
       "cmux.settings.devices.state",
       "cmux.settings.devices.run",
       "cmux.settings.environments.state",
@@ -923,6 +1016,7 @@ export class MockSettingsProvider {
       "cmux.settings.agentSkills.state",
       "cmux.settings.agentSkills.run",
       "cmux.settings.mcp.run",
+      "cmux.settings.agentConfig",
       "cmux.settings.agentMcp.state",
       "cmux.settings.agentMcp.run",
       "cmux.settings.agentHooks.state",
@@ -948,6 +1042,7 @@ export class MockSettingsProvider {
       "cmux.settings.app_update.run",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
+      "cmux.settings.language.relaunch",
       "cmux.settings.server.restart",
       "cmux.settings.server.pair",
       "cmux.settings.section.actions",
@@ -988,6 +1083,11 @@ export class MockSettingsProvider {
     provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
 
+  /** Settings > Team > Compute as the backend serves it (mockAllotments.ts); null is a host without it. */
+  allotment: AllotmentView | null = structuredClone(mockAllotments.proposalUp);
+  /** Compute gestures the page sent, in order. */
+  readonly allotmentRuns: AllotmentSet[] = [];
+
   /** Settings > Models as the app serves it (mockModels.ts); null is a host without the part. */
   models: ModelsState | null = structuredClone(mockModels.macLogins);
   /** Models gestures the page sent (pasted keys included, so tests can check what was sent). */
@@ -1022,17 +1122,34 @@ export class MockSettingsProvider {
    * when the read began (a test's slow read that a change overtakes). */
   libraryReadHold: Promise<void> | null = null;
 
+  /** What `cmux customize doctor` reports; default nothing (the start state). */
+  doctor: DoctorReport = mockEmptyDoctor();
+  /** The CLI's refusal of every doctor change; null: changes run. */
+  doctorRefusal: string | null = null;
+  /** Every doctor verb but the read the page ran, in order (tests). */
+  readonly doctorRuns: DoctorRun[] = [];
+
+  /** `cmux --json customize doctor …` (and the host's own `doctor-open`): the report, or the CLI's
+   * error envelope. */
+  private runDoctor(run: DoctorRun) {
+    if (run.verb !== "doctor") {
+      this.doctorRuns.push(run);
+      if (this.doctorRefusal) return { code: "customize.doctor", message: this.doctorRefusal };
+    }
+    const answer = runDoctor(this.doctor, run);
+    if ("doctor" in answer && answer.doctor) this.doctor = answer.doctor;
+    return answer;
+  }
+
   /** `cmux --json customize library VERB`: the listing, or the CLI's error envelope as the host
    * answers it (a refusal is an answer, not a failed call). */
-  private runLibrary(
-    run: LibraryRun,
-  ):
-    | { library?: LibraryListing; code?: string; message?: string }
-    | Promise<{ library?: LibraryListing; code?: string; message?: string }> {
+  private runLibrary(run: LibraryRun): LibraryAnswer | Promise<LibraryAnswer> {
     if (run.verb === "list") {
       const listed = this.library;
       return this.libraryReadHold ? this.libraryReadHold.then(() => ({ library: listed })) : { library: listed };
     }
+    if (run.verb.startsWith("doctor")) return this.runDoctor(run as DoctorRun);
+    if (!("name" in run)) return { code: "customize.library", message: `unknown verb "${run.verb}"` };
     this.libraryRuns.push(run);
     if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
     const next = runLibrary(this.library, run);
@@ -1355,6 +1472,9 @@ export class MockSettingsProvider {
       case "setSharing":
         if (state.sharing) this.setDevices({ ...state, sharing: { ...state.sharing, on: run.on } });
         return result;
+      case "setAgentsMayShare":
+        if (state.sharing) this.setDevices({ ...state, sharing: { ...state.sharing, agentsMayShare: run.on } });
+        return result;
       case "saveRelay": {
         const draft = run.relay;
         if (draft.urls.length === 0) return { error: "Add at least one relay URL." };
@@ -1534,10 +1654,10 @@ export class MockSettingsProvider {
     loaded: true,
     applying: false,
     failed: false,
-    choice: "ask",
+    choice: "on",
     rows: [
-      { id: "claude", name: "Claude Code", state: "ready" },
-      { id: "codex", name: "Codex", state: "ready" },
+      { id: "claude", name: "Claude Code", state: "terminals" },
+      { id: "codex", name: "Codex", state: "terminals" },
     ],
     manual: [
       "claude mcp add --scope user cmux -- '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' mcp serve",
@@ -1599,6 +1719,13 @@ export class MockSettingsProvider {
       },
     ],
   };
+  /** Settings > Agents > Claude Code & Codex: each agent's settings as `agent-config settings get`
+   * answers them (mockAgentConfig.ts); `set` and `unset` change them in memory. */
+  agentConfig: Record<AgentConfigAgent, AgentConfigState> = mockAgentConfig();
+  /** Every Claude Code & Codex change and open the page sent (a get is not recorded). */
+  readonly agentConfigRuns: AgentConfigRun[] = [];
+  /** The host's lab is off: every call answers `{enabled: false}`. */
+  agentConfigDisabled = false;
   /** MCP Servers gestures the page sent (sign in, remove). */
   readonly mcpServerRuns: McpServersRun[] = [];
   /** Settings > Agents > Claude Code & Codex > Skills (`SettingsAgentSkills.state`); Labs off by default. */
@@ -1810,6 +1937,11 @@ export class MockSettingsProvider {
   /** Like the host's account gestures: a listed account only, and Add account for Codex and Claude (a
    * login folder under ~/.cmux/accounts, signed out until its sign-in runs, or an API key). */
   private runAccount(run: HarnessesRun): Record<string, never> {
+    // Like the host: GitHub's terminal sign-in is gh's own `gh auth login`, needing no account list.
+    if (run.action === "accountAdd" && run.family === "github" && run.way === "new") {
+      this.harnessRuns.push(run);
+      return {};
+    }
     const accounts = this.harnesses.accounts;
     if (!accounts) throw new ProtocolError("cmux.settings.invalid", "this daemon lists no accounts");
     if (run.action === "accountAdd") {
@@ -2074,8 +2206,9 @@ export class MockSettingsProvider {
   }
 
   /** What the app's AccountsModel does to the state (enough for the page's tests). */
-  private runAccounts(run: AccountsRun): { error?: string } {
+  private runAccounts(run: AccountsRun): AccountsRunReply | Promise<AccountsRunReply> {
     this.accountRuns.push(run);
+    if ((Object.values(ACCOUNT_ACTIONS) as string[]).includes(run.action)) return this.signIn.run(run);
     const rows = (edit: (row: AccountsRow) => AccountsRow) => ({
       ...this.accounts,
       groups: this.accounts.groups.map((group) => ({ ...group, rows: group.rows.map(edit) })),
@@ -2131,6 +2264,37 @@ export class MockSettingsProvider {
     }
     for (const ctx of this.accountsChanged) ctx.emit(this.accountsState());
     return error ? { error } : {};
+  }
+
+  /** The in-place sign-in (shared/signIn/mockSignIn.ts) as the daemon answers it, on
+   * `accounts.signInAccounts`; onboarding's mock runs the same one. */
+  readonly signIn = new MockAccountSignIn({
+    rows: () => this.accounts.signInAccounts ?? [],
+    set: (next) => {
+      this.accounts = { ...this.accounts, signInAccounts: next };
+      for (const ctx of this.accountsChanged) ctx.emit(this.accountsState());
+    },
+  });
+  /** A sign-in's finish waits for this when set (tests and the gallery hold the code on screen). */
+  get signInHold(): Promise<void> | null {
+    return this.signIn.hold;
+  }
+  set signInHold(hold: Promise<void> | null) {
+    this.signIn.hold = hold;
+  }
+  /** The next sign-in start is refused with this reason (`not_installed`, `shared_machine`, ...). */
+  get signInRefusal(): string | null {
+    return this.signIn.refusal;
+  }
+  set signInRefusal(reason: string | null) {
+    this.signIn.refusal = reason;
+  }
+  /** How long a started sign-in's code lasts (tests shorten it to see the expiry). */
+  get signInExpiresInMs(): number {
+    return this.signIn.expiresInMs;
+  }
+  set signInExpiresInMs(ms: number) {
+    this.signIn.expiresInMs = ms;
   }
 
   /** Replaces the host lists and sends `cmux.settings.host.changed`. */
@@ -2411,6 +2575,8 @@ export function mockDevicesState(): DevicesState {
       sharingSection: "Mac Screen on This Mac",
       sharingToggle: "Allow Mac Screen on this Mac",
       sharingDetail: "Your devices can see or control this Mac.",
+      agentsToggle: "My agents can turn screen sharing and control on my machines",
+      agentsDetail: "Your agents share without asking, with a notice each time.",
       openSettings: "Open System Settings",
       allowed: "Allowed",
       relaysSection: "Relays",
@@ -2502,6 +2668,7 @@ export function mockDevicesState(): DevicesState {
     sharing: {
       on: true,
       busy: false,
+      agentsMayShare: false,
       permissions: [
         {
           id: "screenRecording",
