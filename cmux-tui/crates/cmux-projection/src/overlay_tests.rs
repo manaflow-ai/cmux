@@ -744,3 +744,63 @@ fn a_fault_fetches_the_projects_beside_it_in_one_ask_and_never_again() {
     assert_eq!(fake.batches.lock().unwrap()[1].len(), 1);
     assert_eq!(overlay.stats().remote_reads, 5);
 }
+
+/// The bytes of the blobs in a projection's cache folder, on disk.
+fn cache_on_disk_bytes(state: &Path) -> u64 {
+    fs::read_dir(state.join("cache"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name() != CACHE_ID_FILE)
+        .map(|entry| entry.metadata().unwrap().len())
+        .sum()
+}
+
+/// RFD 0007: the lower byte cache is capped (512 MiB by default) and lets the least recently used
+/// blob go first; a read of an evicted file asks the Mac again and answers the same bytes.
+#[test]
+fn the_cache_stays_under_its_cap_least_recently_used_first() {
+    assert_eq!(DEFAULT_CACHE_MAX_BYTES, 512 * 1024 * 1024);
+    let (state, manifest, fake) = setup(false);
+    // Two 4 MiB chunks of big.bin and a little more.
+    let cap = 2 * 4 * 1024 * 1024 + 64;
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(cap);
+    let big = path_ino(&overlay, "big.bin");
+    let chunk = 4 * 1024 * 1024u64;
+    let bytes = big_bytes();
+    for at in [0, chunk, 2 * chunk] {
+        let read = overlay.read(big, at, 4096).unwrap();
+        assert_eq!(read, bytes[at as usize..at as usize + 4096]);
+        assert!(overlay.cache_bytes() <= cap, "cache at {} over cap {cap}", overlay.cache_bytes());
+        assert!(cache_on_disk_bytes(state.path()) <= cap, "cache on disk over its cap");
+    }
+    assert!(overlay.cache_evicted() > 0, "nothing was evicted past the cap");
+    // The first chunk was least recently used: it went, and reading it asks the Mac again.
+    let asked = overlay.stats().remote_reads;
+    assert_eq!(overlay.read(big, 0, 4096).unwrap(), bytes[..4096]);
+    assert!(overlay.stats().remote_reads > asked, "an evicted chunk was served without the Mac");
+    // The newest chunk stayed (it is read from the cache).
+    let asked = overlay.stats().remote_reads;
+    assert_eq!(overlay.read(big, 2 * chunk, 4096).unwrap(), bytes[2 * chunk as usize..][..4096]);
+    assert_eq!(overlay.stats().remote_reads, asked, "the most recent chunk was evicted");
+}
+
+/// A cache an earlier daemon left over the cap goes down to it when the overlay opens again.
+#[test]
+fn a_reopen_trims_a_cache_left_over_its_cap() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let big = path_ino(&overlay, "big.bin");
+    let chunk = 4 * 1024 * 1024u64;
+    for at in [0, chunk, 2 * chunk] {
+        overlay.read(big, at, 16).unwrap();
+    }
+    let before = cache_on_disk_bytes(state.path());
+    assert!(before > 2 * chunk, "the cache held {before} bytes");
+    drop(overlay);
+    let cap = chunk + 64;
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(cap);
+    assert!(overlay.cache_bytes() <= cap);
+    assert!(cache_on_disk_bytes(state.path()) <= cap, "a reopen kept the cache over its cap");
+    let bytes = big_bytes();
+    assert_eq!(overlay.read(big, chunk, 16).unwrap(), bytes[chunk as usize..][..16]);
+}

@@ -18,6 +18,7 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_core::pacer::{Pacer, StrictWireBudget};
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::profile::EncodeProfile;
+use cmux_rd_core::resolution::{LadderConfig, Picture};
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
 use cmux_rd_proto::{flags, DatagramHeader, DatagramKind, FrameTimes};
@@ -67,6 +68,12 @@ pub struct SessionCfg {
     /// After injected input, frames skip the frame-rate cap for a short window
     /// (`--input-frame-now 1`; the engine's `input_frame_now`).
     pub input_frame_now: bool,
+    /// The resolution ladder (design D5, `--resolution-ladder 1`; off by default): below the
+    /// bits-per-pixel floor the encoded picture gets smaller, not blurrier.
+    pub resolution_ladder: bool,
+    /// The ladder's QP ceiling (`--max-qp N`, default
+    /// `cmux_rd_core::resolution::DEFAULT_MAX_QP`); unused without the ladder.
+    pub max_qp: u8,
     /// macOS: stream at most this many pixels wide (`--max-width`; the display's aspect is
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -171,7 +178,10 @@ fn new_pacer(profile: EncodeProfile, wire_bps: u64) -> Pacer {
 /// (ScreenCaptureKit's display time, usually a few ms after `arrived_us`);
 /// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
 /// since the last frame; `release_us`, when the engine's gate released the frame's request;
-/// `capture_us`, the frame's `t_capture_us` (the capture ended; also on the viewer's frame);
+/// `capture_start_us`, when the encode thread began the capture (Linux: the XShm readback and
+/// I420 conversion run from here to `capture_us`; macOS: taking the newest ScreenCaptureKit
+/// frame); `capture_us`, the frame's `t_capture_us` (the capture ended; also on the viewer's
+/// frame);
 /// `encode_start_us`, when the encoder was handed the picture; `encoded_us`, when the encode
 /// ended; `first_sent_us` and `sent_us`, when the pacer handed its first and last datagram to the
 /// carrier (the times a `ledger` viewer gets in the frame's `FrameTimes`). Every injected
@@ -189,11 +199,14 @@ struct Timing {
 /// What [`Timing::frame`] logs besides the frame's [`FrameTimes`].
 struct FrameLog {
     shown: Option<(u64, u64)>,
+    capture_start_us: u64,
     capture_us: u64,
     release_us: u64,
     encoded_bytes: usize,
     /// Why the frame is an IDR, or `None` for a delta frame.
     idr_reason: Option<&'static str>,
+    /// With a resolution ladder: the picture this frame was encoded at.
+    picture: Option<Picture>,
 }
 
 impl Timing {
@@ -210,19 +223,28 @@ impl Timing {
 
     /// One frame's line, without the send times (added when its last datagram leaves).
     fn frame(&mut self, log: FrameLog, times: &FrameTimes) -> serde_json::Value {
-        serde_json::json!({
+        let mut line = serde_json::json!({
             "input_us": self.input_us.take(),
             "shown_us": log.shown.map(|t| t.0),
             "arrived_us": log.shown.map(|t| t.1),
             "damage_us": self.damage_us.take(),
             "release_us": log.release_us,
+            "capture_start_us": log.capture_start_us,
             "capture_us": log.capture_us,
             "encode_start_us": times.encode_start_us,
             "encoded_us": times.encoded_us,
             "encoded_bytes": log.encoded_bytes,
             "idr": log.idr_reason.is_some(),
             "idr_reason": log.idr_reason,
-        })
+        });
+        // With a resolution ladder: the picture this frame was encoded at.
+        if let (Some(p), Some(fields)) = (log.picture, line.as_object_mut()) {
+            fields.insert("width".into(), p.width.into());
+            fields.insert("height".into(), p.height.into());
+            fields.insert("eighths".into(), p.eighths.into());
+            fields.insert("max_qp".into(), p.max_qp.into());
+        }
+        line
     }
 
     /// Writes a frame's line once its last datagram was handed to the carrier.
@@ -260,9 +282,38 @@ fn viewer_silent_too_long(silent_us: u64) -> bool {
 
 /// Whether the session sends the cursor as metadata: the viewer draws it (cap `cursor`) and
 /// this OS's desktop can report it.
-fn wants_cursor(negotiated_caps: &[String]) -> bool {
+/// Whether this host offers cap `h264.baseline`: an H.264 encoder that can switch to
+/// Constrained Baseline for one session (every H.264 encoder here; VP9 and AV1 have no
+/// H.264 profile).
+pub fn offers_h264_baseline(codec: &str) -> bool {
+    !matches!(codec, "vp9" | "av1")
+}
+
+/// The session's settings with the viewer's caps applied: a viewer that negotiated
+/// `h264.baseline` (OpenH264, which shows a High-profile stream as wrong pictures with no
+/// error, cmux#50591) gets Constrained Baseline whatever `--profile` says.
+fn session_cfg<'a>(
+    cfg: &'a SessionCfg,
+    negotiated_caps: &[String],
+) -> std::borrow::Cow<'a, SessionCfg> {
+    let baseline = negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::H264_BASELINE);
+    if baseline && cfg.profile != "baseline" {
+        std::borrow::Cow::Owned(SessionCfg { profile: "baseline".into(), ..cfg.clone() })
+    } else {
+        std::borrow::Cow::Borrowed(cfg)
+    }
+}
+
+pub(crate) fn wants_cursor(negotiated_caps: &[String]) -> bool {
     crate::desktop::reports_cursor()
         && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
+}
+
+/// Whether the session runs the resolution ladder: the host asked for it and the viewer scales
+/// a smaller picture to the stream's size (cap `video.scaled`). A viewer without the cap maps
+/// input from the decoded picture's size, so a smaller picture would move its clicks.
+fn wants_ladder(asked: bool, negotiated_caps: &[String]) -> bool {
+    asked && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::VIDEO_SCALED)
 }
 
 fn now_us() -> u64 {
@@ -286,6 +337,36 @@ fn process_cpu_s() -> f64 {
     tv(ru.ru_utime) + tv(ru.ru_stime)
 }
 
+/// A desktop and its frame source (capture and encoder) opened ahead of the session: `cmux-rd
+/// serve` opens them while its answer crosses the hub and the link shakes hands, so the first
+/// frame is captured by the time the viewer starts. `cursor` is the cursor choice it opened for,
+/// asked at `open_us` and ready at `ready_us`.
+pub struct OpenedDesktop {
+    desktop: Box<dyn Desktop>,
+    frames: Box<dyn FrameSource>,
+    cursor: bool,
+    /// The H.264 profile it was opened for (a `h264.baseline` viewer needs Constrained Baseline).
+    profile: String,
+    open_us: u64,
+    ready_us: u64,
+}
+
+impl OpenedDesktop {
+    /// Opens this OS's desktop; `cursor`: the viewer draws the cursor (cap `cursor`).
+    pub fn open(cfg: &SessionCfg, cursor: bool) -> Res<Self> {
+        let open_us = now_us();
+        let (desktop, frames) = crate::desktop::open(cfg, cursor)?;
+        Ok(Self {
+            desktop,
+            frames,
+            cursor,
+            profile: cfg.profile.clone(),
+            open_us,
+            ready_us: now_us(),
+        })
+    }
+}
+
 impl MediaSession {
     pub fn open(
         cfg: &SessionCfg,
@@ -293,9 +374,37 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
-        let open_us = now_us();
-        let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
-        let ready_us = now_us();
+        let session = &*session_cfg(cfg, negotiated_caps);
+        Self::on_desktop(
+            OpenedDesktop::open(session, wants_cursor(negotiated_caps))?,
+            cfg,
+            max_datagram,
+            negotiated_caps,
+            sink,
+        )
+    }
+
+    /// A session on a desktop opened earlier (`cmux-rd serve` opens it during the handshake).
+    /// One opened for the other cursor choice or H.264 profile than the viewer negotiated is
+    /// closed and opened again. `cfg.start_kbps` still sets the first frame's bitrate: the
+    /// encoder takes the engine's target before every frame.
+    pub fn on_desktop(
+        opened: OpenedDesktop,
+        cfg: &SessionCfg,
+        max_datagram: usize,
+        negotiated_caps: &[String],
+        sink: Box<dyn UpstreamSink>,
+    ) -> Res<Self> {
+        let cfg = &*session_cfg(cfg, negotiated_caps);
+        let cursor = wants_cursor(negotiated_caps);
+        let opened = if opened.cursor == cursor && opened.profile == cfg.profile {
+            opened
+        } else {
+            // The capture closes before it opens again.
+            drop(opened);
+            OpenedDesktop::open(cfg, cursor)?
+        };
+        let OpenedDesktop { desktop, frames, open_us, ready_us, .. } = opened;
         let mut session =
             Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;
         if let Some(timing) = session.timing.as_mut() {
@@ -326,9 +435,14 @@ impl MediaSession {
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
                 input_frame_now: cfg.input_frame_now,
+                resolution_ladder: wants_ladder(cfg.resolution_ladder, negotiated_caps)
+                    .then(|| LadderConfig { max_qp: Some(cfg.max_qp), ..LadderConfig::default() }),
                 ..EngineConfig::default()
             },
             now_us(),
+        );
+        engine.set_fec_blocks(
+            negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::FEC_BLOCKS),
         );
         engine.set_profile(cfg.encode_profile);
         let pacer = pacing_enabled().then(|| new_pacer(cfg.encode_profile, engine.pacing_bps()));
@@ -643,10 +757,12 @@ impl MediaSession {
         };
         let logged = self.timing.is_some().then_some(FrameLog {
             shown: frame.picked_times,
+            capture_start_us: frame.capture_start_us,
             capture_us: frame.t_capture_us,
             release_us: frame.released_us,
             encoded_bytes: frame.access_unit.len(),
             idr_reason: idr,
+            picture: req.picture,
         });
         self.encoded_profile = frame.profile;
         self.encode_ms.push_back(frame.encode_ms);
@@ -956,7 +1072,7 @@ fn idr_reason(req: &EncodeRequest, cause: Option<&'static str>) -> &'static str 
 
 #[cfg(test)]
 mod tests {
-    use super::{idr_reason, viewer_silent_too_long};
+    use super::{idr_reason, viewer_silent_too_long, wants_ladder};
     use cmux_rd_core::flow::Rect;
     use cmux_rd_engine::{EncodeRequest, IdrReason};
 
@@ -964,6 +1080,15 @@ mod tests {
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
         assert!(!viewer_silent_too_long(90_000_000));
         assert!(viewer_silent_too_long(90_000_001));
+    }
+
+    #[test]
+    fn the_ladder_runs_only_for_a_viewer_that_scales_a_smaller_picture() {
+        let scaled = vec!["cursor".to_string(), "video.scaled".to_string()];
+        let old = vec!["cursor".to_string()];
+        assert!(wants_ladder(true, &scaled));
+        assert!(!wants_ladder(true, &old), "an old viewer's clicks would move");
+        assert!(!wants_ladder(false, &scaled), "off unless the host asks for it");
     }
 
     #[test]
@@ -975,6 +1100,7 @@ mod tests {
             force_idr: reason.is_some(),
             idr_reason: reason,
             target_kbps: 8_000,
+            picture: None,
             profile: Default::default(),
             refine: false,
         };
