@@ -47,7 +47,7 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         arguments: ["-cmux-mobile-demo", "kbd-chat"],
         field: { app in
             let text = app.textViews["chat.composer.field"]
-            return text.exists ? text : app.buttons["Reply to Claude"].firstMatch
+            return text.exists ? text : app.descendants(matching: .any).matching(identifier: "Reply to Claude").firstMatch
         },
         hideByTap: { $0.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap() }) }
 
