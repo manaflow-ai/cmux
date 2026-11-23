@@ -329,7 +329,7 @@ fn a_signed_off_refuses_the_next_circuit_with_consent_required() {
     let off = status(&authority, Some(ACCOUNT_ID));
     let refused = crate::cmux_tui_service::admit(Some("127.0.0.1:7781"), &off, 7781).unwrap_err();
     assert_eq!(refused.reason, crate::cli::cloud_join::CONSENT_REQUIRED);
-    match decide(&off, Some(ACCOUNT_ID)) {
+    match decide(&off, Some(ACCOUNT_ID), false) {
         Decision::Refuse { refusal, .. } => {
             assert_eq!(refusal.reason, crate::cli::cloud_join::CONSENT_REQUIRED)
         }
@@ -874,7 +874,7 @@ fn an_account_off_revokes_on_the_next_circuit() {
     let off = status(&authority, Some(ACCOUNT_ID));
     let refused = crate::cmux_tui_service::admit(Some("127.0.0.1:7781"), &off, 7781).unwrap_err();
     assert_eq!(refused.reason, crate::cli::cloud_join::CONSENT_REQUIRED);
-    assert!(matches!(decide(&off, Some(ACCOUNT_ID)), Decision::Refuse { .. }));
+    assert!(matches!(decide(&off, Some(ACCOUNT_ID), false), Decision::Refuse { .. }));
     assert_eq!(source(&off, "control"), "account");
 }
 
