@@ -36,6 +36,8 @@ if tool != 'swift' or sys.argv[1:] == ['--version']:
         sys.exit(8)
     print({'swift': 'Swift version 6.2', 'xcodebuild': 'Xcode 26.6', 'xcrun': '26.6'}[tool])
     sys.exit(0)
+if os.environ.get('FAKE_ARGV'):
+    pathlib.Path(os.environ['FAKE_ARGV']).write_text('\\n'.join(sys.argv[1:]))
 build = pathlib.Path('.build')
 build.mkdir(exist_ok=True)
 (build / 'build.db').write_text('built')
@@ -158,6 +160,39 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
         self.assertEqual(receipt["web_bundle_restore"], {"outcome": "success", "cache_hit": "true"})
         self.assertGreaterEqual(receipt["build_step_seconds"], 0)
         self.assertIn("not redundant compiler CPU", self.summary.read_text())
+
+    def test_a_cpu_budget_caps_the_build_at_its_cores(self):
+        """2026-11-23 19:43Z, cmuxs-mac-mini-6 (14 cores): two cmux-next generated-files jobs ran `swift build
+        --build-tests` with no --jobs beside steps capped at 3 to 6, and the host held 108 swift-frontends at a 1-minute
+        load of 261 (19 per core); the fleet's steps there yielded and its worker missed its heartbeats. The runner hook
+        grants each job its cores as CMUX_CI_CPU_BUDGET (glaeda JOB_SHARE_UNCOUNTED), and swift-test-debug-info.sh
+        already passes it as --jobs; this wrapper runs the three package build jobs (swift-test, daemon-test,
+        generated-files) and must pass it too. The receipt's command and build identity stay the command as written,
+        so a capped build measures as the same build."""
+        argv = Path(self.temporary.name) / "argv"
+        result, receipt = self.run_build("generated-files", FAKE_ARGV=str(argv), CMUX_CI_CPU_BUDGET="6")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(argv.read_text().split("\n"), ["build", "--build-tests", "--jobs", "6"])
+        self.assertEqual(receipt["command"], ["swift", "build", "--build-tests"])
+        self.assertEqual(receipt["cpu_budget"], 6)
+        capped_identity = receipt["build_inputs_sha256"]
+
+        environment = {"FAKE_ARGV": str(argv)}
+        saved = os.environ.pop("CMUX_CI_CPU_BUDGET", None)
+        self.addCleanup(lambda: saved is None or os.environ.__setitem__("CMUX_CI_CPU_BUDGET", saved))
+        result, receipt = self.run_build("generated-files", **environment)
+        self.assertEqual(argv.read_text().split("\n"), ["build", "--build-tests"])
+        self.assertIsNone(receipt["cpu_budget"])
+        self.assertEqual(receipt["build_inputs_sha256"], capped_identity)
+
+        for given in (["swift", "build", "--jobs", "2"], ["swift", "build", "-j", "2"], ["swift", "build", "--jobs=2"]):
+            with self.subTest(given=given):
+                self.run_build("generated-files", command=given, CMUX_CI_CPU_BUDGET="6", **environment)
+                self.assertEqual(argv.read_text().split("\n"), given[1:])
+        for budget in ("0", "six", ""):
+            with self.subTest(budget=budget):
+                self.run_build("generated-files", CMUX_CI_CPU_BUDGET=budget, **environment)
+                self.assertEqual(argv.read_text().split("\n"), ["build", "--build-tests"])
 
     def test_failed_command_still_emits_receipt_log_and_summary(self):
         result, receipt = self.run_build("daemon-test", FAKE_EXIT="7")
