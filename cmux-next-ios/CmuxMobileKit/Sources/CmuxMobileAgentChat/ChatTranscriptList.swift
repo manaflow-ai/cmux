@@ -816,6 +816,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             _ = surface.find?.currentBlock
             _ = store.hasEarlierHistory
             _ = DiffViewedStore.shared.isViewed(Self.viewedProbe)
+            _ = WrapUpDismissals.shared.keys
         } onChange: { [weak self, weak store, weak surface] in
             // Called before the change lands: rebuild once it has, later in this turn.
             // Weak: the store's and surface's registrars hold this until a change, and a
@@ -884,7 +885,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         let built = builder.build(turns: turns, pendingPermission: store.pendingPermission,
                                   askOpen: store.pendingPermission != nil || store.pendingQuestion != nil,
                                   permissionBarHidden: surface.permissionBarHidden,
-                                  earlierHistory: store.hasEarlierHistory, foldsWork: foldsWork)
+                                  earlierHistory: store.hasEarlierHistory, foldsWork: foldsWork,
+                                  dismissedWrapUps: WrapUpDismissals.shared.dismissedTurns(in: store.summary))
         var ids: [String] = []
         var seen: Set<String> = []
         var changed: [String] = []

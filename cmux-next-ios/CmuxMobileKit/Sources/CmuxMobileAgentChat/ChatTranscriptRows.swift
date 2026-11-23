@@ -89,6 +89,9 @@ struct ChatTurnContext: Equatable, Sendable {
     var senderTones: [String: Int] = [:]
     /// A finished turn folds its work under "Worked for" (`WorkedFold`).
     var foldsWork = true
+    /// The person dismissed this turn's wrap-up recap (`WrapUpDismissals`): a card with nothing
+    /// left to answer draws no row.
+    var wrapUpDismissed = false
 }
 
 /// A turn's rows, built once per change to the turn.
@@ -146,7 +149,7 @@ final class ChatTranscriptBuilder {
     func lastParsedLines(_ messageID: String) -> Int? { parses[messageID]?.lastParsedLines }
 
     func build(turns: [AgentTurn], pendingPermission: PermissionRecord?, askOpen: Bool, permissionBarHidden: Bool,
-               earlierHistory: Bool = false, foldsWork: Bool = true) -> [ChatTurnRows] {
+               earlierHistory: Bool = false, foldsWork: Bool = true, dismissedWrapUps: Set<String> = []) -> [ChatTurnRows] {
         var out: [ChatTurnRows] = []
         out.reserveCapacity(turns.count)
         var followsActions = false
@@ -158,7 +161,8 @@ final class ChatTranscriptBuilder {
                                           followsActions: followsActions, askOpen: isLast && askOpen,
                                           choicesFor: isLast ? choicesFor : nil,
                                           nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt),
-                                          senderTones: turnTones(turn), foldsWork: foldsWork)
+                                          senderTones: turnTones(turn), foldsWork: foldsWork,
+                                          wrapUpDismissed: dismissedWrapUps.contains(turn.id))
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -356,7 +360,9 @@ final class ChatTranscriptBuilder {
             WorkedFold.fold(&rows, work: workStart..<rows.count, keeping: replyRows, turnID: turnID,
                             status: turn.status, seconds: turn.duration)
         }
-        if let wrapUp {
+        // A recap with no question is the person's to dismiss (NextStepCard's ×); a dismissed one
+        // leaves no row, and its call's row stays dropped.
+        if let wrapUp, !(wrapUp.question.isEmpty && context.wrapUpDismissed) {
             let answer = wrapUp.question.isEmpty ? nil : context.nextPrompt.map { wrapUp.chosenAnswer($0) }
             add("n-\(turnID)", .nextStep(wrapUp, answer: answer, canAnswer: answer == nil && context.isLast))
         }

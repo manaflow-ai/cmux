@@ -166,11 +166,16 @@ struct ChatRowView: View {
                 if let turn { store.retryFailedTurn(turn) }
             }
         case .nextStep(let ask, let answer, let canAnswer):
-            NextStepCard(ask: ask, answer: answer, canAnswer: canAnswer) { option in
+            let summary = store.summary
+            let turnID = row.turnID
+            NextStepCard(ask: ask, answer: answer, canAnswer: canAnswer, send: { option in
                 // The answer goes as the next prompt (`session/prompt`), in the agent's own words,
                 // quoting the ask it answers as the Mac's card does.
                 store.send(prompt: ask.answerPrompt(option.label, asker: store.summary.agentName))
-            }
+            }, dismiss: ask.question.isEmpty ? {
+                // Kept on this phone by chat and turn; the transcript drops the row (#51353).
+                WrapUpDismissals.shared.dismiss(summary, turnID: turnID)
+            } : nil)
         case .whoElse(let id, let call):
             WhoElseCard(id: id, call: call, open: openWhoElse)
         case .worked(let fold):

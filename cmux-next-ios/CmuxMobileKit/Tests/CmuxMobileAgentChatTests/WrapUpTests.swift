@@ -13,7 +13,7 @@ import Testing
     }
 
     static func rows(answer: String, call: ACPToolCall, then next: String? = nil,
-                     ended status: AgentTurn.Status = .completed) -> [ChatTurnRows] {
+                     ended status: AgentTurn.Status = .completed, dismissed: Set<String> = []) -> [ChatTurnRows] {
         let store = AgentChatStore(source: PromptResendTests.Recorder())
         var events: [AgentSessionEvent] = [
             .userMessage(text: "refactor it", promptId: "p1", turnId: "t1", attachments: [], at: at),
@@ -27,7 +27,7 @@ import Testing
         }
         store.apply(.batch(events))
         return ChatTranscriptBuilder(diffs: ChatDiffCache()).build(turns: store.turns, pendingPermission: nil, askOpen: false,
-                                                                   permissionBarHidden: false)
+                                                                   permissionBarHidden: false, dismissedWrapUps: dismissed)
     }
 
     static func hasToolRow(_ rows: [ChatTurnRows]) -> Bool {
@@ -205,4 +205,39 @@ import Testing
         #expect(try #require(NewMacRowsTests.nextStep(rows)).0.recap == "Fixed it.")
         #expect(!Self.hasToolRow(rows))
     }
+
+    // MARK: Dismissing the recap (#51353)
+
+    /// A recap card with nothing to answer goes once the person dismisses it, and its call's row
+    /// stays dropped: the iPhone had no way to close it (#51353; the Mac's recap closes with ×).
+    @Test func aDismissedRecapDrawsNoRow() throws {
+        let call = Self.wrapUpCall(["recap": .string("Done.")])
+        #expect(NewMacRowsTests.nextStep(Self.rows(answer: "Fixed it.", call: call)) != nil)
+        let rows = Self.rows(answer: "Fixed it.", call: call, dismissed: ["t1"])
+        #expect(NewMacRowsTests.nextStep(rows) == nil)
+        #expect(!Self.hasToolRow(rows))
+        // Another turn's dismissal leaves this card.
+        #expect(NewMacRowsTests.nextStep(Self.rows(answer: "Fixed it.", call: call, dismissed: ["t9"])) != nil)
+    }
+
+    /// A card with a question waiting is answered, not dismissed: it stays.
+    @Test func aCardWithAQuestionStaysWhenDismissed() throws {
+        let call = Self.wrapUpCall(["recap": .string("Done."), "ask": .string("Merge it?")])
+        #expect(NewMacRowsTests.nextStep(Self.rows(answer: "Fixed it.", call: call, dismissed: ["t1"])) != nil)
+    }
+
+    /// The dismissal is kept on the phone by Mac, chat and turn, and read back on the next launch.
+    @Test func aDismissalIsKeptPerChat() throws {
+        let suite = "WrapUpTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let chat = AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m")
+        var other = chat
+        other.id = "s2"
+        WrapUpDismissals(defaults: defaults).dismiss(chat, turnID: "t1")
+        let reopened = WrapUpDismissals(defaults: defaults)
+        #expect(reopened.dismissedTurns(in: chat) == ["t1"])
+        #expect(reopened.dismissedTurns(in: other).isEmpty)
+    }
 }
+
