@@ -46,6 +46,10 @@ class Expressions(unittest.TestCase):
         self.assertEqual(self.bad("github.run_attempt == 1 && vars.CI_IOS_INTERNAL_RUNNER || 'x'"),
                          ["CI_IOS_INTERNAL_RUNNER"])
 
+    def test_a_bracketed_variable_read_is_checked_too(self) -> None:
+        # GitHub reads vars['X'] as well as vars.X; the check must not skip the bracket form.
+        self.assertEqual(self.bad("vars['CI_IOS_INTERNAL_RUNNER'] || 'macos-26'"), ["CI_IOS_INTERNAL_RUNNER"])
+
     def test_a_pool_value_passes(self) -> None:
         self.assertEqual(self.bad("vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'",
                                   LINUX_RUNNER="blacksmith-4vcpu-ubuntu-2404"), [])
