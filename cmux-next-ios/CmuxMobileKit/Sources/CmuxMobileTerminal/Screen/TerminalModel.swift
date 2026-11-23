@@ -56,9 +56,20 @@ public final class TerminalModel {
     var sticky = TerminalStickyModifiers()
 
     // Composer
+    /// The draft. Only the text field reads it while typing: a view body that read it was
+    /// built again on every key (the whole composer, its strip and its buttons: tens of size
+    /// questions per key in a long draft; Leo, 2026-11-23). Views read `composerHasText`.
     public var composerText = "" {
-        didSet { if composerText != oldValue { onDraftChange?() } }
+        didSet {
+            guard composerText != oldValue else { return }
+            let hasText = !composerText.isEmpty
+            if composerHasText != hasText { composerHasText = hasText }
+            composerEdited()
+            onDraftChange?()
+        }
     }
+    /// Whether the draft has any text: changes on the first key and on clearing, not per key.
+    public private(set) var composerHasText = false
     /// Told when the draft to keep changes (``draftToKeep``): the shell writes it to disk.
     @ObservationIgnored public var onDraftChange: (@MainActor () -> Void)?
     /// Voice mode on this terminal's agent (set by the shell); the composer's
