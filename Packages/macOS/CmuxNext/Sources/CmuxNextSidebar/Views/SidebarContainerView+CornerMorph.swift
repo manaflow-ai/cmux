@@ -5,6 +5,18 @@ public import CmuxNextDesign
 // the main pane's card. The sidebar draws nothing new; it only says where its titlebar row and its selected
 // row are, and calls the window back when they move.
 public extension SidebarContainerView {
+    /// The window's chrome shade (`CornerFlushChrome.apply`), then Debug `sidebar.cornerMorph`: where the flush corner does not
+    /// draw (it joins the sidebar to the tabs itself), the card's sidebar edge and the sidebar's selected row become one
+    /// shape (Leo 2026-11-05: "we need to have some sort of way to morph them together").
+    func applyCornerMorph(over flush: CornerFlushChrome, content: NSView, radius: CGFloat, isDark: Bool, page: Bool,
+                          shade: MainPaneChromeShadeView, in root: NSView, leading: Bool, reshape: @escaping @MainActor () -> Void) {
+        flush.apply(content: content, radius: radius, isDark: isDark, page: page, shade: shade, in: root)
+        guard !CornerFlush.current.isOn || page else { return }
+        let (alpha, morph) = cornerMorphShade(Metrics.mainPaneChromeShade(isDark: isDark), isDark: isDark, in: shade,
+                                              enabled: radius > 0 && !Metrics.floatingPanes, reshape: reshape)
+        shade.update(card: content.frame, radius: radius, alpha: alpha, morph: morph, leading: leading)
+    }
+
     /// The shade and morph for the window's chrome shade now: `alpha` as given and nil while the variant is off,
     /// at the compact sidebar density (Lawrence's; it keeps the plain card), in the rail style, while the sidebar
     /// is hidden, or when `enabled` is false (a page presented, floating panes). Works on the curved card and on

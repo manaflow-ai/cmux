@@ -2768,3 +2768,6 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+  2026-11-23: cmux#36480 rebased on the flush corner: `sidebar.cornerMorph` (default off) draws only where `appearance.cornerFlush`
+  does not (off, pages); the flush default already runs the selected tab into the card. The window call lives in the sidebar
+  package (`applyCornerMorph`). Sidebar-Look: no visual change

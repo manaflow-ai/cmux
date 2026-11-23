@@ -173,7 +173,6 @@ public final class SidebarContainerView: NSView {
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
     public static var hideThreshold: CGFloat { Metrics.sidebarMinWidth / 2 }
 
-
     public init(model: SidebarModel) {
         self.model = model
         sidebarView = SidebarView(model: model)

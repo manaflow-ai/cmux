@@ -82,10 +82,6 @@ public final class MainPaneChromeShadeView: NSView {
     /// whose toolbar meets their tabs), or none. It draws a hairline there in `Palette.separator` at
     /// ``Metrics/tabRowDividerStrength`` (nothing at the full title area contrast), less the folder tabs, so the line
     /// runs under the unselected tabs only.
-    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, squareTopCorners: Bool = false, folders: [CGPath] = [],
-                       dividers: [CGRect] = []) {
-        guard card != self.card || radius != self.radius || alpha != self.alpha || squareTopCorners != self.squareTopCorners
-            || folders != self.folders || dividers != self.dividers || shade.frame != bounds || Metrics.floatingPanes else { return }
     /// `morph` (Debug `sidebar.cornerMorph`) joins its rects to the card as one unshaded surface;
     /// `leading` says the sidebar is on the card's leading side.
     public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, squareTopCorners: Bool = false, folders: [CGPath] = [],
