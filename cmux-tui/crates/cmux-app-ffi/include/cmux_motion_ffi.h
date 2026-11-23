@@ -17,6 +17,83 @@
 #include <stddef.h>
 #include <stdint.h>
 
+
+#define CMUX_GOO_OUTLINE_POINTS 24      /* cubic segments per outline */
+#define CMUX_GOO_KEYFRAMES_MAX 120
+
+typedef enum { CmuxGooLevelOff = 0, CmuxGooLevelSubtle = 1, CmuxGooLevelFull = 2 } CmuxGooLevel;
+typedef enum { CmuxGooEventSelect = 0, CmuxGooEventOpen = 1, CmuxGooEventClose = 2, CmuxGooEventCloseLast = 3,
+               CmuxGooEventReorder = 4, CmuxGooEventSnap = 5, CmuxGooEventAbsorb = 6 } CmuxGooEvent;
+
+/*
+ A goo spring: response (s) and damping fraction (1 is critical; under 1 overshoots).
+ */
+typedef struct {
+    double response;
+    double damping_fraction;
+} CmuxGooSpring;
+
+/*
+ A level's goo: the events' springs, the wobble's, and the goo amounts
+ (`GooTuning::for_level`).
+ */
+typedef struct {
+    CmuxGooSpring select;
+    CmuxGooSpring open;
+    CmuxGooSpring close;
+    CmuxGooSpring reorder;
+    CmuxGooSpring snap;
+    CmuxGooSpring absorb;
+    CmuxGooSpring wobble;
+    double stretch;
+    double lean;
+    double feet_scale;
+    double k;
+    double break_distance;
+    double capture_distance;
+    double wobble_amplitude;
+} CmuxGooTuning;
+
+/*
+ One edge or scalar in flight: closed-form spring from (x0, v0) toward target, started at `start` (media time).
+ */
+typedef struct {
+    double x0;
+    double v0;
+    double target;
+    double start;
+    CmuxGooSpring spring;
+} CmuxGooTrack;
+
+/*
+ The blob's geometry in the strip's layer coordinates (flipped: baseline is the card's top, y grows down).
+ */
+typedef struct {
+    double left;
+    double right;
+    double top;
+    double baseline;
+    double corner_radius;
+    double feet_radius;
+    bool skips_leading;
+} CmuxGooBlob;
+
+/*
+ A point of an outline.
+ */
+typedef struct {
+    double x;
+    double y;
+} CmuxGooPoint;
+
+/*
+ 1 + 3*N points (N = CMUX_GOO_OUTLINE_POINTS, 24): a closed path of N cubics (move-to p0, then (c1, c2, p) per
+ segment).
+ */
+typedef struct {
+    CmuxGooPoint p[73];
+} CmuxGooOutline;
+
 /*
  Every hover timing token, nanoseconds.
  */
@@ -273,6 +350,103 @@ typedef struct {
     bool hint_armed;
     bool hint_shown;
 } CmuxTerminalSelection;
+
+/*
+ The level's tuning (`GooTuning::for_level`); an unknown level is off.
+ */
+CmuxGooTuning cmux_goo_tuning_for_level(CmuxGooLevel level);
+
+/*
+ x and velocity of `track` at `t` (media time). Nothing for a null `track`; a null `x` or `v` is skipped.
+
+ # Safety
+ `track` is null or readable; `x` and `v` are each null or writable.
+ */
+void cmux_goo_track_state(const CmuxGooTrack *track, double t, double *x, double *v);
+
+/*
+ The track restarted at `t` from its state there toward `target`, velocity kept (interruption). A null `track`
+ gives a track at rest on `target`.
+
+ # Safety
+ `track` is null or readable.
+ */
+CmuxGooTrack cmux_goo_track_retarget(const CmuxGooTrack *track, double t, double target, CmuxGooSpring spring);
+
+/*
+ Seconds from start until |x-target| and |v| fall under epsilon. 0 for a null `track`.
+
+ # Safety
+ `track` is null or readable.
+ */
+double cmux_goo_track_rest_time(const CmuxGooTrack *track, double epsilon);
+
+/*
+ The blob's outline at rest (equals TabCell.folderPath's shape to < 0.5 px). Nothing for a null pointer.
+
+ # Safety
+ `blob` is null or readable; `out` is null or writable.
+ */
+void cmux_goo_blob_outline(const CmuxGooBlob *blob, CmuxGooOutline *out);
+
+/*
+ An event's keyframes: the blob's edges from `left`/`right` tracks (plus lean and wobble from `tuning`), sampled
+ at `hz` from max(left.start, right.start); writes at most `capacity` (and at most CMUX_GOO_KEYFRAMES_MAX)
+ outlines and their key times (0...1), and returns the count and the duration in seconds (`duration` may be
+ null). reduce_motion: 1 keyframe (the end) and duration 0. The last keyframe is exactly `rest_to` at rest.
+ 0 for a null blob, track, `outlines` or `key_times`; a null `tuning` is full's.
+
+ # Safety
+ The blob and track pointers are null or readable; `tuning` is null or readable; `outlines` and `key_times`
+ are null or point to `capacity` writable elements each; `duration` is null or writable.
+ */
+size_t cmux_goo_plan(CmuxGooEvent event,
+                     const CmuxGooBlob *rest_from,
+                     const CmuxGooBlob *rest_to,
+                     const CmuxGooTrack *left,
+                     const CmuxGooTrack *right,
+                     const CmuxGooTuning *tuning,
+                     double hz,
+                     bool reduce_motion,
+                     CmuxGooOutline *outlines,
+                     double *key_times,
+                     size_t capacity,
+                     double *duration);
+
+/*
+ The drag neck: `slot` is the dragged tab's blob in the strip, `tab_*` the lifted tab's rect (same coordinates).
+ attached = whether the neck holds; outline = the slot's blob merged with the neck (or the slot alone, detached).
+ `was_attached` gives the hysteresis (break_distance out, capture_distance back). Nothing for a null `slot` or
+ `out`; a null `tuning` is full's; `attached` may be null.
+
+ # Safety
+ `slot` and `tuning` are null or readable; `out` and `attached` are null or writable.
+ */
+void cmux_goo_drag_neck(const CmuxGooBlob *slot,
+                        double tab_x,
+                        double tab_y,
+                        double tab_w,
+                        double tab_h,
+                        bool was_attached,
+                        const CmuxGooTuning *tuning,
+                        CmuxGooOutline *out,
+                        bool *attached);
+
+/*
+ A neighbour's smooth union with the blob (full only): the blob merged with a rounded rect within k. Nothing
+ for a null `blob` or `out`; a null `tuning` is full's.
+
+ # Safety
+ `blob` and `tuning` are null or readable; `out` is null or writable.
+ */
+void cmux_goo_neck(const CmuxGooBlob *blob,
+                   double x,
+                   double y,
+                   double w,
+                   double h,
+                   double radius,
+                   const CmuxGooTuning *tuning,
+                   CmuxGooOutline *out);
 
 /*
  Writes every hover timing token (nanoseconds) to `out`. False for a null `out`.

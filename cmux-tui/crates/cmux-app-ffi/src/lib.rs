@@ -9,6 +9,8 @@
 //! functions are the archive's exported symbols, over one Rust runtime.
 //! Add a new in-tree C ABI here, never as another static library.
 //! `motion` is cmux-motion's C ABI (the spring step and motion tokens);
+//! `goo` is its gooey tabs' C ABI (the blob outline, event plans and the
+//! drag neck; plans/cmux-next/gooey-tabs.md).
 //! `hover` is its hover rules' C ABI (the hover card machine, tooltip hover
 //! intent, the safe triangle and the row card's placement).
 //! `terminal_selection` is its terminal selection rule's C ABI (Option-drag
@@ -43,6 +45,7 @@
 
 /// cbindgen:ignore
 pub mod files_lister;
+pub mod goo;
 pub mod hover;
 pub mod motion;
 /// cbindgen:ignore
