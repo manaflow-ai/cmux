@@ -7,7 +7,8 @@ public import Foundation
 /// the signed app, which Chromium reads first (`CefSettings.locales_dir_path`, cmux_shim_set_locales_dir)
 /// the next time it starts. The copy is the only place Chromium looks, so the daemon's cache folders
 /// (named by hash) can change without the browser losing its language.
-public enum ChromiumLocalePaks {
+public struct ChromiumLocalePaks {
+    public init() {}
     /// The folder of `<catalog>.lproj/locale.pak` files for the app `bundleID`, in Application Support
     /// (beside, not inside, the daemon's `LanguagePacks` cache, which it may prune).
     public static func directory(bundleID: String) -> URL {
