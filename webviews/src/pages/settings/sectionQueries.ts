@@ -155,11 +155,10 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
-  if (cards.has("customizeLibrary")) {
+  if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
     reads.push({ options: libraryQuery(store), revalidate: true });
-    // Customization Problems draws above the library, in its slot.
-    reads.push({ options: doctorQuery(store), revalidate: true });
-  }
+  // Customization Problems draws above the library, in its slot.
+  if (cards.has("customizeLibrary")) reads.push({ options: doctorQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
   if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {

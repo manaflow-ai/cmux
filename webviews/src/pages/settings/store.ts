@@ -8,6 +8,7 @@
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import { userMessage } from "../shared/userMessage";
+import { ACCOUNT_ACTIONS } from "../shared/signIn/accountSignIn";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
@@ -98,6 +99,9 @@ import {
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -734,6 +738,15 @@ export class SettingsStore {
     return reply.value.error ?? null;
   }
 
+  /** One in-place sign-in gesture (shared/signIn ACCOUNT_ACTIONS) with the host's whole answer, so
+   * the card reads the login it started. Nothing of the answer is kept here: the one-time code stays
+   * in the card. The list refreshes after a gesture that changes it (a finish, use or remove). */
+  async runAccountSignIn(run: AccountsRun): Promise<Reply<AccountsRunReply>> {
+    const reply = await this.request("cmux.settings.accounts.run", run);
+    if (run.action !== ACCOUNT_ACTIONS.start) await this.refreshAccounts();
+    return reply;
+  }
+
   /** The host's calls for Agents > Chiefs (`cmux.chief.profile.*`, `cmux.chief.backend.*`): the
    * Chief editor reaches the Chief owner through the host's page relay, as Home does. */
   readonly chiefCalls = {
@@ -939,6 +952,21 @@ export class SettingsStore {
     if (verb !== "status") await this.request("cmux.settings.customize.run", { verb });
     const reply = await this.request("cmux.settings.customize.run", { verb: "status" });
     return reply.ok ? (reply.value?.try_on ?? null) : null;
+  }
+
+  /** Settings > Team > Compute: the team's Cloud allotment and the scheduler's proposal; null when
+   * the host has no Compute part or the read failed. */
+  async allotment(): Promise<AllotmentView | null> {
+    const reply = await this.request("cmux.settings.cloud.allotment.get", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Team > Compute, an admin's one click: the view after it, or the host's refusal text. */
+  async setAllotment(run: AllotmentSet): Promise<{ view: AllotmentView | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.cloud.allotment.set", run);
+    return reply.ok
+      ? { view: reply.value, error: null }
+      : { view: null, error: userMessage(reply.error, SETTINGS_SENTENCES) };
   }
 
   /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has

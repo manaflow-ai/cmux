@@ -5,7 +5,7 @@
 import React from "react";
 import { useSourceIcon } from "./composer/sourceBadgeModel";
 import { MicIcon, StopIcon } from "./ComposerPickers";
-import { useComposerLook } from "./composerLook";
+import { lookRowInBox, useComposerLook } from "./composerLook";
 import { useComposerSettings } from "./composerSettings";
 import { isActive, type Dictation } from "./dictation";
 import { dictationSourceName, isAppSource, refreshDictationApps, useDictationApps } from "./dictationSources";
@@ -47,7 +47,7 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
       onContextMenu={refreshDictationApps}
       onClick={dictation.toggle}
     >
-      {look === "codex" && isActive(state) ? (
+      {lookRowInBox(look) && isActive(state) ? (
         <StopIcon />
       ) : icon && !isActive(state) ? (
         <img className="acpmux-mic-app-icon" src={icon} alt="" width={16} height={16} draggable={false} />
