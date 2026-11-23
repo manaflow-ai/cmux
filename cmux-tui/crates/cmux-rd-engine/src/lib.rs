@@ -475,6 +475,13 @@ impl MediaEngine {
         }
     }
 
+    /// The viewer offered cap `fec.blocks`: frames over one FEC block keep their parity,
+    /// split across interleaved blocks (design D6). Off by default, since a viewer without
+    /// it refuses those headers.
+    pub fn set_fec_blocks(&mut self, on: bool) {
+        self.packetizer.set_fec_blocks(on);
+    }
+
     /// The encoder profile requests carry from now on. Leaving ultra drops any refinement
     /// that was due.
     pub fn set_profile(&mut self, profile: EncodeProfile) {
@@ -814,10 +821,16 @@ impl MediaEngine {
         let data_shards =
             (body.access_unit.len() + FRAME_PREFIX_LEN).div_ceil(self.packetizer.shard_len());
         // Tile frames are standalone, so they get keyframe-grade protection.
-        let parity = parity_for(data_shards, loss, enc.idr || tile);
-        // A one-datagram frame (a key press's) whose only copy is lost waits for
-        // the tail probe; on a nearly idle link a second copy is cheaper.
-        let parity = if data_shards == 1 && idle_link { parity.max(1) } else { parity };
+        // While the link is away (the controller is frozen through an outage), parity
+        // only adds bytes to the burst that waits for the link to come back.
+        let parity = if self.cc.frozen() {
+            0
+        } else {
+            let parity = parity_for(data_shards, loss, enc.idr || tile);
+            // A one-datagram frame (a key press's) whose only copy is lost waits for
+            // the tail probe; on a nearly idle link a second copy is cheaper.
+            if data_shards == 1 && idle_link { parity.max(1) } else { parity }
+        };
         let flags = if tile {
             flags::TILE
         } else if enc.idr {
