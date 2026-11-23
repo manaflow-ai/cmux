@@ -1011,6 +1011,13 @@ export function spareRecordReady(m: any): boolean {
   return m?.status === "running" && Boolean(m?.host);
 }
 
+/** Whether a machine's guest runs a command for this caller now (the machine exec route, MachineGuest.ts). */
+export async function spareAnswersExec(api: Pick<Api, "raw">, machine: string): Promise<boolean> {
+  const r = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command: "true", timeoutMs: 5_000 }, 15_000);
+  const v: any = r.body?.value ?? r.body;
+  return r.status >= 200 && r.status < 300 && v?.ok !== false && Number(v?.exitCode ?? v?.exit_code ?? 1) === 0;
+}
+
 /**
  * Wait for a named spare to be ready: its cloud.spare.ready frame, or its own record showing it running, whichever is
  * first. The frame is told once, to the creator's sockets live when the spare turned ready (SpareReady.ts), and only
@@ -1018,9 +1025,10 @@ export function spareRecordReady(m: any): boolean {
  * prod-parity-allowlist). The warm names a spare that is often ready already, so in production the journey's socket,
  * opened after the warm, never heard of it and timed out at 120 s (11-22 00:55Z) on a spare it could have used.
  */
-export async function waitForSpareReady(api: Api, machine: string, budgetMs = 120_000, deps: { frame?: typeof waitForCloudSpareReady; read?: (machine: string) => Promise<any>; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<{ frame: WireEvent | null; row: any; by: "frame" | "record" }> {
+export async function waitForSpareReady(api: Api, machine: string, budgetMs = 120_000, deps: { frame?: typeof waitForCloudSpareReady; read?: (machine: string) => Promise<any>; answers?: (machine: string) => Promise<boolean>; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<{ frame: WireEvent | null; row: any; by: "frame" | "record" | "exec" }> {
   const frameWait = deps.frame ?? waitForCloudSpareReady;
   const read = deps.read ?? ((id: string) => api.read("cloud.machine.get", { machine: id }));
+  const answers = deps.answers ?? ((id: string) => spareAnswersExec(api, id));
   const pollMs = deps.pollMs ?? 2_000;
   const pause = deps.sleep ?? sleep;
   const stop = new AbortController();
@@ -1037,6 +1045,12 @@ export async function waitForSpareReady(api: Api, machine: string, budgetMs = 12
       } catch (error) {
         if (String((error as Error).message).startsWith(`spare ${machine} failed`)) throw error;
         lastError = String((error as Error).message);
+        // A person's read never names an unclaimed spare (CloudCore's cloud.machine.get answers not_found for a row
+        // still under its reservation, to anyone but the reservation's own principal), so in production this poll
+        // could never see one (11-23 05:24Z-07:24Z: three 120 s waits on a spare bound 20-80 min before). The exec
+        // route does answer the spare's own creator (CloudDO.ownerExec), the same route the login copy then uses:
+        // a guest that runs `true` is up.
+        if (/not[ _.-]?found/i.test(lastError) && await answers(machine).catch(() => false)) return { frame: null, row: { status: "running", ready_by: "exec" }, by: "exec" as const };
       }
       await pause(pollMs);
     }
@@ -1718,7 +1732,8 @@ export async function prepareSpareLogin(a: {
     leaseId ??= opaquePreclaimLeaseId(ready.lease_id ?? ready.leaseId ?? ready.reservation_id ?? ready.reservationId);
     if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
     const exec = directExec(a.api, spare, a.journey);
-    spareRow = await waitMachine(a.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+    // The ready wait's own answer when it has one; a frame names no row, so read it (exec-checked, as the wait is).
+    spareRow = ready0.row ?? (await waitForSpareReady(a.api, spare, 300_000, { frame: () => new Promise<never>(() => {}) })).row;
     await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope);
     const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
     if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
@@ -3360,6 +3375,28 @@ export async function listAllMachines(read: (params: Record<string, unknown>) =>
   throw new Error(`more than ${maxPages} pages of machines`);
 }
 
+/**
+ * The "listed" step's verdict: `id`'s row in every page of cloud.machine.list (`next_cursor`). A list that ends
+ * without the machine and without a cursor (a page cap: the shared agent account holds more machines than one page,
+ * run 45174448964 read 49 of 52) is confirmed by cloud.machine.get, and the detail names the cap; a machine neither
+ * read finds fails.
+ */
+export async function listedMachine(
+  id: string,
+  list: (params: Record<string, unknown>) => Promise<any>,
+  get: (id: string) => Promise<any>,
+  maxPages = 20,
+): Promise<{ row: any; detail: string }> {
+  const rows = await listAllMachines(list, maxPages);
+  const row = rows.find((r) => r?.id === id);
+  if (row) return { row, detail: `${rows.length} machines` };
+  const got = await get(id).catch((e: Error) => { throw new Error(`${id} missing from ${rows.length} machines, and cloud.machine.get: ${e.message}`); });
+  if (!got || (got.id !== undefined && got.id !== id) || got.status === "deleted") {
+    throw new Error(`${id} missing from ${rows.length} machines, and cloud.machine.get reads ${got?.status ?? "nothing"}`);
+  }
+  return { row: got, detail: `${rows.length} machines listed, no next_cursor (a page cap); cloud.machine.get reads it ${got.status ?? "?"}` };
+}
+
 /** The ids in `after` that `before` lacks. */
 export function newMachineIds(before: string[], after: string[]): string[] {
   const seen = new Set(before);
@@ -4241,8 +4278,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (deleted) return;
     let id = machine;
     if (!id) {
-      const v = await api.read("cloud.machine.list", {}).catch(() => null);
-      const rows: any[] = v?.machines ?? v?.items ?? (Array.isArray(v) ? v : []);
+      // Every page: the machine may sit past the first (a shared account's list).
+      const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
       id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
     }
     if (!id) return;
@@ -4536,13 +4573,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (journeyOnlyStarted) return;
       journeyOnlyStarted = true;
       await J.step("listed", async () => {
-        const v = await api.read("cloud.machine.list", {});
-        const rows: any[] = v.machines ?? v.items ?? (Array.isArray(v) ? v : []);
-        const row = rows.find((r) => r.id === created.id);
-        if (!row) throw new Error(`${created.id} missing from ${rows.length} machines`);
+        const { row, detail } = await listedMachine(
+          created.id,
+          (params) => api.read("cloud.machine.list", params, 30_000),
+          (id) => api.read("cloud.machine.get", { machine: id }, 30_000),
+        );
         // The size the platform recorded: the one the VM read back at create, not the one asked for.
         const size = row.size ? ` size=${row.size.cpu ?? "?"}/${row.size.memory_mb ?? "?"}/${row.size.disk_mb ?? "?"}` : "";
-        return { value: null, detail: `${rows.length} machines${size}` };
+        return { value: null, detail: `${detail}${size}` };
       });
       // A new machine made at the default size is recorded at it: 2 vCPU / 4096 MB / 20480 MB, the size the platform
       // keeps spares at. Read after the create answered and the machine ran (event order); the read has its own deadline.

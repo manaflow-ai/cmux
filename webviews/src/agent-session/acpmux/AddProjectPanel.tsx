@@ -1,3 +1,4 @@
+import { keycapLegend } from "../../ui/keycapLegend";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
@@ -276,7 +277,7 @@ export function AddProjectPanel({
                 disabled={!directory || loading || !!error}
                 onClick={add}
               >
-                {t("project.addFolder")} <kbd>⌘↵</kbd>
+                {t("project.addFolder")} <kbd>{keycapLegend("⌘↩")}</kbd>
               </button>
             </>
           )}
@@ -286,7 +287,7 @@ export function AddProjectPanel({
             <kbd>↑↓</kbd> {t("project.navigate")}
           </span>
           <span>
-            <kbd>↵</kbd> {t("project.select")}
+            <kbd>{keycapLegend("↩")}</kbd> {t("project.select")}
           </span>
           <span>
             <kbd>⌥←</kbd> {t("project.back")}
