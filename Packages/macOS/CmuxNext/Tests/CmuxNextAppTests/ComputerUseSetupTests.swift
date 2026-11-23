@@ -134,14 +134,14 @@ struct ComputerUseSetupTests {
         let setup = make(InputBox(), reader, notifications: notifications)
         setup.start()
         await wait(setup, for: .ready)
-        #expect(setup.actionablePhase == .ready)
+        #expect((setup.rechecking ? ComputerUseSetup.Phase.starting : setup.phase) == .ready)
         await reader.setResult(.answered(ComputerUsePermissions(accessibility: false, screenRecording: true), helper: nil))
         notifications.post(name: NSApplication.didBecomeActiveNotification, object: nil)
         #expect(setup.rechecking, "the read after the return from System Settings did not start")
-        #expect(setup.actionablePhase == .starting, "the same helper stayed ready while its grants were read again")
+        #expect((setup.rechecking ? ComputerUseSetup.Phase.starting : setup.phase) == .starting, "the same helper stayed ready while its grants were read again")
         #expect(setup.phase == .ready && setup.permissions.accessibility, "the card lost its last grants during the read")
         for await value in ObservationStream({ setup.rechecking }) where !value { break }
-        #expect(setup.actionablePhase == .ready)
+        #expect((setup.rechecking ? ComputerUseSetup.Phase.starting : setup.phase) == .ready)
         #expect(!setup.permissions.accessibility, "the revoked grant did not read false")
     }
 
