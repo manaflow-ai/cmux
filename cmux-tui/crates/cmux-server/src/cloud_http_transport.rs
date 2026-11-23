@@ -31,6 +31,23 @@ pub(crate) struct Sign<'a> {
     pub headers: &'a [(&'a str, &'a str)],
 }
 
+/// What a request carries and the most its answer may: a JSON request takes at most
+/// [`Shape::JSON_LIMIT`] back; a raw one says its own.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Shape<'a> {
+    pub payload: Option<super::Payload<'a>>,
+    pub limit: usize,
+}
+
+impl<'a> Shape<'a> {
+    /// The most bytes a JSON request's answer may have.
+    pub(crate) const JSON_LIMIT: usize = 1024 * 1024;
+
+    pub(crate) fn json(body: Option<&'a Value>) -> Shape<'a> {
+        Shape { payload: body.map(super::Payload::Json), limit: Shape::JSON_LIMIT }
+    }
+}
+
 impl Transport {
     pub(super) fn new(allow_http: bool, epoch: u64) -> Result<Self, String> {
         let client = reqwest::Client::builder()
@@ -57,7 +74,7 @@ impl Transport {
         &self,
         method: reqwest::Method,
         url: &str,
-        body: Option<&Value>,
+        body: Shape<'_>,
         sign: Sign<'_>,
         deadline: &RequestDeadline,
         network: &mut watch::Receiver<u64>,
@@ -85,7 +102,7 @@ impl Transport {
         &self,
         method: reqwest::Method,
         url: &str,
-        body: Option<&Value>,
+        body: Shape<'_>,
         bearer: Option<&str>,
         headers: &[(&str, &str)],
         deadline: &RequestDeadline,
@@ -104,7 +121,7 @@ impl Transport {
         &self,
         method: reqwest::Method,
         url: &str,
-        body: Option<&Value>,
+        body: Shape<'_>,
         bearer: Option<&str>,
         headers: &[(&str, &str)],
         remaining: Duration,
@@ -113,9 +130,13 @@ impl Transport {
         for (name, value) in headers {
             request = request.header(*name, *value);
         }
-        if let Some(body) = body {
-            request = request.json(body);
-        }
+        request = match body.payload {
+            Some(super::Payload::Json(body)) => request.json(body),
+            Some(super::Payload::Bytes(bytes)) => request
+                .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                .body(bytes.to_vec()),
+            None => request,
+        };
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
@@ -134,15 +155,15 @@ impl Transport {
             .and_then(|value| value.to_str().ok())
             .filter(|value| value.len() <= 64)
             .map(str::to_owned);
-        const LIMIT: usize = 1024 * 1024;
-        if response.content_length().is_some_and(|n| n > LIMIT as u64) {
+        let limit = body.limit;
+        if response.content_length().is_some_and(|n| n > limit as u64) {
             return Err(Failure::Other("Cloud response too large"));
         }
         let mut bytes = Vec::new();
         while let Some(chunk) =
             response.chunk().await.map_err(|_| Failure::Other("Cloud response failed"))?
         {
-            if chunk.len() > LIMIT - bytes.len() {
+            if chunk.len() > limit.saturating_sub(bytes.len()) {
                 return Err(Failure::Other("Cloud response too large"));
             }
             bytes.extend_from_slice(&chunk);

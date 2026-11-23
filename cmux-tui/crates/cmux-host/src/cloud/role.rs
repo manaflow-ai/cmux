@@ -203,105 +203,9 @@ impl Store for FileStore {
     }
 }
 
-/// [`Http`] over cmux-server's HTTPS poster.
-pub struct PosterHttp(pub JsonPoster);
-
-impl PosterHttp {
-    /// Runs `send` on this poster and `url`. Tests: while [`TEST_ORIGIN`] is
-    /// set, every request goes to its path at that plain-HTTP origin instead,
-    /// on a poster of the calling thread (the before/after harness).
-    fn via<T>(&self, url: &str, send: impl FnOnce(&JsonPoster, &str) -> T) -> T {
-        #[cfg(test)]
-        let send = match test_route(url, send) {
-            Ok(answer) => return answer,
-            Err(send) => send,
-        };
-        send(&self.0, url)
-    }
-}
-
-/// [`PosterHttp::via`] while [`TEST_ORIGIN`] is set; `Err(send)` otherwise.
+pub use super::poster_http::PosterHttp;
 #[cfg(test)]
-fn test_route<T, F: FnOnce(&JsonPoster, &str) -> T>(url: &str, send: F) -> Result<T, F> {
-    let Some(origin) =
-        TEST_ORIGIN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
-    else {
-        return Err(send);
-    };
-    thread_local! {
-        static POSTER: Option<JsonPoster> = JsonPoster::allowing_http().ok();
-    }
-    let path = url
-        .split_once("://")
-        .and_then(|(_, rest)| rest.find('/').map(|at| rest.split_at(at).1))
-        .unwrap_or("/");
-    let routed = format!("{origin}{path}");
-    POSTER.with(|poster| match poster {
-        Some(poster) => Ok(send(poster, &routed)),
-        None => Err(send),
-    })
-}
-
-/// Tests: the origin every Cloud request goes to ([`PosterHttp::via`]).
-#[cfg(test)]
-pub(crate) static TEST_ORIGIN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-impl Http for PosterHttp {
-    fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.via(url, |poster, url| poster.get(url, bearer))
-    }
-
-    fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.via(url, |poster, url| poster.post(url, body, bearer))
-    }
-
-    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.via(url, |poster, url| poster.post_empty(url, bearer))
-    }
-
-    fn send(
-        &self,
-        method: &str,
-        url: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
-        headers: &[(&str, &str)],
-    ) -> Result<(u16, Value), String> {
-        self.via(url, |poster, url| poster.send_with_headers(method, url, body, bearer, headers))
-    }
-
-    fn request_with_deadline(
-        &self,
-        url: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
-        deadline: &cmux_server::cloud_http::RequestDeadline,
-    ) -> Result<(u16, Vec<u8>), String> {
-        self.via(url, |poster, url| poster.request_with_deadline(url, body, bearer, deadline))
-    }
-
-    fn request_with_headers(
-        &self,
-        url: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
-        deadline: &cmux_server::cloud_http::RequestDeadline,
-    ) -> Result<cmux_server::cloud_http::Response, String> {
-        self.via(url, |poster, url| {
-            poster.request_with_deadline_headers(url, body, bearer, deadline)
-        })
-    }
-
-    fn reset(&self) {
-        self.0.reset();
-        #[cfg(test)]
-        let _ = test_route("/", |poster, _| poster.reset());
-    }
-
-    fn fresh(&self) -> Option<Self> {
-        self.0.twin().ok().map(PosterHttp)
-    }
-}
+pub(crate) use super::poster_http::TEST_ORIGIN;
 
 /// One `identify` on the daemon's control socket. `timeout` bounds the whole
 /// exchange, not each read, and the reply line is at most `MAX_LINE`.
@@ -674,6 +578,9 @@ struct Worker {
     github: Minter<PosterHttp>,
     /// The session host's relay Register tickets, on their own socket and thread (`carrier_server.rs`).
     carrier: Option<CarrierServer<PosterHttp>>,
+    /// Auto mode's store for the machine's daemon, on its own socket and threads
+    /// (`auto_session_server.rs`).
+    auto_sessions: Option<super::auto_session_server::AutoSessions<PosterHttp>>,
     /// The carrier grant keyset's own fetch (`carrier_keyset.rs`).
     keyset: super::carrier_keyset::Refresher<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
@@ -719,6 +626,19 @@ impl Worker {
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         forget_harness_login_state(&paths);
         let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
+        // Before the bind, like the carrier socket: a call made meanwhile is answered `vm.unbound`.
+        let auto_sessions = listen(&paths, super::auto_session_server::AUTO_SESSION_SOCKET)
+            .and_then(|l| {
+                let hooks = super::auto_session_server::Hooks { now: wall_ms, log };
+                super::auto_session_server::AutoSessions::spawn(
+                    l,
+                    hooks,
+                    Arc::clone(&github_stop),
+                    &resumes,
+                )
+            })
+            .map_err(|e| log(&format!("auto-session socket: {e}")))
+            .ok();
         // Before the bind: a ticket asked meanwhile waits for it there, not in the poll loop.
         let carrier = listen(&paths, super::carrier_server::CARRIER_SOCKET)
             .and_then(|l| {
@@ -753,6 +673,7 @@ impl Worker {
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
             carrier,
+            auto_sessions,
             keyset,
             trajectories,
             gateway_token: None,
@@ -1198,6 +1119,15 @@ impl Worker {
                 ),
                 Err(e) => log(&format!("carrier ticket: {e}")),
             }
+        }
+        if let Some(auto_sessions) = self.auto_sessions.as_ref() {
+            // Each call's thread makes or reuses a client of this bind: the same install key,
+            // its own HTTPS connection.
+            let (bind, pkcs8) = (bound.clone(), key.pkcs8().to_vec());
+            auto_sessions.bound(&bound.machine, move || {
+                let key = InstallKey::from_pkcs8(&pkcs8, &SystemRandom::new())?;
+                github_client(&bind, &key)
+            });
         }
         match github_client(&bound, &key) {
             Ok(client) => self.keyset.bound(client),

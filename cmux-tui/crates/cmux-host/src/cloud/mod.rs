@@ -32,7 +32,9 @@
 //! `carrier_server` (the thread and socket that answer it off the poll loop),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
-//! loop),
+//! loop), [`auto_session`] (Auto mode's store for the machine's daemon: one
+//! line per store route) and `auto_session_server` (its own socket and
+//! threads),
 //! [`additions`] (a person's image additions list, sent at idle only under their usage-sharing
 //! choice), `additions_thread` (its listing and send, off the poll loop),
 //! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
@@ -55,6 +57,11 @@ mod apps_call_tests;
 pub mod apps_spawn;
 #[cfg(all(test, unix))]
 mod apps_spawn_tests;
+pub mod auto_session;
+#[cfg(unix)]
+pub mod auto_session_server;
+#[cfg(all(test, unix))]
+mod auto_session_tests;
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
 #[cfg(unix)]
@@ -73,6 +80,8 @@ pub mod github_minter;
 pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
+#[cfg(target_os = "linux")]
+mod poster_http;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;

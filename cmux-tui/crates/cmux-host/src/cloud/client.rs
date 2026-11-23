@@ -69,6 +69,16 @@ pub trait Http {
         Err("this Cloud transport sends no other method".to_owned())
     }
 
+    /// One request whose answer comes back as bytes, within its own time and size bounds (the
+    /// Auto mode routes, `auto_session.rs`: a held request, and chunks that are not JSON).
+    /// Transports opt in; the default refuses.
+    fn raw(
+        &self,
+        _request: &cmux_server::cloud_http::RawRequest<'_>,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        Err("this Cloud transport sends no raw request".to_owned())
+    }
+
     /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
     /// dead and nothing says so). A transport with no pool does nothing.
     fn reset(&self) {}
@@ -774,6 +784,38 @@ impl<H: Http> CloudClient<H> {
             now_wall_ms,
         );
         (id, answer)
+    }
+
+    /// One raw request on this machine's API origin as its `vm` install (`auto_session.rs`):
+    /// `request.url` is the route's path and its bearer is filled in here. `None` when no
+    /// answer came. As [`Self::post_as_install`], only a 401 or an `auth.*` 403 drops the
+    /// cached bearer and retries once.
+    pub fn raw_as_install(
+        &mut self,
+        request: &cmux_server::cloud_http::RawRequest<'_>,
+        now_wall_ms: u64,
+    ) -> Option<cmux_server::cloud_http::Response> {
+        let url = self.url(request.url);
+        let send = |client: &mut Self| -> Option<cmux_server::cloud_http::Response> {
+            let token = client.token(now_wall_ms).ok()?;
+            let signed =
+                cmux_server::cloud_http::RawRequest { url: &url, bearer: Some(&token), ..*request };
+            client.http.raw(&signed).ok()
+        };
+        let answer = send(self)?;
+        let stale = answer.status == 401
+            || (answer.status == 403
+                && serde_json::from_slice::<Value>(&answer.bytes).is_ok_and(|body| {
+                    body.field("error")
+                        .field("code")
+                        .as_str()
+                        .is_some_and(|c| c.starts_with("auth."))
+                }));
+        if stale {
+            self.cached = None;
+            return send(self);
+        }
+        Some(answer)
     }
 
     /// One POST as the `vm` install. Only a 401 or an `auth.*` 403 drops the
