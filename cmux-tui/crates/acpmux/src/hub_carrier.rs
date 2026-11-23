@@ -593,18 +593,34 @@ impl HubCarrier {
                 tracing::debug!("hub carrier: a plain circuit for this dial: {why}");
             }
         }
+        match self.plain_service(daemon, hello).await? {
+            Ok(secure) => Ok(self.carry_plain(secure)),
+            Err(refusal) => Err(refusal.to_string()),
+        }
+    }
+
+    /// A plain circuit to `daemon` whose `hello` was answered: the circuit, else the refusal
+    /// (its circuit closed).
+    async fn plain_service(
+        &self,
+        daemon: &str,
+        hello: Bytes,
+    ) -> Result<Result<cmux_remote::crypto::SecureLink, ServiceRefusal>, String> {
         let (secure, mut stages) = self.open_circuit(daemon).await?;
         let answered = Instant::now();
         let answer = Self::ask_service(&secure, hello, self.timings.handshake).await;
         stages.answer = answered.elapsed();
         stages.log(daemon, "plain");
         match answer {
-            Ok(Ok(())) => Ok(self.carry_plain(secure)),
+            Ok(Ok(())) => Ok(Ok(secure)),
             Ok(Err(refusal)) => {
                 let _ = secure.close().await;
-                Err(refusal.to_string())
+                Ok(Err(refusal))
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                let _ = secure.close().await;
+                Err(e)
+            }
         }
     }
 
@@ -645,18 +661,51 @@ impl HubCarrier {
                         if kept.no_mux_until.is_some_and(|until| Instant::now() < until) {
                             return KeptOpen::Plain("the machine keeps no circuits".into());
                         }
-                        // Parallel dials wait here on this one open, not on one each.
-                        match self.open_kept(daemon).await {
-                            Ok(Some(mux)) => {
+                        // Parallel dials wait here on this one open, not on one each. Never a
+                        // plain dial beside it: a service hello can ask the far machine's owner
+                        // for consent, and one dial asks once.
+                        let (mux, said, mut stages) = match self.open_kept(daemon).await {
+                            Ok(opened) => opened,
+                            Err(e) => return KeptOpen::Failed(e),
+                        };
+                        // This dial's OPEN goes right behind the `mux` hello, not after its
+                        // answer: a new kept circuit costs no more round trips than a plain one.
+                        let asked = Instant::now();
+                        let wait = self.timings.handshake;
+                        let (first, said) = tokio::join!(
+                            mux.open(hello.clone(), wait),
+                            tokio::time::timeout(wait, said)
+                        );
+                        stages.answer = asked.elapsed();
+                        stages.log(daemon, "kept");
+                        match said {
+                            Ok(Ok(Ok(()))) => {
+                                self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                                 kept.live = Some(mux.clone());
-                                mux
                             }
-                            Ok(None) => {
-                                kept.live = None;
+                            Ok(Ok(Err(refusal))) => {
+                                mux.close().await;
+                                tracing::debug!(
+                                    "hub carrier: the machine keeps no circuits: {refusal}"
+                                );
                                 kept.no_mux_until = Some(Instant::now() + mux::NO_MUX_ASK_AGAIN);
                                 return KeptOpen::Plain("the machine keeps no circuits".into());
                             }
-                            Err(e) => return KeptOpen::Failed(e),
+                            Ok(Err(_)) | Err(_) => {
+                                mux.close().await;
+                                return KeptOpen::Failed(
+                                    "the machine did not answer the kept circuit's hello".into(),
+                                );
+                            }
+                        }
+                        match first {
+                            Ok(Ok(stream)) => return KeptOpen::Stream(stream),
+                            Ok(Err(refusal)) => return KeptOpen::Refused(refusal),
+                            Err(e) => {
+                                mux.close().await;
+                                why = e;
+                                continue;
+                            }
                         }
                     }
                 }
@@ -676,31 +725,23 @@ impl HubCarrier {
         KeptOpen::Plain(format!("the kept circuit failed twice: {why}"))
     }
 
-    /// Open a kept circuit to `daemon`: a circuit whose hello names the `mux` service. None when
-    /// the machine serves no such service (its acpmux predates it).
-    async fn open_kept(&self, daemon: &str) -> Result<Option<Arc<mux::Mux>>, String> {
-        let (secure, mut stages) = self.open_circuit(daemon).await?;
-        let answered = Instant::now();
-        let answer = Self::ask_service(&secure, mux::mux_hello(), self.timings.handshake).await?;
-        stages.answer = answered.elapsed();
-        stages.log(daemon, "kept");
-        match answer {
-            Ok(()) => {
-                self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
-                Ok(Some(mux::start_dialer(
-                    Box::new(secure),
-                    self.stats.clone(),
-                    Arc::downgrade(&self.alive),
-                    self.timings.keepalive,
-                    self.timings.kept_idle,
-                )))
-            }
-            Err(refusal) => {
-                let _ = secure.close().await;
-                tracing::debug!("hub carrier: the machine keeps no circuits: {refusal}");
-                Ok(None)
-            }
-        }
+    /// Open a kept circuit to `daemon`: a circuit whose first record is the `mux` hello, its
+    /// dialer's end running. The answer comes on `said` (a machine whose acpmux predates kept
+    /// circuits refuses it, `service.unknown`, and closes the circuit).
+    async fn open_kept(
+        &self,
+        daemon: &str,
+    ) -> Result<(Arc<mux::Mux>, mux::HelloAnswer, DialStages), String> {
+        let (secure, stages) = self.open_circuit(daemon).await?;
+        secure.send(mux::mux_hello()).await.map_err(|e| e.to_string())?;
+        let (mux, said) = mux::start_dialer(
+            Box::new(secure),
+            self.stats.clone(),
+            Arc::downgrade(&self.alive),
+            self.timings.keepalive,
+            self.timings.kept_idle,
+        );
+        Ok((mux, said, stages))
     }
 
     /// `false` answers a kept circuit's hello as an acpmux that predates kept circuits does

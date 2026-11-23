@@ -1173,8 +1173,13 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
         .await
         .unwrap();
     assert_eq!(client.receive().await.unwrap().unwrap().payload, screen.as_slice());
-    assert!(fixture.carrier_b.stats().accepted.load(Ordering::Relaxed) >= 4, "a circuit a lane");
-    assert!(fixture.carrier_a.stats().dials.load(Ordering::Relaxed) >= 4);
+    // One pipe carries every lane (`MachinePipeDialer::parallel_links`), and it is a stream on
+    // the kept circuit to B: the refusals before it rode that circuit too, so no plain circuit.
+    let a = fixture.carrier_a.stats();
+    assert!(fixture.carrier_b.stats().accepted.load(Ordering::Relaxed) >= 1);
+    assert!(a.kept_opens.load(Ordering::Relaxed) >= 1);
+    assert_eq!(a.kept_circuits.load(Ordering::Relaxed), 1);
+    assert_eq!(a.dials.load(Ordering::Relaxed), 0);
 }
 
 /// `future`'s output, or a panic naming `what` after 30 s: a stalled numbers run fails, not hangs.
@@ -2113,7 +2118,7 @@ impl KeptFixture {
     }
 }
 
-/// A dials B's stand-in sshd over the in-process relay, `delay` away each way. Returns once B
+/// A dials B's stand-in sshd over the in-process relay, A's leg `delay` away each way. Returns once B
 /// serves (its gate's refusal came back), with control not granted yet unless `granted`.
 async fn kept_fixture(delay: Duration, b_keeps_circuits: bool, granted: bool) -> KeptFixture {
     let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2128,8 +2133,10 @@ async fn kept_fixture(delay: Duration, b_keeps_circuits: bool, granted: bool) ->
     tokio::spawn(async move {
         let _ = axum::serve(relay_listener, router).await;
     });
+    // Only A's leg runs through the proxy: a cut drops A's circuits, not B's registration.
     let proxy = DelayProxy::start(relay_address, delay).await;
     let route = format!("relay+ws://127.0.0.1:{}", proxy.port);
+    let direct = format!("relay+ws://{relay_address}");
     let sshd = standin_sshd().await;
     let (key_a, key_b) = (random_key(), random_key());
     let fast = Timings {
@@ -2139,7 +2146,7 @@ async fn kept_fixture(delay: Duration, b_keeps_circuits: bool, granted: bool) ->
     };
     let b = HubCarrier::new(
         Arc::new(FixedTickets {
-            relay: route.clone(),
+            relay: direct,
             peers: vec![public(&key_a)],
             asked: AtomicU64::new(0),
         }),
@@ -2322,7 +2329,7 @@ async fn hub_carrier_a_machine_that_keeps_no_circuits_gets_a_plain_circuit_per_d
     let _ = &fixture.b;
 }
 
-/// Cold, warm and twenty-at-once dial numbers over the relay 25 ms away each way (run on demand:
+/// Cold, warm and twenty-at-once dial numbers with the dialer 25 ms from the relay each way (run on demand:
 /// `cargo test -p acpmux --features hub-carrier --test hub_carrier kept_circuit_numbers --
 /// --ignored --nocapture`). A dial is timed to the far sshd's banner, as `carrier-pipe health`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

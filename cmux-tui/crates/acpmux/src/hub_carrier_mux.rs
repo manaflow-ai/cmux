@@ -26,8 +26,9 @@
 //! for [`Timings::kept_idle`] closes itself.
 //!
 //! A machine whose acpmux predates this answers the `mux` hello `service.unknown` (its
-//! `named_service` knows no such service): the dial takes the plain path at once and the carrier
-//! asks that machine again only after [`NO_MUX_ASK_AGAIN`]. Nothing else changes for it.
+//! `named_service` knows no such service): that dial takes a plain circuit, and the carrier dials
+//! that machine the plain way, asking again only after [`NO_MUX_ASK_AGAIN`]. No plain circuit
+//! is dialed beside the ask: a service hello can ask the far owner for consent, once per dial.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -137,7 +138,12 @@ pub(crate) struct Mux {
     /// When the last stream ended (or the circuit opened), for the idle close.
     quiet_since: Mutex<Instant>,
     stats: Arc<Stats>,
+    /// The dialer's: where the answer to its `mux` hello goes, the circuit's first record back.
+    hello: Mutex<Option<oneshot::Sender<Result<(), ServiceRefusal>>>>,
 }
+
+/// The answer to a kept circuit's `mux` hello.
+pub(crate) type HelloAnswer = oneshot::Receiver<Result<(), ServiceRefusal>>;
 
 impl Mux {
     fn new(link: Box<dyn FrameLink>, role: Role, stats: Arc<Stats>) -> Arc<Self> {
@@ -151,6 +157,7 @@ impl Mux {
             heard: Mutex::new(Instant::now()),
             quiet_since: Mutex::new(Instant::now()),
             stats,
+            hello: Mutex::new(None),
         })
     }
 
@@ -227,6 +234,16 @@ impl Mux {
                 }
             };
             *self.heard.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+            let hello = self.hello.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(hello) = hello {
+                let answer = read_service_answer(&record);
+                let refused = answer.is_err();
+                let _ = hello.send(answer);
+                if refused {
+                    break;
+                }
+                continue;
+            }
             let Some((kind, id, payload)) = parse(&record) else { break };
             match kind {
                 PING => {
@@ -404,21 +421,24 @@ impl Mux {
             }
             Err("the stream was reset".to_owned())
         };
-        tokio::pin!(up, down);
-        let (mut up_done, mut down_done) = (false, false);
-        let clean = loop {
-            tokio::select! {
-                ended = &mut up, if !up_done => match ended {
-                    Ok(()) => up_done = true,
-                    Err(_) => break false,
-                },
-                ended = &mut down, if !down_done => match ended {
-                    Ok(()) => down_done = true,
-                    Err(_) => break false,
-                },
-            }
-            if up_done && down_done {
-                break true;
+        // The two directions end in this block, so `write` is free for the close after it.
+        let clean = {
+            tokio::pin!(up, down);
+            let (mut up_done, mut down_done) = (false, false);
+            loop {
+                tokio::select! {
+                    ended = &mut up, if !up_done => match ended {
+                        Ok(()) => up_done = true,
+                        Err(_) => break false,
+                    },
+                    ended = &mut down, if !down_done => match ended {
+                        Ok(()) => down_done = true,
+                        Err(_) => break false,
+                    },
+                }
+                if up_done && down_done {
+                    break true;
+                }
             }
         };
         if !clean {
@@ -509,18 +529,21 @@ impl Mux {
     }
 }
 
-/// Start the dialer's end of a kept circuit whose `mux` hello was answered.
+/// Start the dialer's end of a kept circuit whose `mux` hello was just sent: streams may open on
+/// it at once, and the hello's answer comes on the returned receiver.
 pub(crate) fn start_dialer(
     link: Box<dyn FrameLink>,
     stats: Arc<Stats>,
     owner: Weak<()>,
     every: Duration,
     idle: Duration,
-) -> Arc<Mux> {
+) -> (Arc<Mux>, HelloAnswer) {
     let mux = Mux::new(link, Role::Dialer, stats);
+    let (said, answer) = oneshot::channel();
+    *mux.hello.lock().unwrap_or_else(|e| e.into_inner()) = Some(said);
     scope().spawn_named("hub carrier kept circuit reader", mux.clone().read(None));
     scope().spawn_named("hub carrier kept circuit keepalive", mux.clone().keep(owner, every, idle));
-    mux
+    (mux, answer)
 }
 
 /// Serve a kept circuit whose `mux` hello this machine answered, until it ends.
@@ -579,5 +602,85 @@ impl KeptCircuits {
         let slot = self.by_machine.lock().unwrap_or_else(|e| e.into_inner()).get(daemon)?.clone();
         let kept = slot.try_lock().ok()?;
         kept.live.clone().filter(|mux| !mux.is_closed())
+    }
+}
+
+#[cfg(test)]
+mod live {
+    use super::super::{
+        CircuitService, HubCarrier, PlatformTickets, Tickets, Timings, service_hello,
+    };
+    use cmux_remote::link::FrameLink;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    /// Where one cold circuit's time goes, stage by stage, dialed from this machine's own home
+    /// to a live peer (run on demand, never in CI: it spends real tickets):
+    /// `CARRIER_STAGES_PEER=<daemonId> cargo test -p acpmux --features hub-carrier --lib
+    /// carrier_stages_live -- --ignored --nocapture`. A dialer only: it registers nothing, takes
+    /// no key lock (it reads the node key as the cmux link's path does) and leaves the running
+    /// daemon alone. `hello_ms` (service hello to its answer, the far side's sshd connect
+    /// included) is what a stream open on an already-open circuit costs: one OPEN, one ANSWER.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "dials a live peer from this machine's home"]
+    async fn carrier_stages_live() {
+        let peer = std::env::var("CARRIER_STAGES_PEER").expect("CARRIER_STAGES_PEER=<daemonId>");
+        let port: u16 =
+            std::env::var("CARRIER_STAGES_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(22);
+        let runs: usize =
+            std::env::var("CARRIER_STAGES_RUNS").ok().and_then(|p| p.parse().ok()).unwrap_or(5);
+        let home = crate::config::default_home();
+        let config = crate::config::Config::load_from(&home.join("config.json")).unwrap();
+        let relay = config.mesh_relay.clone().expect("this home is not joined");
+        let tickets = Arc::new(PlatformTickets {
+            hub: crate::mesh_http::HttpHub::new(&relay).unwrap(),
+            shown: relay.shown(),
+        });
+        let key = crate::mesh_node_key::read_noise_static(&home).unwrap();
+        let carrier = HubCarrier::new(tickets.clone(), *key, Timings::default());
+        let ms = |d: Duration| format!("{:.0}", d.as_secs_f64() * 1e3);
+        for run in 0..runs {
+            // A raw TCP connect to the relay the ticket names, to split TCP from TLS+WS+allocate.
+            let answer = tickets.connect(&peer).await.unwrap();
+            let url = url::Url::parse(&answer.relay).unwrap();
+            let target = format!("{}:{}", url.host_str().unwrap(), url.port().unwrap_or(443));
+            let started = Instant::now();
+            let tcp = tokio::net::TcpStream::connect(&target).await.unwrap();
+            let tcp_ms = started.elapsed();
+            drop(tcp);
+
+            let started = Instant::now();
+            let (secure, stages) = carrier.open_circuit(&peer).await.unwrap();
+            let step = Instant::now();
+            let hello = service_hello(CircuitService::CmuxTui { port }).unwrap();
+            HubCarrier::ask_service(&secure, hello, Duration::from_secs(10))
+                .await
+                .unwrap()
+                .map_err(|r| format!("{r:?}"))
+                .unwrap();
+            let hello_ms = step.elapsed();
+            let step = Instant::now();
+            let first = tokio::time::timeout(Duration::from_secs(10), secure.receive())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let byte_ms = step.elapsed();
+            assert!(first.starts_with(b"SSH-"), "{first:?}");
+            let total = started.elapsed();
+            eprintln!(
+                "CARRIER-STAGES run={run} ticket={} relay={} (tcp_alone={}) peer_join={} noise={} \
+                 hello={} first_byte={} total={}",
+                ms(stages.ticket),
+                ms(stages.relay),
+                ms(tcp_ms),
+                ms(stages.peer_join),
+                ms(stages.noise),
+                ms(hello_ms),
+                ms(byte_ms),
+                ms(total),
+            );
+            let _ = secure.close().await;
+        }
     }
 }
