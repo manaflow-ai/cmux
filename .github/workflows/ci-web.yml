@@ -486,7 +486,7 @@ jobs:
         with:
           cache-bin: false
           shared-key: agent-pane-real-acpmux
-          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' || github.base_ref == 'feat-cmux-next' }}
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
 
       - name: Build acpmux
