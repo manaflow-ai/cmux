@@ -87,6 +87,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_DURESS_CPU_X",
     "ACPMUX_DURESS_SESSIONS",
     "ACPMUX_DURESS_N",
+    "ACPMUX_DURESS_PEERS",
     // The commit under test, when the runner names it (else `git rev-parse HEAD`).
     "GITHUB_SHA",
     // The fleet's output directory, not a credential.
@@ -119,6 +120,7 @@ const CALL_LIMIT: Duration = Duration::from_secs(30);
 /// A sample over this is slow (the count the table shows).
 const SLOW_MS: f64 = 500.0;
 /// Peers and the rows each lists.
+/// Peers by default (`ACPMUX_DURESS_PEERS`; Leo's Mac held ~40).
 const PEERS: usize = 2;
 const PEER_ROWS: usize = 5;
 /// The name the external session is listed under (the registry entry's `name`).
@@ -174,6 +176,8 @@ struct Knobs {
     cpu_x: usize,
     sessions: usize,
     n: usize,
+    /// Peers behind proxies (`ACPMUX_DURESS_PEERS`, default [`PEERS`]).
+    peers: usize,
     /// Records in each of the bigchat leg's chats.
     big_records: usize,
 }
@@ -201,6 +205,7 @@ impl Knobs {
             cpu_x: env_or("ACPMUX_DURESS_CPU_X", 10usize).max(1),
             sessions: env_or("ACPMUX_DURESS_SESSIONS", 20usize).max(4),
             n: env_or("ACPMUX_DURESS_N", 100usize).max(1),
+            peers: env_or("ACPMUX_DURESS_PEERS", PEERS).clamp(1, 200),
             big_records: env_or("ACPMUX_DURESS_BIG_RECORDS", 100_000usize).max(4),
         }
     }
@@ -686,9 +691,9 @@ impl Proxy {
     }
 }
 
-async fn peers(scratch: &Path) -> (Value, Vec<Proxy>, Vec<Arc<Hub>>) {
+async fn peers(scratch: &Path, count: usize) -> (Value, Vec<Proxy>, Vec<Arc<Hub>>) {
     let (mut config, mut proxies, mut hubs) = (serde_json::Map::new(), vec![], vec![]);
-    for p in 0..PEERS {
+    for p in 0..count {
         let name = format!("peer{p:02}");
         let mut cfg = Config::default();
         cfg.store.mode = StoreMode::Memory;
@@ -1346,7 +1351,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     std::fs::create_dir_all(claude.join("sessions")).unwrap();
 
     // The peers, the stub hub, the config and the bridge setting.
-    let (peer_config, proxies, _hubs) = peers(&scratch).await;
+    let (peer_config, proxies, _hubs) = peers(&scratch, k.peers).await;
     let hub = StubHub::start();
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut config = json!({
@@ -1533,7 +1538,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     // Peers listed and the external session bridged: up to 30 s.
-    let expect_peer_rows = PEERS * PEER_ROWS;
+    let expect_peer_rows = k.peers * PEER_ROWS;
     let mut before: BTreeMap<String, Value> = BTreeMap::new();
     let listed_by = Instant::now() + Duration::from_secs(30);
     loop {
@@ -2452,7 +2457,7 @@ async fn duress_bench() {
         "cores": cores(),
         "commit": commit(),
         "knobs": {"legs": k.legs, "windowSecs": k.window.as_secs(), "capSecs": k.cap.as_secs(),
-                  "cpuX": k.cpu_x, "sessions": k.sessions, "n": k.n},
+                  "cpuX": k.cpu_x, "sessions": k.sessions, "n": k.n, "peers": k.peers},
         "legs": legs,
         "removalErrors": removal_errors,
     });
