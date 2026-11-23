@@ -36,7 +36,7 @@ const MAX_REPLY_BYTES: usize = 1 << 20;
 pub enum TriggerCmd {
     /// Register a trigger: a GitHub event in --repo (or a signed webhook) sends PROMPT to a Cloud
     /// chat. Prints the delivery URL and its signing secret once.
-    Create(CreateArgs),
+    Create(Box<CreateArgs>),
     /// The triggers this home registered (or the ids given), each read back from Cloud.
     #[command(visible_alias = "list")]
     Ls {
