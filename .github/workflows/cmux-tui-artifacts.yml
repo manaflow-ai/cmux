@@ -1271,12 +1271,47 @@ jobs:
           overwrite: true
           retention-days: 3
 
-  # MUSL_BUILT_ONCE: each Linux musl target builds once, in `build` (fat, the shipped bytes). A
-  # build-linux call built the Cloud machine channel's own thin-LTO copy of the same two targets
-  # beside it on every feat-cmux-next push that built a tree; on 2026-11-22 01:50-03:50Z its two
-  # legs spent 421 of the publisher's 1,462 re-run minutes and had 8 of its 16 failed musl legs
-  # (cmuxterm-hq docs/ci/ci-cut-ledger.md). point-machine-channel-early uploads build's bytes.
-  # Undo: restore build-linux and point-machine-channel-early's machine-channel-* pattern.
+  # MUSL_BUILT_ONCE: each Linux musl target builds once (fat, the shipped bytes), in build-linux. A
+  # thin-LTO copy of the same two targets for the Cloud machine channel was dropped on 2026-11-22
+  # (#49815: on 01:50-03:50Z its two legs spent 421 of the publisher's 1,462 re-run minutes).
+  # LINUX_CALL_FOR_CHANNEL: the Linux legs are their own call, and `build` holds only the macOS
+  # legs, so point-machine-channel-early needs only build-linux. In one call it waited for the
+  # whole call: run 45077463540's Linux legs ended 6.4 min before its macOS leg, and run
+  # 45135074927's Linux legs ended at 08:29:56Z while its aarch64-apple-darwin leg ran past 08:56Z,
+  # and the channel waited the whole time (fix-running-cloud-channel). publish and
+  # notify-unpublished-tree need both calls. Undo: put the Linux targets back in build's
+  # target_set (shipped.target_set linux-macos-arm64, target_set_main all) and delete build-linux.
+  build-linux:
+    if: >-
+      ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          needs.tree-preflight.outputs.run_macos == 'true' &&
+          (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
+    needs: [tree-preflight, tree-owner-wait]
+    # One group per run, and one per branch on other branches' pushes, as `build` (cx-73f2,
+    # BRANCH_BUILD_SUPERSEDED).
+    concurrency:
+      group: cmux-tui-build-linux-${{ (github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
+    permissions:
+      contents: read
+      # The reusable package workflow's permission ceiling (see build).
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    with:
+      version: 0.0.0-r2.sha-${{ github.sha }}
+      package_npm: false
+      package_pypi: false
+      include_windows: false
+      # Both Linux musl targets, fat (#41963): the shipped bytes, which the Cloud machine channel
+      # takes too (MUSL_BUILT_ONCE). scripts/cmux-next/cmux-tui-build-profiles.json shipped (a tree-key input).
+      target_set: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.linux_target_set }}
+      lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.lto }}
+      # cmux-rd for the files.cmux.com channel, on the Linux legs (the join line installs it).
+      build_cmux_rd: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.build_cmux_rd }}
+      darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
+      linux_runner: cmux-linux
+
   build:
     if: >-
       ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
@@ -1329,9 +1364,9 @@ jobs:
       # this call every tree, and so every nightly-next promotion, waited
       # for it (2026-10-21: it ended last in 217 of 219 published trees).
       include_windows: false
-      # Every shipped target, the Linux ones included, with the fat release
-      # profile (#41963); the Cloud machine channel takes the same Linux bytes
-      # (MUSL_BUILT_ONCE). Intel only on main and rc/** (CMUX_TUI_DARWIN_X86_64).
+      # The shipped macOS targets, with the fat release profile (#41963); the
+      # Linux ones build in build-linux (LINUX_CALL_FOR_CHANNEL). Intel only on
+      # main and rc/** (CMUX_TUI_DARWIN_X86_64).
       # scripts/cmux-next/cmux-tui-build-profiles.json shipped (a tree-key input).
       target_set: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/rc/')) && github.event_name != 'pull_request' && fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.target_set_main || fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.target_set }}
       lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.lto }}
@@ -1423,10 +1458,10 @@ jobs:
   # failure or a timeout can trigger the native build of the missing targets.
   darwin-fallback-plan:
     name: plan the macOS fallback build
-    # The Linux targets come from build (fat) too, so the plan waits on build alone; it
-    # checks that build's Linux artifacts are there before it plans a macOS fallback.
+    # The Linux targets come from build-linux, so the plan waits on it too; it checks that
+    # build-linux's artifacts are there before it plans a macOS fallback.
     if: ${{ !cancelled() && (needs.build.result == 'failure' || needs.build.result == 'cancelled') && needs.tree-preflight.outputs.darwin_builder == 'linux' }}
-    needs: [tree-preflight, build]
+    needs: [tree-preflight, build-linux, build]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -1478,7 +1513,7 @@ jobs:
               legs="$(gh api --paginate "repos/$REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100" \
                 --jq '.jobs[] | "\(.name)\t\(.conclusion // "")\t\([.steps[]? | select(.conclusion == "failure")] | length)"' 2>/dev/null || true)"
             fi
-            ended="$(awk -F '\t' -v name="build / build $linux" '$1 == name { print $2 "/" $3; exit }' <<<"$legs")"
+            ended="$(awk -F '\t' -v name="build-linux / build $linux" '$1 == name { print $2 "/" $3; exit }' <<<"$legs")"
             if [[ "$ended" == cancelled/* || "$ended" == failure/0 ]]; then
               echo "::warning title=Linux leg lost::the $linux leg ended ${ended%%/*} with no failed step (a lost or preempted runner, not a build failure); the macOS fallback still runs, and \"Re-run failed jobs\" rebuilds $linux"
               continue
@@ -1944,8 +1979,8 @@ jobs:
     # PR runs of this workflow only validate the build. Only the refs the
     # artifacts environment admits publish; a dispatch from any other branch
     # is a green build-only run (publish-ref-notice says how to publish).
-    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
-    needs: [build, darwin-fallback-plan, build-darwin-fallback]
+    if: ${{ !cancelled() && needs.build-linux.result == 'success' && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    needs: [build-linux, build, darwin-fallback-plan, build-darwin-fallback]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # 15 minutes of work, plus the 50 minutes the attestation retry may wait for the API budget.
     timeout-minutes: 75
@@ -4844,8 +4879,8 @@ jobs:
     concurrency:
       group: cmux-tui-point-machine-early-${{ github.ref }}
       cancel-in-progress: false
-    needs: [tree-preflight, tree-owner-wait, build]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
+    needs: [tree-preflight, tree-owner-wait, build-linux]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build-linux.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
@@ -4869,7 +4904,7 @@ jobs:
       - name: Download the machine channel's Linux cmux-tui binaries
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          # build's Linux legs (MUSL_BUILT_ONCE); the macOS dSYM artifacts end in -apple-darwin.
+          # build-linux's legs (MUSL_BUILT_ONCE); the macOS dSYM artifacts end in -apple-darwin.
           pattern: cmux-tui-*-unknown-linux-musl
           path: assets/cmux-tui
           merge-multiple: true
@@ -5253,7 +5288,7 @@ jobs:
     name: report an unpublished cmux-tui tree to cmux-next
     # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
     # job, so a run re-run below finds this owner ended (cx-urd.26).
-    needs: [tree-preflight, tree-owner-wait, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
+    needs: [tree-preflight, tree-owner-wait, build-linux, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
     if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
@@ -5342,7 +5377,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, coalesce, tree-preflight, tree-owner-wait, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, coalesce, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
