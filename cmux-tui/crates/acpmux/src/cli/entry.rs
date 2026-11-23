@@ -498,6 +498,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Trigger(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::trigger::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Desktop(cmd)) => match crate::cli::desktop::run(cmd, cli.json) {
             Ok(()) => Ok(()),
             Err(e) => errors::exit_with(&e, cli.json),
