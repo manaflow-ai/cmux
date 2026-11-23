@@ -403,6 +403,30 @@ pub(super) trait CarrierSource: Send + Sync {
     ) -> Result<ExecReply, SourceError> {
         Err(SourceError::fatal("this source runs no command"))
     }
+
+    /// `machine`'s status (`running`, `paused`, ...) from the platform's
+    /// machine read (`POST /v1/read` `cloud.machine.get`), which wakes no
+    /// machine: what `carrier serve`'s quiet socket reads before it dials
+    /// ([`super::serve_quiet`]). A source without it reads nothing.
+    async fn machine_status(&self, _machine: &str) -> Result<String, SourceError> {
+        Err(SourceError::fatal("this source reads no machine"))
+    }
+}
+
+/// The machine read's answer (`{op, value: {status, ...}, stream, revision}`):
+/// its status, else why there is none.
+pub(super) fn read_machine_status(status: u16, body: &Value) -> Result<String, SourceError> {
+    if status == 200
+        && let Some(text) = body.pointer("/value/status").and_then(Value::as_str)
+    {
+        return Ok(text.to_owned());
+    }
+    let detail = format!("the machine read answered HTTP {status}");
+    if matches!(status, 408 | 429 | 500..=599) {
+        Err(SourceError::retry(detail))
+    } else {
+        Err(SourceError::fatal(detail))
+    }
 }
 
 /// What an exec answered: its exit code and output.
@@ -654,6 +678,12 @@ impl CarrierSource for HttpSource {
             )
             .await?;
         read_exec(status, &body)
+    }
+
+    async fn machine_status(&self, machine: &str) -> Result<String, SourceError> {
+        let body = json!({ "op": "cloud.machine.get", "params": { "machine": machine } });
+        let (status, body) = self.post("/v1/read", &body).await?;
+        read_machine_status(status, &body)
     }
 }
 

@@ -77,11 +77,11 @@ for dir in bin libexec; do
   done
 done
 
-# 2. The Screen Sharing helper app ("<app> Screen Sharing.app",
+# 2. The Screen Sharing helper app ("<app> Helper.app", executable cmux-screen-sharing,
 # plans/cmux-next/screen-sharing-helper.md): hardened runtime, no entitlements.
 # Its --stamp (bundle-screen-sharing-helper.sh) is not ported, as above.
-for screen_share in "$APP/Contents/Library/"*" Screen Sharing.app"; do
-  if [[ -d "$screen_share" ]]; then sign "$screen_share"; fi
+for screen_share in "$APP/Contents/Library/"*" Helper.app"; do
+  if [[ -e "$screen_share/Contents/MacOS/cmux-screen-sharing" ]]; then sign "$screen_share"; fi
 done
 
 # 3. Plugins.

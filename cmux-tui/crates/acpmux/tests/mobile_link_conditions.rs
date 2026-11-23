@@ -23,8 +23,19 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). It starts from a cleared
+// environment, so the bench's knobs are kept by name or every run takes the defaults.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "NETCOND_PROFILES",
+    "NETCOND_PROFILES_FILE",
+    "NETCOND_SCALES",
+    "NETCOND_RUNS",
+    "NETCOND_SEED_BASE",
+    "NETCOND_BW_PROFILE",
+    "NETCOND_BW_TURNS",
+    "NETCOND_BW_SECS",
+    "NETCOND_BW_APPS",
+]);
 
 #[path = "support/app_ws.rs"]
 mod app_ws;
@@ -127,6 +138,8 @@ struct Link {
     next: i64,
     last_inbound: Instant,
     capabilities: Vec<String>,
+    /// Every frame either way, by message type (the bytes-per-minute bench reads it).
+    tap: Arc<Tap>,
 }
 
 enum Next {
@@ -148,9 +161,12 @@ impl Link {
             .map_err(|e| format!("websocket handshake: {e}"))?;
         let (sink, mut stream) = ws.split();
         let (tx, rx) = mpsc::unbounded_channel();
+        let tap = Arc::new(Tap::default());
+        let tapped = tap.clone();
         tokio::spawn(async move {
             while let Some(Ok(frame)) = stream.next().await {
                 let now = Instant::now();
+                tapped.down(&frame);
                 let item = match frame {
                     Message::Text(t) => serde_json::from_str::<Value>(&t).ok(),
                     Message::Close(_) => break,
@@ -168,20 +184,21 @@ impl Link {
             next: 0,
             last_inbound: Instant::now(),
             capabilities: Vec::new(),
+            tap,
         })
     }
 
     async fn post(&mut self, m: &str, params: Value) -> Result<i64, String> {
         self.next += 1;
         let req = json!({"jsonrpc": "2.0", "id": self.next, "method": m, "params": params});
-        self.sink
-            .send(Message::Text(req.to_string().into()))
-            .await
-            .map_err(|e| format!("send {m}: {e}"))?;
+        let text = req.to_string();
+        self.tap.up(self.next, m, text.len());
+        self.sink.send(Message::Text(text.into())).await.map_err(|e| format!("send {m}: {e}"))?;
         Ok(self.next)
     }
 
     async fn ping(&mut self) {
+        self.tap.up_ping();
         let _ = self.sink.send(Message::Ping(Vec::new().into())).await;
     }
 
@@ -376,7 +393,11 @@ impl Control {
     /// Turns of ~1 KB answers (the fake agent echoes the prompt) until the chat holds `turns`.
     async fn seed(&mut self, session: &str, from: u64, turns: u64) {
         let pad = "lorem ipsum dolor sit amet ".repeat(37);
+        let started = Instant::now();
         for n in from..turns {
+            if n > from && n % 500 == 0 {
+                eprintln!("netcond: seeding turn {n}/{turns}, {:?} so far", started.elapsed());
+            }
             let id = self.prompt(session, &format!("turn {n}: {pad}")).await;
             let v = self.answer(id, BOUND).await.unwrap_or_else(|| panic!("seed turn {n} hung"));
             assert!(v.get("error").is_none(), "seed turn {n}: {v}");
@@ -450,19 +471,14 @@ async fn cold_and_warm(
         .await;
     let mut shown = None;
     if sent.is_ok() {
-        loop {
-            match link.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    let p = v["params"].to_string();
-                    if v["method"] == method::MUX_EVENT
-                        && p.contains("user_message")
-                        && p.contains(&prompt_id)
-                    {
-                        shown = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = link.notification(deadline).await {
+            let p = v["params"].to_string();
+            if v["method"] == method::MUX_EVENT
+                && p.contains("user_message")
+                && p.contains(&prompt_id)
+            {
+                shown = Some(at);
+                break;
             }
         }
     }
@@ -611,15 +627,10 @@ async fn reconnect(
                 continue;
             }
         }
-        loop {
-            match l.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    if event_seq(&v).is_some_and(|s| s > last) {
-                        first = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = l.notification(deadline).await {
+            if event_seq(&v).is_some_and(|s| s > last) {
+                first = Some(at);
+                break;
             }
         }
     }
@@ -701,5 +712,337 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bytes per minute, by message type
+
+/// What one connection carried, both ways, keyed by message type: a request's method up, its
+/// reply as `reply:<method>` down, a notification by method (an `_acpmux/event` by its record's
+/// kind and `sessionUpdate`). Bytes are the JSON text; `wire_*` add the WebSocket frame header,
+/// `link_*` model the phone's link instead (cmux-mobile-link frames, the host's deflate envelope).
+#[derive(Default)]
+struct Tap {
+    inner: std::sync::Mutex<TapInner>,
+}
+
+#[derive(Default, Clone)]
+struct TapInner {
+    methods: std::collections::HashMap<i64, String>,
+    down: std::collections::BTreeMap<String, (u64, u64)>,
+    up: std::collections::BTreeMap<String, (u64, u64)>,
+    link_down: u64,
+    link_up: u64,
+}
+
+/// cmux-mobile-link `frame.rs`: `u32 length | u32 channel | u8 type`, payloads split at 256 KiB.
+const LINK_HEADER: u64 = 9;
+const LINK_MAX_PAYLOAD: u64 = 256 * 1024;
+/// The phone's link keepalive (`link.rs`): an 8-byte nonce each way every 15 s.
+const LINK_PING_BYTES: u64 = LINK_HEADER + 8;
+/// The Mac's mobile host deflates acpmux messages from this size (PROTOCOL.md, CMUX-563).
+const LINK_DEFLATE_FROM: usize = 16 * 1024;
+
+fn link_frames(payload: u64) -> u64 {
+    payload + LINK_HEADER * payload.div_ceil(LINK_MAX_PAYLOAD).max(1)
+}
+
+/// A WebSocket frame's header for a payload of `len` (`masked`: client to server).
+#[allow(dead_code)]
+fn ws_header(len: u64, masked: bool) -> u64 {
+    let base = if len < 126 {
+        2
+    } else if len <= 0xffff {
+        4
+    } else {
+        10
+    };
+    base + if masked { 4 } else { 0 }
+}
+
+/// The first `sessionUpdate` in `v`, a few levels down.
+fn session_update(v: &Value, depth: u8) -> Option<&str> {
+    match v {
+        Value::Object(map) => map.get("sessionUpdate").and_then(Value::as_str).or_else(|| {
+            if depth == 0 {
+                return None;
+            }
+            map.values().find_map(|v| session_update(v, depth - 1))
+        }),
+        _ => None,
+    }
+}
+
+impl Tap {
+    fn add(map: &mut std::collections::BTreeMap<String, (u64, u64)>, key: String, bytes: u64) {
+        let slot = map.entry(key).or_default();
+        slot.0 += 1;
+        slot.1 += bytes;
+    }
+
+    fn up(&self, id: i64, method: &str, len: usize) {
+        let mut t = self.inner.lock().unwrap();
+        t.methods.insert(id, method.to_owned());
+        Self::add(&mut t.up, method.to_owned(), len as u64);
+        t.link_up += link_frames(len as u64);
+    }
+
+    fn up_ping(&self) {
+        Self::add(&mut self.inner.lock().unwrap().up, "ws:ping".to_owned(), 0);
+    }
+
+    fn down(&self, frame: &Message) {
+        let mut t = self.inner.lock().unwrap();
+        let (key, len, link) = match frame {
+            Message::Text(text) => {
+                let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+                let key = match v.get("method").and_then(Value::as_str) {
+                    Some(m) if m == method::MUX_EVENT => {
+                        let p = &v["params"];
+                        let kind = p["kind"]
+                            .as_str()
+                            .or_else(|| p.pointer("/event/kind").and_then(Value::as_str))
+                            .unwrap_or("?");
+                        match session_update(p, 4) {
+                            Some(update) => format!("{m}:{kind}/{update}"),
+                            None => format!("{m}:{kind}"),
+                        }
+                    }
+                    Some(m) => m.to_owned(),
+                    None => match v.get("id").and_then(Value::as_i64) {
+                        Some(id) => format!(
+                            "reply:{}",
+                            t.methods.get(&id).map(String::as_str).unwrap_or("?")
+                        ),
+                        None => "?".to_owned(),
+                    },
+                };
+                let len = text.len();
+                // The host's deflate envelope: 0x00, two u32 lengths, the raw deflate (the zlib
+                // stream less its 2-byte header and 4-byte checksum).
+                let link = if len >= LINK_DEFLATE_FROM {
+                    let raw = acpmux::frame_compress::deflate(text.as_bytes()).len() as u64 - 6;
+                    link_frames(9 + raw)
+                } else {
+                    link_frames(len as u64)
+                };
+                (key, len as u64, link)
+            }
+            Message::Binary(b) => {
+                ("binary".to_owned(), b.len() as u64, link_frames(b.len() as u64))
+            }
+            Message::Ping(b) => ("ws:ping".to_owned(), b.len() as u64, 0),
+            Message::Pong(b) => ("ws:pong".to_owned(), b.len() as u64, 0),
+            _ => return,
+        };
+        Self::add(&mut t.down, key, len);
+        t.link_down += link;
+    }
+
+    /// Everything so far, and a fresh start (the request ids stay known).
+    fn take(&self) -> TapInner {
+        let mut t = self.inner.lock().unwrap();
+        let out = t.clone();
+        t.down.clear();
+        t.up.clear();
+        t.link_down = 0;
+        t.link_up = 0;
+        out
+    }
+}
+
+/// Which app's requests the bandwidth bench sends.
+#[derive(Clone, Copy, PartialEq)]
+enum App {
+    /// cmux-next-ios `AcpmuxHub.swift` (as `Link::open` and `Link::attach`), over the phone's link.
+    Ios,
+    /// The macOS agent pane (webviews `direct.ts` `initializeParams`, `sessionPages.ts`
+    /// `SESSION_PAGE`, `attachParams.ts` `plainAttach` local with `settled`), a WebSocket.
+    Macos,
+}
+
+impl App {
+    fn name(self) -> &'static str {
+        match self {
+            App::Ios => "ios",
+            App::Macos => "macos",
+        }
+    }
+}
+
+impl Link {
+    async fn open_as(
+        app: App,
+        addr: std::net::SocketAddr,
+        token: &str,
+        deadline: Instant,
+    ) -> Result<Self, String> {
+        if app == App::Ios {
+            return Self::open(addr, token, deadline).await;
+        }
+        let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
+            .await
+            .map_err(|_| "connect timed out".to_owned())??;
+        let init = link
+            .post(
+                "initialize",
+                json!({"protocolVersion": 1,
+                       "clientInfo": {"name": "cmux-react-agent-pane", "version": "1"},
+                       "clientCapabilities": {},
+                       "_meta": {"acpmux": {"peerRowBatches": true, "localAppToken": token}}}),
+            )
+            .await?;
+        let (_, init) = link.answer(init, deadline).await?;
+        link.capabilities = init
+            .pointer("/_meta/acpmux/capabilities")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        let watch = link.post("_acpmux/watch", json!({"enabled": true, "limit": 200})).await?;
+        link.answer(watch, deadline).await?;
+        Ok(link)
+    }
+
+    async fn attach_as(
+        &mut self,
+        app: App,
+        session: &str,
+        deadline: Instant,
+    ) -> Result<(Instant, Value), String> {
+        if app == App::Ios {
+            return self.attach(session, None, deadline).await;
+        }
+        let settled = self.capabilities.iter().any(|c| c == "settled-attach-v1");
+        let mut params = json!({"sessionId": session, "waitLogs": false, "limit": PAGE_SIZE,
+            "maxBytes": OPEN_BYTES, "eventStream": true, "visible": true,
+            "kinds": ["transcript", "available_commands_update", "usage_update",
+                      "config_option_update", "bookmarks", "secret_request", "secret_decision",
+                      "subsession", "queue_order", "queue_updated", "prompt_refused",
+                      "elevation_request", "elevation_decision", "preset_approval_request",
+                      "preset_approval_decision"]});
+        if settled {
+            params["settled"] = json!(true);
+        }
+        let id = self.post("_acpmux/attach", params).await?;
+        self.answer(id, deadline).await
+    }
+
+    /// Reads (and drops) every frame until `until`: the tap counts them.
+    async fn drain(&mut self, until: Instant) {
+        self.pending.clear();
+        while !matches!(self.frame(until).await, Next::Silent | Next::Closed) {}
+    }
+}
+
+/// One phase's lines: totals per minute each way, the phone's modeled link bytes, and the top
+/// consumers (`down:<type>` / `up:<type>`, bytes per minute; `msgs:` their count per minute).
+fn emit_rates(k: &Key, t: &TapInner, wire: (u64, u64), secs: f64, app: App, per_min: bool) {
+    let scale = if per_min { 60.0 / secs } else { 1.0 };
+    let unit = if per_min { "_per_min" } else { "" };
+    let rate = |b: u64| Some((b as f64 * scale).round());
+    emit(k, &format!("bytes{unit}_down"), rate(wire.1));
+    emit(k, &format!("bytes{unit}_up"), rate(wire.0));
+    if app == App::Ios {
+        let pings = if per_min { (secs / 15.0).floor() as u64 * LINK_PING_BYTES } else { 0 };
+        emit(k, &format!("link_bytes{unit}_down"), rate(t.link_down + pings));
+        emit(k, &format!("link_bytes{unit}_up"), rate(t.link_up + pings));
+    }
+    for (way, map) in [("down", &t.down), ("up", &t.up)] {
+        let mut rows: Vec<_> = map.iter().collect();
+        rows.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(b.0)));
+        for (name, (n, bytes)) in rows.into_iter().take(5) {
+            emit(k, &format!("{way}:{name}"), rate(*bytes));
+            emit(k, &format!("msgs_{way}:{name}"), rate(*n));
+        }
+    }
+}
+
+/// What the shaper and the tap saw since the last call.
+fn window(shaper: &Shaper, link: &Link) -> (TapInner, (u64, u64)) {
+    let c = shaper.counters();
+    shaper.reset_counters();
+    (link.tap.take(), (c.up_bytes, c.down_bytes))
+}
+
+/// Bytes per minute of one chat in each app, through the shaper: the long chat's open, then
+/// idle, a streaming turn and a tool-calling turn, each a fixed window. One `NETCOND` line per
+/// value, `phase` `bw_open|bw_idle|bw_stream|bw_tools`, `scale` the app. Env:
+/// `NETCOND_BW_PROFILE` (lte), `NETCOND_BW_TURNS` (10000 seeded turns), `NETCOND_BW_SECS` (60),
+/// `NETCOND_BW_APPS` (ios,macos).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the bandwidth bench: run with --ignored --nocapture"]
+async fn chat_bytes_per_minute() {
+    let scratch = daemon_env::Scratch::new("netcond-bw");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = ProfileFile::builtin();
+    let profile_name = std::env::var("NETCOND_BW_PROFILE").unwrap_or_else(|_| "lte".to_owned());
+    let profile = file.get(&profile_name).unwrap_or_else(|| panic!("no profile {profile_name}"));
+    let name = format!("{}@{}", profile.name, profile.version);
+    let turns = env_u64("NETCOND_BW_TURNS", 10_000);
+    let secs = env_u64("NETCOND_BW_SECS", 60);
+    let window_len = Duration::from_secs(secs);
+
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let made = control
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "netcond-bw"}}}),
+        )
+        .await;
+    let session =
+        made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}")).to_owned();
+    let seeded = Instant::now();
+    control.seed(&session, 0, turns).await;
+    eprintln!("netcond-bw: {turns} turns seeded in {:?}", seeded.elapsed());
+
+    let trace = Trace::new();
+    for app_name in env_list("NETCOND_BW_APPS", &["ios", "macos"]) {
+        let app = if app_name == "macos" { App::Macos } else { App::Ios };
+        let scale = app.name();
+        let key = |phase| Key { profile: &name, phase, scale, run: 0, seed: 0 };
+        let shaper = Shaper::start(upstream, profile.clone(), 0, &trace).await.unwrap();
+        let start = Instant::now();
+        let deadline = start + BOUND;
+        let mut link = Link::open_as(app, shaper.addr(), &listener.token, deadline).await.unwrap();
+        let (at, reply) = link.attach_as(app, &session, deadline).await.unwrap();
+        let k = key("bw_open");
+        emit(&k, "first_content_ms", Some(ms(at - start)));
+        emit(&k, "open_rows", Some(rows(&reply).len() as f64));
+        // What the open sends after its reply (a settled view's follow-up, the stream's start).
+        link.drain(Instant::now() + Duration::from_secs(2)).await;
+        let (t, wire) = window(&shaper, &link);
+        emit_rates(&k, &t, wire, 1.0, app, false);
+
+        // Idle: the chat open, nothing happening.
+        let t0 = Instant::now();
+        link.drain(t0 + window_len).await;
+        let (t, wire) = window(&shaper, &link);
+        emit_rates(&key("bw_idle"), &t, wire, t0.elapsed().as_secs_f64(), app, true);
+
+        // A streaming answer: a chunk every 50 ms (about a model's token rate), for the window.
+        let chunks = secs * 20 + 20;
+        let turn = control.prompt(&session, &format!("ticking:{chunks}:50")).await;
+        let t0 = Instant::now();
+        link.drain(t0 + window_len).await;
+        let (t, wire) = window(&shaper, &link);
+        emit_rates(&key("bw_stream"), &t, wire, t0.elapsed().as_secs_f64(), app, true);
+        let _ = control.answer(turn, BOUND).await;
+        link.drain(Instant::now() + Duration::from_secs(1)).await;
+        let _ = window(&shaper, &link);
+
+        // A tool-calling turn: a tool call every 100 ms (the fake agent's 60 s turn).
+        let turn = control.prompt(&session, "works-through-cancel").await;
+        let t0 = Instant::now();
+        link.drain(t0 + window_len.min(Duration::from_secs(55))).await;
+        let (t, wire) = window(&shaper, &link);
+        emit_rates(&key("bw_tools"), &t, wire, t0.elapsed().as_secs_f64(), app, true);
+        let _ = control.answer(turn, BOUND).await;
+        drop(link);
     }
 }
