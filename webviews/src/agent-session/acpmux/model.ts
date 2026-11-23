@@ -3738,8 +3738,9 @@ const AROUND_VIEW_CHANGED = 64;
 /// this one), and only the tops below the first measured row are summed again. A width change then costs the rows on
 /// screen, not the chat's length (Leo, 2026-10-27: "the resized chromium pane still lagging ... when recalculating
 /// size/layout"); a row away from the view takes this width's height when it mounts and draws, as `near` rows do
-/// (Chromium's `content-visibility: auto` with a remembered size). Each measured run is measured with its drawn
-/// neighbours on each side, so its rows take their true edges and gaps.
+/// (Chromium's `content-visibility: auto` with a remembered size). Each measured run takes its drawn neighbour on each
+/// side too, since a changed row changes its neighbours' edges (a footer appended under a reply off screen), and each
+/// neighbour is measured with its own outer neighbour, so every row taken reads its true edges and gaps.
 ///
 /// Undefined when it cannot: another scale, fewer rows than `base` (rows removed or a page prepended shift every
 /// index), more than AROUND_VIEW_CHANGED changed rows away from the view, or a layout with room above its rows. The
@@ -3787,26 +3788,52 @@ export function layoutAroundView(
   heights.set(old.heights);
   gaps.set(old.gaps);
   marks.set(old.marks);
+  // The nearest drawn row above `index` (0 when none) and under it (`count` when none).
+  const drawnAbove = (index: number) => {
+    let at = index - 1;
+    while (at > 0 && drawsNothing(rows[at]!)) at -= 1;
+    return Math.max(0, at);
+  };
+  const drawnBelow = (index: number) => {
+    let at = index + 1;
+    while (at < count && drawsNothing(rows[at]!)) at += 1;
+    return Math.min(count, at);
+  };
+  let start = count;
+  const measured: { from: number; to: number }[] = [];
   for (const run of runs) {
-    // The drawn row above the run and the one under it are measured with it, so its first and last rows read their
-    // true neighbours; their own heights are not taken (they lack theirs).
-    let first = run.from - 1;
-    while (first > 0 && drawsNothing(rows[first]!)) first -= 1;
-    first = Math.max(0, first);
-    let end = run.to;
-    while (end < count && drawsNothing(rows[end]!)) end += 1;
-    end = Math.min(count, end + 1);
+    // A changed row changes its drawn neighbours' edges too (an assistant row gains the footer appended under it, a
+    // status row reads the reply above it), so the drawn row on each side of the run is measured again, and each of
+    // those with its own outer neighbour, so it reads its true edge. The outer rows' heights are not taken (they lack
+    // their neighbours).
+    const before = run.from > 0 ? drawnAbove(run.from) : run.from;
+    const first = before > 0 ? drawnAbove(before) : before;
+    const take = first < before ? first + 1 : first;
+    let after = run.to;
+    while (after < count && drawsNothing(rows[after]!)) after += 1;
+    const end = after < count ? Math.min(count, drawnBelow(after) + 1) : count;
     const span = layoutConversation(rows.slice(first, end), width, cache, measureOverride, known, undefined, sessionId);
-    // Heights inside the run; gaps and marks through the drawn row under it, whose gap follows the run's last row.
-    for (let index = run.from; index < end; index += 1) {
+    // Heights through the drawn row under the run; marks through the outer row under it, whose gap follows that row.
+    for (let index = take; index < end; index += 1) {
       const at = index - first;
-      if (index < run.to) heights[index] = span.heights[at]!;
-      gaps[index] = span.gaps![at]!;
+      if (index <= after) heights[index] = span.heights[at]!;
       marks[index] = span.marks![at]!;
     }
+    measured.push({ from: take, to: end });
+    start = Math.min(start, take);
   }
-  // The rows above the first run keep their places; the rest are summed again (no row is measured).
-  const start = runs[0]!.from;
+  // The gaps over each measured span, from the marks and heights as they now stand: the span's own gap above its
+  // first drawn row read the outer row's mark, which lacked that row's neighbour.
+  for (const span of measured) {
+    let previous = span.from - 1;
+    while (previous >= 0 && heights[previous] === 0) previous -= 1;
+    for (let index = span.from; index < span.to; index += 1) {
+      if (heights[index]! <= 0) continue;
+      gaps[index] = previous >= 0 ? transcriptGap(marks[previous]!, marks[index]!) * scale : 0;
+      previous = index;
+    }
+  }
+  // The rows above the first measured row keep their places; the rest are summed again (no row is measured).
   const tops = new Float64Array(count);
   let top = 0;
   if (start > 0) {
