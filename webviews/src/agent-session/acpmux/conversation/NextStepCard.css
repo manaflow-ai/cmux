@@ -13,7 +13,7 @@
   margin: 0;
   padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
   border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
-  border-radius: 12px;
+  border-radius: var(--surface-ask-radius);
   background: var(--acpmux-question-bg);
   color: var(--agent-text);
   font-size: var(--text-body);
@@ -148,7 +148,7 @@
   box-sizing: border-box;
   padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
   border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
-  border-radius: 12px;
+  border-radius: var(--surface-ask-radius);
   background: var(--acpmux-question-bg);
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);

@@ -47,6 +47,7 @@ import { QUESTION_KEY_REQUEST_EVENT, type QuestionKeyRequestEvent } from "./keyR
 import { shownPreview, previewText } from "./questionCardModel";
 import { focusRoute } from "../../../ui/focusRoute";
 import { intl } from "../../../ui/intl";
+import { Surface, surfaceShell } from "../../../ui/surface/Surface";
 import { WithFacts } from "../chips/FactsHoverCard";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
@@ -128,7 +129,8 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
   return (
     <div
       ref={ask}
-      className="acpmux-question-ask"
+      // The prompt card's shell is the ask role's (ui/surface) while it is open; folded, it is a bare row.
+      {...(promptCard && open ? surfaceShell("ask", "acpmux-question-ask") : { className: "acpmux-question-ask" })}
       data-prompt-card={promptCard || undefined}
       data-folded={!open || undefined}
     >
@@ -474,7 +476,7 @@ function PendingQuestion({
         ref={group}
         id={id}
         hidden={hidden}
-        className="acpmux-question"
+        {...surfaceShell("ask", "acpmux-question")}
         data-consent=""
         aria-labelledby={legendId}
         aria-busy={sent || keyPendingFor === question.id || undefined}
@@ -502,29 +504,32 @@ function PendingQuestion({
         <div className="acpmux-question-actions">
           <WithFacts facts={[{ value: reject.detail ?? "" }]}>
             {(facts) => (
-              <button
+              <Surface.Action
                 {...facts}
-                type="button"
                 className="acpmux-question-skip"
                 aria-keyshortcuts="Escape"
                 disabled={sent}
                 onClick={skip}
               >
                 {inlineText(reject.label)}
-                <Keycap>esc</Keycap>
-              </button>
+                <Surface.Keys>
+                  <Keycap>esc</Keycap>
+                </Surface.Keys>
+              </Surface.Action>
             )}
           </WithFacts>
-          <button
-            type="button"
+          <Surface.Action
+            kind="primary"
             className="acpmux-question-submit"
             aria-keyshortcuts="Enter"
             disabled={sent}
             onClick={() => dispatch({ type: "number", value: consent.accept + 1 })}
           >
             {inlineText(accept.label)}
-            <Keycap>↩</Keycap>
-          </button>
+            <Surface.Keys>
+              <Keycap>↩</Keycap>
+            </Surface.Keys>
+          </Surface.Action>
         </div>
       </fieldset>
     );
@@ -616,7 +621,8 @@ function PendingQuestion({
         ref={group}
         id={id}
         hidden={hidden}
-        className="acpmux-question"
+        // Inside the prompt card the wrapper is the surface; alone, the fieldset is.
+        {...(promptCard ? { className: "acpmux-question" } : surfaceShell("ask", "acpmux-question"))}
         role={promptCard ? (multi ? "group" : "radiogroup") : undefined}
         aria-labelledby={legendId}
         aria-busy={sent || keyPendingFor === question.id || undefined}
@@ -711,29 +717,30 @@ function PendingQuestion({
                 {t("question.answerToSubmit", { questions: listFormat.format(waitingFor) })}
               </span>
             )}
-            <button
-              type="button"
+            <Surface.Action
               className="acpmux-question-skip"
               aria-keyshortcuts="Escape"
               disabled={sent}
               onClick={skip}
             >
               {t("question.skip")}
-              <Keycap>esc</Keycap>
-            </button>
+              <Surface.Keys>
+                <Keycap>esc</Keycap>
+              </Surface.Keys>
+            </Surface.Action>
             {action === "next" ? (
-              <button
-                type="button"
+              <Surface.Action
+                kind="primary"
                 className="acpmux-question-submit"
                 data-action="next"
                 disabled={sent}
                 onClick={() => dispatch({ type: "next" })}
               >
                 {t("question.next")}
-              </button>
+              </Surface.Action>
             ) : (
-              <button
-                type="button"
+              <Surface.Action
+                kind="primary"
                 className="acpmux-question-submit"
                 aria-keyshortcuts="Meta+Enter"
                 aria-describedby={waitingFor.length > 0 ? hintId : undefined}
@@ -741,11 +748,11 @@ function PendingQuestion({
                 onClick={() => dispatch({ type: "submit" })}
               >
                 {t(promptCard ? "composer.send" : "question.submit")}
-                <span className="acpmux-question-keys">
+                <Surface.Keys className="acpmux-question-keys">
                   <Keycap>⌘</Keycap>
                   <Keycap>↩</Keycap>
-                </span>
-              </button>
+                </Surface.Keys>
+              </Surface.Action>
             )}
           </div>
         </div>
@@ -949,13 +956,14 @@ function CancelledQuestion({ question }: { question: AgentQuestion }) {
           ? "question.outcome.answeredInChat"
           : "question.outcome.none";
   return (
-    <div className="acpmux-question-cancelled" data-reason={reason}>
+    // oxlint-disable-next-line jsx-a11y/aria-role -- the Surface role, not an ARIA role
+    <Surface role="ask" className="acpmux-question-cancelled" data-reason={reason}>
       {question.items.map((item) => (
         <span key={item.id} className="acpmux-question-answered-prompt">
           {inlineText(item.prompt)}
         </span>
       ))}
       <span className="acpmux-question-answered-answer">{t(outcome)}</span>
-    </div>
+    </Surface>
   );
 }

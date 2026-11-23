@@ -100,11 +100,6 @@
   padding-top: 12px;
   box-shadow: none;
 }
-.acpmux-question-skip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
 
 /* Choice and free-text asks sit above the composer as one card. Consent and preview cards keep
    their existing layout; the same reducer and reply path still own every choice and key. */
@@ -112,15 +107,6 @@
   align-self: stretch;
   align-items: stretch;
   gap: 0;
-  padding: var(--ds-space-4);
-  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
-  border-radius: var(--ds-radius-xl);
-  background: var(--acpmux-question-bg);
-}
-.acpmux-question-ask[data-prompt-card][data-folded] {
-  padding: 0;
-  border: 0;
-  background: transparent;
 }
 .acpmux-question-bar,
 .acpmux-question-bar > span {
@@ -137,9 +123,6 @@
 .acpmux-question-bar > span > svg { flex: none; }
 .acpmux-question-ask[data-prompt-card] .acpmux-question {
   overflow: visible;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
 }
 .acpmux-question-ask[data-prompt-card] .acpmux-question-head {
   gap: var(--ds-space-2);
@@ -180,7 +163,7 @@
 .acpmux-question-number[data-chosen] {
   border-color: var(--agent-text);
   background: var(--agent-text);
-  color: var(--acpmux-question-bg);
+  color: var(--acpmux-base);
 }
 .acpmux-question-footer {
   display: flex;
@@ -207,17 +190,7 @@
   padding: 0;
 }
 .acpmux-question-footer .acpmux-question-hint { flex: 1 0 100%; white-space: normal; }
-.acpmux-question-footer :is(.acpmux-question-skip, .acpmux-question-submit) {
-  min-height: var(--ds-control-primary);
-  padding-inline: var(--ds-space-3);
-  border-radius: calc(var(--ds-control-primary) / 2);
-  font-size: var(--text-content);
-}
-.acpmux-question-footer .acpmux-question-skip {
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--acpmux-question-edge);
-}
-.acpmux-question-ask[data-prompt-card] .acpmux-question-footer .acpmux-question-actions :is(.acpmux-keycap, .acpmux-question-keys) { display: none; }
+.acpmux-question-ask[data-prompt-card] .acpmux-question-footer .acpmux-question-actions .ui-surface-keys { display: none; }
 .acpmux-question-footer .acpmux-question-other :is(input, textarea) {
   margin: 0;
   padding: 0;
