@@ -1225,7 +1225,7 @@
     "agent-pane.new-tab#typed-address": 0.00769,
     "agent-pane.new-tab#typed-dismissed": 0.00942,
     "agent-pane.new-tab#typed-hover": 0,
-    "agent-pane.new-tab#typed-hover-return": 0.00048,
+    "agent-pane.new-tab#typed-hover-return": 0.00025,
     "agent-pane.new-tab#typed-keywords": 0.00048,
     "agent-pane.new-tab#typed-over-note": 0,
     "agent-pane.new-tab#typed-prompt": 0.00048,
