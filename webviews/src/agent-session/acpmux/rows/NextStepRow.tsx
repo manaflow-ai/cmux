@@ -17,7 +17,7 @@ export const NextStepRow = memo(
         registerKey={nextStepKey}
         answerKey={askKey(row)}
         asker={asker}
-        onDismiss={dismissWrapUp ? () => dismissWrapUp(row.id) : undefined}
+        onDismiss={dismissWrapUp && row.nextStep.ask.recap ? () => dismissWrapUp(row.nextStep!.ask.recap!) : undefined}
       />
     ) : null;
   },

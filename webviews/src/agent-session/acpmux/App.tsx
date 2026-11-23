@@ -3679,7 +3679,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A turn summary's × or Esc (NextStepCard.tsx): closed for the chat this pane shows.
   const shownChatRef = useRef(shownSessionId);
   shownChatRef.current = shownSessionId;
-  const dismissWrapUp = useCallback((rowId: string) => rememberWrapUpDismissed(shownChatRef.current, rowId), []);
+  const dismissWrapUp = useCallback((recap: string) => rememberWrapUpDismissed(shownChatRef.current, recap), []);
   const nextStepKey = useCallback((fire: () => void) => {
     setNextStepFire({ fire });
     return () => setNextStepFire((now) => (now?.fire === fire ? undefined : now));
@@ -3889,8 +3889,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 : Promise.resolve()
           )(restartChat),
         }),
-      // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
+      // A turn summary's × or Esc (NextStepCard.tsx): closed on this device for the shown chat.
       dismissWrapUp,
+      // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
       ...(restartChat && {
         nextStepKey,
         ...(asker && { asker }),

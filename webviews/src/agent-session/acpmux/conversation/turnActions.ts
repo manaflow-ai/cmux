@@ -100,9 +100,9 @@ export type TurnActions = {
   /// rules hold: never in the Quick Composer (whose ⌘↩ opens a window), shell mode or a running turn.
   /// Returns the release, which clears it only while it is still that card's.
   nextStepKey?: (fire: () => void) => () => void;
-  /// Closes a turn summary (NextStepCard.tsx with a recap alone) by its row, on this device, for the
+  /// Closes a turn summary (NextStepCard.tsx with a recap alone) by its recap, on this device, for the
   /// chat the pane shows (conversation/wrapUpDismissed.ts). Absent in a read-only transcript.
-  dismissWrapUp?: (rowId: string) => void;
+  dismissWrapUp?: (recap: string) => void;
   /// Compact the chat (a context-full failure's Compact): sends the harness's own `/compact` through
   /// the composer's send path. Only where the agent lists `compact` among its slash commands.
   compact?: () => Promise<void>;

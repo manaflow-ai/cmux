@@ -1,7 +1,8 @@
 // The turn summaries (the agent's wrap-up recap, NextStepCard.tsx with no question) the person
-// closed on this device with the card's × or Esc. Kept by chat and card row (one card per turn,
-// turns.ts `${NEXT_STEP}-${user.id}`), so a closed summary stays closed when the chat opens again and
-// a newer turn's summary still shows. The transcript drops a closed card's row
+// closed on this device with the card's × or Esc. Kept by chat and the summary's own words (a short
+// hash of its recap), not the card's row id: a prompt sent from this pane draws as `local-<promptId>`
+// and the same prompt read back after a reload or a chat switch as `user-<seq>` (direct.ts), so an id
+// key would bring a closed summary back. A newer turn's summary says something else and still shows. The transcript drops a closed card's row
 // (`withoutDismissedWrapUps`), so it leaves no row and no gap. Capped like recapDismissed.ts, oldest
 // first out. The iPhone keeps its own (cmux-next-ios WrapUpDismissals.swift): each device remembers
 // what was closed on it.
@@ -30,16 +31,26 @@ export function dismissedWrapUpKeys(): readonly string[] {
   }
 }
 
-export const wrapUpKey = (chat: string, rowId: string) => `${chat}\u0000${rowId}`;
+/// A short, stable name for a recap's words (FNV-1a, 32 bits, with the length).
+export function recapHash(recap: string): string {
+  let hash = 0x811c9dc5;
+  for (let at = 0; at < recap.length; at += 1) {
+    hash ^= recap.charCodeAt(at);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${hash.toString(36)}.${recap.length.toString(36)}`;
+}
+
+export const wrapUpKey = (chat: string, recap: string) => `${chat}\u0000${recapHash(recap)}`;
 
 export function subscribeWrapUpDismissals(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
-export function rememberWrapUpDismissed(chat: string | undefined, rowId: string): void {
-  if (!chat) return;
-  const key = wrapUpKey(chat, rowId);
+export function rememberWrapUpDismissed(chat: string | undefined, recap: string): void {
+  if (!chat || !recap) return;
+  const key = wrapUpKey(chat, recap);
   const kept = dismissedWrapUpKeys().filter((other) => other !== key);
   const next = [...kept, key].slice(-MAX_DISMISSED);
   try {
@@ -61,14 +72,14 @@ export function withoutDismissedWrapUps<T extends AcpmuxRow>(
   dismissed: readonly string[],
 ): T[] {
   if (!chat || dismissed.length === 0) return rows;
-  const prefix = wrapUpKey(chat, "");
+  const prefix = `${chat}\u0000`;
   const closed = new Set<string>();
   for (const key of dismissed) if (key.startsWith(prefix)) closed.add(key.slice(prefix.length));
   if (closed.size === 0) return rows;
   let out: T[] | undefined;
   for (let at = 0; at < rows.length; at += 1) {
     const row = rows[at]!;
-    const drop = closed.has(row.id) && closableWrapUp(row);
+    const drop = closableWrapUp(row) && closed.has(recapHash(row.nextStep!.ask.recap!));
     if (drop && !out) out = rows.slice(0, at);
     else if (!drop && out) out.push(row);
   }

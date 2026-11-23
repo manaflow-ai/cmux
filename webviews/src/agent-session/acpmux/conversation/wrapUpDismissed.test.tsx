@@ -110,28 +110,39 @@ test("a read-only summary and a card with a question draw no ×", () => {
   );
 });
 
-test("a closed summary is kept for its chat and turn, and leaves no row", () => {
+const newer = { ...recapOnly, recap: "Rebased on the newest base; CI is green." } as NextStepAsk;
+
+test("a closed summary is kept for its chat, survives its row's new id after a reload, and leaves no row", () => {
   installDom();
   let heard = 0;
   const stop = subscribeWrapUpDismissals(() => (heard += 1));
-  const rows = [reply("a1"), card("nextStep-u1", recapOnly), reply("a2"), card("nextStep-u2", recapOnly)];
-  expect(withoutDismissedWrapUps(rows, "chat-1", dismissedWrapUpKeys())).toBe(rows);
+  // A prompt sent from this pane draws its card as `nextStep-local-<promptId>`.
+  const live = [reply("a1"), card("nextStep-local-p1", recapOnly), reply("a2"), card("nextStep-local-p2", newer)];
+  expect(withoutDismissedWrapUps(live, "chat-1", dismissedWrapUpKeys())).toBe(live);
 
-  rememberWrapUpDismissed("chat-1", "nextStep-u1");
+  rememberWrapUpDismissed("chat-1", recapOnly.recap!);
   stop();
   expect(heard).toBe(1);
-  // Read back from storage, as a reopened pane reads it.
-  const kept = JSON.parse(localStorage.getItem("cmux.agentPane.wrapUpDismissed") ?? "[]") as string[];
-  expect(kept).toHaveLength(1);
-  const shown = withoutDismissedWrapUps(rows, "chat-1", dismissedWrapUpKeys());
-  // The newer turn's summary still shows; another chat's rows with the same id keep theirs.
-  expect(shown.map((row) => row.id)).toEqual(["a1", "a2", "nextStep-u2"]);
-  expect(withoutDismissedWrapUps(rows, "chat-2", dismissedWrapUpKeys())).toBe(rows);
+  expect(withoutDismissedWrapUps(live, "chat-1", dismissedWrapUpKeys()).map((row) => row.id)).toEqual([
+    "a1",
+    "a2",
+    "nextStep-local-p2",
+  ]);
+  // Reloaded, the same turn's card is `nextStep-user-<seq>`: still closed, read back from storage.
+  const reloaded = [reply("a1"), card("nextStep-user-7", recapOnly), reply("a2"), card("nextStep-user-9", newer)];
+  expect(JSON.parse(localStorage.getItem("cmux.agentPane.wrapUpDismissed") ?? "[]")).toHaveLength(1);
+  expect(withoutDismissedWrapUps(reloaded, "chat-1", dismissedWrapUpKeys()).map((row) => row.id)).toEqual([
+    "a1",
+    "a2",
+    "nextStep-user-9",
+  ]);
+  // Another chat's summary with the same words keeps its card.
+  expect(withoutDismissedWrapUps(reloaded, "chat-2", dismissedWrapUpKeys())).toBe(reloaded);
 });
 
 test("a card that still asks is never dropped by a dismissal", () => {
   installDom();
-  rememberWrapUpDismissed("chat-1", "nextStep-u1");
+  rememberWrapUpDismissed("chat-1", recapOnly.recap!);
   const rows = [card("nextStep-u1", withQuestion)];
   expect(withoutDismissedWrapUps(rows, "chat-1", dismissedWrapUpKeys())).toBe(rows);
 });
