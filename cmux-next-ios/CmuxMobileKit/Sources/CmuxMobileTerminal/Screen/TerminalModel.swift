@@ -541,9 +541,23 @@ public final class TerminalModel {
     /// moved against the keyboard (down while it shows, up while it hides):
     /// the terminal bouncing.
     public internal(set) var keyboardBounces = 0
+    /// Pinches and double taps that zoomed the alternate screen's grid.
+    public internal(set) var zoomGestures = 0
+    /// The alternate screen's zoom over the Mac's grid (1: readable).
+    public internal(set) var zoomScale: Double = 1
+    /// The settle probe (``TerminalViewController/startSettleProbe``):
+    /// milliseconds from its start to the first display frame that shows the
+    /// full-screen app right; -1 while it runs, -2 when none came in 5 s.
+    public internal(set) var settleMs = -1
+    /// Display frames of a full-screen app drawn at a grid that is not its
+    /// final one (a size change still on its way: "uncompact then squish").
+    public internal(set) var unsettledTUIFrames = 0
     #if DEBUG
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG: the grid columns the full-screen app ends at (the mock Mac's
+    /// PTY), nil while a size change is on its way (the settle probe).
+    @ObservationIgnored var demoFinalColumns: (@MainActor () -> Int?)?
     #endif
 
     /// Refreshes `snapshot` from the live page (the grid is about to show it).

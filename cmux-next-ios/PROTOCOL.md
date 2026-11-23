@@ -1239,8 +1239,22 @@ own width. On the primary screen the phone claims no size: it attaches
 without one and never sends `resize-surface`, so attach, an app switch, a
 lock, the keyboard and a rotation never resize the Mac's PTY, and a rotation
 re-wraps on the phone in the same frame. On the alternate screen (vim, htop)
-it claims as below, only while the page claims, and releases when the
-program leaves the alternate screen. On the primary screen, cursor position
+it claims no size either: the page shows the Mac's exact grid, zoomed
+(pinch snaps to fit width and to the reader's font size, double tap
+toggles them, one finger pans and is never sent to the program).
+
+The one exception (2026-11-17, `fit_policy`): the phone claims its grid as
+below once the person types text (3 printable characters; keys, mouse
+reports and replies never count) into a TUI: the alternate screen, or a
+named program that is not a shell drawing on the primary screen with its
+cursor hidden (Claude Code, Codex). The program's name (the terminal title,
+else the tab's) is remembered on the phone, so the next time it is in the
+foreground the phone claims at once and holds the program's frames at the
+Mac's grid until the `resized` replay arrives (1.5 s at most). The claim is
+released when the program leaves the foreground (the alternate screen ends,
+the cursor shows again, another program is named) or when the page stops
+claiming. The terminal's title menu toggles it by hand (Fit to Phone, Keep
+the Mac's Size); undoing forgets the program. On the primary screen, cursor position
 (`CSI 6n`) and text area (`CSI 18t`) reports are answered by the projection
 in the Mac's cells; on the alternate screen the phone's terminal gets the
 program's bytes unchanged and answers them itself (once). A rotation
@@ -1886,7 +1900,11 @@ to a phone: it changes the Mac-wide preference only.
   terminal background and a one-line note (`120×40 · set by <device>`).
   This applies to the alternate screen, and to every screen with Fit to
   Phone on; with projection (the default, "Terminal size claims" above)
-  the primary screen is re-wrapped to the phone's width instead.
+  the primary screen is re-wrapped to the phone's width instead. On the
+  alternate screen the grid also takes a zoom: it opens at fit width (the
+  whole width on the page), pinch and double tap reach the reader's font
+  size, and one finger pans in both directions; the letterbox and its note
+  follow the zoomed grid's height.
 
 ## Connectivity incidents (API 0.15.0)
 

@@ -218,6 +218,16 @@ impl Terminal {
         self.alt_active
     }
 
+    /// The window title the program set last (OSC 0 or 2), as text: the
+    /// fit policy's program name (`fit_policy::program_key`).
+    pub fn title_text(&self) -> Option<String> {
+        let seq = self.title.as_deref()?;
+        let end = if seq.ends_with(b"\x07") { seq.len() - 1 } else { seq.len().saturating_sub(2) };
+        let body = seq.get(2..end.max(2)).unwrap_or_default();
+        let text = body.splitn(2, |&b| b == b';').nth(1).unwrap_or_default();
+        Some(String::from_utf8_lossy(text).into_owned())
+    }
+
     /// The primary screen's rows.
     pub fn primary_rows(&self) -> &[Row] {
         &self.primary

@@ -24,10 +24,12 @@
 //! text area reports are answered here in host cells
 //! ([`Projection::take_replies`]).
 
+pub mod fit_policy;
 pub mod project;
 pub mod style;
 pub mod terminal;
 pub mod unicode;
+pub mod zoom;
 
 pub use project::{Paint, View};
 pub use terminal::Terminal;
