@@ -107,7 +107,7 @@ if (process.platform !== "linux") {
 }
 
 const ticksPerSecond = 100; // USER_HZ on every Linux the runners have.
-function childrenOf(root: number): Map<number, number[]> {
+function childrenOf(): Map<number, number[]> {
   const children = new Map<number, number[]>();
   for (const entry of fs.readdirSync("/proc")) {
     if (!/^\d+$/.test(entry)) continue;
@@ -122,7 +122,7 @@ function childrenOf(root: number): Map<number, number[]> {
   return children;
 }
 function renderers(root: number): number[] {
-  const children = childrenOf(root);
+  const children = childrenOf();
   const out: number[] = [];
   const walk = (pid: number) => {
     for (const child of children.get(pid) ?? []) {
