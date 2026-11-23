@@ -40,13 +40,14 @@ struct MacRecoveryPanel: View {
                 steps(attempt)
                     .padding(.top, 20)
             }
-            if reach == .authRequired, let signIn {
+            if reach.action == .signIn, let signIn {
                 PrimaryCapsule("Sign In", action: signIn)
                     .padding(.top, 20)
                     .accessibilityIdentifier("mac.recovery.sign-in")
-            } else if reach.offersRetry || attempt?.result != nil, let retry {
-                PrimaryCapsule(attempt?.result == nil && attempt != nil ? "Retrying…" : "Retry",
-                               systemImage: "arrow.clockwise", isLoading: attempt?.isRunning == true, action: retry)
+            } else if reach.action == .retry || attempt?.action == .retry, let retry {
+                // While a Retry runs the button keeps its word and spins; the steps above say how far it got.
+                PrimaryCapsule("Retry", systemImage: "arrow.clockwise", isLoading: attempt?.isRunning == true,
+                               action: retry)
                     .padding(.top, 20)
                     .accessibilityIdentifier("mac.recovery.retry")
             }
