@@ -619,6 +619,10 @@ fn expectation(refusal: &Refusal) -> String {
             format!("expected a {name}: {}", values.join(", "))
         }
         Accepted::Domain { name, .. } => format!("expected an installed {name}"),
+        Accepted::Json { .. } => match accepted.first_problem() {
+            Some(problem) => format!("expected a value of its shape ({problem})"),
+            None => "expected a value of its shape".to_owned(),
+        },
     }
 }
 
