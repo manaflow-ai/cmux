@@ -7,6 +7,7 @@
 //!   table committed as `schemas/auto-session-holder/table.json`.
 //! - [`chunks`]: a snapshot's bytes as content-addressed chunks.
 //! - [`cloud`]: the Cloud store as a trait ([`cloud::AutoCloud`]) and its error.
+//! - `fake` (feature `test-support`): the Cloud store in memory, under the real store's rules.
 //!
 //! No socket, clock or runtime is used here. The caller passes `now` in milliseconds and runs
 //! the effects.
@@ -14,6 +15,8 @@
 pub mod chunks;
 pub mod cloud;
 pub mod consts;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fake;
 pub mod holder;
 pub mod wire;
 
