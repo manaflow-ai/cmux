@@ -633,6 +633,8 @@
       "conversation-thread",
       "conversation-link-resolve",
       "conversation-inbox-op",
+      "conversation-scheduled-list",
+      "conversation-scheduled-op",
       "home-inbox",
       "conversation-search",
       "history-search",
@@ -857,6 +859,12 @@
     },
     {
       "name": "conversation-inbox-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-scheduled-changed",
       "streams": [
         "subscribe"
       ]
