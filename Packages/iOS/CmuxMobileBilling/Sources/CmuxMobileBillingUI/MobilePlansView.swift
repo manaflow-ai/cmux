@@ -12,6 +12,11 @@ import StoreKit
 /// through a team, or this build's purchases would grant no plan), the screen
 /// explains why and shows no purchase button and no link to web billing.
 ///
+/// In an app whose App Store record has no subscriptions
+/// (``BillingModel/offersPurchases`` false, cmux INTERNAL today) it shows the
+/// current plan read-only: no offers, prices, Restore Purchases, Manage
+/// Subscription or subscription terms, and no text about buying.
+///
 /// HIG: In-app purchase, and Lists and tables (inset-grouped sections).
 ///
 /// Reads ``BillingModel`` from the environment:
@@ -119,7 +124,10 @@ public struct MobilePlansView: View {
             }
             .accessibilityIdentifier("BillingLoadFailed")
         case .loaded(let account):
-            if account.eligible {
+            if !billing.offersPurchases {
+                // Read-only: the current plan section above is the whole screen.
+                EmptyView()
+            } else if account.eligible {
                 offersSection(account)
             } else {
                 Section {
@@ -230,7 +238,7 @@ public struct MobilePlansView: View {
 
     @ViewBuilder
     private var actionsSection: some View {
-        if let account = billing.account.account {
+        if billing.offersPurchases, let account = billing.account.account {
             Section {
                 Button(L10n.string("mobile.billing.restore", defaultValue: "Restore Purchases")) {
                     Task { await billing.restorePurchases() }
@@ -263,7 +271,14 @@ public struct MobilePlansView: View {
         }
     }
 
+    @ViewBuilder
     private var legalSection: some View {
+        if billing.offersPurchases {
+            legalLinks
+        }
+    }
+
+    private var legalLinks: some View {
         Section {
             Link(L10n.string("mobile.billing.terms", defaultValue: "Terms of Use"), destination: Self.termsURL)
             Link(L10n.string("mobile.billing.privacy", defaultValue: "Privacy Policy"), destination: Self.privacyURL)
