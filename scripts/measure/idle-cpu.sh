@@ -5,7 +5,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 \
 #     --script scripts/measure/idle-cpu.sh --ref SHA --arg=artifact=sha256:HEX \
 #     [--arg=minutes=10] [--arg=window=60] [--arg=windows=3] [--arg=chats=0] [--arg=history=0] [--arg=prompt_kb=0] [--arg=writers=0] [--arg=sample=1|0|each] \
-#     [--arg=budget_cpu=1.0] [--arg=budget_wakeups=1.0] [--arg=cef_switches=A:B] --artifact .build/idle-cpu/report.tgz --timeout 3600
+#     [--arg=budget_cpu=1.0] [--arg=budget_wakeups=1.0] [--arg=cef_switches=A:B|none] --artifact .build/idle-cpu/report.tgz --timeout 3600
 # On a fleet host, scripts/cmux-next/idle-cpu-run.py makes this step for a build job or tag through the
 # mini scheduler. Output: IDLE-CPU lines and IDLE-CPU-VERDICT. Exit 0 within budget, 1 over, 3 not run.
 set -uo pipefail
