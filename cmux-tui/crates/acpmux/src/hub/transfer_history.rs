@@ -13,7 +13,7 @@
 //!    (earlier when a prompt that still waits was queued before that: the queue moves whole, in
 //!    the freeze). The answer says `historyLater: true`; its files are the agent's own
 //!    transcript, pre-copied as ever. The log through `afterSeq` is packed into the chat's pack
-//!    store on a blocking thread meanwhile ([`Prepack`]), never inside a freeze.
+//!    store on a thread of its own at the lowest CPU priority meanwhile ([`Prepack`]), never inside a freeze.
 //! 2. target `transfer_stage`, `transfer_write`, `transfer_stage_finish`: as for any prefix, but
 //!    the staged segment is empty.
 //! 3. source `transfer_begin {prepareId, afterSeq}`, target `transfer_receive {manifest,
@@ -69,6 +69,21 @@ struct Prepacked {
     manifest: pack::Manifest,
     stats: pack::PackStats,
     ms: u64,
+}
+
+/// The calling thread at the lowest CPU priority, and the threads it starts after: nice 19 on
+/// Linux (a thread's own, inherited by the threads it starts), the background band on macOS.
+/// Best effort: a refusal leaves it as it was.
+fn lower_this_thread() {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
+        libc::setpriority(libc::PRIO_PROCESS, tid, 19);
+    }
+    #[cfg(target_os = "macos")]
+    unsafe {
+        libc::setpriority(libc::PRIO_DARWIN_THREAD, 0, libc::PRIO_DARWIN_BG);
+    }
 }
 
 /// Ends a [`Prepack`] when dropped, with what it made.
@@ -420,7 +435,7 @@ impl Hub {
     }
 
     /// At a history-later prepare through seq `through`: packs the chat's log through it into
-    /// its pack store on a blocking thread, so the export after the move's commit only bundles.
+    /// its pack store on a thread of its own, so the export after the move's commit only bundles.
     /// The freeze never waits for it; the export does ([`Self::prepacked`]).
     pub(in crate::hub) fn prepack_history(self: &Arc<Self>, session: &Arc<Session>, through: u64) {
         let slot = Arc::new(Prepack::default());
@@ -451,9 +466,14 @@ impl Hub {
                 }
             }
         };
-        match tokio::runtime::Handle::try_current() {
-            Ok(rt) => drop(rt.spawn_blocking(run)),
-            Err(_) => drop(std::thread::spawn(run)),
+        // Its own thread, at the lowest CPU priority: the pack encodes on every core (zstd 19)
+        // for seconds, and a move's begin that runs meanwhile must not wait for a core.
+        let spawned = std::thread::Builder::new().name("acpmux-prepack".into()).spawn(move || {
+            lower_this_thread();
+            run();
+        });
+        if let Err(error) = spawned {
+            tracing::debug!("history not packed at prepare: {error}");
         }
     }
 
