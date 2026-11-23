@@ -21,6 +21,7 @@ export const ROW_LEVELS: {
     "updates.oneClickInstall": "more",
     "updates.meteredNetwork": "more",
     "updates.web": "more",
+    "updates.daemon": "more",
     "updates.liveWebReload": "more",
     "updates.notify": "more",
     "updates.showFeatureTips": "more",
