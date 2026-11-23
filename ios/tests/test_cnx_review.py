@@ -193,7 +193,7 @@ class PhoneLaunchTests(unittest.TestCase):
     """phone_launch_and_check: the credentials reach only the signed-in launch, never argv; the
     credential-free relaunch carries none; the receipt of that very launch decides."""
 
-    def launch(self, session, receipt_fields, pair_url='', backend=''):
+    def launch(self, session, receipt_fields, pair_url='', backend='', mobile='', phone='', phone_mobile=''):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'bin').mkdir()
@@ -229,7 +229,7 @@ else:
 set -euo pipefail
 source "{REVIEW}"
 BUNDLE_ID=dev.cmux.mobile.{TAG} MAC_DEVICE_ID=mac-tagged CNX_REVIEW_RECEIPT_TIMEOUT=2 SHA={SHA} SLUG={TAG} STATE="{root}/state"
-BACKEND_URL="{backend}"
+BACKEND_URL="{backend}" BACKEND_MOBILE_URL="{mobile}" BACKEND_PHONE_URL="{phone}" BACKEND_PHONE_MOBILE_URL="{phone_mobile}"
 export DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND=https://ambient.example
 PERSONAL_EMAIL=me@example.com PERSONAL_PASSWORD=pw-secret PERSONAL_ACCOUNT=me@example.com
 export DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=ambient-leak
@@ -290,6 +290,33 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
         r, _, _ = self.launch('restored', {**self.linked, 'cloud_backend': ''}, backend=self.STACK)
         self.assertIn('FAIL: restored launch: the receipt names no cloud_backend', r.stdout)
 
+    STACK_MOBILE = 'https://cmux-dev-backend-1.tail137216.ts.net:3851'
+
+    def test_a_tag_stack_launch_must_use_the_stacks_own_mobile_worker(self):
+        # The tag's Mac registers with the stack's mobile Worker: a phone on the shared one never finds it.
+        on_stack = {**self.linked, 'cloud_backend': self.STACK, 'api_base_url': self.STACK_MOBILE}
+        r, _, _ = self.launch('restored', on_stack, backend=self.STACK, mobile=self.STACK_MOBILE)
+        self.assertIn('PASS: signed in (restored)', r.stdout, r.stderr)
+        shared = {**on_stack, 'api_base_url': 'https://cmux-mobile-api-dev.debussy.workers.dev'}
+        r, _, _ = self.launch('restored', shared, backend=self.STACK, mobile=self.STACK_MOBILE)
+        self.assertIn('FAIL: restored launch: the app uses the mobile service https://cmux-mobile-api-dev.debussy.workers.dev, '
+                      f'not the tag stack\'s {self.STACK_MOBILE}', r.stdout)
+
+    PUBLIC = 'https://api.s7.wdev.cmux.dev'
+    PUBLIC_MOBILE = 'https://mobile.s7.wdev.cmux.dev'
+
+    def test_a_stack_with_a_public_origin_gives_the_phone_that_origin(self):
+        # The Mac keeps the tailnet origin; the phone gets the same stack's public one, which works off the tailnet.
+        on_public = {**self.linked, 'cloud_backend': self.PUBLIC, 'api_base_url': self.PUBLIC_MOBILE}
+        r, _, env = self.launch('auto_login', on_public, backend=self.STACK, mobile=self.STACK_MOBILE,
+                                phone=self.PUBLIC, phone_mobile=self.PUBLIC_MOBILE)
+        self.assertIn('PASS: signed in (auto_login)', r.stdout, r.stderr)
+        self.assertEqual(env['DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND'], self.PUBLIC)
+        tailnet = {**on_public, 'cloud_backend': self.STACK, 'api_base_url': self.STACK_MOBILE}
+        r, _, _ = self.launch('restored', tailnet, backend=self.STACK, mobile=self.STACK_MOBILE,
+                              phone=self.PUBLIC, phone_mobile=self.PUBLIC_MOBILE)
+        self.assertIn(f'FAIL: restored launch: the app uses the Cloud backend {self.STACK}, not {self.PUBLIC}', r.stdout)
+
     def test_the_default_clears_a_kept_backend_and_proves_it(self):
         # `default` (not an empty value a launcher may drop) clears the kept override...
         r, _, env = self.launch('auto_login', self.linked)
@@ -300,7 +327,7 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
 
     def test_the_default_fails_when_the_phone_kept_an_earlier_override(self):
         # ...and the receipt must show it took: a phone still on a kept stack or preview fails.
-        for kept in (self.STACK, 'https://cmux-api-preview-7.debussy.workers.dev'):
+        for kept in (self.STACK, 'https://cmux-api-preview-7.debussy.workers.dev', 'https://api.s7.wdev.cmux.dev'):
             r, _, _ = self.launch('restored', {**self.linked, 'cloud_backend': kept})
             self.assertIn(f'FAIL: restored launch: the app still uses the kept Cloud backend {kept}', r.stdout)
         r, _, _ = self.launch('restored', {**self.linked, 'cloud_backend': ''})
@@ -328,13 +355,19 @@ class BackendTests(unittest.TestCase):
                             (m.DEVELOPMENT_API + '/', m.DEVELOPMENT_API),
                             ('preview-7', 'https://cmux-api-preview-7.debussy.workers.dev'),
                             (self.STACK + '/', self.STACK),
-                            ('https://cmux-dev-backend-1.tail137216.ts.net', 'https://cmux-dev-backend-1.tail137216.ts.net')]:
+                            ('https://cmux-dev-backend-1.tail137216.ts.net', 'https://cmux-dev-backend-1.tail137216.ts.net'),
+                            ('https://API.s7.wdev.cmux.dev/', 'https://api.s7.wdev.cmux.dev')]:
             self.assertEqual(m.backend_origin(value), want, value)
         for value in ['https://attacker.example', 'https://cloud-api.cmux.dev', 'prod', 'staging',
                       'http://cmux-dev-backend-1.tail137216.ts.net:3850', 'https://ts.net', 'https://tail137216.ts.net',
                       'https://cmux-dev-backend-1.tail137216.ts.net.attacker.example', self.STACK + '/v1',
                       self.STACK + '?x=1', 'https://user@cmux-dev-backend-1.tail137216.ts.net', 'https://a_b.tail.ts.net',
-                      'https://100.70.231.80', 'preview-0', 'http://localhost:8787', '']:
+                      'https://100.70.231.80', 'preview-0', 'http://localhost:8787', '',
+                      'https://mobile.s7.wdev.cmux.dev', 'https://api.s7.wdev.cmux.dev:8443', 'http://api.s7.wdev.cmux.dev',
+                      'https://api.s7777.wdev.cmux.dev', 'https://api.s7.wdev.cmux.dev.attacker.example', 'https://wdev.cmux.dev',
+                      # another tailnet's machine (a Funnel name is public), or a name under ours that is no machine
+                      'https://cmux-dev-backend-1.tail9999.ts.net:3850', 'https://evil.ts.net', 'https://a.b.tail137216.ts.net',
+                      'https://api.s7.other.cmux.dev', 'https://cmux.dev']:
             with self.assertRaises(ValueError, msg=value):
                 m.backend_origin(value)
 
@@ -375,8 +408,13 @@ class BackendTests(unittest.TestCase):
         r = self.resolve(self.STACK + '/')
         self.assertIn(f'URL={self.STACK}\n', r.stdout, r.stderr)
         self.assertIn(f'--backend {self.STACK}/', r.stdout)
+        public = self.resolve('tag-stack', '#!/bin/sh\ncase "$*" in *--public*--service*) echo https://mobile.s7.wdev.cmux.dev ;; '
+                              '*--public*) echo https://api.s7.wdev.cmux.dev ;; *--service*) echo https://cmux-dev-backend-1.tail137216.ts.net:3851 ;; '
+                              f'*) echo {self.STACK} ;; esac\n')
+        self.assertIn(f'URL={self.STACK}\n', public.stdout, public.stderr)
+        self.assertIn("the phone: https://api.s7.wdev.cmux.dev (its public origin)", public.stdout)
         r = self.resolve('tag-stack')
-        self.assertIn(f"REPORT={self.STACK} (this tag's stack)", r.stdout, r.stderr)
+        self.assertIn(f"REPORT={self.STACK} (this tag's stack: API, mobile Worker and device hub)", r.stdout, r.stderr)
         self.assertIn('--backend tag-stack', r.stdout)
 
     def test_a_refused_backend_stops_before_any_build(self):
@@ -1421,6 +1459,104 @@ main --tag t {' '.join(flags)}""")
         receipt = (ROOT / 'cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/DogfoodReadiness.swift').read_text()
         self.assertTrue(receipt.startswith('#if DEBUG'))
 
+
+
+TRY = ROOT / 'cmux-next-ios/scripts/try.sh'
+
+
+class TryScriptTests(unittest.TestCase):
+    """cmux-next-ios/scripts/try.sh: any PR, branch or commit on the phone as cmux Dev (dev.cmux.mobile.dev)."""
+
+    def test_try_mode_takes_no_arguments_and_tag_dev_is_reserved(self):
+        for args, want in ((['try', 'x'], 'try takes no further arguments'),
+                           (['handoff', 'tag=dev'], 'tag dev is the cmux Dev app'),
+                           (['shots', 'handoff=dev'], 'tag dev is the cmux Dev app')):
+            with self.subTest(args=args):
+                r = subprocess.run(['bash', str(SIM), *args], capture_output=True, text=True,
+                                   env=dict(os.environ, CMUX_CI_STEP_KEY='test'), timeout=30)
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn(want, r.stderr)
+
+    def test_try_mode_builds_the_dev_app_with_no_build_space(self):
+        text = SIM.read_text()
+        # The controller's shots form reaches it until the controller lists try.
+        self.assertIn('"${2:-}" == try=dev', text)
+        block = text[text.index('if [[ "$mode" == try ]]; then\n  # The cmux Dev app'):]
+        block = block[:block.index('\nfi\n')]
+        self.assertIn('"CMUX_MOBILE_TAG=.dev" "CMUX_MOBILE_DISPLAY_NAME=cmux Dev"', block)
+        # No dev tag: the person's real data, as the shared Demo build.
+        settings = [l for l in block.splitlines() if 'build_settings+=' in l]
+        self.assertEqual(len(settings), 1)
+        self.assertNotIn('CMUX_MOBILE_DEV_TAG', settings[0])
+        self.assertIn("-destination 'generic/platform=iOS'", block)
+        self.assertIn('CODE_SIGNING_ALLOWED=NO', block)
+        self.assertIn('CmuxMobileApp-Dev-device-unsigned.app.zip', block)
+
+    def test_resolves_a_commit_and_a_branch(self):
+        r = bash(f'CNX_TRY_HOME=/tmp/x "{TRY}" {SHA} --dry-run')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f'commit {SHA[:12]} on every connected iPhone as cmux Dev (dev.cmux.mobile.dev)', r.stdout)
+        r = bash(f'"{TRY}" --dry-run')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('name a PR, branch or commit', r.stderr)
+        r = bash(f'"{TRY}" {SHA} {SHA}')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('one target at a time', r.stderr)
+
+    def test_fleet_step_arguments(self):
+        for mode, scene in (('try', 'try=dev'), ('handoff', 'handoff=dev')):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+                ci = Path(temp) / 'cmux-ci'
+                ci.write_text('#!/bin/sh\n[ "$1" = run ] && echo "$@" > "%s/args"\n'
+                              'echo "cmux-ci: step 0123456789abcdef01234567 (simulator, key k)" >&2\n' % temp)
+                ci.chmod(0o755)
+                r = bash(f'''source "{TRY}"; SHA={SHA} STATE="{temp}" TRY_LABEL=x CMUX_CI="{ci}"; try_fleet {mode}; echo rc=$?''',
+                         {'CMUX_CI': str(ci)})
+                self.assertIn('rc=0', r.stdout, r.stderr)
+                args = (Path(temp) / 'args').read_text().split()
+                self.assertEqual(args[:7], ['run', '--class', 'simulator', '--script', 'scripts/ci/cmux-next-ios-sim.sh',
+                                            '--ref', SHA])
+                self.assertEqual(args[args.index('shots') + 2], scene)
+                self.assertIn(f'cnx-ios-try-{mode}-{SHA[:12]}', args)
+                self.assertIn('--no-supersede', args)
+                # No session: cmux Dev keeps the person's own sign-in; nothing is sealed to the worker.
+                self.assertNotIn('--sign-in', args)
+                self.assertNotIn('--urgent', args)
+
+    def test_urgent_puts_the_step_first_with_a_reason(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text('#!/bin/sh\n[ "$1" = run ] && for a in "$@"; do echo "$a"; done > "%s/args"\n' % temp)
+            ci.chmod(0o755)
+            bash(f'source "{TRY}"; SHA={SHA} STATE="{temp}" TRY_LABEL="PR #1" TRY_URGENT=1 CMUX_CI="{ci}"; try_fleet try',
+                 {'CMUX_CI': str(ci)})
+            args = (Path(temp) / 'args').read_text().splitlines()
+            self.assertIn('--urgent', args)
+            self.assertIn('PR #1', args[args.index('--reason') + 1])
+
+    def test_a_script_without_the_try_mode_builds_through_handoff(self):
+        with tempfile.TemporaryDirectory() as temp:
+            gh = Path(temp) / 'gh'
+            gh.write_text('#!/bin/sh\necho "case \\"$mode\\" in build|handoff) ;; esac"\n')
+            gh.chmod(0o755)
+            r = bash(f'source "{TRY}"; SHA={"b" * 40} REPO_ROOT="{temp}"; try_script_mode',
+                     {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.stdout.strip(), 'handoff', r.stderr)
+            gh.write_text('#!/bin/sh\necho "try=dev"\n')
+            r = bash(f'source "{TRY}"; SHA={"b" * 40} REPO_ROOT="{temp}"; try_script_mode',
+                     {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.stdout.strip(), 'try', r.stderr)
+
+    def test_status_reads_the_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            rows = [{'at': '2026-11-21T12:00:00Z', 'result': 'ok', 'sha': SHA, 'target': 'PR #1', 'how': h,
+                     'total_s': t, 'build_s': b, 'phones': 1}
+                    for h, t, b in (('cached on this Mac (fleet)', 40, 1), ('fleet step s (try mode)', 600, 560))]
+            Path(temp, 'history.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
+            r = bash(f'CNX_TRY_HOME="{temp}" "{TRY}" status')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn('built ahead or cached: n=1 p50=40 s', r.stdout)
+            self.assertIn('cold (fleet build): n=1 p50=600 s', r.stdout)
 
 if __name__ == '__main__':
     unittest.main()

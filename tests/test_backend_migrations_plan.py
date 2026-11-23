@@ -89,5 +89,63 @@ class PlanWithoutTheApi(unittest.TestCase):
         self.assertNotIn("migrations=false", output)
 
 
+class GateSkipsWithoutMigrationChanges(unittest.TestCase):
+    """A succeeded plan with no migration change starts no gate VM: the skipped job keeps its name and
+    reads as success for the required check. A failed plan or a migration change still runs it."""
+
+    def test_the_gate_skips_only_on_a_clean_plan(self):
+        gate = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["gate"]
+        self.assertIn("!(needs.plan.result == 'success' && needs.plan.outputs.migrations != 'true')", gate["if"])
+        self.assertIn("always()", gate["if"])
+
+
+_cancel_spec = _git_fixture_importlib.spec_from_file_location(
+    "ci_pr_runs_cancel_superseded", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "test_ci_pr_runs_cancel_superseded.py"))
+cancel_superseded = _git_fixture_importlib.module_from_spec(_cancel_spec)
+_cancel_spec.loader.exec_module(cancel_superseded)
+
+
+class OnlyReadOnlyRunsCancel(unittest.TestCase):
+    """A newer head cancels a run that only reads; the run an apply label starts is never cancelled
+    (it could stop between applying a migration and recording it), and an unrelated label takes no runner."""
+
+    def setUp(self):
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+    def run_of(self, action: str, label: str | None = None, run: int = 1) -> dict:
+        context = cancel_superseded.pr_context(self.workflow, "pull_request_target", 101, run)
+        context["github"]["event"]["action"] = action
+        if label is not None:
+            context["github"]["event"]["label"] = {"name": label}
+        concurrency = self.workflow["concurrency"]
+        jobs = self.workflow["jobs"]
+        return {
+            "group": cancel_superseded._text(cancel_superseded.resolve(concurrency["group"], context)),
+            "cancels": cancel_superseded._truthy(cancel_superseded.resolve(concurrency["cancel-in-progress"], context)),
+            "plan": cancel_superseded.condition(jobs["plan"]["if"], context),
+            "gate_name": cancel_superseded._text(cancel_superseded.resolve(jobs["gate"]["name"], context)),
+        }
+
+    def test_pushes_cancel_and_the_apply_label_never_does(self):
+        push, apply = self.run_of("synchronize"), self.run_of("labeled", "backend:apply-migrations")
+        self.assertTrue(push["cancels"])
+        self.assertFalse(apply["cancels"])
+        self.assertNotEqual(push["group"], apply["group"])
+        self.assertTrue(apply["plan"])
+        self.assertEqual(apply["gate_name"], "backend migrations applied")
+
+    def test_full_ci_still_runs_with_the_pushes(self):
+        full = self.run_of("labeled", "full-ci")
+        self.assertTrue(full["plan"])
+        self.assertEqual(full["group"], self.run_of("synchronize")["group"])
+
+    def test_an_unrelated_label_takes_no_runner_and_replaces_nothing(self):
+        for label in ("area: docs", "harness:claude", "fix-cause:flake"):
+            run = self.run_of("labeled", label)
+            self.assertFalse(run["plan"], label)
+            self.assertNotEqual(run["group"], self.run_of("synchronize")["group"], label)
+            self.assertNotEqual(run["gate_name"], "backend migrations applied", label)
+
+
 if __name__ == "__main__":
     unittest.main()

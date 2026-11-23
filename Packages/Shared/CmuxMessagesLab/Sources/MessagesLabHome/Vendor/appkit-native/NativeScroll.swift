@@ -318,14 +318,24 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         knownOrigin = clip.bounds.origin.y // cmux
     }
 
+    /// cmux: the offset the model last pushed and where AppKit left the clip for it, with the document and clip
+    /// heights that decide that place. A push of the same offset into the same geometry, the clip still there, is no
+    /// move: pinned to the bottom, the offset is past the document's end and AppKit stops the clip short of it, and
+    /// each key set the origin again, marking the window's tracking areas dirty (a walk of every view in the next
+    /// display; HomeKeyTranscriptSyncTests).
+    private var pushed: (target: CGFloat, origin: CGFloat, document: CGFloat, clip: CGFloat)?
+
     private func pushOffset() {
         guard let cv = collection else { return }
         let y = cv.contentOffset.y + shift
         guard clip.bounds.origin.y != y else { return }
+        if let p = pushed, p.target == y, p.origin == clip.bounds.origin.y, p.document == document.frame.height,
+           p.clip == clip.bounds.height { return }
         TranscriptScrollView.modelSyncs += 1
         applyingModel += 1
         clip.setBoundsOrigin(NSPoint(x: 0, y: y))
         knownOrigin = clip.bounds.origin.y // cmux: AppKit can stop it short of `y`
+        pushed = (y, clip.bounds.origin.y, document.frame.height, clip.bounds.height)
         reflectScrolledClipView(clip)
         pinContent()
         applyingModel -= 1

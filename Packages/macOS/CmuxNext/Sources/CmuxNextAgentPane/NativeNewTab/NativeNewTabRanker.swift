@@ -3,7 +3,7 @@
 /// Pure and synchronous: it reads only the page's omnibar lists, so a keystroke
 /// costs one pass over them and no I/O. Empty text lists where you can go (open
 /// tabs, then workspaces). Typed text leads with what Return does for the selected
-/// kind, then the open tabs, workspaces, visited pages and Commands palette actions
+/// kind, then the open tabs, workspaces, visited pages, bookmarks and Commands palette actions
 /// that match, best match first.
 ///
 /// ```swift
@@ -49,6 +49,7 @@ public nonisolated struct NativeNewTabRanker: Sendable {
         for tab in omnibar.tabs { add(.tab(tab), weight: 0.6, [tab.title, tab.detail, tab.workspace]) }
         for workspace in omnibar.workspaces { add(.workspace(workspace), weight: 0.5, [workspace.name, workspace.detail]) }
         for page in omnibar.history { add(.page(page), weight: kind == .browser ? 0.4 : 0.1, [page.title, page.url]) }
+        for bookmark in omnibar.bookmarks { add(.bookmark(bookmark), weight: kind == .browser ? 0.45 : 0.15, [bookmark.title, bookmark.url]) }
         for action in omnibar.actions { add(.action(action), weight: 0.3, [action.title] + action.keywords) }
         let ranked = scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.order < $1.order }.map(\.row)
         let chats = sources.chatRows(query).map(NativeNewTabRow.chat)

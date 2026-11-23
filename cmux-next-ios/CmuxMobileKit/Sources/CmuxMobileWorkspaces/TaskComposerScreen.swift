@@ -273,7 +273,7 @@ struct TaskComposerScreen: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .disabled(sent != nil)
         .accessibilityLabel("Task Options")
         .accessibilityValue([mac.map { sameNames.displayName($0) }, folder.map(NewWorkspaceButton.folderName)]
@@ -516,7 +516,7 @@ struct TaskComposerScreen: View {
                 .fixedSize()
                 .contentShape(.rect)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .disabled(!enabled)
         .accessibilityLabel(count > 1 ? "Start \(count)" : "Start")
         .accessibilityValue("in \(draft.launch.title)")

@@ -64,7 +64,7 @@ fn every_recipe_has_a_unique_name_and_every_group_a_recipe() {
 /// stylesheet and sets the sidebar and chat settings.
 #[test]
 fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() {
-    for name in ["codex-app", "true-black", "claude-code-app"] {
+    for name in ["codex-app", "codex-app-dark", "claude-code-app"] {
         let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
         assert_eq!(recipe.group, Group::Apps, "{name}");
         let profile = recipe.profile().unwrap();
@@ -82,22 +82,11 @@ fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() 
             .files
             .get("agent-pane/theme.css")
             .unwrap_or_else(|| panic!("{name} carries no chat stylesheet"));
-        assert!(
-            chat.contains(".cv-user__bubble") || chat.contains("--cv-bubble"),
-            "{name}: the stylesheet leaves the prompt alone"
-        );
-        for key in [
-            "sidebar.groupBy",
-            "agentPane.display.width",
-            "tabs.hideLoneChatTab",
-            "tabs.toolbarButtons",
-        ] {
+        assert!(chat.contains("--cv-bubble"), "{name}: the stylesheet leaves the prompt alone");
+        for key in ["sidebar.groupBy", "agentPane.display.width", "tabs.hideLoneChatTab"] {
             assert!(profile.settings.contains_key(key), "{name} does not set {key}");
         }
-        let parts = recipe.parts();
-        for part in ["settings", "keybindings", "themes", "styles"] {
-            assert!(parts.contains(&part), "{name} does not change {part}: {parts:?}");
-        }
+        assert_eq!(recipe.parts(), ["settings", "keybindings", "themes", "styles"], "{name}");
     }
 }
 
@@ -110,7 +99,7 @@ fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() 
 fn each_app_recipe_binds_its_apps_new_chat_key_to_its_agent() {
     for (name, key, harness) in [
         ("codex-app", "cmd+shift+o", "codex"),
-        ("true-black", "cmd+shift+o", "codex"),
+        ("codex-app-dark", "cmd+shift+o", "codex"),
         ("claude-code-app", "cmd+n", "claude"),
     ] {
         let profile = find(name).unwrap().profile().unwrap();
@@ -125,9 +114,20 @@ fn each_app_recipe_binds_its_apps_new_chat_key_to_its_agent() {
         assert_eq!(entry.command, "palette.newAgentChat", "{name}: {key}");
         assert_eq!(entry.args, Some(serde_json::json!({ "harness": harness })), "{name}: {key}");
     }
-    // True black's Threads section is the tested threads template.
-    let parts = find("true-black").unwrap().parts();
-    assert!(parts.contains(&"views"), "{parts:?}");
+}
+
+/// Leo, 2026-11-22: "should we tuck it in a bit more like claude code? hm. well, we'd better at
+/// least do this for our claude code customization repo". The Claude Code look starts the
+/// transcript's rows on the composer's + column, derived from the composer's lead token.
+#[test]
+fn the_claude_code_look_tucks_the_transcript_to_the_composers_plus() {
+    let profile = find("claude-code-app").expect("no claude-code-app recipe").profile().unwrap();
+    let chat = profile.files.get("agent-pane/theme.css").expect("no chat stylesheet");
+    assert!(chat.contains(":root .acpmux-row"), "the rows keep the composer's edge");
+    assert!(
+        chat.contains("var(--grid-composer-lead-center)"),
+        "the tuck is not derived from the composer's + column"
+    );
 }
 
 #[test]
@@ -141,9 +141,6 @@ fn every_shortcut_a_recipe_binds_is_an_action_cmux_has() {
         for entry in parsed.entries {
             let action = cmux_action_catalog::find(&entry.command)
                 .unwrap_or_else(|| panic!("{}: {} is not an action", recipe.name, entry.command));
-            // The app refuses a binding whose argument the action does not
-            // take (KeyBindingValidation's unknownArgument), so a recipe's
-            // `args` name only arguments the action has.
             let Some(args) = &entry.args else { continue };
             let args = args.as_object().unwrap_or_else(|| {
                 panic!("{}: {}'s args are not an object", recipe.name, entry.command)
@@ -232,4 +229,29 @@ fn a_folder_with_shell_characters_stays_one_argument_in_every_run_command() {
             .unwrap();
         assert_eq!(String::from_utf8(out.stdout).unwrap(), format!("{path}\n"), "{line}");
     }
+}
+
+/// c-07be086806, Leo: "we know you can change colours. im saying the big stuff". The layout and
+/// behaviour looks are recipes too, and none of them sets a color or a theme. The leader keys all
+/// start with Command-J, cmux's own leader, so none takes a key a terminal or a chat types.
+#[test]
+fn the_layout_and_behaviour_looks_change_layout_and_keys_not_colors() {
+    for name in ["review-desk", "bottom-deck", "workspace-tabs", "leader"] {
+        let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
+        let profile = recipe.profile().unwrap();
+        for key in profile.settings.keys() {
+            assert!(
+                !key.starts_with("appearance.") && !key.contains("color") && !key.contains("Color"),
+                "{name} sets {key}, a look key"
+            );
+        }
+    }
+    let leader = find("leader").unwrap().profile().unwrap();
+    let parsed = cmux_config::keybindings::parse(&leader.files["keybindings.json"]);
+    assert!(parsed.entries.len() >= 20, "{} leader keys", parsed.entries.len());
+    for entry in &parsed.entries {
+        assert_eq!(entry.keys[0], "cmd+j", "{} does not start with the leader", entry.command);
+        assert!(entry.keys.len() >= 2, "{} is the bare leader", entry.command);
+    }
+    assert_eq!(find("review-desk").unwrap().parts(), ["settings", "keybindings"]);
 }

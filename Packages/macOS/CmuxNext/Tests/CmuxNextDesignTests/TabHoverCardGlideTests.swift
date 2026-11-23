@@ -148,7 +148,8 @@ import Testing
         f.present(tab: 0, body: tall)
         f.present(tab: 1, body: short)
         let content = f.panel.glass.contentView
-        #expect(content.layer?.animation(forKey: HoverCardPanel.crossfadeKey) == nil,
+        // Core Animation files every transition under `kCATransition`, whatever key it was added with.
+        #expect(content.layer?.animation(forKey: kCATransition) == nil,
                 "a snapshot crossfade stretches the last card over the next card's size")
         #expect(tall.superview === content, "the last card's content went at once instead of fading out")
         #expect(abs(tall.frame.height - 180) < 0.5 && abs(tall.frame.width - 240) < 0.5, "the leaving content is \(tall.frame.size), not its own size")
