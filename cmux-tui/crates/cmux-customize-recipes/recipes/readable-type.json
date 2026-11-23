@@ -1,0 +1,11 @@
+{
+  "cmuxProfile": 1,
+  "name": "readable-type",
+  "description": "Atkinson Hyperlegible for the interface and chats, a little larger with open lines.",
+  "settings": {
+    "agentPane.display.font.ui": "atkinson",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.6
+  }
+}

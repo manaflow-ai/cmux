@@ -35,6 +35,10 @@ public nonisolated struct CmuxToastTunables {
         "toast.buttonSpacing", section, "Button spacing",
         help: "Room between the toast's buttons (Don't Show Again, close).",
         default: 4, range: 0...20, step: 1, unit: .points, code: "CmuxToastTunables.buttonSpacing")
+    public static let buttonRow = Tunable<CmuxToastButtonRow>.choice(
+        "toast.buttonRow", section, "Buttons",
+        help: "How the buttons stand apart from the message (Leo 2026-11-21: the hint's Don't Show Again read as part of its sentence).",
+        default: .divider, code: "CmuxToastTunables.buttonRow")
     public static let messageWidth = Tunable<Double>.number(
         "toast.messageWidth", section, "Message width",
         help: "The widest a message runs before it wraps.",
@@ -51,6 +55,6 @@ public nonisolated struct CmuxToastTunables {
 
     public static var all: [TunableDescriptor] {
         [durationScale.descriptor, minimumSeconds.descriptor, glass.descriptor,
-         padding.descriptor, buttonSpacing.descriptor, messageWidth.descriptor, rise.descriptor, playgroundFocus.descriptor]
+         padding.descriptor, buttonSpacing.descriptor, buttonRow.descriptor, messageWidth.descriptor, rise.descriptor, playgroundFocus.descriptor]
     }
 }

@@ -311,6 +311,7 @@ pub(super) const MUX: &[Kind] = &[
     code("turn_started", "names the running turn (State::turn_key)"),
     not("turn_stop_requested", UNREAD),
     not("unstuck", UNREAD),
+    page("usage_limits"),
     not("usage_stats", UNREAD),
     code("user_message", "a user row, and a new turn's group row (State::prompt)"),
     not("watch_started", UNREAD),

@@ -46,6 +46,8 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
+  type AllotmentSet,
+  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -53,8 +55,9 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
-  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -65,17 +68,10 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
   type IntegrationsState,
-  type McpServersRun,
-  type AgentConfigAnswer,
-  type AgentConfigRun,
-  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
-  type RowNoteData,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -86,16 +82,22 @@ import {
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
-  type LibraryListing,
-  type LibraryRun,
+  type KeysState,
   type ModelsRun,
   type ModelsState,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
+  type McpServersRun,
+  type McpServersState,
+  type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type AgentConfigAnswer,
+  type AgentConfigRun,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -697,6 +699,12 @@ export class SettingsStore {
     return reply.ok;
   }
 
+  /** General > Language: Relaunch, so the native menus take the Language setting; false when the host refused. */
+  async runLanguageRelaunch(): Promise<boolean> {
+    const reply = await this.request("cmux.settings.language.relaunch", {});
+    return reply.ok;
+  }
+
   /** Settings > Menus: save `menu`'s arrangement (null resets it), then re-read the host lists.
    * Throws the host's refusal (a managed key, an unreadable cmux.json). */
   async setContextMenuLayout(menu: string, layout: MenuLayout | null): Promise<void> {
@@ -931,6 +939,21 @@ export class SettingsStore {
     if (verb !== "status") await this.request("cmux.settings.customize.run", { verb });
     const reply = await this.request("cmux.settings.customize.run", { verb: "status" });
     return reply.ok ? (reply.value?.try_on ?? null) : null;
+  }
+
+  /** Settings > Team > Compute: the team's Cloud allotment and the scheduler's proposal; null when
+   * the host has no Compute part or the read failed. */
+  async allotment(): Promise<AllotmentView | null> {
+    const reply = await this.request("cmux.settings.cloud.allotment.get", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Team > Compute, an admin's one click: the view after it, or the host's refusal text. */
+  async setAllotment(run: AllotmentSet): Promise<{ view: AllotmentView | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.cloud.allotment.set", run);
+    return reply.ok
+      ? { view: reply.value, error: null }
+      : { view: null, error: userMessage(reply.error, SETTINGS_SENTENCES) };
   }
 
   /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has

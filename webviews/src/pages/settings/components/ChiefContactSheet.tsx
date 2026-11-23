@@ -28,8 +28,12 @@ export function ChiefContactSheet({
   const inFlight = useRef(false);
   const eventRevision = useRef(0);
   const [refresh, setRefresh] = useState(0);
+  const advanceGeneration = () => {
+    generation.current += 1;
+    return generation.current;
+  };
   useEffect(() => {
-    const current = ++generation.current;
+    const current = advanceGeneration();
     let stop: (() => void) | undefined;
     inFlight.current = false;
     setBusy(false);
@@ -63,7 +67,7 @@ export function ChiefContactSheet({
       }
     })();
     return () => {
-      generation.current++;
+      advanceGeneration();
       stop?.();
     };
   }, [service, refresh]);
@@ -115,7 +119,8 @@ export function ChiefContactSheet({
         </button>
         <img className="chief-contact-mascot" src={mascot} alt="" />
         <h2>{t("settingsPage.chiefContact.title")}</h2>
-        <div className="chief-contact-channels" role="group" aria-label={t("settingsPage.chiefContact.title")}>
+        <fieldset className="chief-contact-channels">
+          <legend className="visually-hidden">{t("settingsPage.chiefContact.title")}</legend>
           {(["call", "text", "slack"] as const).map((channel) => (
             <div className="chief-contact-channel" key={channel}>
               <button
@@ -130,7 +135,7 @@ export function ChiefContactSheet({
               <small>{channel !== "text" ? t("settingsPage.chiefContact.soon") : "\u00a0"}</small>
             </div>
           ))}
-        </div>
+        </fieldset>
         <form
           className="chief-contact-form"
           onSubmit={(event) => {
@@ -143,6 +148,7 @@ export function ChiefContactSheet({
             id="chief-contact-handle"
             value={handle}
             onChange={(event) => setHandle(event.target.value)}
+            aria-label={t("settingsPage.chiefContact.handle")}
             placeholder={t("settingsPage.chiefContact.phoneHint")}
             autoComplete="off"
             autoCapitalize="none"
@@ -150,12 +156,12 @@ export function ChiefContactSheet({
             disabled={!ready || busy}
             aria-describedby="chief-contact-status"
           />
-          <p id="chief-contact-status" className="chief-contact-status" role="status">
+          <output id="chief-contact-status" className="chief-contact-status">
             {t(
               `settingsPage.chiefContact.${status.state === "waiting" ? "waiting" : status.state === "linked" ? "confirmed" : status.state === "stopped" ? "stopped" : "intro"}`,
             )}
             {status?.handle && <span className="chief-contact-address">{status.handle}</span>}
-          </p>
+          </output>
           <p className="chief-contact-privacy">{t("settingsPage.chiefContact.privacy")}</p>
           {status.state === "linked" || status.state === "waiting" ? (
             <DialogButton

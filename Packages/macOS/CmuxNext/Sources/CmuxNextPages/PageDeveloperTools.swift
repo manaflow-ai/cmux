@@ -40,7 +40,7 @@ public struct PageDeveloperTools {
 
     /// The row's title, as browsers name it.
     public static var title: String {
-        String(localized: "pages.menu.inspectElement", defaultValue: "Inspect Element", bundle: .module)
+        String(localized: "pages.menu.inspectElement", defaultValue: "Inspect Element", bundle: .localizedModule)
     }
 
     /// The Inspect Element row for `view`, or nil while developer tools are off.

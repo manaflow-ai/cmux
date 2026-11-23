@@ -272,7 +272,7 @@ public final class AgentPaneModel {
     /// The long recordings uploading now, and the ones whose chip's × stopped them.
     @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
-    @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget, Int?) async -> Bool)?
     /// Opens a file of a Cloud chat's machine (an absolute path there) in cmux's file pages, read through that machine's
     /// daemon with no symlink followed, or a folder there in the Files tree; never this Mac's of the same path. False
     /// when it could not, or when the path reaches through a symlink there.
@@ -306,6 +306,8 @@ public final class AgentPaneModel {
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
+    /// A tab took this New Tab page before its handshake (``AgentPaneView/adoptNewTab(_:)``): that can be unheard. Read with no page host only.
+    @ObservationIgnored var newTabAdoptUnheard = false
     /// The New Tab context came from the spare pool's prepare (the tab a Cmd-T would make), not from a tab: the
     /// handshake (a reconnect too) never takes its folder, which is no tab's yet (SHORTCUT FRAMES F2 review).
     @ObservationIgnored public internal(set) var newTabPrepared = false
@@ -502,9 +504,11 @@ public final class AgentPaneModel {
 
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of the tab it became
     /// (plans/cmux-next/new-tab.md section 2.2). A page that already became a chat keeps its chat.
-    /// User input reached the page, or it ran any op beyond boot (the handshake, frame pacing, render
+    /// User input reached the page (the host marks it first: ``hostTouch``), or it ran any op beyond boot (the handshake, frame pacing, render
     /// rate, capabilities). A touched page is never recycled into the prewarm pool (coordinator: strictly untouched).
-    public private(set) var userTouched = false
+    public var userTouched: Bool { pageTouched || hostTouch.marked }
+    private var pageTouched = false
+    public let hostTouch = AgentPaneHostTouch()
     /// The request that first touched the page, its case name only (diagnostics).
     public private(set) var touchedBy: String?
 
@@ -553,7 +557,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .launchSettle, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.freshList), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown, .dictationSources: break
@@ -580,7 +584,7 @@ public final class AgentPaneModel {
             if touchedBy?.split(separator: ",").contains(Substring(name)) != true, (touchedBy?.count ?? 0) < 200 {
                 touchedBy = touchedBy.map { $0 + "," + name } ?? name
             }
-            userTouched = true
+            pageTouched = true
         }
         switch request {
         case .uiPointerReport: return AgentPaneReply.success()
@@ -614,6 +618,12 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
         case .renderRate(let full):
             onRenderRate?(full)
+            return AgentPaneReply.success()
+        case .launchSettle(let settledAt, let maxMovePx, let element, let shifts):
+            // A New Tab page has no chat to settle; its report (none is sent) would not be the launch's.
+            if newTab == nil {
+                AgentPaneLaunchTimings.shared.layoutSettle(at: settledAt, maxMovePx: maxMovePx, element: element, shifts: shifts)
+            }
             return AgentPaneReply.success()
         case .painted(let fromKeptTail, let settled):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
@@ -670,7 +680,7 @@ public final class AgentPaneModel {
         case .chooseAttachments: return await chooseAttachments()
         // Nor the paths of files dropped or pasted from this Mac.
         case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
-        case .attachDropped(let kind, let names): return await attachDropped(kind, names: names)
+        case .attachDropped(let kind, let names, let gestureAt): return await attachDropped(kind, names: names, gestureAt: gestureAt)
         // A chat on another machine gets the gesture's source only (`attachSource`).
         case .attachSource(let kind, let names, let gestureAt): return await attachSource(kind, names: names, gestureAt: gestureAt)
         case .attachExternal: return await takeExternalAttachments()

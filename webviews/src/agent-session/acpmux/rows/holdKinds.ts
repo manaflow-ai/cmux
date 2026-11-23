@@ -15,6 +15,7 @@ export const HOLD_KINDS: readonly string[] = [
   "session_info_update",
   "status",
   "subsession",
+  "usage_limits",
   "usage_update",
 ];
 export const HOLD_MAX_KINDS = 16;

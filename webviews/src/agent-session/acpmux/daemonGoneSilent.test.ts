@@ -329,3 +329,24 @@ test("a daemon that sends nothing while its probe is out is still given up withi
     client.close();
   }
 });
+
+// The app's host writes some notifications itself: its lag notice when its own queue to the page
+// fills, and its question key requests. Neither is the daemon speaking, so a dead daemon behind a
+// busy host must still be given up, not kept open by the host's own frames.
+test("notifications the app's host makes itself do not keep a silent daemon's socket", async () => {
+  const { client, request, lost, mockHost, socket } = await connected(["_acpmux/events", "_acpmux/peers"]);
+  try {
+    jest.useFakeTimers();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    for (let second = 0; second < 25 && lost() === 0; second++) {
+      // A question key request the host writes itself (AgentPaneTransport+QuestionKeys.swift).
+      socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_cmux/questionKeys", params: {} }) });
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(lost()).toBe(1);
+  } finally {
+    client.close();
+  }
+});
