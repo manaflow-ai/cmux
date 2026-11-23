@@ -42,31 +42,31 @@ class Holder(unittest.TestCase):
         self.assertEqual(live.cell_names("a590 (sidebar-owner agent)"), ([], []))
 
     def test_an_owns_tag_wins_over_the_named_session(self):
-        rows = [row("cosmic-gray/cmux-4f"), row("huge-blue/acpmux-keeper", owns="PL-daemon,PL-acpmux")]
-        self.assertEqual(live.holder(CELL, rows, ""), ("huge-blue/acpmux-keeper", "holds owns=PL-acpmux"))
+        rows = [row("host-a/cmux-4f"), row("host-b/acpmux-keeper", owns="PL-daemon,PL-acpmux")]
+        self.assertEqual(live.holder(CELL, rows, ""), ("host-b/acpmux-keeper", "holds owns=PL-acpmux"))
 
     def test_the_named_session_while_it_is_live(self):
-        self.assertEqual(live.holder(CELL, [row("cosmic-gray/cmux-4f", "running")], ""), ("cosmic-gray/cmux-4f", "named"))
+        self.assertEqual(live.holder(CELL, [row("host-a/cmux-4f", "running")], ""), ("host-a/cmux-4f", "named"))
 
     def test_a_gone_session_falls_to_its_successor_chain(self):
-        rows = [row("cosmic-gray/cmux-4f", "closed", sid="A"),
-                row("big-red/cmux-4f-2", "closed", sid="B", succeeds="A"),
-                row("big-red/cmux-4f-3", "ready", sid="C", succeeds="B")]
-        self.assertEqual(live.holder(CELL, rows, ""), ("big-red/cmux-4f-3", "successor of cmux-4f"))
-        failover = [row("cosmic-gray/cmux-4f", "closed", failover="air-blue/acpmux-next"), row("air-blue/acpmux-next")]
-        self.assertEqual(live.holder(CELL, failover, "")[0], "air-blue/acpmux-next")
+        rows = [row("host-a/cmux-4f", "closed", sid="A"),
+                row("host-c/cmux-4f-2", "closed", sid="B", succeeds="A"),
+                row("host-c/cmux-4f-3", "ready", sid="C", succeeds="B")]
+        self.assertEqual(live.holder(CELL, rows, ""), ("host-c/cmux-4f-3", "successor of cmux-4f"))
+        failover = [row("host-a/cmux-4f", "closed", failover="host-d/acpmux-next"), row("host-d/acpmux-next")]
+        self.assertEqual(live.holder(CELL, failover, "")[0], "host-d/acpmux-next")
 
     def test_a_successor_loop_ends(self):
         rows = [row("x/cmux-4f", "closed", sid="A", failover="x/b"), row("x/b", "closed", sid="B", failover="x/cmux-4f")]
         self.assertEqual(live.successor(rows, "cmux-4f"), None)
 
     def test_no_successor_goes_to_the_performance_lead_then_the_coordinator(self):
-        gone = [row("cosmic-gray/cmux-4f", "closed")]
+        gone = [row("host-a/cmux-4f", "closed")]
         self.assertEqual(live.holder(CELL, gone + [row("h/perf", owns="PL-lead")], "")[0], "h/perf")
-        who, how = live.holder(CELL, gone + [row("cosmic-gray/claude-sr2-coord", "running")], "cosmic-gray/claude-sr2-coord")
-        self.assertEqual(who, "cosmic-gray/claude-sr2-coord")
+        who, how = live.holder(CELL, gone + [row("host-a/coordinator", "running")], "host-a/coordinator")
+        self.assertEqual(who, "host-a/coordinator")
         self.assertIn("cmux-4f gone; the coordinator", how)
-        self.assertEqual(live.holder(CELL, gone, "cosmic-gray/claude-sr2-coord"),
+        self.assertEqual(live.holder(CELL, gone, "host-a/coordinator"),
                          (None, "cmux-4f gone; no live lead or coordinator"))
 
     def test_a_stale_row_is_not_live(self):
@@ -148,25 +148,25 @@ class Route(unittest.TestCase):
         git("commit", "-qm", "change")
         head = git("rev-parse", "HEAD")
         own = types.SimpleNamespace(base=base, head=head)
-        rows = [row("cosmic-gray/cmux-4f", "closed"), row("cosmic-gray/claude-sr2-coord", "running")]
+        rows = [row("host-a/cmux-4f", "closed"), row("host-a/coordinator", "running")]
         sent = []
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            lines = guardrails.owner_route(repo, [own], (rows, None), "cosmic-gray/claude-sr2-coord")
+            lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
         self.assertEqual(len(lines), 1, lines)
-        self.assertIn("acpmux daemon is held by cosmic-gray/claude-sr2-coord (cmux-4f gone; the coordinator)", lines[0])
+        self.assertIn("acpmux daemon is held by host-a/coordinator (cmux-4f gone; the coordinator)", lines[0])
         # The coordinator stands in: one notice an area a UTC day, asking for a holder, not one per push.
         (to, area, key, text), = sent
-        self.assertEqual((to, area), ("cosmic-gray/claude-sr2-coord", "acpmux daemon"))
+        self.assertEqual((to, area), ("host-a/coordinator", "acpmux daemon"))
         self.assertRegex(key, r"^day \d{4}-\d\d-\d\d$")
         self.assertIn("has no live holder", text)
         self.assertIn("cmux-tui/crates/acpmux/src/lib.rs", text)
         # A holder that took the workstream hears of each pushed head.
-        rows.append(row("huge-blue/acpmux-keeper", owns="PL-acpmux"))
+        rows.append(row("host-b/acpmux-keeper", owns="PL-acpmux"))
         sent.clear()
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            lines = guardrails.owner_route(repo, [own], (rows, None), "cosmic-gray/claude-sr2-coord")
-        self.assertIn("held by huge-blue/acpmux-keeper (holds owns=PL-acpmux); told of this push", lines[0])
-        self.assertEqual(sent[0][:3], ("huge-blue/acpmux-keeper", "acpmux daemon", head))
+            lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+        self.assertIn("held by host-b/acpmux-keeper (holds owns=PL-acpmux); told of this push", lines[0])
+        self.assertEqual(sent[0][:3], ("host-b/acpmux-keeper", "acpmux daemon", head))
 
 
 if __name__ == "__main__":
