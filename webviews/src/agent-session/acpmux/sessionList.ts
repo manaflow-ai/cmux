@@ -1,6 +1,7 @@
 // The session sidebar's model: what each session row shows and how rows group
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
+import { type AutoSession, autoSessionOf, heldInCloud } from "./autoSession/autoSession";
 import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
@@ -130,6 +131,9 @@ export type AcpmuxSessionEntry = {
   laneError?: string;
   /** What it spends: context, 24h tokens and cost, subagents (acpmux `usageStats`, usageStats.ts). */
   usageStats?: SessionUsageStats;
+  /** Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts); unset from an
+   *  acpmux without Auto, and the row then reads as it did before. */
+  autoSession?: AutoSession;
 };
 
 /** A cold-archived chat's preview, as acpmux keeps it in `session.json` (`ColdPreview`). */
@@ -310,6 +314,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   const pending = Number(session.pendingPermissions ?? 0);
   const turn = chiefTurn(session.tags);
   const cold = coldArchive(session.coldArchive);
+  const auto = autoSessionOf(session.autoSession);
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
@@ -382,6 +387,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     ...(session.retryDeciding === true && { retryDeciding: true as const }),
     laneError: text(session.lane?.error),
     usageStats: usageStatsOf(session.usageStats),
+    ...(auto && { autoSession: auto }),
   };
 }
 
@@ -779,9 +785,13 @@ export type SessionPlace =
     }
   | undefined;
 
-export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): SessionPlace {
+export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string, t: Translate = translate): SessionPlace {
   const host = cloudHost(session);
   if (host && host !== groupHost) return { kind: "cloud", label: host, branch: session.branch };
+  // An Auto chat of this Mac that the Cloud runs now reads as a Cloud chat does, by the word the
+  // composer's Where menu uses: its row names no machine of its own.
+  if (!host && heldInCloud(session.autoSession))
+    return { kind: "cloud", label: t("composer.cloud"), branch: session.branch };
   if (session.worktree) return { kind: "worktree", label: session.branch ?? projectLabel(session.worktree) };
   if (session.branch) return { kind: "branch", label: session.branch };
   return undefined;

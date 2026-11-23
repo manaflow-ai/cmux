@@ -168,6 +168,10 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/cold_archive": (["sessionId", "archived"], []),
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        // Auto (plans/cmux-next/auto-mode/DESIGN.md): `keepInCloud` only while the Cloud runs the chat.
+        "_acpmux/auto_session/set": (["sessionId", "auto", "keepInCloud"], []),
+        // `action`: show, apply or discard.
+        "_acpmux/auto_session/leftover": (["sessionId", "action"], []),
         "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
         "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
         "_acpmux/bg/output": (["sessionId", "id", "fromByte", "maxBytes"], []), // maxBytes: bgTail, a finished task line's tail.
