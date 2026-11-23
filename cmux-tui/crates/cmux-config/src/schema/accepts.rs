@@ -357,7 +357,7 @@ fn is_command_label(value: &Value) -> bool {
 
 /// Swift `BrowserOmnibarSetting.isSearchTemplate`: empty, or an address
 /// with a `%s` or `{searchTerms}` placeholder that is valid once filled.
-fn is_search_template(text: &str) -> bool {
+pub fn is_search_template(text: &str) -> bool {
     let trimmed = trim_whitespaces(text);
     if trimmed.is_empty() {
         return true;
