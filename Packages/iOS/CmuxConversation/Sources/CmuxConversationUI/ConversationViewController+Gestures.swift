@@ -78,9 +78,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         if a == .press || b == .press {
             // Taps stay alive beside the press and decide at the lift
             // (tapMayOpenItem); see MessagePressTiming.recognizeTogether.
-            // A press waiting out the text hold may still give way to a scroll, as a growing bubble does.
-            let waitingOnText = pressTextRowID != nil && !pressSelectingText
-            return MessagePressTiming.recognizeTogether(a, b, isGrowing: pressedActions?.isPressing == true || waitingOnText)
+            return MessagePressTiming.recognizeTogether(a, b, isGrowing: pressedActions?.isPressing == true)
         }
         return gestureRecognizer is UITapGestureRecognizer || gestureRecognizer.name == Self.composerSwipeDownName
     }
@@ -173,46 +171,17 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         switch press.state {
         case .began:
             pressClaimedTouch = true
-            guard pressedActions == nil, pressTextRowID == nil,
+            guard pressedActions == nil,
                   let cell = messageCell(at: point, requireContentHit: true),
                   let model = cell.model else { return }
             pressStart = point
             pressBeganUptime = ProcessInfo.processInfo.systemUptime
-            // On a bubble's text the hold selects the word under the finger,
-            // as text does everywhere in iOS; the bubble does not lift.
-            if pressIsOnText(point, in: cell) {
-                pressTextRowID = model.rowID
-                pressTextStart = Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .seconds(MessagePressTiming.textSelectionHold - MessagePressTiming.liftBegins))
-                    guard !Task.isCancelled else { return }
-                    self?.startPressTextSelection()
-                }
-                return
-            }
             pressedActions = presentActions(for: model, cell: cell, mode: .menu, pressing: true)
         case .changed:
-            if pressSelectingText {
-                // Moving the held finger extends the selection from the word.
-                if let selection = textSelection { selection.extendSelection(to: collectionView.convert(point, to: selection)) }
-                return
-            }
             // UIKit's click driver allows 10 pt of travel before the click.
-            if hypot(point.x - pressStart.x, point.y - pressStart.y) > 10 {
-                cancelPressedActions()
-                cancelPressText()
-            }
+            if hypot(point.x - pressStart.x, point.y - pressStart.y) > 10 { cancelPressedActions() }
         case .ended:
             pressLiftUptime = ProcessInfo.processInfo.systemUptime
-            if pressSelectingText {
-                pressSelectingText = false
-                textSelection?.showEditMenu()
-                return
-            }
-            if pressTextRowID != nil {
-                // Lifted before the hold: no selection, no menu.
-                cancelPressText()
-                return
-            }
             let held = ProcessInfo.processInfo.systemUptime - pressBeganUptime + MessagePressTiming.liftBegins
             switch MessagePressTiming.release(afterHolding: held) {
             case .open: commitPressedActions()
@@ -220,44 +189,9 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             }
         case .cancelled, .failed:
             cancelPressedActions()
-            cancelPressText()
-            if pressSelectingText {
-                pressSelectingText = false
-                textSelection?.showEditMenu()
-            }
         default:
             break
         }
-    }
-
-    /// Whether a press at `point` (collection view) is on the bubble's text.
-    func pressIsOnText(_ point: CGPoint, in cell: MessageCell) -> Bool {
-        guard canSelectText(in: cell) else { return false }
-        let text = cell.textLabel.convert(cell.textLabel.bounds, to: collectionView)
-        return text.insetBy(dx: -4, dy: -4).contains(point)
-    }
-
-    /// Held long enough on a bubble's text: select the word under the finger.
-    func startPressTextSelection() {
-        guard let rowID = pressTextRowID else { return }
-        pressTextStart = nil
-        pressTextRowID = nil
-        beginTextSelection(rowID: rowID, wordAt: pressStart, showsMenu: false)
-        guard textSelection != nil else { return }
-        pressSelectingText = true
-        // The hold took the touch: taps do not open what is under it, and
-        // the transcript does not scroll while the finger moves the selection.
-        pressOpenedMenu = true
-        collectionView.panGestureRecognizer.isEnabled = false
-        collectionView.panGestureRecognizer.isEnabled = true
-        UISelectionFeedbackGenerator().selectionChanged()
-    }
-
-    /// A text hold that ended (lift, drag, cancel) before it selected.
-    func cancelPressText() {
-        pressTextStart?.cancel()
-        pressTextStart = nil
-        pressTextRowID = nil
     }
 
     /// Held to the click timeout: the menu opens under the finger.
