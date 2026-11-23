@@ -484,6 +484,72 @@ pub fn default_dir(repo: Option<&Path>) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios")
 }
 
+/// Sets `key` in `table` the way `table[key] = item` does (a comment above the key stays), without
+/// the panicking index.
+fn set(table: &mut toml_edit::Table, key: &str, item: toml_edit::Item) {
+    *table.entry(key).or_insert(toml_edit::Item::None) = item;
+}
+
+/// `scenario new`: a new scenario file's text, from `base` (another scenario file's text) with
+/// its name, summary and sources replaced and the pause events' lengths set, its comments kept.
+/// The result is checked the way `scenario run` reads it.
+pub fn new_text(
+    base: &str,
+    name: &str,
+    summary: &str,
+    source: &str,
+    pause_ms: Option<u64>,
+) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut =
+        base.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
+    let base_name = doc.get("name").and_then(|item| item.as_str()).unwrap_or_default().to_owned();
+    set(&mut doc, "name", toml_edit::value(name));
+    set(&mut doc, "summary", toml_edit::value(summary));
+    let mut sources = toml_edit::Array::new();
+    sources.push(source);
+    sources.push(format!("made with `cmux-duress scenario new {name} --like {base_name}`"));
+    set(&mut doc, "sources", toml_edit::value(sources));
+    if let Some(ms) = pause_ms {
+        if ms == 0 {
+            return Err("--pause-ms must be above 0".into());
+        }
+        let length = i64::try_from(ms).map_err(|_| format!("--pause-ms {ms} is too long"))?;
+        let events = doc.get_mut("event").and_then(|item| item.as_array_of_tables_mut());
+        let mut found = false;
+        for event in events.into_iter().flat_map(|events| events.iter_mut()) {
+            if event.get("kind").and_then(|kind| kind.as_str()) == Some("pause") {
+                set(event, "ms", toml_edit::value(length));
+                found = true;
+            }
+        }
+        if !found {
+            return Err(format!("--pause-ms: {base_name} has no pause event to set"));
+        }
+    }
+    let text = doc.to_string();
+    Scenario::parse(&text)?;
+    Ok(text)
+}
+
+impl Scenario {
+    /// `scenario run --pause-ms`: every pause lasts `ms` (the backlog held through it lands at
+    /// the resume, as when the app comes back after that long).
+    pub fn set_pause_ms(&mut self, ms: u64) -> Result<(), String> {
+        let mut found = false;
+        for event in &mut self.events {
+            if let Event::Pause { ms: length, .. } = event {
+                *length = ms;
+                found = true;
+            }
+        }
+        if found {
+            Ok(())
+        } else {
+            Err(format!("--pause-ms: scenario {} has no pause event", self.name))
+        }
+    }
+}
+
 /// Every `*.toml` in `dir`, by name.
 pub fn load_dir(dir: &Path) -> Result<Vec<Scenario>, String> {
     let entries = std::fs::read_dir(dir).map_err(|error| format!("{}: {error}", dir.display()))?;
@@ -989,5 +1055,43 @@ duress = "heavy"
         // A kit-test sim half runs without duress=, which the sim script allows only beside ui=.
         let resume = find(&dir, "resume-after-1s").unwrap();
         assert_eq!(resume.sim_args(), "test only=CmuxMobileLiveTests/ReconnectChainTimingTests");
+    }
+
+    #[test]
+    fn new_text_copies_a_scenario_under_a_new_name_keeping_its_comments() {
+        let base = MINIMAL
+            .replace("[[check]]", "# why this budget\n[[check]]")
+            .replace("name = \"tiny\"", "# what it reproduces\nname = \"tiny\"");
+        let text =
+            new_text(&base, "resume-after-30s", "back after 30 s", "Leo, 2026-11-22", Some(30_000))
+                .unwrap();
+        let made = Scenario::parse(&text).unwrap();
+        assert_eq!(made.name, "resume-after-30s");
+        assert_eq!(made.summary, "back after 30 s");
+        assert_eq!(made.events, vec![Event::Pause { at_ms: 1000, ms: 30_000 }]);
+        assert_eq!(made.checks, Scenario::parse(MINIMAL).unwrap().checks);
+        assert!(text.contains("# why this budget"), "{text}");
+        assert!(text.contains("# what it reproduces\nname = \"resume-after-30s\""), "{text}");
+        assert!(text.contains("Leo, 2026-11-22"), "{text}");
+        assert!(text.contains("scenario new resume-after-30s --like tiny"), "{text}");
+        // Without --pause-ms the pause stays as it was.
+        let same = new_text(&base, "copy", "s", "src", None).unwrap();
+        let same = Scenario::parse(&same).unwrap();
+        assert_eq!(same.events, vec![Event::Pause { at_ms: 1000, ms: 1000 }]);
+    }
+
+    #[test]
+    fn new_text_and_pause_ms_refuse_a_scenario_without_a_pause() {
+        let no_pause_text =
+            MINIMAL.replace("[[event]]\nkind = \"pause\"\nat_ms = 1000\nms = 1000\n", "");
+        assert!(
+            new_text(&no_pause_text, "x", "s", "src", Some(5000)).unwrap_err().contains("no pause")
+        );
+        assert!(new_text(MINIMAL, "x", "s", "src", Some(0)).unwrap_err().contains("above 0"));
+        let mut tiny = Scenario::parse(MINIMAL).unwrap();
+        tiny.set_pause_ms(300_000).unwrap();
+        assert_eq!(tiny.events, vec![Event::Pause { at_ms: 1000, ms: 300_000 }]);
+        let mut none = Scenario::parse(&no_pause_text).unwrap();
+        assert!(none.set_pause_ms(5000).unwrap_err().contains("no pause"));
     }
 }
