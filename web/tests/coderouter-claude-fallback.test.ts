@@ -10,6 +10,7 @@ import {
   claudeFallbackConfig,
   createClaudeFallbackSpend,
   createFallbackPlanReader,
+  fallbackReservationCents,
   fallbackCapCents,
   fallbackModelAllowed,
   FALLBACK_ACCOUNT_ENV,
@@ -99,6 +100,8 @@ function setup(options: SetupOptions = {}) {
   const planId = mock(options.planReader ??
     (async () => ({ kind: "plan" as const, planId: options.plan === undefined ? "next_intro" : options.plan })));
   let config: ClaudeFallbackConfig = options.config ?? { kind: "off" };
+  // The real in-flight holds; the ledger reads are the mocks above.
+  const spend = { ...createClaudeFallbackSpend(), teamCents, todayCents, note: () => {} };
   const service = createClaudeUpstreamService({
     store,
     keys,
@@ -110,12 +113,13 @@ function setup(options: SetupOptions = {}) {
       teamHasAnyAccount,
       planId,
       loadAccount,
-      spend: { teamCents, todayCents, note: () => {} },
+      spend,
     },
   });
   return {
     store,
     service,
+    spend,
     plain,
     teamCents,
     todayCents,
@@ -477,7 +481,7 @@ describe("house route through the proxy", () => {
       }) as typeof fetch,
       now: () => T0,
       capture: () => {},
-      fallbackSpend: { teamCents: async () => 0, todayCents: async () => 0, note: () => {} },
+      fallbackSpend: { ...createClaudeFallbackSpend(), teamCents: async () => 0, todayCents: async () => 0, note: () => {} },
     }, { now: () => 0, sleep: async () => {}, random: () => 0 });
   }
   const request = (model = "claude-sonnet-5") => new Request("https://coderouter.dev/v1/messages", {
@@ -588,7 +592,7 @@ describe("house route charges what it delivered", () => {
       }) as typeof fetch,
       now: () => T0,
       capture: () => {},
-      fallbackSpend: { teamCents: async () => 0, todayCents: async () => 0, note: (_team, _account, cents) => notes.push(cents) },
+      fallbackSpend: { ...createClaudeFallbackSpend(), teamCents: async () => 0, todayCents: async () => 0, note: (_team, _account, cents) => notes.push(cents) },
     }, { now: () => 0, sleep: async () => {}, random: () => 0 });
     const request = new Request("https://coderouter.dev/v1/messages", {
       method: "POST",
@@ -684,5 +688,212 @@ describe("agent access with the house route", () => {
       const body = await (await GET(new Request("https://cmux.com/api/coderouter/agent-access"))).json();
       expect(body.agents.claude).toBe(expected);
     }
+  });
+});
+
+describe("house route holds each request's upper bound until it settles", () => {
+  const reserve = (cents: number) => ({ ...pick(), reserveCents: () => cents });
+  type Selected = Extract<Awaited<ReturnType<ReturnType<typeof setup>["service"]["select"]>>, { kind: "selected" }>;
+
+  test("N concurrent requests at a cap that fits only k admit exactly k", async () => {
+    // 50 cents left of the intro cap; each request is held at 12: four fit.
+    const ctx = await withFallbackAccount({ plan: "next_intro", spent: 450 });
+    const selections = await Promise.all(Array.from({ length: 10 }, () => ctx.service.select(NEWCOMER, reserve(12))));
+    const admitted = selections.filter((selection): selection is Selected => selection.kind === "selected");
+    expect(admitted).toHaveLength(4);
+    expect(selections.filter((selection) => selection.kind !== "selected"))
+      .toEqual(Array.from({ length: 6 }, () => ({ kind: "fallback_refused", reason: "included_usage_used_up" })));
+    expect(ctx.spend.inFlightCents(NEWCOMER, ctx.fallbackId).team).toBe(48);
+    for (const selection of admitted) {
+      selection.reservation!.release();
+      selection.reservation!.release();
+    }
+    expect(ctx.spend.inFlightCents(NEWCOMER, ctx.fallbackId)).toEqual({ team: 0, today: 0 });
+    // Released: the room is back.
+    expect((await ctx.service.select(NEWCOMER, reserve(12))).kind).toBe("selected");
+  });
+
+  test("the taste plans' shared daily budget holds in-flight requests the same way", async () => {
+    const ctx = await withFallbackAccount({ plan: "next_taste", spent: 0, today: GLOBAL_DAILY_BUDGET_CENTS - 10 });
+    const selections = await Promise.all(Array.from({ length: 5 }, () => ctx.service.select(NEWCOMER, reserve(4))));
+    expect(selections.filter((selection) => selection.kind === "selected")).toHaveLength(2);
+    expect(selections.filter((selection) => selection.kind !== "selected"))
+      .toEqual(Array.from({ length: 3 }, () => ({ kind: "fallback_refused", reason: "included_daily_budget_reached" })));
+    expect(ctx.spend.inFlightCents(NEWCOMER, ctx.fallbackId)).toEqual({ team: 8, today: 8 });
+    for (const selection of selections) if (selection.kind === "selected") selection.reservation!.release();
+    expect(ctx.spend.inFlightCents(NEWCOMER, ctx.fallbackId)).toEqual({ team: 0, today: 0 });
+  });
+
+  test("a request whose own bound exceeds what is left is refused, typed, though the team is under the cap", async () => {
+    const ctx = await withFallbackAccount({ plan: "next_intro", spent: 480 });
+    expect(await ctx.service.select(NEWCOMER, reserve(21))).toEqual({ kind: "fallback_refused", reason: "included_usage_used_up" });
+    expect((await ctx.service.select(NEWCOMER, reserve(20))).kind).toBe("selected");
+  });
+
+  test("a bound that cannot be computed refuses (fail closed); an exhausted or aborted selection holds nothing", async () => {
+    const ctx = await withFallbackAccount();
+    for (const cents of [Number.NaN, 0, -1]) {
+      expect(await ctx.service.select(NEWCOMER, reserve(cents))).toEqual({ kind: "fallback_unavailable" });
+    }
+    expect(await ctx.service.select(NEWCOMER, { ...pick(), reserveCents: () => { throw new Error("boom"); } }))
+      .toEqual({ kind: "fallback_unavailable" });
+    expect((await ctx.service.select(NEWCOMER, { ...reserve(5), excludedAccountIds: [ctx.fallbackId] })).kind).toBe("exhausted");
+    const aborted = new AbortController();
+    ctx.loadAccount.mockImplementation(async (id: string) => {
+      aborted.abort();
+      return ctx.store.rows.get(id) ?? null;
+    });
+    await expect(ctx.service.select(NEWCOMER, { ...reserve(5), signal: aborted.signal })).rejects.toThrow();
+    ctx.loadAccount.mockImplementation(async (id: string) => ctx.store.rows.get(id) ?? null);
+    expect(ctx.spend.inFlightCents(NEWCOMER, ctx.fallbackId)).toEqual({ team: 0, today: 0 });
+  });
+
+  test("env unset: nothing is held, and the bound is never computed", async () => {
+    const ctx = await withFallbackAccount();
+    ctx.setConfig({ kind: "off" });
+    const reserveCents = mock(() => 5);
+    expect(await ctx.service.select(NEWCOMER, { ...pick(), reserveCents })).toEqual({ kind: "none" });
+    expect(reserveCents).not.toHaveBeenCalled();
+    // A team with its own account never computes it either.
+    ctx.setConfig(ctx.on);
+    await ctx.plain.add(NEWCOMER, "user-1", { kind: "anthropic_api_key", apiKey: API_KEY_2 }, "team");
+    const own = await ctx.service.select(NEWCOMER, { ...pick(), reserveCents });
+    expect(own.kind).toBe("selected");
+    expect((own as Selected).reservation).toBeUndefined();
+    expect(reserveCents).not.toHaveBeenCalled();
+  });
+
+  test("the bound: bytes as uncached input plus max_tokens of output at list price; unknown models at the top rate", () => {
+    const small = fallbackReservationCents({ model: "claude-sonnet-4-5", bytes: 4_000, maxTokens: 1_000 });
+    const larger = fallbackReservationCents({ model: "claude-sonnet-4-5", bytes: 4_000, maxTokens: 2_000 });
+    expect(small).toBeGreaterThan(0);
+    expect(larger).toBeGreaterThan(small);
+    // No max_tokens: held for the largest output.
+    expect(fallbackReservationCents({ model: "claude-sonnet-4-5", bytes: 4_000, maxTokens: null }))
+      .toBe(fallbackReservationCents({ model: "claude-sonnet-4-5", bytes: 4_000, maxTokens: 64_000 }));
+    expect(fallbackReservationCents({ model: "not-a-model", bytes: 4_000, maxTokens: 1_000 }))
+      .toBeCloseTo(2_000 * UNPRICED_USD_PER_TOKEN * 100, 9);
+  });
+
+  describe("through the proxy, the hold is released however the request ends", () => {
+    const sse = (events: readonly unknown[]) =>
+      events.map((event) => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
+    const start = { type: "message_start", message: { id: "msg_1", type: "message", model: "claude-sonnet-4-5", usage: { input_tokens: 100, output_tokens: 1 } } };
+    const delta = (text: string) => ({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } });
+    const finalEvents = [{ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 7 } }, { type: "message_stop" }];
+
+    async function houseProxy(options: { head?: string; end?: "hold" | "break" | string; status?: number; throws?: boolean; maxTokens?: number; spent?: number; plan?: string }) {
+      const ctx = await withFallbackAccount({ plan: options.plan ?? "next_intro", spent: options.spent ?? 0 });
+      const notes: number[] = [];
+      const fetched: string[] = [];
+      let inFlightAtFetch = -1;
+      let clock = 0;
+      const handler = createClaudeMessagesProxy({
+        authenticate: async () => ({ ok: true, identity: { teamId: NEWCOMER, stackUserId: "user-1", vmId: "vm-1", token: "crt_x" } }),
+        select: (teamId, input) => ctx.service.select(teamId, { ...input, access: vmAccess }),
+        cooldown: async () => {},
+        touchUsed: async () => {},
+        fetch: (async (input: string | URL | Request) => {
+          fetched.push(String(input));
+          inFlightAtFetch = ctx.spend.inFlightCents(NEWCOMER, ctx.fallbackId).team;
+          if (options.throws) throw new Error("connect reset");
+          const encoder = new TextEncoder();
+          let pulls = 0;
+          const body = new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              pulls += 1;
+              if (pulls === 1) {
+                controller.enqueue(encoder.encode(options.head ?? ""));
+                return;
+              }
+              if (options.end === "hold") return new Promise<void>(() => {});
+              if (options.end === "break") {
+                controller.error(new Error("upstream reset"));
+                return;
+              }
+              controller.enqueue(encoder.encode(options.end ?? ""));
+              controller.close();
+            },
+          });
+          return new Response(body, { status: options.status ?? 200, headers: { "content-type": options.status ? "application/json" : "text/event-stream" } });
+        }) as typeof fetch,
+        now: () => T0,
+        capture: () => {},
+        fallbackSpend: { ...ctx.spend, note: (_team, _account, cents) => notes.push(cents) },
+      }, {
+        // The clock moves only by the proxy's own waits, so a failing upstream runs out its deadline.
+        now: () => clock,
+        sleep: async (ms: number) => {
+          clock += Math.max(ms, 1);
+        },
+        random: () => 0,
+      });
+      const request = new Request("https://coderouter.dev/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer crt_x" },
+        body: JSON.stringify({ model: "claude-sonnet-4-5", stream: true, max_tokens: options.maxTokens ?? 1_000, messages: [{ role: "user", content: "hi" }] }),
+      });
+      const inFlight = () => ctx.spend.inFlightCents(NEWCOMER, ctx.fallbackId).team;
+      return { run: () => handler(request), notes, fetched, inFlight, inFlightAtFetch: () => inFlightAtFetch };
+    }
+
+    test("success: held while the answer streams, then swapped for its charge", async () => {
+      const ctx = await houseProxy({ head: sse([start, delta("hello")]), end: sse(finalEvents) });
+      const response = await ctx.run();
+      expect(ctx.inFlightAtFetch()).toBeGreaterThan(0);
+      expect(ctx.inFlight()).toBe(ctx.inFlightAtFetch());
+      await response.text();
+      expect(ctx.notes).toHaveLength(1);
+      expect(ctx.inFlight()).toBe(0);
+    });
+
+    test("an upstream error answer releases at once", async () => {
+      const ctx = await houseProxy({ head: JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "bad" } }), end: "", status: 400 });
+      const response = await ctx.run();
+      expect(response.status).toBe(400);
+      expect(ctx.inFlight()).toBe(0);
+      await response.text();
+      expect(ctx.notes).toEqual([]);
+      expect(ctx.inFlight()).toBe(0);
+    });
+
+    test("a transport failure releases before the next selection", async () => {
+      const ctx = await houseProxy({ throws: true });
+      const response = await ctx.run();
+      expect(response.status).toBeGreaterThanOrEqual(500);
+      expect(ctx.fetched.length).toBeGreaterThan(0);
+      expect(ctx.inFlight()).toBe(0);
+    });
+
+    test("a client cancel settles the charge and releases", async () => {
+      const ctx = await houseProxy({ head: sse([start, delta("x".repeat(300))]), end: "hold" });
+      const response = await ctx.run();
+      const reader = response.body!.getReader();
+      await reader.read();
+      expect(ctx.inFlight()).toBeGreaterThan(0);
+      await reader.cancel();
+      expect(ctx.notes).toHaveLength(1);
+      expect(ctx.inFlight()).toBe(0);
+    });
+
+    test("a stream that breaks settles the charge and releases", async () => {
+      const ctx = await houseProxy({ head: sse([start, delta("y".repeat(300))]), end: "break" });
+      await (await ctx.run()).text().catch(() => undefined);
+      expect(ctx.notes).toHaveLength(1);
+      expect(ctx.inFlight()).toBe(0);
+    });
+
+    test("a request whose own bound exceeds what is left: 402 with the typed reason, nothing forwarded", async () => {
+      // 20 cents left; 2,000 output tokens at Sonnet's list price alone is 3 cents, 20,000 is 30.
+      const ctx = await houseProxy({ spent: 480, maxTokens: 20_000, head: sse([start]), end: sse(finalEvents) });
+      const response = await ctx.run();
+      expect(response.status).toBe(402);
+      expect(response.headers.get("x-cmux-refusal-reason")).toBe("included_usage_used_up");
+      expect((await response.json()).error.reason).toBe("included_usage_used_up");
+      expect(ctx.fetched).toEqual([]);
+      expect(ctx.inFlight()).toBe(0);
+      const fits = await houseProxy({ spent: 480, maxTokens: 2_000, head: sse([start]), end: sse(finalEvents) });
+      expect((await fits.run()).status).toBe(200);
+    });
   });
 });
