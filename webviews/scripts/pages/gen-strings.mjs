@@ -360,30 +360,10 @@ export const PAGES = {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
-  // The cards drawn in a Home chat (home-messages/cards: agent pills, link previews, MCP connect,
-  // first run, header toggles), with the Swift keys they replace; their table lives next to them.
-  "home-messages-cards": {
-    out: "webviews/src/pages/home-messages/cards/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-messages/cards/Localizable.xcstrings" }],
-  },
-  // The Messages transcript and composer (home-messages/transcript): the Swift transcript's keys, so
-  // their translations carry over. The parts it reuses from Channels read Channels' table beside it.
-  "home-messages-transcript": {
-    out: "webviews/src/pages/home-messages/transcript/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-messages/transcript/Localizable.xcstrings" }],
-  },
-  // The docked Home's Messages page (cmux-page://cmux.home-messages/): its own table next to it (the
-  // native list's `home.*` and `sidebar.*` keys), and the Channels page's connect strings for the
-  // daemon gate it shares.
-  "home-messages": {
-    out: "webviews/src/pages/home-messages/generated/strings.json",
-    catalogs: [
-      { file: "webviews/src/pages/home-messages/Localizable.xcstrings" },
-      {
-        file: "webviews/src/pages/home-channels/Localizable.xcstrings",
-        keys: (all) => all.filter((key) => key.startsWith("connect.")),
-      },
-    ],
+  // Home's Set Up cmux card (setup-card), with the Swift keys it replaces; its table lives next to it.
+  "setup-card": {
+    out: "webviews/src/pages/setup-card/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/setup-card/Localizable.xcstrings" }],
   },
   // The agent pane's rows the channels Home reuses for agent runs (tool calls, shell blocks,
   // diffs, Markdown): only their keys, installed as the pane's table (agent-session/acpmux/i18n.ts).
@@ -485,12 +465,6 @@ export const PAGES = {
   viewerEmpty: {
     out: "webviews/src/viewer-empty/generated/strings.json",
     catalogs: [{ file: "webviews/src/viewer-empty/Localizable.xcstrings" }],
-  },
-  // The Messages page's sheets and New Message (home-messages/sheets), keyed as the Swift
-  // CmuxNextHome catalog they replace; the page's own table takes this catalog when it lands.
-  "home-messages-sheets": {
-    out: "webviews/src/pages/home-messages/sheets/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-messages/sheets/Localizable.xcstrings" }],
   },
 };
 
@@ -733,6 +707,26 @@ function writeStamp(name, page, outputs) {
   } catch {}
 }
 
+/** Writes the pane and acpmux protocol types; true when a generator failed. */
+async function writeProtocols() {
+  const scripts = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  if (process.versions.bun) {
+    const { writePaneProtocol } = await import("../pane-protocol-codegen.ts");
+    const { writeAcpmuxProtocol } = await import("../acpmux-protocol-codegen.ts");
+    writePaneProtocol({ log: () => {} });
+    writeAcpmuxProtocol({ log: () => {} });
+    return false;
+  }
+  const { spawnSync } = await import("node:child_process");
+  let failed = false;
+  for (const script of ["pane-protocol-codegen.ts", "acpmux-protocol-codegen.ts"]) {
+    const run = spawnSync("bun", [path.join(scripts, script)], { stdio: ["ignore", "ignore", "inherit"] });
+    if (run.error?.code === "ENOENT") return false;
+    failed ||= run.status !== 0;
+  }
+  return failed;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
   // The feature tips table is build output beside the strings tables, made by every run that makes
@@ -742,6 +736,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // The design scale's Tailwind theme and token list are build output too (gen-design-scale.mjs).
   const { writeDesignScale } = await import("./gen-design-scale.mjs");
   const scaleFailed = writeDesignScale({ check, log: () => {} });
+  // The pane and acpmux protocol types are build output too (pane-protocol-codegen.ts,
+  // acpmux-protocol-codegen.ts), written only where they changed. Bun imports them; under node
+  // (their imports carry no extension) bun runs them, skipped when no bun is installed.
+  const protocolFailed = check ? false : await writeProtocols();
   const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
     check,
@@ -749,5 +747,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),
   });
-  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed ? 1 : 0);
+  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed || protocolFailed ? 1 : 0);
 }

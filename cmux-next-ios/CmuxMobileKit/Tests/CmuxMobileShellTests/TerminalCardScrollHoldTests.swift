@@ -35,5 +35,31 @@ import Testing
         #expect(model.cardScreenText == "$ ls\nREADME.md", "the held text lands once the grid stops")
         source.reset()
     }
+
+    /// The grid can hide while it still moves (a card tapped mid-fling): no stop is
+    /// reported after that, so the held text lands when the grid hides.
+    @Test func aGridThatHidesMidScrollStillGetsTheHeldText() async throws {
+        let source = GhosttyTerminalTabContent()
+        source.frameStore = nil
+        let store = AppStore.mock()
+        let workspace = try #require(store.workspaces.first { $0.tabs.contains { $0.kind == .terminal } })
+        let tab = try #require(workspace.tabs.first { $0.kind == .terminal })
+        source.sessionProvider = { _, _ in nil }
+        var answered = false
+        source.screenTextProvider = { _, _ in
+            answered = true
+            return "$ ls\nREADME.md"
+        }
+        source.overviewVisibilityChanged(true) { [] }
+        source.overviewScrollingChanged(true)
+        source.prepareCard(for: tab, in: workspace)
+        let model = try #require(source.model(forTabID: tab.id))
+        for _ in 0 ..< 200 where !answered { await Task.yield() }
+        for _ in 0 ..< 20 { await Task.yield() }
+        #expect(model.cardScreenText == nil, "the card's text changed while the grid scrolled")
+        source.overviewVisibilityChanged(false) { [] }
+        #expect(model.cardScreenText == "$ ls\nREADME.md", "the held text lands when the grid hides")
+        source.reset()
+    }
 }
 #endif
