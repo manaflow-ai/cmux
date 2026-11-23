@@ -7,13 +7,14 @@ import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
+import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -296,6 +297,11 @@ describe("cloud journey", () => {
     await expect(oidcSignIn("https://cloud-api.cmux.dev", {}, [], fake as never)).rejects.toThrow("id-token: write");
     const refused = async () => ({ status: 401, body: { error: "this token is not trusted to sign in", value: "gh-oidc-jwt-value" } });
     await expect(oidcSignIn("https://cloud-api.cmux.dev", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rb" }, [], refused as never)).rejects.toThrow("GitHub OIDC token HTTP 401");
+    // The API's two refusals of a correct job say what to change (cmux#35703).
+    const ghOk = (status: number) => async (_m: string, url: string) => (url.startsWith("https://gh.example/") ? { status: 200, body: { value: "gh-oidc-jwt-value" } } : { status, body: {} });
+    const env = { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rb" };
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", env, [], ghOk(404) as never)).rejects.toThrow("has no POST /v1/auth/github-actions yet");
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", env, [], ghOk(401) as never)).rejects.toThrow("no valid CI_SESSION_TRUST row matches it");
   });
   test("backend names map to the cmux API Worker of each environment", () => {
     expect(resolveBackend("staging").api).toBe("https://cloud-api-staging.cmux.dev");
@@ -458,6 +464,14 @@ describe("cloud journey: Claude login route (cmux#40159)", () => {
     // A --preclaim-login run measures the spare.ready copy itself.
     expect(startsOnLaunchCredential({ ...base, preclaimLogin: true })).toBe(false);
     expect(startsOnLaunchCredential({ ...base, modelStub: true, preclaimLogin: true })).toBe(true);
+  });
+
+  test("a preclaim miss starts the agent on its launch credential, not a post-bind copy", () => {
+    expect(loginPathAfterClaim({ receipt: true, launchCredential: false, launchOnMiss: true })).toBe("receipt");
+    expect(loginPathAfterClaim({ receipt: false, launchCredential: false, launchOnMiss: true })).toBe("launch");
+    expect(loginPathAfterClaim({ receipt: false, launchCredential: true, launchOnMiss: true })).toBe("launch");
+    // Codex, --gateway or --start-via app: no launch credential path, so the copy stays.
+    expect(loginPathAfterClaim({ receipt: false, launchCredential: false, launchOnMiss: false })).toBe("copy");
   });
 });
 
@@ -3195,5 +3209,23 @@ describe("the stub step's credential rule (cmux#40159)", () => {
   test("with a login on the machine, every request must carry it", () => {
     expect(judgeStubCredentials([turn(want), title], want, false).error).toBe("a model request did not carry the login the journey passed");
     expect(judgeStubCredentials([turn(want), { ...title, cred_sha256: want }], want, false)).toEqual({ detail: "2 model requests, each with the forwarded login (SHA-256 match)" });
+  });
+});
+
+describe("the --surge proof (cmux-platform#1594)", () => {
+  const slot = (index: number, machine_id: string | null, status = "created") => ({ index, status, machine_id, provider: "freestyle", reason: "r", retryable: false });
+  const receipt = { ...SURGE_PROOF_REQUEST, slots: [slot(0, "vm_aaaaaaaaaaaaaaaaaaaa"), slot(1, "vm_bbbbbbbbbbbbbbbbbbbb")] };
+  test("a replay matches only the same slots in the same order", () => {
+    expect(sameSurgeSlots(receipt, structuredClone(receipt))).toBe(true);
+    expect(sameSurgeSlots(receipt, { ...receipt, slots: [...receipt.slots].reverse() })).toBe(false);
+    expect(sameSurgeSlots(receipt, { ...receipt, slots: [receipt.slots[0], slot(1, null, "queued")] })).toBe(false);
+    expect(sameSurgeSlots(receipt, { ...receipt, slots: receipt.slots.slice(0, 1) })).toBe(false);
+    expect(sameSurgeSlots(receipt, null)).toBe(false);
+  });
+  test("cleanup deletes each named machine once, across every receipt", () => {
+    expect(surgeMachineIds(receipt, receipt, { slots: [slot(0, null, "refused")] }, undefined)).toEqual(["vm_aaaaaaaaaaaaaaaaaaaa", "vm_bbbbbbbbbbbbbbbbbbbb"]);
+  });
+  test("the proof asks for the smallest burst: 2 machines, 300 s", () => {
+    expect(SURGE_PROOF_REQUEST).toEqual({ count: 2, ttl_seconds: 300 });
   });
 });

@@ -449,6 +449,9 @@ impl LocalStore {
         {
             let mut writers = self.writers.lock_or_recover();
             let _cold = self.cold.lock_or_recover();
+            // Closed first: a write in flight to it finishes, and none lands until `events/` is
+            // renamed (a write runs under its segment's lock: `store/segment_writer.rs`).
+            self.close_writer_locked(id, &mut writers);
             let unchanged = self.log_files(id)?.is_some_and(|now| {
                 now.len() == staged.files.len()
                     && now.iter().zip(&staged.files).all(|((name, path), entry)| {
@@ -459,9 +462,6 @@ impl LocalStore {
             });
             if !unchanged {
                 return Ok(false);
-            }
-            if let Some(w) = writers.open.remove(id) {
-                w.close(id, &self.sync_failed);
             }
             // The renames go through the held home (`home_fs`).
             crate::config::refuse_lost_home(&dir)?;

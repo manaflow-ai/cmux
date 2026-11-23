@@ -17,13 +17,13 @@ final class MessageAccessibilityElement: NSAccessibilityElement {
 }
 
 extension NativeStrings {
-    static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative", bundle: .module) }
-    static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative", bundle: .module) }
+    static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
+    static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
     /// "Attachment: %@"
-    static var attachmentFormat: String { String(localized: "ax.attachment", defaultValue: "Attachment: %@", table: "AppKitNative", bundle: .module) }
-    static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative", bundle: .module) }
+    static var attachmentFormat: String { String(localized: "ax.attachment", defaultValue: "Attachment: %@", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
+    static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
     /// sender, text, time
-    static var messageFormat: String { String(localized: "ax.message.format", defaultValue: "%1$@, %2$@, %3$@", table: "AppKitNative", bundle: .module) }
+    static var messageFormat: String { String(localized: "ax.message.format", defaultValue: "%1$@, %2$@, %3$@", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
 }
 
 extension ChatController {

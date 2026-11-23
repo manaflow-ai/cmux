@@ -15,6 +15,10 @@
 //! scanning 800 worktrees kept git running all day. Off the runtime: the
 //! settings, the disk and the session files are read on a blocking thread
 //! too.
+//! A whole pass also reports the machine's build caches outside any worktree
+//! (Xcode DerivedData per project; SwiftPM, npm and Bun caches under disk
+//! pressure only: `cmux_worktree_care::caches`) and removes the idle ones
+//! when `worktrees.cleanBuildCaches` is on (default off).
 //! The `worktrees.autoCleanup` setting (default on) turns the automatic
 //! passes off; `_acpmux/worktree/clean` (the machine view's Clean up now)
 //! runs one regardless. Either way a worktree goes only after its quiet
@@ -38,10 +42,14 @@ use cmux_worktree_care::inventory::now_ms;
 use cmux_worktree_care::pass::{self, Options};
 use cmux_worktree_care::policy::{self as care_policy, Pressure, Settings as CareSettings};
 use cmux_worktree_care::schedule::{self, Claim, Refused};
-use cmux_worktree_care::{Store as ArchiveStore, disk};
+use cmux_worktree_care::{Store as ArchiveStore, caches, disk};
 
 /// The setting that turns automatic passes off.
 pub const SETTING_AUTO_CLEANUP: &str = "worktrees.autoCleanup";
+
+/// The setting that lets a pass also remove the machine's idle build caches
+/// (`cmux_worktree_care::caches`). Off by default: they are always reported.
+pub const SETTING_CLEAN_BUILD_CACHES: &str = "worktrees.cleanBuildCaches";
 
 const MINUTE_MS: u64 = 60 * 1000;
 
@@ -106,6 +114,19 @@ pub fn auto_cleanup_enabled() -> bool {
                 .and_then(|value| value.as_bool())
                 .unwrap_or(true)
         }
+    }
+}
+
+/// Whether a pass may remove idle build caches: the setting, else off. An
+/// unreadable settings file keeps them.
+pub fn clean_build_caches_enabled() -> bool {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => {
+            crate::user_settings::value(&doc, SETTING_CLEAN_BUILD_CACHES)
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false)
+        }
+        _ => false,
     }
 }
 
@@ -244,6 +265,7 @@ impl Hub {
             sessions.extend(crate::worktree_sessions::on_disk(&now_home, Some(&now_daemon)));
             sessions
         });
+        let only_given = !only.is_empty();
         let report = tokio::task::spawn_blocking(move || {
             let mut sessions = live;
             sessions.extend(crate::worktree_sessions::on_disk(&home, Some(&daemon_home)));
@@ -266,17 +288,38 @@ impl Hub {
             };
             let store = archive_store()?;
             let report = pass::run(&options, &store);
+            // The machine's build caches, on a whole pass only (not a clean
+            // of named worktrees): reported always, removed only with the
+            // setting on.
+            let caches_on = clean_build_caches_enabled();
+            let caches = match (&report, only_given) {
+                (Ok(report), false) => Some(caches::run(&caches::Options {
+                    families: caches::default_families(&home),
+                    pressure: report.pressure,
+                    now_ms: now_ms(),
+                    apply: apply && caches_on,
+                    uses: options.uses.as_ref(),
+                    open: options.open.as_ref(),
+                    measure: !apply,
+                })),
+                _ => None,
+            };
             if let Err(error) = claim.finish(now_ms()) {
                 tracing::warn!("worktree cleanup could not record its pass: {error}");
             }
             let report = report.map_err(RpcError::internal)?;
-            Ok::<_, RpcError>((report, auto_cleanup_enabled()))
+            Ok::<_, RpcError>((report, caches, auto_cleanup_enabled(), caches_on))
         })
         .await
         .map_err(|e| RpcError::internal(format!("the cleanup pass stopped: {e}")))?;
-        let (report, auto) = report?;
+        let (report, caches, auto, caches_on) = report?;
         let mut value = serde_json::to_value(&report).unwrap_or(Value::Null);
         if let Some(object) = value.as_object_mut() {
+            if let Some(caches) = caches {
+                object
+                    .insert("caches".into(), serde_json::to_value(&caches).unwrap_or(Value::Null));
+            }
+            object.insert("cleanBuildCaches".into(), json!(caches_on));
             object.insert("autoCleanup".into(), json!(auto));
             object.insert("at".into(), json!(now_ms()));
         }
