@@ -16,7 +16,8 @@ import type { HatCountMotion } from "./hatCount.experiment";
 const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
 function Roll({ text }: { text: string }) {
-  const chars = [...text];
+  // The count is ASCII digits, "." and "k" (compactCount), so one char per UTF-16 unit is right.
+  const chars = text.split("");
   return (
     <span className="acpmux-hat-count__roll">
       {chars.map((char, index) => {
