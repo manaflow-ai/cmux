@@ -46,6 +46,13 @@ class BlindSpots(unittest.TestCase):
         self.temp.mkdir()
         self.bin = self.root / "bin"
         self.bin.mkdir()
+        # env.sh switches itself off at 2026-11-23 00:00 UTC. Pin its clock inside the window so these tests keep
+        # checking the logger after that date; the switch-off tests write their own date over this one.
+        real_date = shutil.which("date")
+        self.write_exe("date", f"""#!/bin/sh
+            [ "$*" = "-u +%Y%m%d%H" ] && {{ echo 2026112213; exit 0; }}
+            exec {real_date} "$@"
+            """)
         # A gh that answers `gh api rate_limit` like GitHub and anything else with "ok".
         self.write_exe("gh", """#!/bin/sh
             case "$*" in
