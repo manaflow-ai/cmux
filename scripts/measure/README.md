@@ -99,6 +99,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `omnibar-click.sh` | Omnibar mouse-down to the frame that shows focus. | - | 2026-10-27 | active |
 | `hover-preload.sh` | Pointer sweep over sidebar rows: hover preload wakes and cost. | - | 2026-11-07 | active |
 | `chat-open.sh` | Sidebar click to first content for a chat. | - | 2026-11-03 | active |
+| `pane-compile-cef.sh` | Whether the agent pane's ES-module code cache is consumed on a reload in cmux NEXT's CEF, its compiles and FCP (`--build-at=SHA` per arm). | - | 2026-11-23 | active |
 | `right-pane-open.sh` | Click to first content for every right-side open of a chat. | - | 2026-11-07 | active |
 | `fork-open.sh` | Fork Conversation to a usable fork, for every Fork To destination. | - | 2026-11-07 | active |
 | `close-flash.sh` | Close Window and close-key commit time in an active app. | - | 2026-11-01 | active |
