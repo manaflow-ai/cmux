@@ -302,11 +302,17 @@ final class NotificationCenterService {
         viewedRevision &+= 1
     }
 
-    /// Opens the tab of `surface` (banner click) and reads it per policy.
+    /// Opens the tab of `surface` (banner click) and reads it per policy. The window showing the tab's workspace
+    /// comes forward and takes the keys, as Global Search's jump does: macOS's activation on a banner click fronts
+    /// the last key window, which for a chat in another window is the wrong one.
     func open(surface: SurfaceID?) {
         guard let services, let surface, let located = locate(surface: surface, in: services.daemon.store) else { return }
         let context = AppActionContext(services: services)
-        context.reveal(located); services.agentTabs.existingView(located.tab.id)?.focusAsk()
+        context.reveal(located)
+        if ActionRunScope.viewChangeAllowed(), let controller = context.window(showing: located.workspace.id) {
+            services.windows.bringToFront(controller)
+        }
+        services.agentTabs.existingView(located.tab.id)?.focusAsk()
         interacted(.open, tabID: located.tab.id)
     }
 
