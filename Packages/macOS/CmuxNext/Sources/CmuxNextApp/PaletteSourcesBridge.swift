@@ -55,6 +55,7 @@ enum PaletteSourcesBridge {
     private static func makeBase(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
                        navigation: AppPaletteNavigationSource(services: services),
+                       openIn: EditorOpenInSource(catalog: services.editorCatalog, focus: { [weak services] in services?.windows.active?.focusedPane.map { pane in EditorOpenInSource.Focus(folder: pane.daemon.isLocal ? NewTerminalStart.folder(of: pane.selectedTab, services: pane.services) : nil, chat: pane.currentTabKey.flatMap { pane.services.agentTabs.existingView($0) } != nil) } }, perform: { [weak services] id, arguments in _ = services?.registry.perform(id, invocation: ActionInvocation(arguments: arguments, origin: .user)) }),
                        targets: targetSource(services),
                        context: { [weak services] in services.map(capturedTargets) ?? [] },
                        // Theme pickers preview the highlighted theme live.

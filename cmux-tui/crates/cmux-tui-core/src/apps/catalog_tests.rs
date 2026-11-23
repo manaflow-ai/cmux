@@ -66,3 +66,55 @@ fn only_the_customize_folder_provides_the_customize_app() {
     assert_eq!(dir, Some(customize));
     assert!(rejected, "the local package claiming {CUSTOMIZE_APP} is rejected");
 }
+
+/// Setups stack as layers of their own (`cmux setup install`): the
+/// setups folder's `layers.json` names which load and in what order, a
+/// folder it does not name (a layer turned off) stays unloaded, and a
+/// `local/setup-*` id anywhere else is refused, as is the person's own
+/// customize app staying theirs beside them.
+#[test]
+fn setup_layers_load_from_the_index_in_its_order_only() {
+    let root = std::env::temp_dir().join(format!("cmux-apps-setup-layers-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let write = |dir: &Path, id: &str| {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("main.js"), "var __cmuxAppExports = {render() {}};").unwrap();
+        let manifest = json!({
+            "manifestVersion": 2, "id": id, "name": "Views", "version": "1.0.0",
+            "description": "A view", "engines": {"cmux": "^2.0"},
+            "runtime": {"main": "main.js"}, "files": ["main.js"],
+            "implements": {"cmux.section/1": {"export": "render", "title": "Views"}}
+        });
+        std::fs::write(dir.join("cmux-app.json"), manifest.to_string()).unwrap();
+    };
+    let setups = root.join("setups");
+    write(&root.join("customize"), CUSTOMIZE_APP);
+    write(&setups.join("setup-leo-dusk"), "local/setup-leo-dusk");
+    write(&setups.join("setup-leo-dawn"), "local/setup-leo-dawn");
+    write(&setups.join("setup-leo-off"), "local/setup-leo-off");
+    let impostor = root.join("local").join("impostor");
+    write(&impostor, "local/setup-leo-dusk");
+    let index = json!({"cmuxSetupLayers": 1, "layers": [
+        {"id": "leo/dawn", "app": "local/setup-leo-dawn", "dir": "setup-leo-dawn"},
+        {"id": "leo/dusk", "app": "local/setup-leo-dusk", "dir": "setup-leo-dusk"},
+        {"id": "leo/x", "app": "local/setup-x", "dir": "../customize"}
+    ]});
+    std::fs::write(setups.join(SETUP_LAYERS_INDEX), index.to_string()).unwrap();
+    let catalog = load(&Sources {
+        local: Some(root.join("local")),
+        customize: Some(root.join("customize")),
+        setups: Some(setups.clone()),
+        defaults: Some(Vec::new()),
+        ..Sources::default()
+    });
+    let dusk = catalog.packages.get("local/setup-leo-dusk").map(|p| p.dir.clone());
+    let impostor_refused = catalog.rejected.iter().any(|(dir, _)| dir == &impostor);
+    let escape_refused = catalog.rejected.iter().any(|(_, why)| why.contains("not a setup layer"));
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(catalog.setup_layers, ["local/setup-leo-dawn", "local/setup-leo-dusk"]);
+    assert_eq!(dusk, Some(setups.join("setup-leo-dusk")));
+    assert!(!catalog.packages.contains_key("local/setup-leo-off"), "off: not in the index");
+    assert!(catalog.packages.contains_key(CUSTOMIZE_APP), "the person's own app stays");
+    assert!(impostor_refused, "a setup layer id outside the setups folder is refused");
+    assert!(escape_refused, "a row naming a folder outside the setups folder is refused");
+}

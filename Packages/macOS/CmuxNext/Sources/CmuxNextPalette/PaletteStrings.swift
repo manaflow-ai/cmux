@@ -71,6 +71,8 @@ nonisolated enum PaletteStrings {
     static var factCategory: String { String(localized: "palette.preview.fact.category", defaultValue: "Category", bundle: .localizedModule) }
     static var factDescription: String { String(localized: "palette.preview.fact.description", defaultValue: "Description", bundle: .localizedModule) }
     static var factDetails: String { String(localized: "palette.preview.fact.details", defaultValue: "Details", bundle: .localizedModule) }
+    /// Between a chord's two strokes on its keycaps: ⌘ J then S.
+    static var keycapThen: String { String(localized: "palette.keycap.then", defaultValue: "then", bundle: .localizedModule) }
     static var hideFromPalette: String { String(localized: "palette.action.hideFromPalette", defaultValue: "Hide from Palette", bundle: .localizedModule) }
     static var showInPalette: String { String(localized: "palette.action.showInPalette", defaultValue: "Show in Palette", bundle: .localizedModule) }
     static var resetRanking: String { String(localized: "palette.action.resetRanking", defaultValue: "Reset Ranking", bundle: .localizedModule) }
