@@ -37,7 +37,7 @@ export function cloudIntroCopy(t: Translate): CloudIntroCopy {
     included: [
       t("intro.included.chief", { vcpu: f.chiefVcpu, gib: f.chiefGib, hours: count(f.chiefHours) }),
       t("intro.included.minutes", { minutes: count(f.machineMinutes), vcpu: f.otherVcpu, gib: f.otherGib }),
-      t("intro.included.minuteMeaning", { minutes: count(f.machineMinutes), hours: count(f.machineMinuteHours), vcpu: f.otherVcpu }),
+      t("intro.included.minuteMeaning", { minutes: count(f.machineMinutes), hours: count(f.machineMinuteHours), vcpu: f.chiefVcpu }),
       t("intro.included.concurrent", { count: f.concurrentMachines }),
       t("intro.included.login"),
       t("intro.included.weekly", { hours: count(f.chiefHoursWeekly), minutes: count(f.machineMinutesWeekly) }),

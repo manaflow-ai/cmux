@@ -24,7 +24,7 @@ export type CloudIntroOfferFacts = {
   readonly chiefHoursWeekly: number;
   readonly machineMinutes: number;
   readonly machineMinutesWeekly: number;
-  /** Hours the machine-minutes last on the largest other machine. */
+  /** Hours the machine-minutes last on the smallest machine; a larger one spends them faster. */
   readonly machineMinuteHours: number;
   readonly otherVcpu: number;
   readonly otherGib: number;
@@ -43,7 +43,7 @@ export function cloudIntroOfferFacts(): CloudIntroOfferFacts {
     chiefHoursWeekly: CLOUD_INTRO_INCLUDED.chiefAwakeHours / CLOUD_INTRO_RELEASE_WEEKS,
     machineMinutes: CLOUD_INTRO_INCLUDED.machineMinutes,
     machineMinutesWeekly: CLOUD_INTRO_INCLUDED.machineMinutes / CLOUD_INTRO_RELEASE_WEEKS,
-    machineMinuteHours: CLOUD_INTRO_INCLUDED.machineMinutes / (otherMax.vcpu * MINUTES_PER_HOUR),
+    machineMinuteHours: CLOUD_INTRO_INCLUDED.machineMinutes / (chief.vcpu * MINUTES_PER_HOUR),
     otherVcpu: otherMax.vcpu,
     otherGib: otherMax.gib,
     concurrentMachines: CLOUD_INTRO_INCLUDED.concurrentMachines,

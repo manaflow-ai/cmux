@@ -48,7 +48,7 @@ export const CLOUD_INTRO_MACHINES = {
   /** The Chief, the always-on agent machine. */
   chief: { vcpu: 2, gib: 4 },
   /** The largest of the other machines. */
-  otherMax: { vcpu: 2, gib: 8 },
+  otherMax: { vcpu: 4, gib: 8 },
 } as const;
 
 /** The included hours and minutes are released in this many equal weekly parts. */

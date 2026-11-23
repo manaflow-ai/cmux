@@ -101,7 +101,7 @@ describe("the $1 pass on the cmux NEXT pricing preview", () => {
       expect(html).toContain(`data-cloud-intro="${layout}"`);
       expect(html).toContain("$1 for 30 days of your own always-on agent in the cloud, with its machines and your phone. It never renews on its own: at the end we ask, and you pay nothing more unless you say yes.");
       expect(html).toContain("One Chief, an always-on agent machine (2 vCPU / 4 GiB), with 100 awake hours");
-      expect(html).toContain("3,000 machine-minutes for other machines, on machines up to 2 vCPU / 8 GiB");
+      expect(html).toContain("3,000 machine-minutes for other machines, on machines up to 4 vCPU / 8 GiB");
       expect(html).toContain("3,000 is 25 hours of a 2 vCPU machine");
       expect(html).toContain("Up to 5 machines at once");
       expect(html).toContain("Claude or Codex");
@@ -133,7 +133,7 @@ describe("the $1 pass on the cmux NEXT pricing preview", () => {
       machineMinutes: 3_000,
       machineMinutesWeekly: 750,
       machineMinuteHours: 25,
-      otherVcpu: 2,
+      otherVcpu: 4,
       otherGib: 8,
       concurrentMachines: 5,
       keepDays: 14,
