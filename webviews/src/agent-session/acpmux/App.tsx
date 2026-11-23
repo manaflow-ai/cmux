@@ -1,6 +1,5 @@
 import { BrowserSidebar } from "./browser/BrowserSidebar";
 import { composerHealthHarness } from "./composerPickerEntries";
-import { forkMenuRows } from "./header/forkMenu";
 import { useFold } from "./conversation/fold";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
@@ -36,7 +35,6 @@ import {
 import { machineHarnessVerdict, useMachineHarnessCheck, withMachineHarnesses } from "./machineHarnesses";
 import { sayActionRefusal } from "./actionRefusal";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
-import { agentKey } from "../shared/agentKey";
 import {
   paneHeader,
   type AcpmuxPermission,
@@ -63,7 +61,6 @@ import {
   authText,
   isAuthPreflightPending,
   sessionLogin,
-  slashLogin,
   useRouteAuthSwitch,
   useSessionAuth,
   UNKNOWN_AUTH,
@@ -205,7 +202,7 @@ import {
 } from "./attachments";
 import { keptChips } from "./composer/keptAttachments";
 import { PICKER_LABELS } from "./composerPickerModel";
-import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
+import { chatAccessGrants } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
 import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
@@ -247,11 +244,10 @@ import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
 import { LINK_DOWN_SAID_MS } from "./afterDelay";
 import { PeerCopyBanner } from "./PeerCopyBanner";
-import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
+import { chatCloudMachine, createStopWaiter } from "./cloudMachineMenu";
 import {
   currentCloudPlan,
   readCloudPlanFresh,
-  readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
@@ -377,7 +373,7 @@ import {
   viewChangesPatch,
   viewChangesTurn,
 } from "./turnChanges/viewChanges";
-import { sendPromptAgainMenu, type SendPromptAgainState } from "./conversation/sendPromptAgain";
+import { type SendPromptAgainState } from "./conversation/sendPromptAgain";
 import { interruptedResumeTarget, type InterruptedResumeState } from "./conversation/resumeInterrupted";
 import { sendUntilTaken, retryFailedPrompt } from "./conversation/turnRetry";
 import {
@@ -453,14 +449,7 @@ import {
 } from "./conversation/waitingAskStore";
 import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
-import {
-  canFork,
-  forkToTarget,
-  forksAnyTurn,
-  latestForkSeq,
-  switchForks,
-  canForkTurn,
-} from "./conversation/messageMenu";
+import { canFork, forksAnyTurn, latestForkSeq, switchForks, canForkTurn } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { useArtifactCoversPane } from "./conversation/artifactPanelModel";
@@ -482,21 +471,17 @@ import { ShortcutsContext, type ShortcutLabels } from "./shortcuts";
 import { notifyRevealRowsChanged, revealedMessage, revealMessageWhenShown, revealTurnWhenShown } from "./links";
 import { NeedsYouButton } from "./needsYou/NeedsYou";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
-import { copyText } from "./conversation/clipboard";
 import type { ChatImage } from "./conversation/chatImages";
 import { viewerImages } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
-import { sessionLink } from "./links";
 import { noteTranscriptFollowing, useStreamAppendDeclaration } from "./devMotionAudit";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools } from "./header/ChatHeaderTools";
-import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
+import { HEADER_ACTIONS, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ChatSummaryLine } from "./header/ChatSummaryLine";
-import { deleteChatRow, moveMachineRow } from "./header/chatRows";
-import { moveToTerminal, terminalMoveRow, TERMINAL_SWITCH_ACTION, terminalSwitchRow } from "./header/terminalMoveRow";
-import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
+import { setHeaderState, useHeaderState } from "./header/headerState";
 import { tabRowStyle, useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
 import { SubagentComposer } from "./subagents/SubagentComposer";
 import {
@@ -566,8 +551,6 @@ import {
   useTrayTucked,
 } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
-import { wrapOutputRow } from "./header/transcriptViewRow";
-import { presentationRow } from "./header/presentationRow";
 import { usePresentation } from "./conversation/presentation";
 import { messagesRows } from "./conversation/messagesRows";
 import { PresentationContext } from "./conversation/presentationContextModel";
@@ -580,11 +563,10 @@ import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { afterDeleteDismiss } from "./header/deleteDismiss";
 import { DeleteChatDialog } from "./header/DeleteChatDialog";
 import { avatarRows } from "./header/avatarRow";
-import { chatMini, miniRow, readChatMini, showInMini, useChatMini } from "./header/miniRow";
+import { readChatMini, useChatMini } from "./header/miniRow";
 import { removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
-import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
-import { opensBesideRows, sideChatPlace, sideChatRefusal, sideChatRow } from "./header/sideChatRow";
+import { sideChatPlace, sideChatRefusal, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
 import { type WorkingCounts, WorkingCountsContext } from "./conversation/workingForModel";
@@ -673,22 +655,18 @@ import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged }
 import { bridgeGone } from "./watchBannerModel";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
-import { runResume } from "./resumeCommand";
 import { useExtensionCommands, withExtensionCommands } from "./composer/extensionCommands";
 import {
-  CMUX_PASS_THROUGH,
-  CmuxCommandRefused,
-  cdFolder,
   continueTargets,
   cmuxCommandRefusal,
   mergedCommands,
-  resolveHarnessTarget,
   type CmuxCommand,
   type CmuxCommandResult,
-  PLACED_ACTIONS,
 } from "./cmuxCommands";
+import { handleCmuxCommand as runCmuxCommand } from "./pane/cmuxCommands";
+import { chatMenuItems } from "./pane/chatMenu";
 import { newChatRunsElsewhere } from "./customizeCommand";
-import { commandPlace, dropHandedCloudStart, handCloudStart, handoffStore } from "./commandPlace";
+import { dropHandedCloudStart, handCloudStart, handoffStore } from "./commandPlace";
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
@@ -714,9 +692,8 @@ import { StatusIsland } from "./statusIsland/StatusIsland";
 import { statusIslandExperiment } from "./statusIsland/statusIsland.experiment";
 import { useStatusIsland } from "./statusIsland/useStatusIsland";
 import { BtwNotes } from "./aside/btwNotes";
-import { askBtwQuestion, supportsBtwGuest } from "./btwCapability";
+import { supportsBtwGuest } from "./btwCapability";
 import { guestMention } from "./mentionItems";
-import { isFastModeOption } from "./heldOptions";
 import { clearHeldFork, sendHeldFork } from "./forkHold";
 import { OfferDefaultsContext, offerDefaults } from "./offer/offerChoice";
 import { queueingOn, setQueueing } from "./queueing";
@@ -7838,189 +7815,40 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const handleCmuxCommand = (
     command: CmuxCommand,
     typedArgs?: string,
-    fresh = false,
-    attachments: ComposerAttachment[] = [],
+    fresh?: boolean,
+    attachments?: ComposerAttachment[],
     gesture?: SendGesture,
-  ): CmuxCommandResult => {
-    const state = commandState(fresh);
-    const refusal = cmuxCommandRefusal(command, typedArgs, state);
-    if (refusal) return t(refusal);
-    // `--on here|cloud` before a chat-starting command's arguments (commandPlace.ts); the refusal
-    // above allowed only what runs. `/cd --on cloud` in a chat with no turn yet takes the folder and
-    // picks Cloud in this composer, so its first Send is the composer's own Cloud start
-    // (cloud.startChat, the Environment chip's pick, Auto by default). Never by default.
-    const placed = commandPlace(typedArgs);
-    const args = PLACED_ACTIONS.has(command.action) && "rest" in placed ? placed.rest : typedArgs;
-    const toCloud = "place" in placed && placed.place === "cloud" && !state.inCloud;
-    const inCloudHere = command.action === "cd" && toCloud;
-    if (toCloud && command.action === "side") {
-      const prompt = args?.trim();
-      return openCloudChatWith(prompt ? { prompt } : {});
-    }
-    if (command.action === "status") {
-      setStatusCardOpen(true);
-      return true;
-    }
-    // /resume: the chats search, the same page Show all chats and Cmd-K open, where an earlier chat
-    // opens again where it left off; with a session id, that chat.
-    // A harness other than Claude Code that lists its own /resume or /login keeps it, as before. On
-    // New Tab the pane's last chat is not the one being started, so cmux's own command runs there.
-    if (
-      !fresh &&
-      (command.action === "resume" || command.action === "login") &&
-      agentKey(snapshot.summary?.family ?? snapshot.summary?.harness) !== "claude" &&
-      snapshot.commands?.some((own) => own.name.toLowerCase() === command.name)
-    )
-      return CMUX_PASS_THROUGH;
-    // `/resume <id>`: the chat that session id (its start, its transcript's path or a pasted resume
-    // command) names resumes in a workspace of its own (resumeCommand.ts).
-    if (command.action === "resume") return runResume(args, callNative, showAllChats, t);
-    if (command.action === "login") {
-      // New Tab picks its own harness and machine, which this pane's sign-in answer is not about;
-      // its sign-in card covers it. The default login runs only for a chat acpmux says is here.
-      if (fresh) return t("composer.cmuxLoginElsewhere");
-      const harness = sessionAuth.harness ?? snapshot.summary?.harness ?? healthHarness;
-      const declared = composerSnapshot.catalog.find((entry) => entry.id === harness)?.auth?.login;
-      const login = slashLogin(sessionAuth, healthLocal ? declared : undefined);
-      if (!login) return authText(sessionAuth, t) ?? t("composer.cmuxLoginElsewhere");
-      if (login.kind === "session") signIn.loginSession?.(sessionAuth);
-      else signIn.logIn(harness ?? "", login.command);
-      return true;
-    }
-    const argument = args?.trim();
-    // `/cd` is the folder chip's pick, typed: a chat with no turn yet starts in the folder, a
-    // started one opens a new chat there (chooseProject). Bare, it opens the folder browser.
-    if (command.action === "cd") {
-      // `--on cloud`: a chat with no turn yet takes the folder, then picks Cloud; a started one
-      // opens New Cloud Chat there, which checks the folder as it opens in it.
-      const startedInCloud = inCloudHere && Boolean(snapshot.sessionId);
-      const thenCloud = () => {
-        if (inCloudHere) composerModePick.current("cloud");
-      };
-      if (!argument)
-        return callNative<{ cwd?: string }>("project.browse").then((result) => {
-          if (!result?.cwd) return;
-          if (startedInCloud) return openCloudChatWith({ cwd: result.cwd });
-          return chooseProject(result.cwd).then(thenCloud);
-        });
-      const folder = cdFolder(argument, snapshot.summary?.cwd, state.inCloud);
-      if (!folder) return t("composer.cmuxCdPath");
-      if (startedInCloud) return openCloudChatWith({ cwd: folder });
-      const summary = snapshot.summary;
-      const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
-      let refused = false;
-      return chooseProject(folder, peer, () => {
-        refused = true;
-      }).then(() => {
-        if (refused) throw new CmuxCommandRefused(t("composer.cmuxCdNotFolder", { folder }));
-        thenCloud();
-      });
-    }
-    // The composer sends the prompt as typed through onSend, attachments and steer included, the
-    // way any other prompt goes.
-    if (command.action === "passThrough") return CMUX_PASS_THROUGH;
-    // `/customize …` goes to the chat's agent as the ask it stands for (customizeCommand.ts): the
-    // composer and New Tab rewrite it where the prompt leaves.
-    if (command.action === "customize") return CMUX_PASS_THROUGH;
-    // GUI-native commands are available even when a harness does not advertise an ACP command.
-    // Arguments keep the harness form useful (`/model opus`, `/plan explain`). New Tab has no chat
-    // to act on yet, so there they go to the harness as typed.
-    if (command.action === "model") {
-      if (argument || fresh) return CMUX_PASS_THROUGH;
-      return openPicker(translate(PICKER_LABELS.model)) || CMUX_PASS_THROUGH;
-    }
-    if (command.action === "context") {
-      if (argument || fresh) return CMUX_PASS_THROUGH;
-      if (sessionInfo.reveal) {
-        sessionInfo.reveal("context");
-        return true;
-      }
-      return CMUX_PASS_THROUGH;
-    }
-    // A bare `/plan` with a Plan mode is the composer's own Plan/Build toggle (it remembers the mode
-    // to return to); anything else goes to the harness as typed.
-    if (command.action === "plan") return CMUX_PASS_THROUGH;
-    if (command.action === "fast") {
-      if (argument || fresh) return CMUX_PASS_THROUGH;
-      const option = snapshot.summary?.configOptions?.find(isFastModeOption);
-      if (option) {
-        const off =
-          option.options.find((choice) => /^(off|false|disabled)$/i.test(choice.value))?.value ??
-          option.options[0]?.value;
-        const on =
-          option.options.find((choice) => /^(on|true|enabled|fast|priority)$/i.test(choice.value))?.value ??
-          option.options.find((choice) => choice.value !== off)?.value;
-        const next = option.currentValue === off ? on : off;
-        if (next) return callNative("chat.effort", { configId: option.id, value: next });
-      }
-      return CMUX_PASS_THROUGH;
-    }
-    if (command.action === "btw") {
-      const question = args?.trim();
-      const sessionId = snapshot.sessionId;
-      const client = directClient.current;
-      if (!question || !sessionId || !client) return false;
-      btwNotes.ask(
-        sessionId,
-        question,
-        [...turnRowsShown].reverse().find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind)),
-        (question, sessionId) =>
-          askBtwQuestion(client, question, sessionId, {
-            inline: (question, sessionId) =>
-              postNative<{ text: string }>("chat.btw.inline", { question, sessionId }).then((reply) => reply.text),
-            openSide: (sessionId) => postNative("chat.sideChat", { sessionId }),
-            discardSide: (sessionId) => client.discard(sessionId),
-            openedMessage: () => translate("sideQuestion.opened"),
-            staleMessage: () => translate("error.notOpen"),
-          }),
-      );
-      // The pending aside keeps the whole question; typing and the main turn continue.
-      return true;
-    }
-    if (command.action === "side") {
-      // A working chat forks as it is now and keeps its turn (forkToTarget); `/side <prompt>` sends
-      // the prompt to the side chat once it is open beside this one (#38042).
-      const target = forkToTarget(snapshot);
-      if (!target) return t("notice.forkNothingYet");
-      const prompt = args?.trim();
-      // The prompt's staged files go with it, in-page (callNative's own handler), as a send's do (#40066).
-      return callNative("chat.side", {
-        ...target,
-        splitRight: true,
-        ...(prompt ? { prompt } : {}),
-        ...(attachments.length ? { attachments } : {}),
-        ...(gesture ? { gesture } : {}),
-      }).catch((error: unknown) => {
-        // The side chat opened but its prompt was not sent: that refusal says so itself.
-        if (error instanceof CmuxCommandRefused) throw error;
-        const reason = knownRefusalText(error);
-        if (!reason) console.warn("agent pane: /side did not fork", error);
-        throw new CmuxCommandRefused(
-          reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
-        );
-      });
-    }
-    if (command.action === "fork") {
-      ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
-      return true;
-    }
-    if (command.action === "continue") {
-      if (!args?.trim()) {
-        setContinuing(true);
-        return true;
-      }
-      const target = resolveHarnessTarget(args, handoffTargets);
-      if (!target) return t("composer.cmuxContinueUnknown");
-      setContinuing(false);
-      // Forks in place where the chat can (`chat.switchModel`, Leo 2026-11-11: "stop asking so much
-      // bullshit"); Continue In…'s review only where it cannot.
-      ignoreFailure(
-        callNative(switchForks(snapshot) ? "chat.switchModel" : "chat.handoff.prepare", { harness: target.id }),
-      );
-      return true;
-    }
-    return false;
-  };
+  ): CmuxCommandResult =>
+    runCmuxCommand(
+      {
+        btwNotes,
+        chooseProject,
+        commandState,
+        composerModePick,
+        composerSnapshot,
+        directClient,
+        forkSeq,
+        handoffTargets,
+        healthHarness,
+        healthLocal,
+        ignoreFailure,
+        openCloudChatWith,
+        sessionAuth,
+        sessionInfo,
+        setContinuing,
+        setStatusCardOpen,
+        showAllChats,
+        signIn,
+        snapshot,
+        t,
+        turnRowsShown,
+      },
+      command,
+      typedArgs,
+      fresh,
+      attachments,
+      gesture,
+    );
   // The header's tools and "..." menu run app actions on this chat's tab.
   // A quick action names its mode; the App toggles the split it opened (header/quickActions.ts).
   const runHeaderAction = (id: string, cwd?: string, mode?: QuickActionMode) => {
@@ -8514,332 +8342,51 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // every click, whatever the header's Terminal and Browser buttons do.
   const newTerminal = () => runSplitAction(HEADER_ACTIONS.terminal, localCwd, "open");
   const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
-  const chatMenu = (): ChatMenuItem[] => {
-    const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
-    // Pause, Resume or Delete the chat's Cloud machine (cloudMachineMenu.ts), as the account's
-    // machines in the composer's machine list are. A menu kept open across a chat switch runs none
-    // of them: the chat it was drawn for must still be the one selected.
-    const machineClient = directClient.current;
-    const machineSession = snapshot.sessionId;
-    const machineChatShown = () =>
-      machineClient !== undefined &&
-      machineClient === directClient.current &&
-      machineClient.selectedSession === machineSession;
-    const machine = !quick
-      ? cloudMachineRows(
-          chatMachine,
-          snapshot.isWorking,
-          t,
-          (method, params) => callNative(method, params),
-          (picked) => void readUntilMoved(picked),
-          () => {
-            const client = directClient.current;
-            return { session: client?.shownSession()?.sessionId, running: client?.turnRunning() ?? false };
-          },
-          (session) =>
-            stopWaiter.wait(() => {
-              const client = directClient.current;
-              return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
-            }),
-          snapshot.sessionId,
-          undefined,
-          machineChatShown,
-        )
-      : [];
-    const copy = copyRow(
-      { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
-      (text) => ignoreFailure(copyText(text)),
+  const chatMenu = (): ChatMenuItem[] =>
+    chatMenuItems({
+      accessGrants,
+      archive,
+      avatar,
+      canContinue,
+      chatMachine,
+      checkpointLabels,
+      checkpoints,
+      directClient,
+      forkable,
+      handoffLabels,
+      handoffTargets,
+      ignoreFailure,
+      inspectorOpener,
+      lastForkSeq,
+      localCwd,
+      markUnread,
+      moveChatToMachine,
+      moveTargets,
+      moves,
+      newBrowser,
+      newTerminal,
+      notices,
+      offloadChat,
+      onOtherMachine,
+      openBackgroundPanel,
+      openInstructions,
+      quick,
+      readSendAgain,
+      requestDelete,
+      runHeaderAction,
+      saveDocumentNatively,
+      setDisplayAnchor,
+      setReplaying,
+      setShareOpen,
+      setSteering,
+      sideChat,
+      snapshot,
+      stopWaiter,
+      summary,
       t,
-      () => window.cmuxAcpmuxBridge?.conversationMarkdown?.() ?? Promise.resolve(null),
-      // The same Markdown through the host's save panel; a host without one copies it instead.
-      () =>
-        void (window.cmuxAcpmuxBridge?.conversationMarkdown?.() ?? Promise.resolve(null)).then(async (markdown) => {
-          if (!markdown) return;
-          const outcome = await saveDocumentNatively(markdown, snapshot.summary?.title ?? "", "markdown");
-          if (outcome === "unavailable") ignoreFailure(copyText(markdown));
-        }),
-    );
-    const again = sendPromptAgainMenu(readSendAgain(), t);
-    const resend: ChatMenuItem[] = again
-      ? [
-          {
-            key: "sendPromptAgain",
-            label: again.label,
-            icon: "action.retry",
-            onSelect: () =>
-              ignoreFailure(callNative("chat.sendPromptAgain", { sessionId: again.sessionId, rowId: again.rowId })),
-          },
-        ]
-      : [];
-    const share: ChatMenuItem | undefined =
-      snapshot.sessionId && hasNativeHost()
-        ? { key: "share", label: t("share.menu"), icon: "action.share", onSelect: () => setShareOpen(true) }
-        : undefined;
-    // Fork immediately; destination choices are a separate action and Option-click shortcut.
-    const fork =
-      forkable && lastForkSeq !== undefined ? forkMenuRows(lastForkSeq, () => turnActions.fork?.(lastForkSeq), t) : [];
-    // New side chat, New terminal and New browser: something new beside the chat, every time.
-    const opensBeside = opensBesideRows({ sideChat, quick }, { terminal: newTerminal, browser: newBrowser }, t);
-    const continueIn: ChatMenuItem[] =
-      snapshot.canHandoff && handoffTargets.length > 0
-        ? [
-            {
-              key: "continue",
-              label: handoffLabels.continueIn,
-              icon: "agent.handoff",
-              disabled: !canContinue,
-              children: handoffTargets.map((target) => ({
-                key: target.id,
-                label: target.name,
-                // In place where the chat can fork (`chat.switchModel`), no review; Continue In…'s
-                // review only where it cannot.
-                onSelect: () =>
-                  ignoreFailure(
-                    callNative(switchForks(snapshot) ? "chat.switchModel" : "chat.handoff.prepare", {
-                      harness: target.id,
-                    }),
-                  ),
-              })),
-            },
-          ]
-        : [];
-    const replay: ChatMenuItem[] =
-      !quick && snapshot.sessionId && experimentArm(sessionReplay) === "on"
-        ? [
-            {
-              key: "replay",
-              label: t("replay.open"),
-              icon: "history",
-              onSelect: () => setReplaying(snapshot.sessionId),
-            },
-          ]
-        : [];
-    const steerQueueRow: ChatMenuItem[] =
-      !quick && experimentArm(steerQueueExperiment) === "on"
-        ? [
-            {
-              key: "steerQueue",
-              label: t("steerQueue.open"),
-              icon: "composer.steer",
-              onSelect: () => setSteering(true),
-            },
-          ]
-        : [];
-    // The chat folder's CLAUDE.md or AGENTS.md, in a file tab beside the chat (a tab: not Quick Chat).
-    const instructions = quick
-      ? undefined
-      : instructionsRow({ cwd: localCwd, family: summary?.family || summary?.harness }, openInstructions);
-    // Files every chat in the folder reads: copied into it and named in that file (cx-ncc.67).
-    const projectFiles = quick
-      ? undefined
-      : projectFilesRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
-          ignoreFailure(callNative("project.addFiles", { cwd, name })),
-        );
-    const display = {
-      key: "display",
-      label: t("chatDisplay.menu"),
-      onSelect: () =>
-        setDisplayAnchor(
-          Array.from(document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")).find(
-            (button) => button.getAttribute("aria-label") === t("chatMenu.open"),
-          ) ?? document.querySelector<HTMLElement>(".acpmux-header-tools"),
-        ),
-    };
-    // Normal, Thinking or Verbose for this chat, then Wrap lines (every command's output) and
-    // Text & Width… under them in one submenu (header/transcriptViewRow.ts): the menu is full
-    // height, and a row more pushes Archive off it.
-    const transcriptView = presentationRow(snapshot.sessionId, t, [wrapOutputRow(t), display]);
-    const tools: ChatMenuItem[] = [
-      transcriptView ?? { ...display, icon: "site.permission.localfonts" },
-      ...replay,
-      ...steerQueueRow,
-      ...(instructions ? [instructions] : []),
-      ...(projectFiles ? [projectFiles] : []),
-      {
-        key: "inspector",
-        label: t("inspector.title"),
-        icon: "code",
-        onSelect: () => {
-          inspectorOpener.current = Array.from(
-            document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
-          ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
-          toggleInspector(true);
-        },
-      },
-      // Quick Chat's panel has no right column for it.
-      ...(quick
-        ? []
-        : [
-            {
-              key: "backgroundTasks",
-              label: t("backgroundTasks.title"),
-              icon: "task.status.backlog",
-              // A workflow's side tab would cover the panel (a full-height overlay): it closes.
-              onSelect: openBackgroundPanel,
-            },
-          ]),
-      ...(checkpoints.supported
-        ? [
-            {
-              key: "checkpoint",
-              label: checkpointLabels.createCheckpoint,
-              icon: "action.review",
-              onSelect: checkpoints.show,
-            },
-          ]
-        : []),
-      // Revoke Granted Access: the chat's grants, revocable with default settings (header/grantsMenu.ts).
-      ...revokeAccessRows(accessGrants, t),
-    ];
-    // Move to machine and Delete were the title's menu rows until the title became plain text
-    // (header/ThreadTitle.tsx); they live here so no action is lost. Cloud targets come from the
-    // host's live MachineRegistry list and dispatch through the existing CloudMove action.
-    const sessionId = snapshot.sessionId;
-    const client = directClient.current;
-    // A menu kept open across a chat switch never moves or deletes the chat now shown.
-    const sameChat = () =>
-      client !== undefined && client === directClient.current && client.selectedSession === sessionId;
-    const guarded = (row: ChatMenuItem | undefined): Exclude<ChatMenuItem, "separator">[] =>
-      row ? guardedChatMenu([row], sameChat).filter((item) => item !== "separator") : [];
-    const moveMachine = moveMachineRow(
-      {
-        move: moves.includes(CONNECT_ACTIONS.move),
-        bringBack: moves.includes(CONNECT_ACTIONS.bringBack),
-        targets: moveTargets,
-      },
-      {
-        moveTo: (id) => moveChatToMachine(id, sessionId),
-        bringBack: () => (sessionId ? offloadChat("bringBack", sessionId) : undefined),
-      },
-      t,
-    );
-    const remove = sessionId ? guarded(deleteChatRow(requestDelete, t)) : [];
-    const moveRow = guarded(moveMachine);
-    // Switch to terminal (header/terminalMoveRow.ts): a terminal runs this chat's session, so the App's Toggle
-    // Terminal and Chat shows it, as the tab's right-click does; it leads the menu, as Switch to Chat leads the
-    // pane's "..." on the terminal.
-    const terminalSwitch = guarded(
-      terminalSwitchRow(
-        { switchable: headerState().terminalSwitch, native: hasNativeHost(), quick },
-        () =>
-          void callNative("action.run", {
-            id: TERMINAL_SWITCH_ACTION,
-            ...(sessionId ? { session: sessionId } : {}),
-          }).catch(sayActionRefusal(notices.transient)),
-        t,
-      ),
-    );
-    // Move to Terminal (header/terminalMoveRow.ts): this pane stops running the chat, then the
-    // harness's own resume runs it in a terminal and the tab closes; never while a turn runs.
-    // Not on a chat a terminal already runs: Switch to terminal shows that one.
-    const terminalMove = guarded(
-      terminalSwitch.length
-        ? undefined
-        : terminalMoveRow(
-            {
-              sessionId,
-              family: summary?.family || summary?.harness,
-              agentSessionId: summary?.agentSessionId,
-              local: !onOtherMachine && !(summary?.host && summary.hostKind !== "local"),
-              native: hasNativeHost(),
-              quick,
-              watching: Boolean(summary?.watching),
-              working: snapshot.isWorking,
-            },
-            (key) =>
-              void moveToTerminal(
-                key,
-                {
-                  release: () => (client && sessionId ? client.releaseToTerminal(sessionId) : Promise.reject()),
-                  open: (chat) => callNative("chats.openInTerminal", { key: chat }),
-                  close: () => runHeaderAction(HEADER_ACTIONS.close),
-                  same: sameChat,
-                  say: notices.transient,
-                },
-                t,
-              ),
-            t,
-          ),
-    );
-    // Quick Chat's panel is not a tab: only the chat's own actions.
-    if (quick) return menuGroups(fork, continueIn, resend, copy ? [copy] : [], moveRow, tools, remove);
-    // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
-    return menuGroups(
-      terminalSwitch,
-      [
-        {
-          key: "rename",
-          label: t("chatMenu.rename"),
-          icon: "action.edit",
-          shortcutAction: HEADER_ACTIONS.rename,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
-        },
-        {
-          key: "pin",
-          label: headerState().pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
-          icon: "action.pin",
-          shortcutAction: HEADER_ACTIONS.pin,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
-        },
-      ],
-      [...opensBeside, ...fork],
-      continueIn,
-      resend,
-      // Share… beside Copy (Leo, 2026-11-07: "put it in the dot dot dot area"): a started chat in the app.
-      [...(share ? [share] : []), ...(copy ? [copy] : [])],
-      [
-        {
-          key: "moveRight",
-          label: t("chatMenu.moveRight"),
-          icon: "pane.split.right",
-          shortcutAction: HEADER_ACTIONS.moveRight,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.moveRight),
-        },
-        {
-          key: "newWorkspace",
-          label: t("chatMenu.newWorkspace"),
-          icon: "workspace.new",
-          shortcutAction: HEADER_ACTIONS.newWorkspace,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
-        },
-        {
-          key: "newWindow",
-          label: t("chatMenu.newWindow"),
-          icon: "app.open.external",
-          shortcutAction: HEADER_ACTIONS.newWindow,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
-        },
-        ...(headerState().floatingChat && snapshot.sessionId
-          ? [
-              {
-                key: "floatingChat",
-                label: t("chatMenu.floatingChat"),
-                icon: "site.permission.windowmanagement",
-                onSelect: () => runHeaderAction(HEADER_ACTIONS.floatingChat),
-              },
-            ]
-          : []),
-      ],
-      [...moveRow, ...terminalMove, ...machine],
-      tools,
-      [
-        ...avatar,
-        ...(quick
-          ? []
-          : miniRow({ sessionId: snapshot.sessionId, mini: chatMini() }, (sessionId) => void showInMini(sessionId), t)),
-        ...(markUnread ? [markUnread] : []),
-        ...(archive ? [archive] : []),
-        ...remove,
-        {
-          key: "close",
-          label: t("chatMenu.close"),
-          icon: "tab.close",
-          shortcutAction: HEADER_ACTIONS.close,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.close),
-        },
-      ],
-    );
-  };
+      toggleInspector,
+      turnActions,
+    });
   // A double-click on the plain title renames, as ⌘R does; Quick Chat's panel is not a tab to rename.
   const renameFromTitle = quick ? undefined : () => runHeaderAction(HEADER_ACTIONS.rename);
   // Before the handshake the New Tab frame shows (cx-0rpl.10) unless the host failed: then the
