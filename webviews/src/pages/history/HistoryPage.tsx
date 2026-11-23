@@ -7,6 +7,7 @@ import type { Strings } from "../shared/i18n";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
 import { CookieBackupsPanel } from "./CookieBackups";
+import { HISTORY_VIRTUAL_FROM, HistoryLines } from "./HistoryLines";
 import { KindIcon } from "./KindIcon";
 import {
   BadgeLabel,
@@ -24,6 +25,7 @@ import {
   rowBadge,
   rowDetail,
   rowTime,
+  type HistoryGroup,
 } from "./model";
 import type { HistoryStore } from "./store";
 import { HISTORY_RANGES, type HistoryEntry } from "./types";
@@ -52,6 +54,7 @@ export function HistoryPage({
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   // Even when two native menus open before the first reply, each owns its own actions.
   const menuSession = useRef(0);
+  const listScroller = useRef<HTMLDivElement>(null);
   const { t, language } = strings;
   // A lost history owner keeps the rows it had and says so only once it lasts (a launch, a daemon
   // restart: the store re-reads once the link is back), as a corner mark that takes no room.
@@ -133,6 +136,24 @@ export function HistoryPage({
       run: () => void store.clear(range),
     }));
 
+  const title = (group: HistoryGroup) => groupTitle(group, snap.grouping, t, language, now());
+  // `reveal`: the selected row scrolls itself into view as it mounts; the windowed list scrolls to it
+  // instead, since its rows mount again each time they scroll back in.
+  const row = (entry: HistoryEntry, reveal: boolean) => (
+    <HistoryRow
+      key={entry.id}
+      entry={entry}
+      selected={entry.id === snap.selection}
+      reveal={reveal}
+      badge={rowBadge(entry)}
+      badgeText={(badge) => t(BadgeLabel[badge])}
+      language={language}
+      onSelect={() => store.select(entry.id)}
+      onOpen={() => open(entry)}
+      onMenu={(event) => rowMenu(entry, event)}
+    />
+  );
+
   return (
     <div className="history-page">
       <header className="history-header">
@@ -208,29 +229,31 @@ export function HistoryPage({
         <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>
       ) : (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div id="history-list" className="history-list" role="listbox" tabIndex={0} onKeyDown={listKeys}>
-          {snap.groups.map((group) => (
-            <section
-              key={group.id}
-              className="history-group"
-              aria-label={groupTitle(group, snap.grouping, t, language, now())}
-            >
-              <h2 className="history-group-title">{groupTitle(group, snap.grouping, t, language, now())}</h2>
-              {group.entries.map((entry) => (
-                <HistoryRow
-                  key={entry.id}
-                  entry={entry}
-                  selected={entry.id === snap.selection}
-                  badge={rowBadge(entry)}
-                  badgeText={(badge) => t(BadgeLabel[badge])}
-                  language={language}
-                  onSelect={() => store.select(entry.id)}
-                  onOpen={() => open(entry)}
-                  onMenu={(event) => rowMenu(entry, event)}
-                />
-              ))}
-            </section>
-          ))}
+        <div
+          ref={listScroller}
+          id="history-list"
+          className="history-list"
+          role="listbox"
+          tabIndex={0}
+          onKeyDown={listKeys}
+          data-virtual={flat.length >= HISTORY_VIRTUAL_FROM ? "" : undefined}
+        >
+          {flat.length >= HISTORY_VIRTUAL_FROM ? (
+            <HistoryLines
+              groups={snap.groups}
+              selection={snap.selection}
+              title={(group) => <h2 className="history-group-title">{title(group)}</h2>}
+              row={(entry) => row(entry, false)}
+              scroller={listScroller}
+            />
+          ) : (
+            snap.groups.map((group) => (
+              <section key={group.id} className="history-group" aria-label={title(group)}>
+                <h2 className="history-group-title">{title(group)}</h2>
+                {group.entries.map((entry) => row(entry, true))}
+              </section>
+            ))
+          )}
         </div>
       )}
       {snap.cookieBackups.open && <CookieBackupsPanel store={store} state={snap.cookieBackups} strings={strings} />}
@@ -251,6 +274,7 @@ export function HistoryPage({
 interface RowProps {
   entry: HistoryEntry;
   selected: boolean;
+  reveal: boolean;
   badge: ReturnType<typeof rowBadge>;
   badgeText: (badge: NonNullable<ReturnType<typeof rowBadge>>) => string;
   language: string;
@@ -259,7 +283,7 @@ interface RowProps {
   onMenu: (event: MouseEvent) => void;
 }
 
-function HistoryRow({ entry, selected, badge, badgeText, language, onSelect, onOpen, onMenu }: RowProps) {
+function HistoryRow({ entry, selected, reveal, badge, badgeText, language, onSelect, onOpen, onMenu }: RowProps) {
   const detail = rowDetail(entry);
   return (
     // The listbox owns Up/Down; a row takes Return when it has focus itself.
@@ -270,7 +294,7 @@ function HistoryRow({ entry, selected, badge, badgeText, language, onSelect, onO
       aria-selected={selected}
       aria-disabled={entry.available ? undefined : true}
       className={`history-row${selected ? " selected" : ""}${entry.available ? "" : " unavailable"}`}
-      ref={selected ? revealOnSelect : undefined}
+      ref={selected && reveal ? revealOnSelect : undefined}
       onClick={onSelect}
       onDoubleClick={onOpen}
       onKeyDown={(event) => {

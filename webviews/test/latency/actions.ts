@@ -1359,7 +1359,60 @@ function liveScroll(style: string): LatencyPageSpec {
 
 export const LIVE_BACKGROUND_PAGES: LatencyPageSpec[] = ["none", "aurora", "grain"].map(liveScroll);
 
+// HISTORY: the History page over 1,000 entries (its PAGE_LIMIT), each host call 40 ms
+// (test/latency/history.harness.tsx). Open-to-content is a fresh page (a new store and root, as
+// opening the History tab makes) until its first row paints; the filter is a chip click until the
+// list shows only that kind.
+const historyRow = ".history-list .history-row";
+const historyFirstTitle = `document.querySelector(${js(historyRow + " .history-row-title")})?.textContent ?? ""`;
+const historyActions: LatencyAction[] = [
+  {
+    id: "history.open.1000",
+    name: "open History to its rows (1,000 entries)",
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await page.evaluate("window.__latencyHistory.unmount()");
+      await page.waitForFunction(() => !document.querySelector(".history-row"));
+      await quiet(page);
+      return shown(historyRow);
+    },
+    async input(page) {
+      await page.evaluate("window.__latency.markInput('history-open'); window.__latencyHistory.mount()");
+    },
+    settle: quiet,
+  },
+  {
+    id: "history.filter.1000",
+    name: "History filter chip (1,000 entries)",
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await page.waitForSelector(historyRow);
+      const current = await page.evaluate(
+        () => document.querySelector('.history-chip[aria-selected="true"]')?.textContent ?? "",
+      );
+      const target = current === "Commands" ? "All" : "Commands";
+      targets.set(page, target);
+      const prefix = target === "Commands" ? "cargo test" : "Docs page 0";
+      return `(${historyFirstTitle}).startsWith(${js(prefix)}) && ${shown(historyRow)}`;
+    },
+    async input(page) {
+      await page.click(`.history-chip:text-is("${targetOf(page)}")`);
+    },
+    settle: quiet,
+  },
+];
+
+export const HISTORY_PAGE: LatencyPageSpec = {
+  name: "history",
+  path: "/test/latency/history.html?entries=1000&hostDelay=40",
+  ready: `document.querySelector(".history-row") !== null`,
+  actions: historyActions,
+};
+
 export const PAGES: LatencyPageSpec[] = [
+  HISTORY_PAGE,
   DIFF_PAGE,
   MARKDOWN_PAGE,
   PICKER_PAGE,
