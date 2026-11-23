@@ -1429,6 +1429,11 @@ jobs:
       id-token: write
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
+    # The R2 cargo cache's write credentials, on feat-cmux-next only (cmux-tui-build-package.yml's workflow_call).
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
     with:
       # Raw R2 artifacts are not npm releases and must never claim that an
       # older published package can reproduce their source contents.
@@ -1492,6 +1497,11 @@ jobs:
       id-token: write
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
+    # The R2 cargo cache's write credentials, on feat-cmux-next only (cmux-tui-build-package.yml's workflow_call).
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
     with:
       version: 0.0.0-r2.sha-${{ github.sha }}
       package_npm: false
@@ -1696,6 +1706,11 @@ jobs:
       id-token: write
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
+    # The R2 cargo cache's write credentials, on feat-cmux-next only (cmux-tui-build-package.yml's workflow_call).
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
     with:
       version: 0.0.0-r2.sha-${{ github.sha }}
       package_npm: false
