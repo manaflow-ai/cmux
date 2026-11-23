@@ -337,7 +337,7 @@ public final class TerminalModel {
                 composerText = held.text
             }
             heldComposerSend = nil
-        case .hostGrid, .hostGridOwner:
+        case .hostGrid, .hostGridOwner, .paintMark:
             break
         }
     }
@@ -522,7 +522,31 @@ public final class TerminalModel {
     /// Grid sizes this page sent the Mac (`TerminalViewController.sendResize`),
     /// for demos and UI tests.
     public internal(set) var ptyResizesSent = 0
+    /// Grids the page took on the primary screen whose columns were not the
+    /// phone's (the Mac's wide grid drawn on the phone: "uncompact"), for
+    /// the projection harness.
+    public internal(set) var wideGridsShown = 0
+    /// Mirror resets the page laid out again (each a replay).
+    public internal(set) var mirrorResets = 0
+    /// Back in the foreground: milliseconds from the app becoming active to
+    /// the first display frame that shows the terminal right (the phone's
+    /// width on the primary screen, no held frame, no replay or output
+    /// pending); -1 before the first return, -2 when none came in 5 s.
+    public internal(set) var lastReturnMs = -1
+    /// Display frames, during a soft keyboard transition and half a second
+    /// after it, whose terminal on the primary screen was narrower than the
+    /// phone ("i dont see the point of a narrower-than-iphone terminal").
+    public internal(set) var narrowKeyboardFrames = 0
+    /// Display frames of a soft keyboard transition in which the cursor's row
+    /// moved against the keyboard (down while it shows, up while it hides):
+    /// the terminal bouncing.
+    public internal(set) var keyboardBounces = 0
     #if DEBUG
+    /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
+    public internal(set) static var debugResizesSentTotal = 0
+    /// DEBUG: posted when the terminal surface takes a key from the system keyboard
+    /// (the keyboard pin trace's `ev=keyAccepted`, the motion bench's time to interactive).
+    public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
     #endif

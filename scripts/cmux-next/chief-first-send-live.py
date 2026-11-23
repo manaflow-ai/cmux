@@ -175,7 +175,16 @@ def settle(n, stop):
     """What chief-subagents-live.py does before its first ask; returns the recorder thread."""
     wait(chief_listed, 180, step=1)
     wait(lambda: "daemon connected" in host_log_tail() and os.path.exists(os.path.join(OPTCHAT, "tools.sock")), 180, step=1)
-    time.sleep(10)  # test harness: the compactor start-up probe, as the subagent proof waits
+    # The compactor start-up probe, as the subagent proof waits: its line in host.log, then its node built (or its
+    # session name taken).
+    def probed():
+        try:
+            text = open(os.path.join(MUX_HOME, "host.log"), errors="replace").read()
+        except OSError:
+            return False
+        return "compactor probe (" in text and ("built a node" in text or "is taken" in text)
+    if not wait(probed, 60, step=0.5):
+        safe_print(f"round {n}: no compactor probe result in host.log after 60 s; going on", flush=True)
 
     def record():
         frames = os.path.join(opts.out, f"frames-{n:02d}")
@@ -255,7 +264,9 @@ def one_round(n, env):
             return False, f"send refused at {sent_at:.1f}s: {json.dumps(drive)[:300]}; at the send {json.dumps(before)}; debug.home {json.dumps(home)[:1500]}", cache
         count = wait(lambda: logged(text), opts.deadline, step=0.5) or 0
         if count:
-            time.sleep(3)  # test harness: a duplicate would follow within the same catch-up
+            # sleep-ok: an observation window: a duplicate would follow within the same catch-up, and an absent
+            # duplicate has no event.
+            time.sleep(3)
             count = logged(text)
         reached_at = time.time() - started
         home = rpc("debug.home", {"paths": True}) or {}  # paths: the owner's cache file

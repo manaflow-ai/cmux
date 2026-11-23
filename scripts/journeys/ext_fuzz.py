@@ -1014,10 +1014,13 @@ class Fuzz:
                                f"{(w.get('appkit') or {}).get('classified')}: {json.dumps(w.get('mismatches'))[:200]}")
             return out
         found = read()
-        if found:
-            time.sleep(0.5)
-            again = read()
-            found = [f for f in found if f.split(":")[0] in {g.split(":")[0] for g in again}]
+        # A mismatch the app is still resolving (focus moves on the next runloop turn) clears: re-read until
+        # every reported window agrees or 5 s pass; only the windows still mismatched then are kept.
+        deadline = time.monotonic() + 5.0
+        while found and time.monotonic() < deadline:
+            time.sleep(0.1)
+            again = {g.split(":")[0] for g in read()}
+            found = [f for f in found if f.split(":")[0] in again]
         if self.diagnostic and found:
             # A slot has no key window: AppKit's first responder is not the person's; kept, never a red.
             self.notes.append({"n": self.n, "focus_weak": found[:3]})
