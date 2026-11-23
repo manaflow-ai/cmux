@@ -59,6 +59,60 @@ import Testing
         func close(code: String, reason: String) async { continuation.finish() }
     }
 
+    /// A Mac on a slow uplink: a prompt's bytes (photos as base64) take `writeFor` to go out, and
+    /// whatever is sent meanwhile reaches the Mac after them (one channel, one queue), then is
+    /// answered. A prompt still going out when the channel closes is lost with it.
+    final class UplinkMac: LinkChannel, @unchecked Sendable {
+        let id: UInt32 = 1
+        let writeFor: Duration
+        private let lock = NSLock()
+        private var writeEnds: ContinuousClock.Instant?
+        private var closed = false
+        private var _delivered = 0
+        var delivered: Int { lock.withLock { _delivered } }
+        private let inbox: AsyncStream<Data>
+        private let continuation: AsyncStream<Data>.Continuation
+        private var iterator: AsyncStream<Data>.AsyncIterator
+
+        init(writeFor: Duration) {
+            self.writeFor = writeFor
+            (inbox, continuation) = AsyncStream.makeStream()
+            iterator = inbox.makeAsyncIterator()
+        }
+
+        func send(_ data: Data) async throws {
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String else { return }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            func reply(_ result: String) { continuation.yield(Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8)) }
+            if method == "session/prompt" {
+                let ends = ContinuousClock.now + writeFor
+                lock.withLock { writeEnds = ends }
+                try await Task.sleep(until: ends, clock: .continuous)
+                if lock.withLock({ closed }) { throw LinkError(code: "closed", message: "channel closed mid-write") }
+                lock.withLock { _delivered += 1 }
+                return // answered when its turn ends
+            }
+            if let ends = lock.withLock({ writeEnds }), ContinuousClock.now < ends {
+                try await Task.sleep(until: ends, clock: .continuous) // behind the prompt's bytes
+            }
+            if lock.withLock({ closed }) { return }
+            switch method {
+            case "initialize": reply(#"{"protocolVersion":1}"#)
+            case "_acpmux/watch": reply(#"{"sessions":[{"sessionId":"s1","name":"s1","harness":"fake","cwd":"/tmp","status":"idle"}]}"#)
+            case "_acpmux/sessions": reply(#"{"sessions":[{"sessionId":"s1","harness":"fake"}],"nextCursor":null}"#)
+            case "_acpmux/harnesses": reply(#"{"harnesses":[]}"#)
+            default: reply("{}")
+            }
+        }
+
+        func receive() async throws -> Data? { await iterator.next() }
+        func close(code: String, reason: String) async {
+            lock.withLock { closed = true }
+            continuation.finish()
+        }
+    }
+
     struct Outcome {
         var answered = 0
         var errors: [String] = []
@@ -285,5 +339,37 @@ import Testing
         #expect(await connection.hasWritesInFlight == false)
         _ = try await connection.reply(to: id)
         #expect(await connection.hasWritesInFlight == false)
+    }
+
+    /// Leo, 2026-11-23: "the gui is frequently blah blah cosmic-gray was unreachable for more
+    /// than 10 seconds... bullshit. maybe it just cant pass the attachments in time". A prompt with
+    /// photos takes 1.5 s to go out (a tenth of a slow uplink's 15 s); a chat read asked meanwhile
+    /// waits behind it past the stall bound. The channel is busy, not stalled: it is not replaced,
+    /// the prompt reaches the Mac, and the read answers once the bytes are out.
+    @Test func aPromptWithPhotosOnASlowUplinkIsNotCutOffByAStalledRead() async throws {
+        let hub = hub(steady: true)
+        let mac = UplinkMac(writeFor: .milliseconds(1500))
+        await hub.bind(mac)
+        var recoveries = 0
+        hub.onStall = { recoveries += 1; await hub.bind(BenchMac(.healthy)) }
+        let photos = JSONValue.string(String(repeating: "A", count: 4 << 20))
+        let prompt = Task { @MainActor in
+            try await hub.submit("session/prompt", .object(["prompt": .array([.object(["type": .string("image"), "data": photos])])]))
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        var outcome = Outcome()
+        await read(hub, into: &outcome)
+        let written = (try? await prompt.value) != nil
+        let line: [String: Any] = [
+            "scenario": "photos_slow_uplink", "channel_recoveries": recoveries, "prompt_delivered": mac.delivered,
+            "prompt_write_ok": written, "read_answered": outcome.answered, "read_ms": Int(outcome.median.rounded()),
+        ]
+        let json = (try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        print("LINKBENCH \(json)")
+        Attachment.record("LINKBENCH \(json)\n", named: "linkbench-photos-slow-uplink.txt")
+        #expect(recoveries == 0, "a channel still sending is busy, not stalled")
+        #expect(written)
+        #expect(mac.delivered == 1, "the prompt reached the Mac on the channel it was sent on")
+        #expect(outcome.answered == 1)
     }
 }
