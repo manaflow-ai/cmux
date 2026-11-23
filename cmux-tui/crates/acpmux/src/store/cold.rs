@@ -334,7 +334,7 @@ impl LocalStore {
     /// store is sealed, since the next daemon may already own the home. `try_read`: an append
     /// holds the read side already, and a second read on the same thread may wait forever behind
     /// a seal that waits for the first; a seal under way refuses it too.
-    fn unsealed(&self, id: &str) -> Result<std::sync::RwLockReadGuard<'_, bool>> {
+    pub(super) fn unsealed(&self, id: &str) -> Result<std::sync::RwLockReadGuard<'_, bool>> {
         let sealed = match self.sealed.try_read() {
             Ok(sealed) => sealed,
             Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
