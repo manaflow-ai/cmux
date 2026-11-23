@@ -387,9 +387,11 @@ fn relay_provider(
     deadline: Instant,
     join_wait: Duration,
 ) -> Result<RelayProvider, Failure> {
-    let credentials = RelayCredentialSource::callback(move || {
+    // Each allocation presents the grant its ticket names (cmuxterm-hq#19075);
+    // a control socket's authentication takes the ticket alone.
+    let credentials = RelayCredentialSource::bound_callback(move || {
         let tickets = tickets.clone();
-        async move { tickets.ticket().await }
+        async move { tickets.credential().await }
     });
     RelayProvider::with_credentials(
         RelayClientConfig {
@@ -437,7 +439,7 @@ async fn attempt(
         .grant
         .clone()
         .ok_or_else(|| Failure::fatal(Step::Ticket, "cmux-platform sent no carrier grant"))?;
-    let tickets = TicketCache::new(plan.source.clone(), plan.machine.clone(), &answer);
+    let tickets = TicketCache::new(plan.source.clone(), plan.machine.clone(), key, &answer);
     step.set(Step::Relay);
     let session = random_session()?;
     let provider = Arc::new(relay_provider(&answer, tickets, plan.deadline, waits.join)?);
