@@ -10,7 +10,8 @@
 //! eventStream, maxBytes: 128 KiB, toolOutputMaxBytes: 64 KiB}`; a prompt is `session/prompt`
 //! with a `promptId`, shown as sent when its `user_message` record comes back; a reconnect
 //! re-attaches with `afterSeq`. The app's link gives up after 20 s with no inbound frame
-//! (keepalive pings every 15 s) and redials at once on a path change.
+//! (keepalive pings every 15 s) and redials at once on a path change, including the path
+//! coming back after a blackout.
 //!
 //! One chat grows to 1x (20 turns of ~1 KB answers), 10x and 100x; for each profile in
 //! `NETCOND_PROFILES` (default every built-in one), scale in `NETCOND_SCALES` and run in
@@ -771,14 +772,22 @@ async fn reconnect(
         }
     }
     drop(old);
-    // Redial: each try bounded as the app's requests are, until the overall bound.
+    // Redial: each try bounded as the app's requests are, until the overall bound. A try still
+    // pending when the link comes back is dropped for a new one: the app's NWPathMonitor reports
+    // the path back (NetworkPathFilter yields `.changed` on wasDown, cmux-next-ios
+    // NetworkPathMonitor.swift) and it redials at once, so no dial waits out the dark's backoff.
     let mut why = String::from("no reconnect before the bound");
     while first.is_none() && Instant::now() < deadline {
-        let attempt = (Instant::now() + Duration::from_secs(30)).min(deadline);
+        let now = Instant::now();
+        let mut attempt = (now + Duration::from_secs(30)).min(deadline);
+        if now < back {
+            attempt = attempt.min(back);
+        }
         let mut l = match Link::open(shaper.addr(), token, attempt).await {
             Ok(l) => l,
             Err(e) => {
                 why = e;
+                tokio::time::sleep_until(back.max(Instant::now())).await;
                 continue;
             }
         };
@@ -791,6 +800,7 @@ async fn reconnect(
             }
             Err(e) => {
                 why = e;
+                tokio::time::sleep_until(back.max(Instant::now())).await;
                 continue;
             }
         }

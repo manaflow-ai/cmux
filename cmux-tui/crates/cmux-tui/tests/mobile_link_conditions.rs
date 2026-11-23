@@ -13,7 +13,8 @@
 //!   replaces the connection's last one);
 //! - reconnect (profiles whose disruption drops the LAN link): attached to a surface printing every 250 ms, the
 //!   profile's disruption, then the app's policy (the link gives up after 20 s with nothing in;
-//!   an address change redials at once, iOS `NWPathMonitor` -> `path_changed`): a redial and
+//!   an address change or the path coming back redials at once, iOS `NWPathMonitor` ->
+//!   `path_changed`): a redial and
 //!   re-attach. `gap_after_link_back_ms` from the link's return to the first fresh output,
 //!   `gap_total_ms` from the disruption.
 //!
@@ -713,9 +714,29 @@ impl Bench {
             Some(at) => Some(at),
             None => {
                 drop(conn);
-                match Conn::open(shaper.addr()).await {
-                    Ok(mut new) => attach(&mut new, surface, true).await,
-                    Err(_) => None,
+                let addr = shaper.addr();
+                let dial = move || async move {
+                    match Conn::open(addr).await {
+                        Ok(mut new) => attach(&mut new, surface, true).await,
+                        Err(_) => None,
+                    }
+                };
+                // A dial from the dark still pending when the link comes back is dropped for a
+                // new one: the app's NWPathMonitor reports the path back (NetworkPathFilter
+                // yields `.changed` on wasDown, cmux-next-ios NetworkPathMonitor.swift) and it
+                // redials at once, so no dial waits out the dark's backoff.
+                let now = Instant::now();
+                let early = if now < back {
+                    timeout(back - now, dial()).await.ok().flatten()
+                } else {
+                    None
+                };
+                match early {
+                    Some(at) => Some(at),
+                    None => {
+                        tokio::time::sleep_until(back).await;
+                        dial().await
+                    }
                 }
             }
         };
