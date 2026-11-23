@@ -1,0 +1,110 @@
+/* The browser sign-in screen (BrowserSignIn.tsx), on the design scale (ui/controls.css). */
+.browser-sign-in {
+  box-sizing: border-box;
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  color: var(--ds-color-fg);
+  background: var(--ds-color-surface);
+  font: inherit;
+}
+.browser-sign-in-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 360px;
+}
+.browser-sign-in-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+}
+.browser-sign-in-lead {
+  margin: 0;
+  color: var(--ds-color-muted);
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.browser-sign-in-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.browser-sign-in-label {
+  font-weight: 500;
+}
+.browser-sign-in-error {
+  margin: 0;
+  color: var(--ds-color-danger);
+  line-height: 20px;
+}
+.browser-sign-in-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* card */
+.browser-sign-in[data-look="card"] {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.browser-sign-in[data-look="card"] .browser-sign-in-body {
+  padding: 24px;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: 12px;
+}
+
+/* pane: the heading where a chat's title sits, the form where the composer sits */
+.browser-sign-in[data-look="pane"] {
+  align-items: flex-end;
+  justify-content: center;
+  padding: 24px 16px 16px;
+}
+.browser-sign-in[data-look="pane"] .browser-sign-in-body {
+  max-width: 720px;
+  height: calc(100vh - 40px);
+}
+.browser-sign-in[data-look="pane"] .browser-sign-in-form {
+  margin-top: auto;
+  padding: 12px;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: 16px;
+}
+
+/* split */
+.browser-sign-in[data-look="split"] {
+  align-items: stretch;
+}
+.browser-sign-in-side {
+  display: flex;
+  flex: 1 1 40%;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  background: var(--ds-color-hover);
+}
+.browser-sign-in-host {
+  color: var(--ds-color-muted);
+  font-family: ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+.browser-sign-in[data-look="split"] .browser-sign-in-body {
+  flex: 1 1 60%;
+  justify-content: center;
+  padding: 32px;
+}
+@media (max-width: 560px) {
+  .browser-sign-in[data-look="split"] {
+    flex-direction: column;
+  }
+  .browser-sign-in-side {
+    flex: 0 0 auto;
+    padding: 24px;
+  }
+}
