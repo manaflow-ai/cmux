@@ -165,12 +165,18 @@ import UniformTypeIdentifiers
         })
         let copies = bubble.parts.compactMap { p -> String? in if case let .attachment(a) = p { a.id } else { nil } }
         #expect(copies.count == 3)
+        // As the app does (HomeStoreBinding.fetchAttachment): originals the field no longer holds come from the store.
+        let store = r.store, conversation = Self.conversation
+        r.view.fetchAttachment = { ref, variant in try await store.fetchAttachment(ref, variant: variant, in: conversation) }
+        // The bubble stands for HomeStore's item (the send's alias), the item the projection opens files from.
+        let projection = r.view.projection
+        await until { projection.shown.contains { HomeMapping.id($0, aliases: projection.aliases) == bubble.id } }
+        let item = try #require(projection.shown.first { HomeMapping.id($0, aliases: projection.aliases) == bubble.id },
+                                "the sent bubble is HomeStore's item")
+        let ref = try #require(item.parts.lazy.compactMap { p -> AttachmentRef? in if case let .attachment(a) = p { a } else { nil } }.first)
+        _ = try await projection.media.original(ref)
         for copy in copies {
-            var file: URL?
-            for _ in 0..<200 where file == nil {
-                file = await r.view.projection.attachmentFile(bubble.id, copy)
-                await Task.yield()
-            }
+            let file = await projection.attachmentFile(bubble.id, copy)
             #expect(file != nil, "copy \(copy) of the sent picture has its file")
         }
     }
