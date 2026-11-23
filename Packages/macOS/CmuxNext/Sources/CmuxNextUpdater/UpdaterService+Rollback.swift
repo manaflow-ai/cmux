@@ -49,6 +49,13 @@ struct StagedUpdateWaits: Error, CustomStringConvertible {
     var description: String { "the staged update \(build) would install as cmux quits" }
 }
 
+/// The keep of the running build that an update's staging started is still writing its copy: a
+/// rollback's swap writes the same kept folder, so it waits for that keep, and refuses past its limit.
+struct RunningKeepBusy: Error, CustomStringConvertible {
+    let build: String
+    var description: String { "cmux is still keeping \(build) for Go back; try again in a moment" }
+}
+
 /// Where the running bundle's keep for rollback is.
 enum KeepState {
     case running, kept
@@ -199,15 +206,28 @@ extension UpdaterService {
             guard cancelStaged() else { throw StagedUpdateWaits(build: staged) }
             log.append("rollback: cancelled the staged update \(staged), so the quit does not install it")
         }
+        // The keep that staging started writes the same kept folder the swap does (on the files lane at
+        // another priority, so both can run at once): the swap waits for it, and refuses past the limit.
+        // While the swap runs the running build counts as kept (the swap keeps it), so no keep starts
+        // and clones the bundle the swap put in its place.
+        guard await awaitRunningKeep(limit: .seconds(20)) else { throw RunningKeepBusy(build: identity.build) }
+        let keepBefore = keptRunningBuild
+        keptRunningBuild = .kept
         revert = RevertProgress(step: .swapping, target: target.build, label: RevertTarget(kept: target).label)
         let bundle = Bundle.main.bundleURL, current = identity.build, store = keptVersions
         let limit = preferences.keepPreviousVersions, record = runningRecord()
         let swapped = RollbackSwapped(target: target, skip: defaults.string(forKey: Self.skipsBuildsThroughKey),
                                       picked: defaults.string(forKey: Self.pickedBuildKey))
-        let targetRecord = try await work.run(.userVisible, mayBlock: .files) { () -> KeptRecord? in
-            let targetRecord = KeptRecord.read(from: target.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName))
-            try RollbackSwap.perform(current: bundle, currentBuild: current, target: target, store: store, limit: limit, record: record)
-            return targetRecord
+        let targetRecord: KeptRecord?
+        do {
+            targetRecord = try await work.run(.userVisible, mayBlock: .files) { () -> KeptRecord? in
+                let targetRecord = KeptRecord.read(from: target.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName))
+                try RollbackSwap.perform(current: bundle, currentBuild: current, target: target, store: store, limit: limit, record: record)
+                return targetRecord
+            }
+        } catch {
+            keptRunningBuild = keepBefore
+            throw error
         }
         UpdateDropBack.mark("revert.swapped")
         defaults.set(identity.build, forKey: Self.skipsBuildsThroughKey)
@@ -246,18 +266,26 @@ extension UpdaterService {
     /// A quit right after staging must not end the process mid-keep, or the build this Mac came
     /// from is lost to Go back (cmux#41013 review F4); the App arms its quit deadline after this.
     public func prepareForQuitAfterKeep(limit: Duration = .seconds(20)) async {
-        if keptRunningBuild == .running, let keepTask {
+        if keptRunningBuild == .running {
             log.append("quit: waiting for the keep of \(identity.build) for rollback")
+            if !(await awaitRunningKeep(limit: limit)) { log.append("quit: the keep of \(identity.build) did not finish in \(limit); the next launch tidies it") }
+        }
+        prepareForQuit()
+    }
+
+    /// Waits for the running build's keep (``keepRunningBuildForRollback()``) to end, up to `limit`.
+    /// True when no keep runs any more.
+    func awaitRunningKeep(limit: Duration) async -> Bool {
+        if keptRunningBuild == .running, let keepTask {
             let race = KeepRace()
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 race.continuation = continuation
-                // task-owner: the keep's end, or the limit's: the first resumes the quit, the other is a no-op.
+                // task-owner: the keep's end, or the limit's: the first resumes the wait, the other is a no-op.
                 Task { await keepTask.value; race.finish() }
                 race.timer.schedule(after: limit) { @MainActor in race.finish() }
             }
-            if keptRunningBuild == .running { log.append("quit: the keep of \(identity.build) did not finish in \(limit); the next launch tidies it") }
         }
-        prepareForQuit()
+        return keptRunningBuild != .running
     }
 
     /// Restores the skip after a rollback at launch, and asks before installing while the build the
