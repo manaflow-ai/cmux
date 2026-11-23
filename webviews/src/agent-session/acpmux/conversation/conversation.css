@@ -6929,7 +6929,7 @@ a.cv-sha:focus-visible {
     backdrop-filter: none;
   }
 }
-:root[data-reduce-transparency] .acpmux-image-viewer {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-image-viewer {
   background: var(--cmux-surface-solid, var(--agent-page-bg));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -7457,7 +7457,7 @@ a.cv-sha:focus-visible {
    stays legible over them (a gradient, not a drop-shadow filter: no elevation, no extra pass). */
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root:not([data-reduce-transparency]) .acpmux-jump-latest.ui-glass-fisheye .acpmux-jump-latest__arrow {
+    :root:not([data-reduce-transparency], [data-glass="off"]) .acpmux-jump-latest.ui-glass-fisheye .acpmux-jump-latest__arrow {
       width: 20px;
       height: 20px;
       border-radius: 50%;
@@ -8634,6 +8634,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
+}
+/* Liquid Glass off (appearance.liquidGlass): the same solid surface, through its veil, so the hover
+   wash above still draws over a solid fill. */
+:where(:root[data-glass="off"]) .cv-selection-reply {
+  --cv-selection-reply-veil: 100%;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 /* A background task's result the person has not seen (ReactionMark.tsx): a 6px accent dot at the
    row's edge, before its check and time, until the next prompt. It never pulses. */

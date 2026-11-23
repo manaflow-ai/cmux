@@ -1088,6 +1088,13 @@ to keep another build's dev iPhone app from prompting (SECURITY.md "Dev
 auto-approve"). An older phone sends none, an older hostd forwards none, and
 the app then asks as before.
 
+`auth` args may also carry `appBuild` (added 2026-11-22; the phone app's
+CFBundleVersion, 1 to 32 ASCII letters, digits, `.` and `-`). hostd keeps the
+phone's `bundleId` and `appBuild` in memory per device and logs one `phone app`
+line at each `auth` open (device, variant `appstore`/`testflight`/`dev`/`other`/
+`unknown`, bundle, build, link path). It refuses nothing on them; an older phone
+sends none.
+
 ### Mac identity (trust on first use)
 
 `auth` args may carry `macNonce` (16 to 128 letters or digits, the phone's

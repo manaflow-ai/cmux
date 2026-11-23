@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useRef, useState, useEffectEvent, useCallback } from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
+import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
 import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER } from "../model";
 import { acpmuxPerf } from "../perf";
@@ -14,7 +15,6 @@ import { sameReferenceScope, sameRowFrame } from "../virtualTranscriptModel";
 import { isRunPart } from "../conversation/runPartId";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
-import { sendPopEnabled } from "../chatDisplay";
 
 /// What a row's content draws from (the registry component's props, and the component).
 /// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
@@ -223,8 +223,8 @@ export const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => enterOnMount(), []);
   // A generic row's entrance starts on the frame that first draws it, not at this commit: WebKit
   // starts its clock here, and a busy main thread drew the row only after its fade had ended, whole
-  // at once (conversation/entranceClock.ts). A sent prompt's pop (conversation.css SEND-POP) waits
-  // for its first frame the same way; other messages keep their own send clock.
+  // at once (conversation/entranceClock.ts). A sent prompt's pop (conversation.css SEND-POP, when
+  // Pop In Sent Prompts is on) waits for its first frame the same way; other messages keep their own send clock.
   const holdEntranceOnMount = useEffectEvent(() => {
     if (!entering || !ref.current) return undefined;
     if (messageEntering)

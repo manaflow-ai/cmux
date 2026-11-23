@@ -105,6 +105,16 @@ extension GeneralSettingsSchema {
                 default: .bool(CmuxConfigSnapshot.confirmQuitDefault),
                 keywords: ["quit", "cmd-q", "confirm", "ask", "warn", "exit", "agents", "terminals"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.warnBeforeQuitShortcutPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.warnBeforeQuitShortcut", "Warn Before Quitting with ⌘Q"),
+                help: SettingsText.keyed("settings.app.warnBeforeQuitShortcut.help", "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.warnBeforeQuitShortcutDefault),
+                keywords: ["quit", "cmd-q", "warn", "hold", "accidental", "confirm", "exit"]
+            ),
         ]
     }
 }

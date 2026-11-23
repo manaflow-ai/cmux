@@ -127,8 +127,6 @@ REGENERATE: dict[str, Regen] = {
     "chrome-styles": here((PY, "scripts/cmux-next/gen-chrome-styles.py")),
     "agent-icons": here((PY, "scripts/agent-icons/generate.py")),
     "icon-pack": here((PY, "scripts/icons/build_pack.py")),
-    "pane-protocol": here(("bun", "webviews/scripts/pane-protocol-codegen.ts")),
-    "acpmux-protocol": here(("bun", "webviews/scripts/acpmux-protocol-codegen.ts")),
     "pane-protocol-go": here(
         (PY, PANE_GO, "--write", "--ir", "cmux-tui/crates/cmux-pane-protocol/spec/pane-protocol.json",
          "--out", "cmux-tui/bindings/go-pane/examples/hello/hellopane", "--package", "hellopane",

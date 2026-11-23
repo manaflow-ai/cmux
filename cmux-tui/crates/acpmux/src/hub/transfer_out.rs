@@ -221,6 +221,16 @@ mod restore_freeze_tests;
 /// move with the chat.
 const AFTER_TURN_WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
+/// How long a `transfer_begin` with `afterTurn` waits for the running turn: its
+/// `afterTurnTimeoutMs` (the mover's `--timeout`), at most [`AFTER_TURN_WAIT`]; that when absent.
+pub(super) fn after_turn_wait(params: &Value) -> std::time::Duration {
+    params
+        .get("afterTurnTimeoutMs")
+        .and_then(Value::as_u64)
+        .map(std::time::Duration::from_millis)
+        .map_or(AFTER_TURN_WAIT, |d| d.min(AFTER_TURN_WAIT))
+}
+
 /// What a chat that moved away answers a start: where it went.
 pub(super) fn moved_error(to: &Value) -> RpcError {
     let host = to["host"].as_str().map(|h| format!(" to {h}")).unwrap_or_default();
@@ -262,7 +272,9 @@ impl Hub {
                 // Wait for a running turn to end on its own, then move (`AFTER_TURN_WAIT`).
                 let after_turn =
                     !interrupt && params.get("afterTurn").and_then(Value::as_bool) == Some(true);
-                self.transfer_begin(&session, interrupt, after_turn, socket, ssh, host, gates).await
+                // `afterTurnTimeoutMs`: the mover's `--timeout`, never past `AFTER_TURN_WAIT`.
+                let turn_wait = after_turn.then(|| after_turn_wait(params));
+                self.transfer_begin(&session, interrupt, turn_wait, socket, ssh, host, gates).await
             }
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
@@ -313,8 +325,8 @@ impl Hub {
         }
     }
 
-    /// Freezes the chat for its move and makes its bundle. With `after_turn`, a running turn is
-    /// neither refused nor stopped: the move first waits (up to [`AFTER_TURN_WAIT`]) for the
+    /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
+    /// running turn is neither refused nor stopped: the move first waits (that long) for the
     /// turn lock, unfrozen, so the turn ends on its own and every prompt sent meanwhile queues
     /// as usual; holding the lock, it freezes the chat and the queue moves with the bundle.
     #[allow(clippy::too_many_arguments)]
@@ -322,7 +334,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         interrupt: bool,
-        after_turn: bool,
+        after_turn: Option<std::time::Duration>,
         to: Option<&str>,
         to_ssh: Option<&str>,
         to_host: Option<&str>,
@@ -341,13 +353,13 @@ impl Hub {
         }
         // Taken before the freeze, so nothing is refused while the turn finishes: its
         // permission answers, steering and new prompts go in as usual.
-        let early = if after_turn {
-            match tokio::time::timeout(AFTER_TURN_WAIT, session.turn_lock.lock()).await {
+        let early = if let Some(wait) = after_turn {
+            match tokio::time::timeout(wait, session.turn_lock.lock()).await {
                 Ok(guard) => Some(guard),
                 Err(_) => {
                     let why = format!(
                         "the running turn did not end within {}s; try again, or pass --interrupt",
-                        AFTER_TURN_WAIT.as_secs()
+                        wait.as_secs()
                     );
                     return Err(transfer_error("busy", why));
                 }
@@ -834,5 +846,23 @@ mod fencing_tests {
         assert_eq!(parse_epoch(Some(&json!(7))).unwrap(), Some(7));
         assert!(parse_epoch(Some(&json!("7"))).is_err());
         assert!(parse_epoch(Some(&json!(null))).is_err());
+    }
+}
+
+#[cfg(test)]
+mod after_turn_wait_tests {
+    use super::{AFTER_TURN_WAIT, after_turn_wait};
+    use serde_json::json;
+    use std::time::Duration;
+
+    /// Item C: the mover's `--timeout` bounds the daemon's wait for the turn, never past 15 min.
+    #[test]
+    fn the_movers_timeout_bounds_the_wait_for_the_turn() {
+        assert_eq!(after_turn_wait(&json!({})), AFTER_TURN_WAIT);
+        assert_eq!(
+            after_turn_wait(&json!({"afterTurnTimeoutMs": 30_000})),
+            Duration::from_secs(30)
+        );
+        assert_eq!(after_turn_wait(&json!({"afterTurnTimeoutMs": u64::MAX})), AFTER_TURN_WAIT);
     }
 }

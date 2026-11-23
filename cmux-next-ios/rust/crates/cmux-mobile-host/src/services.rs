@@ -34,6 +34,15 @@ pub struct Peer {
     /// phone and this Mac negotiated one.
     pub video: Option<cmux_mobile_link::media::VideoOut>,
     pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    /// The link's path now (direct, TURN, TURN over TLS), if the link reports one.
+    pub path: Option<tokio::sync::watch::Receiver<cmux_mobile_link::dial::LinkPath>>,
+}
+
+impl Peer {
+    /// The wire name of the link's path now (`direct`, `turn`, `turn-tls`, `none`).
+    pub fn path_name(&self) -> Option<&'static str> {
+        self.path.as_ref().map(|path| crate::control::path_name(*path.borrow()))
+    }
 }
 
 /// Serve one incoming channel to completion. With pairing on, only `auth`
@@ -100,16 +109,19 @@ pub async fn serve(
         }
     }
     let result = match service.as_str() {
-        "auth" => crate::pairing::serve(
-            config.pairing.as_ref(),
-            &peer.device_id,
-            &link,
-            &args,
-            &sender,
-            &mut receiver,
-        )
-        .await
-        .map_err(|(code, reason)| Refusal::new(code, reason)),
+        "auth" => {
+            crate::pairing::note_phone_app(&peer.device_id, &args, peer.path_name());
+            crate::pairing::serve(
+                config.pairing.as_ref(),
+                &peer.device_id,
+                &link,
+                &args,
+                &sender,
+                &mut receiver,
+            )
+            .await
+            .map_err(|(code, reason)| Refusal::new(code, reason))
+        }
         _ if gate == crate::pairing::Gate::Busy => {
             Err(Refusal::new("busy", "too many channels wait for this iPhone's pairing"))
         }
@@ -137,7 +149,7 @@ pub async fn serve(
                 .await
                 .map_err(|(code, reason)| Refusal::new(code, reason))
         }
-        "appearance" => crate::appearance::serve(&sender, receiver).await,
+        "appearance" => crate::appearance::serve(&sender, receiver, &peer.device_id).await,
         "appearance-wallpaper" => crate::appearance::serve_wallpaper(&sender, &args).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
