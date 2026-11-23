@@ -9,10 +9,17 @@
 //   inserted restyled the whole thread;
 // - a rule on an ancestor's `style` attribute (`.ol[style*=...] > li`): every inline style write (the send
 //   motion's, the follow glide's, each frame) restyled the elements it names under the written element.
+// - a sibling rule with, on its left, an `:is()` or `:where()` that has a branch naming no class, id,
+//   attribute or tag (`:is(:hover, :focus-visible)`, or the focus-ring gate `:where(:not(:root[...] *))`
+//   after a `:focus-visible` there): Chromium then treats that part as any element, so every node a
+//   streaming reply inserted restyled its later siblings and searched their subtrees (2026-11-17:
+//   25-40% of the chat page's style time while a reply streamed). Write one selector per state.
 // Each subject names a class, an id or an attribute instead (or `:nth-child(of)` / `:not(:first-child)`).
+// The selectors checked are the built ones: after the focus-ring gate (scripts/postcss/focusRingGate.mjs).
 import { expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
+import { gateFocusVisible } from "../scripts/postcss/focusRingGate.mjs";
 
 const src = path.resolve(import.meta.dir, "../src");
 
@@ -99,6 +106,29 @@ const named = (compound: string): boolean => {
 /// It names nothing at all: any element (`*`, `:last-child`, `:not(.a)`).
 const anyElement = (compound: string) => !named(compound) && !/^[a-z]/i.test(ownPart(compound));
 
+/// The argument of each `:is(...)` and `:where(...)` in `compound`, nested ones too.
+function listArguments(compound: string): string[] {
+  const out: string[] = [];
+  for (const match of compound.matchAll(/:(?:is|where|matches|-webkit-any)\(/g)) {
+    let depth = 1;
+    let end = match.index! + match[0].length;
+    for (; end < compound.length && depth; end++) {
+      if (compound[end] === "(") depth++;
+      else if (compound[end] === ")") depth--;
+    }
+    out.push(compound.slice(match.index! + match[0].length, end - 1));
+  }
+  return out;
+}
+/// It holds an `:is()` or `:where()` with a branch that names no class, id or attribute (a tag is no
+/// feature for Blink's sibling invalidation either).
+const namelessList = (compound: string): boolean =>
+  listArguments(compound).some((list) =>
+    splitTop(list, (ch) => ch === ",").some((branch) => {
+      return !named(compounds(branch).parts.at(-1) ?? "");
+    }),
+  );
+
 function findings(file: string, selector: string): string[] {
   const out: string[] = [];
   const { parts, combinators } = compounds(selector);
@@ -110,6 +140,9 @@ function findings(file: string, selector: string): string[] {
     out.push(`a :has() rule whose subject (${subject}) names no class, id or attribute`);
   if (combinators.some((combinator) => combinator === "+" || combinator === "~") && anyElement(subject))
     out.push(`a sibling rule whose subject (${subject}) is any element`);
+  // Only a compound right before a `+` or `~`: Blink drops sibling features at a descendant combinator.
+  if (parts.some((part, index) => (combinators[index] === "+" || combinators[index] === "~") && namelessList(part)))
+    out.push("a sibling rule with an :is() or :where() of states on its left");
   return out.filter(() => !ALLOWED.has(`${file} ${selector}`));
 }
 
@@ -118,7 +151,7 @@ test("no selector restyles a whole subtree on a :has(), sibling or inline-style 
   for (const full of cssFiles(src)) {
     const file = path.relative(src, full);
     for (const group of selectorTexts(fs.readFileSync(full, "utf8")))
-      for (const selector of splitTop(group, (ch) => ch === ","))
+      for (const selector of splitTop(gateFocusVisible(group), (ch) => ch === ","))
         for (const finding of findings(file, selector)) found.push(`${file}: ${selector} (${finding})`);
   }
   expect(found).toEqual([]);
@@ -136,4 +169,14 @@ test("the detector catches each kind", () => {
   expect(findings("x.css", ".a:has(.b)")).toEqual([]);
   expect(findings("x.css", '.icon[style*="background-image"]')).toEqual([]);
   expect(findings("x.css", ".tag > .x ~ svg[data-icon]")).toEqual([]);
+  expect(findings("x.css", '.tag:where(:not(:root[data-m="p"] *)) ~ svg[data-icon]')).toHaveLength(1);
+  expect(findings("x.css", ".tag.is-open:is(:hover, :focus-visible) ~ svg[data-icon]")).toHaveLength(1);
+  expect(findings("x.css", ".tag.is-open:is(:hover) + .x")).toHaveLength(1);
+  expect(findings("x.css", '.tag ~ svg[data-icon]:where(:not(:root[data-m="p"] *))')).toEqual([]);
+  expect(findings("x.css", ".tag.is-open:hover ~ svg[data-icon]")).toEqual([]);
+  expect(findings("x.css", '.goal:is([data-look="head"], [data-look="foot"]) + .x')).toEqual([]);
+  expect(findings("x.css", '.goal:is([data-look="head"], li) + .x')).toHaveLength(1);
+  expect(findings("x.css", ".a:is(:hover) .b + .c")).toEqual([]);
+  expect(findings("x.css", ".a:not(.b) + .d")).toEqual([]);
+  expect(findings("x.css", ":root:not([data-a], [data-b]) .x + .d")).toEqual([]);
 });
