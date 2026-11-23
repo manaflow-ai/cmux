@@ -117,6 +117,47 @@ struct Listener {
     /// ([`bind_at`]). Written since 2026-11-22; an older record has none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     earlier: Vec<u16>,
+    /// The daemon that bound `port`: a successor waits for the port only while this process
+    /// still runs in this home ([`may_hand_over`]). Written since 2026-11-23; an older record has
+    /// none, and its port is waited for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    holder: Option<Holder>,
+}
+
+/// The process that holds a gateway's port, as `run/mcp-gateway.json` names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Holder {
+    pid: u32,
+    /// When it started (`process_identity::started_ms`): a later process under the same pid is
+    /// not it.
+    started_ms: u64,
+    /// The acpmux home it served. A home copied from another one (a cloned machine, a copied
+    /// test home) carries that home's record, whose port the original's daemon holds.
+    home: PathBuf,
+}
+
+impl Holder {
+    fn of_self(home: &Path) -> Option<Self> {
+        let pid = std::process::id();
+        let started_ms = cmux_tui_platform::process_identity::started_ms(pid)?;
+        Some(Self { pid, started_ms, home: home.to_owned() })
+    }
+}
+
+/// Whether the kept port, found taken, may be the daemon this one replaces letting it go: the
+/// record's holder still runs and served this home (or the record is older and names none). Any
+/// other program holding it never lets go for this home, and waiting [`HANDOVER_WAIT`] for it
+/// only made the start miss its readiness budget (`daemon::START_BUDGET`): own-machines-e2e's
+/// clone-own-identity went red on 2026-11-22, a copied home's `daemon start` failing while the
+/// original's daemon kept its gateway port.
+fn may_hand_over(kept: &Listener, home: &Path) -> bool {
+    let Some(holder) = kept.holder.as_ref() else { return true };
+    let same_home = holder.home == home
+        || std::fs::canonicalize(&holder.home)
+            .is_ok_and(|held| std::fs::canonicalize(home).is_ok_and(|here| held == here));
+    same_home
+        && cmux_tui_platform::process_identity::started_ms(holder.pid) == Some(holder.started_ms)
 }
 
 pub struct Gateway {
@@ -245,6 +286,11 @@ pub async fn bind_at(
         }
     };
     let mut earlier: Vec<u16> = kept.as_ref().map(|k| k.earlier.clone()).unwrap_or_default();
+    // A port held by anything but the daemon this one replaces is not waited for.
+    let handover = match kept.as_ref() {
+        Some(kept) if !may_hand_over(kept, home) => Duration::ZERO,
+        _ => handover,
+    };
     let listener = match kept.as_ref().map(|k| k.port).filter(|p| *p != 0) {
         Some(port) => match bind_kept(port, handover).await {
             Ok(l) => l,
@@ -277,7 +323,7 @@ pub async fn bind_at(
             Err(e) => tracing::debug!("mcp gateway: earlier port {earlier} is not free ({e})"),
         }
     }
-    let record = Listener { port, key: encode_hex(&key), earlier };
+    let record = Listener { port, key: encode_hex(&key), earlier, holder: Holder::of_self(home) };
     crate::agent_tools::write_private(&path, &serde_json::to_vec(&record)?)
         .context("mcp gateway: keeping the port and key")?;
     let gateway = Arc::new(Gateway {
