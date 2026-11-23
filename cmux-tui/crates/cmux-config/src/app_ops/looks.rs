@@ -113,9 +113,7 @@ fn densities_accepts(request: &Value) -> Result<Value, OpError> {
 
 fn densities_parse(request: &Value) -> Result<Value, OpError> {
     let Some(root) = value(request, "root")?.as_object() else {
-        return Ok(
-            json!({"densities": [], "diagnostics": [{"path": "appearance.customDensities", "message": "expected a list of densities"}]}),
-        );
+        return Ok(json!({"densities": [], "diagnostics": []}));
     };
     let Some(appearance) = root.get("appearance").and_then(Value::as_object) else {
         return Ok(json!({"densities": [], "diagnostics": []}));

@@ -66,10 +66,7 @@ uint32_t cmux_settings_abi_version(void);
  `op` is a NUL-terminated string; `request_ptr` with `request_len` is
  readable; `out` is writable.
  */
-int32_t cmux_settings_call(const char *op,
-                           const uint8_t *request_ptr,
-                           size_t request_len,
-                           CmuxSettingsBytes *out);
+int32_t cmux_settings_call(const char *op, const uint8_t *request_ptr, size_t request_len, CmuxSettingsBytes *out);
 
 /*
  Frees a reply buffer. A null `ptr` is ignored.
