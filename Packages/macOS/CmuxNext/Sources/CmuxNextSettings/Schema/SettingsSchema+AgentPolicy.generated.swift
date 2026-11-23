@@ -52,6 +52,8 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.
         "app.showMenuBarIcon",
+        // Cmd-Q's warning against an accidental quit; a quit keeps every session either way.
+        "app.warnBeforeQuitShortcut",
         // The language cmux's own text is in; ends no work.
         "app.language",
         "tabs.overflow", "tabs.shellIconTheme",
@@ -91,8 +93,8 @@ extension SettingsSchema {
         "appearance.experimentalControls", "appearance.settingsBetaChips", "app.uiScale",
         "appearance.glassTransparency", "appearance.hue", "appearance.saturation", "appearance.density",
         "appearance.customDensity", "appearance.customDensities", "appearance.metrics.chromeFontSize",
-        "appearance.fontSmoothing", "appearance.interfaceScale", "appearance.borders", "appearance.previousGlass",
-        "appearance.sidebarSurface", "appearance.chromeStyle", "appearance.titleAreaTone",
+        "appearance.fontSmoothing", "appearance.interfaceScale", "appearance.borders", "appearance.liquidGlass",
+        "appearance.previousGlass", "appearance.sidebarSurface", "appearance.chromeStyle", "appearance.titleAreaTone",
         "appearance.titleAreaContrast", "appearance.twoTone", "appearance.cornerFlush", "appearance.focusIndicator",
         "focus.inactiveTabStyle", "ui.animationSpeed", "ui.animations.newTab", "ui.animations.newWorkspace",
         "ui.animations.enabled", "ui.animations.sidebar", "ui.animations.tabs", "ui.animations.panes",
