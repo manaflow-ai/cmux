@@ -47,7 +47,8 @@ import Testing
     @Test func aWorkspaceWithoutPortsHasNoPortRow() {
         let view = WorkspaceHoverCardView()
         view.configure(WorkspaceHoverCardContent.make(Self.workspace(nil), machine: nil, now: Date()))
-        #expect(view.portViews.allSatisfy(\.isHidden))
+        let allHidden = view.portViews.allSatisfy { $0.isHidden }
+        #expect(allHidden)
     }
 
     @Test func openingAPortChangesNothingInTheSidebar() {
