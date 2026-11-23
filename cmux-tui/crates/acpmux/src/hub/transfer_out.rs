@@ -254,6 +254,8 @@ pub(super) fn names_a_move(mark: &str) -> bool {
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
+#[path = "transfer_history.rs"]
+pub(super) mod transfer_history;
 #[path = "transfer_live.rs"]
 pub(super) mod transfer_live;
 #[path = "transfer_precopy.rs"]
@@ -343,8 +345,16 @@ impl Hub {
                 self.transfer_begin(&session, turn, socket, ssh, host, gates, precopy).await
             }
             "prepare" => {
-                self.transfer_prepare(&self.resolve(text("sessionId"))?, params.get("base"))
+                // `historyLater: {keepTurns}`: the history follows the chat (`transfer_history.rs`).
+                let keep = params.get("historyLater").filter(|l| !l.is_null());
+                let keep = keep.map(|l| l.get("keepTurns").and_then(Value::as_u64).unwrap_or(1));
+                self.transfer_prepare(&self.resolve(text("sessionId"))?, params.get("base"), keep)
             }
+            "history_have" => self.transfer_history_have(params),
+            "history_export" => {
+                self.transfer_history_export(&self.resolve(text("sessionId"))?, params)
+            }
+            "history" => self.transfer_history(&self.resolve(text("sessionId"))?, params),
             "base" => self.transfer_base(params),
             "stage" => self.transfer_stage(params),
             "stage_finish" => self.transfer_stage_finish(params),
@@ -375,11 +385,14 @@ impl Hub {
             "commit" => {
                 let session = self.resolve(text("sessionId"))?;
                 let to = params.get("to").cloned().unwrap_or(Value::Null);
+                // What the client measured of the freeze (`{ms, bytes}`), for the receipt.
+                let freeze = params.get("freeze").filter(|f| f.is_object()).cloned();
                 self.transfer_commit_with_epoch(
                     &session,
                     text("transferId"),
                     to,
                     parse_epoch(params.get("epoch"))?,
+                    freeze,
                 )
                 .await
             }
@@ -464,8 +477,12 @@ impl Hub {
         if let Some(to) = session.meta().moved_to {
             return Err(moved_error(&to));
         }
+        self.refuse_while_history_awaited(session)?;
         let transfer_id = uuid::Uuid::now_v7().to_string();
         self.sweep();
+        // The freeze begins when the chat is marked moving, just below: its length to this
+        // begin's answer is `frozenMs`, the share of a move's freeze this daemon can time.
+        let frozen_at = std::time::Instant::now();
         // This begin holds the move's watch until it starts it, below: a watch that ran now
         // would read no `alive` stamp and end the move under it (`transfer_watch.rs`). Claimed
         // under the `moving` lock, so whoever sees the chat in this move sees the claim too.
@@ -678,6 +695,7 @@ impl Hub {
             "files": files,
             "session": self.session_summary(session),
             "epoch": epoch,
+            "frozenMs": u64::try_from(frozen_at.elapsed().as_millis()).unwrap_or(u64::MAX),
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
@@ -776,6 +794,7 @@ impl Hub {
         transfer_id: &str,
         to: Value,
         epoch: Option<u64>,
+        freeze: Option<Value>,
     ) -> Result<Value, RpcError> {
         let dir = transfers_dir().join(transfer_id);
         let current = require_valid_epoch(session)?;
@@ -805,12 +824,12 @@ impl Hub {
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
         self.save_meta_answered(session)?;
-        self.append(
-            session,
-            "mux",
-            "transferred",
-            json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
-        );
+        let mut moved =
+            json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()});
+        if let Some(freeze) = freeze {
+            moved.set("freeze", freeze);
+        }
+        self.append(session, "mux", "transferred", moved);
         self.kill(session, false).await?;
         self.note_shipped(session, transfer_id);
         transfer_precopy::forget_prepared(&dir);

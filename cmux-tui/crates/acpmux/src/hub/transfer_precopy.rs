@@ -105,10 +105,12 @@ impl Hub {
         &self,
         session: &Arc<Session>,
         base: Option<&Value>,
+        keep_turns: Option<u64>,
     ) -> Result<Value, RpcError> {
         if let Some(to) = session.meta().moved_to {
             return Err(super::moved_error(&to));
         }
+        self.refuse_while_history_awaited(session)?;
         if session.moving().is_some() {
             return Err(transfer_error("moving", "this chat is being moved"));
         }
@@ -123,14 +125,26 @@ impl Hub {
         let prepare_id = format!("pre-{}", uuid::Uuid::now_v7());
         let root = transfers_dir().join(&prepare_id);
         let events = root.join(&session.id).join("events");
-        let made = self.write_prefix(session, &events, base.as_ref());
-        let (after_seq, digest, stamp) = match made {
+        // A move whose history follows the chat (`transfer_history.rs`) copies no line here. A
+        // chat with fewer turns than it keeps has no history to follow: it is prepared whole.
+        let later = match keep_turns {
+            Some(keep) => {
+                self.later_prefix(session, keep, &events).map(|l| Some(l).filter(|l| l.0 > 0))
+            }
+            None => Ok(None),
+        };
+        let made = later.and_then(|later| match later {
+            Some(later) => Ok((later, true)),
+            None => Ok((self.write_prefix(session, &events, base.as_ref())?, false)),
+        });
+        let ((after_seq, digest, stamp), history_later) = match made {
             Ok(made) => made,
             Err(error) => {
                 let _ = crate::home_fs::remove_dir_all(&root);
                 return Err(error);
             }
         };
+        let base = base.filter(|_| !history_later);
         // The agent's own transcript (a Claude chat's JSONL: 1.6 GB for a 7 GB chat) goes too,
         // at the path a bundle gives it: the freeze then pages only what it grew by
         // (`transfer_live.rs`). One that fails to copy goes whole inside the freeze, as before.
@@ -141,8 +155,11 @@ impl Hub {
             }
         }
         let token = format!("{prepare_id}:{after_seq}:{digest}");
-        let record = json!({"sessionId": session.id, "afterSeq": after_seq, "digest": digest,
+        let mut record = json!({"sessionId": session.id, "afterSeq": after_seq, "digest": digest,
                             "stamp": stamp, "token": token});
+        if history_later {
+            record.set("historyLater", json!(true));
+        }
         let files = crate::home_fs::write(root.join("prefix.json"), record.to_string())
             .and_then(|()| bundle_files(&root.join(&session.id)))
             .map_err(|e| RpcError::internal(format!("transfer: prepare: {e}")))?;
@@ -153,6 +170,9 @@ impl Hub {
             files.into_iter().map(|(path, size)| json!({"path": path, "size": size})).collect();
         let mut answer = json!({"schema": PREFIX_SCHEMA, "prepareId": prepare_id,
                   "sessionId": session.id, "afterSeq": after_seq, "token": token, "files": files});
+        if history_later {
+            answer.set("historyLater", json!(true));
+        }
         if let Some(b) = base {
             answer.set(
                 "base",
@@ -163,7 +183,7 @@ impl Hub {
     }
 
     /// The digest of chat `id`'s record at `seq`, read back from the records before `seq + 1`.
-    fn digest_at(&self, id: &str, seq: u64) -> Result<Option<String>, RpcError> {
+    pub(in crate::hub) fn digest_at(&self, id: &str, seq: u64) -> Result<Option<String>, RpcError> {
         if seq == 0 {
             return Ok(None);
         }
@@ -480,8 +500,19 @@ impl Hub {
             Some(base) => Some(self.check_base(chat, base)?),
             None => None,
         };
-        let written = private_stage(&dir, &staged.join("events"))
-            .and_then(|()| self.write_staged(&bundle.join("events"), &segment, chat, base));
+        // A prefix whose history follows the chat stages an empty segment; a history that
+        // followed is unpacked first (`transfer_history.rs`).
+        let history_later = *field(&manifest, "historyLater") == true;
+        let written = private_stage(&dir, &staged.join("events")).and_then(|()| {
+            if history_later {
+                crate::home_fs::write(&segment, "")?;
+                return Ok((0, after_seq));
+            }
+            if super::transfer_history::is_packed(&manifest) {
+                super::transfer_history::unpack_staged(&bundle, chat)?;
+            }
+            self.write_staged(&bundle.join("events"), &segment, chat, base)
+        });
         let (records, last) = written.map_err(|e| transfer_error("stage", format!("{e:#}")))?;
         if last != after_seq {
             let _ = crate::home_fs::remove_dir_all(dir.join("store"));
@@ -495,7 +526,8 @@ impl Hub {
         // only what they grew by since (`transfer_live.rs`).
         let native = super::transfer_live::keep_staged_native(&dir);
         let staged = json!({"sessionId": field(&manifest, "sessionId"), "afterSeq": after_seq,
-                            "token": field(&manifest, "token"), "native": native});
+                            "token": field(&manifest, "token"), "native": native,
+                            "historyLater": history_later});
         crate::home_fs::write(dir.join("staged.json"), staged.to_string())
             .map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let _ = crate::home_fs::remove_dir_all(&bundle);
