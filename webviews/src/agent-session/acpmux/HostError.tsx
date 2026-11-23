@@ -5,6 +5,7 @@ import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
+import { useDotSaysRecovery } from "./composerStatusStore";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
 /// the composer as the shared notice (ui/Notice.tsx), with its own `hint` (null: none) and button
@@ -252,9 +253,14 @@ export function HostRecoveringLine({
   now?: number;
 }) {
   const t = useT();
-  const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
+  // The composer's status dot, once mounted, says this recovery instead (ComposerStatusDot.tsx), so
+  // the words never draw over the transcript (Leo, 2026-11-22); the line still yields to `otherwise`.
+  const dotSays = useDotSaysRecovery();
+  const ticking = useNow(
+    fixedNow === undefined && !dotSays && (relinkingSince !== undefined || restoring !== undefined),
+  );
   const line = hostRecoveryLine({ relinkingSince, restoring, failureShown, waitingSince, now: fixedNow ?? ticking });
-  if (!line) return otherwise;
+  if (!line || dotSays) return otherwise;
   return line.kind === "restoring" ? (
     <ConnectionChip
       kind="restoring"

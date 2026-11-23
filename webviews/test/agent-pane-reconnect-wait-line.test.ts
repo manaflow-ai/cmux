@@ -3,8 +3,9 @@
 // A slow acpmux after a drop, end to end: the pane's own lines above the composer while it waits
 // (HostError.tsx). The stand-in daemon holds its answers to the reconnect's watch and attach
 // (support/papercutChat.ts `stall`) and the connection drops, as a restarted, busy acpmux does. Then:
-// - "Reconnecting…" shows at 10 s and hands over to "Waiting for the agent service (0:25)" with no
-//   painted frame between them that shows neither (before: about one second with no line at 25 s).
+// - "Reconnecting…" is the composer status dot's to say (ComposerStatusDot.tsx), not a line over the
+//   transcript; the first line is "Waiting for the agent service (0:25)", and once shown it never
+//   leaves a painted frame with no line (before: about one second with no line at 25 s).
 // - The waiting line's Restart agent service holds its place while the time ticks (before: it moved
 //   sideways with each second's digits, the time not being the shared fixed-width clock).
 // - No transcript row in view moves through any of it.
@@ -55,8 +56,10 @@ await requireBrowserLane("agent-pane-reconnect-wait-line.test.ts", async () => {
           await new Promise<void>((resolve) => {
             window.cmuxAfterPaint(() => {
               const t = performance.now() - start;
-              const dock = document.querySelector<HTMLElement>(".acpmux-dock");
-              const line = dock?.querySelector(":scope > .acpmux-host-line, :scope > .acpmux-host-line-group");
+              // The host line sits in its out-of-flow slot (HostError.tsx HostLineSlot).
+              const line = document.querySelector(
+                ".acpmux-dock [data-host-slot] > .acpmux-host-line, .acpmux-dock [data-host-slot] > .acpmux-host-line-group",
+              );
               const restart = line?.querySelector<HTMLElement>(".acpmux-host-line-quiet");
               const now = tops();
               let moved = 0;
@@ -107,7 +110,7 @@ await requireBrowserLane("agent-pane-reconnect-wait-line.test.ts", async () => {
           movedPx: Math.max(...seen.map((frame) => frame.moved)),
         })}`,
       );
-      expect(seen[shownAt]?.line).toBe("Reconnecting…");
+      expect(seen[shownAt]?.line).toStartWith("Waiting for the agent service");
       expect(waiting.length).toBeGreaterThan(0);
       // The line ticked over several seconds.
       expect(new Set(waiting.map((frame) => frame.line)).size).toBeGreaterThanOrEqual(3);

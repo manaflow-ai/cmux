@@ -702,6 +702,7 @@ import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostRecoveringLine, HostUnavailableLine, HostWaitingLine, HostLineSlot } from "./HostError";
+import { usePublishHostRecovery } from "./composerStatusStore";
 import { hostLineText } from "./hostLine";
 import {
   AcpmuxRestartGate,
@@ -13271,6 +13272,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // earlier failed handshake (HostWaitingLine's `otherwise`).
   const daemonWaitingSince = clientSnapshot.daemonWaitingSince;
   const hostWaitingSince = waitingSince ?? daemonWaitingSince;
+  // The composer's status dot says the quiet recovery below instead, once mounted (composerStatusStore.ts).
+  usePublishHostRecovery(
+    restartingAcpmux
+      ? undefined
+      : { relinkingSince, restoring: hostRestoring, failureShown: hostErrorSaid, waitingSince: hostWaitingSince },
+  );
   const hostWaitOrError =
     hostWaitingSince !== undefined ? (
       <HostWaitingLine

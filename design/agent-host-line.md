@@ -16,9 +16,12 @@ Each state is one row, so one turning into another moves nothing.
 
 - **Reconnecting** (`HostRecoveringLine`, and `HostUnavailableLine` while the pane asks again by
   itself): "Reconnecting…", muted, no button, however long the outage (a machine rebooting, an
-  agent service starting). acpmux's words, codes and commands never show. A message sent meanwhile
-  stays in the composer ("Sending when ready") and goes once acpmux answers (sendWhenReady.ts, no
-  deadline).
+  agent service starting). acpmux's words, codes and commands never show. Where the composer's
+  status dot is mounted (every chat but a remote one on an older acpmux), the dot says
+  "Reconnecting…" and "Restoring sessions…" in its card and `HostRecoveringLine` draws nothing
+  over the transcript (design/composer-status-dot.md). A message sent meanwhile stays in the
+  composer and goes once acpmux answers (sendWhenReady.ts, no deadline); the dot's card says
+  "Sending when ready".
 - **Waiting** (`HostWaitingLine`): "Waiting for the agent service (m:ss)", then **Restart agent
   service** as quiet underlined text: an optional step, never a filled button. Nothing under it.
 - **Failure** (`HostUnavailableLine` with `selfRetrying` false): only for what asking again can't

@@ -177,7 +177,7 @@ import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
-import { MachineLinkStatus } from "./MachineLinkStatus";
+import { ComposerStatusFoot, statusDotMounts } from "./ComposerStatusDot";
 import { peerLink, type PeerLink } from "./peerLink";
 import {
   emojiMatches,
@@ -3024,7 +3024,10 @@ function ComposerFrame({
         pending={pending}
         setAttachments={setAttachments}
         attachmentsRef={attachmentsRef}
-        attachError={attachError ?? (heldForHost ? t("composer.sendingWhenReady") : undefined)}
+        // A held send is the status dot's to say, where it is mounted (ComposerStatusDot.tsx).
+        attachError={
+          attachError ?? (heldForHost && !statusDotMounts(snapshot) ? t("composer.sendingWhenReady") : undefined)
+        }
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={(id) => {
           setAttachments((current) => current.filter((item) => item.id !== id));
@@ -3189,7 +3192,13 @@ function ComposerFrame({
         chips={
           <PromptFocusProvider focus={focusPrompt}>
             <Chips snapshot={snapshot} />
-            <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
+            <ComposerStatusFoot
+              snapshot={snapshot}
+              link={machineLink}
+              heldForHost={heldForHost}
+              onReconnectMachine={onReconnectMachine}
+              onResumeQueue={canResume && !resuming ? () => runResume(canResume) : undefined}
+            />
           </PromptFocusProvider>
         }
         // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
