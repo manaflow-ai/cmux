@@ -236,12 +236,41 @@ impl MacDesktop {
         if roles::keys_reach_target(is_key, windows, target_is_standard, other_key_window) {
             return Ok(Route::Pid { pid: t.window.pid, window: t.window.id });
         }
+        // An inline editor over the target (Finder's rename field) has the
+        // app's keys and no window of its own: keys for the target go there,
+        // as the person's would.
+        if focused.is_none() && overlay_editor_over(&app, &win, t) {
+            return Ok(Route::Pid { pid: t.window.pid, window: t.window.id });
+        }
         Err(DesktopError::Unsupported(format!(
             "the app has {windows} windows and window {} is not its key window, so keys sent in the background would reach another window. Use type_text with element_id, set_value or perform_action, or delivery foreground",
             t.window.id
         )))
     }
+}
 
+/// Whether the app's focused element is an inline editor lying over the
+/// target window ([`roles::keys_reach_overlay_editor`]); unreadable: no.
+fn overlay_editor_over(app: &Ax, win: &Ax, t: &Target) -> bool {
+    let main_is_target =
+        app.try_element("AXMainWindow").ok().flatten().is_some_and(|m| m.same(win));
+    let editor = app.try_element("AXFocusedUIElement").ok().flatten().and_then(|el| {
+        let in_other_window = match el.try_element("AXWindow") {
+            Ok(Some(w)) => !w.same(win),
+            Ok(None) => false,
+            // Unreadable: it may be another window's.
+            Err(_) => return None,
+        };
+        Some(roles::OverlayEditor {
+            role: el.string("AXRole").unwrap_or_default(),
+            in_other_window,
+            frame: el.frame(),
+        })
+    });
+    roles::keys_reach_overlay_editor(false, main_is_target, editor.as_ref(), &t.window.frame)
+}
+
+impl MacDesktop {
     /// A point of the window, or why it is not one.
     fn point_in(&self, t: &Target, p: Point) -> DResult<Point> {
         if !roles::contains(&t.window.frame, p) {
@@ -3021,6 +3050,23 @@ pub(super) fn scroll(
     Ok(out)
 }
 
+pub(super) fn move_pointer(
+    d: &MacDesktop,
+    target: &PointerTarget,
+    delivery: Delivery,
+) -> DResult<ActionOutcome> {
+    let t = d.target(target.window_id())?;
+    let at = match target {
+        PointerTarget::Point { point, .. } => d.point_in(&t, *point)?,
+        PointerTarget::Element { element_id, .. } => d.element_center(&t, element_id)?,
+    };
+    // Background: the window must be on screen (pointer_route refuses
+    // otherwise); foreground raises it and posts at the HID tap.
+    let route = d.pointer_route(&t, delivery)?;
+    unprimed(route, |p| input::move_to(p, at))?;
+    Ok(ActionOutcome::delivered(route.name()).at(at))
+}
+
 pub(super) fn drag(
     d: &MacDesktop,
     window_id: &str,
@@ -3163,6 +3209,20 @@ pub(super) fn set_value(
     } else {
         readback::Check::value(&el, readback::Wanted::from_request(requested.clone()), 1e-6)
     };
+    // A native field not being edited is focused first, so the app's
+    // end-of-editing handler can apply the value (roles::focus_before_value_write).
+    let mut focused_for_edit = false;
+    if roles::focus_before_value_write(
+        &role,
+        web,
+        d.is_persons_app(&t),
+        el.try_bool("AXFocused").ok().flatten(),
+        el.actions().iter().any(|a| a == "AXConfirm"),
+    ) && let Some(yes) = Cf::boolean(true)
+    {
+        let written = persons_caret_write(d, &t, &el, true, || el.set("AXFocused", &yes).is_ok())?;
+        focused_for_edit = matches!(written, CaretWrite::Wrote { value: true, moved_onto: false });
+    }
     // An error that does not say the write was refused may have come after
     // it applied: delivered, with the read-back still taken.
     let cf = value_for(&el, value)?;
@@ -3221,6 +3281,8 @@ pub(super) fn set_value(
                 .into();
     } else if !secure && read.as_deref().is_some_and(|r| !same_value(r, &requested, numeric)) {
         out.note = "the element reads back a different value".into();
+    } else if focused_for_edit {
+        out.note = roles::FOCUSED_FOR_EDIT.into();
     }
     if scrolled {
         let sep = if out.note.is_empty() { "" } else { "; " };

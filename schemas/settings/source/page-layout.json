@@ -14,7 +14,7 @@
     {"id": "accounts"},
     {"id": "agentHarnesses"},
     {"id": "agentIntegrations"},
-    {"id": "agentTools", "note": "Settings > Agents > Agents on This Mac: each coding agent and whether it gets cmux's MCP server when cmux starts it (`cmux setup mcp`, which writes nothing), with Turn On, an old cmux entry in its own config with Remove (the person's click only), and the manual lines for agents started elsewhere, right under the agents.cmuxMcp choice row (the onboarding step's question); `cmux.settings.agentTools.*`."},
+    {"id": "agentTools", "note": "Settings > Agents > Agents on This Mac: each coding agent and whether it gets cmux's MCP server when cmux starts it (`cmux setup mcp`, which writes nothing), with Turn On (once turned off), an old cmux entry in its own config with Remove (the person's click only), and the manual lines for agents started elsewhere, right under the agents.cmuxMcp choice row (on by default); `cmux.settings.agentTools.*`."},
     {"id": "agentSkills", "note": "Settings > Agents > Claude Code & Codex > Skills (Labs labs.agentCustomization; drawn only while it is on): every skill and slash command Claude Code and Codex load, per agent and scope, with name, description and file; Edit opens the SKILL.md in cmux's editor, the switch turns a skill on or off in the agent's own settings (`cmux agent-config skills --json`); `cmux.settings.agentSkills.*`."},
     {"id": "chiefs"},
     {"id": "advancedInfo"},
@@ -43,7 +43,8 @@
     {"id": "worktreeSetup", "note": "Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay."},
     {"id": "cloudModels", "note": "Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey."},
     {"id": "customizeChecklist", "note": "Settings > Customize: every customization one click away (Leo 2026-11-22: \"it should just be as easy as a click toggle\"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize."},
-    {"id": "models", "note": "Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`."}
+    {"id": "models", "note": "Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`."},
+    {"id": "extensions", "note": "Settings > Extensions: each installed extension's own settings from its manifest's `settings` schema, one group per extension; `cmux.settings.extensions.list` and `.set` (ExtensionSettingsPageRoute) send the daemon's `apps.settings.list` and `apps.settings.set` on the app's own connection."}
   ],
   "section_actions": {
     "general": ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates", "liveWeb.start", "liveWeb.stop", "palette.clearSearchHistory"],
@@ -320,7 +321,7 @@
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
               "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
               "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
-              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement",
+              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement",
               "agentPane.display.promptCoach"
             ]},
             {"title": {"key": "settings.pageGroup.filesLinks", "text": "Files and Links"}, "keys": [
@@ -347,7 +348,7 @@
             {"group": "settings.group.agentRetry", "note": "Whether a turn a rate limit or a lost connection ended is tried again, how often."},
             {"group": "settings.group.agentCache", "note": "Whether an idle Claude chat is compacted while its prompt cache is warm."},
             {"group": "settings.group.folderTrust", "note": "Folders that start an agent without the trust question."},
-            {"group": "settings.group.agentTools", "note": "Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (the onboarding step's question); the agentTools card under it lists the agents with Turn On."}
+            {"group": "settings.group.agentTools", "note": "Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (on by default); the agentTools card under it lists the agents with Turn On once turned off."}
           ],
           "trail": ["agentCustomization", "agentSkills", "agentTools", "harnesses", "agentHarnesses", "agentIntegrations", "worktreeSetup"]
         },
@@ -501,6 +502,14 @@
           "lead": ["mcpServers"]
         },
         {
+          "id": "extensions",
+          "title": {"key": "settings.group.extensions", "text": "Extensions"},
+          "symbol": "puzzlepiece.extension",
+          "note": "Each installed extension's own settings, drawn from its manifest's `settings` schema (apps.settings.list); a change reaches the running extension at once (settings.changed).",
+          "groups": [],
+          "lead": ["extensions"]
+        },
+        {
           "id": "cloud",
           "title": {"key": "settings.category.cloud", "text": "Cloud"},
           "symbol": "cloud",
@@ -533,7 +542,7 @@
           "lead": ["sharedLinks"],
           "groups": [
             {"title": {"key": "settings.pageGroup.localData", "text": "Data on This Mac"}, "keys": [
-              "history.terminalCommands", "home.attachments.keepLocation"
+              "history.terminalCommands", "home.attachments.keepLocation", "home.clipboardHistory"
             ]},
             {"title": {"key": "settings.pageGroup.network", "text": "Network Requests"}, "keys": [
               "browser.omnibar.remoteSuggestions", "announcements.fetch"
