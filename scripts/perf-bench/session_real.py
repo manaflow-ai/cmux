@@ -1288,7 +1288,7 @@ def measure(args):
     wakes_before = soft("debug.hangs", {"clear": True}).get("main_wakes")
     before = {pid: procs.counters(pid) for pid in role}
     started = time.time()
-    time.sleep(args.seconds)
+    time.sleep(args.seconds)  # sleep-ok: window 1, the measured idle window itself
     elapsed = time.time() - started
     hangs = soft("debug.hangs")
     after = {pid: procs.counters(pid) for pid in role}
@@ -1297,7 +1297,7 @@ def measure(args):
     # frame, so its wakes are not in window 1.
     soft("debug.frames", {"action": "start"})
     frame_started = time.time()
-    time.sleep(min(5.0, args.seconds))
+    time.sleep(min(5.0, args.seconds))  # sleep-ok: window 2, the display link's recording window
     frames = soft("debug.frames", {"action": "stop", "raw": True})
     frame_seconds = time.time() - frame_started
     intervals, busy = frames.get("intervals_ms") or [], frames.get("main_ms") or []
@@ -1399,6 +1399,27 @@ class AppDriver:
         keys = {w.get("key"): w.get("name") for w in self.daemon.must("list-workspaces").get("workspaces", [])}
         return {keys.get(w.get("key")): w.get("id") for w in self.topology().get("workspaces") or [] if w.get("id")}
 
+    def settled_step(self, action, timeout=15.0, **args):
+        """`step`, then wait until the app's action budget has the action's committed frame and the topology reads
+        the same twice in a row: the app is at rest before the next timed run."""
+        before = self.last_sequence()
+        reply = self.step(action, **args)
+        deadline = time.monotonic() + timeout
+        committed, last = False, None
+        while time.monotonic() < deadline:
+            if not committed:
+                recent = self.soft("debug.action_budget", {"limit": 16}).get("recent") or []
+                committed = any(r.get("sequence", 0) > before and r.get("id") == action and r.get("commit_ms") is not None
+                                for r in recent)
+            else:
+                now = self.topology()
+                if now == last:
+                    return reply
+                last = now
+            time.sleep(0.2)
+        print(f"session_real: {action} not at rest in {timeout:.0f} s (committed {committed}); going on", flush=True)
+        return reply
+
     def last_sequence(self):
         recent = self.soft("debug.action_budget", {"limit": 4}).get("recent") or []
         return max((r.get("sequence", 0) for r in recent), default=0)
@@ -1411,11 +1432,11 @@ class AppDriver:
             # Each row of the timer then has the key window changes of its switch (`timer_key_changes`).
             self.soft(timer, {"action": "start", "key_changes": True})
         self.soft("debug.frames", {"action": "start"})
-        time.sleep(0.1)  # a few frames at rest before the action
+        time.sleep(0.1)  # sleep-ok: the recording holds a few frames at rest before the action
         started = time.monotonic()
         reply = self.act(action, **args)
         reply_ms = (time.monotonic() - started) * 1000
-        time.sleep(settle)  # the action's frames land
+        time.sleep(settle)  # sleep-ok: the frame recording window after the action (its frames are the row)
         frames = self.soft("debug.frames", {"action": "stop", "raw": True})
         timed = self.soft(timer, {"action": "stop"}) if timer else {}
         hangs = self.soft("debug.hangs")
@@ -1573,15 +1594,12 @@ def map_rows(args):
     if len(real) < 44:
         raise SystemExit(f"session_real: the app shows {len(real)} workspaces of a `make` session; map needs it")
     bench = bench_workspace(app)
-    app.step("goToWorkspace", workspace=bench)
-    time.sleep(1.5)
+    app.settled_step("goToWorkspace", workspace=bench)
 
     def switch_warm():
         other = ids[real[0]]
-        app.step("goToWorkspace", workspace=other)
-        time.sleep(1.0)
-        app.step("goToWorkspace", workspace=bench)
-        time.sleep(1.0)
+        app.settled_step("goToWorkspace", workspace=other)
+        app.settled_step("goToWorkspace", workspace=bench)
         return [app.timed("goToWorkspace", timer="debug.workspace_switch", workspace=(other, bench)[i % 2]) for i in range(runs)]
 
     cold = cold_targets(real, runs)
@@ -1591,8 +1609,7 @@ def map_rows(args):
 
     def tab_switch():
         app.step("goToWorkspace", workspace=bench)
-        app.step("newSurface")
-        time.sleep(1.5)
+        app.settled_step("newSurface")
         return [app.timed("nextSurface", timer="debug.tab_switch") for _ in range(runs)]
 
     def new_tab():
