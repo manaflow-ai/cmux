@@ -508,9 +508,11 @@ class Chrome:
             nav = self.call("Page.navigate", {"url": url})
             if nav.get("error") or nav.get("errorText"):
                 raise RuntimeError(f"Chrome navigation failed: {nav}")
-            self.pid = self.profile_pid()
+            info = self.browser_call("SystemInfo.getProcessInfo")
+            self.pid = next((p["id"] for p in info.get("processInfo", []) if p["type"] == "browser"), None)
+            self.pid = self.pid or self.profile_pid()
             if not self.pid:
-                raise RuntimeError("Chrome browser process missing for the measurement profile")
+                raise RuntimeError("Chrome browser PID unavailable for CPU sampling")
         except Exception as error:
             self.quit()
             tail = self.stderr.read_text(errors="replace")[-600:].strip()
@@ -534,14 +536,16 @@ class Chrome:
                 return reply.get("result") if "result" in reply else {"error": reply.get("error")}
 
     def browser_call(self, method, params=None):
-        info = json.load(self.http.open(f"http://127.0.0.1:{self.port}/json/version", timeout=5))
+        with self.http.open(f"http://127.0.0.1:{self.port}/json/version", timeout=5) as response:
+            info = json.load(response)
         ws = WebSocket(info["webSocketDebuggerUrl"])
-        ws.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
-        while True:
-            reply = json.loads(ws.recv())
-            if reply.get("id") == 1:
-                ws.conn.close()
-                return reply.get("result") or {"error": reply.get("error")}
+        with ws.conn:
+            ws.conn.settimeout(5)
+            ws.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
+            while True:
+                reply = json.loads(ws.recv())
+                if reply.get("id") == 1:
+                    return reply.get("result", {"error": reply.get("error")})
 
     def js(self, script, gesture=False):
         reply = self.call("Runtime.evaluate", {"expression": script, "returnByValue": True, "userGesture": gesture})
