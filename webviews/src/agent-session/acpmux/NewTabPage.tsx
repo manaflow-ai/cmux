@@ -1,4 +1,3 @@
-import { keycapLegend } from "../../ui/keycapLegend";
 import { KeyHint } from "../../ui/KeyHint";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
