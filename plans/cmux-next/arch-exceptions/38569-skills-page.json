@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-23",
+  "row": "app_lines",
+  "allow": 16,
+  "why": "#38569 Skills page: the 16 CmuxNextApp lines are its wiring only (page id, first-party scheme entry, WebPageTab registration, the skills.show effect, and the PageFactory constructor with the install/remove confirmation), the same shape as the Apps and Stats pages beside it; SW14 keeps construction and registration in CmuxNextApp. The directory logic lives in acpmux (skills_directory.rs) and the page in webviews.",
+  "author": "gcp-codex-lane-11/triage-cmux-stalls-38526 (claude opus)",
+  "owner": "gcp-codex-lane-11/triage-cmux-stalls-38526",
+  "receipt": "Review (independent-reviewer-38569): SHIP at db59f72e9f480b68cb5f3e96e1940ba4ca4c384e",
+  "expiry": "2026-12-23"
+}
