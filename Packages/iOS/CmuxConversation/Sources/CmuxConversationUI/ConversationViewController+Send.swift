@@ -36,7 +36,11 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             self.effects.pendingSendEffect = heldEffect
             self.composerDidTapSend(composer)
             self.effects.pendingSendEffect = nil
-        }) else { return }
+        }) else {
+            // Held: a later plain send must not carry this one's effect (the retry restores it).
+            effects.pendingSendEffect = nil
+            return
+        }
         if sendLaterIfNeeded(composer) { return }
         let effect = effects.pendingSendEffect
         effects.pendingSendEffect = nil
