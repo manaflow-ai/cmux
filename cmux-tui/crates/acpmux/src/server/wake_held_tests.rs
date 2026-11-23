@@ -15,32 +15,20 @@
 //! delivery is delivered, and `peerWake` ran at least once.
 //!
 //! ```text
-//! cargo test -p acpmux --test wake_held_message -- --nocapture   # CMUX_FAULT_RUNS (20)
-//! CMUX_FAULT_SEED=3 cargo test -p acpmux --test wake_held_message -- --nocapture
+//! cargo test -p acpmux --lib wake_held -- --nocapture   # CMUX_FAULT_RUNS (20)
+//! CMUX_FAULT_SEED=3 cargo test -p acpmux --lib wake_held -- --nocapture
 //! ```
-#![cfg(unix)]
-
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "CMUX_FAULT_RUNS",
-    "CMUX_FAULT_SEED",
-    "CMUX_FAULT_SEED_BASE",
-    "CMUX_FAULT_PARALLEL",
-]);
-
 use std::net::SocketAddr;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use acpmux::config::{Config, PermissionPolicy, StoreMode};
-use acpmux::hub::Hub;
-use acpmux::rpc::{Message, method};
-use acpmux::server::peer_auth::PeerAuth;
-use acpmux::server::{WsAuth, bind_ws, serve_connection, serve_ws_with};
+use super::peer_auth::PeerAuth;
+use super::{WsAuth, bind_ws, serve_connection, serve_ws_with};
+use crate::config::{Config, PermissionPolicy, StoreMode};
+use crate::hub::Hub;
+use crate::rpc::{Message, method};
 use cmux_fault::proxy::{Partition, Proxy};
 use cmux_fault::{Failed, Rng, Runs, Trace};
 use serde_json::{Value, json};
@@ -67,8 +55,8 @@ fn config(wake: Option<&Path>) -> Config {
     cfg
 }
 
-fn store(cfg: &Config) -> Box<dyn acpmux::store::Store> {
-    acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap()
+fn store(cfg: &Config) -> Box<dyn crate::store::Store> {
+    crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap()
 }
 
 /// A client of a hub: every line it got.
@@ -98,9 +86,9 @@ impl Client {
         let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "wake-held"}});
         let init = c.call(method::INITIALIZE, hello).await.unwrap();
         let challenge = &init["_meta"]["acpmux"]["personChallenge"];
-        let proof = acpmux::hub::person::person_proof(
+        let proof = crate::hub::person::person_proof(
             PERSON_KEY,
-            acpmux::hub::person::TRANSPORT_UNIX,
+            crate::hub::person::TRANSPORT_UNIX,
             challenge["nonce"].as_str().unwrap(),
             challenge["connection"].as_str().unwrap(),
         )
@@ -195,7 +183,7 @@ async fn start_a(dir: &Path, proxy: SocketAddr, peer_token: &str, script: &Path)
     )
     .await
     .unwrap();
-    acpmux::server::outbox::resume(&a, pending);
+    super::outbox::resume(&a, pending);
     a
 }
 
@@ -229,7 +217,7 @@ async fn scenario(seed: u64, trace: &Trace) -> Result<(), String> {
     let b_cfg = config(None);
     let b = Hub::new(b_cfg.clone(), store(&b_cfg));
     let auth = PeerAuth::create(&dir).unwrap();
-    let peer_token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&dir)).unwrap();
+    let peer_token = std::fs::read_to_string(super::peer_auth::token_path(&dir)).unwrap();
     let peer_token = peer_token.trim().to_owned();
     let listener = bind_ws("127.0.0.1:0").await.unwrap();
     let b_ws = listener.local_addr().unwrap();
@@ -379,8 +367,7 @@ async fn scenario(seed: u64, trace: &Trace) -> Result<(), String> {
 
 #[test]
 fn a_message_sent_to_a_paused_machine_is_held_and_delivered_once() -> Result<(), Failed> {
-    let _ = HERMETIC;
-    let replay = "cargo test -p acpmux --test wake_held_message";
+    let replay = "cargo test -p acpmux --lib wake_held";
     Runs::new("wake kind 1: held message", replay).at_most_parallel(4).run(|seed, trace| {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)

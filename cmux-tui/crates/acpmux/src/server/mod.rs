@@ -2579,6 +2579,10 @@ pub(crate) mod shutdown_drain;
 #[cfg(test)]
 #[path = "shutdown_drain_tests.rs"]
 mod shutdown_drain_tests;
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "wake_held_tests.rs"]
+mod wake_held_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
