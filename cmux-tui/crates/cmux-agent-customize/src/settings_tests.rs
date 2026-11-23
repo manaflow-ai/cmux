@@ -479,6 +479,42 @@ fn permission_rules_add_and_remove_in_place() {
 }
 
 #[test]
+fn permission_rules_keep_the_rest_of_the_file_byte_for_byte() {
+    let f = fixture();
+    let user = f.ctx.homes.claude_settings();
+    let before = "{\n    \"permissions\": {\n        \"deny\": [\"WebFetch\"],\n        \"ask\": [\"Bash(git push:*)\"]\n    },\n    \"zzz\": 1,\n    \"model\": \"opus\"\n}\n";
+    fs::write(&user, before).unwrap();
+    rule(&f.ctx, "ask", "Bash(rm:*)", true, None).unwrap();
+    let after = fs::read_to_string(&user).unwrap();
+    let doc: Value = serde_json::from_str(&after).unwrap();
+    assert_eq!(doc["permissions"]["ask"], json!(["Bash(git push:*)", "Bash(rm:*)"]));
+    assert_eq!(doc["permissions"]["deny"], json!(["WebFetch"]));
+    // Everything outside the edited list is the same text, in the same order.
+    let tail = "\n    },\n    \"zzz\": 1,\n    \"model\": \"opus\"\n}\n";
+    assert!(
+        after.starts_with("{\n    \"permissions\": {\n        \"deny\": [\"WebFetch\"],"),
+        "{after}"
+    );
+    assert!(after.ends_with(tail), "{after}");
+    rule(&f.ctx, "ask", "Bash(rm:*)", false, None).unwrap();
+    let doc: Value = serde_json::from_str(&fs::read_to_string(&user).unwrap()).unwrap();
+    assert_eq!(doc, serde_json::from_str::<Value>(before).unwrap());
+}
+
+#[test]
+fn permission_rules_leave_a_file_claude_code_ignores_untouched() {
+    let f = fixture();
+    let user = f.ctx.homes.claude_settings();
+    // Claude Code reads settings.json as strict JSON and skips a file with a comment, so a rule
+    // written there would never apply: the edit is refused and the file stays as it was.
+    let before = "{\n  // mine\n  \"permissions\": {\"allow\": [\"Read\"]}\n}\n";
+    fs::write(&user, before).unwrap();
+    let error = rule(&f.ctx, "allow", "Bash", true, None).unwrap_err();
+    assert!(error.message.contains("comment"), "{}", error.message);
+    assert_eq!(fs::read_to_string(&user).unwrap(), before);
+}
+
+#[test]
 fn permission_rules_refuse_what_claude_code_would_not_read() {
     let f = fixture();
     assert!(rule(&f.ctx, "permit", "Bash", true, None).is_err());
