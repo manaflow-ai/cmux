@@ -486,12 +486,54 @@ pub(crate) fn validate_private_state_file(file: &std::fs::File, path: &Path) -> 
         "{}",
         writable_refusal(path, metadata.mode(), "600")
     );
-    refuse_extended_acl(file, path)?;
+    if !acl_checked(&metadata) {
+        refuse_extended_acl(file, path)?;
+        if metadata.mode() & 0o077 == 0 {
+            remember_acl_checked(&metadata);
+        }
+    }
     if metadata.mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("make {} owner-only", path.display()))?;
     }
     Ok(())
+}
+
+/// The files whose extended ACL was checked, by file and change time: a state file read again
+/// (each page of a chat's log opens its segments) is checked once, not on each open. Any change
+/// to a file's ACL, mode or owner moves its change time (`ctime`), so a file changed since is
+/// checked again. The owner and mode checks above still run on every open: they read the
+/// `fstat` the open already needs. Leo's daemon, 2026-11-18: an attach spent a tenth of its
+/// reads in `acl_get_fd_np` (`store/segment_starts.rs`).
+#[cfg(unix)]
+type AclKey = (u64, u64);
+
+#[cfg(unix)]
+static ACL_CHECKED: std::sync::Mutex<Option<std::collections::HashMap<AclKey, (i64, i64)>>> =
+    std::sync::Mutex::new(None);
+
+/// The most files remembered; past it the memo starts over.
+#[cfg(unix)]
+const ACL_CHECKED_MAX: usize = 65_536;
+
+#[cfg(unix)]
+fn acl_checked(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let memo = ACL_CHECKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    memo.as_ref()
+        .and_then(|memo| memo.get(&(metadata.dev(), metadata.ino())))
+        .is_some_and(|&changed| changed == (metadata.ctime(), metadata.ctime_nsec()))
+}
+
+#[cfg(unix)]
+fn remember_acl_checked(metadata: &std::fs::Metadata) {
+    use std::os::unix::fs::MetadataExt;
+    let mut memo = ACL_CHECKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let memo = memo.get_or_insert_with(Default::default);
+    if memo.len() >= ACL_CHECKED_MAX {
+        memo.clear();
+    }
+    memo.insert((metadata.dev(), metadata.ino()), (metadata.ctime(), metadata.ctime_nsec()));
 }
 
 /// Open or create an owner-only regular state file for read/write without
@@ -1284,6 +1326,32 @@ impl TitlesConfig {
     }
 }
 
+/// `summaries` in the config: each chat's rolling summary and next action
+/// (`hub/rolling_summary.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SummariesConfig {
+    /// `generate`: ask the summary model after a person's turn that ended on no `wrap_up`.
+    /// Default on. Off, a turn's own `wrap_up` still summarizes it (it costs nothing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generate: Option<bool>,
+    /// `command`: an argv that reads the request on stdin and prints the summary. Env
+    /// `ACPMUX_SUMMARY_COMMAND` (one program) wins. Unset: one completion on the chat's own
+    /// harness (`_acpmux/complete`), on `model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    /// `model`: the completion's model. Unset: `titles.model`, else the harness's small model
+    /// (`haiku` on Claude).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl SummariesConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// Opt-in synchronization of local agent memories and artifacts with cmux-platform.
 /// The feature is disabled unless `enabled` is explicitly set to true.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1429,6 +1497,18 @@ impl ContextOverrides {
     }
 }
 
+/// `personHold` (`hub/person_hold.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonHoldConfig {
+    /// The chats, by name, whose person's prompts wait.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+    /// How long, in ms, from the first prompt's arrival. Default 30000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1447,6 +1527,13 @@ pub struct Config {
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_wake: Option<MachineWakeConfig>,
+    /// `peerWake`: `{"argv": [...]}`, the command run once when a message for a session on a
+    /// peer finds its link down (`Peer::wake`), with the peer's name appended: the machine
+    /// layer's resume for whatever provider the peer's machine is on (a paused VM, a
+    /// stopped VM). Unset (the default): only the route's own ProxyCommand sees the wake
+    /// mark (`peer_wanted.rs` WAKE_ENV), as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_wake: Option<PeerWake>,
     /// The read replica and write journal for paused machines (`crate::write_journal`). Off
     /// unless `writeJournal.enabled` is true; off changes nothing.
     #[serde(default, skip_serializing_if = "WriteJournalConfig::is_default")]
@@ -1520,6 +1607,14 @@ pub struct Config {
     /// a switch to roll the inbox back without a new build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_inbox: Option<bool>,
+    /// `personHold`: the chats whose person's prompts wait a while to go in together, unless the
+    /// small model reads one as urgent (`hub/person_hold.rs`). Unset: none wait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_hold: Option<PersonHoldConfig>,
+    /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
+    /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
+    #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]
+    pub mcp_store: Option<std::path::PathBuf>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs
@@ -1593,9 +1688,16 @@ pub struct Config {
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
+    /// `summaries`: each chat's rolling summary and next action (`hub/rolling_summary.rs`).
+    #[serde(default, skip_serializing_if = "SummariesConfig::is_default")]
+    pub summaries: SummariesConfig,
     /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
     #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
     pub usage_warnings: UsageWarningsConfig,
+    /// `autoEvacuate`: idle chats leave this machine on their own while it stays over its budget
+    /// (`hub/auto_evacuate.rs`). Off unless `autoEvacuate.enabled` is true.
+    #[serde(default, skip_serializing_if = "AutoEvacuateConfig::is_default")]
+    pub auto_evacuate: AutoEvacuateConfig,
     /// Labs-only transport switches (`transport.wireguard`, which needs `wireguardStatic`). The
     /// hub carrier does not need them.
     #[serde(default)]
@@ -1620,6 +1722,11 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<SendRelay>,
+    /// `newRelay`: `{"argv": [...]}`, the command `acpmux new --machine HOST` hands the start to
+    /// when this daemon refuses it because HOST names no peer (`cli/new_relay.rs`). Unset (the
+    /// default): such a start is refused as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_relay: Option<NewRelay>,
     /// `meshRelay`: `{"url", "tokenCommand", "controlFrom", "teamMessaging"}`, the team hub this
     /// daemon heartbeats its sessions to, takes messages for them from, and sends a message to a
     /// name nobody here resolves through (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
@@ -1721,6 +1828,13 @@ impl WriteJournalConfig {
     }
 }
 
+/// `peerWake`: the wake command's argv; `Peer::wake` appends the peer's name.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerWake {
+    pub argv: Vec<String>,
+}
+
 /// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when
 /// set, prints the other machines' live sessions as `{"sessions": [...]}` (see the module doc of
 /// `cli/send_relay.rs`, which re-exports it).
@@ -1730,6 +1844,14 @@ pub struct SendRelay {
     pub argv: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ls_argv: Option<Vec<String>>,
+}
+
+/// `newRelay`: the relay command's argv; the CLI appends `--machine HOST` and the caller's other
+/// `new` words (see the module doc of `cli/new_relay.rs`, which re-exports it).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NewRelay {
+    pub argv: Vec<String>,
 }
 
 mod config_impl;
@@ -1849,8 +1971,8 @@ pub use nested_env::{
 };
 pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
-pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
+pub(crate) use launchers::{which, which_in};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
@@ -1870,7 +1992,9 @@ mod pool;
 pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
+mod auto_evacuate;
 mod usage_warnings;
+pub use auto_evacuate::AutoEvacuateConfig;
 pub use usage_warnings::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;
 pub mod harness_icon;

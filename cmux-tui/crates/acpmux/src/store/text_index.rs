@@ -24,7 +24,7 @@ use crate::session_search::{Entry, KINDS, Projector};
 
 /// The folder of a chat's text copies, beside its `events`.
 pub const DIR: &str = "search-index";
-const SCHEMA: &str = "acpmux.search-index.v2";
+const SCHEMA: &str = "acpmux.search-index.v3";
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -62,7 +62,7 @@ fn seal(
 }
 
 /// Whether a log line may hold a message: its kind is one of [`KINDS`], or its head does not say.
-fn wanted(line: &[u8]) -> bool {
+pub(super) fn wanted(line: &[u8]) -> bool {
     record_kind(line).is_none_or(|kind| KINDS.iter().any(|k| k.as_bytes() == kind))
 }
 

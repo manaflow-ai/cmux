@@ -24,10 +24,19 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
 
 - VStack, HStack, ZStack and LazyVStack render child layout with `spacing`;
   vertical stacks support `alignment`. Group and ForEach place children inline.
-  Reorderable has the native renderer's current stack layout; list drag handling
-  is not yet implemented in either renderer.
-- Text supports `text`, named or numeric `font`, `weight`, `italic`, `monospaced`,
-  `color` and `lineLimit`. Layout uses the pane's typography and spacing tokens.
+  Reorderable with an `onMove` handler lets a person drag a row within the list.
+  A drop sends the row key and its final zero-based index to the app, which owns the order.
+- Text supports `text`, named or numeric `font`, `weight`, `italic`, `monospaced`, `fontDesign`
+  (`rounded`, `serif`, `monospaced`: the system font's design at the same size), `strikethrough`,
+  `color`, `lineLimit` and `contentTransition`. Layout uses the pane's typography and spacing tokens.
+- A Text with `date` (Unix ms) and `dateStyle` (`time date timer relative offset`) ticks itself
+  (`sceneDate.ts`): one shared clock, aligned to the wall-clock second and paused while the page is
+  hidden, re-formats it in the page's locale and time zone (`timeZone` overrides the zone), with no
+  app call and no scene batch.
+- HStack `alignment` is `top`, `bottom`, `firstTextBaseline` or `lastTextBaseline` (centered by default).
+- Motion (`sceneMotion.tsx`): `transition` animates a node in and out, `contentTransition` a Text's new
+  content, `animation` a node's own prop changes; behind the motion gate, which crossfades under
+  Reduce Motion and calm motion and draws the end state when motion is off.
 - Icon accepts `symbol`, `size` and `color`. Known SF symbols map to the cmux icon
   pack; an unknown symbol uses the pack's neutral missing glyph.
 - Row accepts `title`, `subtitle`, `symbol`, `tint`, `badge`, `accessory`, `unread`
@@ -45,10 +54,14 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
   caption `title`. `style` is `glass` (the default, the sidebar cards' veil) or `card` (a
   translucent fill with a separator hairline).
 - Circle, Capsule, Rectangle and RoundedRectangle support `fill`, `stroke`,
-  `strokeWidth`, `size` and `cornerRadius`. Spacer and Divider use native-equivalent
-  layout roles.
+  `strokeWidth`, `size` and `cornerRadius`. Line is a stroke along its width, `strokeWidth`
+  thick in `stroke`. Spacer and Divider use native-equivalent layout roles.
+- `frame({maxHeight: "infinity"})` fills the height its parent has (a stack's, or the tile's at the
+  root), as `maxWidth: "infinity"` fills the width. `offset {x, y}` moves a node's drawing before
+  `rotation` turns it about its center (a clock hand). A ZStack child's `position {x, y, unit?}` places
+  its center in points or as a fraction of the stack, outside the stack's sizing.
 - Shared decorations support `padding` (number or edge object),
-  `paddingHorizontal`, `paddingVertical`, `frame`, `background`, `hoverBackground`,
+  `paddingHorizontal`, `paddingVertical`, `frame`, `background`, `glass`, `hoverBackground`,
   `color`, `borderColor`, `borderWidth`, `cornerRadius`, `opacity`, `rotation`,
   `fixedSize`, `cursor`, `help`, `disabled`, `onTap` and context `menu` entries.
   Colors accept semantic ABI tokens and `#RRGGBB[AA]`, rather than arbitrary CSS.
@@ -76,9 +89,15 @@ Details, or the disconnected line alone. Reload calls `cmux.apps.panels.reload` 
 from the click (the host accepts it only from a gesture). `SceneMount` reports its drawn height
 with `cmux.apps.panels.layout {mount_id, height}`, once per change.
 
-`cmux.apps.panels.mount` takes `surface` (`pane`, `sidebarSection`, `hoverCard` or
-`sessionInfoSection`) and resolves the app's implementation as that surface's native host does
-(`AppMountSurface`).
+`cmux.apps.panels.mount` takes `surface` (`pane`, `sidebarSection`, `hoverCard`,
+`sessionInfoSection` or `chatWidget`) and resolves the app's implementation as that surface's
+native host does (`AppMountSurface`).
+
+A chat widget (`cmux.chat.widget/1`) mounts in two steps, both answered by the daemon:
+`cmux.apps.panels.route {key, tool}` names the extension that draws under a finished tool call
+and the context its render gets (`{widget: null}` when none does), and the page mounts that answer
+on the `chatWidget` surface (`chatWidgetClient.ts`, drawn by `ToolWidget.tsx`). The page does no
+matching of its own.
 
 ## Bundle images
 

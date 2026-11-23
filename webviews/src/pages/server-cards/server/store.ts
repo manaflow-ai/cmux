@@ -55,26 +55,6 @@ export class ServerStore {
     return this.run(ServerOps.send, intent);
   }
 
-  setCode(code: string): Promise<boolean> {
-    return this.run(ServerOps.setCode, { code });
-  }
-
-  setName(name: string): Promise<boolean> {
-    return this.run(ServerOps.setName, { name });
-  }
-
-  setTeam(team: string): Promise<boolean> {
-    return this.run(ServerOps.setTeam, { team });
-  }
-
-  setRunChief(on: boolean): Promise<boolean> {
-    return this.run(ServerOps.setRunChief, { on });
-  }
-
-  cancel(): Promise<boolean> {
-    return this.run(ServerOps.cancel, {});
-  }
-
   private async run(op: string, params: unknown): Promise<boolean> {
     if (!this.client) return false;
     try {

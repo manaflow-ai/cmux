@@ -196,6 +196,9 @@ const endPhase = (name: string) => name === "end" || name === "after";
 // `?tailGlide=`: how the rows under a change move (tailGlide.ts looks), for the arms' numbers.
 const tailLook = query.get("tailGlide");
 if (tailLook) document.documentElement.setAttribute("data-tail-glide", tailLook);
+// `?liveSwap=`: how the live line hands its words over to a call (conversation.css `data-live-swap`).
+const liveSwap = query.get("liveSwap");
+if (liveSwap) document.body.setAttribute("data-live-swap", liveSwap);
 // `?foldLook=`: how a reader's toggle folds (fold.ts FoldLook), for the looks' numbers.
 const foldLookParam = query.get("foldLook");
 if (foldLookParam) document.documentElement.setAttribute("data-fold-look", foldLookParam);

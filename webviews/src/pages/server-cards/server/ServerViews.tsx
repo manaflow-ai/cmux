@@ -1,43 +1,24 @@
 // The Mac server's surfaces (plans/cmux-next/server.md 3, 6.2, 9 and 14; design/server-cards.md):
-// the menu bar panel, the server's side of pairing, Health and the Add Server card. Each draws the
+// the menu bar panel, the server's side of pairing and Health (Add Server is a native card). Each draws the
 // app's status; every change is an intent the app's owner answers. Few labels by design: glyphs and
 // dots carry state. Alert titles and bodies come from the server (they carry live numbers); check
 // names are ours.
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
-import { DialogButton } from "../../../ui/DialogButton";
+import type { ReactNode } from "react";
 import { Switch } from "../../../ui/Switch";
-import { cx } from "../../../ui/cx";
 import type { Strings } from "../../shared/i18n";
-import { formatBytes, formatRelative, formatTime, regionName } from "./format";
+import { formatBytes, formatRelative, formatTime } from "./format";
 import { ServerIcon, type ServerIconName } from "./icons";
-import {
-  addServerButtons,
-  buttonForKey,
-  escapeTitleKey,
-  HealthOrdering,
-  isClickOnly,
-  isOpen,
-  layoutOf,
-  overallOf,
-  PairingCode,
-  panelFacts,
-  returnTitleKey,
-  roleState,
-  showsCandidate,
-  usage,
-  type AddServerAction,
-} from "./model";
+import { HealthOrdering, isOpen, overallOf, PairingCode, panelFacts, roleState, usage } from "./model";
 import type {
   HealthAlert,
   HealthSeverity,
-  PairingCandidate,
   PairingOffer,
   ServerIntent,
   ServerRoleState,
   ServerSnapshot,
   ServerStatus,
 } from "./types";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 export type PanelLayout = "compact" | "dashboard" | "list";
 export type PairingLayout = "code" | "qr" | "words";
@@ -164,18 +145,22 @@ function Pill({
   data?: Record<`data-${string}`, string>;
 }) {
   return (
-    <button
-      type="button"
-      className="sv-pill"
-      data-prominent={prominent ? "" : undefined}
-      title={help}
-      disabled={disabled}
-      onClick={onClick}
-      {...data}
-    >
-      {icon && <ServerIcon name={icon} size={12} />}
-      {title}
-    </button>
+    <WithFacts facts={[{ value: help ?? "" }]}>
+      {(facts) => (
+        <button
+          {...facts}
+          type="button"
+          className="sv-pill"
+          data-prominent={prominent ? "" : undefined}
+          disabled={disabled}
+          onClick={onClick}
+          {...data}
+        >
+          {icon && <ServerIcon name={icon} size={12} />}
+          {title}
+        </button>
+      )}
+    </WithFacts>
   );
 }
 
@@ -839,243 +824,5 @@ function HealthTimeline({ snapshot, status, actions, strings }: PanelProps) {
         </li>
       ))}
     </ol>
-  );
-}
-
-// MARK: - Add Server
-
-/** What the Add Server card asks of the app. */
-export interface AddServerActions {
-  setCode(code: string): void;
-  setName(name: string): void;
-  setTeam(team: string): void;
-  setRunChief(on: boolean): void;
-  /** Cancel or Deny: the draft goes and the card closes. */
-  cancel(): void;
-  /** Done: the card closes. */
-  done(): void;
-}
-
-/** The Add Server card (palette "Add Server…", a pairing link): enter the code, check the server's
- * facts and four words, pick the team and name, Approve or Deny. One layout per step; every button
- * shows its key, and the click and the key run the same action. The fields keep what the person
- * types; a new opening (`approver.session`) starts them again from the app's draft. */
-export function AddServerCard({
-  status,
-  actions,
-  strings,
-  words = PICKS.words,
-  autoFocus = true,
-  controlStandIn = false,
-}: {
-  status: ServerStatus;
-  actions: AddServerActions;
-  strings: Strings;
-  words?: WordsLayout;
-  autoFocus?: boolean;
-  /** Draws Approve and Try Again in the card's footer (the gallery); in the app the panel's native footer does. */
-  controlStandIn?: boolean;
-}) {
-  const approver = status.approver;
-  const { step, candidate } = approver;
-  const [code, setCode] = useState<string | null>(null);
-  const [name, setName] = useState<string | null>(null);
-  const field = useRef<HTMLInputElement>(null);
-  const busy = step === "approving";
-  const buttons = addServerButtons(approver);
-  const shownName = name ?? approver.draft.name;
-
-  // A new opening starts the fields from the app's draft, and the code field takes the keys.
-  useEffect(() => {
-    setCode(null);
-    setName(null);
-    if (autoFocus) field.current?.focus();
-  }, [approver.session, autoFocus]);
-  // A different server on the card: its own name, not one typed for the last.
-  useEffect(() => setName(null), [candidate?.code]);
-
-  const run = (action: AddServerAction) => {
-    switch (action) {
-      case "approve":
-      case "retry":
-        return; // The panel's native button (WebCardPanel's PersonControl), never the page.
-      case "done":
-        return actions.done();
-      case "cancel":
-        setCode(null);
-        return actions.cancel();
-    }
-  };
-  // Return presses the default button when it is on and not click-only (Done; never Approve or Try
-  // Again); Escape is the card host's Cancel (host.ts), so the panel's own Escape and the page's run
-  // the same way.
-  const onReturn = useRef<(() => void) | null>(null);
-  const main = buttonForKey(buttons, "Enter");
-  onReturn.current = main ? () => run(main.action) : null;
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" || event.isComposing || event.defaultPrevented || !onReturn.current) return;
-      event.preventDefault();
-      onReturn.current();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
-  return (
-    <div className="server-card sv-add" data-surface="add-server" data-step={step} data-layout={layoutOf(step)}>
-      {step === "added" ? (
-        <div className="sv-stack sv-center sv-added">
-          <span data-tone="ok">
-            <ServerIcon name="ok" size={32} />
-          </span>
-          <h2 className="server-card-title">{strings.format("approver.added", approver.added ?? "")}</h2>
-          <span className="sv-secondary">{strings.t("approver.addedDetail")}</span>
-        </div>
-      ) : (
-        <>
-          <header className="sv-stack">
-            <h2 className="server-card-title">{strings.t("approver.title")}</h2>
-            <span className="sv-secondary">{strings.t("approver.subtitle")}</span>
-          </header>
-          <div className="sv-stack" data-gap="2">
-            <input
-              ref={field}
-              className="sv-input sv-code-input"
-              data-refused={step === "codeRefused" ? "" : undefined}
-              value={code ?? approver.draft.code}
-              placeholder="XXXX-XXXX"
-              aria-label={strings.t("pairing.code")}
-              spellCheck={false}
-              autoComplete="off"
-              autoCapitalize="characters"
-              disabled={busy}
-              onChange={(event) => {
-                const next = PairingCode.editing(event.currentTarget.value);
-                setCode(next);
-                actions.setCode(next);
-              }}
-            />
-            <CodeStatus step={step} reject={approver.reject} strings={strings} />
-          </div>
-          {candidate && showsCandidate(step) && (
-            <fieldset className="sv-review" disabled={busy}>
-              <Facts candidate={candidate} strings={strings} />
-              <div className="sv-stack" data-gap="2">
-                <span className="sv-emphasis">{strings.t("approver.wordsQuestion")}</span>
-                <Words words={candidate.words} size="m" layout={words} />
-                <span className="sv-caption">{strings.t("approver.wordsWarning")}</span>
-              </div>
-              <label className="sv-stack">
-                <span className="sv-caption">{strings.t("approver.name")}</span>
-                <input
-                  className="sv-input"
-                  aria-label={strings.t("approver.name")}
-                  value={shownName}
-                  placeholder={candidate.name}
-                  onChange={(event) => {
-                    setName(event.currentTarget.value);
-                    actions.setName(event.currentTarget.value);
-                  }}
-                />
-              </label>
-              {/* One team needs no choice. */}
-              {candidate.teams.length > 1 && (
-                <div className="sv-stack">
-                  <span className="sv-caption">{strings.t("approver.team")}</span>
-                  <div className="sv-chips" role="radiogroup" aria-label={strings.t("approver.team")}>
-                    {candidate.teams.map((team) => (
-                      <label key={team.id} className="sv-chip">
-                        <input
-                          type="radio"
-                          name="sv-team"
-                          className="sv-chip-input"
-                          aria-label={team.name}
-                          checked={approver.draft.team === team.id}
-                          onChange={() => actions.setTeam(team.id)}
-                        />
-                        {team.name}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <label className="sv-check">
-                <input
-                  type="checkbox"
-                  aria-label={strings.t("approver.runChief")}
-                  checked={approver.draft.runChief}
-                  onChange={(event) => actions.setRunChief(event.currentTarget.checked)}
-                />
-                <span>{strings.t("approver.runChief")}</span>
-              </label>
-            </fieldset>
-          )}
-          {step === "approveFailed" && (
-            <div className="sv-banner" role="alert">
-              <ServerIcon name="warning" size={16} />
-              <span>{approver.reject}</span>
-            </div>
-          )}
-        </>
-      )}
-      <footer className="server-card-footer">
-        {busy && <Spinner size={12} loading className="server-card-spinner" />}
-        <span className="server-card-footer-gap" />
-        {buttons
-          // Approve and Try Again are the panel's native footer, never the page's (the gallery
-          // draws them in their place).
-          .filter((button) => controlStandIn || !isClickOnly(button.action))
-          .map((button) => (
-            <DialogButton
-              key={button.isDefault ? "return" : "escape"}
-              dialogKey={isClickOnly(button.action) ? null : button.isDefault ? "return" : "escape"}
-              className={cx("server-card-button", button.isDefault && "is-default")}
-              data-action={button.action}
-              disabled={!button.enabled}
-              onClick={isClickOnly(button.action) ? undefined : () => run(button.action)}
-            >
-              {strings.t(button.isDefault ? returnTitleKey(step) : escapeTitleKey(step))}
-            </DialogButton>
-          ))}
-      </footer>
-    </div>
-  );
-}
-
-function CodeStatus({ step, reject, strings }: { step: string; reject?: string; strings: Strings }) {
-  switch (step) {
-    case "lookingUp":
-      return (
-        <span className="sv-split sv-secondary">
-          <Spinner size={12} loading className="server-card-spinner" />
-          {strings.t("approver.lookingUp")}
-        </span>
-      );
-    case "codeRefused":
-      return (
-        <span className="sv-stack" role="alert">
-          <span data-tone="critical">{reject}</span>
-          <span className="sv-caption">{strings.t("approver.expiryHint")}</span>
-        </span>
-      );
-    case "enterCode":
-      return <span className="sv-caption">{strings.t("approver.codeHint")}</span>;
-    default:
-      return null;
-  }
-}
-
-function Facts({ candidate, strings }: { candidate: PairingCandidate; strings: Strings }) {
-  const parts = [candidate.os, candidate.version];
-  if (candidate.region) parts.push(regionName(candidate.region, strings.language));
-  return (
-    <div className="sv-box sv-split">
-      <ServerIcon name="server" size={20} className="sv-secondary" />
-      <span className="sv-stack">
-        <span className="sv-emphasis">{candidate.name}</span>
-        <span className="sv-caption sv-clamp">{parts.join(" · ")}</span>
-      </span>
-    </div>
   );
 }

@@ -15,11 +15,13 @@ import type {
   OnboardingStep,
   PrimaryAction,
 } from "./ops";
+import { intl } from "../../ui/intl";
 
 const KIND_KEYS: Record<ImportDataKind, string> = {
   bookmarks: "onboarding.kind.bookmarks",
   history: "onboarding.kind.history",
   openTabs: "onboarding.kind.openTabs",
+  extensions: "onboarding.kind.extensions",
   cookies: "onboarding.kind.signIns",
   searchEngines: "onboarding.kind.searchEngine",
   passwords: "onboarding.kind.passwords",
@@ -33,9 +35,9 @@ export function kindLabel(strings: Strings, kind: ImportDataKind): string {
 /** A count in the page's language ("8,311"). */
 export function formatCount(strings: Strings, value: number): string {
   try {
-    return new Intl.NumberFormat(strings.language).format(value);
+    return intl.NumberFormat(strings.language).format(value);
   } catch {
-    return new Intl.NumberFormat("en").format(value);
+    return intl.NumberFormat("en").format(value);
   }
 }
 
@@ -44,6 +46,7 @@ const COUNTED: readonly (keyof ImportCounts & ImportDataKind)[] = [
   "bookmarks",
   "history",
   "openTabs",
+  "extensions",
   "cookies",
   "passwords",
 ];
@@ -52,7 +55,7 @@ const COUNTED: readonly (keyof ImportCounts & ImportDataKind)[] = [
 export function countsLine(strings: Strings, counts: ImportCounts | null | undefined): string {
   if (counts == null) return "";
   const parts = COUNTED.filter((kind) => (counts[kind] ?? 0) > 0).map(
-    (kind) => `${kindLabel(strings, kind)} ${formatCount(strings, counts[kind])}`,
+    (kind) => `${kindLabel(strings, kind)} ${formatCount(strings, counts[kind] ?? 0)}`,
   );
   // One default engine per profile: its name alone says it came over.
   if ((counts.searchEngines ?? 0) > 0) parts.push(kindLabel(strings, "searchEngines"));
@@ -85,9 +88,9 @@ export function quotedList(items: readonly string[], language: string): string {
   const [open, close] = quotationMarks(language);
   const quoted = items.map((item) => `${open}${item}${close}`);
   try {
-    return new Intl.ListFormat(language, { type: "conjunction" }).format(quoted);
+    return intl.ListFormat(language, { type: "conjunction" }).format(quoted);
   } catch {
-    return new Intl.ListFormat("en", { type: "conjunction" }).format(quoted);
+    return intl.ListFormat("en", { type: "conjunction" }).format(quoted);
   }
 }
 
@@ -256,6 +259,7 @@ export function computerUseLine(strings: Strings, pane: string): string {
 export function windowTitle(strings: Strings, state: OnboardingState | null): string {
   if (state?.step === "importData") return strings.t("onboarding.import.title2");
   if (state?.step === "computerUse") return strings.t("onboarding.computerUse.title");
+  if (state?.step === "makeItYours") return strings.t("onboarding.makeItYours.title");
   return strings.t("onboarding.agents.title");
 }
 

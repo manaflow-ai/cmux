@@ -178,6 +178,9 @@ pub(super) struct Pooled {
     /// MDM's off as the chat that claimed it began its claim (`pool_claim`), which may have waited
     /// on this start: an off that came and went before the start read it counts too (review 121).
     claimed_under: Option<crate::hub::full_access_bound::OffLatch>,
+    /// The answer its claim's spec asked for the person's own `cmux` entry
+    /// (`PoolSpec::answer`): the claiming chat's start reads it (`record_spawn_inputs`).
+    codex_answer: Option<crate::agent_tools::CodexAnswer>,
 }
 
 impl Pooled {
@@ -213,6 +216,10 @@ struct PoolSpec {
     key: PoolKey,
     spawn: HarnessProfile,
     draft: SessionMeta,
+    /// Codex's answer for the person's own `cmux` entry, asked once for this spec off the runtime:
+    /// its key (`tool_servers`), the spare it starts (`session/new`, prewarm and refill) and the
+    /// chat that claims with it read this one.
+    answer: crate::agent_tools::CodexAnswer,
 }
 
 /// `_acpmux/prewarm`: the harness (and preset) the pane is about to use.
@@ -266,6 +273,54 @@ fn suggestions_at_start(spawn: &HarnessProfile, enabled: impl FnOnce() -> bool) 
     let reads = spawn.kind == crate::config::HarnessKind::ClaudeStdio
         || crate::codex_app_server::is_profile_launch(&spawn.argv);
     reads.then(enabled)
+}
+
+/// The names of the agent tool servers `tools` gives a session whose spawn env is `env`
+/// ([`PoolKey::tool_servers`]), as `agent_tools::acp_servers_for` gives them: for a Codex
+/// session in `codex_cwd`, none named `cmux` beside the person's own HTTP `cmux` entry, so a spare
+/// started before that entry appeared is never served.
+fn tool_servers(
+    tools: crate::agent_tools::AgentTools,
+    env: &std::collections::BTreeMap<String, String>,
+    codex: Option<crate::agent_tools::CodexLaunch<'_>>,
+) -> String {
+    // The answer a session of this shape starts under, whether or not a `cmux` server resolves
+    // (no cmux CLI here): a spare's harness env and its person's entry carry it.
+    let answer = match env.get(crate::agent_tools::TOOLS_ANSWER_ENV).map(String::as_str) {
+        _ if crate::agent_tools::cut_off(env) => "off",
+        Some("on") => "on",
+        Some(_) => "off",
+        None if tools.cmux_for_agents => "on",
+        None => "off",
+    };
+    let tools = tools.scoped(env);
+    let tools = match codex {
+        Some(launch) => tools.without_cmux_beside_an_http_entry(launch, env),
+        None => tools,
+    };
+    let mut names: Vec<String> = tools.servers.iter().map(|s| s.name.clone()).collect();
+    names.push(format!("answer:{answer}"));
+    // The person's own `cmux` entry as Codex answers for this launch (none, stdio with its command
+    // and args, HTTP, no answer), and the answer its env keys carry: a spare started before either
+    // changed is never served.
+    if let Some(launch) = codex {
+        let entry = crate::agent_tools::persons_cmux_entry(launch, env);
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&entry, &mut h);
+        names.push(format!("cmux-entry:{:016x}", std::hash::Hasher::finish(&h)));
+        let listed = serde_json::Value::Array(names.iter().map(|n| json!({"name": n})).collect());
+        if let Some(sent) = crate::agent_tools::person_entry_env(&listed, launch, env, "") {
+            let answer = sent
+                .get(crate::agent_tools::CMUX_SERVER)
+                .and_then(|server| server.get("env"))
+                .and_then(|env| env.get(crate::agent_tools::TOOLS_ANSWER_ENV))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            names.push(format!("cmux-entry-env:{answer}"));
+        }
+    }
+    names.join(",")
 }
 
 #[cfg(test)]
@@ -386,6 +441,14 @@ impl Hub {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         spawn.env.hash(&mut h);
         credentials.hash(&mut h);
+        // Codex's answer for the person's own `cmux` entry, asked once for this spec, off the
+        // runtime.
+        let answer = crate::agent_tools::CodexAnswer::default();
+        let codex = crate::agent_tools::is_codex(draft, Some(profile));
+        if codex {
+            crate::agent_tools::warm_codex_answer(&draft.cwd, &spawn.argv, &spawn.env, &answer)
+                .await;
+        }
         let (model, effort) = started_on(&spawn, draft);
         let key = PoolKey {
             origin: if draft.remote_origin { Origin::Remote } else { Origin::Local },
@@ -401,10 +464,20 @@ impl Hub {
                 &spawn,
                 crate::claude_stdio::prompt_suggestions::enabled_in_settings,
             ),
+            settings_file: crate::user_settings::resolved_path(),
+            tool_servers: tool_servers(
+                crate::agent_tools::current(),
+                &spawn.env,
+                codex.then_some(crate::agent_tools::CodexLaunch {
+                    cwd: &draft.cwd,
+                    argv: &spawn.argv,
+                    answer: Some(&answer),
+                }),
+            ),
             model,
             effort,
         };
-        Ok(PoolSpec { key, spawn, draft: draft.clone() })
+        Ok(PoolSpec { key, spawn, draft: draft.clone(), answer })
     }
 
     /// The spec for a new local session of `harness`/`preset` in `cwd`.
@@ -784,12 +857,15 @@ impl Hub {
     /// `session/new` for `meta`: claim the pooled session of exactly this
     /// shape, waiting for one that is starting. Returns its reserved id,
     /// which the new session takes; None starts cold.
+    /// `asked`: the answer the claim's spec asked for the person's own `cmux` entry, with its
+    /// launch, whether or not a spare was found, so the session's first start reuses it.
     pub(super) async fn pool_claim(
         &self,
         meta: &SessionMeta,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
         credential: Option<&crate::agent_credentials::AgentCredential>,
+        asked: &mut Option<crate::agent_tools::AskedFor>,
     ) -> Option<String> {
         // MDM's off as this claim begins: its one read, first, before any await or pool lock
         // (reviews 76 and 122), kept with the entry it claims (`Pooled::claimed_under`, review 121
@@ -814,6 +890,14 @@ impl Hub {
             return None;
         }
         let spec = self.pool_spec_for(meta, profile, defaults_env, credential).await.ok()?;
+        if spec.answer.get().is_some() {
+            *asked = Some(crate::agent_tools::AskedFor {
+                cwd: spec.draft.cwd.clone(),
+                argv: spec.spawn.argv.clone(),
+                env: spec.spawn.env.clone(),
+                answer: spec.answer.clone(),
+            });
+        }
         loop {
             // A credentialed start (cmux#45953) never ends another key's entry: only one
             // warmed with its own credential is its, and the folder's spare stays.
@@ -863,6 +947,7 @@ impl Hub {
                     }
                     let id = p.session_id.clone();
                     p.claimed_under = Some(off.clone());
+                    p.codex_answer = Some(spec.answer.clone());
                     lock(&self.pool.claimed).insert(id.clone(), p);
                     return Some(id);
                 }
@@ -888,6 +973,15 @@ impl Hub {
     /// The name the claimed pooled session for `id` was started with.
     pub(super) fn pool_claimed_name(&self, id: &str) -> Option<String> {
         lock(&self.pool.claimed).get(id).map(|p| p.name.clone())
+    }
+
+    /// The answer the claim of the pooled session for `id` asked for the person's own `cmux`
+    /// entry (`Pooled::codex_answer`), if `session/new` claimed one.
+    pub(super) fn pool_claimed_codex_answer(
+        &self,
+        id: &str,
+    ) -> Option<crate::agent_tools::CodexAnswer> {
+        lock(&self.pool.claimed).get(id).and_then(|p| p.codex_answer.clone())
     }
 
     /// The claimed pooled session for `id`, if `session/new` claimed one.
@@ -1020,6 +1114,7 @@ impl Hub {
             // The pooled process started a fresh conversation: unstored
             // until its first turn ends.
             m.claude_unstored = true;
+            m.claude_unstored_work = false;
             m.claude_profile = Some(m.harness.clone());
             drop(m);
             self.write_mode_state(
@@ -1038,6 +1133,9 @@ impl Hub {
         self.append(session, "mux", "pool_taken", json!({"rssBytes": p.rss}));
         self.set_status(session, SessionStatus::Ready);
         self.note_launch(session, &child);
+        // It started with the person's suggestions (`initialize_params`): right for theirs only.
+        let asked_right = self.for_a_person(session);
+        self.note_start_level(session, &child, asked_right);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);

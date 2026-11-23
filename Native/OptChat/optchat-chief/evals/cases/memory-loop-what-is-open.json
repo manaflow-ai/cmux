@@ -1,0 +1,412 @@
+{
+  "id": "memory-loop-what-is-open",
+  "group": "memory",
+  "owner": "chief-memory",
+  "about": "\"What's still open?\" lists the asks of the week that were never finished, and not the finished ones.",
+  "now": "2026-11-19T09:30:00-08:00",
+  "budget": 1800,
+  "dream": true,
+  "history": [
+    {
+      "kind": "user",
+      "text": "the sidebar row hover is a bit too strong, tone it down",
+      "at": "2026-11-15T09:00:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "On it: a1002 softens the hover fill.",
+      "at": "2026-11-15T10:22:17-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1003] Landed the hover change on feat-cmux-next (3f9a1003c1). Screenshots in the workspace.",
+      "at": "2026-11-15T11:44:34-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "why is the nightly slow again",
+      "at": "2026-11-15T13:06:51-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1005 is timing the nightly phases.",
+      "at": "2026-11-15T14:29:08-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1006] Nightly codesign step took 14 min, notary 9 min; the rest is under 6 min.",
+      "at": "2026-11-15T15:51:25-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "can we make the compose button look like imessage",
+      "at": "2026-11-15T17:13:42-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Started a1008 on the compose button.",
+      "at": "2026-11-15T18:36:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1009] Compose button restyled; landed 9c2e1009aa. Gallery entry updated.",
+      "at": "2026-11-15T19:58:17-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "cmd+shift+p shows tabs again, that is wrong",
+      "at": "2026-11-15T21:20:34-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1011 is removing tabs from the palette results.",
+      "at": "2026-11-15T22:42:51-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1012] Palette no longer lists tabs; landed 77ab1012e0.",
+      "at": "2026-11-16T00:05:08-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "status?",
+      "at": "2026-11-16T01:27:25-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "- a1014: palette fix landed\n- a1013: hover fix landed",
+      "at": "2026-11-16T02:49:42-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "the toast animation stutters on the first show",
+      "at": "2026-11-16T04:12:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1016 is profiling the first toast.",
+      "at": "2026-11-16T05:34:17-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1017] First toast built its layer lazily; prewarmed it. Landed 1d4f1017b2.",
+      "at": "2026-11-16T06:56:34-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "make the settings window open faster",
+      "at": "2026-11-16T08:18:51-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1019 is on Settings launch time.",
+      "at": "2026-11-16T09:41:08-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "the cmux.dev domain renewal is due friday, make sure it gets renewed before then",
+      "at": "2026-11-16T10:00:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Will do: I'll renew it Thursday.",
+      "at": "2026-11-16T10:01:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1020] Settings opens in 140 ms (was 610 ms); landed 4be11020d9.",
+      "at": "2026-11-16T11:03:25-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "ok",
+      "at": "2026-11-16T12:25:42-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "is the fleet busy right now",
+      "at": "2026-11-16T13:48:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Queue: 3 jobs waiting, 2 running on the AWS Macs.",
+      "at": "2026-11-16T15:10:17-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "move the release notes page to the new docs site",
+      "at": "2026-11-16T16:00:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "fix the flaky terminal resize test",
+      "at": "2026-11-16T16:32:34-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1025 owns the resize flake.",
+      "at": "2026-11-16T17:54:51-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1201] Release notes page moved to the new docs site; landed 5e6f7a8.",
+      "at": "2026-11-16T18:00:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1026] Resize test waited on a fixed delay; now waits on the resize event. Landed c0de102655.",
+      "at": "2026-11-16T19:17:08-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "bump the font size in the sidebar a little",
+      "at": "2026-11-16T20:39:25-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1028 bumps the sidebar font one step.",
+      "at": "2026-11-16T22:01:42-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1029] Sidebar font 13 -> 14 pt; landed aa011029f3.",
+      "at": "2026-11-16T23:24:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "nice",
+      "at": "2026-11-17T00:46:17-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "the sidebar row hover is a bit too strong, tone it down",
+      "at": "2026-11-17T02:08:34-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "On it: a1032 softens the hover fill.",
+      "at": "2026-11-17T03:30:51-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1033] Landed the hover change on feat-cmux-next (3f9a1033c1). Screenshots in the workspace.",
+      "at": "2026-11-17T04:53:08-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "why is the nightly slow again",
+      "at": "2026-11-17T06:15:25-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1035 is timing the nightly phases.",
+      "at": "2026-11-17T07:37:42-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1036] Nightly codesign step took 14 min, notary 9 min; the rest is under 6 min.",
+      "at": "2026-11-17T09:00:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "rotate the fleet ssh known_hosts after the reimage",
+      "at": "2026-11-17T09:00:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1210] known_hosts rotated on all 9 AWS Macs.",
+      "at": "2026-11-17T10:00:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "can we make the compose button look like imessage",
+      "at": "2026-11-17T10:22:17-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Started a1038 on the compose button.",
+      "at": "2026-11-17T11:44:34-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1039] Compose button restyled; landed 9c2e1039aa. Gallery entry updated.",
+      "at": "2026-11-17T13:06:51-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "cmd+shift+p shows tabs again, that is wrong",
+      "at": "2026-11-17T14:29:08-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "ask leo for the serial number of his m4 mini when he's online",
+      "at": "2026-11-17T14:30:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Will ask him when he's online.",
+      "at": "2026-11-17T14:31:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1041 is removing tabs from the palette results.",
+      "at": "2026-11-17T15:51:25-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1042] Palette no longer lists tabs; landed 77ab1042e0.",
+      "at": "2026-11-17T17:13:42-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "status?",
+      "at": "2026-11-17T18:36:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "- a1044: palette fix landed\n- a1043: hover fix landed",
+      "at": "2026-11-17T19:58:17-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "the toast animation stutters on the first show",
+      "at": "2026-11-17T21:20:34-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1046 is profiling the first toast.",
+      "at": "2026-11-17T22:42:51-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1047] First toast built its layer lazily; prewarmed it. Landed 1d4f1047b2.",
+      "at": "2026-11-18T00:05:08-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "make the settings window open faster",
+      "at": "2026-11-18T01:27:25-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1049 is on Settings launch time.",
+      "at": "2026-11-18T02:49:42-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1050] Settings opens in 140 ms (was 610 ms); landed 4be11050d9.",
+      "at": "2026-11-18T04:12:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "ok",
+      "at": "2026-11-18T05:34:17-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "is the fleet busy right now",
+      "at": "2026-11-18T06:56:34-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Queue: 3 jobs waiting, 2 running on the AWS Macs.",
+      "at": "2026-11-18T08:18:51-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "fix the flaky terminal resize test",
+      "at": "2026-11-18T09:41:08-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1055 owns the resize flake.",
+      "at": "2026-11-18T11:03:25-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1056] Resize test waited on a fixed delay; now waits on the resize event. Landed c0de105655.",
+      "at": "2026-11-18T12:25:42-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "bump the font size in the sidebar a little",
+      "at": "2026-11-18T13:48:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1058 bumps the sidebar font one step.",
+      "at": "2026-11-18T15:10:17-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1059] Sidebar font 13 -> 14 pt; landed aa011059f3.",
+      "at": "2026-11-18T16:32:34-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "nice",
+      "at": "2026-11-18T17:54:51-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "the sidebar row hover is a bit too strong, tone it down",
+      "at": "2026-11-18T19:17:08-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "On it: a1062 softens the hover fill.",
+      "at": "2026-11-18T20:39:25-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1063] Landed the hover change on feat-cmux-next (3f9a1063c1). Screenshots in the workspace.",
+      "at": "2026-11-18T22:01:42-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "why is the nightly slow again",
+      "at": "2026-11-18T23:24:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1065 is timing the nightly phases.",
+      "at": "2026-11-19T00:46:17-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1066] Nightly codesign step took 14 min, notary 9 min; the rest is under 6 min.",
+      "at": "2026-11-19T02:08:34-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "can we make the compose button look like imessage",
+      "at": "2026-11-19T03:30:51-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Started a1068 on the compose button.",
+      "at": "2026-11-19T04:53:08-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1069] Compose button restyled; landed 9c2e1069aa. Gallery entry updated.",
+      "at": "2026-11-19T06:15:25-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "cmd+shift+p shows tabs again, that is wrong",
+      "at": "2026-11-19T07:37:42-08:00"
+    }
+  ],
+  "turns": [
+    {
+      "text": "what's still open from what I asked this week?",
+      "checks": [
+        {
+          "type": "judge",
+          "rubric": "This week the person asked four things: renew the cmux.dev domain before Friday (Chief said it would renew it Thursday; no report says it was renewed), ask Leo for his M4 mini's serial number (not done), move the release notes page (done, landed), rotate fleet known_hosts (done). Passes when the reply brings up BOTH the cmux.dev domain renewal (as not done yet; a question about renewing it counts) and the Leo serial number (as not asked yet), and does not call the release notes move or the known_hosts rotation open. Fails when it leaves out either open item."
+        }
+      ]
+    }
+  ]
+}
