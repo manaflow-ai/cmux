@@ -500,7 +500,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
     }
 
     /// One coordinator on the fake Mac: paired, chats ready, chat `s1` open with its first live record.
-    fileprivate struct Rig {
+    @MainActor fileprivate struct Rig {
         let live: LiveCoordinator
         let mac: FakeMac
         let clock: LinkTestClock
