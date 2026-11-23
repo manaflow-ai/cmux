@@ -43,20 +43,20 @@ output.acpmux-queue-status.acpmux-switch-notice .acpmux-queue-status-line { padd
   gap: var(--ds-space-2, 8px);
   min-width: 0;
   min-height: var(--ds-control-compact, 24px);
-  padding: 2px 6px 2px var(--acpmux-queue-status-inset);
+  padding: var(--grid-half-step) var(--ds-space-1) var(--grid-half-step) var(--acpmux-queue-status-inset);
   box-sizing: border-box;
 }
 
 .acpmux-queue-status-mark {
   display: inline-grid;
   flex: none;
-  width: 14px;
+  width: var(--ds-space-4);
   place-items: center;
   color: var(--agent-status-warning);
 }
 .acpmux-queue-status-dot {
-  width: 6px;
-  height: 6px;
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
   border-radius: 50%;
   background: var(--agent-status-warning);
 }
@@ -80,7 +80,6 @@ output.acpmux-queue-status.acpmux-switch-notice .acpmux-queue-status-line { padd
   align-items: flex-start;
 }
 .acpmux-queue-status[data-look="stacked"] .acpmux-queue-status-line { align-items: flex-start; padding-block: 4px; }
-.acpmux-queue-status[data-look="stacked"] .acpmux-queue-status-mark { margin-top: 1px; }
 
 .acpmux-queue-status-button {
   display: inline-flex;
@@ -105,7 +104,7 @@ output.acpmux-queue-status.acpmux-switch-notice .acpmux-queue-status-line { padd
   outline-offset: calc(-1 * var(--cmux-focus-ring-width, 1.5px));
 }
 .acpmux-queue-status-chevron {
-  transition: transform var(--agent-motion-move, var(--cmux-motion-standard, 160ms)) var(--cmux-ease-out, ease-out);
+  transition: transform var(--agent-motion-move, var(--cmux-motion-standard, 180ms)) var(--cmux-ease-out, ease-out);
 }
 .acpmux-queue-status[data-open] .acpmux-queue-status-chevron { transform: rotate(180deg); }
 
@@ -113,7 +112,7 @@ output.acpmux-queue-status.acpmux-switch-notice .acpmux-queue-status-line { padd
 .acpmux-queue-status-error {
   display: block;
   max-height: 96px;
-  margin: 0 var(--ds-space-2, 8px) var(--ds-space-1, 4px) calc(var(--acpmux-queue-status-inset) + 14px + var(--ds-space-2, 8px));
+  margin: 0 var(--ds-space-2) var(--ds-space-1) calc(var(--acpmux-queue-status-inset) + var(--ds-space-4) + var(--ds-space-2));
   overflow-y: auto;
   color: var(--agent-muted);
   font-family: var(--cv-code-font, var(--cv-mono, ui-monospace));
@@ -125,12 +124,12 @@ output.acpmux-queue-status.acpmux-switch-notice .acpmux-queue-status-line { padd
   -webkit-user-select: text;
   cursor: text;
 }
-output.acpmux-queue-status .acpmux-queue-status-error { margin-inline-start: calc(14px + var(--ds-space-2, 8px)); }
+output.acpmux-queue-status .acpmux-queue-status-error { margin-inline-start: calc(var(--ds-space-4) + var(--ds-space-2)); }
 
 /* A queued surge digest's label (ComposerQueue.tsx, surgeDigest.ts), as the subagent resume's. */
 .acpmux-queued-kind[data-kind="digest"] {
   vertical-align: baseline;
-  margin-right: 6px;
+  margin-right: var(--ds-space-1);
 }
 
 @media (prefers-reduced-motion: reduce) {
