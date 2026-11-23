@@ -72,6 +72,23 @@ struct MockOutput {
         "  htop       vim <file>   clear   echo <text>",
     ]
 
+    /// `widetable`: rows exactly `columns` wide. Each is `|`-separated cells
+    /// of 10 columns, a cell named by its first column (`c0011` starts at
+    /// column 11), the last cell `END`, so a screenshot or a read of the row
+    /// shows whether the row's right end is on screen and still on one line.
+    static func wideTable(columns: Int, rows: Int) -> [String] {
+        let width = max(20, columns)
+        return (0..<max(1, rows)).map { row in
+            var line = ""
+            while line.count + 10 <= width - 4 {
+                let cell = String(format: "c%04d", line.count + 1)
+                line += (row == 0 ? cell.uppercased() : cell).padding(toLength: 9, withPad: " ", startingAt: 0) + "|"
+            }
+            line = line.padding(toLength: width - 3, withPad: " ", startingAt: 0)
+            return line + "END"
+        }
+    }
+
     static func buildLog() -> [String] {
         let crates = [
             "proc-macro2 v1.0.92", "unicode-ident v1.0.14", "libc v0.2.169", "cfg-if v1.0.0", "once_cell v1.20.2",

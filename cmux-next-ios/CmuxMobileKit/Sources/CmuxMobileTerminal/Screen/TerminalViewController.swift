@@ -4423,6 +4423,18 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
                                       visibleRows: tuiGridHold.rows(page: tuiRows))
     }
 
+    #if DEBUG
+    /// The sideways state for the `wide` demo (TerminalWideOutputUITests):
+    /// the mirror's columns, the phone's, the pan, the furthest it pans and
+    /// the last column on screen. `key=N` words.
+    var wideProbe: String {
+        let layout = hostLayout
+        let x = model.isTUI ? tuiPanX : scrollView.contentOffset.x
+        let last = cell.width > 0 ? Int(floor((x + layout.viewportWidth) / cell.width)) : 0
+        return "cols=\(surface.grid.columns) phone=\(layout.phoneColumns) panX=\(Int(x)) maxPanX=\(Int(layout.maxPanX)) lastCol=\(last) tui=\(model.isTUI)"
+    }
+    #endif
+
     /// The page's scrollable width: the mirror plus its side padding.
     var contentWidth: CGFloat {
         max(view.bounds.width, hostLayout.surfaceWidth + 2 * Self.sidePadding)
