@@ -149,22 +149,14 @@ export function SubagentComposer({
   const typedNow = () => field.current?.value() ?? textRef.current;
   const draft = () => draftMessage({ text: typedNow(), attachments: attachmentsRef.current });
   const listening = dictation !== undefined && isActive(dictation.state);
-  /// Set while the send a finished dictation session waited for goes.
-  const dictationEnded = useRef(false);
   const ready = Boolean(onSend) && (text.trim().length > 0 || attachments.length > 0);
-  const submit = () => {
+  /// `dictationEnded`: the send a finished dictation session waited for, whose session is over even
+  /// if this render has not heard so yet.
+  const submit = (dictationEnded = false) => {
     // A dictation session still running ends first, keeping its words, and the send goes once they
     // are in the prompt (dictation.ts finish), as the chat's composer does.
-    if (dictation && isActive(dictation.state) && !dictationEnded.current) {
-      dictation.finish(() => {
-        // The session is over even if this render has not heard so yet.
-        dictationEnded.current = true;
-        try {
-          submit();
-        } finally {
-          dictationEnded.current = false;
-        }
-      });
+    if (dictation && isActive(dictation.state) && !dictationEnded) {
+      dictation.finish(() => submit(true));
       return;
     }
     const message = draft();

@@ -19,6 +19,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -142,17 +143,21 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
   /// Starts sampling every frame into `window.__frames`, each tagged with `window.__step`.
   const sample = (page: Page) =>
     page.evaluate(() => {
-      const w = window as unknown as { __frames: unknown[]; __step: string; __sampling: boolean };
+      const w = window as unknown as {
+        __frames: unknown[];
+        __step: string;
+        __stop?: () => void;
+        cmuxAfterPaint: (read: () => boolean | void) => () => void;
+      };
       w.__frames = [];
       w.__step = "open-subagent";
-      w.__sampling = true;
       const rect = (node: Element | null | undefined) => {
         if (!node) return undefined;
         const r = node.getBoundingClientRect();
         return r.width || r.height ? { top: r.top, bottom: r.bottom, left: r.left, right: r.right } : undefined;
       };
-      const tick = () => {
-        if (!w.__sampling) return;
+      // Each frame as it painted (support/paintedFrames.ts), not as its callbacks saw it.
+      w.__stop = w.cmuxAfterPaint(() => {
         const rows = document.querySelectorAll("[data-row-id]");
         const last = rows[rows.length - 1];
         w.__frames.push({
@@ -162,16 +167,14 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
           pill: rect(document.querySelector(".cv-subagent-of")),
           row: last ? { id: last.getAttribute("data-row-id") ?? "", rect: rect(last) } : undefined,
         });
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      });
     });
   const step = (page: Page, name: string) =>
     page.evaluate((name) => ((window as unknown as { __step: string }).__step = name), name);
   const frames = (page: Page) =>
     page.evaluate(() => {
-      const w = window as unknown as { __frames: unknown[]; __sampling: boolean };
-      w.__sampling = false;
+      const w = window as unknown as { __frames: unknown[]; __stop?: () => void };
+      w.__stop?.();
       return w.__frames;
     }) as Promise<Frame[]>;
   /// Waits `count` frames in the page (an event per frame, not a timer).
@@ -180,6 +183,7 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
       (count) =>
         new Promise<void>((done) => {
           let left = count;
+          // raf-read: counts frames only; nothing here reads layout.
           const tick = () => (--left <= 0 ? done() : requestAnimationFrame(tick));
           requestAnimationFrame(tick);
         }),
@@ -232,6 +236,7 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+    await installPaintedFrames(page);
     try {
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`);
       await page.getByText("The lander is on it.").waitFor({ timeout: 25_000 });
