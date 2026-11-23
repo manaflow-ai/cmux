@@ -117,6 +117,29 @@ def renderer_footprints(pid: int, bundle: str, step: str = "") -> list[float]:
     return sorted((r["footprint_mb"] for r in rows if r["kind"] == "cef-renderer"), reverse=True)
 
 
+def wait_collector_quiet(app: bm.App, quiet_s: float = 80, bound_s: float = 300) -> dict:
+    """Waits until the cmux page collector saw no page close for `quiet_s`, so "full" is the steady state.
+
+    Hidden chats are still released through the settle, and the collector's quiet check runs 60 s after the
+    newest close (`CEFPageRendererGC.quietDelay`): a window that starts 45 s after the build measured the renderer
+    before that check (hq#21221: `quiet_checks 1` only after the window, 113 MB of garbage in the number).
+    An app without the readout (`page_gc` in `debug.cef_pages`) waits nothing."""
+    started = time.monotonic()
+    closes, since, stats = None, started, None
+    while time.monotonic() - started < bound_s:
+        stats = (app.call("debug.cef_pages", timeout=30) or {}).get("page_gc")
+        if not isinstance(stats, dict):
+            break
+        if stats.get("closes") != closes:
+            closes, since = stats.get("closes"), time.monotonic()
+        elif time.monotonic() - since >= quiet_s:
+            break
+        time.sleep(10)  # test script: the collector's own timers run, nothing to wake on
+    found = {"waited_s": round(time.monotonic() - started), "page_gc": stats}
+    print(f"INFTABS-QUIET {json.dumps(found)}", flush=True)
+    return found
+
+
 def chat_heap(app: bm.App, pid: int, bundle: str, label: str, away: str | None = None, back: str | None = None) -> list[dict]:
     """What the renderer of cmux's own pages holds in JS, and what a full collection and then a purge give back.
 
@@ -503,6 +526,7 @@ def run(argv: list[str]) -> int:
         print(f"INFTABS-BUILT workspaces={len(made)} pages={sum(len(e['pages']) for e in made)} build_s={report['build_s']} "
               f"hibernate={json.dumps(tally)}", flush=True)
         time.sleep(args.settle)  # test script: renderers exit, idle agents hibernate, the app settles
+        report["collector_quiet"] = wait_collector_quiet(app)
         # Who runs in the idle window (the app's wakeup ledger, its threads' CPU, Chromium's pump counters, live
         # pages, a stack sample after it), and where the biggest kinds keep their memory: the numbers a fix starts from.
         attribution = bm.Attribution(app, pid, bundle, kinds=("app", "cef-gpu"))
