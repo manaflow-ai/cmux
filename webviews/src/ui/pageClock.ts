@@ -103,12 +103,26 @@ function sharedClock(name: string, every: number, aligned = false) {
 }
 
 /** One timer for timestamp labels, at the nearest actual text change. Removing the last label
- * removes its timer; hidden pages catch up once before choosing a new deadline. */
+ * removes its timer; hidden pages catch up once before choosing a new deadline.
+ * A label that mounts or unmounts costs O(1): the timer is armed again only for a label whose
+ * deadline comes before the one armed, and a label that leaves never re-arms it (the timer fires,
+ * finds nothing due, and arms the next deadline once). Re-arming on every subscribe and unsubscribe
+ * took the minimum over every label and a clearTimeout and setTimeout per row: a fling up a long chat
+ * mounts and unmounts tens of rows a frame, each with its timestamp, and that churn was 8 s of a 55 s
+ * profile (bench/transcript-scroll-up.bench.ts FIXTURE=flat MODE=fling SPLIT=1, `scheduleDeadlines`). */
 const deadlines = new Set<{ notify: () => void; next: () => number; at: number }>();
 let stopDeadlines: (() => void) | undefined;
+/// The deadline the timer is armed for (Infinity: none).
+let armedAt = Number.POSITIVE_INFINITY;
+function nearestDeadline() {
+  let nearest = Number.POSITIVE_INFINITY;
+  for (const label of deadlines) if (label.at < nearest) nearest = label.at;
+  return nearest;
+}
 function scheduleDeadlines() {
   stopDeadlines?.();
   stopDeadlines = undefined;
+  armedAt = Number.POSITIVE_INFINITY;
   if (deadlines.size === 0) return;
   const tick = () => {
     for (const label of deadlines) {
@@ -120,7 +134,10 @@ function scheduleDeadlines() {
   stopDeadlines = visibleInterval(
     "relative-time",
     tick,
-    () => Math.min(...Array.from(deadlines, (label) => label.at)) - Date.now() + 5,
+    () => {
+      armedAt = nearestDeadline();
+      return armedAt - Date.now() + 5;
+    },
     { onShow: tick, subscribers: () => deadlines.size },
   );
 }
@@ -128,10 +145,10 @@ function scheduleDeadlines() {
 export function subscribePageDeadline(notify: () => void, next: () => number): () => void {
   const label = { notify, next, at: next() };
   deadlines.add(label);
-  scheduleDeadlines();
+  if (stopDeadlines === undefined || label.at < armedAt) scheduleDeadlines();
   return () => {
-    deadlines.delete(label);
-    scheduleDeadlines();
+    if (!deadlines.delete(label)) return;
+    if (deadlines.size === 0) scheduleDeadlines();
   };
 }
 

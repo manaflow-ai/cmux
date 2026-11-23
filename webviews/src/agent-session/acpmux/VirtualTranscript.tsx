@@ -99,6 +99,7 @@ import { useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { keepTabOnScreen } from "../../ui/tabReach";
+import { trailingTimer } from "../../ui/trailingTimer";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
   type ReferenceScope,
@@ -1015,7 +1016,6 @@ function TranscriptView({
   const scrollRef = useRef({ top: 0, delta: 0 });
   /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
-  const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// The frame guard (conversation/frameGuard.ts, `armFrameGuard` below) and the offset it last read and
   /// the one it handled. Made in the first render (one guard for the transcript's life), before the rows'
   /// observer (`observer` below), so its read runs first in a frame's ResizeObserver callbacks. Its read,
@@ -1036,18 +1036,21 @@ function TranscriptView({
       }),
   );
   const [, setScroll] = useState(scrollRef.current);
-  const scheduleScrollLeadReset = () => {
-    clearTimeout(scrollLeadTimer.current);
-    if (scrollRef.current.delta === 0) {
-      scrollLeadTimer.current = undefined;
-      return;
-    }
-    scrollLeadTimer.current = setTimeout(() => {
-      scrollLeadTimer.current = undefined;
+  /// The scroll lead's reset, one timer per quiet stretch however many frames a scroll pushes it
+  /// (ui/trailingTimer.ts).
+  const [scrollLeadTimer] = useState(() =>
+    trailingTimer(() => {
       if (scrollRef.current.delta === 0) return;
       scrollRef.current = { ...scrollRef.current, delta: 0 };
       setScroll(scrollRef.current);
-    }, SCROLL_LEAD_IDLE_MS);
+    }),
+  );
+  const scheduleScrollLeadReset = () => {
+    if (scrollRef.current.delta === 0) {
+      scrollLeadTimer.cancel();
+      return;
+    }
+    scrollLeadTimer.push(SCROLL_LEAD_IDLE_MS);
   };
   const setScrollAt = (top: number, delta?: number) => {
     const next = { top, delta: delta ?? top - scrollRef.current.top };
@@ -1253,10 +1256,10 @@ function TranscriptView({
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
-      clearTimeout(scrollLeadTimer.current);
+      scrollLeadTimer.stop();
       guard.stop();
     };
-  }, [guard]);
+  }, [guard, scrollLeadTimer]);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
@@ -4805,12 +4808,18 @@ function TranscriptView({
       clearTimeout(floorTimer.current);
       floorTimer.current = setTimeout(
         () => {
+          floorTimer.current = undefined;
           floor.current = { ...floor.current, height: 0 };
           releaseFloor();
         },
         forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
       );
-    } else if (!holding) clearTimeout(floorTimer.current);
+    } else if (!holding && floorTimer.current !== undefined) {
+      // Only a timer that waits is cleared: every pass of a reader scrolled up came here, a native call
+      // per frame with nothing to clear.
+      clearTimeout(floorTimer.current);
+      floorTimer.current = undefined;
+    }
     floor.current = {
       height: holding ? floorHeight : 0,
       width,

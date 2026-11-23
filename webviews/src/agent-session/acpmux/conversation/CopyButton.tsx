@@ -30,7 +30,14 @@ export function CopyButton({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // Only a copy arms the timer: every reply's button unmounts as a fling passes it, and a clear with
+  // nothing to clear was a native call per row (bench/transcript-scroll-up.bench.ts SPLIT=1).
+  useEffect(
+    () => () => {
+      if (timer.current !== undefined) window.clearTimeout(timer.current);
+    },
+    [],
+  );
   const name = copied ? t("code.copied") : label;
   return (
     <button
