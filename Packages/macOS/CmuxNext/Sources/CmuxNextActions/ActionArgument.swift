@@ -73,7 +73,7 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
 
     /// The `confirm` argument a destructive action gains (``ActionDescriptor/init``).
     nonisolated static var confirmBool: ActionArgument {
-        ActionArgument(name: confirmName, title: String(localized: "argument.confirm", defaultValue: "Confirm", bundle: .module),
+        ActionArgument(name: confirmName, title: String(localized: "argument.confirm", defaultValue: "Confirm", bundle: .localizedModule),
                        kind: .bool, isRequired: false)
     }
 

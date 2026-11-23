@@ -1,6 +1,6 @@
 // The Set Up cmux card's store: the host's whole state, read once with `state` and then replaced by
 // every `cmux.setup.changed`. Gestures are one call each; the host answers on the stream.
-import type { SetupState } from "../home-messages/cards/setup/setupModel";
+import type { SetupState } from "./setupModel";
 import type { PageClient } from "../shared/pageClient";
 import { SETUP_OPS } from "./ops";
 

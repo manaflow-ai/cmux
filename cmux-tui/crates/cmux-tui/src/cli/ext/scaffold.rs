@@ -111,6 +111,8 @@ fn types() -> &'static str {
 /// The public SDK as this binary was built with it.
 /// The widget place and its layout helpers (`index.ts` re-exports them).
 const SDK_WIDGET: &str = include_str!("../../../../cmux-extension-sdk/typescript/src/widget.ts");
+/// Design systems: cmux's as data, `defineDesign` and the viewer (`index.ts` re-exports them).
+const SDK_DESIGN: &str = include_str!("../../../../cmux-extension-sdk/typescript/src/design.ts");
 pub(super) const SDK_INDEX: &str =
     include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts");
 const SDK_PACKAGE: &str = include_str!("../../../../cmux-extension-sdk/typescript/package.json");
@@ -137,6 +139,7 @@ pub(super) fn sdk_files() -> Vec<(&'static str, String)> {
         ("sdk/README.md", SDK_README.to_string()),
         ("sdk/src/index.ts", index),
         ("sdk/src/widget.ts", SDK_WIDGET.to_string()),
+        ("sdk/src/design.ts", SDK_DESIGN.to_string()),
         ("sdk/tables/events.json", SDK_EVENTS.to_string()),
         ("sdk/tables/scopes.json", SDK_SCOPES.to_string()),
     ]
@@ -168,7 +171,10 @@ pub(super) fn cli_name_problem(name: &str) -> Option<String> {
             "--kind command makes `cmux {name} …`, which needs a name of 2 to 24 lowercase letters, digits and single dashes that starts with a letter"
         ));
     }
-    cmux_app_manifest::is_reserved_cli_name(name).then(|| {
+    // Reserved words, and the first word of a built-in command the CLI routes
+    // after its grammar (`tab`, `share`), always win over an app's short form
+    // (`app_commands::short_form_word`), so `cmux NAME hello` would never reach it.
+    (!crate::cli::app_commands::short_form_word(name)).then(|| {
         format!(
             "--kind command makes `cmux {name} …`, but {name} is a cmux command; pick another name"
         )

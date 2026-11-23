@@ -9,7 +9,7 @@ describe("the production journey copies the login on spare.ready, as the app's S
       const { steps, log } = runJourney({ preclaim, login: FIXTURE_LOGIN });
       expect(steps.find((step) => step.step === "create machine")?.status).toBe("pass");
       const sizes = log.filter((line) => line.startsWith("create size ")).map((line) => JSON.parse(line.slice("create size ".length)));
-      expect(sizes).toEqual([{ cpu: 4, memory_mb: 16384, disk_mb: 65536 }]);
+      expect(sizes).toEqual([{ cpu: 2, memory_mb: 4096, disk_mb: 20480 }]);
     }
   });
 
@@ -41,6 +41,16 @@ describe("the production journey copies the login on spare.ready, as the app's S
     expect(login?.status).toBe("pass");
     expect(login?.detail).toContain("written by the app's installer");
     expect(probe.login_path).toBe("copy");
+  });
+
+  test("the warm goes to client-config's platform_origin, never the API host (an empty 404 there)", () => {
+    // Every production journey from 11-18 to 11-20 skipped this step with "the cmux platform refused the reservation
+    // (404 )": the warm named cloud-api.cmux.dev, which forwards no /v1/machines/reservations. The fake cmux-tui refuses
+    // the same way unless the request names the platform, so a pass here means the warm reached it.
+    const { steps } = runJourney({ preclaim: { receipt: true }, login: FIXTURE_LOGIN });
+    const pre = steps.find((s) => s.step === "preclaim login (spare.ready)");
+    expect(pre?.detail ?? "").not.toContain("refused");
+    expect(pre?.status).toBe("pass");
   });
 
   test("without --preclaim-login the login goes with the agent's start, as the app sends it (cmux#40159), never a copy", () => {

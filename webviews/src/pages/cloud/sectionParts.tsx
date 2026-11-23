@@ -6,6 +6,7 @@ import { SECTION_OPS, type DetailSection, type MachineDetail } from "./detail";
 import { plain } from "./model";
 import type { CloudStore } from "./store";
 import { format, L } from "./strings";
+import { intl } from "../../ui/intl";
 
 export interface SectionProps {
   store: CloudStore;
@@ -91,6 +92,7 @@ export function PortField({
         aria-label={label}
         disabled={!valid || busy}
         aria-busy={busy}
+        // tooltip-allow: the button is a glyph ("+"), with no words of its own.
         title={busy ? busyLabel : label}
         onClick={() => void submit()}
       >
@@ -102,7 +104,7 @@ export function PortField({
 
 export function formatBytes(bytes: number, strings: Strings): string {
   const { t, language } = strings;
-  const number = (value: number) => new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(value);
+  const number = (value: number) => intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(value);
   if (bytes < 1024) return format(t(L.bytes), { value: number(bytes) });
   if (bytes < 1024 * 1024) return format(t(L.kilobytes), { value: number(bytes / 1024) });
   return format(t(L.megabytes), { value: number(bytes / (1024 * 1024)) });
