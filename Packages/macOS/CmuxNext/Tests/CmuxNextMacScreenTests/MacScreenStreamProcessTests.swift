@@ -188,6 +188,7 @@ import Testing
         // This test runner's parent is no team-signed helper.
         #expect(!MacScreenStreamParent(pid: getppid()).isHelper(appBundleID: "com.cmuxterm.app.nightly", ownTeam: "ABCDE12345"))
         #expect(!MacScreenStreamParent(pid: getppid()).isHelper(appBundleID: nil, ownTeam: "ABCDE12345"))
+        #expect(!MacScreenStreamParent(pid: getppid()).isHelper(appBundleID: "com.cmuxterm.app.nightly", ownTeam: nil))
     }
 
     @Test func theRequirementNamesTheHelpersIdentifierAndTeam() {
@@ -195,5 +196,9 @@ import Testing
             == "identifier \"com.cmuxterm.app.nightly.screen-sharing\" and anchor apple generic and certificate leaf[subject.OU] = \"ABCDE12345\"")
         #expect(MacScreenStreamParent.requirement(team: "ABCDE\" or 1", identifier: "a.screen-sharing") == nil)
         #expect(MacScreenStreamParent.requirement(team: "ABCDE12345", identifier: "a\" or 1") == nil)
+        // An ad hoc build checks the identifier alone.
+        #expect(MacScreenStreamParent.requirement(team: nil, identifier: "com.cmuxterm.app.next.screen-sharing")
+            == "identifier \"com.cmuxterm.app.next.screen-sharing\"")
+        #expect(MacScreenStreamParent.requirement(team: nil, identifier: "a\" or 1") == nil)
     }
 }

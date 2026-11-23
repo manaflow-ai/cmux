@@ -301,9 +301,8 @@ nonisolated final class MacScreenStreamChildHost: MacScreenStreamServing {
 nonisolated struct MacScreenStreamParent {
     let pid: pid_t
 
-    /// The helper's executable name (MacScreenHelper.executableName) and identifier suffix
+    /// The helper's identifier suffix
     /// (bundle-screen-sharing-helper.sh: `<app id>.screen-sharing`).
-    static let helperExecutable = "cmux-screen-sharing"
     static let helperSuffix = ".screen-sharing"
 
     /// This process's Team ID; nil for an ad hoc (local) build.
@@ -318,31 +317,25 @@ nonisolated struct MacScreenStreamParent {
         return dict[kSecCodeInfoTeamIdentifier as String] as? String
     }
 
-    /// A team-signed build: the parent is Apple-anchored, signed by this build's team, with the
-    /// identifier `<app id>.screen-sharing`. An ad hoc build (no team, its grants a dev build's own):
-    /// the parent runs the helper's executable.
+    /// The parent's signature has the identifier `<app id>.screen-sharing` (the helper's bundle id,
+    /// bundle-screen-sharing-helper.sh) and, in a team-signed build, is Apple-anchored and signed by
+    /// this build's team. An ad hoc build (no team, its grants a dev build's own) checks the identifier.
     func isHelper(appBundleID: String?, ownTeam: String?) -> Bool {
-        guard pid > 1 else { return false }
-        guard let ownTeam else { return executableName == Self.helperExecutable }
-        guard let appBundleID, let requirement = Self.requirement(team: ownTeam, identifier: appBundleID + Self.helperSuffix)
+        guard pid > 1, let appBundleID,
+              let requirement = Self.requirement(team: ownTeam, identifier: appBundleID + Self.helperSuffix)
         else { return false }
         return satisfies(requirement)
     }
 
     /// The requirement text, or nil when the team or identifier holds a character with no place in one.
-    static func requirement(team: String, identifier: String) -> String? {
+    static func requirement(team: String?, identifier: String) -> String? {
         let plain = { (text: String) in
             !text.isEmpty && text.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
         }
-        guard plain(team), plain(identifier) else { return nil }
+        guard plain(identifier) else { return nil }
+        guard let team else { return "identifier \"\(identifier)\"" }
+        guard plain(team) else { return nil }
         return "identifier \"\(identifier)\" and anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
-    }
-
-    private var executableName: String? {
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        return URL(fileURLWithPath: path).lastPathComponent
     }
 
     private func satisfies(_ text: String) -> Bool {
