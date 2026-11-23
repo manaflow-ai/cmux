@@ -3,8 +3,8 @@
 //!
 //! - CPU, by pinning: the daemon's threads (and its children) are pinned to
 //!   `ACPMUX_DURESS_STARVE_CORES` cores (default 1), and `ACPMUX_DURESS_STARVE_X` busy loops a
-//!   core (default 40: at 1 core x40 send p95 crossed 500 ms on an 8-CPU runner; at 2 cores x20 it did not) plus the fork storm run pinned to
-//!   the same cores. `ACPMUX_DURESS_STARVE_IDLE=1` also puts the daemon's threads in SCHED_IDLE
+//!   core (default 40: at 1 core x40 send p95 crossed 500 ms on an 8-CPU runner; at 2 cores
+//!   x20 it did not) plus the fork storm run pinned to the same cores. `ACPMUX_DURESS_STARVE_IDLE=1` also puts the daemon's threads in SCHED_IDLE
 //!   (they run only when its cores have nothing else to run). Pinning, not a CPU limit, because
 //!   it needs no cgroup; `ACPMUX_DURESS_STARVE_CPU_MAX` (e.g. `50000 1000000`) adds a cgroup
 //!   `cpu.max` when the memory cgroup below works.
