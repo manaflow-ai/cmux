@@ -339,6 +339,14 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return CloudSetup.GatewayRead(team: team, serves: Set(serves))
     }
 
+    /// The same read for a team whose token the app does not hold (the person's own team): the CLI mints it (#51322).
+    public func inferenceGatewayServes(team: String) async -> Set<String>? {
+        guard let out = try? await output(["verb": "inference-gateway-status", "team": team]).stdout,
+              let answer = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any], answer["ok"] as? Bool == true,
+              let serves = answer["serves"] as? [String] else { return nil }
+        return Set(serves)
+    }
+
     /// What the gateways of TEAMS serve together (nil teams skipped, each asked once), nil when none answers. A start's
     /// machine can land in either the install token's team or the person's own team: production made every
     /// cloud-chat-replies-production machine in the personal team while the install token named another (cmuxterm-hq
