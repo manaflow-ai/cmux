@@ -138,7 +138,8 @@ has no wait in the connection's queue); and each record of the daemon's `slow-re
 request above its threshold with `queue_ms` and `handler_ms` apart, a long lock hold). The queue time of a faster
 request is in no log. `tab_shows` is the count of changes of a pane's shown tab in the take (the input journal's
 `show` records: each new tab page that was the shown one at a frame is one, and so is the tab that a close uncovers).
-`opens` says how many of the row's new tab pages took the page that the app keeps ready (`warm`) and how many did
+`opens` says how many of the row's new tab pages took a page that was there before the key (`warm`: the page that
+the app keeps ready, or the page of a new tab that the person did not use, which `idle` counts) and how many did
 not (`cold`), from `debug.new_tab`, which keeps the last OPENINGS opens only.
 
 `order`: the pane's tab list and selected tab after the row against a small pure model of the keys that did something,
@@ -229,6 +230,11 @@ report, the --build file, each take's record and signpost stream and the film's 
 when each row measured what it names; 2 when a row did not (an INVALID row, a finding) and each round still has a
 valid row; 1 when the preflight failed or a round has no valid row (the run ends after that round); 3 when it
 cannot run as asked (no report file then). See `exit_code`.
+With --letter-cases N the tool runs, after the rows, N cases of each form of new-tab-letters.py (a letter after a
+New Tab key, as key sequences in a page's window): the report's `letter_cases`. A case changes no exit code. With
+--letter-only the session is made and the cases run with no row: the cases are then the run's only work, so a run
+in which no case ran (the run ended before them, or each form is NOT RUN) has a failure for it and exit 1.
+--letter-only with no --letter-cases, or a count below 0: NOT RUN (exit 3) before a launch.
 Run on a fleet GUI host (held-new-tab.sh), never on a Mac that someone works on.
 """
 import argparse, ctypes, importlib.util, json, os, re, select, signal, socket, subprocess, sys, tarfile, threading, time, traceback
@@ -248,6 +254,7 @@ REPEAT_RULE = "the system's: each new key-down of T starts its repeats again aft
 SEED_LIMIT = ("the page tabs have no favicon and the terminals have one folder: the new tab page's favicon work and "
               "its list of folders are not in these rows")
 RECENT = BENCH.load("recent_pages", os.path.join(os.path.dirname(os.path.abspath(__file__)), "recent-pages.py"))
+LETTERS = BENCH.load("new_tab_letters", os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-tab-letters.py"))
 RECENT_LIMIT = ("the page tabs of the session have no favicon and the terminals have one folder: the new tab page's list "
                 "of folders is not in these rows, and its favicon work is only that of the recent pages which "
                 "`recent_pages` names, with the limits that it names")
@@ -813,12 +820,23 @@ def between(intervals, runs, record, fates, form):
     return out, own
 
 
+def page_was_ready(opening):
+    """Whether the open took a page that was there before its key: the page that the app makes ahead (`spare`), or
+    the page of a New Tab tab that the person did not use (`idle`; an app before that field has none). None: the
+    record does not say."""
+    if not isinstance(opening.get("spare"), bool):
+        return None
+    return opening["spare"] or opening.get("idle") is True
+
+
 def opens_of(last):
-    """The row `opens` from the app's records of the row's opens (`debug.new_tab`)."""
-    def part(spare):
-        values = [o["ms"] for o in last if o.get("spare") is spare and isinstance(o.get("ms"), (int, float))]
+    """The row `opens` from the app's records of the row's opens (`debug.new_tab`). `idle`: how many of the `warm`
+    opens took an idle page and not the page that the app makes ahead."""
+    def part(ready):
+        values = [o["ms"] for o in last if page_was_ready(o) is ready and isinstance(o.get("ms"), (int, float))]
         return {**(BENCH.percentiles(values) or {"n": 0}), "sum": round(sum(values), 1)}
-    return {"warm": sum(o.get("spare") is True for o in last), "cold": sum(o.get("spare") is False for o in last),
+    return {"warm": sum(page_was_ready(o) is True for o in last), "cold": sum(page_was_ready(o) is False for o in last),
+            "idle": sum(page_was_ready(o) is True and o.get("spare") is False for o in last),
             "known_of_the_last": OPENINGS, "main_ms": {"warm": part(True), "cold": part(False)}}
 
 
@@ -1055,7 +1073,9 @@ def take_row(opts, samplers):
     seen = ((rpc("debug.journal", {"last": 1}) or {}).get("stats") or {}).get("lastSeq")
     first = bluetoothd()
     fresh = bool(STRESS.wait(lambda: bluetoothd() != first, 12, step=0.05))
-    time.sleep(0.8)  # test script: the stall of a bluetoothd start is over before this
+    # sleep-ok: the take's fixed phase in the host's ~10 s bluetoothd cycle (the header's 0.8 s lead; FRAMES_S is
+    # budgeted on it so the take ends before the next start), not a wait on a state
+    time.sleep(0.8)
     # The window that has the keys now (KEY WINDOW): the app takes the word, with no key, before the frames start.
     word, early = key_window_ready(rpc, opts.pane) if opts.launch_form == "activate" else (None, None)
     first, start = bluetoothd(), time.time()
@@ -1091,7 +1111,7 @@ def take_row(opts, samplers):
     if sent.get("error") or "base_s" not in sent:
         record["errors"].append(f"keys: {sent}")
     duration, began = float(sent.get("duration_ms") or 0) / 1000, time.monotonic()
-    time.sleep(duration)  # test script: the sequence's own schedule, not a settle
+    time.sleep(duration)  # sleep-ok: the key sequence's own schedule (its duration_ms), the sender's calls joined next
     for call in sent.get("calls") or []:
         call.join(opts.deadline)  # the sender's end: a late call must not leave a key for after the frames
     calls = key_calls(sent, opts.launch_form)
@@ -1401,7 +1421,7 @@ def preflight(app, st, out, film, form, display):
           f"key_window={focus.get('key_window') or 'none'} display={display}", flush=True)
     name = "frames"
     rpc("debug.frames", {"action": "start"})
-    time.sleep(1.0)  # test script: 1 s of the app's display link, the rate that the display has for this app
+    time.sleep(1.0)  # sleep-ok: a 1 s window of the app's display link, the measured frame rate
     link = rpc("debug.frames", {"action": "stop"})
     link = link if isinstance(link, dict) else {}
     if not link.get("frames"):
@@ -1614,7 +1634,7 @@ def run_rows(opts, app, signposts, report, form):
     state, openers, no_openers = BENCH.start_state(builder, workspace), {}, None
     takes = [(r, n) for r in range(opts.rounds) for n in ROWS] + [("wide", "hold")] + ([("sample", "hold")] if opts.sample_s else []) \
         + ([("film", "mixed")] if opts.film else [])
-    for index, name in takes:
+    for index, name in [] if opts.letter_only else takes:
         wide, sample, record = index == "wide", index == "sample", {}
         # The wider recording has a scenario name of its own: a reader that groups the rows by `scenario` (the bench
         # `newtab` does) then keeps it out of the numbers of `hold` and lists it as a scenario of its own.
@@ -1770,6 +1790,9 @@ def run_rows(opts, app, signposts, report, form):
         if name == ROWS[-1] and not any(valid(r) for r in report["rows"] if r.get("round") == index):
             report["failures"].append(f"round {index} has no valid row: the run ends here")
             return
+    if opts.letter_cases:
+        # After the rows, in the session that they left (new-tab-letters.py, LIMITS). A case changes no exit code.
+        report["letter_cases"] = LETTERS.Letters(builder, app.rpc, STRESS.wait).run(opts.letter_cases, budget_s=opts.letter_budget_s)
 
 
 def main():
@@ -1800,6 +1823,11 @@ def main():
                              "sequences in the key window; one-key: the launcher's launch, each key-down one call; auto: activate, then one-key")
     parser.add_argument("--display", default="real", help="what the entry script says of the display, for the preflight's first line")
     parser.add_argument("--build", help="the JSON of build-flags.py: the form of the app's build, for the report and the artifact")
+    parser.add_argument("--letter-cases", type=int, default=0,
+                        help="after the rows: this many cases of each form of new-tab-letters.py (a letter after a New Tab key; 0: none)")
+    parser.add_argument("--letter-only", action="store_true", help="the session and the letter cases, with no row")
+    parser.add_argument("--letter-budget-s", type=float, default=LETTERS.BUDGET_S,
+                        help="the letter cases' time: a case that would start later is not run")
     for internal in ("--row", "--socket", "--workspace", "--pane", "--sample-pid"):
         parser.add_argument(internal, help=argparse.SUPPRESS)
     parser.add_argument("--keep", type=int, default=0, help=argparse.SUPPRESS)
@@ -1816,6 +1844,10 @@ def main():
         print(f"held-new-tab: NOT RUN: --recent-sites {opts.recent_sites} with --recent-pages {opts.recent_pages}: the option needs "
               f"1 site or more, {RECENT.MOST_SITES} sites at most (the app's list has {RECENT.MOST_SITES} pages at most) and a page "
               "or more for each site (0 and 0: no recent pages)", flush=True)
+        return 3
+    if opts.letter_cases < 0 or (opts.letter_only and not opts.letter_cases):
+        print(f"held-new-tab: NOT RUN: --letter-cases {opts.letter_cases}{' with --letter-only' if opts.letter_only else ''}: "
+              "the count is 0 (no case) or more, and --letter-only needs 1 case or more (it runs no row)", flush=True)
         return 3
     os.makedirs(opts.out, exist_ok=True)
     report = {"host": BENCH.load("action_signposts_bench", "action-signposts-bench.py").host_facts(), "hid_grant": grant,
@@ -1856,6 +1888,12 @@ def main():
             after = page_engine(app.rpc)
             report["page_engine"] = {"engine": after["engine"], "at_launch": engine, "after_the_rows": after, "limit": ENGINE_LIMIT}
             app.stop()
+    if opts.letter_cases:
+        report.setdefault("letter_cases", {"not_run": "the run ended before the letter cases"})
+    # With --letter-only the cases are the run's only work: a run in which none ran proved nothing.
+    none = LETTERS.ran_none(report.get("letter_cases")) if opts.letter_only else None
+    if none:
+        report["failures"].append(f"--letter-only: no letter case ran: {none}")
     with open(os.path.join(opts.out, "report.json"), "w") as f:
         json.dump(report, f, indent=1)
     print("HELD-NEW-TAB " + json.dumps(report), flush=True)
@@ -1864,7 +1902,7 @@ def main():
             print(f"held-new-tab: artifact {opts.artifact}: {len(pack(opts.out, opts.film, opts.artifact, opts.build))} files", flush=True)
         except (OSError, tarfile.TarError) as error:
             print(f"held-new-tab: no artifact {opts.artifact}: {error!r}", flush=True)
-    return exit_code(report, opts.rounds)
+    return 1 if none else exit_code(report, 0 if opts.letter_only else opts.rounds)
 
 
 if __name__ == "__main__":

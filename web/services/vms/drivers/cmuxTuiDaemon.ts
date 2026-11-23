@@ -332,6 +332,10 @@ RestartSteps=5
 RestartMaxDelaySec=60
 KillMode=process
 TimeoutStopSec=30
+NotifyAccess=main
+WatchdogSignal=SIGTERM
+CPUWeight=1000
+IOWeight=1000
 
 [Install]
 WantedBy=default.target

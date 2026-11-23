@@ -78,6 +78,11 @@ async fn limit_recovery_waits_for_a_weekly_reset_instead_of_spending_short_retri
     let row = hub.session_summary(&hub.resolve(&id).unwrap());
     assert!(row["retry"]["nextAt"].as_u64().unwrap_or(0) >= reset * 1000, "{row}: {k:?}");
     assert_eq!(user_messages(&hub, &id).len(), 1);
+    // The limit has the chat: Stop parks it with its continuation, which waits for a retry or
+    // the person's own prompt, never the reset (`hub/rate_hold.rs`).
     c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(hub.session_summary(&hub.resolve(&id).unwrap())["retry"], Value::Null);
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert!(row["rateLimitParked"].as_u64().is_some(), "{row}");
+    assert!(row.get("rateLimitedUntil").is_none(), "{row}");
+    assert_eq!(row["retry"]["reason"], "rate_limit", "{row}");
 }

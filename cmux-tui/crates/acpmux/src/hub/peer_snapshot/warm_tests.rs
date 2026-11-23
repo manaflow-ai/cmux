@@ -155,7 +155,7 @@ fn a_newest_page_is_kept_and_the_store_says_what_it_covers() {
     let page = json!({"events": records("m2", 8..=9), "hasMore": true, "lastSeq": 9,
                       "pageThrough": 9, "createdAt": 42});
     hub.capture_peer_page(on, ("m2", true), &both, &page);
-    let covers = hub.peer_snapshots.covers(PEER);
+    let covers = hub.peer_snapshots.covers(PEER).unwrap();
     assert_eq!(covers, HashMap::from([("m1".to_owned(), (Some(42), 11))]));
     let got = hub.peer_snapshot(&json!({"sessionId": "far-box/m1"})).unwrap();
     let seqs: Vec<u64> =
@@ -222,4 +222,188 @@ fn only_a_refusal_of_the_link_ends_a_round() {
     assert!(!link_down(&peer, &RpcError::invalid_params("no session m1")));
     peer.connected.store(false, Ordering::SeqCst);
     assert!(link_down(&peer, &RpcError::internal("peer far-box timed out after 30s")));
+}
+
+/// A store behind (its queue past what reads ahead may fill): a read ahead's page is passed over
+/// alone, the peer keeps the copies it has, and `covers` says the store is behind rather than
+/// that there is no copy. A forwarded page still goes as before.
+#[test]
+fn a_read_ahead_gives_way_to_a_store_behind_and_costs_the_peer_no_copy() {
+    use crate::peer::PeerNotice;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-pw");
+    let hub = hub_at(dir.path());
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new(PEER, "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert(PEER.to_owned(), peer.clone());
+    let rows = vec![row("m1", 9, 0), row("m2", 9, 0)];
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::sessions_from_values(rows));
+    let on = (PEER, peer.generation, peer.link_epoch(), Some(42));
+    let newest = json!({"beforeSeq": NEWEST, "limit": 400, "kinds": WARM_KINDS});
+    let page = |mux: &str| {
+        let events: Vec<Value> = (6..=9)
+            .map(|s| json!({"sessionId": mux, "seq": s, "kind": "agent_message_chunk", "msg": {}}))
+            .collect();
+        json!({"events": events, "hasMore": true, "lastSeq": 9, "pageThrough": 9, "createdAt": 42})
+    };
+    assert!(hub.capture_peer_page_ahead(on, "m1", &newest, &page("m1")));
+    assert_eq!(hub.peer_snapshots.covers(PEER).unwrap().len(), 1);
+
+    let snapshots = &hub.peer_snapshots;
+    snapshots.queued.fetch_add(WARM_QUEUED_BYTES, Ordering::AcqRel);
+    assert_eq!(snapshots.covers(PEER), None, "behind, not empty");
+    assert!(!hub.capture_peer_page_ahead(on, "m2", &newest, &page("m2")));
+    assert!(snapshots.dropped().peers.is_empty(), "no loss of the peer");
+    snapshots.queued.fetch_sub(WARM_QUEUED_BYTES, Ordering::AcqRel);
+    assert_eq!(
+        snapshots.covers(PEER).unwrap(),
+        HashMap::from([("m1".to_owned(), (Some(42), 9))]),
+        "the copy it had stays; the passed-over page kept nothing"
+    );
+    assert!(hub.capture_peer_page_ahead(on, "m2", &newest, &page("m2")));
+    assert_eq!(snapshots.covers(PEER).unwrap().len(), 2);
+}
+
+/// Process CPU time (user and system) so far.
+fn cpu_time() -> Duration {
+    // SAFETY: an all-zero rusage is valid, and getrusage only fills the struct it is given.
+    let usage = unsafe {
+        let mut usage: libc::rusage = std::mem::zeroed();
+        libc::getrusage(libc::RUSAGE_SELF, &mut usage);
+        usage
+    };
+    let tv = |t: libc::timeval| Duration::new(t.tv_sec as u64, t.tv_usec as u32 * 1000);
+    tv(usage.ru_utime) + tv(usage.ru_stime)
+}
+
+/// What [`warm_rounds`] measured, in three phases: rounds before the store is behind, rounds
+/// while it is, and rounds after.
+#[derive(Debug, Default)]
+struct Phase {
+    /// Bytes of pages read from the peers.
+    read: u64,
+    /// Copies of the peers' chats there were none of after a round, summed over its rounds.
+    missing: usize,
+    /// Process CPU time.
+    cpu: Duration,
+}
+
+/// The owner's Mac on 2026-11-22 in small: `peers` peers, each with [`WARM_PER_PEER`] chats that
+/// take 3 records a round, read ahead by one thread per peer at once (their links answer at once),
+/// with the store drained between rounds. Rounds 6 to 15 the store is behind: other captures
+/// (25 links' replays, on the Mac) hold all but a few bytes of its queue. `old`: the read ahead
+/// as before this change (a store behind reads as no copy, and its pages are admitted as a
+/// forwarded page is, so a full queue costs the peer every copy); else as now.
+fn warm_rounds(peers: usize, old: bool) -> [Phase; 3] {
+    use crate::peer::PeerNotice;
+    const ROUNDS: u64 = 20;
+    let behind = 6..=15;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-pw");
+    let hub = hub_at(dir.path());
+    let names: Vec<String> = (0..peers).map(|i| format!("peer-{i}")).collect();
+    let links: Vec<_> = names
+        .iter()
+        .map(|name| {
+            let (tx, rx) = tokio::sync::mpsc::channel(8);
+            std::mem::forget(rx);
+            let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+            hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
+            peer
+        })
+        .collect();
+    let chats: Vec<String> = (0..WARM_PER_PEER).map(|i| format!("m{i}")).collect();
+    let record = |mux: &str, seq: u64| {
+        json!({"sessionId": mux, "seq": seq, "at": seq, "dir": "agent",
+               "kind": "agent_message_chunk", "msg": {"text": "x"}})
+    };
+    let mut phases: [Phase; 3] = Default::default();
+    for round in 1..=ROUNDS {
+        let phase = &mut phases[if round < *behind.start() {
+            0
+        } else if behind.contains(&round) {
+            1
+        } else {
+            2
+        }];
+        let started = cpu_time();
+        let last = 100 + 3 * round;
+        let now = now_ms();
+        let rows: Vec<Value> = chats
+            .iter()
+            .map(|mux| {
+                json!({"sessionId": mux, "name": mux, "status": "idle", "createdAt": 42,
+                       "lastSeq": last, "updatedAt": now})
+            })
+            .collect();
+        for peer in &links {
+            let notice = PeerNotice::sessions_from_values(rows.clone());
+            hub.apply_peer_notice(&peer.name, peer.generation, notice);
+        }
+        let held = QUEUED_BYTES - OP_BYTES;
+        if behind.contains(&round) {
+            hub.peer_snapshots.queued.fetch_add(held, Ordering::AcqRel);
+        }
+        let bytes = std::sync::atomic::AtomicU64::new(0);
+        std::thread::scope(|scope| {
+            for peer in &links {
+                let (hub, rows, bytes) = (&hub, &rows, &bytes);
+                scope.spawn(move || {
+                    let name = peer.name.as_str();
+                    let covers = match hub.peer_snapshots.covers(name) {
+                        Some(covers) => covers,
+                        None if old => HashMap::new(),
+                        None => return,
+                    };
+                    let reads = HashMap::new();
+                    let (asks, ..) = plan(name, rows, &covers, &reads, (now_ms(), Instant::now()));
+                    for ask in asks {
+                        let from = match ask.params.get("afterSeq").and_then(Value::as_u64) {
+                            Some(after) => after + 1,
+                            None => last.saturating_sub(SESSION_EVENTS as u64 - 1).max(1),
+                        };
+                        let events: Vec<Value> =
+                            (from..=last).map(|s| record(&ask.mux, s)).collect();
+                        let page = json!({"events": events, "hasMore": from > 1, "lastSeq": last,
+                                          "pageThrough": last, "createdAt": 42});
+                        bytes.fetch_add(record_bytes(&page), Ordering::Relaxed);
+                        let on = (name, peer.generation, peer.link_epoch(), Some(ask.generation));
+                        if old {
+                            hub.capture_peer_page(on, (&ask.mux, true), &ask.params, &page);
+                        } else if !hub.capture_peer_page_ahead(on, &ask.mux, &ask.params, &page) {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        if behind.contains(&round) {
+            hub.peer_snapshots.queued.fetch_sub(held, Ordering::AcqRel);
+        }
+        // The interval between rounds: the store takes what it was sent.
+        hub.peer_snapshots.flush_now();
+        phase.read += bytes.into_inner();
+        for name in &names {
+            let covers = hub.peer_snapshots.covers(name).unwrap_or_default();
+            phase.missing += chats.len() - covers.len().min(chats.len());
+        }
+        phase.cpu += cpu_time() - started;
+    }
+    phases
+}
+
+/// Root-fix of the read-ahead loop on the owner's Mac (2026-11-22: 25 peers, "captures fell
+/// behind; this peer's copies go" for each, every round). While the store is behind, a read
+/// ahead reads nothing and costs no copy; after, it reads only what changed. The old read ahead
+/// is measured beside it, by the same harness, for the PR's numbers. Two peers: more copies are
+/// past the test build's bounds on them (`TOTAL_BYTES`), which would evict copies either way.
+#[test]
+fn a_read_ahead_gives_way_while_the_store_is_behind_and_then_reads_what_changed() {
+    let old = warm_rounds(2, true);
+    let new = warm_rounds(2, false);
+    eprintln!("warm-rounds old [before, behind, after]: {old:?}");
+    eprintln!("warm-rounds new [before, behind, after]: {new:?}");
+    assert_eq!(new[1].read, 0, "nothing is read while the store is behind");
+    assert_eq!(new[1].missing + new[2].missing, 0, "a read ahead cost a copy: {new:?}");
+    // The 10 rounds behind put 30 records a chat behind: after, one page of those a chat.
+    let changed = (2 * WARM_PER_PEER * 33) as u64 * 200;
+    assert!(new[2].read <= changed, "after, {} bytes read, past what changed", new[2].read);
 }

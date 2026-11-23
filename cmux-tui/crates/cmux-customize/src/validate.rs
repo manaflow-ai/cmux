@@ -4,7 +4,10 @@
 //!
 //! A problem never stops a preview: each surface already keeps its last good
 //! version on screen when a save does not load. It stops an apply, so a
-//! generation is always a setup that loads.
+//! generation is always a setup that loads. One kind never stops a change
+//! that leaves it alone: a settings value the person's file already held
+//! that the schema refuses (the app reads that key as its default), see
+//! [`introduced`].
 
 use std::collections::BTreeMap;
 
@@ -25,6 +28,17 @@ pub struct Problem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<u32>,
     pub message: String,
+    /// For a settings value the schema refuses: its key and a digest of the
+    /// value as written, so [`introduced`] can tell a value the person's
+    /// file already held from one a change brings. Never shown: the value
+    /// may be a credential typed under the wrong key.
+    #[serde(skip)]
+    setting: Option<(String, u64)>,
+    /// For a stylesheet that would load something by address: a digest of
+    /// the file as written, so [`introduced`] can tell a sheet the person
+    /// already had from one a change brings. The pane refuses it either way.
+    #[serde(skip)]
+    held: Option<u64>,
 }
 
 impl Problem {
@@ -40,7 +54,15 @@ impl Problem {
             line,
             column,
             message: message.into(),
+            setting: None,
+            held: None,
         }
+    }
+
+    /// The dotted key of a settings value the schema refuses, when that is
+    /// what this problem is.
+    pub(crate) fn refused_setting(&self) -> Option<&str> {
+        self.setting.as_ref().map(|(key, _)| key.as_str())
     }
 
     /// `themes/night.json:14:9: message`, the shape a compiler prints.
@@ -88,7 +110,23 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
                 json_object(path, text, &mut found);
             }
             Part::Views => view(path, text, files, &mut found),
-            Part::Styles => {}
+            // cmux.stylesheetGuard/1 (schemas/agent-pane/stylesheet-guard.json): a stylesheet is
+            // any CSS, but the surface refuses one that loads something by address, so a draft
+            // that would be refused there never passes here.
+            Part::Styles => {
+                if let Some(why) = crate::community::fetches(text) {
+                    let mut problem = Problem::at(
+                        path,
+                        None,
+                        None,
+                        format!(
+                            "{why}; a stylesheet loads nothing by address (inline images as data: URLs)"
+                        ),
+                    );
+                    problem.held = Some(digest(&Value::String(text.to_owned())));
+                    found.push(problem);
+                }
+            }
         }
     }
     // Whatever a validator quoted from a file goes through the same masking
@@ -120,19 +158,74 @@ fn settings(path: &str, text: &str, found: &mut Vec<Problem>) {
         Default::default(),
         0,
     );
+    let document = jsonc::parse(text).ok();
     for diagnostic in state.snapshot().diagnostics {
         let (line, column) = line_of_key(text, &diagnostic.path).unzip();
         // The owner's message quotes the refused value, and a value may be
         // a credential typed under the wrong key. The key and its line say
         // where to look; the value stays in the file.
-        let message = match diagnostic.kind {
+        let (message, setting) = match diagnostic.kind {
             cmux_config::diagnostics::DiagnosticKind::InvalidValue => {
-                format!("{} has a value this setting does not accept", diagnostic.path)
+                let written = document
+                    .as_ref()
+                    .filter(|_| !diagnostic.path.is_empty())
+                    .and_then(|document| written_at(document, &diagnostic.path));
+                (
+                    if diagnostic.path == "workspaceColors.indicatorStyle" {
+                        "workspaceColors.indicatorStyle has an unsupported value; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                    } else {
+                        format!("{} has a value this setting does not accept", diagnostic.path)
+                    },
+                    written.map(|value| (diagnostic.path.clone(), digest(value))),
+                )
             }
-            _ => diagnostic.message,
+            _ => (diagnostic.message, None),
         };
-        found.push(Problem::at(path, line, column, message));
+        let mut problem = Problem::at(path, line, column, message);
+        problem.setting = setting;
+        found.push(problem);
     }
+}
+
+/// The problems in `after` that `before` does not already have.
+///
+/// A settings value the schema refuses that `before` held at the same key,
+/// unchanged, is the person's own: the app reads that one key as its
+/// default and says so on its Settings row, and status still lists it. It
+/// never stops a change that leaves it alone (a person's file held a value
+/// an older build wrote, `"workspaceColors.indicatorStyle": "solidFill"`,
+/// and every `cmux customize use` of any profile was refused,
+/// ask-180d77061a). The file keeps it as written: nothing here rewrites it.
+/// A stylesheet that would load something by address, held unchanged, is
+/// the person's own the same way: the pane refuses it and status lists it,
+/// but it never stops a change that leaves it alone.
+/// Every other problem counts, a refused value a change writes too.
+pub(crate) fn introduced(after: Vec<Problem>, before: &[Problem]) -> Vec<Problem> {
+    after
+        .into_iter()
+        .filter(|problem| {
+            let held = |had: &Problem| {
+                had.path == problem.path
+                    && ((problem.setting.is_some() && had.setting == problem.setting)
+                        || (problem.held.is_some() && had.held == problem.held))
+            };
+            (problem.setting.is_none() && problem.held.is_none()) || !before.iter().any(held)
+        })
+        .collect()
+}
+
+/// The value written under a dotted key, found the way the settings reader
+/// finds it (its key path).
+fn written_at<'a>(document: &'a Value, dotted: &str) -> Option<&'a Value> {
+    cmux_config::value::value_at(document, &cmux_config::keypath::key_path(dotted))
+}
+
+/// Tells two written values apart without keeping either.
+fn digest(value: &Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.to_string().hash(&mut hasher);
+    hasher.finish()
 }
 
 /// The shortcuts file by its own reader (`cmux_config::keybindings`): a
@@ -307,6 +400,21 @@ mod tests {
     }
 
     #[test]
+    fn an_invalid_workspace_indicator_names_the_repair_values() {
+        let lines = check(
+            SETTINGS,
+            "{\n  \"workspaceColors\": { \"indicatorStyle\": \"__not_a_choice__\" }\n}\n",
+        );
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains("workspaceColors.indicatorStyle")
+                && lines[0].contains("\"fill\"")
+                && lines[0].contains("legacy \"solidFill\" is accepted"),
+            "{lines:?}"
+        );
+    }
+
+    #[test]
     fn a_problem_never_quotes_the_value_it_refuses() {
         let lines = check(
             SETTINGS,
@@ -322,6 +430,29 @@ mod tests {
         assert!(said.contains("settings.json:3:"), "{said}");
     }
 
+    fn settings_problems(text: &str) -> Vec<Problem> {
+        problems(&BTreeMap::from([(SETTINGS.to_owned(), text.as_bytes().to_vec())]))
+    }
+
+    #[test]
+    fn a_refused_value_already_there_unchanged_is_not_introduced() {
+        let stale =
+            "{ \"workspaceColors\": { \"indicatorStyle\": \"__unsupported_indicator__\" } }";
+        let moved = "{\n  // mine\n  \"sidebar\": {},\n  \"workspaceColors\": {\n    \"indicatorStyle\": \"__unsupported_indicator__\"\n  }\n}";
+        let other = "{ \"workspaceColors\": { \"indicatorStyle\": \"glow\" } }";
+        assert_eq!(settings_problems(stale).len(), 1);
+        // The same value, wherever it sits in the file, is still theirs.
+        for after in [stale, moved] {
+            assert_eq!(introduced(settings_problems(after), &settings_problems(stale)), Vec::new());
+        }
+        // A different refused value at the same key is the change's own.
+        assert_eq!(introduced(settings_problems(other), &settings_problems(stale)).len(), 1);
+        assert_eq!(introduced(settings_problems(stale), &[]).len(), 1);
+        // A file that does not parse is never someone's own value.
+        let broken = settings_problems("{ \"a\": }");
+        assert_eq!(introduced(broken.clone(), &broken).len(), 1);
+    }
+
     #[test]
     fn valid_files_have_no_problems() {
         assert_eq!(check(SETTINGS, ""), Vec::<String>::new());
@@ -333,6 +464,43 @@ mod tests {
             check("agent-pane/theme.css", ":root { --agent-gap: 4px }"),
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn a_stylesheet_is_any_css_that_loads_nothing_by_address() {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../../../schemas/agent-pane/stylesheet-guard.json"
+        ))
+        .unwrap();
+        for case in cases["refused"].as_array().unwrap() {
+            let (css, why) = (case["css"].as_str().unwrap(), case["why"].as_str().unwrap());
+            assert_eq!(crate::community::fetches(css), Some(why), "{css}");
+            let lines = check("agent-pane/theme.css", css);
+            assert!(lines.len() == 1 && lines[0].contains(why), "{css}: {lines:?}");
+        }
+        for css in cases["allowed"].as_array().unwrap() {
+            let css = css.as_str().unwrap();
+            assert_eq!(crate::community::fetches(css), None, "{css}");
+            assert!(check("agent-pane/theme.css", css).is_empty(), "{css}");
+        }
+    }
+
+    #[test]
+    fn a_stylesheet_already_there_unchanged_is_not_introduced() {
+        let sheet = |css: &str| {
+            problems(&BTreeMap::from([(
+                "agent-pane/theme.css".to_owned(),
+                css.as_bytes().to_vec(),
+            )]))
+        };
+        let before = sheet("@import 'https://x.example/a.css';");
+        assert_eq!(before.len(), 1);
+        assert!(introduced(sheet("@import 'https://x.example/a.css';"), &before).is_empty());
+        assert_eq!(
+            introduced(sheet(".a { background: url(https://x.example/b) }"), &before).len(),
+            1
+        );
+        assert_eq!(introduced(before.clone(), &[]).len(), 1);
     }
 
     #[test]

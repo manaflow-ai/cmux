@@ -120,9 +120,14 @@ public final class BrowserPopupWindows {
         case .unhandledEscape:
             // Chrome's Escape stops a load; it never closes a popup.
             entry.window.cancelOperation(nil)
+        case .devTools(let command):
+            // A popup is no tab the palette's actions can name: its DevTools divider moves its own tools.
+            if let placement = command.placement { (page as? any BrowserDevToolsHosting)?.performDevTools(placement) }
+        case .goToHistoryEntry(let offset):
+            (page as? any BrowserBackForwardListing)?.goToEntry(offset: offset)
         case .openPopup(let child, let request):
             // A popup an agent drives passes that on, as a tab does (BrowserPageRequests).
-            if page.isAgentDriven { child.markAgentDriven() }
+            if page.isAgentDriven { child.takeOpenersAgentMark() }
             // Placed from the popup that opened it, as Chrome cascades from
             // the last active window.
             open(child, request: request, from: entry.window, openerKey: entry.openerKey)
