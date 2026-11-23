@@ -1681,7 +1681,7 @@ export default componentEntry<Props>({
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true } },
     },
     "context-breakdown": {
-      note: "Shipped (Lucas, 2026-11-23: \"make it more identical to claude\"): a Claude Code chat's /context in Context, open, colored as Claude Code desktop's card: a 4px bar split by category (Messages blue, MCP tools orange, System prompt green, Skills yellow, the rest one grey; the autocompact buffer a darker grey; free space the track), a row per category with its tokens and share in one ink, the buffer and free space a row's height below, the deferred ones after with no share, then the MCP tools, Memory files and Skills folds with one 18px chevron, MCP tools open with its tools on the label column.",
+      note: "Shipped (Lucas, 2026-11-23: \"make it more identical to claude\"): a Claude Code chat's /context in Context, open, colored as Claude Code desktop's card: a 4px bar split by category (Messages blue, MCP tools orange, System prompt green, Skills yellow, the rest one grey; the autocompact buffer a darker grey; free space the track), a row per category with its tokens and share in one ink, the buffer and free space a row's height below, the deferred ones after with no share, then the MCP tools, Memory files and Skills folds with the chevron of every other Session Info fold, MCP tools open with its tools on the label column.",
       props: breakdownProps,
       play: openMcpTools,
     },

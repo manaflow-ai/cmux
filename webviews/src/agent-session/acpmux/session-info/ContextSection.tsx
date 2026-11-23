@@ -130,23 +130,14 @@ export function ContextSection({
   percent,
   breakdown: reported,
   onCompact,
-  onViewPrompt,
-  rowsOnly = false,
 }: {
   usage: { used: number; size: number };
   percent: number;
   /// Claude Code's /context, as acpmux kept it (`summary.contextBreakdown`).
   breakdown?: unknown;
-  /// No total line: Session Info's Context fold, whose head has the total and the meter (Lucas,
-  /// 2026-11-06: "the expansion should show the messages and below"). A /context breakdown still
-  /// draws its bar on top, split by category as Claude Code desktop's (Lucas, 2026-11-23).
-  rowsOnly?: boolean;
   /// Sends the chat's agent its `/compact` (App.tsx `compactChat`); unset where the agent lists no
   /// compact command or the chat cannot be sent to, so no Compact shows.
   onCompact?: () => void;
-  /// Opens the Context screen: every part of the prompt, and the guidance new chats get, editable
-  /// (App.tsx `openContext`); unset for a chat whose prompt text acpmux does not hand this pane.
-  onViewPrompt?: () => void;
 }) {
   const t = useT();
   const tokens = intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
@@ -161,27 +152,23 @@ export function ContextSection({
   const label = (id: ContextPart["id"]) => t(id === "used" ? "sessionInfo.context.used" : "sessionInfo.context.free");
   return (
     <div className="acpmux-session-info-context" data-section="context">
-      {!rowsOnly && (
-        <div className="acpmux-session-info-context__total">
-          <span>{t("context.percent", { percent })}</span>
-          <span className="acpmux-session-info-context__tokens">
-            {tokens.format(usage.used)} / {tokens.format(usage.size)}
-          </span>
-        </div>
-      )}
+      <div className="acpmux-session-info-context__total">
+        <span>{t("context.percent", { percent })}</span>
+        <span className="acpmux-session-info-context__tokens">
+          {tokens.format(usage.used)} / {tokens.format(usage.size)}
+        </span>
+      </div>
       {breakdown ? (
         <ContextBreakdownView breakdown={breakdown} />
       ) : (
         <>
-          {!rowsOnly && (
-            <div className="acpmux-session-info-context__bar" aria-hidden="true">
-              {parts
-                .filter((part) => part.id !== "free" && part.share > 0)
-                .map((part) => (
-                  <span key={part.id} data-part={part.id} style={{ width: `${part.share * 100}%` }} />
-                ))}
-            </div>
-          )}
+          <div className="acpmux-session-info-context__bar" aria-hidden="true">
+            {parts
+              .filter((part) => part.id !== "free" && part.share > 0)
+              .map((part) => (
+                <span key={part.id} data-part={part.id} style={{ width: `${part.share * 100}%` }} />
+              ))}
+          </div>
           <ul className="acpmux-session-info-list">
             {parts.map((part) => (
               <li key={part.id} className="acpmux-session-info-row" data-part={part.id}>
@@ -196,23 +183,16 @@ export function ContextSection({
           </ul>
         </>
       )}
-      {(onCompact || onViewPrompt) && (
+      {onCompact && (
         <div className="acpmux-session-info-context__actions">
-          {onCompact && free && (
+          {free && (
             <span className="acpmux-session-info-context__until">
               {t("sessionInfo.context.untilAutoCompact", { tokens: tokens.format(free.tokens) })}
             </span>
           )}
-          {onViewPrompt && (
-            <Button size="sm" variant="subtle" data-context-view-prompt onClick={onViewPrompt}>
-              {t("contextScreen.viewPrompt")}
-            </Button>
-          )}
-          {onCompact && (
-            <Button size="sm" variant="subtle" className="acpmux-session-info-context__compact" onClick={onCompact}>
-              {t("sessionInfo.context.compactSession")}
-            </Button>
-          )}
+          <Button size="sm" variant="subtle" className="acpmux-session-info-context__compact" onClick={onCompact}>
+            {t("sessionInfo.context.compactSession")}
+          </Button>
         </div>
       )}
     </div>

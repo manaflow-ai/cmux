@@ -4,9 +4,17 @@
 .acpmux-context-breakdown {
   --acpmux-context-bar-height: 4px;
 }
+/* The swatches, the share used, the bar and the fold chevrons start on the head's title, "Context"
+   (Lucas, 2026-11-23: "they should be aligned with Context"): a swatch at the icon column's start, its
+   label still on the label column, and a chevron centred on the swatch. */
 .acpmux-session-info {
-  /* A row's swatch, centred in the icon column: where it starts from the row's edge. */
-  --acpmux-context-swatch-start: calc(var(--grid-gap) + (var(--grid-icon-box) - 10px) / 2);
+  --acpmux-context-swatch-start: var(--grid-gap);
+  --acpmux-context-swatch-trail: calc(var(--grid-icon-box) - 10px);
+  --acpmux-context-chevron-lead: calc((10px - var(--grid-icon-box) + var(--grid-base)) / 2);
+  --acpmux-context-chevron-trail: calc(var(--grid-base) - var(--acpmux-context-chevron-lead));
+}
+.acpmux-session-info .acpmux-session-info-context .acpmux-session-info-context__swatch {
+  margin-inline: 0 var(--acpmux-context-swatch-trail);
 }
 .acpmux-session-info-context {
   --acpmux-context-used: var(--agent-accent);
@@ -145,13 +153,23 @@
 .acpmux-context-breakdown > .acpmux-session-info-list + [data-list] {
   margin-top: var(--grid-gap);
 }
-/* A fold's chevron: one glyph for every fold, turned a quarter when open, an eighth over the 16px row
-   icon (Lucas, 2026-11-23: "SLIGHTLY bigger chevrons") and centred on the swatches' column; it keeps
-   the icon column's 16px of room, so its label starts where a swatch row's does. */
+/* A fold's chevron: one glyph for every fold, turned a quarter when open; in Session Info the size of
+   its other fold chevrons (Lucas, 2026-11-23: "they should be the same size as the others"):
+   sessionInfo.css `.acpmux-session-info-fold > svg`, a 12px box at 0.72 with a 1.1px line, centred on
+   the swatches, in the 16px icon column's room, so its label starts where a swatch row's does. */
 .acpmux-context-breakdown .acpmux-context-breakdown__fold > svg {
   color: inherit;
   rotate: 0deg;
-  scale: 1.125;
+}
+.acpmux-session-info .acpmux-context-breakdown .acpmux-context-breakdown__fold > svg {
+  width: calc(var(--grid-icon-box) - var(--grid-base));
+  height: calc(var(--grid-icon-box) - var(--grid-base));
+  margin-inline: var(--acpmux-context-chevron-lead) var(--acpmux-context-chevron-trail);
+  scale: 0.72;
+}
+.acpmux-session-info .acpmux-context-breakdown .acpmux-context-breakdown__fold > svg path {
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1.1px;
 }
 .acpmux-context-breakdown .acpmux-context-breakdown__fold[aria-expanded="true"] > svg {
   rotate: 90deg;
@@ -188,21 +206,23 @@
   width: calc(100% + 8px);
 }
 
-/* Session Info owns its vertical gaps. The composer's independent popover keeps its layout. */
+/* Session Info owns its vertical gaps. The composer's independent popover keeps its layout. Laid out
+   as Claude Code desktop's card (Lucas, 2026-11-23): the share used and its tokens on one line from
+   the swatches' left edge to the shares' right edge, the bar a gap under it on the same edges, then
+   the rows. */
 .acpmux-session-info .acpmux-session-info-context {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-inner);
   padding: 0;
 }
 .acpmux-session-info .acpmux-session-info-context__total {
   gap: var(--grid-gap);
-  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
+  padding: 0 var(--grid-gap) 0 var(--acpmux-context-swatch-start);
 }
-.acpmux-session-info .acpmux-session-info-context__bar {
-  margin: 0 var(--grid-gap);
-}
-/* From the swatches' left edge to the shares' right edge, as Claude's. */
+.acpmux-session-info .acpmux-session-info-context__bar,
 .acpmux-session-info .acpmux-context-breakdown > .acpmux-session-info-context__bar {
-  margin: var(--grid-base) var(--grid-gap) var(--grid-gap) var(--acpmux-context-swatch-start);
+  margin: var(--grid-gap) var(--grid-gap) var(--grid-gap) var(--acpmux-context-swatch-start);
+}
+.acpmux-session-info .acpmux-session-info-context__actions {
+  margin-top: var(--grid-gap-inner);
 }
