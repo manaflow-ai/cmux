@@ -955,6 +955,9 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          # Seconds between Sparkle's 7 rollout groups for this release's item (86400: one group a day,
+          # everyone in a week); unset ships to everyone at once. docs/cmux-next/release-channels.md.
+          PHASED_ROLLOUT_INTERVAL: ${{ vars.CMUX_STABLE_PHASED_ROLLOUT_INTERVAL || '' }}
         run: |
           if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
@@ -984,6 +987,12 @@ jobs:
             python3 tests/test_appcast_require_arm64.py
             python3 scripts/cmux-next/appcast-require-arm64.py appcast.xml
             grep -q '<sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>' appcast.xml
+          fi
+          # Phased rollout (runbook B9): classic stable installs take cmux-next one group at a time.
+          if [ -n "$PHASED_ROLLOUT_INTERVAL" ]; then
+            python3 tests/test_appcast_phased_rollout.py
+            python3 scripts/cmux-next/appcast-phased-rollout.py appcast.xml cmux-macos.dmg "$PHASED_ROLLOUT_INTERVAL"
+            grep -q "<sparkle:phasedRolloutInterval>${PHASED_ROLLOUT_INTERVAL}</sparkle:phasedRolloutInterval>" appcast.xml
           fi
           # Classic cmux stable (main) reads releases/latest/download/appcast-<arch>.xml
           # (UpdateFeedResolver rewrites appcast.xml for cmux's own stable feeds). The

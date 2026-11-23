@@ -660,6 +660,35 @@ def test_main_and_rc_keep_the_release_environment_and_feeds() -> None:
     assert other["environment"] == "release"
 
 
+def test_a_cmux_next_rc_publishes_only_when_the_variable_says_so() -> None:
+    # An rc/** branch of this tree is cmux-next: it ships to every classic cmux RC install, so it
+    # publishes only while CMUX_NEXT_RC_PUBLISH is 1 (docs/cmux-next/release-channels.md).
+    for value in (None, "", "0", "true", "yes"):
+        env = dict(NEXT_ENV) if value is None else {**NEXT_ENV, "CMUX_NEXT_RC_PUBLISH": value}
+        held = run_decide(event="push", ref="refs/heads/rc/v1.0.0", extra_env=env)["outputs"]
+        assert held["rc_held"] == "true", value
+        assert held["should_publish"] == "false", value
+        assert held["should_build"] == "true", value
+        assert held["bundle_id"] == "com.cmuxterm.app.rc"
+    on = run_decide(event="push", ref="refs/heads/rc/v1.0.0",
+                    extra_env={**NEXT_ENV, "CMUX_NEXT_RC_PUBLISH": " 1 "})["outputs"]
+    assert on["rc_held"] == "false"
+    assert on["should_publish"] == "true"
+    assert on["app_name"] == "cmux RC"
+    assert on["icon_name"] == "AppIcon-RC"
+    # The gate is RC only: main's nightly and the nightly-next track are not held by it.
+    main_outputs = run_decide(event="push", tag_age_hours=2.5, extra_env=NEXT_ENV)["outputs"]
+    assert main_outputs["rc_held"] == "false"
+    assert main_outputs["should_publish"] == "true"
+
+
+def test_the_rc_variable_reaches_decide() -> None:
+    workflow = (ROOT / ".github/workflows/nightly.yml").read_text()
+    assert "CMUX_NEXT_RC_PUBLISH: ${{ vars.CMUX_NEXT_RC_PUBLISH || '' }}" in workflow
+    # Every RC item is Apple silicon only.
+    assert 'if [ "$CHANNEL" = rc ]; then\n            python3 scripts/cmux-next/appcast-require-arm64.py "$NIGHTLY_APPCAST"' in workflow
+
+
 def main() -> None:
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):
