@@ -367,12 +367,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Connect Claude Desktop and Codex Desktop to cmux", "acpmux bridge connect"),
             ("Message Codex Desktop", "acpmux bridge send codex-desktop \"Review PR 812 please\""),
+            ("Print the server to add in ChatGPT Desktop", "acpmux bridge connect chatgpt"),
         ],
     ),
     (
         "bridge connect",
         &[
-            ("Connect both desktop apps; restart them after", "acpmux bridge connect"),
+            ("Connect the desktop apps; restart them after", "acpmux bridge connect"),
             (
                 "See what connecting Codex Desktop would change",
                 "acpmux bridge connect codex --dry-run",
@@ -562,6 +563,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     ("chats roots", &[("List the folders the chat index reads", "acpmux chats roots")]),
+    (
+        "chats warm",
+        &[
+            ("Bring back every chat's compressed history", "acpmux chats warm"),
+            ("Bring back one chat's", "acpmux chats warm --chat 019a3f9c"),
+        ],
+    ),
     (
         "hand",
         &[
