@@ -541,7 +541,8 @@ test("a turn's Worked for, closed or opened, closes the lines the reader opened 
 test("closing a run line closes a thought the reader opened in it", async () => {
   const thought: AcpmuxActivity = {
     kind: "thought",
-    text: "Check the retry path before the cap. ".repeat(6),
+    // Two lines, so the row opens (a thought its line holds whole opens nothing).
+    text: "Check the retry path before the cap.\nThen the callers.",
     startedAt: 1_000,
     endedAt: 9_000,
   };

@@ -4,7 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 
 /// Stand in only for the three SSH operations the CLI needs. No host SSH, credentials or
 /// network are used; the socket symlink reaches the other test daemon's real RPC server.
-pub(super) fn fake_ssh(home: &Path, target: &Daemon) -> String {
+pub(super) fn fake_ssh(home: &Path, target_home: &Path, target_socket: &Path) -> String {
     let bin = home.join("bin");
     std::fs::create_dir(&bin).unwrap();
     let script = format!(
@@ -32,8 +32,8 @@ elif 'mkdir -p' in command and 'read -r d' in command:
 else:
     sys.exit(1)
 "#,
-        home = serde_json::to_string(&target.home.to_string_lossy()).unwrap(),
-        socket = serde_json::to_string(&target.socket.to_string_lossy()).unwrap(),
+        home = serde_json::to_string(&target_home.to_string_lossy()).unwrap(),
+        socket = serde_json::to_string(&target_socket.to_string_lossy()).unwrap(),
     );
     let ssh = bin.join("ssh");
     std::fs::write(&ssh, script).unwrap();

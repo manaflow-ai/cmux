@@ -87,8 +87,21 @@ impl Hub {
         notice: crate::peer::PeerNotice,
     ) {
         use crate::peer::PeerNotice;
-        let watched =
-            matches!(notice, PeerNotice::SessionsPatch { .. } | PeerNotice::SessionChanged { .. });
+        // A changed row can take a closed row away only when the row held for it is closed (it
+        // is purged or runs again); a live or new one cannot, so the count, a walk over every
+        // row of the peer, is skipped for those: nearly every change during a busy turn.
+        let watched = match &notice {
+            PeerNotice::SessionsPatch { .. } => true,
+            PeerNotice::SessionChanged { session, .. } => {
+                session.get("sessionId").and_then(Value::as_str).is_some_and(|mux| {
+                    self.remote_sessions
+                        .read()
+                        .find_mux(peer, mux)
+                        .is_some_and(|(_, row)| row.summary.closed())
+                })
+            }
+            _ => false,
+        };
         let before = watched.then(|| self.held_closed_peer_rows(peer));
         self.apply_peer_notice_rows(peer, generation, notice);
         let Some(before) = before else { return };

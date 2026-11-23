@@ -20,6 +20,7 @@ import CmuxNextPalette
 import CmuxNextPopups
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
@@ -38,8 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
-    /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
-    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, chromium: CEFLaunchPrefetch)
+    /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`; stage 0's window (LaunchShell), planned there.
+    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, chromium: CEFLaunchPrefetch, shell: LaunchShell)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
     private let openedURLs = OpenedURLDelivery()
@@ -67,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment,
-         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, chromium: CEFLaunchPrefetch),
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, chromium: CEFLaunchPrefetch, shell: LaunchShell),
          cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshotRead, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment; self.cloudEnvironment = cloudEnvironment; self.launchSnapshot = launchSnapshot
         self.launchReads = launchReads; self.launchCleanup = launchCleanup
@@ -80,10 +81,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry")
-        // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
+    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry"); launchReads.shell.show(title: Strings.appName) // stage 0's window, one commit
+        // task-owner: cloudBootstrap; awaits stage 0's frame, then the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment] in
-            guard let self else { return }
+            guard let self else { return }; await launchReads.shell.framed()
             let read = await launchSnapshot?.value ?? LaunchSnapshotRead(snapshot: nil, kind: .unknown); launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited"); if read.snapshot == nil { DebugTimings.markLaunch("launch.no_snapshot") }  // suspends for the read; the daemon's start reads no file. No snapshot: maybe the bare launch (piece 8); `read.kind` says whether it is
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
@@ -110,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func finishLaunching(_ launch: LaunchSnapshotRead) async throws { let launchSnapshot = launch.snapshot
+    private func finishLaunching(_ launch: LaunchSnapshotRead) async throws { let launchSnapshot = launch.snapshot; try await LaunchTestDelay.atLaunch { DebugTimings.markLaunch($0) } // launch-tti.sh control=MS: a known wait before any window
         let preparedDaemon = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
             terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
             resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
@@ -133,6 +134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen
+        // A tagged dev build opens on the built-in display (#51115); a screenshot launch's test screen wins.
+        LaunchDisplay.current = environment.testWindow == nil ? environment.launchDisplay : nil
         // An agent launch must never come back by itself: without this, loginwindow reopens it at the
         // next login (without the agent's environment, so it activates and takes the tag's socket).
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
@@ -168,6 +171,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG || CMUX_BENCH_HOOKS
         services.windowRecord.watchLaunch() // `--record-launch`: before the first window is made
         #endif
+        // A launch harness's `layout.*` marks (LaunchLayoutSettle): before the first window is made.
+        LaunchLayoutSettle.start(when: LaunchMarkSink.shared.isActive, isShell: { $0 is ShellWindow }, now: { DebugTimings.millisecondsSinceProcessStart() },
+                                 write: { LaunchMarkSink.shared.write(name: $0, ms: $1) })
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
@@ -196,7 +202,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         if services.crashRecovery.recovery.startsUpdaterBeforeWindows { services.updater.start() } // a restart loop: before the daemon and windows, so a build that ends before its first frame can still fetch its fix
-        NSApp.mainMenu = MainMenu.make(registry: services.registry)
+        NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(settings: { [weak services] in services?.settings },
+            openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) }))
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
@@ -214,8 +221,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
         // Before the first window opens (restoreWhenLoaded opens one at once).
-        services.windows.onPresent = { [weak services] controller in
-            services?.crashRecovery.showRestartNotice(on: controller.window)
+        services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in
+            services?.crashRecovery.showRestartNotice(on: controller.window); shell.presented(controller.window) // the first takes stage 0's frame, then its place
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
         services.windows.onFirstWindow = { [weak services] _ in
@@ -284,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return pane != nil
         }
         DebugTimings.markLaunch("dfl.home_history")
-        services.windows.restoreWhenLoaded()
+        services.windows.restoreWhenLoaded(); if services.windows.controllers.first?.window?.commitFirstFrameNow() == true { DebugTimings.markLaunch("first_window_flushed") } // CMUX-629: the frame now, not after the queued launch work
         firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule() }
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
@@ -326,7 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
-        WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
+        WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main, cli: services.bundledCLI)
         // Before any page asks: cmux Live off ignores web-dev.json from the first request.
         WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         if LaunchIdentity.ignoresCustomizations(keysHeld: NSEvent.modifierFlags.isSuperset(of: [.option, .shift])) { WebDevOverride.ignoreThisRun() }
@@ -356,6 +363,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true, untilWritable: { [daemon = services.daemon] in await daemon.untilLive() }) // fresh-install Glass, theme rotation: written once the daemon is live
+        CustomizeDoctorNotice(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settingsFile: { [weak settings] in settings?.file.url }, untilWindow: { [firstFrame] in await firstFrame.opened() }, present: CustomizeDoctorNotice.toast { [weak registry] in // `customize doctor --announce` after each load; Review opens its card
+            _ = registry?.perform("openSettings", invocation: ActionInvocation(arguments: ["route": .string(CustomizeDoctorNotice.route)], origin: .user)) }).follow(settings)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
         let acpmux = QuitAgents.environment(services)
@@ -390,6 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
+        services.projectActions.start()
         services.personInput.start(); services.cache.cef.personInput = { [ledger = services.personInput] in ledger.isPerson($0) }
         services.joinConsent.follow(settings: settings)
         if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
@@ -563,6 +573,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.serverReach.stop()
         control.stop()
         services?.configActions.stop()
+        services?.projectActions.stop()
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.iphone.stop()

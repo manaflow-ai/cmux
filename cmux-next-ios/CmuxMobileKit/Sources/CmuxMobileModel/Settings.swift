@@ -172,6 +172,8 @@ public final class SettingsStore {
     public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
+    /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
+    public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
     /// Rust sends repair data only after it sees loss, capped while the network is cellular.
     public var ultra: UltraConnection { didSet { save(ultra.rawValue, "ultra") } }
@@ -224,6 +226,7 @@ public final class SettingsStore {
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
         predictiveEcho = bool("predictiveEcho", true)
+        terminalFitToPhone = bool("terminalFitToPhone", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
             ?? (bool("ultraOnCellular", false) ? .always : .auto)

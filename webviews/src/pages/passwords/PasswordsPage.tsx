@@ -20,7 +20,8 @@ import {
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import type { Strings } from "../shared/i18n";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import {
   filterExceptions,
   filterPasskeys,
@@ -107,7 +108,7 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
   const disconnected = snap.connection === "disconnected";
   // A lost link keeps the list on screen and says so only once it lasts (ui/lasting.ts): a daemon
   // restart drops it for a few seconds, and the person has nothing to do (Leo, 2026-11-14).
-  const downLasting = useLasting(disconnected);
+  const downLasting = useConnectionQuiet(disconnected);
   const logins = useMemo(
     () => loginList(groupBySite(filterPasswords(snap.passwords, snap.text), snap.sort)),
     [snap.passwords, snap.text, snap.sort],
@@ -248,9 +249,9 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
       </header>
       {notice}
       <div ref={setScroller} className="pw-scroll" onFocus={onFocus} onBlur={onBlur}>
-        {downLasting ? (
-          <p className="pw-empty pw-disconnected">{t("passwords.page.disconnected")}</p>
-        ) : snap.loading ? (
+        {/* The rows stay while the link is down; a corner mark says so once it lasts (ui/ConnectionChip.tsx). */}
+        {downLasting ? <ConnectionChip text={t("passwords.page.disconnected")} /> : null}
+        {snap.loading ? (
           <p className="pw-empty">{t("passwords.page.loading")}</p>
         ) : disconnected && !snap.passwords.length && !snap.passkeys.length && !snap.exceptions.length ? (
           // Nothing read yet and the link is down: nothing to draw, and no false "No passwords" either.
