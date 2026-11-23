@@ -19,8 +19,11 @@
 //!    answer (a pool slot with no VM behind a link the daemon still calls connected) is passed
 //!    over, and so is one whose free disk, less what the move writes, is under its registry
 //!    floor (`placement::disk_floor`), unless every host that answers is: then the one with
-//!    the most free takes it with a warning. Each host passed over is printed with why. Chats
-//!    in one checkout go to one host.
+//!    the most free takes it with a warning. A host whose daemon has no harness profile for the
+//!    chat's agent is passed over too (its `transfer_receive` would refuse it with
+//!    `transfer.harness` only after the folder was made there), and a named one is refused
+//!    before anything is frozen. Each host passed over is printed with why. Chats in one
+//!    checkout go to one host.
 //! 3. The chat is frozen here (`transfer_begin`), so nothing changes its folder or history
 //!    while the rest is made; any step below that fails gives it back (`transfer_abort`).
 //! 4. The folder (`plan_folder`, planned again now that the chat is frozen): a checkout's branch
@@ -530,12 +533,17 @@ async fn move_steps(
         .unwrap_or(0),
         None => 0,
     };
-    let target = waiting(&o.name, "choosing the machine", targets.pick(src, &group, need)).await?;
+    let harness = info.get("harness").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let target =
+        waiting(&o.name, "choosing the machine", targets.pick(src, &group, need, &harness)).await?;
     o.host = Some(target.name.clone());
     let remote = match target.probed.clone() {
         Some(r) => r,
         None => waiting(&o.name, "asking the target about itself", target.remote()).await?,
     };
+    if let Some(why) = remote.lacks(&harness) {
+        bail!("{} cannot take it: {why}", target.name);
+    }
     let target_cwd = args.cwd.as_deref();
     let planned = plan::plan_folder(
         &cwd,
@@ -924,6 +932,7 @@ fn local_daemon() -> Result<RemoteDaemon> {
         home: home.to_string_lossy().into_owned(),
         socket: crate::config::socket_path().to_string_lossy().into_owned(),
         disk_free: None,
+        harnesses: None,
     })
 }
 
@@ -993,18 +1002,32 @@ fn push_branch(top: &Path, dest: &str) -> Result<String> {
     Ok(head)
 }
 
-/// What the target says about itself: its home, its daemon's local socket, and the disk free
-/// under its home (`None`: it did not say).
+/// What the target says about itself: its home, its daemon's local socket, the disk free
+/// under its home, and the harness ids it has profiles for (`None`: it did not say).
 #[derive(Clone, Debug)]
 struct RemoteDaemon {
     home: String,
     socket: String,
     disk_free: Option<u64>,
+    harnesses: Option<Vec<String>>,
+}
+
+impl RemoteDaemon {
+    /// Why this target cannot run a chat of `harness`: it listed its harnesses and that one is
+    /// not among them. A target that listed none (an older build, no answer) is not refused
+    /// here; its `transfer_receive` still is.
+    fn lacks(&self, harness: &str) -> Option<String> {
+        let listed = self.harnesses.as_ref()?;
+        (!harness.is_empty() && !listed.iter().any(|h| h == harness)).then(|| {
+            format!("agent {harness:?} is not configured there (`acpmux harness list` there)")
+        })
+    }
 }
 
 /// The fixed script that asks a target for [`RemoteDaemon`]: its home on the first line, then
-/// `acpmux daemon status --json` on one line, then the KiB free under its home (`df -Pk`).
-const ABOUT_SCRIPT: &str = r#"PATH="$HOME/.local/bin:$PATH"; printf '%s\n' "$HOME"; acpmux daemon status --json 2>/dev/null | tr -d '\n'; printf '\n'; df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print $4}'"#;
+/// `acpmux daemon status --json` on one line, then the KiB free under its home (`df -Pk`),
+/// then `acpmux harness list --json` on one line.
+const ABOUT_SCRIPT: &str = r#"PATH="$HOME/.local/bin:$PATH"; printf '%s\n' "$HOME"; acpmux daemon status --json 2>/dev/null | tr -d '\n'; printf '\n'; df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print $4}'; printf '\n'; acpmux harness list --json 2>/dev/null | tr -d '\n'; printf '\n'"#;
 
 /// `ABOUT_SCRIPT`'s answer, checked: plain absolute paths only, since both reach ssh's argv.
 fn parse_about(stdout: &str) -> Result<RemoteDaemon> {
@@ -1023,7 +1046,16 @@ fn parse_about(stdout: &str) -> Result<RemoteDaemon> {
     }
     let disk_free =
         lines.next().and_then(|l| l.trim().parse::<u64>().ok()).map(|kib| kib.saturating_mul(1024));
-    Ok(RemoteDaemon { home, socket, disk_free })
+    // `df` prints one line or none, so the harness list is the first JSON line after it.
+    let harnesses =
+        lines.filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok()).find_map(|v| {
+            v.get("harnesses").and_then(Value::as_array).map(|rows| {
+                rows.iter()
+                    .filter_map(|r| r.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
+        });
+    Ok(RemoteDaemon { home, socket, disk_free, harnesses })
 }
 
 /// The fixed script that makes a chat's folder on the target and prints its real path. Its
@@ -1248,9 +1280,15 @@ impl Targets {
         })
     }
 
-    /// The target for a chat in `group` (its checkout, or its folder), whose move writes about
-    /// `need` bytes there.
-    async fn pick(&mut self, src: &Client, group: &Path, need: u64) -> Result<Target> {
+    /// The target for a chat of `harness` in `group` (its checkout, or its folder), whose move
+    /// writes about `need` bytes there.
+    async fn pick(
+        &mut self,
+        src: &Client,
+        group: &Path,
+        need: u64,
+        harness: &str,
+    ) -> Result<Target> {
         if let Some(t) = self.by_group.get(group) {
             return Ok(t.clone());
         }
@@ -1294,10 +1332,12 @@ impl Targets {
                     })
                     .collect();
                 let known = self.unreachable.clone();
+                let harness = harness.to_owned();
                 let walked = tokio::task::spawn_blocking(move || {
                     walk(
                         &tries,
                         need,
+                        &harness,
                         |n| floors.get(n).copied().unwrap_or(0),
                         |t| match known.get(&t.name) {
                             Some(why) => Err(why.clone()),
@@ -1396,10 +1436,13 @@ const GB: f64 = 1e9;
 /// nothing about a new ssh (a pool slot with no VM behind it fails there). One short of disk is
 /// passed over too, but when every host that answers is short, the one with the most free takes
 /// the move with a warning: disk floors only warn. A host that answers no disk reading is
-/// taken.
+/// taken. A host that lists its harnesses without `harness` is passed over whatever its disk:
+/// it would refuse the chat (2026-11-22: auto picked a lane VM with only the `claude` profile
+/// for a chat of another Claude profile, and the move failed there with `transfer.harness`).
 fn walk(
     order: &[Target],
     need: u64,
+    harness: &str,
     floor: impl Fn(&str) -> u64,
     mut probe: impl FnMut(&Target) -> Result<RemoteDaemon, String>,
 ) -> Walked {
@@ -1415,6 +1458,10 @@ fn walk(
                 continue;
             }
         };
+        if let Some(why) = remote.lacks(harness) {
+            w.skipped.push((t.name.clone(), why));
+            continue;
+        }
         let floor = floor(&t.name);
         match remote.disk_free {
             Some(free) if free.saturating_sub(need) < floor => {
