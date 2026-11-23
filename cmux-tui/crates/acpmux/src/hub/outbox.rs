@@ -38,7 +38,6 @@
 //! agent's step ends), so the forwarding daemon passes the peer's `_acpmux/prompt_accepted` on to
 //! the connection that sent the prompt as soon as it arrives ([`PeerAccepts`]).
 
-const MUTATION_NO_DEDUPE: bool = false;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex as StdMutex;
@@ -470,8 +469,7 @@ impl Outbox {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
         if let Some(first) = book.deliveries.values().find(|d| {
-            MUTATION_NO_DEDUPE
-                && !d.is_team_receipt()
+            !d.is_team_receipt()
                 && d.prompt_id() == prompt_id
                 && d.target == delivery.target
                 && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
