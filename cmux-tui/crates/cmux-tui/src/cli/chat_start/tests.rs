@@ -1679,6 +1679,84 @@ fn a_failing_cmux_acp_keeps_its_pretty_answer() {
     assert_eq!(error["details"]["answer"]["timedOut"], true, "{error}");
 }
 
+/// Door A timing run (huge-blue/doora-timing, 2026-11-16): `cmux device add` printed
+/// `cmux chat --on doora-vm-1 --prompt '…'`, and on a Mac with no cmux session running that
+/// line failed in 0 s with "cannot connect to cmux session": the catalog read had no app to
+/// ask, and that refusal was final. With no session, the joined machine is still found through
+/// acpmux and the account, which need no app.
+#[test]
+fn the_line_device_add_prints_finds_the_machine_with_no_cmux_session() {
+    let no_session = || {
+        Err(json!({"code": "daemon.unreachable", "message": "cannot connect to cmux session",
+                   "details": {}, "retryable": true}))
+    };
+    let on = |on: &'static str| {
+        route_or_joined(
+            Some(on),
+            || {
+                route(
+                    Some(on),
+                    Reads {
+                        catalog: no_session,
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                        peers: unread_peers,
+                    },
+                )
+            },
+            Sources {
+                hub: || vec![json!({"name": "doora-vm-1", "connected": true, "via": "hub"})],
+                rows: || {
+                    Ok(vec![json!({"kind": "joined", "id": "m_vm1", "name": "doora-vm-1",
+                                   "hostname": "doora-vm-1", "state": "online"})])
+                },
+            },
+        )
+    };
+    assert_eq!(on("doora-vm-1"), joined_at(Some("m_vm1"), "doora-vm-1", "doora-vm-1"));
+    // A name no joined machine has keeps the session's own refusal.
+    assert_eq!(on("nowhere").unwrap_err()["code"], "daemon.unreachable");
+}
+
+/// Door A timing run: two Ubuntu VMs added as doora-vm-1 and doora-vm-2 both have the host
+/// name `ubuntu`. A current acpmux heartbeats with the name it joined with, so the hub lists
+/// `doora-vm-1`: the chat goes to that host, never to the shared host name.
+#[test]
+fn a_joined_machine_is_reached_by_the_name_it_joined_with_not_its_host_name() {
+    let rows = || {
+        Ok(vec![
+            json!({"kind": "joined", "id": "m_vm1", "name": "doora-vm-1", "hostname": "ubuntu",
+                   "state": "online"}),
+            json!({"kind": "joined", "id": "m_vm2", "name": "doora-vm-2", "hostname": "ubuntu",
+                   "state": "online"}),
+        ])
+    };
+    let hub = || {
+        vec![
+            json!({"name": "doora-vm-1", "connected": true, "via": "hub"}),
+            json!({"name": "doora-vm-2", "connected": true, "via": "hub"}),
+        ]
+    };
+    for (name, id) in [("doora-vm-1", "m_vm1"), ("doora-vm-2", "m_vm2")] {
+        let found = route_or_joined(
+            Some(name),
+            || {
+                route(
+                    Some(name),
+                    Reads {
+                        catalog: || Ok(catalog()),
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                        peers: || Ok(peers()),
+                    },
+                )
+            },
+            Sources { hub, rows },
+        );
+        assert_eq!(found, joined_at(Some(id), name, name));
+    }
+}
+
 /// cmux#46701: `cmux chat --on cloud` takes what the composer's Cloud start picks: harness,
 /// model, effort, mode, and a folder (`--cwd`, `--from-folder`) or No folder (`--no-folder`).
 /// Each reaches `cloud start-chat`, which checks them again.

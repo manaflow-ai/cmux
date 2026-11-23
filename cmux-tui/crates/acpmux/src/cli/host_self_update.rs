@@ -176,10 +176,14 @@ pub(super) struct Paths {
     /// cmux-rd, the screen host's program, kept on the channel's build too
     /// (`host_self_update_rd.rs`); None leaves it alone.
     pub(super) rd: Option<RdPaths>,
+    /// Install the channel's build even when the installed one is built from
+    /// a newer commit (`--allow-downgrade`: pulling a bad channel build back).
+    /// Off, the host keeps a newer build ([`apply`]).
+    pub(super) allow_downgrade: bool,
 }
 
 impl Paths {
-    fn here(now: bool) -> Result<Paths> {
+    fn here(now: bool, allow_downgrade: bool) -> Result<Paths> {
         let target =
             local_target().ok_or_else(|| anyhow!("no acpmux build runs on this platform"))?;
         let user = dirs::home_dir().ok_or_else(|| anyhow!("this user has no home folder"))?;
@@ -188,6 +192,7 @@ impl Paths {
             installed: user.join(".local/bin/acpmux"),
             off: home.join(NO_AUTO_UPDATE),
             rd: RdPaths::here(&user, &home, target, now),
+            allow_downgrade,
             home,
             cloud_vm: PathBuf::from(CLOUD_VM_MARK),
             unit: user.join(OWN_UNIT),
@@ -215,6 +220,8 @@ pub(super) struct Plan {
     pub(super) step: Step,
     /// What happened to cmux-rd ([`rd::refresh`]), before acpmux's step.
     pub(super) rd: RdOutcome,
+    /// [`Paths::allow_downgrade`].
+    allow_downgrade: bool,
     /// `update/<sha256>/`, holding the checked `acpmux-<target>`.
     dir: PathBuf,
     /// The host's update lease, held until the plan is dropped.
@@ -272,7 +279,15 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
         }
         _ => Step::Install(download(fetch, &feed, paths.target, &sha, &downloads).await?),
     };
-    Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, rd, dir, lease }))
+    Ok(Prepared::Ready(Plan {
+        commit: feed.commit,
+        sha256: sha,
+        step,
+        rd,
+        allow_downgrade: paths.allow_downgrade,
+        dir,
+        lease,
+    }))
 }
 
 /// Whether `unit` is acpmux's own `acpmux.service` ([`is_own_unit`]): a regular
@@ -373,9 +388,15 @@ pub(super) fn apply(
         binary_dir: Some(dir.clone()),
         if_idle: false,
         keep_newer: false,
-        // The channel names the build this host runs (an older one too, when
-        // it pulls a bad build back); only pushes from elsewhere are refused.
-        allow_downgrade: true,
+        // Newer wins: a host whose installed build is of a newer commit than
+        // the channel's keeps it (`current`, reason `newerInstalled`), as it
+        // keeps it against a push from elsewhere. A lane's branch build or a
+        // hand-pushed one that contains the channel's head is never rolled
+        // back to it by this timer (the lane hosts of 2026-11-23 held
+        // b45cad3d8 while the channel sat at 7d439038 and the timer kept
+        // trying to put that back, each try a restart). `--allow-downgrade`
+        // is how a bad channel build is deliberately pulled back.
+        allow_downgrade: plan.allow_downgrade,
         caller: None,
         now,
     };
@@ -462,16 +483,22 @@ impl Remote for LocalRemote {
 /// automatic updates off, another update of this host running, or the channel's
 /// build rolled back here before, nothing happens: `{"channel", "skipped":
 /// "off" | "locked" | "rolledBack", "message", "updated": []}`, exit 0.
-/// Exits 1 when the row failed. The channel decides: a build pushed by hand
-/// with `host update` is replaced by the channel's at the next run, unless
-/// automatic updates are off.
-pub(crate) async fn self_update(channel: &str, now: bool, json_out: bool) -> Result<()> {
+/// Exits 1 when the row failed. The channel decides, newer wins: a build pushed
+/// by hand with `host update` is replaced by the channel's at the next run,
+/// unless automatic updates are off or the installed build is of a newer
+/// commit than the channel's (`--allow-downgrade` replaces that too).
+pub(crate) async fn self_update(
+    channel: &str,
+    now: bool,
+    allow_downgrade: bool,
+    json_out: bool,
+) -> Result<()> {
     if std::env::consts::OS != "linux" {
         bail!(
             "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux machine update NAME`"
         );
     }
-    let paths = Paths::here(now)?;
+    let paths = Paths::here(now, allow_downgrade)?;
     let plan = match prepare(&paths, &HttpsFetch, channel).await? {
         Prepared::Off => {
             let why = format!(
