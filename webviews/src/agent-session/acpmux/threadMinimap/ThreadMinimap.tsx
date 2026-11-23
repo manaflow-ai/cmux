@@ -529,6 +529,8 @@ function ThreadMinimapView({
   /// The list's offset as the rail last set it or its scroll event reported it, so a commit reads no
   /// layout to place the list (reading `scrollTop` right after a commit lays out the whole transcript).
   const listOffset = useRef(0);
+  /// The chat the rail's list was last placed for: a switch places it in the next frame (the offset effect).
+  const placedSession = useRef<string | undefined>(undefined);
   /// A wheel over the rail means the person is browsing its history. Keep their offset until a tick
   /// click takes them back to the transcript; transcript scrolling must not snap the rail beneath them.
   /// Held for the session it was taken in: the transcript is reused across chats, and another chat's
@@ -1402,14 +1404,33 @@ function ThreadMinimapView({
       clearTimeout(restTimer.current);
       restTimer.current = undefined;
     }
-    const current = listOffset.current;
-    const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, current, rowPitch);
-    if (Math.abs(next - current) < 0.5) return;
-    node.scrollTop = next;
-    // railScrollTop keeps it inside the list's room, so the list takes it as it is.
-    listOffset.current = next;
-    setListTop(next);
-    followPointer(node);
+    const place = () => {
+      const current = listOffset.current;
+      const next = railScrollTop(
+        { first: onScreen.first, last: onScreen.last },
+        turns.length,
+        height,
+        current,
+        rowPitch,
+      );
+      if (Math.abs(next - current) < 0.5) return;
+      node.scrollTop = next;
+      // railScrollTop keeps it inside the list's room, so the list takes it as it is.
+      listOffset.current = next;
+      setListTop(next);
+      followPointer(node);
+    };
+    // A chat switch: the transcript's rows mounted in this commit and nothing has laid them out yet, so the
+    // offset write here was the commit's first forced style and layout of the whole new chat, and the
+    // transcript's anchor pass laid it out again after its own writes (bench/settled-page.bench.ts
+    // chat_switch: 45 ms of a 190 ms switch). In the next frame's callback, before that frame paints, the
+    // page is laid out once by then and the write only moves the list: the rail is placed in the first frame.
+    if (placedSession.current !== sessionId) {
+      placedSession.current = sessionId;
+      const frame = requestAnimationFrame(place);
+      return () => cancelAnimationFrame(frame);
+    }
+    place();
   }, [
     shown,
     onScreen.first,

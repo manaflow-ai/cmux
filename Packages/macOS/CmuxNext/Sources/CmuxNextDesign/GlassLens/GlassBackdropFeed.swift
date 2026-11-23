@@ -87,7 +87,8 @@ public final class GlassBackdropFeed {
         guard !dataURL.isEmpty else { return clear() }
         watch(host, backdrop)
         let rect = GlassBackdropRect(imageSize: image.size, artFrame: backdrop.glassArtFrame,
-                                     pageFrame: host.convert(host.bounds, to: nil), zoom: zoom())
+                                     pageFrame: host.convert(host.bounds, to: nil), zoom: zoom(),
+                                     fit: backdrop.artFit, pointsPerPixel: 1 / (host.window?.backingScaleFactor ?? 2))
         send(GlassBackdropPayload(key: still.key, rect: rect, blur: Double(backdrop.artBlurRadius) / zoom(),
                                   tint: GlassBackdropPayload.css(backdrop.tintColor)), image: dataURL)
     }

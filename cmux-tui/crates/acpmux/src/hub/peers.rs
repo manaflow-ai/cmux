@@ -647,6 +647,12 @@ impl Hub {
                 if brokers.contains(&name) {
                     s.set("githubBroker", Value::Bool(true));
                 }
+                // What the device hub says of its screen, as for a mesh host below: a Linux
+                // desktop's row offers a share only when a screen host there is listed, and the
+                // row carries the hub id a viewer opens.
+                if let Some(hub) = crate::share_host::device_hub_of(&name) {
+                    s.set("deviceHub", hub);
+                }
                 s
             })
             .collect();
