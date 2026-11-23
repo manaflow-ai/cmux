@@ -23,7 +23,7 @@ package struct HomeModelStrings {
                               bundle: .localizedModule), email)
     }
     package static var teamInviteCancelled: String {
-        String(localized: "home.teamInvite.cancelled", defaultValue: "The invite was not sent: the dialog was closed.", bundle: .localizedModule)
+        String(localized: "home.teamInvite.cancelled", defaultValue: "No invite sent.", bundle: .localizedModule)
     }
     package static var teamInviteNotAllowed: String {
         String(localized: "home.teamInvite.notAllowed", defaultValue: "Only the team’s admins can invite people.", bundle: .localizedModule)
