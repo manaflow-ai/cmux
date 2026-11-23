@@ -6,7 +6,7 @@ bench-startup stopped only the processes of THAT path (tag_pids), so a daemon of
 copy or commit kept running, and the new app attached to it. Such a round measures the old daemon. These tests need no
 app: daemon_verdict() is pure, and the stop test uses `sleep` copies in two fake bundles.
 Run: python3 -I scripts/cmux-next/tests/test_bench_startup_daemon_build.py"""
-import importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time, unittest
+import importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile, time, unittest
 from contextlib import redirect_stderr, redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,6 +27,15 @@ def copy_sleep(dest):
         subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", dest], check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return dest
+
+def wait_listed(proc, path, timeout=10.0):
+    """Wait until pgrep -f sees PROC under PATH (its exec'd command line), the state the pid selectors read."""
+    deadline = time.monotonic() + timeout
+    while proc.pid not in bench_startup.pgrep(re.escape(path)):
+        if proc.poll() is not None or time.monotonic() >= deadline:
+            raise AssertionError(f"pid {proc.pid} never showed in pgrep -f {path!r} (exit {proc.poll()})")
+        time.sleep(0.05)
+
 
 APP = "/Users/cmux/steps/job-b/home/DerivedData/cmux-split-spring/Build/Products/Release/cmux DEV split-spring.app"
 OLD = "/Users/cmux/steps/job-a/home/DerivedData/cmux-split-spring/Build/Products/Release/cmux DEV split-spring.app"
@@ -289,7 +298,7 @@ class StopEveryCopy(unittest.TestCase):
     def test_cold_mode_selects_the_daemon_of_an_earlier_copy(self):
         old = subprocess.Popen([self.bins["job-a"], "30"])
         self.procs.append(old)
-        time.sleep(0.3)
+        wait_listed(old, self.bins["job-a"])
         # The pids cold mode stops before its launch (feat before this fix: tag_pids(tag), the step's own copy only).
         # stop() itself waits with kqueue (macOS only); the selection is what decides whether a stale daemon survives.
         select_pids = getattr(bench_startup, "tag_daemon_pids", None) or bench_startup.tag_pids
@@ -302,7 +311,7 @@ class StopEveryCopy(unittest.TestCase):
         copy_sleep(os.path.join(longer, "cmux-tui"))
         p = subprocess.Popen([os.path.join(longer, "cmux-tui"), "30"])
         self.procs.append(p)
-        time.sleep(0.3)
+        wait_listed(p, os.path.join(longer, "cmux-tui"))
         select_pids = getattr(bench_startup, "tag_daemon_pids", None) or bench_startup.tag_pids
         self.assertNotIn(p.pid, select_pids(self.tag))
 
@@ -313,7 +322,7 @@ class StopEveryCopy(unittest.TestCase):
         copy_sleep(app_bin)
         p = subprocess.Popen([app_bin, "30"])
         self.procs.append(p)
-        time.sleep(0.3)
+        wait_listed(p, app_bin)
         self.assertNotIn(p.pid, bench_startup.tag_daemon_pids(self.tag))
         self.assertIn(p.pid, bench_startup.other_copy_apps(self.tag))
 
@@ -324,7 +333,7 @@ class StopEveryCopy(unittest.TestCase):
         copy_sleep(os.path.join(other, "cmux-tui"))
         p = subprocess.Popen([os.path.join(other, "cmux-tui"), "30"])
         self.procs.append(p)
-        time.sleep(0.3)
+        wait_listed(p, os.path.join(other, "cmux-tui"))
         select_pids = getattr(bench_startup, "tag_daemon_pids", None) or bench_startup.tag_pids
         self.assertNotIn(p.pid, select_pids(self.tag))
 

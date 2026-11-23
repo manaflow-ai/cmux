@@ -713,6 +713,22 @@ class ReportedFailuresAreAllNamed(unittest.TestCase):
             with self.subTest(runner=runner):
                 self.assertEqual(self.unnamed(*lines), [])
 
+    def test_cargos_closing_list_names_what_a_nested_cargo_test_took(self):
+        # cmux#50445 at fb4bd6c4 (run 45036997271): a test re-ran itself under `cargo test`, and that child's summary,
+        # printed inside the parent's output, took the parent's `... FAILED` lines; the parent's closing list names both.
+        nested = ["running 3 tests", "test a::one ... FAILED", "test a::two ... FAILED",
+                  "running 1 test", "test a::two ... FAILED", "", "failures:", "", "failures:", "    a::two", "",
+                  "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out",
+                  "", "failures:", "", "---- a::one stdout ----", "boom", "", "failures:", "    a::one", "    a::two", "",
+                  "test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out"]
+        self.assertEqual(self.unnamed(*nested), [])
+        # A list that names fewer than its summary counts is still unnamed.
+        short = ["failures:", "    a::one", "", "test result: FAILED. 0 passed; 2 failed; 0 ignored"]
+        self.assertTrue(self.unnamed(*short))
+        # Names under a `failures:` heading that other output follows are no list.
+        broken = ["failures:", "    a::one", "    a::two", "some output", "test result: FAILED. 0 passed; 2 failed"]
+        self.assertTrue(self.unnamed(*broken))
+
     def test_the_recorded_fixtures_name_every_failure_they_report(self):
         for path in sorted(FIXTURES.glob("*.log")):
             with self.subTest(fixture=path.name):
@@ -2352,3 +2368,35 @@ class ReadOncePerLog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CutShortWordsAreWords(unittest.TestCase):
+    """2026-11-22, cmuxterm-hq eb73df0c's 'build-fleet Go tests / go vet + go test' (job 137452468531) was refused
+    "a crash, a cut-short run or a failure no parser names is never a base red", quoting `error: Path
+    'docs/handbook/stalled-work-nobody-moves.md' not uptodate; will not remove from working tree.`: one of 54
+    annotations actions/checkout printed at 02:37:42 narrowing a sparse checkout on a reused self-hosted workspace,
+    which failed nothing. The job ran five more minutes and ended at 02:42:40 in a plain Go failure a comparison can
+    name. The hang watchdog's words matched with `\\b`, so that file name's `stalled` read as the watchdog's word and
+    the first annotation in the log pre-empted the real failure. Each word is read as a word: a path or a longer
+    identifier that carries it is not it."""
+
+    CHECKOUT = ["##[error]error: Path 'docs/handbook/%s' not uptodate; will not remove from working tree." % name
+                for name in ("stalled-work-nobody-moves.md", "timeout-without-a-deadline.md",
+                             "a-run-that-never-finished-its-sweep.md")]
+    GO = ["--- FAIL: TestEveryStepModeReservesItsMeasuredDisk (0.00s)", "FAIL",
+          "FAIL\tcmuxterm-hq/build-fleet/cmd/controller\t241.426s", "FAIL",
+          "##[error]Process completed with exit code 1."]
+
+    def test_a_checkout_annotation_naming_such_a_file_is_not_a_cut_short_run(self):
+        self.assertEqual(reds.read(log(*self.CHECKOUT, *self.GO)).truncated, [])
+
+    def test_the_watchdogs_own_words_are_still_a_cut_short_run(self):
+        for line in ("##[error]go test timed out after 600s",
+                     "##[error]the suite stalled: no output for 600s",
+                     "##[error]hung test: TestX made no progress",
+                     "##[error]TestX stopped by SIGKILL",
+                     "##[error]cancelled test run",
+                     "##[error]Timeout waiting for the controller",
+                     "##[error]2 test(s) never finished"):
+            with self.subTest(line=line):
+                self.assertEqual(reds.read(log(line, *self.GO)).truncated, [line.removeprefix("##[error]")])

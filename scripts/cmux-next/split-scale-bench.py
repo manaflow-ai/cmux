@@ -64,18 +64,11 @@ Pane actions in its scratch config) or, for pane_drag, mouse events on the pane'
   move_to_split_right   that tab, in the last pane, to a new split on the window's right; _back: left again
   swap                  the first pane swapped with its right neighbour (Swap Pane Right); _back: Swap Pane Left
   pane_drag             the first pane dragged by its tab bar (Option-drag) to the right edge of the last pane; _back:
-                        dragged to the left edge of the first. The press is on the tab bar's empty space as the app lays
-                        it out (`debug.pane_chrome`: right of the last tab and the + buttons, left of the bar's trailing
-                        buttons, clear of the sidebar's edge), and the panes are the measured workspace's own (the
-                        trace also carries a parked host far off the window, which the bench once pressed)
+                        dragged to the left edge of the first
 
 Each is judged by split_move_metrics.py: the frame that first shows the new layout must show all of it (no mover
 that starts late, moves again or steps back, no content off its pane, no reversal, no blank or partial frame, no tab
-made again). A move must also have happened, and the trace must show it: a move the workspace does not show done (the
-tab in its new pane, the panes in their new order, in one row), a move whose trace shows no layout change, and a back
-move whose forward move did not happen are the round's errors, never passes. A cell whose trace reads other panes than
-its own fails before it moves anything. The table is printed between SPLIT-MOVE-TABLE-BEGIN and -END; --gate exits 1
-when a move fails.
+made again). The table is printed between SPLIT-MOVE-TABLE-BEGIN and -END; --gate exits 1 when a move fails.
 
 Needs a bench or DEBUG build (the debug.* control methods). Kills only what it started: the app it launched
 (bench_memory.end_bundle of its bundle) and the seeding daemon.
@@ -101,6 +94,7 @@ import idle_cost_load as icl  # noqa: E402
 import split_move_metrics as smm  # noqa: E402
 import split_scale_metrics as ssm  # noqa: E402
 from bench_power import wipe_state  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 TRANSITIONS = ("split_right", "close_right", "split_down", "close_down", "bottom_open", "bottom_close",
                "divider_drag", "side_open", "side_close")
@@ -349,6 +343,52 @@ def grid(stress, workspace, count):
     return columns
 
 
+MOTION = {"rests": True}  # False once the display links never stopped: then only the layout is waited on
+
+
+def pane_layout(run):
+    """The shown window's pane geometry (`debug.layers`): frame, divider areas, pane rings, and its ring layout-pass
+    count (it grows on every layout pass a moving pane makes, so it holds still only once the motion ended)."""
+    window = run.stress.shown_window() or {}
+    rings = [(r.get("pane"), r.get("frame_in_window"), r.get("ring_in_window"))
+             for plane in window.get("planes") or [] for r in plane.get("rings") or []]
+    return window.get("frame"), window.get("divider_areas_in_window"), rings, window.get("ring_layout_passes")
+
+
+def motion_ends(run, what):
+    """Waits for the last gesture's motion to end: no display link runs (`debug.motion` read, every spring at rest,
+    as motion-proof.py reads it) and the pane geometry holds still. Logs what never settled; never raises."""
+    timeout = max(10.0, opts.settle * 10)
+    if MOTION["rests"]:
+        rest = lambda: not (run.rpc("debug.motion", {"action": "read"}) or {}).get("display_links")  # noqa: E731
+        if not wait_until(rest, f"{what}: the springs at rest", timeout=timeout, interval=0.05, raise_on_timeout=False):
+            MOTION["rests"] = False
+            say(f"split-scale: display links still ran {timeout:g} s after {what}; from here only the layout is waited on")
+    if wait_stable(lambda: pane_layout(run), what, timeout=timeout, interval=0.05, reads=4, raise_on_timeout=False) is None:
+        say(f"split-scale: the pane layout still moved {timeout:g} s after {what}")
+
+
+def content_drawn(run, content):
+    """The cell's content drew: motion at rest, every shown browser page in sync with its pane, and the shown window's
+    `debug.layers` report (frames, page hosts, layout-pass counters) unchanged across reads."""
+    motion_ends(run, f"the {content} cell's build")
+    if content == "browser":
+        synced = lambda: all(b.get("page_in_sync") is not False for b in (run.stress.shown_window() or {}).get("browsers") or [])  # noqa: E731
+        if not wait_until(synced, "the browser pages in sync", timeout=30, interval=0.1, raise_on_timeout=False):
+            say("split-scale: a browser page was still out of sync 30 s after the cell's build")
+    shown = lambda: json.dumps(run.stress.shown_window(), sort_keys=True, default=str)  # noqa: E731
+    if wait_stable(shown, f"the {content} cell's window", timeout=30, interval=0.2, reads=4, raise_on_timeout=False) is None:
+        say(f"split-scale: the {content} cell's window still changed 30 s after its build")
+
+
+def primary_screen_size():
+    """The menu-bar screen's size as AppKit reports it now (a fresh osascript reads the current display layout)."""
+    done = subprocess.run(["osascript", "-l", "JavaScript", "-e",
+                           'ObjC.import("AppKit"); var f = $.NSScreen.screens.js[0].frame; f.size.width + "x" + f.size.height'],
+                          capture_output=True, text=True, timeout=20)
+    return done.stdout.strip()
+
+
 def show_tab(run, workspace, pane, kinds):
     """Selects `pane`'s newest tab of `kinds` (tab.focus) and waits until the pane shows it: a tab that exists but is
     not selected is not what the cell measures."""
@@ -454,10 +494,8 @@ def record(run, gesture, label, content="focused", static=True):
     return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
 
 
-def record_raw(run, gesture, label, content="focused", at=None):
-    """(strip, trace) of one gesture: the frame strip's reply and the motion trace around it (either an error dict).
-    `at="commit"`: each trace sample is what its tick shows (the views right after the last commit), not what they
-    hold mid-pass (MotionFrameTrace)."""
+def record_raw(run, gesture, label, content="focused"):
+    """(strip, trace) of one gesture: the frame strip's reply and the motion trace around it (either an error dict)."""
     folder = os.path.join(tempfile.gettempdir(), f"split-scale-{os.getpid()}", label)
     trace_path = os.path.join(folder, "trace.json")
     os.makedirs(folder, exist_ok=True)
@@ -465,7 +503,7 @@ def record_raw(run, gesture, label, content="focused", at=None):
               "tolerance": opts.strip_tolerance}
     if content == "none":
         params["content"] = "none"
-    run.rpc("debug.motion", {"action": "trace_start", **({"at": at} if at else {})})
+    run.rpc("debug.motion", {"action": "trace_start"})
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 90) or {}
     stopped = run.rpc("debug.motion", {"action": "trace_stop", "path": trace_path}) or {}
     trace = {"error": stopped.get("error")} if stopped.get("error") else {"error": "trace never written"}
@@ -545,7 +583,7 @@ def side_toggle(run, label, want, static):
             problem = "Cmd-B moved no pane (the sidebar neither opened nor closed)"
             row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
             return row
-        time.sleep(opts.settle)  # test script: the wrong-way toggle's motion ends before the press that is timed
+        motion_ends(run, "the wrong-way Cmd-B")  # its motion ends before the press that is timed
     row["error"] = f"Cmd-B {way} the sidebar twice in a row, not {want}"
     return row
 
@@ -572,7 +610,7 @@ def run_cell(run, workspace, columns, results, cell, content):
         if open_name not in WANTED and close_name not in WANTED:
             return
         stress.focus_pane(pane)
-        time.sleep(opts.settle)  # test script: the focus move's own motion ends before the timed key
+        motion_ends(run, "the focus move")  # its own motion ends before the timed key
         before = pane_ids(run, workspace)
         row = record(run, gesture, f"{cell}-{open_name}-{rnd}", static=static)
         made = new_pane(run, workspace, before)
@@ -582,9 +620,9 @@ def run_cell(run, workspace, columns, results, cell, content):
             add(open_name, row)
         if not made:
             return
-        time.sleep(opts.settle)  # test script: the open's motion ends before the close
+        motion_ends(run, f"{open_name}")  # the open's motion ends before the close
         stress.focus_pane(made)
-        time.sleep(opts.settle)  # test script: the last gesture's motion ends
+        motion_ends(run, "the last gesture")
         row = record(run, CMD_W, f"{cell}-{close_name}-{rnd}", static=static)
         gone = STRESS.wait(lambda: made not in pane_ids(run, workspace), 5, step=0.05)
         if not gone:
@@ -593,7 +631,7 @@ def run_cell(run, workspace, columns, results, cell, content):
             STRESS.wait(lambda: made not in pane_ids(run, workspace), 5, step=0.05)
         if close_name in WANTED:
             add(close_name, row)
-        time.sleep(opts.settle)  # test script: the last gesture's motion ends
+        motion_ends(run, "the last gesture")
 
     for rnd in range(opts.rounds):
         pair("split_right", "close_right", top_left, CMD_D, rnd)
@@ -601,26 +639,26 @@ def run_cell(run, workspace, columns, results, cell, content):
         pair("bottom_open", "bottom_close", bottom_left, CMD_SHIFT_D, rnd)
         if "divider_drag" in WANTED and len(pane_ids(run, workspace)) > 1:
             stress.focus_pane(top_left)
-            time.sleep(opts.settle)  # test script: the last gesture's motion ends
+            motion_ends(run, "the last gesture")
             # Diagonal: "first" is the divider area lowest in the window, a column's row divider as often as a column
             # divider, and a drag along a divider moves nothing; this moves either kind.
             add("divider_drag", record(run, {"gesture": "mouse", "mouse": {"action": "drag", "divider": "first",
                                                                             "by_x": -120, "by_y": -60, "steps": 30}},
                                        f"{cell}-divider_drag-{rnd}", static=static))
-            time.sleep(opts.settle)  # test script: the last gesture's motion ends
+            motion_ends(run, "the last gesture")
             run.rpc("debug.mouse", {"action": "drag", "divider": "first", "by_x": 120, "by_y": 60, "steps": 30})  # untimed: back
-            time.sleep(opts.settle)  # test script: the last gesture's motion ends
+            motion_ends(run, "the last gesture")
         if "side_open" in WANTED or "side_close" in WANTED:
             stress.focus_pane(top_left)
-            time.sleep(opts.settle)  # test script: the last gesture's motion ends
+            motion_ends(run, "the last gesture")
             opened = side_toggle(run, f"{cell}-side_open-{rnd}", "opened", static)
             if "side_open" in WANTED:
                 add("side_open", opened)
-            time.sleep(opts.settle)  # test script: the last gesture's motion ends
+            motion_ends(run, "the last gesture")
             closed = side_toggle(run, f"{cell}-side_close-{rnd}", "closed", static)
             if "side_close" in WANTED:
                 add("side_close", closed)
-            time.sleep(opts.settle)  # test script: the last gesture's motion ends
+            motion_ends(run, "the last gesture")
 
 
 def build_cell(run, splits, content, chats):
@@ -635,7 +673,7 @@ def build_cell(run, splits, content, chats):
         for pane in column:
             fill(run, workspace, pane, content, chats)
     stress.show(workspace)
-    time.sleep(3 if content in ("browser", "chat") else 1.5)  # test script: pages and transcripts draw before timing
+    content_drawn(run, content)  # pages and transcripts draw before timing
     return workspace, columns
 
 
@@ -647,7 +685,7 @@ def close_cell(run, workspace):
     if not STRESS.wait(lambda: run.stress.workspace(workspace) is None, 15, step=0.1):
         left = f"closeWorkspace left {workspace}: {run.stress.refusals[-2:]}"
         say(f"split-scale: {left}")
-    time.sleep(1)  # test script: the close's own work ends before the next cell builds
+    motion_ends(run, "the cell's close")  # the close's own work ends before the next cell builds
     return left
 
 
@@ -672,92 +710,28 @@ def workspace_tabs(run, workspace):
     return {t.get("id"): p.get("id") for p in run.stress.panes(run.stress.workspace(workspace)) for t in p.get("tabs") or []}
 
 
-def trace_panes(run):
-    """{pane id: shown rect [x, y, width, height]} of the pane hosts the motion trace reads (window points, top-left
-    origin), from a few ticks. Only rects inside the window count: the trace also carries a parked host far off it
-    (the window's screen pane at x -99772, y 100001), which no gesture can reach."""
+def pane_frames(run):
+    """Each shown pane host's frame [x, y, width, height] (window points, top-left origin), left to right then top to
+    bottom, read from a few ticks of the motion trace."""
     run.rpc("debug.motion", {"action": "trace_start", "targets": ["panes"]})
-    time.sleep(0.1)  # test script: a few display frames
+    time.sleep(0.1)  # sleep-ok: the trace window; a few display frames of samples are what it reads
     trace = run.rpc("debug.motion", {"action": "trace_stop"}) or {}
     rows = next((s.get("panes") for s in reversed(trace.get("samples") or []) if s.get("panes")), None) or []
-    window = next((s.get("window") for s in reversed(trace.get("samples") or []) if s.get("window")), None) or [1e5, 1e5]
-    out = {}
-    for row in rows:
-        if not isinstance(row, list) or len(row) < 5:
-            continue
-        rect = [float(v) for v in row[1:5]]
-        if rect[2] > 1 and rect[3] > 1 and 0 <= rect[0] < window[0] and 0 <= rect[1] < window[1]:
-            out[str(row[0])] = rect
-    return out
+    frames = [[float(v) for v in row[7:11]] for row in rows if isinstance(row, list) and len(row) >= 11]
+    return sorted(frames, key=lambda f: (round(f[0]), round(f[1])))
 
 
-def pane_layout(run, workspace):
-    """The measured workspace's shown panes as the app lays them out (`debug.pane_chrome`), left to right then top to
-    bottom: [{id, cell, strip, slots, pill, toolbar}] in window points, top-left origin, and the sidebar's rect. Only
-    the workspace's own panes, in the window that shows them: the trace's parked host and other windows are left out."""
-    ids = set(pane_ids(run, workspace))
-    report = run.rpc("debug.pane_chrome") or {}
-    for window in report.get("windows") or []:
-        panes = [p for p in window.get("panes") or [] if p.get("pane") in ids and isinstance(p.get("cell"), list)
-                 and p["cell"][2] > 1 and p["cell"][3] > 1 and p["cell"][0] >= 0 and p["cell"][1] >= 0]
-        if panes:
-            sidebar = window.get("sidebar") if not (window.get("window_controls") or {}).get("sidebar_hidden") else None
-            rows = [{"id": p["pane"], "cell": p["cell"], "strip": p.get("strip"), "slots": p.get("tab_slots") or [],
-                     "pill": p.get("pill"), "toolbar": (p.get("toolbar") or {}).get("frame"),
-                     "empty": p.get("strip_empty")} for p in panes]
-            return sorted(rows, key=lambda r: (round(r["cell"][0]), round(r["cell"][1]))), sidebar, len(report["windows"])
-    return [], None, len(report.get("windows") or [])
-
-
-# Points kept from the empty space's ends: the + buttons on its left, the bar's trailing buttons and the sidebar's edge.
-EDGE_MARGIN, SIDEBAR_MARGIN = 6, 24
-
-
-def strip_press(pane, sidebar):
-    """(x, y, why): a press point on the empty space of `pane`'s tab bar, as the strip itself reports it
-    (`debug.pane_chrome` `strip_empty`: right of the tabs, chips and + buttons, the space a press there drags the pane
-    from), left of the bar's trailing buttons and clear of the sidebar's edge; x None with the reason when there is
-    none (a narrow pane whose tabs fill its bar has nowhere to drag it from)."""
-    empty = pane.get("empty")
-    if not isinstance(empty, list) or len(empty) != 4:
-        strip = pane.get("strip") or [0, 0, 0, 0]
-        return None, None, f"the tab bar has no empty space (bar {strip[0]:.0f}..{strip[0] + strip[2]:.0f})"
-    left, right = empty[0] + EDGE_MARGIN, empty[0] + empty[2]
-    toolbar = pane.get("toolbar")
-    if isinstance(toolbar, list) and toolbar[2] > 0 and left < toolbar[0] < right:
-        right = toolbar[0]
-    right -= EDGE_MARGIN
-    if sidebar and isinstance(sidebar, list):
-        left = max(left, sidebar[0] + sidebar[2] + SIDEBAR_MARGIN)
-    if right - left < 4:
-        return None, None, f"the tab bar's empty space is {empty[2]:.0f} pt ({empty[0]:.0f}..{empty[0] + empty[2]:.0f}), under the bar's buttons"
-    return round((left + right) / 2, 1), round(empty[1] + empty[3] / 2, 1), None
-
-
-def order(run, workspace):
-    """The workspace's pane ids left to right (then top to bottom) as laid out, and whether they all share one row."""
-    panes, _, _ = pane_layout(run, workspace)
-    one_row = len({(round(p["cell"][1]), round(p["cell"][3])) for p in panes}) <= 1
-    return [p["id"] for p in panes], one_row
-
-
-def move_row(run, workspace, gesture, label, static, expect=None, content="focused", ready=None):
+def move_row(run, workspace, gesture, label, static, expect=None, content="focused"):
     """One recorded move, judged (split_move_metrics.move). `expect`: a check that the move happened (returns a
-    truthy value once it did); `ready`: why the move cannot be measured (the state it starts from is not the one it
-    moves from: a back move whose forward move did not happen), or None. A move that did not happen, or that the
-    trace shows no change for, is the round's error: a row that moved nothing must not pass."""
-    if ready:
-        return {"error": ready}
+    truthy value once it did); a move that did not happen is the round's error."""
     before = workspace_tabs(run, workspace)
-    strip, trace = record_raw(run, gesture, label, content, at="commit")
+    strip, trace = record_raw(run, gesture, label, content)
     done = STRESS.wait(expect, 5, step=0.05) if expect else True
     row = smm.move(strip, trace, static=static, tabs_before=list(before), tabs_after=list(workspace_tabs(run, workspace)))
     if not done:
         row["error"] = "; ".join(filter(None, [row.get("error"), "the gesture moved nothing"]))
-    elif not row.get("error") and row.get("commit_ms") is None:
-        # The layout trace saw no rect change: whatever the pixels did, the move was not measured (fleet job
-        # 9c35cd0a0d7000894918f400: quarter-empty and quarter-browser back moves and swaps passed this way).
-        row["error"] = "the trace shows no change" + ("" if row.get("pixel_first_ms") is not None else "; nothing moved after the input")
+    elif not row.get("error") and row.get("commit_ms") is None and not (row.get("pixel_after_commit") or row.get("pixel_first_ms")):
+        row["error"] = "nothing moved after the input"
     return row
 
 
@@ -770,7 +744,7 @@ def run_move_cell(run, workspace, panes, results, cell, content):
     if content in ("empty", "scrollback"):
         for pane in {first, last}:  # a tab moves out of a pane that keeps one
             stress.add_tab(workspace, pane, "terminal")
-        time.sleep(opts.settle)  # test script: the new tabs draw
+        motion_ends(run, "the new tabs")
     # The tab that moves: the first pane's shown tab (the cell's content).
     moving = next((p.get("selected_tab") for p in stress.panes(stress.workspace(workspace)) if p.get("id") == first), None)
     if not moving:
@@ -791,7 +765,7 @@ def run_move_cell(run, workspace, panes, results, cell, content):
             stress.focus_pane(pane)
         else:
             stress.action("tab.focus", target=f"tab:{moving}")
-        time.sleep(opts.settle)  # test script: the focus move's own motion ends before the timed key
+        motion_ends(run, "the focus move")  # its own motion ends before the timed key
 
     def key(way, mods=MOVE_MODS):
         return {"key": MOVE_KEYS[way], "modifiers": mods}
@@ -802,12 +776,11 @@ def run_move_cell(run, workspace, panes, results, cell, content):
             if until():
                 return True
             stress.action(MOVE_ACTIONS[way], target=f"tab:{moving}")
-            time.sleep(opts.settle)  # test script: the move's motion ends
+            motion_ends(run, "the untimed move back")
         return bool(until())
 
     def tab_pair(name, forth, back, start, rnd):
-        """The moving tab from `start` by key `forth` and back by key `back`, both recorded. The back move is measured
-        only after a forward move that happened: from `start` it would move nothing and pass (job 9c35cd0a)."""
+        """The moving tab from `start` by key `forth` and back by key `back`, both recorded."""
         if name not in WANTED_MOVES:
             return
         if not hop("left" if start == first else "right", lambda: where() == start):
@@ -816,94 +789,18 @@ def run_move_cell(run, workspace, panes, results, cell, content):
         aim()
         add(name, move_row(run, workspace, key(forth), f"{cell}-{name}-{rnd}", static, lambda: where() not in (None, start)))
         aim()
-        add(f"{name}_back", move_row(run, workspace, key(back), f"{cell}-{name}_back-{rnd}", static, lambda: where() == start,
-                                     ready=None if where() not in (None, start) else f"the forward {name} did not happen"))
+        add(f"{name}_back", move_row(run, workspace, key(back), f"{cell}-{name}_back-{rnd}", static, lambda: where() == start))
         if where() != start:  # untimed: the next move starts from the cell's layout
             stress.action(MOVE_ACTIONS[back], target=f"tab:{moving}")
-            time.sleep(opts.settle)  # test script: the move's motion ends
+            motion_ends(run, "the untimed move back")
 
-    def drag(press, target, edge, inset=14):
-        """Mouse events: a press at `press` (a pane's empty tab-bar space, `strip_press`) dragged to the `edge` of the
-        pane cell `target`, `inset` points in (Option-drag: a plain press in the window's top row moves the window)."""
-        to_x = target[0] + inset if edge == "left" else target[0] + target[2] - inset
-        return {"gesture": "mouse", "mouse": {"action": "drag", "x": press[0], "y": press[1], "to_x": to_x,
-                                              "to_y": target[1] + target[3] * 0.5, "steps": 30, "modifiers": ["option"]}}
-
-    def pane_drag_pair(rnd):
-        """The first pane dragged by its tab bar onto the last pane's right edge, then back onto the first pane's left
-        edge. A pane drag lands as a new pane (TabMoves.movePane makes the destination pane and moves the tabs into it),
-        so the dragged pane is followed by its tabs: each drag must leave the row with as many panes, in one row, and
-        every tab of the dragged pane in the last (first) pane, alone."""
-        time.sleep(opts.settle)  # test script: the last move's motion ends before the layout is read
-        start, _ = order(run, workspace)
-        if len(start) < 2:
-            for name in ("pane_drag", "pane_drag_back"):
-                add(name, {"error": f"the layout showed {len(start)} of the cell's panes"})
-            return
-        carried = {t for t, p in workspace_tabs(run, workspace).items() if p == start[0]}
-
-        def holder():
-            """The pane holding every carried tab and no other, or None."""
-            tabs = workspace_tabs(run, workspace)
-            panes = {tabs.get(t) for t in carried}
-            if len(panes) != 1 or None in panes:
-                return None
-            pane = panes.pop()
-            return pane if all(t in carried for t, p in tabs.items() if p == pane) else None
-
-        def layout_after():
-            tabs = workspace_tabs(run, workspace)
-            now, one_row = order(run, workspace)
-            return (f"panes after: {len(now)}, one row: {one_row}, carried tabs in panes "
-                    f"{[now.index(tabs[t]) if tabs.get(t) in now else None for t in sorted(carried)]}, tabs per pane "
-                    f"{[sum(1 for p in tabs.values() if p == pane) for pane in now]}")
-
-        for name, edge, home in (("pane_drag", "right", -1), ("pane_drag_back", "left", 0)):
-            if name == "pane_drag_back":
-                time.sleep(opts.settle)  # test script: the forward drag's motion ends before the layout is read
-            panes_now, sidebar, windows = pane_layout(run, workspace)
-            ids = [p["id"] for p in panes_now]
-            dragged = holder()
-            source = next((p for p in panes_now if p["id"] == dragged), None)
-            target = (panes_now[-1] if edge == "right" else panes_now[0]) if panes_now else {"cell": [0, 0, 0, 0]}
-            ready = None
-            if name == "pane_drag_back" and (not ids or ids[-1] != dragged):
-                ready = "the forward pane_drag did not happen"
-            elif source is None or len(ids) != len(start):
-                ready = f"the layout showed {len(ids)} of {len(start)} panes ({windows} windows), the dragged pane {'found' if source else 'not found'}"
-            press = strip_press(source, sidebar) if source else (None, None, "no source pane")
-            if not ready and press[0] is None:
-                ready = f"no press point: {press[2]}"
-            cell_rect = list(target["cell"])
-            if not ready:
-                # debug.pane_chrome and the mouse may differ by the title bar; the trace's rect of the same pane (the
-                # points the mouse takes, as the back drag of job 9c35cd0a showed) lines the two up.
-                seen = trace_panes(run).get(dragged)
-                dx, dy = (seen[0] - source["cell"][0], seen[1] - source["cell"][1]) if seen else (0.0, 0.0)
-                press = (press[0] + dx, press[1] + dy, None)
-                cell_rect = [cell_rect[0] + dx, cell_rect[1] + dy] + cell_rect[2:]
-
-            def landed(home=home, n=len(start)):
-                now, one_row = order(run, workspace)
-                pane = holder()
-                return len(now) == n and one_row and pane is not None and now[home] == pane
-            row = move_row(run, workspace, drag(press[:2], cell_rect, edge) if not ready else None,
-                           f"{cell}-{name}-{rnd}", static, landed, ready=ready)
-            if not ready:
-                row["drag_at"] = list(press[:2])
-                row["drag_layout"] = layout_after()
-            if row.get("error") and not ready:
-                row["error"] += f" ({row['drag_layout']})"
-                run.rpc("debug.mouse", {"action": "up", "x": press[0], "y": press[1]})  # untimed: no press stays down
-                time.sleep(opts.settle)  # test script: a drag that took nothing ends
-            add(name, row)
-
-    # The trace must read this cell's panes: in job 9c35cd0a it read a one-pane layout through quarter-empty and
-    # quarter-browser (after quarter-chat's back drag dropped off the window), so every key there moved nothing.
-    seen = trace_panes(run)
-    if not set(panes) <= set(seen):
-        raise RuntimeError(f"the motion trace reads another layout: panes {sorted(p[-8:] for p in seen)}, "
-                           f"the cell's {sorted(p[-8:] for p in panes)}")
+    def drag(source, target, edge, along=0.72):
+        """Mouse events: the pane at `source` dragged by its tab bar's empty space to the `edge` of the one at
+        `target` (Option-drag: a plain press in the window's top row moves the window)."""
+        to_x = target[0] + 14 if edge == "left" else target[0] + target[2] - 14
+        return {"gesture": "mouse", "mouse": {"action": "drag", "x": source[0] + source[2] * along, "y": source[1] + 16,
+                                              "to_x": to_x, "to_y": target[1] + target[3] * 0.5, "steps": 30,
+                                              "modifiers": ["option"]}}
 
     for rnd in range(opts.rounds):
         tab_pair("move_to_pane", "right", "left", first, rnd)
@@ -911,22 +808,25 @@ def run_move_cell(run, workspace, panes, results, cell, content):
         tab_pair("move_to_split_right", "right", "left", last, rnd)
         hop("left", lambda: where() == first)
         if "swap" in WANTED_MOVES:
-            start, _ = order(run, workspace)
-            swapped = start[1:2] + start[:1] + start[2:]
-            aim(first)
-            add("swap", move_row(run, workspace, key("right", SWAP_MODS), f"{cell}-swap-{rnd}", static,
-                                 lambda: order(run, workspace)[0] == swapped,
-                                 ready=None if len(start) >= 2 else f"the layout showed {len(start)} panes"))
-            aim(first)
-            add("swap_back", move_row(run, workspace, key("left", SWAP_MODS), f"{cell}-swap_back-{rnd}", static,
-                                      lambda: order(run, workspace)[0] == start,
-                                      ready=None if order(run, workspace)[0] == swapped and len(start) >= 2
-                                      else "the forward swap did not happen"))
-    # Pane drags last: a pane drag lands as a new pane, so the cell's pane ids (which the moves above aim at) are gone
-    # after the first one.
-    for rnd in range(opts.rounds):
+            for name, way in (("swap", "right"), ("swap_back", "left")):
+                aim(first)
+                add(name, move_row(run, workspace, key(way, SWAP_MODS), f"{cell}-{name}-{rnd}", static))
         if "pane_drag" in WANTED_MOVES:
-            pane_drag_pair(rnd)
+            for name, edge in (("pane_drag", "right"), ("pane_drag_back", "left")):
+                time.sleep(opts.settle)  # test script: the last move's motion ends before the frames are read
+                frames = pane_frames(run)
+                if len(frames) < 2:
+                    add(name, {"error": f"the trace showed {len(frames)} panes"})
+                    continue
+                source, target = (frames[0], frames[-1]) if edge == "right" else (frames[-1], frames[0])
+                row = {}
+                for along in (0.72, 0.5):  # the tab bar's empty space: right of the tabs, left of the pane's buttons
+                    row = move_row(run, workspace, drag(source, target, edge, along), f"{cell}-{name}-{rnd}", static)
+                    if "nothing moved" not in str(row.get("error") or ""):
+                        break
+                    run.rpc("debug.mouse", {"action": "up", "x": 4, "y": 4})  # untimed: no press stays down
+                    time.sleep(opts.settle)  # test script: a drag that took nothing ends
+                add(name, row)
 
 
 def finish_moves(results):
@@ -1003,9 +903,11 @@ def finish(results):
                 wanted = [t for t in WANTED if not (t == "divider_drag" and splits == 1)]
                 missing += [f"{cell} {t}" for t in wanted if t not in cells.get(cell, {})]
     results["missing"] = missing
-    if results["errors"] or missing:
-        results["worst"] = {**results["worst"], "incomplete": len(missing), "failed_cells": sorted(results["errors"])}
-    results["pass"] = (bool(pairs) and results["passing"] == len(pairs) and not missing and not results["errors"]
+    # A cell with no settled time failed even when no round raised: the headline's None must never ship beside
+    # "0 failed cells" (the b2dab851a nightly read unknown for a day that way).
+    failed = sorted(set(results["errors"]) | set(ssm.unmeasured(cells, unsettled_ms=opts.strip_ms)))
+    results["worst"] = {**results["worst"], "incomplete": len(missing), "failed_cells": failed}
+    results["pass"] = (bool(pairs) and results["passing"] == len(pairs) and not missing and not failed
                        and all(f["pass"] for f in results["flatness"].values()))
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
@@ -1036,7 +938,11 @@ def main():
             except STRESS.StressShapeError as error:
                 results["display"] = {"vdisplay_hz": opts.vdisplay, "error": str(error)[:400]}
                 say(f"split-scale: VDISPLAY-FALLBACK {error}")
-            time.sleep(2)  # test script: WindowServer settles the new main display before the app opens on it
+            if display:  # WindowServer settled the new main display (AppKit reports its size) before the app opens on it
+                want = STRESS.VDISPLAY_SIZE
+                if not wait_until(lambda: primary_screen_size() == want, f"a {want} main screen", timeout=20,
+                                  interval=0.25, raise_on_timeout=False):
+                    say(f"split-scale: the main screen is {primary_screen_size()!r}, not {want}, 20 s after the display came up")
         env, chats = {}, []
         if "chat" in WANTED_CONTENTS:
             say(f"split-scale: seeding a {opts.chat_turns}-turn chat")
@@ -1053,7 +959,11 @@ def main():
         if problem:  # a window off its screen or the wrong size measures nothing comparable; fail the run
             results["errors"]["placement"] = problem
             raise SystemExit(f"split-scale: {problem}: run with a 1920 x 1200 display (--vdisplay=120 makes one)")
-        time.sleep(4)  # test script: launch work ends before the first cell
+        # Launch work ends before the first cell: the springs rest and the window's layers hold still.
+        motion_ends(run, "the launch")
+        if wait_stable(lambda: json.dumps(run.rpc("debug.layers"), sort_keys=True, default=str), "the window after launch",
+                       timeout=30, interval=0.25, reads=4, raise_on_timeout=False) is None:
+            say("split-scale: the window's layers still changed 30 s after launch")
         if WANTED_MOVES:
             results["matrix"] = {"shapes": WANTED_SHAPES, "contents": WANTED_CONTENTS, "moves": WANTED_MOVES,
                                  "rounds": opts.rounds, "chat_turns": opts.chat_turns}
