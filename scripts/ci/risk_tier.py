@@ -34,6 +34,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -717,15 +718,30 @@ def gh_json(*args: str):
     return json.loads(out) if out.strip() else None
 
 
+# What GitHub answers when this run's API budget is gone, in gh's own words (`gh api` prints the message on
+# stderr and exits 1). A rate limit is not a verdict on the pull request, and no amount of retrying inside this
+# job outlasts an hourly reset, so the retry stops at once and the reason goes on the log: on 2026-11-22 the
+# "risk evidence" job on #50881 printed nothing but "CalledProcessError ... returned non-zero exit status 1"
+# because gh's stderr was captured and dropped, so neither a reader nor base_red_excuse.py could tell that red
+# apart from a graded one (the budget line later in the same log read used=5000).
+GH_RATE_LIMITED = re.compile(r"rate limit|secondary rate|abuse detection", re.I)
+
+
 def gh_run(args: list[str], attempts: int = 3) -> str:
-    """stdout of a gh call, retried so one transient API error doesn't turn the check red."""
+    """stdout of a gh call, retried so one transient API error doesn't turn the check red. A failure that ends
+    the retries names itself on stderr: the exception alone says only "exit status 1"."""
     for attempt in range(attempts):
-        try:
-            return subprocess.run(args, check=True, capture_output=True, text=True).stdout
-        except subprocess.CalledProcessError:
-            if attempt == attempts - 1:
-                raise
-            time.sleep(2 * (attempt + 1))
+        done = subprocess.run(args, capture_output=True, text=True)
+        if done.returncode == 0:
+            return done.stdout
+        why = (done.stderr or done.stdout or "").strip()
+        limited = bool(GH_RATE_LIMITED.search(why))
+        if limited or attempt == attempts - 1:
+            print(f"{shlex.join(args)} exited {done.returncode}"
+                  f"{' (GitHub rate limit: not a verdict on this pull request)' if limited else ''}"
+                  f"{chr(10) + why if why else ''}", file=sys.stderr, flush=True)
+            raise subprocess.CalledProcessError(done.returncode, args, output=done.stdout, stderr=done.stderr)
+        time.sleep(2 * (attempt + 1))
     return ""
 
 

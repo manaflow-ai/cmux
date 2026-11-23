@@ -6,7 +6,7 @@ import Testing
 #if os(iOS)
 import UIKit
 
-/// ask-87d30da8e5: the phone's accent follows the Mac's theme; its backgrounds never do. The palette
+/// ask-87d30da8e5: the phone's chrome and accent follow the Mac's theme by default. The palette
 /// is derived from the theme the Mac sends with the Mac's own code, kept on disk so launch and
 /// offline have it before any link, replaced by what a connected Mac sends, and never overrides a
 /// look the person chose on the phone (Match Mac theme off, an accent picked, an explicit Light or Dark).

@@ -1,5 +1,5 @@
-#if os(iOS)
 import CmuxMobileArtifacts
+#if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
@@ -50,6 +50,8 @@ struct ChatComposer: View {
     @State private var expandRequested = false
     /// The slash-command list's bottom edge, window y (its height bound's floor).
     @State private var suggestionsBottom: CGFloat?
+    /// The session's files for `@` mentions, scanned once per transcript change, not per key.
+    @State private var mentionIndex = MentionIndex()
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
@@ -230,6 +232,7 @@ struct ChatComposer: View {
             }
             HStack(spacing: 8) {
                 plusMenu
+                if voice.placement == .leading { voiceButton }
                 if collapsed {
                     // One placeholder: the collapsed capsule reads the same as the field it opens.
                     Text(placeholder)
@@ -249,8 +252,11 @@ struct ChatComposer: View {
                 // Voice mode instead of a dictation mic (the keyboard's own mic still
                 // dictates into the field): with no draft, the send circle is the voice
                 // button (ChatGPT's composer); while the agent runs it sits beside Stop.
-                if primaryState == .empty || primaryState == .stop, voice.isAvailable { voiceButton }
-                if primaryState != .empty || !voice.isAvailable { primaryButton }
+                // Hidden unless turned on in Settings → Composer (Leo, 2026-11-22: "im
+                // hiding this by default"); "Left of Field" puts it after +.
+                let voiceInSend = voice.placement == .sendButton
+                if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }
+                if primaryState != .empty || !voiceInSend { primaryButton }
             }
             .padding(.horizontal, 8)
             // CMUX-46: the collapsed "Reply to <agent>" capsule is the 44 pt row plus 2 pt each
@@ -668,8 +674,7 @@ struct ChatComposer: View {
     }
 
     private func mentionMatches(_ mention: ComposerMention) -> [TerminalArtifact] {
-        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
-        return ComposerMention.candidates(mention.query, in: collected.artifacts)
+        mentionIndex.matches(mention.query, store: store)
     }
 
     /// `@` file picker (acpmux `MentionMenu`): files this session referenced.
@@ -963,3 +968,29 @@ extension ComposerVoiceStyle {
     }
 }
 #endif
+
+/// `@` mention candidates, memoized: `SessionArtifacts.collect` walks the whole transcript,
+/// and the composer's body asked for it twice on every key while a mention was typed.
+/// The scan reruns only when the transcript changes (`AgentChatStore.revision`); the
+/// candidates only when the query does too. Not observed: it is a cache, read in `body`.
+@MainActor
+final class MentionIndex {
+    private var key: (Int, Int, Int, String)?
+    private var artifacts: [TerminalArtifact] = []
+    private var lastQuery: String?
+    private var lastMatches: [TerminalArtifact] = []
+
+    func matches(_ query: String, store: AgentChatStore) -> [TerminalArtifact] {
+        let key = (store.revision, store.turns.count, store.subagents.count, store.summary.cwd)
+        if self.key.map({ $0 != key }) ?? true {
+            self.key = key
+            artifacts = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd).artifacts
+            lastQuery = nil
+        }
+        if lastQuery != query {
+            lastQuery = query
+            lastMatches = ComposerMention.candidates(query, in: artifacts)
+        }
+        return lastMatches
+    }
+}

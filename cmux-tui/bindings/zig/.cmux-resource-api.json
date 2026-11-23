@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "913cdbf0195f3719dd0527d9fb271016879dc0a17638acd63d6fb4ba568b8919",
+  "catalog_sha256": "d3ce38702dd442f121f7ca53834ee962f6013d67ac069040b9918d95dca1fc56",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -189,6 +189,9 @@
     },
     "cloud.machine.chat_access": {
       "class": "read"
+    },
+    "cloud.machine.chief_start": {
+      "class": "mutation"
     },
     "cloud.machine.io": {
       "class": "mutation"
