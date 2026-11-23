@@ -5,7 +5,7 @@ import { Button } from "../../../ui/Button";
 import { useQuery } from "@tanstack/react-query";
 import { useStore } from "../context";
 import { sectionActionsQuery } from "../sectionQueries";
-import { useSeveralSpaces } from "./HostSections";
+import { useSeveralSpaces } from "../cardRows";
 
 const NONE: never[] = [];
 

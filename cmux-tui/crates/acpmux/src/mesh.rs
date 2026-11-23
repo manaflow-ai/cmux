@@ -32,6 +32,19 @@ pub struct SessionRow {
     /// `coordinator`). The hub prefixes it with the member/team namespace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_address: Option<String>,
+    /// The session's working directory, which the hub keeps and its address book returns, so
+    /// another machine lists the chat under its folder. Left out past [`MAX_CWD_UNITS`]: the hub
+    /// refuses a whole heartbeat over one long field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+/// The longest `cwd` (UTF-16 units, as the hub counts) a heartbeat lists (`MeshSessionAnnouncement`).
+pub const MAX_CWD_UNITS: usize = 1024;
+
+/// `cwd` as a heartbeat may list it: none when the hub would refuse its length.
+pub fn heartbeat_cwd(cwd: &str) -> Option<String> {
+    (!cwd.is_empty() && cwd.encode_utf16().count() <= MAX_CWD_UNITS).then(|| cwd.to_owned())
 }
 
 /// The hub's address book (`GET /v1/mesh/sessions`): the team's live daemons and sessions.
@@ -69,6 +82,23 @@ pub struct BookSession {
     pub state: String,
     #[serde(default)]
     pub last_seen_at: u64,
+    /// The rest of a row a local one carries: read whenever the hub returns them, each `None`
+    /// when it does not. Every hub row lists every one of these keys, null when unknown, so a
+    /// reader never tells a hub row from a local one by a missing key (`mesh_book::row_of`).
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub title_source: Option<String>,
+    #[serde(default)]
+    pub name_given: Option<bool>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub agent_session_id: Option<String>,
+    #[serde(default)]
+    pub host_build: Option<String>,
 }
 
 /// A heartbeat: it replaces this daemon's sessions in the address book.
@@ -467,7 +497,7 @@ pub trait MeshHub: Send + Sync {
 /// against another hub. Each read takes the client then in use; the lock is never held across
 /// a call.
 #[derive(Default)]
-pub struct MeshSlot(std::sync::RwLock<Option<Arc<dyn MeshHub>>>);
+pub struct MeshSlot(std::sync::RwLock<Option<Arc<dyn MeshHub>>>, crate::mesh_gate::Gate);
 
 impl MeshSlot {
     /// The client in use, if a relay runs.
@@ -479,7 +509,14 @@ impl MeshSlot {
     /// Make `client` the one in use; the one it replaced, if any.
     pub fn set(&self, client: Arc<dyn MeshHub>) -> Option<Arc<dyn MeshHub>> {
         use crate::no_panic::RwLockExt;
+        // Another hub, perhaps: what the last one answered says nothing of it.
+        self.1.answered();
         self.0.write_or_recover().replace(client)
+    }
+
+    /// How often sends try the hub while it fails (`mesh_gate.rs`).
+    pub fn gate(&self) -> &crate::mesh_gate::Gate {
+        &self.1
     }
 
     /// No client: the relay stopped. The one it removed, if any.

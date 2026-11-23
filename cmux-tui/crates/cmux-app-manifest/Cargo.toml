@@ -18,3 +18,19 @@ sha2.workspace = true
 hex.workspace = true
 jsonschema.workspace = true
 regex.workspace = true
+# contributes.wallpapers (package.rs): the manifest check; the program check only
+# with the feature wallpaper-programs below.
+cmux-wallpaper = { path = "../cmux-wallpaper" }
+
+[features]
+# The WGSL program check of `contributes.wallpapers` (naga, about 1.8 MB):
+# author tooling only. Without it validate_package checks each wallpaper's
+# folder, wallpaper.json and program size, and reports the program as
+# `wallpaper.programNotChecked` (a warning). The app, the daemon and the CLI
+# (cmux-tui, cmux-tui-core, cmux-customize) never turn it on.
+wallpaper-programs = ["cmux-wallpaper/compile"]
+
+[dev-dependencies]
+# The tests check programs too (tests/fixtures.rs, tests/wallpaper_memory.rs).
+# A dev-dependency's features reach only test builds, never a shipped binary.
+cmux-wallpaper = { path = "../cmux-wallpaper", features = ["compile"] }

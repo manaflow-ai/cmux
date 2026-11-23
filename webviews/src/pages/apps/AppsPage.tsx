@@ -5,6 +5,7 @@ import { useRef, useSyncExternalStore, type KeyboardEvent, type ReactNode } from
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
+import { CustomizeFeature } from "./CustomizeFeature";
 import { InstalledView } from "./InstalledView";
 import { CategoryBar, HeroCard, ItemCard, ItemRow, ListRow } from "./items";
 import { categoryLabel, featuredApps, filterApps, type StoreTab } from "./model";
@@ -13,7 +14,8 @@ import type { CatalogApp } from "./types";
 import { Skeleton } from "../../ui/Skeleton";
 import { SplitEdge } from "../../ui/SplitEdge";
 import { useUiDirection } from "../../ui/UiProvider";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 
 /** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement. */
 type ToolbarTab = StoreTab | "examples";
@@ -22,10 +24,10 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const tabRefs = useRef<Partial<Record<ToolbarTab, HTMLButtonElement>>>({});
   const { t } = strings;
-  // A lost owner link shows nothing until it lasts past the grace (a launch, a daemon restart:
-  // the store re-reads once the link is back); then the disconnected state.
+  // A lost owner link keeps the listings it had and says so only once it lasts (a launch, a daemon
+  // restart: the store re-reads once the link is back), as a corner mark that takes no room.
   const down = snap.connection === "disconnected";
-  const downLasting = useLasting(down);
+  const downLasting = useConnectionQuiet(down);
   // The `tab` placement of Examples (DEV, examples=tab) is a third toolbar tab: Discover on the
   // Examples shelf. Every other placement keeps two tabs.
   const examplesTab = snap.examplesOffered && snap.examplesStyle === "tab";
@@ -103,14 +105,10 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
       {snap.error && snap.connection !== "disconnected" && (
         <output className="apps-error selectable">{snap.error}</output>
       )}
-      {down && !downLasting ? null : down ? (
-        <output className="apps-state">
-          <span className="apps-state-mark" aria-hidden="true">
-            !
-          </span>
-          <strong>{t("store.window.title")}</strong>
-          <span>{t("store.disconnected")}</span>
-        </output>
+      {downLasting ? <ConnectionChip text={t("store.disconnected")} /> : null}
+      {down && snap.catalog.length === 0 && snap.installed.length === 0 ? (
+        // Nothing read yet and the link is down: blank, and no false empty shelf either.
+        <div className="apps-state" />
       ) : snap.tab === "installed" ? (
         <InstalledView snap={snap} store={store} strings={strings} />
       ) : (
@@ -156,6 +154,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   );
   const listing = (
     <div className="apps-discover-list" data-browse-style={framed ? snap.browse : undefined}>
+      {home && <CustomizeFeature store={store} strings={strings} />}
       {banner && <CloudFeature store={store} strings={strings} />}
       <CategoryBar
         categories={snap.categories}

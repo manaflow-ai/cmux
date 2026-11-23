@@ -275,6 +275,10 @@ struct WorkspaceHoverCardContent: Equatable {
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
         facts += WorkspaceHoverCardWork.facts(detail)
+        // Who made it and why, when an agent or a script did (Leo 2026-11-19: "acpmux should
+        // expose these a lot better"); a workspace the person made says nothing new.
+        let origin = WorkspaceHoverCardOrigin.shipped
+        if !WorkspaceHoverCardOrigin.isFooter(origin) { facts += WorkspaceHoverCardOrigin.facts(detail, style: origin, title: workspace.title) }
         // Terminals the freeing tier ended at their prompt; showing the workspace starts them again.
         if case let freed = workspace.tabs.filter(\.isFreed).count, freed > 0 {
             facts.append(Fact(icon: .actionSnooze, text: Strings.freedTerminals(freed), lines: 2, kind: "freed"))
@@ -329,6 +333,7 @@ struct WorkspaceHoverCardContent: Equatable {
         case .empty:
             break
         }
+        if WorkspaceHoverCardOrigin.isFooter(origin) { facts += WorkspaceHoverCardOrigin.facts(detail, style: origin, title: workspace.title) }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
             age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts, host: facts.first { $0.kind == "machine" },
