@@ -31,7 +31,7 @@ import { isBrowserPick } from "./browserPickModel";
 import { isUIPick } from "./uiPickModel";
 import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
-import { TILE_SHAPE_EVENT } from "./fieldGrowthEvent";
+import { TILE_SHAPE_EVENT, dispatchBubbling } from "./fieldGrowthEvent";
 import { chipRef } from "../conversation/sendMorph";
 
 type Options = {
@@ -375,7 +375,7 @@ export function useInlineAttachments(options: Options) {
       if (before !== shape) changed = dom;
     }
     shapes.current = next;
-    changed?.dispatchEvent(new CustomEvent(TILE_SHAPE_EVENT, { bubbles: true }));
+    if (changed) dispatchBubbling(changed, TILE_SHAPE_EVENT);
   }, [views, options.pending, options.attachments]);
 
   const chips = [...views].map(([id, dom]) =>
