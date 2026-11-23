@@ -16,6 +16,14 @@
 //!   (git) apps installed on this machine, which a sync pushes to the
 //!   person's account, and the ones the account says another device has
 //!   that this one lacks ("Install on this Mac"; consent card each time).
+//! - `apps.updates.list {refresh?}` answers the installed git apps whose row
+//!   names another reviewed commit, from the cached index (never the
+//!   network): `{revision, updates: [{app, name, ref, current_version,
+//!   current_commit, version, commit, install_app}], fetched_at, stale,
+//!   refreshing, error?}`. Catalog apps ship with cmux and never list.
+//! - `apps.update {app, idempotency_key, grant_optional?}` installs that
+//!   row's `install_app` through `apps.install` (user origin, its consent
+//!   card, its answer); an app with no update is `apps.update.none`.
 //! - `apps.community.synced.put {items, idempotency_key}` stores what the
 //!   account synced down (verified app connection only, `store_op_mutates`).
 //!
@@ -32,6 +40,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::deploy::InstallParams;
+use super::mirror::Origin;
 use super::store::{bad_request, params, to_value};
 use super::supervisor::{ApiError, Supervisor, now_ms};
 use crate::panic_free::RecoverPoison;
@@ -596,6 +606,105 @@ pub(super) struct InstallsResult {
     pub synced_at: Option<u64>,
 }
 
+/// One update (`apps.updates.list` `updates[]`): an installed git app whose
+/// Community row names another reviewed commit than the one installed.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct UpdateRow {
+    /// The installed app id (`apps.update {app}`).
+    pub app: String,
+    pub name: String,
+    /// `HOST/OWNER/REPO[/PATH]`.
+    #[serde(rename = "ref")]
+    pub reference: String,
+    /// The installed version (its tag's, else the short commit).
+    pub current_version: String,
+    pub current_commit: String,
+    /// The row's version (else its latest release's, else the short commit).
+    pub version: String,
+    /// The row's reviewed commit.
+    pub commit: String,
+    /// What `apps.update` installs: `ref@commit`.
+    pub install_app: String,
+}
+
+/// `apps.updates.list`: answered from the cached index, never the network.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct UpdatesListParams {
+    /// Fetch now even when the cache is fresh (still answers from the cache).
+    #[serde(default)]
+    refresh: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct UpdatesListResult {
+    revision: u64,
+    updates: Vec<UpdateRow>,
+    /// As `catalog.list {source: "community"}` says them.
+    fetched_at: Option<u64>,
+    stale: bool,
+    refreshing: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// `apps.update {app, idempotency_key, grant_optional?}`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct UpdateParams {
+    app: String,
+    idempotency_key: String,
+    #[serde(default)]
+    grant_optional: Option<bool>,
+}
+
+fn short_commit(commit: &str) -> String {
+    commit.chars().take(7).collect()
+}
+
+/// The installed git apps (`sources`, ids in `installed`) whose Community
+/// row, matched by ref, names another reviewed commit. No index: none.
+fn updates_from(
+    index: Option<&Index>,
+    sources: &BTreeMap<String, Value>,
+    installed: &BTreeSet<String>,
+) -> Vec<UpdateRow> {
+    let Some(index) = index else { return Vec::new() };
+    let rows: Vec<CommunityRow> =
+        index.items.iter().filter_map(|item| row(item, &Installed::default())).collect();
+    sources
+        .iter()
+        .filter(|(id, _)| installed.contains(*id))
+        .filter_map(|(id, source)| {
+            let reference = source_ref(source)?;
+            let current_commit = string(source, "commit").filter(|c| is_commit(c))?;
+            let wanted = reference.to_lowercase();
+            let row = rows.iter().find(|r| r.reference.to_lowercase() == wanted)?;
+            if row.commit.eq_ignore_ascii_case(&current_commit) {
+                return None;
+            }
+            let current_version = string(source, "version")
+                .or_else(|| string(source, "tag"))
+                .unwrap_or_else(|| short_commit(&current_commit));
+            let version = row
+                .version
+                .clone()
+                .or_else(|| row.latest_release.as_ref().map(|r| r.version.clone()))
+                .unwrap_or_else(|| short_commit(&row.commit));
+            Some(UpdateRow {
+                app: id.clone(),
+                name: row.name.clone(),
+                reference,
+                current_version,
+                current_commit,
+                version,
+                commit: row.commit.clone(),
+                install_app: row.install_app.clone(),
+            })
+        })
+        .collect()
+}
+
 /// Whether a `catalog.list` / `catalog.get` asks for the Community source.
 pub(super) fn wants(args: &Value) -> bool {
     args["source"] == "community"
@@ -832,6 +941,78 @@ impl Supervisor {
         let (installed, here) = self.community_installed();
         let (elsewhere, synced_at) = self.community_elsewhere(&installed);
         InstallsResult { here, elsewhere, synced_at }
+    }
+
+    /// The Community updates of the installed git apps against `index`, and
+    /// the install mirror revision they reflect.
+    fn community_updates(&self, index: Option<&Index>) -> (Vec<UpdateRow>, u64) {
+        let sources = git_sources(self.config.state_dir.as_deref());
+        let (installed, revision) = {
+            let inner = self.inner.lock().recover_poison();
+            let installed: BTreeSet<String> = inner
+                .mirror
+                .apps
+                .iter()
+                .filter(|(_, r)| r.installed)
+                .map(|(id, _)| id.clone())
+                .collect();
+            (installed, inner.mirror.revision)
+        };
+        (updates_from(index, &sources, &installed), revision)
+    }
+
+    /// The updates the cached index knows of, by app id; never starts a
+    /// fetch (`installed.list` fills `state.update` from it).
+    pub(super) fn community_updates_cached(&self) -> BTreeMap<String, UpdateRow> {
+        let index = self.community().status(false, false).0.index;
+        let (updates, _) = self.community_updates(index.as_deref());
+        updates.into_iter().map(|update| (update.app.clone(), update)).collect()
+    }
+
+    /// `apps.updates.list`: from the cached index; a due refresh runs off
+    /// the request and `apps-changed {transaction: "community"}` follows it.
+    pub(super) fn community_updates_list(
+        &self,
+        p: UpdatesListParams,
+    ) -> Result<UpdatesListResult, ApiError> {
+        let status = self.community_status(p.refresh == Some(true));
+        let (updates, revision) = self.community_updates(status.index.as_deref());
+        Ok(UpdatesListResult {
+            revision,
+            updates,
+            fetched_at: status.index.as_ref().map(|i| i.fetched_at),
+            stale: status.stale,
+            refreshing: status.refreshing,
+            error: status.error,
+        })
+    }
+
+    /// `apps.update`: installs the app's update (`install_app`, the row's
+    /// reviewed commit) through `apps.install`'s path, its user-origin check
+    /// and its answer. An app with no update (current, not a Community app,
+    /// not installed, or no cached index) is refused.
+    pub(super) fn community_update(
+        &self,
+        client: u64,
+        p: UpdateParams,
+        origin: Origin,
+    ) -> Result<Value, ApiError> {
+        if origin != Origin::User {
+            return Err(ApiError::new("apps.origin", "updating an app needs a user action"));
+        }
+        let Some(update) = self.community_updates_cached().remove(&p.app) else {
+            return Err(ApiError::new(
+                "apps.update.none",
+                format!("{} has no update: it is current or not a Community app", p.app),
+            ));
+        };
+        let install = InstallParams {
+            app: update.install_app,
+            idempotency_key: p.idempotency_key,
+            grant_optional: p.grant_optional,
+            deploy: None,
+        };
+        self.store_install_deploy(client, install, origin)
     }
 
     fn community_synced_put(&self, p: SyncedPutParams) -> Result<Value, ApiError> {

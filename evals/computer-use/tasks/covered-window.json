@@ -17,7 +17,8 @@
     {
       "fixture": "person",
       "name": "person",
-      "geometry": "500x560+40+40"
+      "geometry": "500x560+40+40",
+      "cover": "form"
     }
   ],
   "checks": [
@@ -37,5 +38,6 @@
   "expect_refusal": false,
   "person_present": true,
   "max_turns": 30,
-  "timeout_s": 300
+  "timeout_s": 300,
+  "notes": "On macOS the Person window is sized at reset to cover the form's browser window (cover: form)."
 }

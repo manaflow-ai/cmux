@@ -766,6 +766,11 @@ pill (Chief model is configured on the Mac). Everything below applies to both un
   bottom content inset = composer height + 16.
 - Empty (new session): centered glyph (agent avatar 48) + `title3` "What should <agent> do?"
   + `rowSubtitle` "<workspace> on <Mac>". Composer focused only if the user tapped "new".
+  The first time a new chat shows, the mark, title, subtitle and composer rise in
+  (`NewChatEntrance.rise`: 10-14 pt + fade, mark from 90%, 50 ms apart, spring response 0.5 /
+  damping 0.84, settled by ~450 ms). Render only: the composer takes typing from frame 0; the
+  start pose holds through the first drawn frame; Reduce Motion draws it at rest. At launch the
+  shell arrives from 104% on a 0.55 / 0.86 spring as the launch mark leaves.
   (`claude-05-composer-focused`, Grok "Ask Anything" home `grok-01`.)
 - History loads newest-first in pages of 50 turns; older pages prepend while keeping the scroll
   offset (anchor on the first visible turn id). Top-of-history: `meta` "Session started
@@ -943,13 +948,16 @@ in the available area (above the composer when one exists): symbol 28 pt `label`
 
 ### 7.4 Offline and reconnecting
 
-- Connection banner (global overlay under the toolbar, centered, 8 pt below the toolbar line):
-  glass capsule 36 h, padding 14, `footnote` semibold:
-  - Reconnecting: small `ProgressView` + "Reconnecting to <Mac>…". Shown only after 1.5 s of
-    disconnection (most blips heal silently).
-  - Offline (no network): `wifi.slash` + "You're offline".
-  - Mac offline: `moon.zzz` + "<Mac> is offline". Tap → sheet with last seen time and "Wake
-    with Wake-on-LAN" (when supported, future) / "Retry".
+- Connection chip (`ConnectionChip`, a global overlay under the toolbar, centered, 8 pt below
+  the toolbar line): glass capsule 26 h, padding 10, `meta` semibold, one or two words, never a
+  sentence; the sentence is its VoiceOver label. It floats over the content and takes no room:
+  showing or hiding it moves nothing (Leo, 2026-11-21: "stop layout shifting"). Shown only after
+  the 10 s quiet gate (`QuietStatusGate`; most blips heal silently).
+  - Reconnecting: spinner + "Reconnecting".
+  - Offline (no network): `wifi.slash` + "Offline"; the chip is a Retry button.
+  - Mac offline: `moon.zzz` + "Mac offline"; the chip is a Retry button.
+- A state with a sentence to read or an action (signed out, pairing, a failed refresh) is the
+  wider banner (glass, 36 h, `footnote` semibold), also an overlay that moves nothing.
   - Recovered: `checkmark` + "Connected" for 1.5 s then hides.
   Enter/exit: move from y - 12 + opacity, `snappy`. Never more than one banner.
 - Stale data: lists keep the last snapshot visible with rows at full opacity; a `meta` "Updated

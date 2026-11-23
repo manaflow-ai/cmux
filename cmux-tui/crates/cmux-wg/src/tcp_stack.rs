@@ -328,6 +328,9 @@ impl TcpStack {
         // Under repeated loss, resend only the holes the peer's SACK blocks
         // show, several per round trip, with one window cut per episode.
         socket.set_sack_recovery(true);
+        // An underlay path smaller than the tunnel MTU that silently drops
+        // full segments: after two timeouts in a row, send 1280 byte packets.
+        socket.set_black_hole_fallback(true);
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(timeout.as_micros()).unwrap_or(u64::MAX),
         )));

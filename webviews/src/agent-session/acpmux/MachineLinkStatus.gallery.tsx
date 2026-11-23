@@ -36,7 +36,7 @@ const longName: PeerLink = { ...signIn, machine: "gcp-codex-lane-12-us-central1-
 function Row({ link, look, before = false }: Props) {
   return (
     <div className="acpmux-shell" data-machine-link-fixture style={{ padding: 16 }}>
-      <form className="acpmux-composer">
+      <form className="acpmux-composer" data-foot="">
         <div className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
           <span className="acpmux-chips">
             <span className="acpmux-access">
