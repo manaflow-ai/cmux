@@ -403,6 +403,92 @@ async fn fallback(profile: &LinkProfile, path: &str, run: u64, seed: u64) {
     drop(up);
 }
 
+/// Which link a dial came up on: `lan` (direct) or `relayed`.
+async fn first_up_named(
+    a: impl Future<Output = Option<Up>>,
+    b: impl Future<Output = Option<Up>>,
+) -> Option<(Up, &'static str)> {
+    let a = async { a.await.map(|up| (up, "lan")) };
+    let b = async { b.await.map(|up| (up, "relayed")) };
+    tokio::pin!(a);
+    tokio::pin!(b);
+    tokio::select! {
+        up = &mut a => match up { Some(up) => Some(up), None => b.await },
+        up = &mut b => match up { Some(up) => Some(up), None => a.await },
+    }
+}
+
+/// The app's dial on `radio`: relayed alone, or raced against a direct dial to `lan_addr`.
+async fn dial_named(mac: &Mac, radio: &Radio, lan_addr: Option<SocketAddr>) -> Option<(Up, &'static str)> {
+    match lan_addr {
+        Some(addr) => first_up_named(dial_lan(mac, addr), dial_relayed(mac, radio)).await,
+        None => dial_relayed(mac, radio).await.map(|up| (up, "relayed")),
+    }
+}
+
+/// The Wi-Fi round trip: up on the Wi-Fi, the Wi-Fi drops (the phone redials on cellular,
+/// `cell`), then a fresh Wi-Fi comes back (the phone redials on it). Each leg's value is the
+/// time from the path event to the first echo on the new link, the gap with no bytes flowing
+/// when the old link is gone (the Wi-Fi drop) and the switch time when it is not (the return).
+/// `path` `relayed` is today's app (relayed only); `lan` races the direct dial against it.
+async fn roundtrip(profile: &LinkProfile, cell: &LinkProfile, path: &str, run: u64, seed: u64) {
+    let trace = Trace::new();
+    let mac = Mac::start().await;
+    let wifi = Radio::start(&mac, profile, seed, &trace).await;
+    let cellular = Radio::start(&mac, cell, seed, &trace).await;
+    let tag = |leg: &str| format!("{path}:{}:{leg}", cell.name);
+    let lan_on = |radio: &Radio| (path == "lan").then(|| radio.udp.addr());
+    let Some((up, _)) = dial_named(&mac, &wifi, lan_on(&wifi)).await else {
+        emit(profile, &tag("wifi_up"), "switch_ms", None, run, seed);
+        return;
+    };
+    if first_echo(&up.connected.link, Instant::now()).await.is_none() {
+        emit(profile, &tag("wifi_up"), "switch_ms", None, run, seed);
+        return;
+    }
+    // Wi-Fi drops: everything on it goes dark; the phone redials on cellular. A direct dial
+    // is still raced (the app does not know the LAN is gone), on the dead Wi-Fi address.
+    let dropped = Instant::now();
+    wifi.leave();
+    let on_cell = dial_named(&mac, &cellular, lan_on(&wifi)).await;
+    let (value, won) = match &on_cell {
+        Some((again, won)) => (first_echo(&again.connected.link, dropped).await, *won),
+        None => (None, "none"),
+    };
+    emit(profile, &tag(&format!("to_cell_{won}")), "switch_ms", value, run, seed);
+    drop(up);
+    let Some((cell_up, _)) = on_cell else { return };
+    // Wi-Fi comes back (a fresh shaper pair, the Mac's LAN still there); the cellular link
+    // keeps flowing while the phone redials on the Wi-Fi.
+    let back = Radio::start(&mac, profile, seed + 1_000, &trace).await;
+    let returned = Instant::now();
+    let (value, won) = match dial_named(&mac, &back, lan_on(&back)).await {
+        Some((again, won)) => (first_echo(&again.connected.link, returned).await, won),
+        None => (None, "none"),
+    };
+    emit(profile, &tag(&format!("to_wifi_{won}")), "switch_ms", value, run, seed);
+    drop(cell_up);
+}
+
+/// `NETCOND_ROUNDTRIP_CELLS=lte,lossy-3 NETCOND_ROUNDTRIP_PATHS=relayed,lan NETCOND_RUNS=20`:
+/// the Wi-Fi round trip ([`roundtrip`]) on the `lan` Wi-Fi profile, once per cellular profile.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "a measurement: --ignored --nocapture"]
+async fn lan_roundtrip() {
+    let file = ProfileFile::builtin();
+    let runs = env_u64("NETCOND_RUNS", 5);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let wifi = file.get("lan").cloned().expect("lan profile");
+    for cell in env_list("NETCOND_ROUNDTRIP_CELLS", "lte,lossy-3") {
+        let cell = file.get(&cell).cloned().unwrap_or_else(|| panic!("no link profile {cell}"));
+        for run in 0..runs {
+            for path in env_list("NETCOND_ROUNDTRIP_PATHS", "relayed,lan") {
+                roundtrip(&wifi, &cell, &path, run, run + seed_base).await;
+            }
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "a measurement: scripts/measure or --ignored --nocapture"]
 async fn lan_conditions() {
