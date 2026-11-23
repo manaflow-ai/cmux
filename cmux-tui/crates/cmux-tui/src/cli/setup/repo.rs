@@ -410,7 +410,7 @@ pub(super) fn check_text(report: &setup::Report, dir: &Path, strict: bool) -> St
     // Every string comes from the folder: shown inert.
     let value = inert(&serde_json::to_value(report).unwrap_or(Value::Null));
     let mut lines = Vec::new();
-    for finding in value["findings"].as_array().into_iter().flatten() {
+    for finding in value.get("findings").and_then(Value::as_array).into_iter().flatten() {
         let text = |key: &str| finding[key].as_str().unwrap_or_default().to_owned();
         let mut place = text("path");
         if let Some(line) = finding["line"].as_u64() {
@@ -424,10 +424,13 @@ pub(super) fn check_text(report: &setup::Report, dir: &Path, strict: bool) -> St
             lines.push(format!("  fix: {fix}"));
         }
     }
-    for skipped in value["skipped"].as_array().into_iter().flatten() {
+    for skipped in value.get("skipped").and_then(Value::as_array).into_iter().flatten() {
         lines.push(format!("note: not checked: {}", skipped["why"].as_str().unwrap_or_default()));
     }
-    let name = value["setup_id"].as_str().map_or_else(|| dir.display().to_string(), str::to_owned);
+    let name = value
+        .get("setup_id")
+        .and_then(Value::as_str)
+        .map_or_else(|| dir.display().to_string(), str::to_owned);
     let (errors, warnings) = (report.errors(), report.warnings());
     let count = |n: usize, what: &str| format!("{n} {what}{}", if n == 1 { "" } else { "s" });
     lines.push(if errors > 0 {
@@ -777,7 +780,7 @@ pub(super) fn card_text(card: &Value) -> String {
         at(card, "/source/commit").as_str().unwrap_or_default().get(..12).unwrap_or_default(),
     )];
     if card["reviewed"] != json!(true) {
-        lines.push(if card["source"]["local"] == json!(true) {
+        lines.push(if at(card, "/source/local") == &json!(true) {
             "Not reviewed by cmux: it comes straight from this folder.".to_owned()
         } else {
             "Not reviewed by cmux: it comes straight from the repo.".to_owned()
@@ -1060,7 +1063,7 @@ pub(super) fn install_as(
         "installed": receipt,
         "card": card,
         "extension_errors": extension_errors,
-        "undo": card["undo"],
+        "undo": card.get("undo"),
         "page": opened.source.reference().map(Reference::page_url),
     }))
 }
@@ -1444,7 +1447,7 @@ fn watch(
                 if !step.is_empty() {
                     session = Some(step);
                 }
-                let updated = value["updated"] != json!(false);
+                let updated = value.get("updated") != Some(&json!(false));
                 if json {
                     println!("{}", json!({"reload": reloads, "ms": ms, "updated": updated}));
                 } else if updated {
