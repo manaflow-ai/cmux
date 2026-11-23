@@ -1,9 +1,9 @@
 import { lazy, Suspense, useMemo, useState } from "react";
 import { shownCategories, sidebarSections } from "../categories";
-import { useSettingsRouter, useSettingsState, useStore } from "../context";
+import { useSettingsState, useStore, useSettingsRouter } from "../context";
 import { Icon } from "../icons";
 import { sectionHref } from "../router";
-import { filterPages, filterPlaces, filterRows, joinConsentPlaces } from "../search";
+import { filterPlaces, filterRows, joinConsentPlaces, filterPages } from "../search";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
 import { CHIEF_PET_ROWS } from "../cardRows";
