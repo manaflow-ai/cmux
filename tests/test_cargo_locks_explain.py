@@ -13,7 +13,8 @@ What this holds:
   5 MB log answered, and a scan that reads a line a fixed number of times, as a count.
 - The Python and shell wrappers, run against a fake cargo: a refusal prints the stale-lock block and not the old
   cause, with the old exit code; any other failure prints the old cause.
-- The four workflow steps ask explain before their own ::error.
+- The three workflow steps ask explain before their own ::error, and the daemon tests step runs cargo through
+  scripts/ci/cargo_test_retry.py, which asks explain before it runs anything again.
 - The list: every file (workflow step, for workflows) under scripts/ and .github/ that runs cargo with --locked and
   prints ::error, FAIL or left: is either explained or allowlisted as passing cargo's output through. A new wrapper
   fails here until it is one or the other.
@@ -472,12 +473,11 @@ class Pr42257MatcherTests(Scratch):
                     self.assertEqual(self.stale_lock(directory, module, text, root), "cmux-tui/Cargo.lock")
 
 
-# Sites 6 to 9: (workflow, a text of the step's own failure line).
+# Sites 6 to 8: (workflow, a text of the step's own failure line). Site 9, the daemon tests step, is cargo_test_retry.py.
 WORKFLOW_SITES = {
     ".github/workflows/cmux-next-base-autofix.yml": "fails cmux-config's tests (the daemon would not start)",
     ".github/workflows/cmux-tui-spec.yml": "::error title=acpmux protocol tests::a protocol test failed",
     ".github/workflows/cmux-tui-windows-check.yml": "::error title=Windows build broken::",
-    ".github/workflows/cmux-tui-artifacts.yml": "retrying Cargo registry and build fetches",
 }
 
 
@@ -507,10 +507,13 @@ class WorkflowSiteTests(unittest.TestCase):
                                  f"{workflow}: the explain path is wrong for working-directory {directory}")
 
     def test_the_daemon_tests_never_retry_a_stale_lock(self) -> None:
+        """The step runs cargo through cargo_test_retry.py, whose stale-lock exit (tests/test_ci_cargo_test_retry.py
+        runs it) comes before its retry."""
         run = next(step["run"] for _, step in steps(ROOT / ".github/workflows/cmux-tui-artifacts.yml")
-                   if "retrying Cargo registry" in (step.get("run") or ""))
-        loop = run[run.index("for attempt in 1 2 3"):run.index("retrying Cargo registry")]
-        self.assertRegex(loop, r"cargo-locks\.py explain [^\n]*; then\n\s*exit \"\$status\"")
+                   if step.get("name") == "cargo test cmux_next_")
+        self.assertRegex(run, r"python3 \.\./scripts/ci/cargo_test_retry\.py [^\n]*\\\n[^\n]*\\\n\s*-- cargo test ")
+        text = (ROOT / "scripts/ci/cargo_test_retry.py").read_text()
+        self.assertLess(text.index("if stale_lock(args.log):\n            return status"), text.index("time.sleep("))
 
 
 # The list. A file (a workflow: a step, `path#job/step name`) under scripts/ or .github/ that runs cargo with
@@ -527,8 +530,7 @@ EXPLAINED = {
         "explain before the protocol test ::error",
     ".github/workflows/cmux-tui-windows-check.yml#windows-gnu-check/cargo check cmux-tui-core, cmux-tui and acpmux "
     "for Windows": "explain before Windows build broken",
-    ".github/workflows/cmux-tui-artifacts.yml#cmux-next-daemon-tests/cargo test cmux_next_":
-        "explain stops the retry loop",
+    "scripts/ci/cargo_test_retry.py": "explain ends the run before any retry (cmux-tui-artifacts.yml daemon tests)",
     # cmux#42257: their own match of the same three spellings.
     ".github/scripts/rust-workspaces.py": "a refused clippy or test run names the stale lock",
     ".github/scripts/cmux-tui-clippy-changed.py": "cmux#42257",
