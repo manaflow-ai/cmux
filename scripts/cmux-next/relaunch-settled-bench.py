@@ -402,6 +402,16 @@ WATCH_FILE = "webviews/src/agent-session/acpmux/relaunchWatch.ts"
 PROTOCOL_IR = "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"
 
 
+def web_abi(root: Path) -> int | None:
+    """The web ABI of the bundles under ROOT (an app or a bundle build): its pages/web-abi.json."""
+    for found in root.rglob("pages/web-abi.json"):
+        try:
+            return int(json.loads(found.read_text())["abi"])
+        except (OSError, ValueError, KeyError):
+            continue
+    return None
+
+
 def add_watch(tree: Path) -> str:
     """The page's relaunch record (this harness's webviews change, as this checkout has it) applied onto TREE."""
     mine = git("log", "-1", "--format=%H", "--", WATCH_FILE)
@@ -453,6 +463,13 @@ def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scrat
         if done.returncode != 0:
             raise SystemExit(f"build-web-bundles: {(done.stderr or done.stdout).strip()[-400:]}")
         applied["web"] = f"built here from {web_sha[:12]}" + (f" ({sha[:12]} merged onto the base)" if merged else "")
+    # The app serves an overlay only of its own web ABI (WebDevOverride.abiRefusal); another shows the pane it
+    # shipped with, and the run would measure the golden's web, not the ref's.
+    have, need = web_abi(copy.app), web_abi(bundles)
+    if have is not None and need is not None and have != need:
+        raise SystemExit(f"the golden's web ABI is {have} and the ref's bundles need {need}: the app would refuse "
+                         "them; copy a fleet build of a newer commit (--build-job)")
+    applied["web_abi"] = need
     done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", web_sha], env=env,
                           capture_output=True, text=True, timeout=300)
     if done.returncode != 0:
@@ -563,8 +580,14 @@ def chat_tab(copy: Copy, session: str) -> tuple[str | None, str | None, dict]:
 def show_chat(copy: Copy, session: str) -> bool:
     """The seeded chat in front (the `tab.focus` action, which selects its workspace too), checked on the topology:
     the app restores what was in front at the quit, so every round relaunches onto the chat the person was reading."""
-    tab, _, _ = chat_tab(copy, session)
-    if tab is None:
+    found = {}
+
+    def listed():  # a relaunched app answers its socket before it restores every tab
+        found["tab"] = chat_tab(copy, session)[0]
+        return found["tab"]
+    try:
+        tab = hv.until("the chat's tab", 30, listed)
+    except hv.LookError:
         return False
     rpc(copy.socket, "action.run", {"action": "tab.focus", "target": f"tab:{tab}", "focus": True}, timeout=30)
     return bool(hv.until("the chat in front", 20, lambda: chat_tab(copy, session)[2].get("tab") == tab))
