@@ -86,7 +86,7 @@ describe("findReport / pickRange / readOffsets", () => {
 test("an id holding a path keeps none of its words", () => {
   const [clean] = sanitizeRecords([
     record(1, "codex.hook/started", { run: { id: "/home/someone/.codex/hooks.json:exec-12ab" }, callId: "call_9x" }),
-  ]) as { msg: { run: { id: string }; callId: string } }[];
+  ]) as unknown as { msg: { run: { id: string }; callId: string } }[];
   expect(clean!.msg.run.id).not.toContain("home");
   expect(clean!.msg.run.id).not.toContain("hooks");
   expect(clean!.msg.callId.startsWith("call_")).toBe(true);
