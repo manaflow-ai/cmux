@@ -8,7 +8,7 @@
      "optional": "debug.appearance is DEBUG only"},
     {"title": "Back to light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1, "shot": false,
      "optional": "debug.appearance is DEBUG only"},
-    {"title": "Settings > Agents: cmux Tools for Agents in cmux and Agents on This Mac, light", "cmux": ["action", "run", "openSettings", "--setting", "agents.cmuxMcp"], "wait": 6},
+    {"title": "Settings > Agents: Give Agents cmux’s Tools and Agents on This Mac, light", "cmux": ["action", "run", "openSettings", "--setting", "agents.cmuxMcp"], "wait": 6},
     {"title": "Settings > Agents, dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
      "optional": "debug.appearance is DEBUG only"}
   ]

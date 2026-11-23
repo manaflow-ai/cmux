@@ -155,81 +155,57 @@ import Testing
         #expect(model.choice == .off && !model.failed)
     }
 
-    // MARK: First run
+    // MARK: Launch
 
-    /// The step is asked at launch, a first run or an existing installation (an upgrade too), once
-    /// under the launch-only rule: while the answer is not `on`; a yes or an earlier showing keeps
-    /// it quiet.
-    @Test func launchAsksOnceWhileNobodyAnsweredAndAnAgentIsThere() async throws {
+    /// No launch pops up the cmux Tools window (cmux#49395 took back cmux#47749's launch question):
+    /// not a default launch (Nightly and dev builds alike), not one that already saw and closed it
+    /// (its old once flags set), not an answer of `off` or `ask`, and not the first-run steps with
+    /// onboarding on. Settings > Agents keeps the answer. Capture builds and `--skip-onboarding`
+    /// show nothing; `--onboarding` runs the first-run steps.
+    @Test func noLaunchShowsTheCmuxToolsWindow() async throws {
+        typealias Steps = OnboardingWindowPresenter.LaunchSteps
         func presenter() -> (OnboardingWindowPresenter, () -> [OnboardingModel.Step]) {
             var shown: [OnboardingModel.Step] = []
             let presenter = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
                                                       activeLook: nil, present: { shown.append($0.model.step) })
             return (presenter, { shown })
         }
-        func fresh() throws -> UserDefaults {
-            try #require(UserDefaults(testSuiteName: "cmux-agent-tools-ask-\(UUID().uuidString)"))
-        }
-        let defaults = try fresh()
-        let (asks, asked) = presenter()
-        await asks.askAgentToolsOnce(source: Source(), defaults: defaults)
-        #expect(asked() == [.agentTools])
-        #expect(defaults.bool(forKey: OnboardingWindowPresenter.agentToolsAskedKey))
-        // Closed without an answer: the next launch does not ask again.
-        let (again, shownAgain) = presenter()
-        await again.askAgentToolsOnce(source: Source(), defaults: defaults)
-        #expect(shownAgain().isEmpty)
-        // Only a yes keeps it quiet: a no is asked once more under the launch-only rule, and so is a
-        // Mac with no coding agent's CLI on the PATH (agent chats need none).
-        let (quiet, shownOn) = presenter()
-        await quiet.askAgentToolsOnce(source: Source(choice: .on), defaults: try fresh())
-        #expect(shownOn().isEmpty)
-        for source in [Source(choice: .off), Source(agents: [])] {
-            let (asking, shown) = presenter()
-            await asking.askAgentToolsOnce(source: source, defaults: try fresh())
-            #expect(shown() == [.agentTools], "answer \(source.choice), \(source.agents.count) agents")
-        }
-        // An install asked under the old rule (its old flag set) is asked once more.
-        let upgraded = try fresh()
-        upgraded.set(true, forKey: "cmux.onboarding.agentToolsAsked")
-        let (again2, shownUpgraded) = presenter()
-        await again2.askAgentToolsOnce(source: Source(choice: .off), defaults: upgraded)
-        #expect(shownUpgraded() == [.agentTools])
-        let (none, shown) = presenter()
-        await none.askAgentToolsOnce(source: nil, defaults: try fresh())
-        #expect(shown().isEmpty)
-    }
-
-    /// First-run onboarding is off by default (Lawrence 2026-11-09), but the cmux Tools question is not a
-    /// first-run window: until it is answered, agents cmux starts get no cmux server, so a default launch
-    /// (no flag, no env) still asks it once. A teammate's NIGHTLY never asked and its terminals' Codex and
-    /// Claude listed no `cmux` (2026-11-19). Capture builds and `--skip-onboarding` ask nothing;
-    /// `--onboarding` runs the first-run steps instead.
-    @Test func aDefaultLaunchAsksTheCmuxToolsQuestionWithOnboardingOff() async throws {
-        typealias Steps = OnboardingWindowPresenter.LaunchSteps
-        func launch(_ environment: [String: String], _ arguments: [String], showcase: Bool = false)
-            async throws -> (shown: [OnboardingModel.Step], firstRun: Bool) {
-            var shown: [OnboardingModel.Step] = []
-            let presenter = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
-                                                      activeLook: nil, present: { shown.append($0.model.step) })
+        func defaults(dismissedBefore: Bool) throws -> UserDefaults {
             let defaults = try #require(UserDefaults(testSuiteName: "cmux-launch-steps-\(UUID().uuidString)"))
-            let firstRun = await presenter.showLaunchSteps(Steps(environment: environment, arguments: arguments, showcase: showcase),
-                                                           agentTools: Source(), defaults: defaults)
-            return (shown, firstRun)
+            if dismissedBefore {
+                defaults.set(true, forKey: "cmux.onboarding.agentToolsAsked")
+                defaults.set(true, forKey: "cmux.onboarding.agentToolsAsked.launchOnly")
+            }
+            return defaults
         }
-        let plain = try await launch([:], ["/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux"])
-        #expect(plain.shown == [.agentTools], "a default launch asks the cmux Tools question")
-        #expect(!plain.firstRun, "and runs no first-run window")
+        let launches: [([String: String], [String], Bool)] = [
+            ([:], ["/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux"], false),
+            ([:], ["cmux"], false),
+            (["CMUX_NEXT_SKIP_ONBOARDING": "1"], ["cmux"], false),
+            ([:], ["cmux", "--skip-onboarding"], false),
+            ([:], ["cmux"], true),
+            (["CMUX_NEXT_ONBOARDING": "1"], ["cmux"], false),
+            ([:], ["cmux", "--onboarding"], false),
+        ]
+        for (environment, arguments, showcase) in launches {
+            for dismissedBefore in [false, true] {
+                for isFirstRun in [false, true] {
+                    let (launch, shown) = presenter()
+                    let steps = Steps(environment: environment, arguments: arguments, showcase: showcase)
+                    let store = try defaults(dismissedBefore: dismissedBefore)
+                    store.set(true, forKey: OnboardingWindowPresenter.makeItYoursShownKey)
+                    let firstRun = await launch.showLaunchSteps(steps, isFirstRun: isFirstRun, defaults: store)
+                    if firstRun {
+                        await launch.showFirstRunSteps(isFirstRun: isFirstRun, source: nil, defaults: store) {}
+                    }
+                    #expect(!shown().contains(.agentTools),
+                            "\(environment) \(arguments) showcase \(showcase) dismissed \(dismissedBefore) first \(isFirstRun)")
+                }
+            }
+        }
+        #expect(Steps(environment: [:], arguments: ["cmux"]) == .standard, "a default launch")
         #expect(Steps(environment: [:], arguments: ["cmux"]).skipsFirstRun, "first-run onboarding stays off")
-        for (environment, arguments, showcase) in [(["CMUX_NEXT_SKIP_ONBOARDING": "1"], ["cmux"], false),
-                                                   ([:], ["cmux", "--skip-onboarding"], false),
-                                                   ([:], ["cmux"], true)] {
-            let skipped = try await launch(environment, arguments, showcase: showcase)
-            #expect(skipped.shown.isEmpty && !skipped.firstRun, "\(environment) \(arguments) showcase \(showcase)")
-        }
         for (environment, arguments) in [(["CMUX_NEXT_ONBOARDING": "1"], ["cmux"]), ([:], ["cmux", "--onboarding"])] {
-            let onboarding = try await launch(environment, arguments)
-            #expect(onboarding.firstRun && onboarding.shown.isEmpty, "\(environment) \(arguments)")
             #expect(!Steps(environment: environment, arguments: arguments).skipsFirstRun)
         }
     }

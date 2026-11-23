@@ -854,7 +854,7 @@ fn the_server_refuses_unless_cmux_json_enables_it() {
 }
 
 /// The off server's reason names the setting the person actually changes:
-/// Settings > Agents > cmux Tools for Agents in cmux (Turn On), or
+/// Settings > Agents > Give Agents cmux’s Tools (On), or
 /// `cmux settings set agents.cmuxMcp on --confirm`, not `mcp.enabled` (the
 /// switch this flow never sets). An explicit `"mcp": {"enabled": false}` is
 /// named as itself. Read outside an agent chat, in every locale.
@@ -881,7 +881,7 @@ fn the_refusal_names_the_setting_the_person_turns_on() {
     assert!(
         english
             .disabled
-            .contains("Turn On in cmux Settings > Agents > cmux Tools for Agents in cmux")
+            .contains("Give Agents cmux’s Tools to On in cmux Settings > Agents")
     );
     for messages in messages::all() {
         assert!(messages.disabled.contains("cmux settings set agents.cmuxMcp on --confirm"));

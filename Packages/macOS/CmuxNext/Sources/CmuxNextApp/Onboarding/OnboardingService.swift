@@ -163,13 +163,11 @@ final class OnboardingService {
     /// (``OnboardingWindowPresenter/showFirstRunSteps``), after which this Mac's first launch is finished
     /// (``OnboardingWindowPresenter/historyShownKey``).
     func showFirstRunSteps(isFirstRun: Bool) async {
-        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun, agentTools: agentTools) else { return }
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun) else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
-        // The cmux Tools question comes at launch whatever owns the first run, for an existing
-        // installation too: until it is answered, the person's agents get no cmux server.
-        guard route == .windows else { return await presenter.askAgentToolsOnce(source: agentTools) }
-        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses, agentTools: agentTools) {
+        guard route == .windows else { return }
+        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) {
             UserDefaults.standard.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
         }
     }

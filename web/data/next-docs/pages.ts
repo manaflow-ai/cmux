@@ -481,7 +481,7 @@ export const nextDocPages: NextDocPage[] = [
     body: [
       { p: "cmux mcp serve gives an MCP client the same control of cmux that the CLI has. It talks JSON-RPC on stdin and stdout; nothing listens on the network." },
       { h2: "Turn it on" },
-      { p: "Agents you start in cmux get it once you turn on cmux Tools for Agents in cmux in Settings > Agents: Claude Code and Codex in cmux's terminals and its agent chats. cmux gives it to them when it starts them and never changes their own settings. Or run:" },
+      { p: "Agents you start in cmux get it once you turn on Give Agents cmux’s Tools in Settings > Agents: Claude Code and Codex in cmux's terminals and its agent chats. cmux gives it to them when it starts them and never changes their own settings. Or run:" },
       { code: "cmux settings set agents.cmuxMcp on --confirm\ncmux setup mcp", lang: "bash" },
       { p: "A chat cmux starts on another machine (a linked Mac, a Cloud VM, a headless cmux) follows the answer of the Mac that started it. That machine's own setting applies only to chats started there. A chat started from your phone or the web gets none of cmux's tools, and a cmux server in that agent's own settings answers as if the setting were off." },
       { p: "When cmux cannot be sure which cmux server a Codex launch will load, it gives that launch none and leaves Codex's settings as they are, so Codex starts as it would outside cmux, without cmux's tools. That happens when your own cmux entry is an HTTP server, when a project folder's Codex settings define cmux and Codex has not trusted that folder yet (you may trust it at Codex's prompt), when you resume or fork a session, and when you start Codex with --trust, --worktree, --ignore-user-config or --remote." },

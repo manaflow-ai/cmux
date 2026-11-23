@@ -303,6 +303,10 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
                     row.set("error", json!(error));
                 }
             }
+            // The person's per-agent switch (cmux#49395): an agent switched off under a yes gets
+            // none, so it reads as not set up (`planned`), and the report says so.
+            let serves = serves
+                && AgentsCmuxMcp::from_config_file_for(&settings, client.id()) == AgentsCmuxMcp::On;
             let state = match () {
                 _ if here && serves => "terminals",
                 _ if here => "planned",

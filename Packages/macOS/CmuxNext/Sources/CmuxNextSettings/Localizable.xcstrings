@@ -205272,127 +205272,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Tools for Agents in cmux"
+            "value": "Give Agents cmux’s Tools"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أدوات cmux للوكلاء في cmux"
+            "value": "منح الوكلاء أدوات cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux alati za agente u cmuxu"
+            "value": "Daj agentima cmux alate"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-værktøjer til agenter i cmux"
+            "value": "Giv agenter cmux’ værktøjer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-Werkzeuge für Agenten in cmux"
+            "value": "Agenten die cmux-Tools geben"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Herramientas de cmux para agentes en cmux"
+            "value": "Dar a los agentes las herramientas de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Outils cmux pour les agents dans cmux"
+            "value": "Donner aux agents les outils de cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Strumenti di cmux per gli agenti in cmux"
+            "value": "Dai agli agenti gli strumenti di cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 内のエージェント用 cmux ツール"
+            "value": "エージェントに cmux のツールを提供"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ឧបករណ៍ cmux សម្រាប់ភ្នាក់ងារក្នុង cmux"
+            "value": "ផ្តល់ឧបករណ៍ cmux ដល់ភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 내 에이전트용 cmux 도구"
+            "value": "에이전트에 cmux 도구 제공"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-verktøy for agenter i cmux"
+            "value": "Gi agenter cmux-verktøyene"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Narzędzia cmux dla agentów w cmux"
+            "value": "Daj agentom narzędzia cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ferramentas do cmux para agentes no cmux"
+            "value": "Dar aos agentes as ferramentas do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Инструменты cmux для агентов в cmux"
+            "value": "Дать агентам инструменты cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่องมือของ cmux สำหรับเอเจนต์ใน cmux"
+            "value": "ให้เอเจนต์ใช้เครื่องมือของ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’taki ajanlar için cmux araçları"
+            "value": "Ajanlara cmux araçlarını ver"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Інструменти cmux для агентів у cmux"
+            "value": "Надати агентам інструменти cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Công cụ cmux cho tác tử trong cmux"
+            "value": "Cho tác tử dùng công cụ của cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 中智能体的 cmux 工具"
+            "value": "为智能体提供 cmux 工具"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 中代理的 cmux 工具"
+            "value": "為代理程式提供 cmux 工具"
           }
         }
       }
@@ -205404,127 +205404,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."
+            "value": "Claude Code and Codex you start in cmux, in its terminals and agent chats, can use cmux’s tools, Computer Use included. Off until you turn it on. cmux never changes your agents’ own settings."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحصل الوكلاء التي تشغّلها في cmux على أدوات cmux، بما فيها Computer Use: ‏Claude Code وCodex في طرفيات cmux ومحادثات الوكلاء. إلى أن تختار، لا تحصل على شيء. لا يغيّر cmux أبدًا الإعدادات الخاصة بوكلائك."
+            "value": "يمكن لـ Claude Code وCodex اللذين تشغّلهما في cmux، في طرفياته ومحادثات الوكلاء، استخدام أدوات cmux، بما فيها التحكم بالكمبيوتر. متوقف حتى تشغّله. لا يغيّر cmux إعدادات وكلائك أبدًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenti koje pokreneš u cmuxu dobijaju cmux alate, uključujući Computer Use: Claude Code i Codex u cmux terminalima i agentskim razgovorima. Dok ne izabereš, ne dobijaju ništa. cmux nikad ne mijenja vlastite postavke tvojih agenata."
+            "value": "Claude Code i Codex koje pokrenete u cmuxu, u njegovim terminalima i agent chatovima, mogu koristiti cmux alate, uključujući Computer Use. Isključeno dok ga ne uključite. cmux nikad ne mijenja vlastite postavke vaših agenata."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenter, du starter i cmux, får cmux’ værktøjer, Computer Use inklusive: Claude Code og Codex i cmux’ terminaler og agentchats. Indtil du vælger, får de intet. cmux ændrer aldrig dine agenters egne indstillinger."
+            "value": "Claude Code og Codex, du starter i cmux, i dets terminaler og agentchats, kan bruge cmux’ værktøjer, inklusive Computer Use. Slået fra, indtil du slår det til. cmux ændrer aldrig dine agenters egne indstillinger."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenten, die du in cmux startest, bekommen die Werkzeuge von cmux, Computer Use eingeschlossen: Claude Code und Codex in den Terminals und Agent-Chats von cmux. Bis du dich entscheidest, bekommen sie nichts. cmux ändert nie die eigenen Einstellungen deiner Agenten."
+            "value": "Claude Code und Codex, die du in cmux startest, in seinen Terminals und Agenten-Chats, können die cmux-Tools nutzen, einschließlich Computer Use. Aus, bis du es einschaltest. cmux ändert nie die eigenen Einstellungen deiner Agenten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los agentes que inicias en cmux reciben las herramientas de cmux, Computer Use incluido: Claude Code y Codex en las terminales y los chats de agentes de cmux. Hasta que elijas, no reciben nada. cmux nunca cambia los ajustes propios de tus agentes."
+            "value": "Claude Code y Codex que inicies en cmux, en sus terminales y chats de agentes, pueden usar las herramientas de cmux, incluido Computer Use. Desactivado hasta que lo actives. cmux nunca cambia la configuración propia de tus agentes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les agents que vous lancez dans cmux reçoivent les outils de cmux, Computer Use compris : Claude Code et Codex dans les terminaux et les discussions d’agents de cmux. Tant que vous n’avez pas choisi, ils ne reçoivent rien. cmux ne modifie jamais les réglages propres de vos agents."
+            "value": "Claude Code et Codex lancés dans cmux, dans ses terminaux et ses discussions d’agents, peuvent utiliser les outils de cmux, Computer Use compris. Désactivé tant que vous ne l’activez pas. cmux ne modifie jamais les réglages propres de vos agents."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gli agenti che avvii in cmux ricevono gli strumenti di cmux, Computer Use incluso: Claude Code e Codex nei terminali e nelle chat degli agenti di cmux. Finché non scegli, non ricevono nulla. cmux non cambia mai le impostazioni proprie dei tuoi agenti."
+            "value": "Claude Code e Codex avviati in cmux, nei suoi terminali e nelle chat degli agenti, possono usare gli strumenti di cmux, Computer Use incluso. Disattivato finché non lo attivi. cmux non modifica mai le impostazioni dei tuoi agenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux で起動したエージェントは、Computer Use を含む cmux のツールを使えます。対象は cmux のターミナルとエージェントチャットの Claude Code と Codex です。選ぶまでは何も追加されません。cmux がエージェント自身の設定を変更することはありません。"
+            "value": "cmux のターミナルやエージェントチャットで起動した Claude Code と Codex が、コンピュータ操作を含む cmux のツールを使えます。オンにするまではオフです。cmux がエージェント自体の設定を変更することはありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux ទទួលបានឧបករណ៍ cmux រួមទាំង Computer Use៖ Claude Code និង Codex ក្នុងស្ថានីយ និងការជជែកភ្នាក់ងាររបស់ cmux។ រហូតដល់អ្នកជ្រើស ពួកវាមិនទទួលបានអ្វីទេ។ cmux មិនដែលផ្លាស់ប្ដូរការកំណត់ផ្ទាល់ខ្លួនរបស់ភ្នាក់ងារអ្នកទេ។"
+            "value": "Claude Code និង Codex ដែលអ្នកចាប់ផ្ដើមក្នុង cmux ក្នុងទែមីណាល់ និងការជជែកភ្នាក់ងាររបស់វា អាចប្រើឧបករណ៍ cmux រួមទាំង Computer Use។ បិទរហូតដល់អ្នកបើកវា។ cmux មិនដែលផ្លាស់ប្តូរការកំណត់ផ្ទាល់ខ្លួនរបស់ភ្នាក់ងារអ្នកទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에서 시작한 에이전트는 Computer Use를 포함한 cmux 도구를 사용합니다. cmux 터미널과 에이전트 채팅의 Claude Code와 Codex가 해당됩니다. 선택하기 전까지는 아무것도 받지 않습니다. cmux는 에이전트 자체 설정을 절대 바꾸지 않습니다."
+            "value": "cmux의 터미널과 에이전트 채팅에서 시작한 Claude Code와 Codex가 컴퓨터 사용을 포함한 cmux 도구를 사용할 수 있습니다. 켜기 전까지는 꺼져 있습니다. cmux는 에이전트 자체 설정을 변경하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenter du starter i cmux, får cmux-verktøyene, Computer Use inkludert: Claude Code og Codex i cmux-terminaler og agentsamtaler. Til du velger, får de ingenting. cmux endrer aldri agentenes egne innstillinger."
+            "value": "Claude Code og Codex du starter i cmux, i terminalene og agentchattene, kan bruke cmux-verktøyene, inkludert Computer Use. Av til du slår det på. cmux endrer aldri agentenes egne innstillinger."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenci uruchamiani w cmux dostają narzędzia cmux, w tym Computer Use: Claude Code i Codex w terminalach i czatach agentów cmux. Dopóki nie wybierzesz, nie dostają niczego. cmux nigdy nie zmienia własnych ustawień Twoich agentów."
+            "value": "Claude Code i Codex uruchomione w cmux, w jego terminalach i czatach agentów, mogą używać narzędzi cmux, w tym Computer Use. Wyłączone, dopóki tego nie włączysz. cmux nigdy nie zmienia własnych ustawień Twoich agentów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os agentes que você inicia no cmux recebem as ferramentas do cmux, incluindo o Computer Use: Claude Code e Codex nos terminais e chats de agentes do cmux. Até você escolher, eles não recebem nada. O cmux nunca altera as configurações dos seus agentes."
+            "value": "O Claude Code e o Codex que você inicia no cmux, nos terminais e chats de agentes, podem usar as ferramentas do cmux, incluindo o Computer Use. Desativado até você ativar. O cmux nunca altera as configurações dos seus agentes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенты, которых вы запускаете в cmux, получают инструменты cmux, включая Computer Use: Claude Code и Codex в терминалах и чатах агентов cmux. Пока вы не выберете, они ничего не получают. cmux никогда не меняет собственные настройки ваших агентов."
+            "value": "Claude Code и Codex, запущенные в cmux, в его терминалах и чатах агентов, могут использовать инструменты cmux, включая Computer Use. Выключено, пока вы не включите. cmux никогда не меняет собственные настройки ваших агентов."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์ที่คุณเริ่มใน cmux จะได้เครื่องมือของ cmux รวมถึง Computer Use ได้แก่ Claude Code และ Codex ในเทอร์มินัลและแชตเอเจนต์ของ cmux จนกว่าคุณจะเลือก เอเจนต์จะไม่ได้อะไรเลย cmux ไม่เปลี่ยนการตั้งค่าของเอเจนต์คุณเลย"
+            "value": "Claude Code และ Codex ที่คุณเริ่มใน cmux ทั้งในเทอร์มินัลและแชตเอเจนต์ สามารถใช้เครื่องมือของ cmux รวมถึง Computer Use ได้ ปิดอยู่จนกว่าคุณจะเปิด cmux ไม่เปลี่ยนการตั้งค่าของเอเจนต์คุณเลย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’ta başlattığın ajanlar, Computer Use dahil cmux araçlarını alır: cmux terminallerindeki ve ajan sohbetlerindeki Claude Code ve Codex. Sen seçene kadar hiçbir şey almazlar. cmux ajanlarının kendi ayarlarını asla değiştirmez."
+            "value": "cmux’ta, terminallerinde ve ajan sohbetlerinde başlattığınız Claude Code ve Codex, Computer Use dahil cmux araçlarını kullanabilir. Siz açana kadar kapalıdır. cmux, ajanlarınızın kendi ayarlarını asla değiştirmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенти, яких ви запускаєте в cmux, отримують інструменти cmux, зокрема Computer Use: Claude Code і Codex у терміналах і чатах агентів cmux. Доки ви не оберете, вони нічого не отримують. cmux ніколи не змінює власні налаштування ваших агентів."
+            "value": "Claude Code і Codex, запущені в cmux, у його терміналах і чатах агентів, можуть користуватися інструментами cmux, зокрема Computer Use. Вимкнено, доки ви не ввімкнете. cmux ніколи не змінює власні налаштування ваших агентів."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các tác tử bạn khởi chạy trong cmux nhận công cụ của cmux, gồm cả Computer Use: Claude Code và Codex trong terminal và cuộc trò chuyện tác tử của cmux. Cho đến khi bạn chọn, chúng không nhận được gì. cmux không bao giờ thay đổi cài đặt riêng của các tác tử của bạn."
+            "value": "Claude Code và Codex bạn khởi động trong cmux, trong terminal và trò chuyện tác tử, có thể dùng công cụ của cmux, kể cả Computer Use. Tắt cho đến khi bạn bật. cmux không bao giờ thay đổi cài đặt riêng của tác tử."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 cmux 中启动的智能体会获得 cmux 的工具（包括 Computer Use）：即 cmux 终端和智能体聊天中的 Claude Code 与 Codex。在你选择之前，它们不会获得任何工具。cmux 绝不会更改你的智能体自己的设置。"
+            "value": "你在 cmux 的终端和智能体聊天中启动的 Claude Code 和 Codex 可以使用 cmux 的工具，包括电脑操控。在你开启之前保持关闭。cmux 从不更改智能体自身的设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 cmux 中啟動的智慧代理會取得 cmux 的工具（包括 Computer Use）：即 cmux 終端機與代理聊天中的 Claude Code 和 Codex。在你選擇之前，它們不會取得任何工具。cmux 絕不會更改你的智慧代理本身的設定。"
+            "value": "你在 cmux 的終端機和代理程式聊天中啟動的 Claude Code 和 Codex 可以使用 cmux 的工具，包括電腦操控。在你開啟之前保持關閉。cmux 從不更改代理程式本身的設定。"
           }
         }
       }
@@ -205536,127 +205536,655 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Whether agents you start in cmux get cmux’s tools"
+            "value": "Whether agents you start in cmux can use cmux’s tools"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما إذا كانت الوكلاء التي تشغّلها في cmux تحصل على أدوات cmux"
+            "value": "ما إذا كان بإمكان الوكلاء الذين تشغّلهم في cmux استخدام أدوات cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Da li agenti koje pokreneš u cmuxu dobijaju cmux alate"
+            "value": "Mogu li agenti koje pokrenete u cmuxu koristiti cmux alate"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Om agenter, du starter i cmux, får cmux’ værktøjer"
+            "value": "Om agenter, du starter i cmux, kan bruge cmux’ værktøjer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ob in cmux gestartete Agenten cmux-Werkzeuge bekommen"
+            "value": "Ob in cmux gestartete Agenten die cmux-Tools nutzen können"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si los agentes iniciados en cmux reciben sus herramientas"
+            "value": "Si los agentes que inicias en cmux pueden usar las herramientas de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si les agents lancés dans cmux reçoivent les outils de cmux"
+            "value": "Si les agents lancés dans cmux peuvent utiliser les outils de cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se gli agenti avviati in cmux ricevono gli strumenti cmux"
+            "value": "Se gli agenti avviati in cmux possono usare gli strumenti di cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux で起動したエージェントが cmux のツールを使うかどうか"
+            "value": "cmux で起動したエージェントが cmux のツールを使えるかどうか"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ថាតើភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux ទទួលបានឧបករណ៍ cmux ឬអត់"
+            "value": "ថាតើភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux អាចប្រើឧបករណ៍ cmux ឬអត់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에서 시작한 에이전트가 cmux 도구를 받을지 여부"
+            "value": "cmux에서 시작한 에이전트가 cmux 도구를 사용할 수 있는지 여부"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Om agenter du starter i cmux, får cmux-verktøyene"
+            "value": "Om agenter du starter i cmux kan bruke cmux-verktøyene"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Czy agenci uruchamiani w cmux dostają narzędzia cmux"
+            "value": "Czy agenci uruchomieni w cmux mogą używać narzędzi cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se agentes iniciados no cmux recebem as ferramentas do cmux"
+            "value": "Se os agentes que você inicia no cmux podem usar as ferramentas do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Получают ли агенты, запущенные в cmux, инструменты cmux"
+            "value": "Могут ли агенты, запущенные в cmux, использовать инструменты cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์ที่คุณเริ่มใน cmux จะได้เครื่องมือของ cmux หรือไม่"
+            "value": "เอเจนต์ที่คุณเริ่มใน cmux ใช้เครื่องมือของ cmux ได้หรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’ta başlatılan ajanlar cmux araçlarını alır mı"
+            "value": "cmux’ta başlattığınız ajanların cmux araçlarını kullanıp kullanamayacağı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чи отримують агенти, запущені в cmux, інструменти cmux"
+            "value": "Чи можуть агенти, запущені в cmux, користуватися інструментами cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tác tử khởi chạy trong cmux có nhận công cụ cmux không"
+            "value": "Tác tử bạn khởi động trong cmux có dùng được công cụ của cmux không"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 cmux 中启动的智能体是否获得 cmux 的工具"
+            "value": "在 cmux 中启动的智能体能否使用 cmux 的工具"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 cmux 中啟動的智慧代理是否取得 cmux 的工具"
+            "value": "在 cmux 中啟動的代理程式能否使用 cmux 的工具"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcpCodex.help": {
+      "comment": "Settings > Agents > cmux Tools: help under the Codex switch (agents.cmuxMcpCodex)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: Codex you start in cmux never gets cmux’s tools, even when they are on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف: لا يحصل Codex الذي تشغّله في cmux على أدوات cmux أبدًا، حتى عند تشغيلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno: Codex koji pokrenete u cmuxu nikad ne dobija cmux alate, čak ni kad su uključeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra: Codex, du starter i cmux, får aldrig cmux’ værktøjer, heller ikke når de er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus: Codex, das du in cmux startest, erhält die cmux-Tools nie, auch wenn sie eingeschaltet sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: Codex iniciado en cmux nunca recibe las herramientas de cmux, aunque estén activadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : Codex lancé dans cmux ne reçoit jamais les outils de cmux, même s’ils sont activés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato: Codex avviato in cmux non riceve mai gli strumenti di cmux, anche quando sono attivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ：cmux で起動した Codex は、cmux のツールがオンでも使えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ៖ Codex ដែលអ្នកចាប់ផ្ដើមក្នុង cmux មិនដែលទទួលបានឧបករណ៍ cmux ទេ ទោះបីវាបើកក៏ដោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔: cmux에서 시작한 Codex은(는) cmux 도구가 켜져 있어도 사용하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av: Codex du starter i cmux får aldri cmux-verktøyene, selv når de er på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone: Codex uruchomiony w cmux nigdy nie dostaje narzędzi cmux, nawet gdy są włączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado: o Codex iniciado no cmux nunca recebe as ferramentas do cmux, mesmo quando estão ativadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключено: Codex, запущенный в cmux, никогда не получает инструменты cmux, даже когда они включены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด: Codex ที่คุณเริ่มใน cmux จะไม่ได้รับเครื่องมือของ cmux แม้จะเปิดอยู่ก็ตาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı: cmux’ta başlattığınız Codex, araçlar açık olsa bile cmux araçlarını hiç almaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнено: Codex, запущений у cmux, ніколи не отримує інструменти cmux, навіть коли їх увімкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt: Codex bạn khởi động trong cmux không bao giờ nhận công cụ của cmux, kể cả khi chúng đang bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：在 cmux 中启动的 Codex 不会获得 cmux 的工具，即使这些工具已开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉：在 cmux 中啟動的 Codex 不會取得 cmux 的工具，即使這些工具已開啟。"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcpClaude.help": {
+      "comment": "Settings > Agents > cmux Tools: help under the Claude Code switch (agents.cmuxMcpClaude)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف: لا يحصل Claude Code الذي تشغّله في cmux على أدوات cmux أبدًا، حتى عند تشغيلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno: Claude Code koji pokrenete u cmuxu nikad ne dobija cmux alate, čak ni kad su uključeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra: Claude Code, du starter i cmux, får aldrig cmux’ værktøjer, heller ikke når de er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus: Claude Code, das du in cmux startest, erhält die cmux-Tools nie, auch wenn sie eingeschaltet sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: Claude Code iniciado en cmux nunca recibe las herramientas de cmux, aunque estén activadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : Claude Code lancé dans cmux ne reçoit jamais les outils de cmux, même s’ils sont activés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato: Claude Code avviato in cmux non riceve mai gli strumenti di cmux, anche quando sono attivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ：cmux で起動した Claude Code は、cmux のツールがオンでも使えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ៖ Claude Code ដែលអ្នកចាប់ផ្ដើមក្នុង cmux មិនដែលទទួលបានឧបករណ៍ cmux ទេ ទោះបីវាបើកក៏ដោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔: cmux에서 시작한 Claude Code은(는) cmux 도구가 켜져 있어도 사용하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av: Claude Code du starter i cmux får aldri cmux-verktøyene, selv når de er på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone: Claude Code uruchomiony w cmux nigdy nie dostaje narzędzi cmux, nawet gdy są włączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado: o Claude Code iniciado no cmux nunca recebe as ferramentas do cmux, mesmo quando estão ativadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключено: Claude Code, запущенный в cmux, никогда не получает инструменты cmux, даже когда они включены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด: Claude Code ที่คุณเริ่มใน cmux จะไม่ได้รับเครื่องมือของ cmux แม้จะเปิดอยู่ก็ตาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı: cmux’ta başlattığınız Claude Code, araçlar açık olsa bile cmux araçlarını hiç almaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнено: Claude Code, запущений у cmux, ніколи не отримує інструменти cmux, навіть коли їх увімкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt: Claude Code bạn khởi động trong cmux không bao giờ nhận công cụ của cmux, kể cả khi chúng đang bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：在 cmux 中启动的 Claude Code 不会获得 cmux 的工具，即使这些工具已开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉：在 cmux 中啟動的 Claude Code 不會取得 cmux 的工具，即使這些工具已開啟。"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcpCodex": {
+      "comment": "Settings > Agents > cmux Tools: the switch that lets Codex started in cmux get cmux's tools while they are on (agents.cmuxMcpCodex)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use in Codex"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام في Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi u Codexu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug i Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Codex verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar en Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser dans Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa in Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex で使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើក្នុង Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex에서 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk i Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używaj w Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar no Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать в Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ใน Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex’te kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовувати в Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng trong Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Codex 中使用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Codex 中使用"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcpClaude": {
+      "comment": "Settings > Agents > cmux Tools: the switch that lets Claude Code started in cmux get cmux's tools while they are on (agents.cmuxMcpClaude)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use in Claude Code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام في Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi u Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug i Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Claude Code verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar en Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser dans Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa in Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code で使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើក្នុង Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code에서 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk i Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używaj w Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar no Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать в Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ใน Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code’da kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовувати в Claude Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng trong Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 中使用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 中使用"
           }
         }
       }
@@ -205668,127 +206196,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask"
+            "value": "Not Set"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اسأل"
+            "value": "غير محدد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pitaj"
+            "value": "Nije postavljeno"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spørg"
+            "value": "Ikke valgt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fragen"
+            "value": "Nicht festgelegt"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preguntar"
+            "value": "Sin definir"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Demander"
+            "value": "Non défini"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiedi"
+            "value": "Non impostato"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "確認する"
+            "value": "未設定"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សួរ"
+            "value": "មិនទាន់កំណត់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "묻기"
+            "value": "설정 안 됨"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spør"
+            "value": "Ikke valgt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pytaj"
+            "value": "Nie ustawiono"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Perguntar"
+            "value": "Não definido"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Спрашивать"
+            "value": "Не задано"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ถาม"
+            "value": "ยังไม่ได้ตั้งค่า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sor"
+            "value": "Ayarlanmadı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Питати"
+            "value": "Не задано"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hỏi"
+            "value": "Chưa đặt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "询问"
+            "value": "未设置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "詢問"
+            "value": "未設定"
           }
         }
       }

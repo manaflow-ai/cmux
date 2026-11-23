@@ -342,7 +342,7 @@ const variants: Record<string, SettingsPageVariant> = {
   }),
   "agent-tools": variant("agents", {
     focus: "agents.cmuxMcp",
-    note: "The onboarding step's question kept in Settings: cmux Tools for Agents in cmux, each coding agent on this Mac with Turn On, and the manual lines for agents started elsewhere.",
+    note: "The cmux Tools answer in Settings: Give Agents cmux’s Tools, per-agent switches, each coding agent on this Mac with Turn On, and the manual lines for agents started elsewhere.",
   }),
 };
 for (const category of categories) {
