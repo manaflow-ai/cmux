@@ -43,6 +43,20 @@ export const CLOUD_INTRO_INCLUDED = {
   concurrentMachines: 5,
 } as const;
 
+/** Machine sizes the pass allows, for the pricing page. */
+export const CLOUD_INTRO_MACHINES = {
+  /** The Chief, the always-on agent machine. */
+  chief: { vcpu: 2, gib: 4 },
+  /** The largest of the other machines. */
+  otherMax: { vcpu: 2, gib: 8 },
+} as const;
+
+/** The included hours and minutes are released in this many equal weekly parts. */
+export const CLOUD_INTRO_RELEASE_WEEKS = 4;
+
+/** Days everything is kept after a pass ends and the buyer chose not to continue. */
+export const CLOUD_INTRO_KEEP_DAYS = 14;
+
 /** Passes granted per UTC day. */
 export const CLOUD_INTRO_DAILY_CAP = 100;
 /** Passes granted in total for the first cohort. */
@@ -155,7 +169,7 @@ export function cloudIntroRefusalBillingCode(refusal: CloudIntroRefusal): string
 export const CLOUD_INTRO_BILLING_COPY = {
   intro_sold_out_today: "Today's $1 passes are gone. Try again tomorrow.",
   intro_sold_out: "The first $1 passes are gone.",
-  intro_unavailable: "The $1 pass is for new accounts only.",
+  intro_unavailable: "The $1 pass is not available for this account.",
 } as const;
 
 /** The start of the UTC day `now` falls in, where the daily cap resets. */
