@@ -1,6 +1,7 @@
 //! The public handle ([`Journal`]): append, durable LSNs, waits, listeners, seal.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -86,6 +87,10 @@ pub(crate) struct Shared {
     pub(crate) space_listeners: Mutex<Vec<SpaceListener>>,
     /// The live segments, oldest first: recovery's, then each one the writer makes.
     pub(crate) segments: Mutex<Vec<LiveSegment>>,
+    /// `stats.durable_lsn`, stored by the writer under `state`'s lock beside it: read without
+    /// that lock ([`Journal::durable_lsn`]), so an append's caller that asks for it after each
+    /// record does not queue behind every other appender (acpmux's store, #47421's stress test).
+    pub(crate) durable_lsn: AtomicU64,
 }
 
 impl Shared {
@@ -281,6 +286,7 @@ impl Journal {
             written_listeners: Mutex::new(Vec::new()),
             space_listeners: Mutex::new(Vec::new()),
             segments: Mutex::new(recovered.live),
+            durable_lsn: AtomicU64::new(start),
         });
         let report = recovered.report;
         let lock = recovered.lock;
@@ -404,7 +410,7 @@ impl Journal {
     /// Every record up to this LSN is synced (survives a crash of any process and a kernel
     /// panic).
     pub fn durable_lsn(&self) -> Lsn {
-        self.shared.lock().stats.durable_lsn
+        self.shared.durable_lsn.load(Ordering::Acquire)
     }
 
     /// Every record up to this LSN is fully synced (survives a power loss).
