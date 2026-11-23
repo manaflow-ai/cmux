@@ -30,5 +30,10 @@ test("SCRATCH: end + next prompt + its live line", () => {
     "next-prompt+working+line",
     endsTurn(before, [...ended, row("user-5886", "user"), row("working-user-5886", "working"), row(LIVE_THINKING, "thinking")]),
   );
+  const line = { ...row("user-5886", "user"), incoming: { kind: "message" } } as AcpmuxRow;
+  console.log(
+    "next-line+working+line",
+    endsTurn(before, [...ended, row("working-user-5886", "working"), line, row("activity-5889", "activity"), row(LIVE_THINKING, "thinking")]),
+  );
   expect(true).toBe(true);
 });

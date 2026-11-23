@@ -96,13 +96,13 @@ function workedUnderNextPrompt(before: readonly AcpmuxRow[], after: readonly Acp
   for (let index = before.length - 1; index >= 0 && prompt === undefined; index -= 1)
     if (before[index]!.kind === "user" && !isLineRow(before[index]!)) prompt = before[index]!.id;
   if (prompt === undefined) return undefined;
+  // The next turn's prompt may be another agent's message, drawn as a line (`isLineRow`), so any row
+  // after the ended turn's own counts: its Worked for is found back to its prompt.
   const worked = `${WORKED}-${prompt}`;
-  let newer = false;
   for (let index = after.length - 1; index >= 0; index -= 1) {
     const row = after[index]!;
     if (row.id === prompt) return undefined;
-    if (row.kind === "user" && !isLineRow(row)) newer = true;
-    else if (newer && row.id === worked) return worked;
+    if (row.id === worked) return worked;
   }
   return undefined;
 }
