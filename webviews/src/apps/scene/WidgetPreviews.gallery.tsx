@@ -94,7 +94,14 @@ function Caption({ state }: { state: State }) {
   const derived = state.from ? `derived from ${state.from}` : "recorded";
   const count = state.warnings.length;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: TILE[state.size]?.width ?? 170 }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--grid-half-step)",
+        maxWidth: TILE[state.size]?.width ?? 170,
+      }}
+    >
       <div>
         <strong>{state.name}</strong> <span style={{ color: "var(--agent-muted)" }}>{derived}</span>
       </div>
@@ -118,7 +125,7 @@ function SizeRow({ widget, size, kinds }: { widget: Widget; size: string; kinds?
       <div style={{ color: "var(--agent-muted)" }}>{size}</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
         {states.map((state) => (
-          <div key={state.name} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div key={state.name} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <Caption state={state} />
             <div style={{ display: "flex", gap: 8 }}>
               {(["light", "dark"] as const).map((scheme) => (
@@ -126,7 +133,7 @@ function SizeRow({ widget, size, kinds }: { widget: Widget; size: string; kinds?
                   key={scheme}
                   data-scheme={scheme}
                   aria-label={scheme === "light" ? "Light" : "Dark"}
-                  style={{ ...SCHEMES[scheme], padding: 8, borderRadius: 20 }}
+                  style={{ ...SCHEMES[scheme], padding: 8, borderRadius: "var(--ds-glass-chrome-radius)" }}
                 >
                   <Tile state={state} />
                 </div>
