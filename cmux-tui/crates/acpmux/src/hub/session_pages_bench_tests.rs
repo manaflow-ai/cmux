@@ -271,6 +271,36 @@ fn seeded_wide(closed: usize, idle: usize, row_bytes: usize) -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
+/// The page path before 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-acpmux-cli-startup-tax.md),
+/// kept to measure against: every row a `limit=1000` page picks is built, then the page is cut to
+/// its bytes. Returns (pages, rows built, ms) for a whole read.
+fn old_whole_paged_read(hub: &Arc<Hub>) -> (usize, usize, f64) {
+    use crate::hub::list_guard::{cut_page, serialize_in_order};
+    use std::sync::atomic::Ordering::SeqCst;
+    let budget = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
+    let before = hub.summaries_built.load(SeqCst);
+    let start = Instant::now();
+    let (mut pages, mut params) = (0_usize, json!({"limit": 1000, "localOnly": true}));
+    loop {
+        let (rows, next) = hub.session_page_rows(&params, false).unwrap();
+        let (text, spans, keys) = serialize_in_order(&rows);
+        let page: Value = serde_json::from_str(&cut_page(
+            (text.as_str(), spans.as_slice()),
+            &keys,
+            next,
+            &params,
+            budget,
+        ))
+        .unwrap();
+        pages += 1;
+        match page["nextCursor"].as_str() {
+            Some(cursor) => params["cursor"] = json!(cursor),
+            None => break,
+        }
+    }
+    (pages, hub.summaries_built.load(SeqCst) - before, start.elapsed().as_secs_f64() * 1000.0)
+}
+
 /// docs/findings/2026-11-23-acpmux-cli-startup-tax.md (cmuxterm-hq): a lane VM's whole local
 /// `acpmux ls` (833 chats, 4 KB rows, 512 closed) took 355 ms, 8x one row. `ls` reads pages of
 /// 1000 rows and more; a page's 1 MB holds about 260 of these rows, and the daemon built every
