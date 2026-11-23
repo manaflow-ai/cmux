@@ -1,5 +1,5 @@
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { SkillsOps, type DirectoryEntry, type DirectoryResult, type Harness } from "./types";
+import { SkillsOps, type DirectoryEntry, type Harness } from "./types";
 
 export const sampleEntries: DirectoryEntry[] = [
   {

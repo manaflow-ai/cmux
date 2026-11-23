@@ -94,6 +94,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.engine.get", CHIEF_REASON),
     ("chief.engine.set", CHIEF_REASON),
     ("chief.stop", CHIEF_REASON),
+    ("chief.automation.list", CHIEF_REASON),
+    ("chief.automation.update", CHIEF_REASON),
     ("chief.continue", CHIEF_REASON),
     ("chief.retry", CHIEF_REASON),
     ("chief.profile.list", CHIEF_REGISTRY_REASON),
@@ -192,9 +194,11 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
     ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
     ("browser_import.read", BROWSER_IMPORT_REASON),
+    ("language_packs.ensure", LANGUAGE_PACKS_REASON),
     ("cloud.machine.chat_access", CLOUD_API_REASON),
     ("cloud.machine.io", CLOUD_API_REASON),
     ("cloud.machine.share_chat", CLOUD_API_REASON),
+    ("cloud.machine.chief_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_keyed_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
     ("cloud.owner.fork_run", CLOUD_API_REASON),
@@ -315,6 +319,8 @@ const CLASSIC_IMPORT_REASON: &str = "The app's move from classic cmux drives the
      the plan and records what it made; agents never import.";
 const BROWSER_IMPORT_REASON: &str = "The app's browser import reads another browser's \
      bookmarks, history and tabs by path; only the verified app sends it, agents never read them.";
+const LANGUAGE_PACKS_REASON: &str = "The app downloads the language it shows on first use, \
+     with its own bundle's manifest; only the verified app sends it, agents never do.";
 const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
      the dry-run plan and records what it made; agents never import.";
 const CLOUD_API_REASON: &str = "The app's Cloud code and `cmux cloud` call these with the \

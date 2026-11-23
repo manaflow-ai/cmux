@@ -13,21 +13,7 @@ enum AppCommandPalette {
         var app: AppRecord
         var command: AppRecord.Command
 
-        /// `command` names this entry: the full op (`coderouter.app.connect_account`),
-        /// or the last segment in either case style (`connect_account`, `connectAccount`).
-        func matches(_ command: String) -> Bool {
-            let op = self.command.op
-            if op == command { return true }
-            let last = op.split(separator: ".").last.map(String.init) ?? op
-            return last == command || last == Self.snakeCase(command)
-        }
-
-        static func snakeCase(_ name: String) -> String {
-            name.reduce(into: "") { out, character in
-                if character.isUppercase, !out.isEmpty { out.append("_") }
-                out.append(Character(character.lowercased()))
-            }
-        }
+        func matches(_ command: String) -> Bool { self.command.matches(command) }
     }
 
     /// Commands an invocation from `origin` may run: the palette (user)

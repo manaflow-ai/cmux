@@ -317,12 +317,15 @@ impl Hub {
             opts.provenance.as_ref().and_then(|p| p.get("kind")).and_then(Value::as_str)
                 == Some("unverified");
         let claude = matches!(target, Target::Claude { .. });
+        let name = reply_name(opts);
+        let routable = name.as_deref().is_some_and(|n| self.reply_routable(n));
         let wire = with_reply_hint(
             &text,
-            reply_name(opts).as_deref(),
+            name.as_deref(),
             harness.as_deref(),
             unverified,
             claude,
+            routable,
         );
         // The gate every prompt passes again at dispatch (`web_control.rs` `check_dispatch`): the
         // chat's mode, policy, device authorization or folder trust may have changed since the
@@ -386,6 +389,19 @@ impl Hub {
             );
         }
         Some(answer(&prompt_id, turn_of(rx).await, Some(&details)))
+    }
+
+    /// Whether `acpmux send NAME` can deliver to `name`, so a reply hint may name it: a
+    /// qualified `HOST/NAME` (as relays and peers stamp a session) goes to that host; a bare
+    /// name only when it names a session here or on a peer now (in memory, no network). A
+    /// program's label (`merge-audit`) or a relay's bare machine name (`lane-vm-2`)
+    /// names none, and `acpmux send` to it fails with `no_session`.
+    pub(super) fn reply_routable(&self, name: &str) -> bool {
+        let name = name.trim();
+        if let Some((host, rest)) = name.split_once('/') {
+            return !host.is_empty() && !rest.is_empty();
+        }
+        !name.is_empty() && (self.resolve(name).is_ok() || self.resolve_remote(name).is_some())
     }
 
     /// Where a prompt to bridged chat `session` goes now: its app's inbox or thread, while that
@@ -507,12 +523,18 @@ impl Hub {
 /// and nothing after the text (Leo, 2026-11-14, ask-c810e83a38: "it sends so much s*** each
 /// time. can it not?"). The line keeps "not the person": a sender's name may be only what it
 /// claimed, and Claude Code's note calls a peer "very likely working on their behalf".
+///
+/// The answer command is printed only for a sender `acpmux send` can deliver to (`routable`,
+/// `Hub::reply_routable`). Another (a program's label, a relay's bare machine name) gets no
+/// command, since it would fail with `no_session`, but says nothing reads a reply (Leo,
+/// 2026-11-21: "it's our product bug or smth those need to get fixed").
 fn with_reply_hint(
     text: &str,
     agent: Option<&str>,
     harness: Option<&str>,
     unverified: bool,
     claude: bool,
+    routable: bool,
 ) -> String {
     let Some(agent) = agent.map(str::trim).filter(|a| !a.is_empty()) else {
         return text.to_owned();
@@ -525,6 +547,16 @@ fn with_reply_hint(
     } else {
         super::prompt_attribution::agent_line(&who)
     };
+    if !routable {
+        let no_inbox = format!(
+            "{agent} has no inbox acpmux can deliver to, so nothing reads a reply: act on it yourself, or tell whoever coordinates you"
+        );
+        if claude {
+            let line = line.trim_end_matches(':');
+            return format!("{line}. {no_inbox}:\n{text}");
+        }
+        return format!("{line}\n{text}\n\n[{no_inbox}.]");
+    }
     if claude {
         let line = line.trim_end_matches(':');
         return format!(

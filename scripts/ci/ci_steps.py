@@ -2,7 +2,7 @@
 """Route a diff to the step table's steps and run one job's steps (ci/steps.toml).
 
   ci/run route --paths-file F            the routed steps by job, as JSON
-  ci/run run --job JOB [--paths-file F] [--label NAME]
+  ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES]
 
 `ci/run` is the entry (it calls this file). `run` starts the job's routed steps, as many at
 once as the machine has CPUs, each as `bash -euo pipefail -c RUN` in the current directory
@@ -14,8 +14,13 @@ lists `needs = ["bun"]` also gets that `[tools]` command run first (bun, node: a
 routed steps that need it pay for), all of them at once after the setup, each in `$CI_TOOLS`. A
 setup or tool that fails fails the job. It exits 1 only when a step with `blocks = true` failed. A step with
 `blocks = false` that fails or runs past its timeout is a warning annotation: an advisory
-step never turns its job red. `--label NAME` says the event is a label change of NAME;
-then only the steps that list NAME in `labels` run.
+step never turns its job red. A step with `alone = true` runs by itself, after the others, in table order.
+`--label NAME` says the event is a label change of NAME;
+then only the steps that list NAME in `labels` run. `--only NAMES` (comma or space separated)
+runs only those of the routed steps; empty means every routed step. A name the table does
+not have is a notice and is skipped, never an error: the pull request that adds a step runs
+against a base whose table lacks it. Two workflows run steps of the `advisory` job, each its
+own (pr-body-checks.yml the description lints, pr-checks.yml the rest), so each names them.
 
 The table's rules (checked on load): every step names one of the table's jobs, there are
 at most 8 jobs, and a step that does not block runs in the `advisory` job in class `idle`.
@@ -73,6 +78,7 @@ class Step:
     title: str = ""
     about: str = ""
     needs: tuple[str, ...] = ()
+    alone: bool = False
 
 
 @dataclass
@@ -143,11 +149,14 @@ def parse(doc: dict) -> Table:
             title=raw.get("title", ""),
             about=raw.get("about", ""),
             needs=tuple(raw.get("needs", ())),
+            alone=raw.get("alone", False),
         )
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
         if not isinstance(step.blocks, bool):
             raise TableError(f"step {name}: `blocks` is true or false")
+        if not isinstance(step.alone, bool):
+            raise TableError(f"step {name}: `alone` is true or false")
         if step.klass not in CLASSES:
             raise TableError(f"step {name}: class {step.klass!r} is not one of {CLASSES}")
         if not step.blocks and (step.job != ADVISORY_JOB or step.klass != "idle"):
@@ -243,9 +252,20 @@ def report(results: list[Result], job: str, out=sys.stdout, logs: bool = True) -
     return "\n".join(rows) + "\n"
 
 
+def parse_only(text: str | None) -> list[str]:
+    """`--only`'s names, comma or space separated, in order; empty means no filter."""
+    return [name for name in re.split(r"[\s,]+", text or "") if name]
+
+
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
-            workers: int | None = None) -> int:
+            workers: int | None = None, only: list[str] | None = None) -> int:
     names = route(table, paths, label).get(job, [])
+    if only:
+        for name in only:
+            if name not in table.steps:
+                print(f"::notice title=Step table::no step {name} in this table (a base from before it); skipped",
+                      file=out)
+        names = [n for n in names if n in only]
     steps = [table.steps[n] for n in names]
     if not steps:
         print(f"No step of job {job} is routed for this change.", file=out)
@@ -282,7 +302,9 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                     result = run_step(step, env)
                     print_log(result, out)
                     return result
-                results += pool.map(run_and_print, steps)
+                results += pool.map(run_and_print, [s for s in steps if not s.alone])
+            # An `alone` step takes the whole machine: it runs by itself, after the others, in table order.
+            results += [run_and_print(s) for s in steps if s.alone]
     summary = report(results, job, out, logs=False)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
@@ -312,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--paths-file")
     x.add_argument("--label", default="", help="the label of a labeled or unlabeled event; empty for other events")
     x.add_argument("--workers", type=int, default=0, help="steps at once (default: the machine's CPUs)")
+    x.add_argument("--only", default="", help="run only these routed steps (comma or space separated); empty: all")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
     paths = read_paths(args.paths_file)
@@ -320,7 +343,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
-    return run_job(table, args.job, paths, args.label or None, workers=args.workers or None)
+    return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
+                   only=parse_only(args.only))
 
 
 if __name__ == "__main__":
