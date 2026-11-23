@@ -901,7 +901,7 @@ impl Peer {
         let mut last_frame = tokio::time::Instant::now();
         let mut stale_settled = false;
         let mut handshake_ended = false;
-        let mut ticks: u64 = 0;
+        let mut health_asked: Option<tokio::time::Instant> = None;
         // Holds until the link is ready and its list is in (`listed`), also a list read after
         // ready. Moved on by each page of a list read in pages, up to `HANDSHAKE_MOST` in all: a
         // peer that paces its lists still links, one that stops answering does not hold it.
@@ -1178,8 +1178,9 @@ impl Peer {
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
                     }
-                    ticks += 1;
-                    if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
+                    let now = tokio::time::Instant::now();
+                    if self.link().is_ready() && health::health_due(health_asked, now) {
+                        health_asked = Some(now);
                         self.refresh_health();
                     }
                 }

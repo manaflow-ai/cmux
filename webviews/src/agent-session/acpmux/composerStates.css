@@ -100,7 +100,7 @@
 
 /* Reduce Transparency makes the card opaque, and an opaque card blurs nothing it can show (glass is
    never opaque, accent-glass-invariants.test.ts). */
-:root[data-reduce-transparency] .acpmux-composer-box {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer-box {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -144,11 +144,11 @@
   --acpmux-stack-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
   --acpmux-stack-backdrop: var(--glass-material-backdrop);
 }
-:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .acpmux-shell {
+:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency], [data-glass="off"]) .acpmux-shell {
   --acpmux-stack-tint: var(--glass-tint);
   --acpmux-stack-backdrop: var(--glass-backdrop);
 }
-:root[data-reduce-transparency] .acpmux-shell {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-shell {
   /* glass-opaque-allow: the shared Reduce Transparency fill */
   --acpmux-stack-tint: var(--acpmux-composer-solid);
   --acpmux-stack-backdrop: none;
@@ -156,7 +156,7 @@
 @media (prefers-reduced-transparency: reduce) {
   :root .acpmux-shell,
   :root[data-cmux-see-through] .acpmux-shell,
-  :root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .acpmux-shell {
+  :root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency], [data-glass="off"]) .acpmux-shell {
     /* glass-opaque-allow: the shared Reduce Transparency fill */
     --acpmux-stack-tint: var(--acpmux-composer-solid);
     --acpmux-stack-backdrop: none;
@@ -173,7 +173,7 @@
   --acpmux-stack-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
+  :root:not([data-reduce-transparency], [data-glass="off"]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
     .acpmux-stack-material {
     --acpmux-stack-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
   }
@@ -226,7 +226,7 @@
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--acpmux-composer-solid);
 }
-:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency])
+:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency], [data-glass="off"])
   :is(.acpmux-shell, .ui-positioner:has(> .nt-popover)) {
   --acpmux-composer-rim:
     inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-specular),
@@ -254,7 +254,7 @@
     backdrop-filter: none;
   }
 }
-:root[data-reduce-transparency] .acpmux-composer > .acpmux-composer-strip {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-strip {
   background: var(--acpmux-composer-solid);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -263,7 +263,7 @@
    does (glass.css, "CHROMIUM OVER THE WINDOW GLASS"): the transcript scrolls under both. */
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]):not([data-top-strip="plain"])
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"]):not([data-top-strip="plain"])
       .acpmux-composer:is([data-composer-look="codex"], :root[data-top-strip] *)
       > .acpmux-composer-strip {
       background:
@@ -299,9 +299,9 @@
    card's top. Only the part right above the card tucks (the strip, a long queue's fold, or the queue
    alone): masking a queue over the strip or its fold cut its last row. The chat card is glass on
    every window; the New Tab box is glass too. */
-:root:not([data-reduce-transparency])[data-top-strip="tray"] .acpmux-composer
+:root:not([data-reduce-transparency], [data-glass="off"])[data-top-strip="tray"] .acpmux-composer
   > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar):has(+ .acpmux-composer-box),
-:root[data-cmux-see-through]:not([data-reduce-transparency])[data-top-strip="tray"] .nt-composer
+:root[data-cmux-see-through]:not([data-reduce-transparency], [data-glass="off"])[data-top-strip="tray"] .nt-composer
   > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar):has(+ .nt-box) {
   mask: linear-gradient(black calc(100% - var(--acpmux-tray-tuck, 0px)), transparent 0);
 }
@@ -316,20 +316,20 @@
     --acpmux-composer-surface: var(--acpmux-composer-solid);
   }
 }
-:root[data-reduce-transparency][data-cmux-see-through] .acpmux-shell {
+:root:is([data-reduce-transparency], [data-glass="off"])[data-cmux-see-through] .acpmux-shell {
   --acpmux-composer-surface: var(--acpmux-composer-solid);
 }
 /* The rim is a layer of its own only on glass: Reduce Transparency keeps the one opaque ring and
    shadow, while both composer cards use the shared glass material on every window. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency]) :is(.acpmux-composer-box, .acpmux-composer-box:has(:focus-visible)),
-  :root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-composer-surface {
+  :root:not([data-reduce-transparency], [data-glass="off"]) :is(.acpmux-composer-box, .acpmux-composer-box:has(:focus-visible)),
+  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-glass="off"]) .nt-composer-surface {
     box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
   /* Under a queue the ring goes on the card's ::before layer (composerLocation.css), so the card
      adds only the rim and the shadow. (0,6,0) here outranks the rule above whatever the stylesheet
      order. */
-  :root:not([data-reduce-transparency]):not([data-top-strip])
+  :root:not([data-reduce-transparency], [data-glass="off"]):not([data-top-strip])
     .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
     box-shadow: var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
@@ -350,24 +350,24 @@
   /* The composer's depth is the material's quieter step (glass.css --glass-material-depth-composer;
      Leo 2026-11-06: "maybe less shadow? ... Probably just a little bit more subtle."): the card rests
      on the pane, so it casts about half the floating glass's reach and dark. */
-  :root:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  :root:not([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
     --acpmux-composer-shadow: var(--glass-material-depth-composer);
   }
   /* Wallpaper lighting (glass.css WALLPAPER LIGHTING): a soft bloom of the picture's most colorful
      color round the card, leaning toward the key light. An outer shadow, so it never covers the text,
      and it moves only with the light field. */
-  :root[data-wallpaper-light]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  :root[data-wallpaper-light]:not([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
     --acpmux-composer-shadow:
       var(--glass-material-depth-composer),
       calc(14px * var(--wl-dx)) calc(10px * var(--wl-dy)) 56px 6px
         color-mix(in srgb, var(--wl-bloom) calc(100% * var(--wl-bloom-alpha)), transparent);
   }
-  :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
+  :root:not([data-reduce-transparency], [data-glass="off"]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
     .acpmux-composer
     > .acpmux-composer-box.ui-glass-material {
     --acpmux-composer-rim: var(--glass-material-rim);
   }
-  :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency])
+  :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"])
     .acpmux-composer
     > .acpmux-composer-box.ui-glass-material {
     --glass-backdrop: var(--glass-material-backdrop);
@@ -1049,7 +1049,7 @@ body:has(.nt-box :focus-visible) .nt-popover {
    page, which is transparent over art, so without this the band stayed a 9% film under an opaque
    card. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-cmux-see-through]:not([data-reduce-transparency]) .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
     --acpmux-queue-fill: var(--glass-tint);
   }
 }
@@ -1058,7 +1058,7 @@ body:has(.nt-box :focus-visible) .nt-popover {
     --acpmux-queue-fill: var(--glass-opaque);
   }
 }
-:root[data-reduce-transparency] .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
   --acpmux-queue-fill: var(--glass-opaque);
 }
 .acpmux-queue-fold {

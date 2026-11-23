@@ -5,8 +5,8 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
-/// App health's card, opened by its triggers (the sidebar footer's line, ``AppHealthIndicatorView``, and the
-/// "Restoring sessions…" card's Details): the one cmux dialog card on its glass, over the cmux window it was opened
+/// App health's card, opened by its one trigger (the "Restoring sessions…" card's Details; the sidebar has no
+/// health line): the one cmux dialog card on its glass, over the cmux window it was opened
 /// from, native from its first frame (Lawrence 2026-11-17: "most dialogs should have 0 react involved"). The React
 /// card it replaces drew nothing once the part was healthy again and never heard Escape, so its panel stayed up as
 /// an empty glass shell. This card always has words (``AppHealthCard/spec(_:)``), follows the model while it
