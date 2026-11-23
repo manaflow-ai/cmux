@@ -44,3 +44,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A repository recipe read before it runs: each part's caption over its command or file list. */
+.acpmux-worktree-setup__review { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0; }
+.acpmux-worktree-setup__review-part { display: flex; flex-direction: column; gap: var(--grid-half-step); }
+.acpmux-worktree-setup__review-label { color: var(--agent-muted); }
