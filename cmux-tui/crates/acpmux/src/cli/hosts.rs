@@ -533,9 +533,6 @@ const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
 
-/// The `acpmux daemon service` LaunchAgent. `ProcessType` `Interactive`: a job with none is
-/// `Standard`, whose QoS clamp holds the daemon and everything it starts below the default CPU
-/// priority, and every pane's connect waits on the daemon (`qos::lowered_priority`).
 pub(crate) const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -545,7 +542,6 @@ pub(crate) const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
   <key>WorkingDirectory</key><string>__HOME__</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>ProcessType</key><string>Interactive</string>
   <key>StandardOutPath</key><string>__HOME__/.acpmux/launchd.log</string>
   <key>StandardErrorPath</key><string>__HOME__/.acpmux/launchd.log</string>
 </dict></plist>
