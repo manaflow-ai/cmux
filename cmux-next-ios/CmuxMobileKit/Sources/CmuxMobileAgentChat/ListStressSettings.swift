@@ -43,6 +43,9 @@ import Foundation
 /// - `CMUX_MOBILE_LIST_GIANT=1` (subagent: one answer taller than the screen; inspector: seq 10 over
 ///   the 256 KB record cap; chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
+/// - `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat is a file of acpmux records instead of the mock agent, one heavy
+///   coordinator from coord-sim (`coord-sim surface --target ios`); `CMUX_MOBILE_LIST_EVENTS_HISTORY=N` says how many
+///   came before the chat opens (an attach page of them), the rest stream at their recorded pace (CoordSimReplaySource).
 public struct ListStressSettings: Equatable, Sendable {
     public static let shared = ListStressSettings()
 
@@ -97,6 +100,10 @@ public struct ListStressSettings: Equatable, Sendable {
     public var edge: String?
     /// `CMUX_MOBILE_LIST_EDGE_AFTER=SECONDS` (default 4): when the edge case happens.
     public var edgeAfter: Double
+    /// `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat replays a file of acpmux records (coord-sim).
+    public var events: String?
+    /// `CMUX_MOBILE_LIST_EVENTS_HISTORY=N`: its first N records are the chat before it opens.
+    public var eventsHistory: Int
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -127,6 +134,8 @@ public struct ListStressSettings: Equatable, Sendable {
         filter = environment["CMUX_MOBILE_LIST_FILTER"]
         edge = environment["CMUX_MOBILE_LIST_EDGE"]
         edgeAfter = environment["CMUX_MOBILE_LIST_EDGE_AFTER"].flatMap(Double.init) ?? 4
+        events = environment["CMUX_MOBILE_LIST_EVENTS"].flatMap { $0.isEmpty ? nil : $0 }
+        eventsHistory = environment["CMUX_MOBILE_LIST_EVENTS_HISTORY"].flatMap(Int.init) ?? 0
     }
 
     /// The id prefix of the workspaces the rig seeds (`ws-s0`, `ws-s1`, ...).

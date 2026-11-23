@@ -176,7 +176,7 @@ struct ChatRowView: View {
             }
             .padding(.top, 4)
         case .failed(_, let errorText):
-            let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
+            let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness)
             let turn = store.turns.last { $0.id == row.turnID }
             // The latest failed turn retries through acpmux (its input and context kept).
             FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,

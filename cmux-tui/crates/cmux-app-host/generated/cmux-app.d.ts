@@ -44,7 +44,7 @@ declare namespace Cmux {
   type CatchUp = "latest" | "all" | "none"
   type CellPixelsResult = { width_px: number; height_px: number; resized_terminals: Array<string /* terminal_… */>; failures: Record<string, string> }
   type ChatState = "working" | "input" | "idle" | "failed" | "lost"
-  type ChatSummary = { id: string; title: string; harness: string | null; state: Cmux.ChatState; unread: boolean; unread_turns: number; pinned: boolean; ci_failing: boolean | null; machine: string | null; cwd: string | null; project: string | null; workspace: string /* workspace_… */ | null; parent: string | null; step: string | null; error: string | null; since_ms: string | null; updated_ms: string | null; created_ms: string | null; pull_requests: Array<string> }
+  type ChatSummary = { id: string; title: string; harness: string | null; state: Cmux.ChatState; unread: boolean; unread_turns: number; pinned: boolean; ci_failing: boolean | null; machine: string | null; cwd: string | null; project: string | null; workspace: string /* workspace_… */ | null; parent: string | null; step: string | null; error: string | null; since_ms: string | null; updated_ms: string | null; created_ms: string | null; pull_requests: Array<string>; preview?: string | null }
   type ChiefAvatarImage = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number; data: string }
   type ChiefAvatarPage = { chief: string; avatar: Cmux.ChiefAvatarImage | null }
   type ChiefAvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
@@ -206,11 +206,12 @@ declare namespace Cmux {
   type GitStatusWorktree = { main_root: string }
   type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
   type GitWorktreeCreateResult = { root: string; branch: string; base: string; base_commit: string; main_root?: string; setup: Cmux.GitWorktreeSetupStart }
-  type GitWorktreeRecipe = { setup: string | null; teardown: string | null; run: string | null; include: Array<string>; repository: Cmux.WorktreeRecipe; saved?: Cmux.WorktreeRecipe; files: Array<string>; problems?: Array<string> }
+  type GitWorktreeRecipe = { setup: string | null; teardown: string | null; run: string | null; include: Array<string>; repository: Cmux.WorktreeRecipe; saved?: Cmux.WorktreeRecipe; files: Array<string>; problems?: Array<string>; approval?: Cmux.GitWorktreeSetupApproval }
   type GitWorktreeRemoveResult = { root: string; main_root: string; branch?: string; branch_deleted: boolean; teardown?: Cmux.GitWorktreeTeardown }
+  type GitWorktreeSetupApproval = { fingerprint: string; approved: boolean }
   type GitWorktreeSetupResult = { root: string; main_root?: string; recipe: Cmux.GitWorktreeRecipe; run: Cmux.GitWorktreeSetupRun }
-  type GitWorktreeSetupRun = { state: string; port?: number | null; setup?: string; exit_code?: number | null; include?: Cmux.GitIncludeReport; started_ms?: string; finished_ms?: string; output: string; output_start: string; output_end: string }
-  type GitWorktreeSetupStart = { state: string; port?: number }
+  type GitWorktreeSetupRun = { state: string; port?: number | null; setup?: string; exit_code?: number | null; include?: Cmux.GitIncludeReport; started_ms?: string; finished_ms?: string; output: string; output_start: string; output_end: string; approval?: string }
+  type GitWorktreeSetupStart = { state: string; port?: number; approval?: string }
   type GitWorktreeTeardown = { state: string; exit_code?: number | null; output: string }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
@@ -369,6 +370,9 @@ declare namespace Cmux {
   type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "github.allowWorkflows" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
   type PolicyMode = "enforced" | "default"
   type ProcessInfoResult = { pid: number; executable?: string; argv: Array<string>; cwd?: string; foreground_cwd: string | null; foreground_executable: string | null; children: Array<number> }
+  type ProjectAction = { name: string; source: "project" | "global"; title: string; tooltip?: string; command: string; icon?: unknown; target: "newTabInCurrentPane" | "currentTerminal"; cwd?: string; file?: string; shadows?: boolean }
+  type ProjectActionProblem = { source: "project" | "global"; path: string; message: string }
+  type ProjectActionsListResult = { project_root?: string; file?: string; actions: Array<Cmux.ProjectAction>; problems: Array<Cmux.ProjectActionProblem> }
   type ProjectChange = { changed: Array<string> }
   type ProjectList = { projects: Array<Cmux.ProjectSnapshot>; sources: Array<Cmux.ProjectSourceSummary> }
   type ProjectObservation = { path: string; last_used_ms: string }
@@ -748,13 +752,19 @@ interface CmuxGlobal {
   }
   chat: {
     /** `chat.list` (read, scope `chat:read`) */
-    list: CmuxOp<{ machine?: string; session?: string }, Array<Cmux.ChatSummary>>
+    list: CmuxOp<{ machine?: string; session?: string; limit?: number; state?: Cmux.ChatState; before_ms?: string; before_id?: string; before_machine?: string }, Array<Cmux.ChatSummary>>
     /** `chat.mark_read` (mutation, scope `chat:write`) */
     mark_read: CmuxOp<{ machine?: string; session?: string; chat: string }, Cmux.MutationResult<Cmux.ChatSummary>>
     /** `chat.pin` (mutation, scope `chat:write`) */
     pin: CmuxOp<{ machine?: string; session?: string; chat: string; pinned: boolean }, Cmux.MutationResult<Cmux.ChatSummary>>
   }
   chief: {
+    automation: {
+      /** `chief.automation.list` (read, scope `chief:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; chief?: string }, Cmux.JsonValue>
+      /** `chief.automation.update` (mutation, scope `chief:write`) */
+      update: CmuxOp<{ machine?: string; session?: string; chief?: string; automation: string; action: "pause" | "resume" | "delete" | "run" }, Cmux.MutationResult<Cmux.JsonValue>>
+    }
     /** `chief.continue` (mutation, scope `chief:write`) */
     continue: CmuxOp<{ machine?: string; session?: string; chief?: string }, Cmux.MutationResult<Cmux.ChiefContinueResult>>
     /** `chief.create` (mutation, scope `chief:write`): Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain. */
@@ -1117,7 +1127,10 @@ interface CmuxGlobal {
       /** `git.worktree.remove` (mutation, scope `git:execute`) */
       remove: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; discard?: boolean }, Cmux.MutationResult<Cmux.GitWorktreeRemoveResult>>
       /** `git.worktree.setup` (read, scope `git:read`) */
-      setup: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; since?: string }, Cmux.GitWorktreeSetupResult>
+      setup: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; since?: string }, Cmux.GitWorktreeSetupResult> & {
+        /** `git.worktree.setup.run` (mutation, scope `git:execute`) */
+        run: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; approve?: string }, Cmux.MutationResult<Cmux.GitWorktreeSetupStart>>
+      }
     }
   }
   github: {
@@ -1359,6 +1372,10 @@ interface CmuxGlobal {
     unban: CmuxOp<{ conversation: Cmux.ConversationId; participant: Cmux.ParticipantId; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
   project: {
+    actions: {
+      /** `project.actions.list` (read, scope `project:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; include_global?: boolean }, Cmux.ProjectActionsListResult>
+    }
     /** `project.add` (mutation, scope `project:write`) */
     add: CmuxOp<{ machine?: string; session?: string; path: string }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.list` (read, scope `project:read`) */
@@ -1979,6 +1996,13 @@ interface CmuxGlobal {
     /** `page.follow` (mutation, scope `page:write`, needs a gesture): clicks the element of a shown hint, or with `new_split` opens its link in a new browser split (the built-in `F`), then clears the hints. `followed` is false when the label is not shown (any more), or `new_split` names a hint with no link. */
     follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
   }
+  /** What plays in cmux, answered by the cmux app: the track the Now Playing card shows. To follow it live, `cmux.watch("media.now_playing")`. */
+  media: {
+    /** `media.get` (read, scope `media:read`): what plays now, or `{track: null}` while nothing does. */
+    get: CmuxOp<Record<string, never>, CmuxSignalMap["media.now_playing"]["value"]>
+    /** `media.control` (mutation, scope `media:control`, needs a gesture): play or pause, skip, or seek to `seconds` in. Throws CmuxError `media.nothing_playing` while nothing plays. */
+    control: CmuxOp<{ command: "play_pause" | "previous" | "next" } | { command: "seek"; seconds: number }, null>
+  }
   /** The person's system calendar, read by the cmux app on the Mac (EventKit). Not the Cloud's Google `calendar.*` ops. */
   system_calendar: {
     /** `system_calendar.events` (read, scope `system_calendar:read`): events from now (ones in progress too) through `days` (1-31, default 7), sorted by start, at most `limit` (1-50, default 20), from every calendar. Never prompts: without full access it answers the status and no events. */
@@ -2004,6 +2028,8 @@ interface CmuxSignalMap {
   "github.pulls": { params: { /** Which of the person's pull requests: the ones they opened (author), the ones asking for their review (review-requested), the ones assigned to them (assignee). Default author and review-requested. */ roles?: Array<"author" | "review-requested" | "assignee">; /** open (default) or open-and-merged (closed unmerged ones are left out). */ include?: "open" | "open-and-merged"; /** Only pull requests created or updated in this many hours. */ updatedWithinHours?: number; /** At most this many per role (default 30). */ limit?: number; /** The GitHub login the public fallback searches for when no GitHub account is connected (needs net:api.github.com). */ login?: string }; value: Array<{ id: number; number: number; title: string; url: string; /** owner/name */ repo: string; draft: boolean; state: "open" | "merged" | "closed"; /** Why it is in the list: review-requested means it waits for the person's review. */ roles: Array<"author" | "review-requested" | "assignee">; author: string; updatedAt: string }> }
   /** `http.json`: A JSON document at an https URL (a weather forecast, a status page, a feed), parsed. The daemon reads each URL once for every app and widget that watches it and keeps it fresh for 60 s, or the response's Cache-Control max-age when that is longer; a re-read shows the kept value while it revalidates. Bodies over 1 MiB are refused. Needs the app's net:<host> scope for the URL's host. Scope: any of `net:<host>`; polled every 300 s (never faster than 60 s): nothing pushes it yet. */
   "http.json": { params: { /** The https URL to read. Its host must be one the app holds a net: scope for (net:api.open-meteo.com, or net:*.example.com for its subdomains). */ url: string; /** Read again this often while this reader is shown (default 300, never under 60). The daemon's cache still answers within max(60 s, max-age) without a request. */ everySeconds?: number }; value: unknown }
+  /** `media.now_playing`: What plays in cmux now, the track the Now Playing card shows: cmux's own player, else a browser tab playing aloud, else another music app while sidebar.nowPlaying.otherApps is on (media.get). The Mac app pushes media.changed when the track, its play state, its position jump or its artwork changes, so the runtime never polls it; between pushes, move the position on from position_ms with rate yourself. Scope: any of `media:read`; pushed by `media.changed`. */
+  "media.now_playing": { params: {  }; value: { /** What plays, or null while nothing does. */ track: null | { title: string; artist: string; artwork?: string; playing: boolean; position?: number; duration?: number; rate: number; position_ms: number; can_previous: boolean; can_next: boolean; source?: string } } }
   /** `system_calendar.events`: The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s. Scope: any of `system_calendar:read`; pushed by `system_calendar.changed`. */
   "system_calendar.events": { params: { days?: number; limit?: number }; value: { access: "granted" | "denied" | "restricted" | "notDetermined" | "unavailable"; events: Array<{ id: string; title: string; /** Unix ms */ start: number; /** Unix ms */ end: number; allDay: boolean; /** The calendar's title */ calendar: string; /** The calendar's color, #rrggbb */ color?: string; location?: string; url?: string }> } }
   /** `workspace.list`: The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it. Scope: any of `workspace:read`; pushed by `workspace.changed`. */
