@@ -851,7 +851,10 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertNotIn("for family in", reviewer)
         self.assertIn("needs: [plan, lint, reviewer-path, asc-validate]", report)
         self.assertIn("pattern: review-gate-*", report)
-        self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
+        self.assertIn("--expect-device iphone --expect-device-or-skipped duo", report)
+        # iPad: required on every run but a pull request on the iPhone-only app (the plan's skip marker).
+        self.assertIn('if [ "$EVENT" = pull_request ]; then args+=(--expect-device-or-skipped ipad); '
+                      'else args+=(--expect-device ipad); fi', report)
         self.assertIn("find in -name '*.skipped.json'", report)
 
     def test_a_device_with_no_tests_is_never_a_pass(self) -> None:
@@ -1155,7 +1158,7 @@ class GateWorkflowTests(unittest.TestCase):
                 for path in ("cmux-next-ios/CmuxMobileApp/App.swift", "cmux-next-ios/project.yml",
                              "cmux-next-ios/AppStoreReview/reviewer-setup.md",
                              "cmux-next-ios/AppStoreReview/known-blockers.json",
-                             "Packages/Shared/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
+                             "Packages/Shared/CmuxTheme/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
                     self.assertTrue(github_paths_match(patterns, path), path)
 
     def test_notes_and_verify_evidence_alone_never_start_the_kit_tests(self) -> None:
@@ -1420,8 +1423,11 @@ class DevicePlanTests(unittest.TestCase):
         self.assertIn('--out "$RESULTS/device-plan-mismatch.json"', reviewer)
         self.assertIn("            .github/scripts\n", reviewer)
         self.assertIn("find in -name 'device-plan-mismatch.json'", report)
-        # The report's rules stay: iPhone and iPad required, only Duo may skip.
-        self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
+        # The report's rules stay: iPhone required, Duo may skip, iPad may skip only on a pull request.
+        self.assertIn("--expect-device iphone --expect-device-or-skipped duo", report)
+        # iPad: required on every run but a pull request on the iPhone-only app (the plan's skip marker).
+        self.assertIn('if [ "$EVENT" = pull_request ]; then args+=(--expect-device-or-skipped ipad); '
+                      'else args+=(--expect-device ipad); fi', report)
 
 
 class InternalSubmissionTests(unittest.TestCase):
