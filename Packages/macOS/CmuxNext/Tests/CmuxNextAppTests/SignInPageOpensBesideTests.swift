@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextPages
+import CmuxNextTabs
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -95,8 +96,8 @@ struct SignInPageOpensBesideTests {
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == second }, report: { "a second sign-in page is not selected: " + Self.describe(content) })
             codePane.select(StripTabID(other.id))
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == other.id })
-            let secondEnd = try #require(back)
-            secondEnd()
+            let end2 = try #require(back)
+            end2()
             #expect(codePane.stripModel.selectedID?.rawValue == other.id, "the sign-in's end took the person off the tab they picked: \(Self.describe(content))")
         }
     }
