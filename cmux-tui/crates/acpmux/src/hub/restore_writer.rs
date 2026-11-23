@@ -755,8 +755,8 @@ mod tests {
             "hub/transfer_precopy.rs",
             "write_journal.rs",
         ];
-        // A bench home's fixture and the store's stress tests write their own homes, no hub's.
-        let fixtures = ["god_fixture.rs", "stress/"];
+        // A bench home's fixtures and the store's stress tests write their own homes, no hub's.
+        let fixtures = ["god_fixture.rs", "chat_size_fixture.rs", "stress/"];
         let mut found = Vec::new();
         let mut dirs = vec![std::path::PathBuf::from(root)];
         while let Some(dir) = dirs.pop() {

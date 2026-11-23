@@ -69,13 +69,16 @@ pub(super) struct Staged {
 /// Freezes the chat `id` on `src` and makes its bundle (`_acpmux/transfer_begin`). `watch` is
 /// the target as the source's watch reaches it if the move's client goes away
 /// (`{socket}`, or `{socket, ssh}` for a daemon on another machine, `hub/transfer_watch.rs`).
+/// `turn_bound`: with `after_turn`, the longest the daemon waits for the running turn
+/// (`afterTurnTimeoutMs`; a daemon too old to read it waits its own 15 minutes).
 pub(super) async fn begin_move(
     src: &Daemon<'_>,
     id: &str,
     watch: Option<Value>,
     running: (bool, bool),
+    turn_bound: Option<std::time::Duration>,
 ) -> Result<Begun> {
-    begin_move_after(src, id, watch, running, None).await
+    begin_move_after(src, id, watch, running, None, turn_bound).await
 }
 
 /// [`begin_move`] after `staged` (see [`precopy`]), whose bundle then holds only the records
@@ -87,14 +90,15 @@ pub(super) async fn begin_staged(
     watch: Option<Value>,
     running: (bool, bool),
     staged: Option<&Staged>,
+    turn_bound: Option<std::time::Duration>,
 ) -> Result<Begun> {
     if let Some(staged) = staged {
-        match begin_move_after(src, id, watch.clone(), running, Some(staged)).await {
+        match begin_move_after(src, id, watch.clone(), running, Some(staged), turn_bound).await {
             Err(e) if refused_as(&e, "transfer.diverged") => {}
             begun => return begun,
         }
     }
-    begin_move(src, id, watch, running).await
+    begin_move(src, id, watch, running, turn_bound).await
 }
 
 /// [`begin_move`]; after `staged`, the bundle holds only the records past its prefix.
@@ -104,19 +108,92 @@ async fn begin_move_after(
     watch: Option<Value>,
     (interrupt, after_turn): (bool, bool),
     staged: Option<&Staged>,
+    turn_bound: Option<std::time::Duration>,
+) -> Result<Begun> {
+    begin_with(src, id, watch, (interrupt, false, after_turn), staged, turn_bound).await
+}
+
+/// Longest [`begin_move_live`] waits for a running turn's tool calls to end before it stops the
+/// turn all the same (its continuation then names the calls it cut, `restart_resume.rs`).
+pub(super) const TOOL_WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+/// How often [`begin_move_live`] asks again while a tool call runs.
+const TOOL_POLL: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// [`begin_move`] for a chat whose turn may be running, which moves with it (Leo, 2026-11-21:
+/// "you're supposed to be able to move shit while it's running. that's teh whole point."). The
+/// begin stops the turn only between its tool calls (`atToolBoundary`, `hub/transfer_out.rs`
+/// `TurnCut`): every tool result is then in the agent's transcript, which the bundle carries,
+/// and the turn's continuation goes on from there on the target. While a call runs (a build, a
+/// test) the begin answers `transfer.tool_in_flight` and this asks again, up to `wait`; past it
+/// the turn stops as with `--interrupt`. A turn that ends meanwhile moves as an idle chat does,
+/// and so does a chat with no turn.
+pub(super) async fn begin_move_live(
+    src: &Daemon<'_>,
+    id: &str,
+    watch: Option<Value>,
+    wait: std::time::Duration,
+    staged: Option<&Staged>,
+) -> Result<Begun> {
+    // A prefix the source no longer holds as it was is moved in full (`begin_staged`).
+    let mut staged = staged;
+    let until = std::time::Instant::now() + wait;
+    let mut said = false;
+    loop {
+        let late = std::time::Instant::now() >= until;
+        match begin_with(src, id, watch.clone(), (late, !late, false), staged, None).await {
+            Err(e) if staged.is_some() && refused_as(&e, "transfer.diverged") => staged = None,
+            Err(e) if !late && waits_for_turn(&e) => {
+                if !said {
+                    eprintln!(
+                        "acpmux: {id}: its turn runs a tool call; the move takes the turn along once \
+                         that ends (at most {} min)",
+                        wait.as_secs() / 60
+                    );
+                    said = true;
+                }
+                tokio::time::sleep(TOOL_POLL).await;
+            }
+            other => return other,
+        }
+    }
+}
+
+/// Whether a begin refused `e` only until the running turn reaches a point it can stop at: a tool
+/// call in flight, or a compaction that a stop would cut (`hub/transfer_out.rs`).
+pub(crate) fn waits_for_turn(e: &anyhow::Error) -> bool {
+    let text = format!("{e:#}");
+    text.contains(&format!("transfer.{}", crate::hub::TOOL_IN_FLIGHT))
+        || text.contains("transfer.busy: the chat is compacting")
+}
+
+async fn begin_with(
+    src: &Daemon<'_>,
+    id: &str,
+    watch: Option<Value>,
+    (interrupt, at_tool_boundary, after_turn): (bool, bool, bool),
+    staged: Option<&Staged>,
+    turn_bound: Option<std::time::Duration>,
 ) -> Result<Begun> {
     // This client hands the bundle on only to a receiver whose own `initialize` listed queue
     // approval when it carries approved prompts that still wait (`receiver_takes`).
     // `afterTurn`: a running turn ends on its own first, the chat unfrozen meanwhile
     // (`hub/transfer_out.rs` `transfer_begin`); an older daemon ignores it and refuses as busy.
-    let mut begin_params = json!({"sessionId": id, "interrupt": interrupt,
-                                  "afterTurn": after_turn, "gatesQueueApproval": true});
+    let mut begin_params = json!({
+        "sessionId": id,
+        "interrupt": interrupt,
+        "atToolBoundary": at_tool_boundary,
+        "afterTurn": after_turn,
+        "gatesQueueApproval": true,
+    });
     if let Some(to) = watch {
         begin_params.set("to", to);
     }
     if let Some(staged) = staged {
         begin_params.set("prepareId", json!(staged.prepare_id));
         begin_params.set("afterSeq", json!(staged.after_seq));
+    }
+    if let Some(bound) = turn_bound.filter(|_| after_turn) {
+        begin_params.set("afterTurnTimeoutMs", json!(bound.as_millis() as u64));
     }
     let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
     let transfer_id = field(&begin, "transferId").as_str().unwrap_or_default().to_owned();
@@ -159,7 +236,7 @@ pub(super) async fn move_chat(
     if staged.is_none() {
         whole_freeze_refusal(src, id).await?;
     }
-    let begun = begin_staged(src, id, watch.clone(), running, staged.as_ref()).await?;
+    let begun = begin_staged(src, id, watch.clone(), running, staged.as_ref(), None).await?;
     if begun.stage_id.is_some() {
         let (cwd, name, meta) = (cwd.clone(), name.clone(), to_meta.clone());
         match finish_move(src, dst, dst_init, id, &begun, cwd, name, meta).await {
@@ -170,7 +247,7 @@ pub(super) async fn move_chat(
         return finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await;
     }
     whole_freeze_refusal(src, id).await?;
-    let begun = begin_move(src, id, watch, running).await?;
+    let begun = begin_move(src, id, watch, running, None).await?;
     finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
 }
 

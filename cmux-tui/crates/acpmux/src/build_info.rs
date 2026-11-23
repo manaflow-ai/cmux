@@ -29,56 +29,60 @@ pub fn install_build(build: &'static str) {
     let _ = INSTALLED_BUILD.set(build);
 }
 
-/// Whether a peer that runs the build `remote` lags the build `local`: what `outdated` means on
-/// a peer row (`acpmux machine ls`, placement's `peer_down`, the update hint). A build id is
-/// `<hash>[+dirty.<fingerprint>] <UTC date>` (acpmux-build-id), so a peer lags when its date is
-/// earlier. A newer peer, or another build from the same day, does not: before this, any build
-/// but this one's was outdated, so a sender a few hours behind the fleet passed over every
-/// newer peer as a "stale disk copy" (2026-11-22: `session move --machine auto` from a NIGHTLY
-/// three hours behind the fleet passed over 44 newer hosts) and its update hint offered to put
-/// its older build on them. A build id without a date
-/// (`unstamped`, an old peer's) lags whenever it differs.
-pub fn lags(remote: &str, local: &str) -> bool {
-    if remote == local {
-        return false;
-    }
-    match (build_date(remote), build_date(local)) {
-        (Some(r), Some(l)) => r < l,
-        _ => true,
-    }
-}
-
-/// The UTC date (`YYYY-MM-DD`) that ends a build id, when it has one.
-fn build_date(build: &str) -> Option<&str> {
-    let date = build.rsplit(' ').next()?;
-    let shape = date.len() == 10
-        && date
-            .bytes()
-            .enumerate()
-            .all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() });
-    (shape && build.contains(' ')).then_some(date)
-}
-
 /// `<version> (<build>)`, for `--version`.
 pub fn version_line() -> &'static str {
     static LINE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     LINE.get_or_init(|| format!("{} ({})", VERSION, build()))
 }
 
+/// Whether a peer's build `peer` lags this machine's build `mine`: the meaning of a peer row's
+/// `outdated` (`acpmux machine ls`, auto placement's pass-over, the `machine update` hint).
+/// A build id is `<short hash> <YYYY-MM-DD>`: when both carry a date, the peer lags only when its
+/// date is earlier (a newer or same-day peer is no stale copy: a NIGHTLY Mac and a lane VM rarely
+/// share one hash). Without a date on either side (`unstamped`, a hand build), any difference lags.
+pub fn lags(peer: &str, mine: &str) -> bool {
+    match (build_date(peer), build_date(mine)) {
+        (Some(p), Some(m)) => p < m,
+        _ => peer != mine,
+    }
+}
+
+/// The `YYYY-MM-DD` that ends a build id, if it ends with one.
+fn build_date(build: &str) -> Option<&str> {
+    let date = build.rsplit(' ').next()?;
+    let b = date.as_bytes();
+    let shape = b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit());
+    (shape && date.len() < build.len()).then_some(date)
+}
+
 #[cfg(test)]
 mod tests {
     use super::lags;
 
+    // 2026-11-22: cmux16 (a NIGHTLY Mac, b653865c3 2026-11-22) could move none of its idle chats with
+    // `session move --host auto`: both cloud peers (bb5e29da6 2026-11-22) were passed over as
+    // "outdated peer build (stale disk copy)", since any other build counted as outdated.
     #[test]
-    fn only_an_older_build_lags() {
-        let local = "dc165ee78 2026-11-22";
-        assert!(!lags(local, local));
-        assert!(!lags("b3fdb4e74 2026-11-22", local), "same day, another commit: not outdated");
-        assert!(!lags("b3fdb4e74 2026-11-23", local), "a newer peer is not outdated");
-        assert!(lags("acc1f8581 2026-11-21", local), "an older day lags");
-        assert!(lags("acc1f8581+dirty.ab12 2026-11-21", local));
-        assert!(lags("unstamped", local), "no date: any other build lags");
-        assert!(lags("b3fdb4e74 2026-11-21", "unstamped"));
+    fn a_newer_or_same_day_peer_build_does_not_lag() {
+        assert!(!lags("bb5e29da6 2026-11-22", "b653865c3 2026-11-22"));
+        assert!(!lags("bb5e29da6 2026-11-23", "b653865c3 2026-11-22"));
+        assert!(!lags("b653865c3 2026-11-22", "b653865c3 2026-11-22"));
+    }
+
+    #[test]
+    fn an_older_peer_build_lags() {
+        assert!(lags("a1143d5cc 2026-11-21", "b653865c3 2026-11-22"));
+        assert!(lags("a1143d5cc 2026-10-30", "b653865c3 2026-11-02"));
+    }
+
+    #[test]
+    fn a_build_without_a_date_lags_when_it_differs() {
+        assert!(lags("unstamped", "b653865c3 2026-11-22"));
+        assert!(lags("b653865c3 2026-11-22", "unstamped"));
         assert!(!lags("unstamped", "unstamped"));
+        assert!(lags("bb5e29da6 not-a-date", "b653865c3 2026-11-22"));
     }
 }

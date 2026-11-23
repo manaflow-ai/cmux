@@ -194,6 +194,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::RouteDeath { facts } => {
+            let text = if facts.as_os_str() == "-" {
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
+                buf
+            } else {
+                std::fs::read_to_string(&facts)
+                    .with_context(|| format!("reading {}", facts.display()))?
+            };
+            let f: crate::death_route::Facts =
+                serde_json::from_str(&text).context("facts are not the death-route JSON")?;
+            print_json(&serde_json::to_value(crate::death_route::route(&f))?);
+            Ok(())
+        }
         Command::RestartAgent { session } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -570,6 +584,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             all_idle,
             interrupt,
             after_turn,
+            timeout,
             leave_dirty,
             carry_changes,
             cwd,
@@ -587,6 +602,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 all_idle,
                 interrupt,
                 after_turn,
+                turn_timeout: std::time::Duration::from_secs(timeout),
                 leave_dirty,
                 carry_changes,
                 cwd,
@@ -923,11 +939,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             // A process-wide file lock protects the check, redeem and commit as one
             // transaction. A second installer never redeems behind the first one.
-            let _lock = crate::cli::cloud_join::join_lock().map_err(|_| {
+            let _lock = crate::cli::cloud_join::join_lock().map_err(|e| {
                 crate::cli::errors::AppError::new(
                     crate::cli::errors::Code::Runtime,
                     "join.store",
-                    "local machine store is busy or unavailable",
+                    format!("local machine store is busy or unavailable: {e:#}"),
                 )
                 .with_exit(5)
             })?;
