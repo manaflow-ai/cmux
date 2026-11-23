@@ -38,6 +38,8 @@
     "chat.list",
     "chat.mark_read",
     "chat.pin",
+    "chief.automation.list",
+    "chief.automation.update",
     "chief.continue",
     "chief.engine.get",
     "chief.engine.set",
