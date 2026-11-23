@@ -168,6 +168,7 @@ mod start_stages;
 mod vm;
 #[cfg(unix)]
 mod vm_cleanup;
+mod vm_gcp;
 #[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]
@@ -175,6 +176,8 @@ mod vm_short;
 mod vm_words;
 #[cfg(unix)]
 mod vnc;
+#[cfg(unix)]
+pub(crate) use app::spawn_daemon_updates;
 #[cfg(unix)]
 pub(crate) use auth_token::app_token;
 #[cfg(unix)]
@@ -573,6 +576,9 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "vm",
     "customize",
     "agent-config",
+    "move",
+    "teleport",
+    "evacuate",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -1781,6 +1787,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   notification  List and create notifications
   attention     Mark tabs where the person must act; find the next one
   agent         Manage agent sessions and terminal agents
+  move          Move agent sessions to another machine (also teleport, evacuate)
   room          Organize workspaces into rooms
   space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
@@ -1881,6 +1888,8 @@ USAGE
                   [--split right|down|left|up] [--cwd DIR] [--no-focus]
                   [--timeout 90s] [--no-wait] [-- ARGS...]
   cmux agent resume NAME [the same options]
+  cmux agent move|teleport|evacuate [SESSION...] --to MACHINE|auto|here [OPTIONS]
+                  (the same as cmux move; cmux move --help)
   cmux agent ls [--json]
   cmux agent send SESSION [TEXT...]
   cmux agent history SESSION
