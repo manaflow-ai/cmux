@@ -19,8 +19,9 @@ struct ProfileMenuBuilderTests {
         #expect(!menu.items.contains { $0.title == "Profiles" })
     }
 
-    /// Show Chief / Hide Chief (Leo 2026-10-20; Codex's profile menu toggles its floating window):
-    /// the row flips `home.chiefPetEnabled` through the one setting path, `palette.toggleSetting`.
+    /// Show Chief Pet / Hide Chief Pet (Leo 2026-10-20; Codex's profile menu toggles its floating window):
+    /// the row flips `home.chiefPetEnabled` through the one setting path, `palette.toggleSetting`. It says
+    /// Pet (David Beyer, Nov 20): "Show Chief" is the row that shows the Chief.
     @Test func chiefRowShowsOrHidesThePetThroughTheSettingPath() throws {
         // The App binds both; a row whose action is not bound is left out.
         let registry = ActionRegistry.standard()
@@ -31,7 +32,7 @@ struct ProfileMenuBuilderTests {
 
         let hidden = builder.make(profile: profile, chiefPetShown: false)
         let show = try #require(hidden.items.first { $0.identifier?.rawValue == "profileMenu.chiefPet" })
-        #expect(show.title == "Show Chief")
+        #expect(show.title == "Show Chief Pet")
         let showRun = try #require(ActionRegistry.menuRun(of: show))
         #expect(showRun.id == "palette.toggleSetting")
         #expect(showRun.arguments["setting"] == .string("home.chiefPetEnabled"))
@@ -39,7 +40,7 @@ struct ProfileMenuBuilderTests {
 
         let shown = builder.make(profile: profile, chiefPetShown: true)
         let hide = try #require(shown.items.first { $0.identifier?.rawValue == "profileMenu.chiefPet" })
-        #expect(hide.title == "Hide Chief")
+        #expect(hide.title == "Hide Chief Pet")
         #expect(ActionRegistry.menuRun(of: hide)?.arguments["on"] == .bool(false))
 
         // It sits just above Settings.
@@ -48,6 +49,25 @@ struct ProfileMenuBuilderTests {
 
         // A caller with no pet to show gets no row.
         #expect(!builder.make(profile: profile).items.contains { $0.identifier?.rawValue == "profileMenu.chiefPet" })
+    }
+
+    /// Show Chief (David Beyer, Nov 20: "Show Chief" did not show the Chief unless he went to Home): the row
+    /// always opens the Chief (`home.openChief`: its conversation, or the side panel), above the pet's row.
+    @Test func showChiefOpensTheChief() throws {
+        let registry = ActionRegistry.standard()
+        for id: ActionID in ["home.openChief", "palette.toggleSetting", "openSettings"] { registry.bind(id) {} }
+        let builder = ProfileMenuBuilder(registry: registry)
+        for petShown in [false, true] {
+            let menu = builder.make(profile: ProfileMenuProfile(name: "Default"), chiefPetShown: petShown)
+            let row = try #require(menu.items.first { $0.identifier?.rawValue == "profileMenu.showChief" }, "no Show Chief row")
+            #expect(row.title == "Show Chief")
+            #expect(row.image != nil)
+            #expect(ActionRegistry.menuRun(of: row)?.id == "home.openChief" || row.representedObject as? String == "home.openChief",
+                    "Show Chief does not open the Chief")
+            let ids = menu.items.map { $0.identifier?.rawValue }
+            let chief = try #require(ids.firstIndex(of: "profileMenu.showChief"))
+            #expect(ids[chief + 1] == "profileMenu.chiefPet", "the pet's row is not right under Show Chief")
+        }
     }
 
     /// Check for Updates… sits under Settings, as in the app menu (Austin 2026-10-20).

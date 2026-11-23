@@ -41,12 +41,20 @@ extension PaletteModel {
         let query = state.query
         state.answeredQuery = query
         state.cancelAnswerTasks()
-        let empty = query.allSatisfy(\.isWhitespace)
-        let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+        // A search filter (`in:tabs`, `-in:chats`) keeps or drops a contribution's section as the ranker
+        // does the ranked ones, and the contribution is asked for the words without the filter.
+        let names = page.filtersBySection ? state.filterSectionNames(page) : []
+        let filter = names.isEmpty ? nil : try? PaletteRankerBridge().filter(query: query, sectionNames: names)
+        let asked = filter.flatMap { $0.applied ? $0.rest : nil } ?? query
+        let empty = asked.allSatisfy(\.isWhitespace)
+        let words = asked.split(whereSeparator: \.isWhitespace).map(String.init)
         for contribution in page.contributedAnswers {
             let section = contribution.section
             if contribution.leads { state.leadingAnswers.insert(section.id) }
-            guard !empty || contribution.leads else {
+            let filteredOut = filter.map { filter in
+                names.firstIndex { $0.last == section.id }.map { !filter.allows($0) } ?? false
+            } ?? false
+            guard (!empty || contribution.leads), !filteredOut else {
                 state.answerSections[section.id] = nil
                 state.answerQueries[section.id] = nil
                 continue
@@ -57,7 +65,7 @@ extension PaletteModel {
             // query moves on; so the rows wait for it with no timer.
             state.answerTasks.append(Task { [weak self, weak state] in
                 guard let current = state, current.answeredQuery == query else { return }
-                let answers = contribution.results(query)
+                let answers = contribution.results(asked)
                 var answered = false
                 for await items in answers {
                     guard !Task.isCancelled, let self, let state, state.answeredQuery == query else { return }

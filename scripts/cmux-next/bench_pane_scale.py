@@ -66,6 +66,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import Client, classify, process_table, usage, wait_for_socket  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 
 class _ThreadInfo(ctypes.Structure):
@@ -244,7 +245,7 @@ class Bench:
         start = time.monotonic()
         result = None
         if body is None:
-            time.sleep(seconds)  # test script: the idle measurement window itself
+            time.sleep(seconds)  # sleep-ok: the idle measurement window itself (CPU and wakeups over these seconds)
         else:
             result = body()
         wall = time.monotonic() - start
@@ -293,8 +294,21 @@ class Bench:
                 self.refusals.append({"action": "status", "error": (done.stdout + done.stderr).strip()[-300:]})
                 return False
         self.tickers_started = True
-        time.sleep(2.0)  # test script: let the tickers start printing before the measured window
+        # Until the tickers print: the sidebar rows (their status) change between reads.
+        first = self.sidebar_rows()
+        wait_until(lambda: self.sidebar_rows() != first, "the status tickers' first sidebar update", timeout=15,
+                   interval=0.1, raise_on_timeout=False)
         return True
+
+    def sidebar_rows(self):
+        try:
+            return json.dumps(self.control.call("debug.sidebar_rows", {}, timeout=60).get("result"), sort_keys=True)
+        except (OSError, ValueError):
+            return None
+
+    def at_rest(self):
+        """The topology and the layout counters: both stop changing once the layout settled."""
+        return json.dumps([self.topology(), self.debug("debug.layout_counters")], sort_keys=True)
 
     def debug(self, method, params=None):
         if not self.has.get(method):
@@ -305,7 +319,9 @@ class Bench:
             return None
 
     def idle(self):
-        time.sleep(self.args.settle)  # test script: let the layout settle
+        # Until the layout settled: topology and layout counters read the same for a second.
+        wait_stable(self.at_rest, "the layout before the idle window", timeout=max(30.0, self.args.settle * 3),
+                    interval=0.2, reads=5, raise_on_timeout=False)
         self.debug("debug.wakeups", {"reset": True})
         threads_before = thread_times(self.app_pid)
         measured, _ = self.window(self.args.idle)
@@ -330,7 +346,7 @@ class Bench:
             latencies = []
             for action, args in ops:
                 if action == "wait":
-                    time.sleep(args["seconds"])  # test script: the measured window while the tickers print
+                    time.sleep(args["seconds"])  # sleep-ok: the measured window while the tickers print
                     latencies.append(0.0)
                     continue
                 if action == "window_frame":
@@ -349,8 +365,9 @@ class Bench:
             latencies = body()
             busy["s"] = time.monotonic() - busy_start
             # Observation work for the last ops runs after their replies.
-            self.topology()
-            time.sleep(1.0)  # test script: let trailing async apply work finish inside the window
+            # Trailing async apply work finishes inside the window: topology and layout counters stop changing.
+            wait_stable(self.at_rest, f"the layout after the {name} ops", timeout=15, interval=0.1, reads=3,
+                        raise_on_timeout=False)
             return latencies
 
         measured, latencies = self.window(body=settled_body)

@@ -1,6 +1,1066 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "editor.refusal.noEditor": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No code editor is installed on this Mac."}},"ar":{"stringUnit":{"state":"needs_review","value":"لا يوجد محرر شيفرة مثبت على جهاز Mac هذا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Na ovom Macu nije instaliran nijedan uređivač koda."}},"da":{"stringUnit":{"state":"needs_review","value":"Der er ingen kodeeditor installeret på denne Mac."}},"de":{"stringUnit":{"state":"needs_review","value":"Auf diesem Mac ist kein Code-Editor installiert."}},"es":{"stringUnit":{"state":"needs_review","value":"No hay ningún editor de código instalado en este Mac."}},"fr":{"stringUnit":{"state":"needs_review","value":"Aucun éditeur de code n’est installé sur ce Mac."}},"it":{"stringUnit":{"state":"needs_review","value":"Su questo Mac non è installato alcun editor di codice."}},"ja":{"stringUnit":{"state":"needs_review","value":"この Mac にはコードエディタがインストールされていません。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនមានកម្មវិធីកែកូដដែលបានដំឡើងនៅលើ Mac នេះទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 Mac에 설치된 코드 편집기가 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Ingen koderedigerer er installert på denne Macen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Na tym Macu nie zainstalowano żadnego edytora kodu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nenhum editor de código está instalado neste Mac."}},"ru":{"stringUnit":{"state":"needs_review","value":"На этом Mac не установлен ни один редактор кода."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่มีโปรแกรมแก้ไขโค้ดติดตั้งอยู่บน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu Mac'te yüklü kod düzenleyici yok."}},"uk":{"stringUnit":{"state":"needs_review","value":"На цьому Mac не встановлено жодного редактора коду."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không có trình soạn thảo mã nào được cài trên máy Mac này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台 Mac 上没有安装代码编辑器。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台 Mac 上沒有安裝程式碼編輯器。"}}}},
+    "editor.refusal.notInstalled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The editor %@ is not installed on this Mac."}},"ar":{"stringUnit":{"state":"needs_review","value":"المحرر %@ غير مثبت على جهاز Mac هذا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Uređivač %@ nije instaliran na ovom Macu."}},"da":{"stringUnit":{"state":"needs_review","value":"Editoren %@ er ikke installeret på denne Mac."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Editor %@ ist auf diesem Mac nicht installiert."}},"es":{"stringUnit":{"state":"needs_review","value":"El editor %@ no está instalado en este Mac."}},"fr":{"stringUnit":{"state":"needs_review","value":"L’éditeur %@ n’est pas installé sur ce Mac."}},"it":{"stringUnit":{"state":"needs_review","value":"L’editor %@ non è installato su questo Mac."}},"ja":{"stringUnit":{"state":"needs_review","value":"エディタ %@ はこの Mac にインストールされていません。"}},"km":{"stringUnit":{"state":"needs_review","value":"កម្មវិធីកែ %@ មិនបានដំឡើងនៅលើ Mac នេះទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"편집기 %@이(가) 이 Mac에 설치되어 있지 않습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Redigereren %@ er ikke installert på denne Macen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Edytor %@ nie jest zainstalowany na tym Macu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O editor %@ não está instalado neste Mac."}},"ru":{"stringUnit":{"state":"needs_review","value":"Редактор %@ не установлен на этом Mac."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ได้ติดตั้งโปรแกรมแก้ไข %@ บน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"%@ düzenleyicisi bu Mac'te yüklü değil."}},"uk":{"stringUnit":{"state":"needs_review","value":"Редактор %@ не встановлено на цьому Mac."}},"vi":{"stringUnit":{"state":"needs_review","value":"Trình soạn thảo %@ chưa được cài trên máy Mac này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台 Mac 上没有安装编辑器 %@。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台 Mac 上沒有安裝編輯器 %@。"}}}},
+    "editor.openIn.finder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Finder"}},"ar":{"stringUnit":{"state":"needs_review","value":"Finder"}},"bs":{"stringUnit":{"state":"needs_review","value":"Finder"}},"da":{"stringUnit":{"state":"needs_review","value":"Finder"}},"de":{"stringUnit":{"state":"needs_review","value":"Finder"}},"es":{"stringUnit":{"state":"needs_review","value":"Finder"}},"fr":{"stringUnit":{"state":"needs_review","value":"Finder"}},"it":{"stringUnit":{"state":"needs_review","value":"Finder"}},"ja":{"stringUnit":{"state":"needs_review","value":"Finder"}},"km":{"stringUnit":{"state":"needs_review","value":"Finder"}},"ko":{"stringUnit":{"state":"needs_review","value":"Finder"}},"nb":{"stringUnit":{"state":"needs_review","value":"Finder"}},"pl":{"stringUnit":{"state":"needs_review","value":"Finder"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Finder"}},"ru":{"stringUnit":{"state":"needs_review","value":"Finder"}},"th":{"stringUnit":{"state":"needs_review","value":"Finder"}},"tr":{"stringUnit":{"state":"needs_review","value":"Finder"}},"uk":{"stringUnit":{"state":"needs_review","value":"Finder"}},"vi":{"stringUnit":{"state":"needs_review","value":"Finder"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Finder"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Finder"}}}},
+    "editor.openIn.terminal": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Terminal"}},"ar":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"bs":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"da":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"de":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"es":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"fr":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"it":{"stringUnit":{"state":"needs_review","value":"Terminale"}},"ja":{"stringUnit":{"state":"needs_review","value":"ターミナル"}},"km":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"ko":{"stringUnit":{"state":"needs_review","value":"터미널"}},"nb":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"pl":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"ru":{"stringUnit":{"state":"needs_review","value":"Терминал"}},"th":{"stringUnit":{"state":"needs_review","value":"เทอร์มินัล"}},"tr":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"uk":{"stringUnit":{"state":"needs_review","value":"Термінал"}},"vi":{"stringUnit":{"state":"needs_review","value":"Terminal"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"终端"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"終端機"}}}},
+    "agentPane.pointer.kind.tab": {
+      "comment": "Point at Element: the kind of native element its outline chip names (“Tab · notes.md”).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة تبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分頁"
+          }
+        }
+      }
+    },
+    "agentPane.pointer.kind.tabStrip": {
+      "comment": "Point at Element: the kind of native element its outline chip names (“Tab · notes.md”).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab bar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tableiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra delle schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分頁列"
+          }
+        }
+      }
+    },
+    "agentPane.pointer.kind.pane": {
+      "comment": "Point at Element: the kind of native element its outline chip names (“Tab · notes.md”).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riquadro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងបង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngăn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格"
+          }
+        }
+      }
+    },
+    "agentPane.pointer.kind.paneToolbar": {
+      "comment": "Point at Element: the kind of native element its outline chip names (“Tab · notes.md”).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane toolbar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط أدوات اللوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alatna traka okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rudens værktøjslinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereichssymbolleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de herramientas del panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’outils du volet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra degli strumenti del riquadro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのツールバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារឧបករណ៍ផ្ទាំងបង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 도구 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verktøylinje for rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek narzędzi panelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de ferramentas do painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель инструментов панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบเครื่องมือบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme araç çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель інструментів панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh công cụ của ngăn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格工具栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格工具列"
+          }
+        }
+      }
+    },
+    "agentPane.pointer.kind.workspace": {
+      "comment": "Point at Element: the kind of native element its outline chip names (“Tab · notes.md”).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Area di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszar roboczy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочая область"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робоча область"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區"
+          }
+        }
+      }
+    },
+    "agentPane.pointer.kind.sidebarItem": {
+      "comment": "Point at Element: the kind of native element its outline chip names (“Tab · notes.md”).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar item"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عنصر الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stavka bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebjælkeelement"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleistenelement"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Élément de la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento della barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー項目"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធាតុរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 항목"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidefeltelement"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Item da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Элемент боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รายการแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu öğesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Елемент бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mục thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "边栏项目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄項目"
+          }
+        }
+      }
+    },
+    "agentPane.pointer.kind.control": {
+      "comment": "Point at Element: the kind of native element its outline chip names (“Tab · notes.md”).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عنصر تحكم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrola"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrol"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuerelement"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrôle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការគ្រប់គ្រង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨트롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontroll"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrolka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controle"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Элемент управления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวควบคุม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denetim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Елемент керування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Điều khiển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控制項"
+          }
+        }
+      }
+    },
+    "agentPane.pointer.kind.view": {
+      "comment": "Point at Element: the kind of native element its outline chip names (“Tab · notes.md”).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ansicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビュー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទិដ្ឋភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widok"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Представление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มุมมอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görünüm"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ xem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢視"
+          }
+        }
+      }
+    },
     "agentPane.github.localCloneFailed": {
       "comment": "A GitHub repository picked for a chat on this Mac could not be cloned. %@ is owner/name.",
       "extractionState": "manual",
@@ -41917,6 +42977,402 @@
           "stringUnit": {
             "state": "translated",
             "value": "此 Cloud 服務尚未設定 GitHub。"
+          }
+        }
+      }
+    },
+    "agentPane.github.reauth": {
+      "comment": "The new chat folder picker's Connect GitHub when the team's GitHub App installation was suspended or removed.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub access was suspended or removed. Connect GitHub again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der GitHub-Zugriff wurde ausgesetzt oder entfernt. Verbinde GitHub erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'accès à GitHub a été suspendu ou supprimé. Connectez à nouveau GitHub."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تعليق الوصول إلى GitHub أو إزالته. اربط GitHub مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El acceso a GitHub se suspendió o se eliminó. Vuelve a conectar GitHub."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 存取已被暫停或移除。請重新連接 GitHub。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 访问已被暂停或移除。请重新连接 GitHub。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 접근이 일시 중지되었거나 제거되었습니다. GitHub를 다시 연결하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub へのアクセスが停止または削除されました。GitHub に再接続してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pristup GitHubu je suspendovan ili uklonjen. Ponovo poveži GitHub."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adgangen til GitHub blev suspenderet eller fjernet. Forbind GitHub igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'accesso a GitHub è stato sospeso o rimosso. Connetti di nuovo GitHub."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលប្រើ GitHub ត្រូវបានផ្អាក ឬដកចេញ។ សូមភ្ជាប់ GitHub ម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgangen til GitHub ble suspendert eller fjernet. Koble til GitHub på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostęp do GitHub został zawieszony lub usunięty. Połącz GitHub ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O acesso ao GitHub foi suspenso ou removido. Conecte o GitHub novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ к GitHub приостановлен или удалён. Подключите GitHub снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าถึง GitHub ถูกระงับหรือถูกลบ โปรดเชื่อมต่อ GitHub อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub erişimi askıya alındı veya kaldırıldı. GitHub'a yeniden bağlan."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ до GitHub призупинено або видалено. Підключіть GitHub знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quyền truy cập GitHub đã bị tạm ngưng hoặc gỡ bỏ. Hãy kết nối lại GitHub."
+          }
+        }
+      }
+    },
+    "agentPane.github.connectionError": {
+      "comment": "The new chat folder picker's Connect GitHub when the server marked the GitHub connection as errored.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub reported a problem with this connection. Try again later."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub meldet ein Problem mit dieser Verbindung. Versuche es später erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub signale un problème avec cette connexion. Réessayez plus tard."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أبلغ GitHub عن مشكلة في هذا الاتصال. حاول مرة أخرى لاحقًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub informó de un problema con esta conexión. Inténtalo de nuevo más tarde."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 回報此連線發生問題。請稍後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 报告此连接出现问题。请稍后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub에서 이 연결에 문제가 있다고 알렸습니다. 나중에 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub がこの接続に問題があると報告しました。後でもう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub je prijavio problem s ovom vezom. Pokušaj ponovo kasnije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub har meldt et problem med denne forbindelse. Prøv igen senere."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ha segnalato un problema con questa connessione. Riprova più tardi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub បានរាយការណ៍ពីបញ្ហាជាមួយការតភ្ជាប់នេះ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub meldte et problem med denne tilkoblingen. Prøv igjen senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub zgłosił problem z tym połączeniem. Spróbuj ponownie później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O GitHub relatou um problema com esta conexão. Tente novamente mais tarde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub сообщил о проблеме с этим подключением. Повторите попытку позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub รายงานปัญหาเกี่ยวกับการเชื่อมต่อนี้ โปรดลองอีกครั้งในภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub bu bağlantıyla ilgili bir sorun bildirdi. Daha sonra tekrar dene."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub повідомив про проблему з цим підключенням. Спробуйте пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub báo có sự cố với kết nối này. Hãy thử lại sau."
+          }
+        }
+      }
+    },
+    "agentPane.github.linkExpired": {
+      "comment": "The new chat folder picker's Connect GitHub after the API refused the link GitHub handed back (an expired state).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link expired; connect again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Link ist abgelaufen; verbinde erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien a expiré ; reconnectez-vous."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت صلاحية الرابط؛ اتصل مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace caducó; vuelve a conectar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結已過期；請重新連接。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接已过期；请重新连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크가 만료되었습니다. 다시 연결하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクの有効期限が切れました。もう一度接続してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza je istekla; poveži ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linket er udløbet; forbind igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il link è scaduto; connettiti di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំណបានផុតកំណត់ សូមភ្ជាប់ម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lenken har utløpt; koble til på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link wygasł; połącz ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O link expirou; conecte novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Срок действия ссылки истёк; подключитесь снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลิงก์หมดอายุ โปรดเชื่อมต่ออีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlantının süresi doldu; yeniden bağlan."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термін дії посилання минув; підключіться знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liên kết đã hết hạn; hãy kết nối lại."
           }
         }
       }

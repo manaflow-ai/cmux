@@ -186,16 +186,15 @@ covers the repo (one repo, at most 1 h, never at rest); the person's own login s
 6. **Webhook fan-out stops at one failure.** `provider-hook.ts:35-39` awaits each team's ingest in turn without a
    per-link catch. GitHub's redelivery recovers it (ingest is idempotent by delivery id).
 
-7. **A Cloud chat from the CLI never starts until a GUI-only consent is answered.** On Leo's account (2026-11-21,
-   NIGHTLY on air-blue) `cmux chat --on vm:new --harness claude --no-folder --wait` was refused in 393 ms with no
-   machine made: the harness has no login, and "do my Cloud machines get my login" is unanswered and answerable only
-   in the app. The air-blue Cloud chat probe failed the same way in all 6 runs since 11-20 16:51Z. Fix: the choice
-   is answerable from the CLI and MCP (settings on every surface) and the refusal names that command. The default
-   stays unchosen; the choice is the person's.
-8. **The cmux MCP is never offered to agents until asked.** `cmux setup mcp` reported `needs_user` with
-   `agents.cmuxMcp: "ask"` on the same account, so agents he starts get no cmux MCP tools until he answers. This is
-   by design (a consent), recorded here as an edge: the state is `ask → yes | no`, and `ask` should be visible
-   where the agent's tools are listed, not only in setup.
+7. **A running app days older than the installed one answers for it.** On Leo's account (2026-11-21, air-blue)
+   `cmux chat --on vm:new --harness claude --no-folder --wait` was refused in 393 ms with a login-consent message
+   the code dropped on 11-17 (#40159). The installed NIGHTLY (4487759453601) has no such refusal and its probe
+   passes; the running NIGHTLY process had started 11-16 and never relaunched after the update. Not a Cloud bug:
+   nothing tells the person or the CLI that the running build is older than the installed one. Fix: the app offers
+   "Restart to update" when its bundle on disk is newer, and the CLI warns when the app it reaches is another build.
+8. **The cmux MCP was never offered to agents until asked.** `cmux setup mcp` reported `needs_user` with
+   `agents.cmuxMcp: "ask"` on the same account. Fixed: `agents.cmuxMcp` is now on by default and only `off` turns
+   it off, so agents started in cmux get cmux's tools with no question.
 
 Measured on the same account, no GitHub link: `GET /v1/integrations/github/status` answers `connection: null`
 (the unlinked state of section 1); `GET /v1/integrations/github/repos` answers 404 `integration.not_found` in

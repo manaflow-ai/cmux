@@ -68,6 +68,28 @@ struct PageWebViewCrashReloadTests {
         view.close()
     }
 
+    /// Leo's Mac, 2026-11-21: each quit logged every Chromium page (an agent chat, two New Tab pages) as
+    /// "web content ended ... engine=webkit:chromium-failed; loads again by itself", and started a WebKit load
+    /// of each while the app quit. The engine's stop for quit (`.engineStopped`) reopens nothing in WebKit and
+    /// reports no crash, on a host with the notice and on one that reloads.
+    @Test func theEnginesStopForQuitIsNoCrashAndNoWebKitFallback() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        for reloadsAfterCrash in [false, true] {
+            let (view, page) = try await started(FakeChromiumHosting())
+            view.reloadsAfterCrash = reloadsAfterCrash
+            var reports: [Bool] = []
+            view.onCrash = { _, reloading in reports.append(reloading) }
+            page.onEvent?(.engineStopped)
+            #expect(reports.isEmpty, "the quit was reported as a crash (reloadsAfterCrash \(reloadsAfterCrash))")
+            #expect(view.showsChromium, "the page fell back to WebKit on quit")
+            #expect(view.lastTermination == nil)
+            #expect(!view.webKitLoadsOnReload)
+            #expect(view.webView.url == nil, "a WebKit load started while the app quit")
+            #expect(page.reloads == 0)
+            view.close()
+        }
+    }
+
     /// Leo's Mac, 2026-11-01: WebKit's GPU process failed three times, WebKit ended every web
     /// content process, and 19 agent chats that showed in Chromium got the crash notice and a
     /// reset bridge, though their Chromium renderer still ran. The hidden WebKit view's end ends

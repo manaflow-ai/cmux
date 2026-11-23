@@ -604,12 +604,23 @@ fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
         assert_eq!(peer_down(&row(false, state)), Some(format!("not connected ({state})")));
     }
     assert_eq!(peer_down(&json!({"name": "vm"})), Some("not connected (down)".into()));
+    // A machine only the hub lists reads as connected, but no session can start there from here.
+    let hub = json!({"name": "swarm-01", "connected": true, "state": "connected", "via": "hub"});
+    let why = peer_down(&hub).expect("a hub-only machine is no candidate");
+    assert!(why.starts_with("only the mesh hub reaches it"), "{why}");
+    assert!(why.contains("`acpmux machine add swarm-01`"), "{why}");
 
     let v = place(&[c("small", health(40.0, 16, 1.0, 300.0, 0))], Some(&registry()), Work::Agent);
     let v = with_down(v, &[("vm".into(), "not connected (reconnecting)".into())]);
     assert_eq!(v["pick"], "small", "{v:#}");
     assert_eq!(host(&v, "vm")["ok"], false, "{v:#}");
     assert_eq!(host(&v, "vm")["refused"], "not connected (reconnecting)", "{v:#}");
+}
+
+#[test]
+fn an_outdated_peer_is_passed_over_as_a_stale_disk_copy() {
+    let row = json!({"name": "vm", "connected": true, "state": "connected", "outdated": true});
+    assert_eq!(peer_down(&row), Some("outdated peer build (stale disk copy)".into()));
 }
 
 #[test]

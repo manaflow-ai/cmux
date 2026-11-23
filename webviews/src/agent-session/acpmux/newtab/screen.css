@@ -18,9 +18,9 @@
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
    The row follows the content line height, with one content-size unit above and below. Nothing cuts
    the draft. */
-.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--nt-input-pad-block)),60vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
-.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;--acpmux-field-grows:down;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--nt-input-pad-block)),60vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 .nt-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
 .nt-field.acpmux-md-field .acpmux-md-placeholder{inset-inline-start:var(--nt-field-pad-inline-start);right:0;top:calc(var(--nt-input-pad-block) + var(--acpmux-text-drop, 0px))}
 .nt-field.acpmux-md-field .acpmux-md{min-height:var(--text-content--line-height);font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
@@ -402,12 +402,12 @@
 /* Under Increase Contrast the box's edge is already the text color: focus takes the shared ring,
    following the box's rounded corners (the field draws none, cx-ncc.57). */
 @media (prefers-contrast: more) {
-  .nt-box:is(:focus-visible, :has(:focus-visible)),
-  body:has(.nt-box:focus-visible, .nt-box :focus-visible) .nt-popover {
+  .nt-box:is(:focus-visible, [data-focused]),
+  body .nt-popover.nt-popover-focused.nt-popover-focused {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
-/* The split controls stay on the first line as the prompt grows. */
+/* The row's controls stand on the box's bottom edge as the prompt grows (below). */
 .nt-input > .acpmux-chrome-area > .nt-pickers {
   flex: none;
   align-self: flex-end;
@@ -422,7 +422,8 @@
   display: flex;
   align-items: center;
   height: var(--text-content--line-height);
-  margin-top: var(--nt-input-pad-block);
+  align-self: end;
+  margin-bottom: var(--nt-input-pad-block);
 }
 /* The split row's controls, as the chat composer's (composerLocation.css; leo-workspace
    design/composer.md, Controls; Leo 2026-10-31: "why is our shit not vertically centered like
@@ -601,10 +602,25 @@
   gap: var(--acpmux-composer-lead-gap);
   padding: 0 var(--acpmux-composer-inset);
 }
+/* +, the mic and Send stand on the box's bottom edge at every height, each centered on the one-line
+   row's line (the same offset the first line had, so a one-line box draws them where it did): as the
+   draft wraps and grows they stay on its last line, the line being typed, and never sit on the first
+   line of a tall draft, as the chat composer's (composerLocation.css; Leo 2026-11-22: "the
+   buttons for send attach all that doesnt follow/simply stick with teh bottom of the
+   composer"). test/composer-wrap-layout.browser.test.ts. */
 .nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
-  align-self: start;
+  align-self: end;
   min-height: var(--acpmux-composer-control);
-  margin: max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2)) 0 0;
+  margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
+}
+/* The field's always-reserved scrollbar lane (scrollers.ts, 8 px) stands in the gap before the mic
+   instead of after it: the text ends one lead gap before the mic as it starts one lead gap after +,
+   not a lane and a gap (16 px against 8), and a line holds that much more of the draft (Leo
+   2026-11-22: "we probably ought to be able to type at least one more character or two ... IT'S NOT
+   EVEN LIKE IT'S EVENLY SPACED RIGHT NOW"). The thumb, shown only while the draft scrolls, runs in
+   that gap beside the controls, never over them. */
+.nt-input[data-split] > .nt-field-slot {
+  margin-inline-end: calc(-1 * min(var(--cmux-scroller-size, 8px), var(--acpmux-composer-lead-gap)));
 }
 /* Fixed top padding keeps the first line, placeholder and shell glyph still when text wraps. */
 .nt-input[data-split] .nt-field {
@@ -1189,98 +1205,6 @@
 .nt-screen .nt-all-scroll,
 .nt-screen .nt-all-list { flex: none; }
 .nt-screen .nt-all-list { mask-image: none; }
-/* First-run starters (FirstRunStarters.tsx): under the composer while this Mac has no chats. Quiet
-   text rows with an icon, a wash only on hover or keyboard focus (the stage card's rule), never a
-   resting pill. No entry animation: the page draws them in its first frame (Leo, no entry
-   animations on New Tab, #24383). */
-.nt-starters {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
-  width: min(440px, 100%);
-  margin: var(--ds-space-4) auto 0;
-}
-.nt-starters-label {
-  padding: 0 var(--ds-space-2);
-  color: var(--acpmux-composer-dim);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.nt-starters-list {
-  display: flex;
-  flex-direction: column;
-}
-.nt-starter {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-  width: 100%;
-  min-width: 0;
-  height: var(--ds-control-row);
-  padding: 0 var(--ds-space-2);
-  box-sizing: border-box;
-  border: 0;
-  border-radius: var(--ds-radius-popup);
-  background: none;
-  /* A starter is a button's label: the muted ink, which holds 4.5:1 (--agent-soft is a hint tier). */
-  color: var(--agent-muted);
-  font: inherit;
-  font-size: var(--text-control);
-  letter-spacing: var(--text-control--letter-spacing);
-  text-align: left;
-}
-.nt-starter:hover,
-.nt-starter:focus-visible {
-  background: var(--ds-color-hover);
-  color: var(--agent-text);
-}
-.nt-starter:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
-  outline-offset: -1px;
-}
-.nt-starter-icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  color: var(--acpmux-composer-dim);
-}
-.nt-starter:hover .nt-starter-icon,
-.nt-starter:focus-visible .nt-starter-icon {
-  color: var(--agent-text);
-}
-.nt-starter-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Inline: one centred line of plain text actions, no icons. */
-.nt-starters[data-look="inline"] {
-  align-items: center;
-}
-.nt-starters[data-look="inline"] .nt-starters-list {
-  flex-flow: row wrap;
-  justify-content: center;
-  gap: 0 var(--ds-space-1);
-}
-.nt-starters[data-look="inline"] .nt-starter {
-  width: auto;
-  height: var(--ds-control-compact);
-  color: var(--acpmux-composer-dim);
-  font-size: var(--text-detail);
-}
-/* Card: the stage card's surface around the rows. */
-.nt-starters[data-look="card"] .nt-starters-list {
-  padding: var(--ds-space-1);
-  border-radius: var(--ds-radius-popup);
-  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
-    var(--acpmux-composer-shadow, var(--elevation-1));
-}
 /* Suggestion glyphs keep Default's proportions inside the shared zoom. */
 .nt-popover {
   /* A portal outside the composer: the composer's control and inset, so its rows and the + column formula scale
@@ -1349,6 +1273,62 @@
 .nt-screen .nt-create .nt-tool-icon > svg{width:100%;height:100%}
 
 .nt-row:has(.nt-row-shortcut) .nt-row-title{flex-shrink:1}
+/* The home-card-glow experiment (homeCardGlow.experiment.ts; ChatCards sets `data-glow` and each
+   card's `--nt-card-tint`, the chat's own color). One card shell for every chat: a radial glow in
+   its tint from the top corner and a tinted hairline under the meta row; hover or focus brightens
+   the glow. Layout, contents and actions stay as they are; off draws none of it. */
+.nt-cards[data-glow] {
+  --nt-glow-rest: 0.5;
+  --nt-glow-mix: 22%;
+  --nt-glow-reach: 70%;
+  --nt-glow-divider: 30%;
+}
+.nt-cards[data-glow="vivid"] {
+  --nt-glow-rest: 0.6;
+  --nt-glow-mix: 42%;
+  --nt-glow-reach: 95%;
+  --nt-glow-divider: 50%;
+}
+/* A light page has less dark around the glow to carry it: a little more color, the same reach. */
+:root.light .nt-cards[data-glow] {
+  --nt-glow-mix: 16%;
+}
+:root.light .nt-cards[data-glow="vivid"] {
+  --nt-glow-mix: 30%;
+}
+.nt-cards[data-glow] .nt-card {
+  position: relative;
+  isolation: isolate;
+}
+.nt-cards[data-glow] .nt-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-backdrop);
+  border-radius: inherit;
+  /* chat-surface-allow: the default-off Home card glow experiment (#47524), a per-chat tint, not a level */
+  background: radial-gradient(
+    circle at 0% 0%,
+    color-mix(in oklab, var(--nt-card-tint, currentColor) var(--nt-glow-mix), transparent),
+    transparent var(--nt-glow-reach)
+  );
+  opacity: var(--nt-glow-rest);
+  pointer-events: none;
+}
+.nt-cards[data-glow] .nt-card:hover::before,
+.nt-cards[data-glow] .nt-card:focus-visible::before {
+  opacity: 1;
+}
+.nt-cards[data-glow] .nt-card-meta {
+  box-shadow: 0 var(--cmux-hairline, 0.5px) 0
+    color-mix(in oklab, var(--nt-card-tint, currentColor) var(--nt-glow-divider), transparent);
+}
+/* Reduced motion: the glow changes at once. The scale's ceiling step (the largest calm change). */
+@media (prefers-reduced-motion: no-preference) {
+  .nt-cards[data-glow] .nt-card::before {
+    transition: opacity var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
+  }
+}
 /* Return's row (NewTabScreen): a ↩ keycap at its end, in the shortcut keycaps' dress, so the highlight
    reads as "Return does this" before Return is pressed (David Beyer 2026-11-20: words he typed ran as a
    shell command). It takes no room from the title: the row's end, after any shortcut. */
