@@ -33,12 +33,19 @@
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
+//! [`additions`] (a person's image additions list, sent at idle only under their usage-sharing
+//! choice), `additions_thread` (its listing and send, off the poll loop),
 //! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
 //! Cloud and restored into a replacement machine, #25584),
 //! and `trajectory_thread` (its thread). A person's Claude or Codex login is
 //! never sent to a cmux server: it stays in the harness's own files on the
 //! machine, and their next machine gets it from their own machine's snapshot.
 
+pub mod additions;
+#[cfg(all(test, target_os = "linux"))]
+mod additions_tests;
+#[cfg(target_os = "linux")]
+pub mod additions_thread;
 #[cfg(target_os = "linux")]
 mod agent_socket;
 pub mod apps_call;

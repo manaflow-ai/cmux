@@ -281,7 +281,7 @@ MIXED = {
         "WEB_INPUTS": json.dumps({"web": "true", "macos": "false", "agent_session_web": "false"}),
         "WEB_NEEDS": json.dumps({"web-subarea-scope": {"result": "abandoned"}, "web-tests": {"result": "failure"},
                                  **{job: {"result": "skipped"} for job in (
-                                     "web-typecheck", "web-production-build", "web-instant-navigation",
+                                     "web-typecheck", "webviews-typecheck", "web-production-build", "web-instant-navigation",
                                      "react-apps-check", "agent-pane-real-acpmux", "diff-sidecar-check",
                                      "web-db-migrations")}})},
 }
