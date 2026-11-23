@@ -12,6 +12,7 @@ waiting on the child's copy of the output pipe.
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import os
 import re
 import signal
@@ -389,6 +390,43 @@ class FastWorkflowReportsOnMainPush(unittest.TestCase):
         self.assertEqual(job["name"], "CI fast guards")
         runs = [s.get("run", "") for s in job["steps"]]
         self.assertTrue(any(r.startswith("scripts/ci/guards-local.sh") for r in runs))
+
+
+class StepTimesOrderTheNextRun(unittest.TestCase):
+    """CI fast guards hit its 5-minute timeout when its longest step started late: the pool now
+    starts the steps that took longest on this machine first, from the times the last run kept."""
+
+    def test_times_are_kept_per_step_and_merged_with_earlier_runs(self) -> None:
+        unit = run_ci_guards.Unit(job="workflow-guard-tests", group="ci", steps=[])
+        step = lambda name: run_ci_guards.Step(name=name, run="true", env={}, working_directory=None)
+        with tempfile.TemporaryDirectory() as directory:
+            saved = run_ci_guards.TIMES, run_ci_guards.SEED_TIMES
+            run_ci_guards.TIMES = Path(directory) / "times/step-seconds.json"
+            run_ci_guards.SEED_TIMES = Path(directory) / "seed.json"
+            try:
+                self.assertEqual(run_ci_guards.read_times(), {})
+                run_ci_guards.write_times([run_ci_guards.StepResult(unit, step("slow"), True, 90.04, ""),
+                                           run_ci_guards.StepResult(unit, step("skipped"), None, 0.0, "")])
+                run_ci_guards.write_times([run_ci_guards.StepResult(unit, step("fast"), False, 1.0, "")])
+                self.assertEqual(run_ci_guards.read_times(),
+                                 {"workflow-guard-tests / ci: slow": 90.0, "workflow-guard-tests / ci: fast": 1.0})
+                # A fresh runner has only the checked-in seed; a machine's own time wins over it, and
+                # writing keeps only the machine's own times.
+                run_ci_guards.SEED_TIMES.write_text('{"workflow-guard-tests / ci: slow": 300, "workflow-guard-tests / ci: seeded": 50}')
+                self.assertEqual(run_ci_guards.read_times(),
+                                 {"workflow-guard-tests / ci: slow": 90.0, "workflow-guard-tests / ci: fast": 1.0,
+                                  "workflow-guard-tests / ci: seeded": 50.0})
+                run_ci_guards.write_times([])
+                self.assertNotIn("seeded", run_ci_guards.TIMES.read_text())
+                run_ci_guards.TIMES.write_text("not json")
+                self.assertEqual(run_ci_guards.read_times(), {"workflow-guard-tests / ci: slow": 300.0,
+                                                              "workflow-guard-tests / ci: seeded": 50.0})
+            finally:
+                run_ci_guards.TIMES, run_ci_guards.SEED_TIMES = saved
+
+    def test_the_checked_in_seed_puts_the_long_steps_first(self) -> None:
+        seed = json.loads(run_ci_guards.SEED_TIMES.read_text())
+        self.assertGreaterEqual(seed["workflow-guard-tests / ci: Validate main-fix merge evidence (merged-head checks)"], 60)
 
 
 if __name__ == "__main__":

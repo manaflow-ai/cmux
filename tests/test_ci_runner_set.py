@@ -51,11 +51,11 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas'}),
     'billing-nightly.yml': ('holds the App Store In-App Purchase key and health token: the fork-routing secret rule forbids a variable-movable runner',
      {'apple-delivery', 'apple-api', 'apple-post-release', 'alert'}),
-    'ci-queue-janitor.yml': ('the queue repair job must not depend on the pools it repairs: GitHub-hosted ubuntu-24.04, '
+    'ci-queue-janitor.yml': ('the queue repair job must not depend on the pools it repairs: the one-job cmux-gcp-repair-jit-x64, '
                              'or cmux-fleet-linux-x64 when CI_QUEUE_JANITOR_ON_FLEET=1 (check_queue_janitor_runs_off_the_pools_it_judges)',
      {'sweep'}),
     'ci-queue-janitor-watchdog.yml': ("watches the sweep's label from off it: cmux-fleet-linux-x64 while the sweep is on "
-                                      'ubuntu-24.04, ubuntu-24.04 when CI_QUEUE_JANITOR_ON_FLEET=1 (test_ci_janitor_watchdog_route)',
+                                      'cmux-gcp-repair-jit-x64, cmux-gcp-repair-jit-x64 when CI_QUEUE_JANITOR_ON_FLEET=1 (test_ci_janitor_watchdog_route)',
      {'watch'}),
     'cmux-next-cua-helper-dev-sign.yml': ('DEV Computer Use helper signing: an ephemeral label the signing rule checks literally',
      {'sign'}),

@@ -945,7 +945,7 @@ class WorkflowShapeTests(unittest.TestCase):
         # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY, so it runs on an ephemeral label the expression
         # names (tests/test_ci_fork_runner_routing.py). It runs off every pool it judges or moves: GitHub-hosted
         # Ubuntu, or the fleet's one-job label when CI_QUEUE_JANITOR_ON_FLEET=1 (2026-11-20: a sweep waited 77 min).
-        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}", text)
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}", text)
         self.assertNotIn("blacksmith", yaml.safe_load(text)["jobs"]["sweep"]["runs-on"])
         self.assertIn("concurrency:\n  group: ${{ (github.event_name == 'workflow_run'", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
@@ -1044,20 +1044,21 @@ class SweepRunnerTests(unittest.TestCase):
 
         return str(value(tree))
 
-    def test_the_sweep_runs_on_hosted_ubuntu_off_the_pools_it_judges(self):
-        self.assertEqual(self.runner({}), "ubuntu-24.04")
+    def test_the_sweep_runs_on_the_repair_jit_label_off_the_pools_it_judges(self):
+        # Not GitHub-hosted: on 2026-11-20 the hosted pool served none of our jobs for 15 hours.
+        self.assertEqual(self.runner({}), "cmux-gcp-repair-jit-x64")
         # The variables that moved it before move it no more.
         for stale in ({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}, {"CI_REPAIR_SKIP_FLEET": "0"},
                       {"CI_REPAIR_SKIP_FLEET": "1"},
                       {"RUNNER_POOLS": json.dumps({"linux": "blacksmith-16vcpu-ubuntu-2404"})}):
             with self.subTest(variables=stale):
-                self.assertEqual(self.runner(stale), "ubuntu-24.04")
+                self.assertEqual(self.runner(stale), "cmux-gcp-repair-jit-x64")
 
     def test_the_fleet_variable_moves_the_sweep_to_the_fleet_label(self):
         self.assertEqual(self.runner({"CI_QUEUE_JANITOR_ON_FLEET": "1"}), "cmux-fleet-linux-x64")
         for other in ("", "0", "true", "blacksmith-4vcpu-ubuntu-2404"):
             with self.subTest(value=other):
-                self.assertEqual(self.runner({"CI_QUEUE_JANITOR_ON_FLEET": other}), "ubuntu-24.04")
+                self.assertEqual(self.runner({"CI_QUEUE_JANITOR_ON_FLEET": other}), "cmux-gcp-repair-jit-x64")
 
 
 class OrphanDetectionTests(unittest.TestCase):
