@@ -29,6 +29,15 @@ const ALLOWED: Record<string, string> = {
 /** Reveals made before this detector, each to move to `:has(:focus-visible)` (or into ALLOWED with
  * its reason); the list only shrinks. */
 const KNOWN = new Set([
+  // Landed on base after this list (2026-11-23 scan, cmux#50446); each still to move to :has(:focus-visible).
+  'src/agent-session/acpmux/composerV2.css: :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"]:focus-within::after',
+  "src/agent-session/acpmux/conversation/conversation.css: .cv-user:focus-within .cv-user__queued-hover",
+  "src/agent-session/acpmux/harnessUpdates.css: .acpmux-harness-update:is(:hover, :focus-within) .acpmux-harness-update-run[data-reveal]",
+  "src/agent-session/acpmux/header/header.css: .acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant]",
+  "src/agent-session/acpmux/header/header.css: .acpmux-header-tools[data-header-icons=contextualPeek]:is(:has([data-popup-open]),:focus-within) [data-header-dormant]",
+  "src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minimap__rail:is([data-hovering], :focus-within, [data-show]) .acpmux-minimap__show",
+  "src/styles.css: .file-header:is(:hover, :focus-within) :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert)",
+  "src/styles.css: .file-header:is(:has([data-popup-open]), :focus-within) :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert)",
   "src/agent-session/acpmux/TaskGoalStrip.css: .acpmux-goal[data-look]:is(:focus-within, [data-open]) .acpmux-goal-actions",
   "src/agent-session/acpmux/chips/chips.css: .cv-media__actions:focus-within",
   "src/agent-session/acpmux/composerAttachments.css: .acpmux-attachment:focus-within .acpmux-attachment-remove",
@@ -46,8 +55,6 @@ const KNOWN = new Set([
   "src/agent-session/acpmux/conversation/conversation.css: .cv-sent-actions:focus-within",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-received__hover:focus-within",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-tool-output__actions:focus-within",
-  "src/agent-session/acpmux/conversation/conversation.css: .acpmux-turnSummary .cv-turn-actions:focus-within",
-  "src/agent-session/acpmux/conversation/conversation.css: .acpmux-turnSummary .cv-turn-actions:focus-within .cv-turn-time",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-reply-actions:focus-within .cv-turn-time",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-reply-actions:focus-within",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-user__pending:focus-within .cv-user__queued-hover",
