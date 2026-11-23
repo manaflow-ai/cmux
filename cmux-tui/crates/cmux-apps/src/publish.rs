@@ -104,9 +104,19 @@ pub fn app_env(
     parent: &[(String, String)],
     service_env: &[(String, String)],
 ) -> Vec<(String, String)> {
+    with_secrets(parent, service_env, &[])
+}
+
+/// [`app_env`] with the app's own secrets (`process-env`) laid over the `service.env`
+/// literals: a secret wins over a literal of the same name. Only for that app's start.
+pub fn with_secrets(
+    parent: &[(String, String)],
+    service_env: &[(String, String)],
+    secrets: &[(String, String)],
+) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> =
         parent.iter().filter(|(k, _)| PASSED_THROUGH.contains(&k.as_str())).cloned().collect();
-    for (key, value) in service_env {
+    for (key, value) in service_env.iter().chain(secrets) {
         if key == "PORT" || key == "HOME" {
             continue;
         }
@@ -115,6 +125,18 @@ pub fn app_env(
     }
     env.sort();
     env
+}
+
+/// The app's secrets for the start of `slug` v`n`, or why the platform would not give them.
+fn secrets(
+    host: &Host<'_>,
+    slug: &str,
+    n: u32,
+    machine: &str,
+) -> Result<Vec<(String, String)>, String> {
+    host.platform.process_env(slug, machine).map_err(|e| {
+        format!("v{n} of {slug} not started: the platform did not give it its secrets ({e})")
+    })
 }
 
 /// `.cmux/apps/<slug>/app.json`'s `service`: its `setup` command and literal `env` strings.
@@ -259,13 +281,18 @@ pub fn publish(host: &Host<'_>, req: &PublishRequest) -> Result<Published, Failu
         Err(e) => return fail(&mut app, version, "app.stage", e),
     };
 
-    // 4. Start, through the agent, as the app user (setup first, in the same process).
+    // 4. Start, through the agent, as the app user (setup first, in the same process), with
+    // this app's secrets, held only in memory for this one start.
+    let secrets = match secrets(host, &slug, n, &machine) {
+        Ok(secrets) => secrets,
+        Err(e) => return fail(&mut app, version, "app.secrets", e),
+    };
     let port = match host.procs.free_port() {
         Ok(port) => port,
         Err(e) => return fail(&mut app, version, "app.start", format!("no free port: {e}")),
     };
     version.port = port;
-    let env = app_env(&host.parent_env, &service.env);
+    let env = with_secrets(&host.parent_env, &service.env, &secrets);
     let start = Start {
         slug: &slug,
         version: n,
@@ -414,6 +441,8 @@ pub fn rollback(
         ));
     }
     host.platform.ready().map_err(|e| Failure::new("app.platform", e.to_string()))?;
+    let machine =
+        host.platform.machine().map_err(|e| Failure::new("app.platform", e.to_string()))?;
     let mut target = target;
     if !host.procs.alive(slug, target.n) {
         if !host.procs.port_free(target.port) {
@@ -425,7 +454,9 @@ pub fn rollback(
         let vdir = state::version_dir(&host.apps_root, slug, target.n);
         let service =
             service(host.fs, &vdir.join("src"), slug).map_err(|e| Failure::new("app.stage", e))?;
-        let env = app_env(&host.parent_env, &service.env);
+        let secrets =
+            secrets(host, slug, target.n, &machine).map_err(|e| Failure::new("app.secrets", e))?;
+        let env = with_secrets(&host.parent_env, &service.env, &secrets);
         let start = Start {
             slug,
             version: target.n,
