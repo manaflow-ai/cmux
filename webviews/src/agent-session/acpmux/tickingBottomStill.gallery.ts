@@ -15,7 +15,7 @@ import { activity, assistant, chat, tool, user } from "../../gallery/fixtures/ac
 import type { PlayContext } from "../../gallery/play";
 import { startHeldTracker } from "../../gallery/shift";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { TRANSCRIPT_ROW } from "./transcriptSelectors";
+import { JUMP_LATEST_SHOWN, TRANSCRIPT_ROW } from "./transcriptSelectors";
 
 const SUBMIT = "cmux-ci submit --kind cmux --label macos-26 --request-key kit-macos-build-43360-31";
 const BACKGROUND = "wt new cmux leo/checkout --topic build";
@@ -82,7 +82,7 @@ async function holdStill(ctx: PlayContext, resendMs?: number) {
   try {
     await ctx.waitFor(
       () => {
-        if (doc.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]")) jump = true;
+        if (doc.querySelector(JUMP_LATEST_SHOWN)) jump = true;
         return win.performance.now() - start >= 10_000;
       },
       { capMs: 12_000 },
