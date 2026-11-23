@@ -32,8 +32,9 @@ public struct CloudMachine: Identifiable, Hashable, Sendable {
             return parts.joined(separator: " · ")
         }
 
-        /// The Mac's new-machine default (`CloudMachineCreateFlow.named`): 2 vCPU, 4 GB, 16 GB disk.
-        public static let newMachine = Size(cpu: 2, memoryMB: 4096, diskMB: 16384)
+        /// The Mac's new-machine default (`CloudMachineCreateFlow.named`): 2 vCPU, 4 GB, 20 GB disk, the platform's
+        /// spare size (cmux-platform#1756), so a create with the default memory claims a warm spare.
+        public static let newMachine = Size(cpu: 2, memoryMB: 4096, diskMB: 20480)
 
         static func gigabytes(_ mb: Int) -> String {
             mb % 1024 == 0 ? "\(mb / 1024) GB" : String(format: "%.1f GB", Double(mb) / 1024)
