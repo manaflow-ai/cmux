@@ -77,6 +77,7 @@ public struct NightlyInstallCheck {
     /// Whether the record holds no result for `build` yet.
     func due(build: String) async -> Bool {
         let output = await runCLI(["due", "--record", recordFile.path, "--build", build, "--nightly"], input: nil)
+        // main-actor-ok: the CLI's {"due": bool} reply, once per update.
         return output.flatMap { try? JSONDecoder().decode([String: Bool].self, from: $0) }?["due"] == true
     }
 
@@ -96,8 +97,10 @@ public struct NightlyInstallCheck {
     }
 
     func decide(_ request: InstallCheckRequest) async -> InstallCheckDecision? {
+        // main-actor-ok: one install check's request (a build, the canary result, a few kept builds): a few fields, once per update.
         guard let input = try? JSONEncoder().encode(request),
               let output = await runCLI(["decide", "--record", recordFile.path], input: input) else { return nil }
+        // main-actor-ok: that check's decision from the CLI: a few fields, once per update.
         return try? JSONDecoder().decode(InstallCheckDecision.self, from: output)
     }
 
