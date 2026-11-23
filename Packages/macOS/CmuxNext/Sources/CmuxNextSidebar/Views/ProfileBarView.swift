@@ -394,7 +394,7 @@ final class ProfileBarView: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         // The + has no menu; a space's dot opens its space's.
         guard let index = interactionIndex(at: convert(event.locationInWindow, from: nil)), index >= 0 else { return nil }
-        return contextMenuProvider?(.profile(model.profiles[index].id))
+        return NSMenu.withoutSystemItems(contextMenuProvider?(.profile(model.profiles[index].id)))
     }
 
     // MARK: Accessibility

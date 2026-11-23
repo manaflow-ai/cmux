@@ -17,6 +17,9 @@ public nonisolated struct CmuxToastLook: Hashable, Sendable {
     public var glass: CmuxToastGlass?
     /// An opaque surface in the theme's popup fill instead of glass, as under Reduce Transparency.
     public var solid = false
+    /// On ``solid``: the window's background color, the button corner (not the toast role's, which adds the
+    /// padding) and no shadow.
+    public var flat = false
     /// The caption font and tighter padding: one short line.
     public var compact = false
     /// A leading SF Symbol in the tone's color (``CmuxToastTone``; an Undo shows its arrow).

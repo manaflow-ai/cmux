@@ -2,11 +2,11 @@ public import CmuxNextPages
 public import CmuxNextSettings
 import Foundation
 
-/// Settings > Agents > cmux Tools for Agents in cmux: each coding agent found on this Mac and
+/// Settings > Agents > Give Agents cmux’s Tools: each coding agent found on this Mac and
 /// whether it gets cmux's MCP server when cmux starts it, beside the `agents.cmuxMcp` choice row
-/// (the onboarding step's question), and the manual lines a person runs themselves to use cmux's
-/// tools in agents started elsewhere (`cmux setup mcp`'s `manual`; cmux never runs them). Turn On is
-/// the person's yes: it sets the choice to `on`. Remove takes out a `cmux` entry in an agent's own
+/// (on by default), and the manual lines a person runs themselves to use cmux's tools in agents
+/// started elsewhere (`cmux setup mcp`'s `manual`; cmux never runs them). Turn On (shown once the
+/// person turned the row off) sets the choice back to `on`. Remove takes out a `cmux` entry in an agent's own
 /// config that runs `cmux mcp serve`, used outside cmux (`cmux setup mcp --remove ID`); when cmux
 /// keeps it (settings it could not put back), the card shows the CLI's reason (`note`). Both run
 /// only on the person's own click or key in the page. Reading runs `cmux setup mcp` once, which
