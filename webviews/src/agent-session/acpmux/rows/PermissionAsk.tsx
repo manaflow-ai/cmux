@@ -14,8 +14,13 @@ const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
 /// Builds a plan approval's plan elsewhere (`_acpmux/plan/build`): a new worktree, or two harnesses
 /// to compare. acpmux answers the ask itself once the new chats started; a refusal rejects, which
 /// the card shows.
-const buildPlan = (permission: AcpmuxPermission) => (target: PlanBuildElsewhere) =>
-  callNative("chat.plan.build", { permissionId: permission.permissionId, target });
+const buildPlan = (permission: AcpmuxPermission) => (target: PlanBuildElsewhere, plan?: string) =>
+  callNative("chat.plan.build", { permissionId: permission.permissionId, target, ...(plan ? { plan } : {}) });
+
+/// Approves a plan the person edited on the card (`_acpmux/plan/build` here, with `plan`): the
+/// agent builds the edited plan.
+const approveEditedPlan = (permission: AcpmuxPermission) => (plan: string) =>
+  callNative("chat.plan.build", { permissionId: permission.permissionId, target: "here", plan });
 
 /// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
 /// shows a refusal (the promise rejects) and takes input again for a retry.
@@ -73,6 +78,9 @@ export function PermissionAsk({
         onAnswer={answerPermission(permission)}
         onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
         onBuildPlan={buildsPlan && permission.plan ? buildPlan(permission) : undefined}
+        onApproveEditedPlan={
+          buildsPlan && permission.plan && permission.planEditable ? approveEditedPlan(permission) : undefined
+        }
         onDraft={onDraft}
         waiting={waiting}
       />
