@@ -190,7 +190,8 @@ import Testing
 
         let header = try #require(menu.items.first)
         #expect(header.identifier == ActionRegistry.browserProfileHeaderID && header.title == "Work")
-        #expect(header.subtitle == BrowserProfileStrings.reason(.workspace) && header.image != nil)
+        if #available(macOS 14.4, *) { #expect(header.subtitle == BrowserProfileStrings.reason(.workspace)) }
+        #expect(header.image != nil)
         #expect(!header.isEnabled && ActionRegistry.menuRun(of: header) == nil)
         #expect(BrowserProfileBadge(monogram: "D", color: nil, name: "Default").menuHeader(.builtIn).subtitle == nil)
         #expect(menu.items.filter { $0.state == .on }.isEmpty, "the header names the tab's profile: no checked row repeats it")

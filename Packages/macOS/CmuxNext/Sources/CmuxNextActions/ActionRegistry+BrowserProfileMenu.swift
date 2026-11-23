@@ -24,7 +24,7 @@ extension ActionRegistry {
         if let header {
             let item = NSMenuItem(title: header.title, action: nil, keyEquivalent: "")
             item.image = header.image
-            item.subtitle = header.subtitle
+            if #available(macOS 14.4, *) { item.subtitle = header.subtitle }
             item.isEnabled = false
             item.identifier = Self.browserProfileHeaderID
             menu.addItem(item)
