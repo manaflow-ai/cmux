@@ -150,6 +150,20 @@ agent chat composer, so saving `cmux-app.json` updates the composer without a re
 The TypeScript types are `ComposerCommand`, `ComposerMention` and `ComposerChip`; in Rust,
 `Manifest::slash_command`, `Manifest::mention` and `Manifest::composer_chip`.
 
+## Composer model and reasoning picker
+
+A customization can open the searchable model picker directly from the composer and choose where the active session's reasoning levels appear. Use `column` to show levels beside the model list or `separate` to show a second composer control. Removing or hiding the customization restores the configured picker. When several apps supply a layout, the first enabled, visible app in app ID order wins.
+
+```json
+"implements": {
+  "cmux.composer.model.picker/1": {
+    "options": { "modelMenu": "search", "reasoningMenu": "column" }
+  }
+}
+```
+
+The host reads model names, reasoning levels and service tiers from the active session and applies choices through its existing controls. The extension declares its layout without a script or additional permissions. Rust extensions can call `Manifest::model_picker(ReasoningMenu::Column)`.
+
 ## The Rust API
 
 ```rust
