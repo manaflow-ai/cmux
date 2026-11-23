@@ -1127,10 +1127,12 @@
             "type": "string"
           },
           "platform": {
-            "description": "The machine operating system.",
+            "description": "Where the machine joined from: its operating system, or web for a browser enrolled as its own device (it reads and sends on the mesh hub, and never heartbeats, carries or registers a mesh node).",
             "enum": [
               "macos",
-              "linux"
+              "linux",
+              "windows",
+              "web"
             ],
             "examples": [
               "linux"

@@ -5,10 +5,7 @@
       "runner-preflight": {
         "Every routing label has an online runner": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly runner preflight fails a run whose routing label has no online runner", "note": "tests/test_nightly_runner_preflight.py runs scripts/ci/nightly_runner_preflight.py on the 2026-11-10 census and variables"}},
       "decide": {
-        "Mint the routing token for early nightly controls": {"plumbing": true},
         "Mint a spare read token for decide": {"nightly_only": "mints an optional glaeda-route GitHub App token for decide's rate-limit fallback; pull requests do not run the scheduled nightly decision"},
-        "Place the light jobs on the all-nightly reservation while it has idle runners": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_dedicated_mini.py, which cover the reservation placement, its bounded wait and the runs-on fallbacks"},
-        "Place credentialed early picker on owned minis": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "Existing portable placement tests cover unknown API capacity and owned-only eligibility"},
         "Decide whether a nightly build is needed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"}},
       "promote-nightly-next": {
         "Decide the promotion": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"},
@@ -65,9 +62,6 @@
         "libghostty-vt Zig packages are covered by the notices": {"pr": "cmux-next-guards.yml:static-checks:The nightly's Ghostty license checks pass on fixtures", "note": "check_ghostty_vt_notices.py --license-manifest on fixture manifests; the real manifests come from the source archive"},
         "Strip the Ghostty CLI helper": {"nightly_only": "Apple strip -S -x of the Zig-built helper (the pass prepare-nightly-variant made, now on Linux); only the nightly builds this helper for macOS"}},
       "build-nightly-app": {
-        "Mint the routing token for the light-job placement": {"plumbing": true},
-        "Place the light jobs on a free mini": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
-        "Collect the light-job placement": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow", "note": "joins the background placement the step above starts and copies its outputs; tests/test_nightly_trusted_routing.py holds the pair"},
         "Resolve immutable SSH daemon metadata": {"nightly_only": "reads the compiled Release app version and checks the current nightly feed build floors"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Mint the glaeda read token for the unsigned restore": {"nightly_only": "mints a glaeda-route GitHub App token with actions and contents read only, for the unsigned restore's run, artifact and compare reads, only on a nightly-next sign dispatch; an empty token falls back to GITHUB_TOKEN"},
@@ -390,6 +384,21 @@
         "Ask main's nightly-next tick": {"nightly_only": "dispatches main's nightly-next-tick.yml when nightly-next-one ends (tests/test_nightly_next_push_slot_at_build.py)"},
         "Retry the commit that left the slot unless nightly-next moved": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after nightly-next-one left the slot before nightly-next moved (scripts/ci/nightly-steps/slot-left-retry.sh; tests/test_nightly_next_push_slot_at_build.py)"},
         "Check the published feed offers deltas": {"nightly_only": "reads the live nightly-next feed and fails when the published build lists no served delta (tests/test_nightly_next_delta_check.py)"}},
+      "build-live-code-variant": {
+        "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
+        "Build the commit's live code overlay": {"nightly_only": "builds the published commit -interposable after the feed is written, continue-on-error (scripts/ci/nightly-steps/live-code-variant.sh; tests/test_swap_binary.py)"},
+        "Mark the live code overlay built": {"nightly_only": "sets built=true only when both xcodebuild logs say BUILD SUCCEEDED and the archives exist; sign-live-code-variant gates on it (scripts/ci/nightly-steps/live-code-variant.sh built)"}},
+      "sign-live-code-variant": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Initialize cmux-next notices submodule": {"plumbing": true},
+        "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true}, "Install create-dmg": {"plumbing": true},
+        "Graft the overlay into the published nightly's app": {"nightly_only": "copies the published nightly app and places the live code overlay in it, no bundle code (scripts/ci/nightly-steps/live-code-variant.sh)"},
+        "Import the Developer ID certificate": {"nightly_only": "imports the nightly's Developer ID identity into a temporary keychain"},
+        "Sign the variant as the nightly is signed": {"nightly_only": "re-seals the variant with the nightly's identity, hardened runtime and entitlements, continue-on-error"},
+        "Notarize the variant and its DMG": {"nightly_only": "notarizes as the nightly does (scripts/ci/notarize-nightly-dmg.sh)"},
+        "Delete the signing keychain": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Publish the variant and its module outputs": {"nightly_only": "uploads the variant DMG, its module outputs and live-code-<commit>.json write-once to the nightly-next files"}},
       "dispatch-nightly-next-sign": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask for this build's sign run": {"nightly_only": "dispatches nightly.yml with nightly_next_sign_stage and this run's unsigned app (tests/test_nightly_next_pipeline.py)"}},

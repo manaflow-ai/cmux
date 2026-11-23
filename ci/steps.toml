@@ -473,6 +473,111 @@ npm ci --ignore-scripts --no-audit --no-fund
 WRANGLER_SEND_METRICS=false npm run check
 '''
 
+# Two more checks whose pull request runs each took a Linux job: cmux-vm-clients.yml's sdk job (its rust job
+# stays) and web-complexity.yml's complexity job. Both keep their other runs (pushes, dispatch, pull requests
+# into main); a feat-cmux-next pull request runs the same commands here. `inputs` is each workflow's former
+# pull_request path filter (cmux-vm-clients.yml's is shared by its rust job and its sdk job), plus the
+# workflow file where the filter listed it. A failure in one command of a step does not stop the step's others,
+# as the jobs' `!cancelled()` steps did. The sdk job's failure-only artifact upload (the regenerated schema) is
+# not a step: a failed step prints its `git diff --stat`.
+[step.cmux-vm-sdk]
+job = "linux"
+timeout = 300
+title = "cmux VM SDK"
+about = "the @cmux/vm SDK's generated schema (src/schema.d.ts) matches workers/cmux-vm/openapi.json, and the SDK typechecks"
+needs = ["bun"]
+inputs = [
+  "workers/cmux-vm/openapi.json",
+  "workers/cmux-vm/cli/**",
+  "cmux-tui/crates/cmux-cloud-config/**",
+  "workers/cmux-vm/sdk/**",
+  "skills/cmux-cloud-vm/references/headless.md",
+  "cmux-tui/rust-toolchain.toml",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/runner-cargo-home/**",
+  ".github/workflows/cmux-vm-clients.yml",
+]
+run = '''
+cd workers/cmux-vm/sdk
+bun install --frozen-lockfile
+status=0
+bun run generate
+if [[ -n "$(git status --porcelain -- .)" ]]; then
+  git --no-pager diff --stat -- .
+  echo "::error::src/schema.d.ts is stale: run \`bun run generate\` in workers/cmux-vm/sdk and commit the result"
+  status=1
+fi
+bun run typecheck || status=1
+exit "$status"
+'''
+
+[step.web-complexity]
+job = "linux"
+timeout = 300
+title = "Web complexity candidate"
+about = "web's Oxlint configuration parses and its complexity baseline holds against the base tip (the contributor-side diagnostic; web-complexity-trusted.yml is the required check)"
+needs = ["bun", "node"]
+inputs = ["web/**"]
+run = '''
+# The merge commit's first parent is the base tip the router diffed against; its second is the pull request.
+base="$(git rev-parse -q --verify 'HEAD^1')"
+bash scripts/ci/fetch-complexity-base.sh "$base"
+cd web
+bash ../scripts/ci/bun-install.sh --frozen-lockfile
+./node_modules/.bin/oxlint --config .oxlintrc.json --print-config app/page.tsx >/dev/null
+bun run lint:complexity -- --base "$base" --head "$(git rev-parse HEAD)"
+'''
+
+# ci-guards.yml's workflow-guard-submodule-forward-only job, which a feat-cmux-next pull request reached through
+# cmux-next-guards.yml's nightly-guards call on every change but a docs-only one. A docs-only change stays out
+# of the pipeline (test_the_router_starts_it_only_when_a_step_is_routed) and globs cannot say "not docs-only", so
+# `inputs` is what the step's verdict reads: the gitlinks and .gitmodules (a change touching neither passes the
+# guard, which only compares gitlinks that moved), every build.zig.zon (the Zig host check reads all of the tree's),
+# the lock, the three commands' scripts and what they import, and the job's workflow. The job keeps pushes,
+# dispatch, the post-merge batch and pull requests into other bases, and skips only feat-cmux-next's pull
+# requests, where Guard status counts that skip as fine. The job's checkout was this one's (depth 2, no
+# submodules): the guard compares the merge commit against its first parent, which that depth holds, and fetches
+# what else it needs itself (a changed gitlink's submodule, bounded deepening). This job passes no GITHUB_TOKEN, so
+# the guard's GitHub compare fallback is unauthenticated; its bounded deepening is the fallback after that. One
+# failed command does not stop the others. 110 s on 2 CPUs (its unit test is 102 s of that).
+[step.submodule-forward-only]
+job = "linux"
+timeout = 300
+title = "Submodule forward-only guard"
+about = "no submodule gitlink moves backwards from the merge base (unless a commit declares the rollback), the guard's tests pass, and no Ghostty build fetches a Zig package from a third-party host"
+inputs = [
+  ".gitmodules",
+  "ghostty",
+  "ghostty-next",
+  "homebrew-cmux",
+  "**/build.zig.zon",
+  "scripts/ci/zig-packages.lock",
+  "scripts/ci/zig_package_mirror.py",
+  "scripts/ci/deadline_http.py",
+  "scripts/ci/submodule_forward_only.py",
+  "scripts/ci/ci_process_tree.py",
+  "scripts/ci/git_fetch_retry.py",
+  "tests/test_submodule_forward_only.py",
+  "tests/git_fixture_env.py",
+  ".github/workflows/ci-guards.yml",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+export GITHUB_BASE_SHA="$base" GITHUB_HEAD_SHA="$(git rev-parse HEAD)"
+status=0
+python3 scripts/ci/submodule_forward_only.py || status=1
+python3 tests/test_submodule_forward_only.py || status=1
+# A change to the lock, a Ghostty gitlink or the detector also downloads every mirrored copy and checks it.
+git submodule update --init --depth 1 ghostty ghostty-next
+args=()
+if git diff --name-only HEAD^1 HEAD -- scripts/ci/zig-packages.lock scripts/ci/zig_package_mirror.py ghostty ghostty-next | grep -q .; then
+  args+=(--online)
+fi
+python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"} || status=1
+exit "$status"
+'''
+
 # Python-only checks whose pull request runs each took a Linux job of their own (agent-brands.yml's
 # drift job, terminal-hang-diagnostics.yml's release-gate job, repair-nightly-appcast-content-types.yml's
 # test job). Those workflows keep their push, dispatch and macOS runs; a pull request runs these here.
@@ -735,7 +840,8 @@ esac
 '''
 
 # Webview and native UI changes carry the review loop from the aiforui course: a missing `## UI review`
-# section or `Verdict:` line warns. The changed paths come from the event's merge commit without blobs, as
+# section, `Verdict:` line or `Try:` line (the command that opens the pull request in a copy of cmux NEXT,
+# so a reviewer clicks through before reading the diff) warns. The changed paths come from the event's merge commit without blobs, as
 # pr-body-checks.yml reads them (no API call); the paginated REST file list is only the fallback.
 [step.ui-review]
 job = "advisory"
@@ -743,7 +849,7 @@ blocks = false
 class = "idle"
 timeout = 300
 title = "UI review"
-about = "a pull request that changes webview or native UI files has a ## UI review section with a Verdict: line"
+about = "a pull request that changes webview or native UI files has a ## UI review section with Verdict: and Try: lines"
 run = '''
 if [ ! -f scripts/ci/ui_review_advisory.py ]; then
   echo "::warning title=UI review::the advisory script is not present on the base; review the UI section manually"
@@ -771,7 +877,7 @@ if ! listed || ! python3 -c 'import json, sys; json.dump([{"filename": l} for l 
   exit 0
 fi
 printf '%s' "$BODY" > "$body_file"
-python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "$files" \
+python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "$files" --pr "${PR:-}" \
   || echo "::warning title=UI review::the advisory script could not run; review the UI section manually"
 '''
 
@@ -786,7 +892,7 @@ python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "
 job = "advisory"
 blocks = false
 class = "idle"
-timeout = 300
+timeout = 540
 title = "split-plan advisory"
 about = "a pull request that spans many surfaces or commits gets split-plan triggers as a warning"
 run = '''
@@ -798,7 +904,8 @@ repo="$RUNNER_TEMP/split-plan"
 rm -rf "$repo"
 git init -q "$repo"
 git -C "$repo" remote add origin "$URL"
-fetch() { timeout 180 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --filter=blob:none "$@"; }
+# At most four fetches (the window, its fallback, the deepen, its fallback), each bounded, inside the step's 540 s.
+fetch() { timeout 120 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --filter=blob:none "$@"; }
 # A SHA fetch works on GitHub; the pull request's head ref and the base branch are the fallback. Either
 # can find no commit that new (a head or base older than 14 days): the whole history below answers that.
 fetch --shallow-since="14 days ago" origin "$BASE_SHA" "$HEAD_SHA" \

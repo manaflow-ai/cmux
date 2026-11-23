@@ -9,8 +9,11 @@
 // - a row that takes height draws something: some text, svg or image in it has a box and is not
 //   faded out (opacity 0) or hidden;
 // - the footer's glyph centre sits footer-to-received (transcriptSpacing.ts LONE_SYSTEM_ROWS) over a
-//   "Received" line drawn right under it, and with a read "New since you looked" line between them,
-//   as far as with no line at all (a read line takes no space);
+//   "Received" line drawn right under it;
+// - a "New since you looked" line, unread or read, moves no row: every row sits at the top it has
+//   with no line at all (Leo, 2026-11-22: "probably also not layout shift this"). The old line was a
+//   28 px row whose gaps came with it, 52 px of shift each time it came and went; now 0;
+// - over nothing new to read (a subagent's "started working" line) no line is drawn;
 // - the received messages are named once: the "Received N messages" lines' counts and the message
 //   lines drawn on their own add up to the messages there are.
 // The `woken-*` variants hold the client's typing placeholder under the footer, where the live reducer
@@ -139,7 +142,9 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
             naming.push(text);
           }
       }
-      return { rows, glyph, named, naming };
+      const line = document.querySelector<HTMLElement>(".cv-since__line");
+      const lineOpacity = line ? Number(getComputedStyle(line).opacity) : null;
+      return { rows, glyph, named, naming, lineOpacity };
     }, BOUNDARY_MESSAGES);
     await page.close();
     return result;
@@ -157,7 +162,7 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
 
   for (const variant of BOUNDARY_VARIANTS)
     test(variant, async () => {
-      const { rows, glyph, named, naming } = await measure(variant);
+      const { rows, glyph, named, naming, lineOpacity } = await measure(variant);
       const table = rows
         .map(
           (row) =>
@@ -170,22 +175,31 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
         empty.map((row) => `${row.id} h=${row.height.toFixed(1)}`),
         `rows:\n${table}`,
       ).toEqual([]);
-      // The footer sits its spacing over the first thing drawn under it; an unread divider there is
-      // drawn and keeps its own place.
+      // A line, read or not, moves no row: each sits where it sits with no line (the "before" was
+      // 52 px, a 28 px row and its gaps).
+      const plain = variant.replace(/-(?:read|unread)$/, "");
+      if (plain !== variant) {
+        const without = await measure(plain);
+        const tops = new Map(without.rows.map((row) => [row.id, row.top]));
+        const shifts = rows
+          .filter((row) => tops.has(row.id))
+          .map((row) => ({ id: row.id, shift: row.top - tops.get(row.id)! }));
+        const worst = Math.max(0, ...shifts.map(({ shift }) => Math.abs(shift)));
+        console.log(`${variant}: the line moves rows by at most ${worst.toFixed(2)} px`);
+        expect(shifts.length, `rows:\n${table}`).toBeGreaterThan(3);
+        expect(worst, `shifts ${JSON.stringify(shifts)}\nrows:\n${table}`).toBeLessThanOrEqual(0.5);
+      }
+      if (variant.startsWith("status")) {
+        // Nothing new to read under it: no line drawn (Leo's 2026-11-22 screenshot).
+        expect(lineOpacity ?? 0, `rows:\n${table}`).toBe(0);
+        return;
+      }
       if (variant === "inbox-unread") {
         expect(named, `rows:\n${table}`).toBe(BOUNDARY_MESSAGES.length);
         return;
       }
       const { gap, next } = footerGap(rows, glyph, table);
-      if (variant.endsWith("-read")) {
-        // A read line takes no space: the footer sits as far over the next turn as with no line.
-        const without = await measure(variant.slice(0, -"-read".length));
-        const expected = footerGap(without.rows, without.glyph, table).gap;
-        expect(
-          Math.abs(gap - expected),
-          `footer glyph to ${next}: ${gap.toFixed(1)}px, ${expected.toFixed(1)}px with no line; rows:\n${table}`,
-        ).toBeLessThanOrEqual(LONE_SYSTEM_ROWS.tolerance);
-      } else if ((rows.find((row) => row.id === next)?.text ?? "").startsWith("Received")) {
+      if ((rows.find((row) => row.id === next)?.text ?? "").startsWith("Received")) {
         expect(
           Math.abs(gap - LONE_SYSTEM_ROWS.footerToReceived),
           `footer glyph to ${next}: ${gap.toFixed(1)}px, spec ${LONE_SYSTEM_ROWS.footerToReceived}; rows:\n${table}`,
@@ -195,12 +209,23 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
       expect(named, `rows naming the messages:\n${naming.join("\n")}\nrows:\n${table}`).toBe(boundaryNamed(variant));
     });
 
-  // With motion on, marking the line read shrinks its row through the motion step: its height passes
-  // through values between 28 and 0 over several frames, never 28 then 0 in one frame.
-  test("a read line shrinks through the motion step with motion on", async () => {
+  // With motion on, the unread line holds while the window is not focused, then dissipates once
+  // focus comes back and it has been on screen a moment (SinceDivider.tsx SINCE_DWELL_MS): its
+  // opacity passes through values between 1 and 0 over several frames, and no row moves on any
+  // frame from the line's first paint to after it is gone.
+  test("the unread line holds unfocused, then fades with focus and moves no row on any frame", async () => {
     const page = await browser.newPage({
       viewport: { width: 1000, height: 900 },
       deviceScaleFactor: 2,
+    });
+    // The window starts unfocused: hasFocus answers false until the test focuses it.
+    await page.addInitScript(() => {
+      let focused = false;
+      Document.prototype.hasFocus = () => focused;
+      (window as unknown as { cmuxTestFocus: () => void }).cmuxTestFocus = () => {
+        focused = true;
+        window.dispatchEvent(new Event("focus"));
+      };
     });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
@@ -211,52 +236,61 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
     });
     await page.evaluate(() => document.fonts.ready);
     await installPaintedFrames(page);
-    await page.locator(".cv-since__line").click({ button: "right" });
-    const item = page.getByRole("menuitem", { name: /mark/i }).first();
-    await item.waitFor();
-    // Sample every painted frame from the click on until the row has settled.
+    // The row is 0 px tall (it takes no height), so wait for it attached, not "visible".
+    await page.waitForSelector(".cv-since[data-shown]", { state: "attached", timeout: 10_000 });
+    // Sample every painted frame: the line's opacity and every row's top.
+    type Sample = { opacity: number; tops: Record<string, number>; focused: boolean; at: number };
     const sampling = page.evaluate(
       () =>
-        new Promise<{ height: number; next: number }[]>((resolve) => {
-          const samples: { height: number; next: number }[] = [];
+        new Promise<Sample[]>((resolve) => {
+          const samples: Sample[] = [];
           const start = performance.now();
+          let focusedAt = 0;
           window.cmuxAfterPaint(() => {
-            const row = document.querySelector<HTMLElement>("[data-row-id='sinceDivider']");
-            const next = row?.nextElementSibling?.getBoundingClientRect().top ?? NaN;
+            const line = document.querySelector<HTMLElement>(".cv-since__line");
+            const tops: Record<string, number> = {};
+            for (const row of document.querySelectorAll<HTMLElement>("article.acpmux-row"))
+              if (row.dataset.rowId) tops[row.dataset.rowId] = row.getBoundingClientRect().top;
+            const now = performance.now();
             samples.push({
-              height: row?.getBoundingClientRect().height ?? 0,
-              next,
+              opacity: line ? Number(getComputedStyle(line).opacity) : 0,
+              tops,
+              focused: focusedAt > 0,
+              at: now - start,
             });
-            if (performance.now() - start < 1200) return true;
+            // Unfocused past the dwell: the line must hold. Then focus.
+            if (!focusedAt && now - start > 4_000) {
+              focusedAt = now;
+              (window as unknown as { cmuxTestFocus: () => void }).cmuxTestFocus();
+            }
+            if (!focusedAt || now - focusedAt < 4_500) return true;
             resolve(samples);
             return false;
           });
         }),
     );
-    await item.click();
     const samples = await sampling;
     await page.close();
-    const heights = samples.map((sample) => Math.round(sample.height * 10) / 10);
-    const tops = samples.map((sample) => Math.round(sample.next * 10) / 10);
-    const trace = `heights per frame: ${heights.join(" ")}\nnext row's top per frame: ${tops.join(" ")}`;
+    const opacities = samples.map((sample) => Math.round(sample.opacity * 100) / 100);
+    const ids = Object.keys(samples[0]!.tops).filter((id) => id !== "sinceDivider");
+    let worst = 0;
+    for (const sample of samples)
+      for (const id of ids)
+        if (sample.tops[id] !== undefined) worst = Math.max(worst, Math.abs(sample.tops[id]! - samples[0]!.tops[id]!));
+    const trace = `opacity per frame: ${opacities.join(" ")}\nrows' worst move over ${samples.length} frames: ${worst.toFixed(2)} px`;
     console.log(trace);
-    expect(heights[0], trace).toBeGreaterThan(20);
-    expect(heights.at(-1), trace).toBe(0);
-    // Frames in the middle of the shrink: the row did not go from its height to 0 in one step.
-    expect(heights.filter((height) => height > 2 && height < heights[0]! - 2).length, trace).toBeGreaterThanOrEqual(3);
-    // Tied to the shrink's own rate: no frame moves the next row by more than twice what the line
-    // shrank (its gaps close with it, about 24 px over its 28) plus 1 px. The rows are placed from
-    // the height measured on the frame before, so a frame's move is held to that frame's shrink or
-    // the one before it, whichever is larger.
-    const shrink = heights.map((height, at) => (at === 0 ? 0 : Math.max(0, heights[at - 1]! - height)));
-    const travel = tops[0]! - tops.at(-1)!;
-    for (let at = 1; at < tops.length; at += 1) {
-      const step = Math.abs(tops[at]! - tops[at - 1]!);
-      expect(step, `frame ${at}\n${trace}`).toBeLessThanOrEqual(2 * Math.max(shrink[at]!, shrink[at - 1]!) + 1);
-      // And no single frame pops a large part of the move (the gaps once dropped at 0: 24 px of 52).
-      expect(step, `frame ${at}\n${trace}`).toBeLessThanOrEqual(0.25 * travel);
-    }
-    // It did move up by the line and its gaps (to the gap the footer has with no line at all).
-    expect(travel, trace).toBeGreaterThan(20);
+    expect(ids.length, trace).toBeGreaterThan(3);
+    // It held while unfocused for longer than the dwell (past its own fade-in), then went.
+    const held = samples.filter((sample) => !sample.focused && sample.at > 500);
+    expect(held.length, trace).toBeGreaterThan(10);
+    expect(
+      held.every((sample) => sample.opacity === 1),
+      trace,
+    ).toBe(true);
+    expect(opacities.at(-1), trace).toBe(0);
+    // Faded over frames, never 1 then 0 in one.
+    expect(opacities.filter((opacity) => opacity > 0.05 && opacity < 0.95).length, trace).toBeGreaterThanOrEqual(3);
+    // And no row moved on any frame.
+    expect(worst, trace).toBeLessThanOrEqual(0.5);
   });
 });

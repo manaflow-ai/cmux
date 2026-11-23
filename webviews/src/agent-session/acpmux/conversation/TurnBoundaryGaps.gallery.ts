@@ -16,7 +16,8 @@ import { activity, assistant, chat, row, summary, thought, tool, user } from "..
 import type { Play } from "../../../gallery/play";
 import { received } from "../incomingFixture";
 import { SINCE_DIVIDER, type AcpmuxRow } from "../model";
-import { sinceRead } from "./sinceRead.experiment";
+import { sinceLook } from "./sinceLook.experiment";
+import { SUBAGENT_STARTED } from "../subagents/subagentRows";
 import { markUnreadRead } from "./unreadState";
 import { minutesAgo } from "../../../gallery/clock";
 
@@ -109,6 +110,8 @@ const working = (rows: AcpmuxRow[]) => {
   const base = chat(rows, { title: "Origin chores for product lanes" });
   return {
     ...base,
+    // As the client names the line's mark with its row (direct.ts snapshot `sinceKey`).
+    ...(rows.some((row) => row.kind === SINCE_DIVIDER) && { sinceKey: BOUNDARY_SINCE_KEY }),
     isWorking: true,
     sessions: base.sessions.map((session) => ({
       ...session,
@@ -159,6 +162,30 @@ export const wokenLines = (): AcpmuxRow[] => [
   ...linesTurn(false).slice(finished.length),
 ];
 
+/// Leo's 2026-11-22 screenshot: the reader came back while a turn ran, and all it wrote since was a
+/// subagent's "started working" line (acpmux counts a running turn's write as unread). Nothing new to
+/// read: no line (sinceNews.ts).
+export const statusTurn = (withDivider: boolean): AcpmuxRow[] => [
+  ...finished,
+  ...(withDivider ? [divider()] : []),
+  {
+    id: "gap-subagent",
+    version: 1,
+    kind: SUBAGENT_STARTED,
+    at: minutesAgo(0.6),
+    subagents: [
+      {
+        id: "gap-subagent-1",
+        parent: null,
+        name: "Pool VMs nodiscard remount",
+        task: "Remount the pool VMs' scratch disks without discard",
+        state: "running",
+        startedAt: minutesAgo(0.6),
+      },
+    ],
+  },
+];
+
 /// The message bodies each variant must name exactly once.
 export const BOUNDARY_MESSAGES = [COORD.body, ARCH.body];
 
@@ -168,7 +195,8 @@ const readDivider: Play = async (ctx) => {
   if (!ctx.document.querySelector(".cv-since")) return;
   markUnreadRead(BOUNDARY_SINCE_KEY);
   await ctx.waitFor(
-    () => Boolean(ctx.document.querySelector(".cv-since[data-read]")) || !ctx.document.querySelector(".cv-since"),
+    () =>
+      Boolean(ctx.document.querySelector(".cv-since:not([data-shown])")) || !ctx.document.querySelector(".cv-since"),
     { capMs: 10_000 },
   );
 };
@@ -185,6 +213,8 @@ export const BOUNDARY_VARIANTS = [
   "inbox",
   "lines",
   "inbox-unread",
+  "status-unread",
+  "status",
   "woken-inbox",
   "woken-one",
   "woken-lines",
@@ -204,10 +234,10 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/LaneNoticeBatch.tsx",
     "agent-session/acpmux/conversation/MessageRunLine.tsx",
   ],
-  // What the read line does (sinceRead.experiment.ts): shrink on the motion step (shipped: one
-  // transition, every row under it moving together), collapse at once, or fade in place as before.
+  // How the line looks (sinceLook.experiment.ts): A a thin hairline, B on the Worked for rule
+  // (shipped), C a New pill alone. None takes height, so reading it moves no row in any arm.
   experiment: {
-    definition: sinceRead,
+    definition: sinceLook,
     script: [{ name: "Mark the line read", run: readDivider }],
   },
   variants: {
@@ -223,7 +253,15 @@ export default agentPaneEntry({
     ),
     inbox: variant("The first, with no divider.", inboxTurn(false)),
     lines: variant("The second, with no divider.", linesTurn(false)),
-    "inbox-unread": variant("The first, the divider not read yet: its line shows.", inboxTurn(true)),
+    "inbox-unread": variant(
+      "The first, the divider not read yet: its line shows, over the gap, taking no height.",
+      inboxTurn(true),
+    ),
+    "status-unread": variant(
+      "Leo's 2026-11-22 screenshot: unread, but all that came is a subagent's \"started working\" line: no line.",
+      statusTurn(true),
+    ),
+    status: variant("The same with no divider: the rows sit exactly here.", statusTurn(false)),
     "woken-inbox": variant(
       "Leo's 2026-11-22 screenshot: a notice the turn before never read opens the next turn; the typing placeholder sits under the footer.",
       wokenTurn(),

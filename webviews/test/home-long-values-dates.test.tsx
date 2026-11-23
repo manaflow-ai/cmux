@@ -2,11 +2,12 @@
 // Home and New Tab keep long values readable and older dates absolute (#28079):
 // - A row's ages stay relative for under a week, then read as a localized date, so "3mo ago" or
 //   "45d" never stands in for a date the person has to work out.
-// - A cut title, project, ask or where-line carries its whole value as a tooltip, on Home's lists
+// - A cut title, project, ask or where-line shows its whole value on a hover card, on Home's lists
 //   and New Tab's All chats, live chats at the top included.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
+import { factsCardText } from "./support/factsCard";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -99,7 +100,8 @@ test("All chats has no tooltip on a title whose text shows, the live chats at th
     title.textContent?.startsWith("Indexed"),
   );
   expect(indexed?.getAttribute("title")).toBeNull();
-  expect(document.querySelector(".nt-all-project")?.getAttribute("aria-description")).toBe(LONG_CWD);
+  // The cut folder name shows its whole path on its hover card.
+  expect(await factsCardText(document.querySelector(".nt-all-project")!)).toBe(LONG_CWD);
   await act(async () => root.unmount());
 });
 
@@ -126,7 +128,8 @@ test("Home's rows put no tooltip on a title whose text shows, and describe the p
   expect(title).toBeDefined();
   expect(title!.getAttribute("title")).toBeNull();
   const metas = [...title!.parentElement!.querySelectorAll(".acpmux-home-meta")];
-  expect(metas.some((meta) => meta.getAttribute("aria-description") === LONG_CWD)).toBe(true);
+  const project = metas.find((meta) => meta.classList.contains("acpmux-home-project"));
+  expect(await factsCardText(project!)).toBe(LONG_CWD);
   await act(async () => root.unmount());
   host.remove();
 });
@@ -158,7 +161,7 @@ test("Home's folder name cuts with an ellipsis instead of pushing the age and ch
       <HomeLists sessions={sessions} currentId="home" onSelect={() => {}} onAnswer={async () => "answered"} />,
     ),
   );
-  expect(host.querySelector(".acpmux-home-project")?.getAttribute("aria-description")).toBe(LONG_CWD);
+  expect(await factsCardText(host.querySelector(".acpmux-home-project")!)).toBe(LONG_CWD);
   await act(async () => root.unmount());
   host.remove();
 });

@@ -3,8 +3,9 @@
 //! full tool list (daemon operations, browser host, agents, app actions)
 //! stays the API: `cmux_docs` searches it and a `cmux_exec` script calls
 //! it through the same `Server::call` path, so a script has exactly the
-//! rights of a direct tool call and nothing else. 638 tool schemas were
-//! about 208k tokens in every agent turn; these two are about 1k.
+//! rights of a direct tool call and nothing else. When code mode came in,
+//! 638 tool schemas (well over a thousand now) were about 208k tokens in
+//! every agent turn; these two are about 1k.
 //!
 //! A script runs in an embedded QuickJS engine on its own thread. The engine
 //! has no file system, network, process or timer access: its only host

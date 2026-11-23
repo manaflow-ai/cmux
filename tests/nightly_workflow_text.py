@@ -5,7 +5,8 @@ To stay under GitHub's workflow file size limit, some nightly.yml steps run
 default `bash -e {0}` without its own `set -e`; or the same path under
 .publish-tooling/, or build-sign-notarize-nightly's
 `s=<path>; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"` for an
-unsigned resume of an older tree) instead of an inline `run: |` block. Tests that read the
+unsigned resume of an older tree, with a further `.publish-tooling/` fallback where nightly-next-one
+reuses the step) instead of an inline `run: |` block. Tests that read the
 workflow's text or YAML read this expansion, so they keep checking those
 steps' commands in place.
 """
@@ -19,7 +20,8 @@ NIGHTLY_YML = ROOT / ".github/workflows/nightly.yml"
 STEP_CALL = re.compile(
     r"^(?P<indent> *)run: (?:bash (?:-e )?(?:\.publish-tooling/)?(?P<path>scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)"
     r"|s=(?P<signing_path>scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh); "
-    r'\[ -f "\$s" \] \|\| s="\.nightly-signing-control/\$s"; bash (?:-e )?"\$s")[ \t]*$',
+    r'\[ -f "\$s" \] \|\| s="\.nightly-signing-control/\$s"; '
+    r'(?:\[ -f "\$s" \] \|\| s="\.publish-tooling/\$\{s#\*/\}"; )?bash (?:-e )?"\$s")[ \t]*$',
     re.MULTILINE,
 )
 
