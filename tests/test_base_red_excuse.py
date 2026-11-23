@@ -12044,7 +12044,7 @@ RAW_LOG_READERS = {
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
 LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "unplaced_head_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "passed_on_base_verdict", "guard_routes_view", "guard_group_report",
-                          "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
+                          "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "rollup_no_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
 # unjudged: an unplaced log split by its echoes, no step judged (owned_unnamed; #41329's review follow-up F3).
@@ -15810,6 +15810,10 @@ NOT_SWEPT = {
     "test_reds._kept": "the parse cache: it calls the reader it is given",
     "base_red_excuse.ws_check_step": "counted, not timed (WsCheckStepIsLinear): on HostileLog it reads no section, so "
                                      "the sweep timed only a list copy, whose CPU time grows past 8x on a runner",
+    "base_red_excuse.validate_run_rollup": "reads no log: `said` is the one `no verdict: ` line its caller already "
+                                           "read for it (rollup_no_verdict, a fetcher, swept through "
+                                           "summary_no_verdict), and all it does with it is put said[:300] in a "
+                                           "refusal",
 }
 
 
