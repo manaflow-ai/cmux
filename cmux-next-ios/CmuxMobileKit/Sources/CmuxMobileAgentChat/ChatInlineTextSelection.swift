@@ -10,7 +10,7 @@ import UIKit
 /// actions (Copy message, Share, Edit and Resend...) follow the system's in the edit menu, so
 /// everything the old long-press menu offered is still a hold away.
 @MainActor
-final class ChatInlineTextSelection: UITextView, UITextViewDelegate, UIEditMenuInteractionDelegate {
+final class ChatInlineTextSelection: UITextView, UITextViewDelegate, @MainActor UIEditMenuInteractionDelegate {
     /// The label's text, for Copy (the overlay's own copy is drawn clear).
     private let plainText: String
     /// The row's actions, shown after the system's in the edit menu.

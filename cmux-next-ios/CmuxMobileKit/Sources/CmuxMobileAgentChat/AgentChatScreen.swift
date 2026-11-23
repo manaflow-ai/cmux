@@ -1088,7 +1088,7 @@ struct UserBubble: View {
     private func menuRows(from source: UIView) -> [UIMenuElement] {
         var actions = messageSelectionActions({ prompt }, from: source)
         if let edit = isLast ? editAndResend : editEarlier {
-            actions.append(SelectionMenu.action("Edit and Resend", "pencil", perform: edit))
+            actions.append(SelectionMenu.action("Edit and Resend", "pencil") { edit() })
         }
         actions += polishActions?() ?? []
         return [UIMenu(title: AgentTurn.menuTimestamp(promptAt), options: .displayInline, children: actions)]
