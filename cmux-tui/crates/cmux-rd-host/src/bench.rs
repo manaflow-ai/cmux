@@ -183,6 +183,9 @@ impl ViewerIo {
                 use cmux_rd_link::net::NetEvent;
                 use cmux_rd_link::{EndpointEvent, Event};
                 for event in link.net.events() {
+                    if let Some(line) = event.phase_line() {
+                        println!("{line}");
+                    }
                     match event {
                         NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                             out.push(Arrived::Datagram(d))
@@ -938,7 +941,13 @@ pub fn run(opts: &Opts) -> Res<()> {
     };
     let mut v = Viewer {
         io,
-        reassembler: Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000),
+        reassembler: {
+            let mut r = Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000);
+            // `--rtt-nack-retry 1`: NACK retries a measured repair round trip apart
+            // instead of every 50 ms (design D6). Off by default.
+            r.set_rtt_nack_retry(opts.num_or("rtt-nack-retry", 0u8)? == 1);
+            r
+        },
         decoder: Decoder::new()?,
         h264_gate: Default::default(),
         h264_gate_said: false,
@@ -1034,10 +1043,12 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4). `--caps A,B` offers more, such as
-        // `video.scaled` (the resolution ladder).
+        // Upstream media needs both caps (rd change C4). This reassembler rebuilds frames in
+        // interleaved FEC blocks. `--caps A,B` offers more, such as `video.scaled` (the
+        // resolution ladder).
         caps: {
-            let mut offered = vec![caps::CLOCK.into(), caps::LEDGER.into()];
+            let mut offered =
+                vec![caps::CLOCK.into(), caps::LEDGER.into(), caps::FEC_BLOCKS.into()];
             // Decoding with OpenH264 (Linux's only H.264 decoder, `--decoder openh264` on macOS):
             // ask an H.264 host for Constrained Baseline, the profile it shows correctly.
             if bench_decodes_with_openh264(opts.get("decoder")) {
@@ -1231,6 +1242,13 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         }
     }
     eprintln!("passive: first frame");
+    // `--type TEXT`: send TEXT as one text event (the viewer's text route) once the
+    // picture is up, to check a host types it as its characters (CMUX-572).
+    if let Some(text) = opts.get("type") {
+        v.sender.push(InputEvent::Text(text.to_owned()));
+        v.send_input()?;
+        eprintln!("passive: typed {} characters as text", text.chars().count());
+    }
     let first_frame_ms = (now_ns().saturating_sub(start)) as f64 / 1e6;
     let unix_ms = || {
         std::time::SystemTime::now()
@@ -1412,6 +1430,9 @@ fn link_io() -> Res<ViewerIo> {
     let first_send_us = now_ns() / 1000;
     // This side's candidates go out through the test's stand-in hub.
     for event in net.events() {
+        if let Some(line) = event.phase_line() {
+            println!("{line}");
+        }
         if let NetEvent::Candidate(c) = event {
             println!("{}", json!({"candidate": c.to_wire()}));
         }
