@@ -555,3 +555,6 @@ async fn an_idle_chat_is_released_at_once() {
 
 #[path = "watch_follow.rs"]
 mod follow;
+
+#[path = "watch_terminal.rs"]
+mod terminal;
