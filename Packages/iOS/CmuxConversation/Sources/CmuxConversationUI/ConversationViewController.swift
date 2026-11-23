@@ -729,6 +729,7 @@ public final class ConversationViewController: UIViewController {
         }
         center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
             let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+            let transition = MobileKeyboardTransition(notification: note)
             MainActor.assumeIsolated {
                 guard let self, let end, let window = self.view.window else { return }
                 let screen = window.screen.coordinateSpace
@@ -741,7 +742,7 @@ public final class ConversationViewController: UIViewController {
                 // jumping (and leaves the composer at rest when the guide did
                 // not move because the finger was already past the safe area).
                 self.view.setNeedsLayout()
-                self.layoutRidingKeyboardAnimation()
+                self.layoutRidingKeyboardAnimation(transition)
             }
         }
     }
@@ -818,18 +819,19 @@ public final class ConversationViewController: UIViewController {
     /// the composer's animation joined to it that completion never ran. The
     /// keyboard left while the field stayed first responder, so tapping the
     /// field showed its edit menu instead of bringing the keyboard back.
-    private func layoutRidingKeyboardAnimation() {
-        let remaining = UIView.inheritedAnimationDuration
-        guard remaining > 0 else {
+    /// Lays the composer and transcript out in the keyboard's transaction,
+    /// starting now, on the notification's own duration and curve (curve 7:
+    /// the keyboard's spring; `MobileKeyboardTransition.rideKeyboard`).
+    /// Reduce Motion keeps it: the system keyboard moves either way, and
+    /// landing early would part the composer from it. Interruptible
+    /// (`.allowUserInteraction`): a tap on the field or the transcript inside
+    /// the keyboard's animation reaches them.
+    private func layoutRidingKeyboardAnimation(_ transition: MobileKeyboardTransition?) {
+        guard let transition else {
             view.layoutIfNeeded()
             return
         }
-        // Reduce Motion keeps this: it only ever rides the system keyboard's
-        // own animation (remaining > 0), which Reduce Motion doesn't remove;
-        // landing early would part the composer from the keyboard.
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
-            self.view.layoutIfNeeded()
-        }
+        transition.rideKeyboard { self.view.layoutIfNeeded() }
     }
 
     var bottomOffset: CGPoint {

@@ -333,6 +333,9 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
         backgroundColor = .black
         video.removeFromSuperlayer()
         layer.addSublayer(video)
+        // The Mac's picture at the viewport a keyboard move asked for: the
+        // layer takes its size now (`StreamedBrowserKey.pictureFrame`).
+        model.pictureResized = { [weak self] in self?.setNeedsLayout() }
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.maximumNumberOfTouches = 1
@@ -393,7 +396,8 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
         covered = coveredNow()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        video.frame = CGRect(origin: .zero, size: pageSize)
+        video.frame = StreamedBrowserKey.pictureFrame(width: pageSize.width, page: pageSize.height,
+                                                      picture: model.pictureSize, scale: model.screenScale)
         CATransaction.commit()
         model.layout(points: pageSize, screenScale: Double(window?.screen.scale ?? traitCollection.displayScale))
     }

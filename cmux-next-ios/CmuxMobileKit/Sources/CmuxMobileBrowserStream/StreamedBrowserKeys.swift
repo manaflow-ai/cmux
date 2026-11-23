@@ -67,6 +67,29 @@ public enum StreamedBrowserKey: String, CaseIterable, Sendable {
         }
     }
 
+    /// Where the video layer draws in a page `width` wide whose visible area is
+    /// `page` tall, for a decoded picture of `picture` pixels at `scale`.
+    ///
+    /// The layer keeps the picture's own aspect, top-anchored, so it is never
+    /// scaled: when the keyboard moves, the page asks the Mac for the new
+    /// viewport and the picture at the old one stays where it was (the
+    /// keyboard covers its bottom, or the page's background shows under it)
+    /// until the Mac's picture at the new size arrives. Filling `page` with
+    /// `resizeAspect` instead shrank the old picture sideways and recentered
+    /// it on every keyboard show and hide, then popped to the new one a round
+    /// trip later (Leo, 2026-11-21: "the 'animation' for when the built in
+    /// keyboard collapses and things shrink is not fast enough").
+    ///
+    /// A picture that is not this page's width (a rotation, a first picture
+    /// still at another size) fills `page` as before.
+    public static func pictureFrame(width: CGFloat, page: CGFloat, picture: CGSize?, scale: Double) -> CGRect {
+        let fill = CGRect(x: 0, y: 0, width: width, height: page)
+        guard let picture, picture.width > 0, picture.height > 0, scale > 0, width > 0 else { return fill }
+        // The encoder rounds a dimension to an even pixel count: 2 pt of slack.
+        guard abs(picture.width / CGFloat(scale) - width) <= 2 else { return fill }
+        return CGRect(x: 0, y: 0, width: width, height: (width * picture.height / picture.width).rounded(.toNearestOrEven))
+    }
+
     /// How much of a page of `page` (in window coordinates) the keyboard at
     /// `keyboard` covers: the page lays out in what is left, above the keyboard.
     public static func covered(page: CGRect, keyboard: CGRect?) -> CGFloat {

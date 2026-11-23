@@ -20,6 +20,10 @@ public struct MobileKeyboardTransition: Sendable {
     /// The system keyboard animation curve encoded as `UIView.AnimationOptions`.
     public let animationOptions: UIView.AnimationOptions
 
+    /// The notification's raw `UIKeyboardAnimationCurveUserInfoKey` (7 for
+    /// the keyboard's own curve).
+    public let curve: Int
+
     /// Creates a transition from a keyboard frame-change notification.
     ///
     /// - Parameter notification: A `UIResponder.keyboardWillChangeFrameNotification`
@@ -31,10 +35,66 @@ public struct MobileKeyboardTransition: Sendable {
         beginFrame = notification.userInfo?[UIResponder.keyboardFrameBeginUserInfoKey] as? CGRect
             ?? endFrame
         self.endFrame = endFrame
-        duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval ?? 0
-        let curveRaw = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int
-            ?? Int(UIView.AnimationCurve.easeInOut.rawValue)
+        duration = MobileKeyboardRide.duration(notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey])
+        let curveRaw = MobileKeyboardRide.curve(notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey])
+        curve = curveRaw
         animationOptions = UIView.AnimationOptions(rawValue: UInt(curveRaw) << 16)
+    }
+
+    /// Moves views with the keyboard in the keyboard's own transaction: call
+    /// it from a keyboard will-change notification (UIKit posts it inside the
+    /// keyboard's animation block), with the notification's duration and curve.
+    @MainActor public func rideKeyboard(_ animations: @escaping () -> Void) {
+        Self.rideKeyboard(duration: duration, curve: curve, animations: animations)
+    }
+
+    /// The keyboard's spring response (``MobileKeyboardRide/keyboardSpringResponse``).
+    public static let keyboardSpringResponse = MobileKeyboardRide.keyboardSpringResponse
+
+    /// The UIKit curve value the keyboard posts for its own animation.
+    public static let keyboardCurve = MobileKeyboardRide.keyboardCurve
+
+    /// Runs `animations` on the keyboard's own motion, starting now, in the
+    /// current transaction.
+    ///
+    /// A nested timed animation inside the keyboard's block
+    /// inherits its duration and curve 7 as a timing function, which is not
+    /// the spring the keyboard itself runs: the stack drifted up to several
+    /// points off the keyboard's edge mid-flight and settled up to 100 ms
+    /// after it (simulator, 11 to 27 frames off per transition). Curve 7 rides
+    /// the keyboard's spring instead; any other curve uses the notification's
+    /// duration and curve exactly. `duration <= 0` lays out at once.
+    ///
+    /// Interruptible (`.allowUserInteraction`): without it UIKit drops every
+    /// touch on the views the pass moves until the keyboard settles.
+    /// `.beginFromCurrentState` starts a reversal from where the views are
+    /// drawn. Reduce Motion keeps it: the system keyboard moves either way,
+    /// and landing early would part the views from it.
+    @MainActor public static func rideKeyboard(
+        duration: TimeInterval,
+        curve: Int,
+        animations: @escaping () -> Void,
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        let ride = MobileKeyboardRide(duration: duration, curve: curve)
+        let options = UIView.AnimationOptions(rawValue: ride.optionsRawValue)
+        switch ride.motion {
+        case .immediate:
+            animations()
+            completion?(true)
+        case let .spring(response):
+            // motion: allow the system keyboard's own spring (Reduce Motion does not stop the keyboard).
+            UIView.animate(
+                springDuration: response, bounce: 0, initialSpringVelocity: 0, delay: 0,
+                options: options, animations: animations, completion: completion
+            )
+        case let .timed(duration, _):
+            // motion: allow the notification's own duration and curve (Reduce Motion does not stop the keyboard).
+            UIView.animate(
+                withDuration: duration, delay: 0, options: options,
+                animations: animations, completion: completion
+            )
+        }
     }
 
     /// Returns how much of `view` is covered by the keyboard's final frame.

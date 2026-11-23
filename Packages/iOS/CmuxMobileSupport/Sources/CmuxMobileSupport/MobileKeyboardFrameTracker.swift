@@ -39,6 +39,11 @@ public final class MobileKeyboardFrameTracker {
     /// The animation of the transition the latest will-change cut short,
     /// when it carries none of its own; see ``interruptedAnimation``.
     public private(set) var interruptedAnimation: (duration: TimeInterval, curve: UIView.AnimationCurve)?
+    /// The latest will-change's own duration and raw curve, as UIKit
+    /// posted them; `nil` before the first will-change.
+    public var latestWillAnimation: (duration: TimeInterval, curve: Int)? {
+        latestWill.map { ($0.duration, $0.curve) }
+    }
     private let now: () -> CFTimeInterval
     /// Whether anything in the app can own a software keyboard now: a first
     /// responder that takes text (``MobileKeyboardOwner``), read by
