@@ -75,14 +75,13 @@ const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/sub
 /// (the default since #48542) draws each kind's own mark instead. A test of the stack pins the
 /// `counts` arm, read when the tray mounts; every test ends with the arm unpinned.
 const experiments = globalThis as { cmuxExperiments?: Record<string, string> };
-function pinFoldHead(arm: "counts" | "one" | "two" | "kinds") {
+function pinFoldHead(arm: "counts" | "one" | "two" | "kinds" | "tally") {
   experiments.cmuxExperiments = { ...experiments.cmuxExperiments, "subagent-tray-fold-head": arm };
 }
-afterEach(() => {
-  if (!experiments.cmuxExperiments) return;
-  delete experiments.cmuxExperiments["subagent-tray-fold-head"];
-  if (Object.keys(experiments.cmuxExperiments).length === 0) delete experiments.cmuxExperiments;
-});
+// This suite checks the headers from before the `tally` arm (the default since Leo's 2026-11-23 ask);
+// subagent-tray-tally.test.tsx checks `tally`. Every test starts on `kinds`.
+pinFoldHead("kinds");
+afterEach(() => pinFoldHead("kinds"));
 type BackgroundCommand = import("../src/agent-session/acpmux/session-info/processes").BackgroundCommand;
 type StartedSession = import("../src/agent-session/acpmux/started/startedSessions").StartedSession;
 type Row = import("../src/agent-session/acpmux/model").AcpmuxRow;
@@ -1973,4 +1972,91 @@ test("many live and finished commands share one terminal header mark without hid
   } finally {
     await shown.done();
   }
+});
+
+// The `tally` arm, the default (trayFoldHead.experiment.ts; Leo, 2026-11-23: "just listing the # of each
+// type of ongoing thing would be better. symbol for subagents, potentially per harness, then whatever
+// other commands with their own symbols"; ""running" doesn't need text").
+describe("the tally header", () => {
+  test("each kind is its mark and its number, subagents per harness, no words", async () => {
+    pinFoldHead("tally");
+    const now = Date.now();
+    const few = trayItems(
+      [
+        agent("A", { startedAt: now - 5000, harness: "claude" }),
+        agent("B", { startedAt: now - 4000, harness: "claude" }),
+        agent("C", { startedAt: now - 3500, harness: "codex" }),
+      ],
+      [command("bg1", { command: "bun run dev", startedAt: now - 3000 })],
+      NONE,
+      true,
+    );
+    const shown = await render(
+      createElement(SubagentTray, { items: few, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      const kinds = [...head.querySelectorAll<HTMLElement>(".acpmux-running-tray__kind")];
+      expect(kinds.map((kind) => [kind.dataset.kind, kind.textContent])).toEqual([
+        ["agents:codex", "1"],
+        ["agents:claude", "2"],
+        ["servers", "1"],
+      ]);
+      // A reader still hears what each number counts; nothing says running.
+      expect(kinds.map((kind) => kind.getAttribute("aria-label"))).toEqual(["1 subagent", "2 subagents", "1 server"]);
+      expect(head.textContent).not.toMatch(/running/i);
+      expect(head.querySelector(".acpmux-running-tray__kind-sep")).toBeNull();
+      expect(head.querySelector("[data-tray-faces], .acpmux-hat-faces")).toBeNull();
+    } finally {
+      await shown.done();
+    }
+  });
+
+  test("a lone running subagent is counted too: no step words swap in", async () => {
+    pinFoldHead("tally");
+    const one = trayItems(
+      [agent("Solo", { startedAt: Date.now() - 5000, latest: "Running a command" })],
+      [],
+      NONE,
+      true,
+    );
+    const shown = await render(
+      createElement(SubagentTray, { items: one, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      expect(head.hasAttribute("data-lone")).toBe(false);
+      expect(head.querySelector(".acpmux-running-tray__latest")).toBeNull();
+      expect(head.querySelector(".acpmux-running-tray__kinds")?.textContent).toBe("1");
+      expect(head.textContent).not.toContain("Running a command");
+    } finally {
+      await shown.done();
+    }
+  });
+
+  test("ended work counts only when it failed, in the danger tone", async () => {
+    pinFoldHead("tally");
+    const now = Date.now();
+    const items = trayItems([agent("Live", { startedAt: now - 5000 })], [], NONE, true);
+    const finished = finishedTrayItems(
+      [
+        agent("Fine", { state: "completed", startedAt: now - 9000, endedAt: now - 8000 }),
+        agent("Broke", { state: "failed", startedAt: now - 9000, endedAt: now - 7000 }),
+      ],
+      NONE,
+    );
+    const shown = await render(
+      createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      const kinds = [...head.querySelectorAll<HTMLElement>(".acpmux-running-tray__kind")];
+      expect(kinds.map((kind) => [kind.dataset.kind, kind.dataset.tone ?? "", kind.textContent])).toEqual([
+        ["agents:", "", "1"],
+        ["failed", "failed", "1"],
+      ]);
+    } finally {
+      await shown.done();
+    }
+  });
 });

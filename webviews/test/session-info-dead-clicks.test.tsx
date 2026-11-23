@@ -457,3 +457,10 @@ test("the tray's command line opens the terminal, else the Bash call, else says 
   }
   expect(shown).toEqual(["call-pytest", "call-pytest"]);
 });
+
+// This suite checks the headers from before the `tally` arm (trayFoldHead.experiment.ts, the default since
+// Leo's 2026-11-23 ask); subagent-tray-tally.test.tsx checks `tally`. Read when each tray mounts.
+{
+  const host = globalThis as { cmuxExperiments?: Record<string, string> };
+  host.cmuxExperiments = { ...host.cmuxExperiments, "subagent-tray-fold-head": "kinds" };
+}
