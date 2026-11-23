@@ -118,7 +118,6 @@ PANE_GO = "cmux-tui/bindings/codegen/pane/generate.py"
 # OUTPUTS row's first pattern, or a baseline path. The audit fails on a family missing here.
 REGENERATE: dict[str, Regen] = {
     # generated-files.json "committed" generators.
-    "settings-sources": here((PY, "scripts/cmux-next/gen-settings-sources.py")),
     "motion-scale": here((PY, "scripts/cmux-next/gen-motion-scale.py")),
     "type-scale": here((PY, "scripts/cmux-next/gen-type-scale.py")),
     "status-glyphs": here((PY, "scripts/cmux-next/gen-status-glyphs.py")),
@@ -127,8 +126,6 @@ REGENERATE: dict[str, Regen] = {
     "chrome-styles": here((PY, "scripts/cmux-next/gen-chrome-styles.py")),
     "agent-icons": here((PY, "scripts/agent-icons/generate.py")),
     "icon-pack": here((PY, "scripts/icons/build_pack.py")),
-    "pane-protocol": here(("bun", "webviews/scripts/pane-protocol-codegen.ts")),
-    "acpmux-protocol": here(("bun", "webviews/scripts/acpmux-protocol-codegen.ts")),
     "pane-protocol-go": here(
         (PY, PANE_GO, "--write", "--ir", "cmux-tui/crates/cmux-pane-protocol/spec/pane-protocol.json",
          "--out", "cmux-tui/bindings/go-pane/examples/hello/hellopane", "--package", "hellopane",
