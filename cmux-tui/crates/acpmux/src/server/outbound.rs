@@ -33,8 +33,10 @@
 //!
 //! A watcher's row (`_acpmux/session_changed` of a chat it did not attach) is the chat's whole row,
 //! not a change to apply: a newer one says all an older one did, as a follow from the client's
-//! cursor would ([`Row`]). So a row still queued is dropped when a newer one of the same chat
-//! comes, and the queue holds at most one per chat; past [`ROW_BYTE_BOUND`] of them the connection
+//! cursor would ([`Row`]). So once a reader is behind (past [`COALESCE_FROM`] unread), a row still
+//! queued is dropped when a newer one of the same chat comes, and the queue holds at most one per
+//! chat. A reader that keeps up gets every row: each also names what changed (`kind`, a queued or
+//! dequeued prompt), which a watcher waits on. Past [`ROW_BYTE_BOUND`] of them the connection
 //! ends as at its own bound, and the client follows once from its cursor. Before this a reader
 //! that fell behind held every row of every change: 224 MB on one Mac under heavy load
 //! (2026-11-22), 62.8 MB of it in one watcher's 6,041 lines, all under the 64 MiB bound.
@@ -98,6 +100,10 @@ pub(super) const OUTBOUND_BYTE_BOUND: usize = 64 << 20;
 /// it the connection ends as at [`OUTBOUND_BYTE_BOUND`], and the client follows once from its
 /// cursor, which costs it no more than these rows would.
 pub(super) const ROW_BYTE_BOUND: usize = 4 << 20;
+
+/// The bytes a connection holds unread past which its reader is behind and a chat's queued row is
+/// replaced by its newer one ([`Row::Latest`]): about sixty rows. Under it every row is sent.
+pub(super) const COALESCE_FROM: usize = 256 << 10;
 
 /// What a line is to the rows the queue keeps one of per chat ([module docs](self)).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -262,6 +268,16 @@ impl State {
         }
     }
 
+    /// Keeps `key`'s queued row but no longer replaces it: the reader is not behind, so it gets it.
+    fn forget_row(&mut self, key: &str) {
+        let Some(serial) = self.rows.remove(key) else { return };
+        if let Ok(at) = self.queue.binary_search_by_key(&serial, |line| line.serial)
+            && let Some(old) = self.queue.get(at)
+        {
+            self.row_bytes -= old.text.len();
+        }
+    }
+
     /// Both lanes and the rows dropped (an overrun, or the pump ended).
     fn clear(&mut self) {
         self.queue = VecDeque::new();
@@ -349,10 +365,9 @@ impl Shared {
         // A newer row says all the queued one did ([`Row`]); a line that must follow that one keeps it.
         let row = if lane == Lane::Bulk { line.row.clone() } else { Row::None };
         match &row {
-            Row::Latest(key) => state.drop_row(key),
-            Row::After(key) => {
-                state.rows.remove(key);
-            }
+            Row::Latest(key) if state.held >= COALESCE_FROM => state.drop_row(key),
+            Row::Latest(key) => state.forget_row(key),
+            Row::After(key) => state.forget_row(key),
             Row::None => {}
         }
         let over_rows = matches!(row, Row::Latest(_)) && state.row_bytes + size > self.row_bound;

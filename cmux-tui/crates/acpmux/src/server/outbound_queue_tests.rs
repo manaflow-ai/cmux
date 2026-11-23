@@ -3,8 +3,8 @@
 
 use super::Message;
 use super::outbound::{
-    BULK_WINDOW, Lane, Limits, OUTBOUND_BYTE_BOUND, OVERRUNS, ROW_BYTE_BOUND, Row, TOTAL_OVERRUNS,
-    start_bounded, start_limited, start_rows_bounded,
+    BULK_WINDOW, COALESCE_FROM, Lane, Limits, OUTBOUND_BYTE_BOUND, OVERRUNS, ROW_BYTE_BOUND, Row,
+    TOTAL_OVERRUNS, start_bounded, start_limited, start_rows_bounded,
 };
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -292,8 +292,10 @@ async fn a_reader_that_never_reads_holds_one_row_per_chat_and_gets_the_latest() 
     }
     let held = out.held();
     eprintln!("rows held: {held} bytes for {CHANGES} changes of {CHATS} chats ({all} bytes sent)");
-    // One row of each chat is queued; the pump may hold up to its window besides.
-    assert!(held <= BULK_WINDOW + (CHATS + 1) * row(0, CHANGES).len(), "held {held} bytes");
+    // Rows up to the point the reader counts as behind, then one row of each chat; the pump may
+    // hold up to its window besides.
+    let bound = COALESCE_FROM + BULK_WINDOW + (CHATS + 1) * row(0, CHANGES).len();
+    assert!(held <= bound, "held {held} bytes, over {bound}");
     assert!(held < ROW_BYTE_BOUND);
     assert!(!out.is_closed());
     let mut latest = std::collections::HashMap::new();
@@ -323,6 +325,8 @@ async fn a_row_before_a_line_that_follows_it_is_kept() {
     assert!(out.push("filler-0\n".to_owned()));
     assert!(out.push("filler-1\n".to_owned()));
     tokio::time::sleep(Duration::from_millis(50)).await;
+    // The reader is behind: what it has not read is past the point rows are replaced.
+    assert!(out.push(format!("filler-behind {}\n", "f".repeat(COALESCE_FROM))));
     let ask = Message::notification("_acpmux/permission_pending", json!({"sessionId": "s0"}));
     assert!(out.lock().push_row(row(0, 1), Lane::Bulk, key(0)));
     assert!(out.lock().push_row(ask.to_line(), Lane::Bulk, Row::After("s0".into())));
@@ -337,6 +341,24 @@ async fn a_row_before_a_line_that_follows_it_is_kept() {
         got.push(line["params"]["listSeq"].as_u64().map_or("ask".to_owned(), |n| n.to_string()));
     }
     assert_eq!(got, ["1", "ask", "3"]);
+}
+
+/// A reader that keeps up gets every row of a chat: each names what changed (a queued, then a
+/// dequeued prompt), and a watcher waits on that (`queued_prompts_are_accepted_queued_and_watchers_see_the_queue`).
+#[tokio::test]
+async fn a_reader_that_keeps_up_gets_every_row() {
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let (transport, mut rx) = mpsc::channel(1);
+    let (out, _) = start_bounded(&scope, None, transport, OUTBOUND_BYTE_BOUND);
+    for n in 1..=3 {
+        assert!(out.lock().push_row(row(0, n), Lane::Bulk, key(0)));
+    }
+    let mut got = Vec::new();
+    while let Ok(Some(line)) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
+        let line: Value = serde_json::from_str(&line).unwrap();
+        got.push(line["params"]["listSeq"].as_u64().unwrap());
+    }
+    assert_eq!(got, [1, 2, 3]);
 }
 
 /// Rows of more chats than [`ROW_BYTE_BOUND`] holds end the connection, as its own bound would:
