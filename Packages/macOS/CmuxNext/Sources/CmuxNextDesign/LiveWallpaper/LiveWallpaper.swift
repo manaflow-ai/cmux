@@ -17,6 +17,8 @@ public nonisolated struct LiveWallpaper: Sendable, Equatable, Identifiable {
     public let scale: Float
     /// Whether pointer motion wakes it.
     public let interactive: Bool
+    /// Whether agent activity wakes it (the manifest's `agents`): it reads `Frame.activity`.
+    public let agents: Bool
     /// The manifest's params' defaults in order, at most 8.
     public let params: [Float]
     /// A still's time (seconds) and pointer (fractions of the size).
@@ -71,6 +73,7 @@ public nonisolated struct LiveWallpaper: Sendable, Equatable, Identifiable {
         fps = (object["fps"] as? NSNumber)?.uint32Value ?? 30
         scale = (object["scale"] as? NSNumber)?.floatValue ?? 1
         interactive = (object["interactive"] as? Bool) ?? true
+        agents = (object["agents"] as? Bool) ?? false
         params = ((object["params"] as? [[String: Any]]) ?? []).prefix(8).map { ($0["default"] as? NSNumber)?.floatValue ?? 0 }
         stillTime = (still?["time"] as? NSNumber)?.floatValue ?? 0
         stillPointer = (pointer.first ?? 0.5, pointer.dropFirst().first ?? 0.5)

@@ -44,18 +44,20 @@ extension BackdropAgentGlow.Agent {
 /// The reader of `appearance.agentGlow` (off by default) that a ``ChiefViewsHost`` holds: it stops
 /// when the host is released.
 nonisolated final class AgentGlowReader: Sendable {
-    let task: Task<Void, Never>
+    let tasks: [Task<Void, Never>]
 
-    init(_ task: Task<Void, Never>) { self.task = task }
+    init(_ tasks: Task<Void, Never>...) { self.tasks = tasks }
 
-    deinit { task.cancel() }
+    deinit { tasks.forEach { $0.cancel() } }
 }
 
 extension ChiefViewsHost {
     /// This host with the window backdrops' glow (``BackdropAgentGlow``) following its machines, for
     /// as long as the host is kept. Off, the stream reads the switch and nothing else; on, it reads
     /// the agents' states (``BackdropAgentGlow/Agent/current(workspaces:machineName:localMachine:lanes:)``)
-    /// and writes ``DesignSettings/agentGlow`` only when the glow changes.
+    /// and writes ``DesignSettings/agentGlow`` only when the glow changes. While a live wallpaper
+    /// that reads the agents shows (``DesignSettings/agentWallpapers``), a second stream counts each
+    /// change of those states in ``DesignSettings/agentEvents``; with none it reads only that count.
     ///
     /// - Parameter localMachine: this Mac's name (its daemon's), the machine of its own chats.
     @MainActor
@@ -71,6 +73,17 @@ extension ChiefViewsHost {
                 return BackdropAgentGlow(agents: agents) { MachineColor(name: $0).rgb(tokens: theme.tokens, overrides: theme.machineColors) }
             }) where design.agentGlow != glow {
                 design.agentGlow = glow
+            }
+        }, Task {
+            var last: [BackdropAgentGlow.Agent]?
+            for await agents in ObservationStream({ () -> [BackdropAgentGlow.Agent]? in
+                guard design.agentWallpapers > 0 else { return nil }
+                return BackdropAgentGlow.Agent.current(workspaces: workspaces(), machineName: machineName,
+                                                       localMachine: localMachine() ?? "")
+            }) {
+                // The first read after a wallpaper starts reading is its baseline, not an event.
+                if let agents, let before = last, agents != before { design.agentEvents &+= 1 }
+                last = agents
             }
         })
         return host
