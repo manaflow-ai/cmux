@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "d3ce38702dd442f121f7ca53834ee962f6013d67ac069040b9918d95dca1fc56",
+  "catalog_sha256": "551a51162df9c0e9a48b49fa9784634ae86c11630ce31f956cdd2dda13f42bcd",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -189,9 +189,6 @@
     },
     "cloud.machine.chat_access": {
       "class": "read"
-    },
-    "cloud.machine.chief_start": {
-      "class": "mutation"
     },
     "cloud.machine.io": {
       "class": "mutation"
@@ -426,6 +423,9 @@
     },
     "git.worktree.setup": {
       "class": "read"
+    },
+    "git.worktree.setup.run": {
+      "class": "mutation"
     },
     "history.backups.purge": {
       "class": "mutation"

@@ -12,7 +12,7 @@
   // background: the card, a step over the source's #1E2020 chrome. foreground: the source's soft
   // white #E3E2E2. selection: its selected-row gray, lifted. accent: a muted periwinkle, for Send,
   // focus and links only.
-  "colors": { "background": "#222424", "foreground": "#e3e2e2", "selection": "#3d4040", "accent": "#6682c2" },
+  "colors": { "background": "#222424", "foreground": "#e3e2e2", "selection": "#727575", "accent": "#6682c2" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
   // ANSI colors at a hushed chroma, each solved in OKLCH over the page (5.5:1, the bright ones
@@ -22,7 +22,7 @@
     "foreground = #e3e2e2",
     "cursor-color = #6682c2",
     "cursor-text = #222424",
-    "selection-background = #3d4040",
+    "selection-background = #727575",
     "selection-foreground = #e3e2e2",
     "palette = 0=#4e5359",
     "palette = 1=#ca8983",

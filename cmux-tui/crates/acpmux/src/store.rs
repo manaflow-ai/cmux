@@ -259,6 +259,12 @@ pub struct SessionMeta {
     /// applied at spawn, not through set_model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_request: Option<String>,
+    /// The effort a new Claude Code chat starts on, given at spawn as `--effort` instead of a
+    /// `session/set_config_option` after `initialize` (`hub/lifecycle.rs`). A start before the
+    /// harness reported its options reads it (`model_options::spawn_effort`); its reported
+    /// effort wins after that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_request: Option<String>,
     pub cwd: PathBuf,
     /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
     /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
@@ -1504,6 +1510,30 @@ pub trait Store: Send + Sync {
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.scan(id, 0, &mut |rec| visit(&RecordHead::parsed(&rec)))
     }
+    /// `scan_heads` of the records from `from` on, each with where its line is ([`LinePos`]) in
+    /// a store that knows: an adoption that resumes from its checkpoint
+    /// (`hub/hosts/checkpoint.rs`). `hint` is where the line of `from` was; a file store reads
+    /// from there, when that line still holds `from`, and from the segment that holds `from`
+    /// otherwise. Never more records than `scan_heads`, never fewer past `from`.
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        _hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        self.scan_heads(id, &mut |head| head.seq < from || visit(head, None))
+    }
+    /// The adoption checkpoint of `id` (`hub/hosts/checkpoint.rs`), as saved. None in a store
+    /// that keeps none.
+    fn adoption_checkpoint(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+    /// Saves `bytes` as `id`'s adoption checkpoint, whole or not at all. A store that keeps none
+    /// drops it.
+    fn save_adoption_checkpoint(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
+        Ok(())
+    }
     /// The log's messages (`session_search.rs`), oldest first. A file store reads each segment's
     /// text copy (`store/text_index.rs`) and only the bytes appended past it.
     fn text_entries(
@@ -1709,6 +1739,14 @@ pub(crate) fn newest_window_by_scan<S: Store + ?Sized>(
 mod log_line;
 pub use log_line::RecordHead;
 
+/// Where a log line is: its segment's number and the byte offset its line starts at
+/// (`Store::scan_heads_from`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinePos {
+    pub segment: u32,
+    pub offset: u64,
+}
+
 #[cfg(test)]
 pub(crate) use log_line::PARSED_LINES;
 
@@ -1746,6 +1784,8 @@ pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]
 pub(crate) use journal_store::open_with_journal;
+#[cfg(test)]
+pub(crate) use journal_store::{DISK_RESERVE, set_test_free};
 mod log_sync;
 mod segment_writer;
 use segment_writer::SegmentWriter;
@@ -1767,6 +1807,15 @@ pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 /// A chat's restore point, beside its `session.json` (`hub/restore_point.rs`).
 const RESTORE_POINT: &str = "restore-point.json";
+/// A chat's adoption checkpoint, beside its `session.json` (`hub/hosts/checkpoint.rs`).
+const ADOPTION_CHECKPOINT: &str = "adoption-checkpoint.json";
+
+/// `path`'s bytes, read in the held home (`None` when it is missing or unreadable).
+fn held_file_bytes(path: &Path) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    crate::home_fs::private_state_file(path).ok()?.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
+}
 
 pub struct LocalStore {
     root: PathBuf,
@@ -2356,6 +2405,98 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_lines(id, after, true, None, visit)
+    }
+
+    /// Reads from `hint` when the line there holds `from` (an adoption's checkpoint: no byte
+    /// before it), else from the start of the segment that holds `from`, passing the lines
+    /// before `from` on their `seq` alone.
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        use std::io::{Seek, SeekFrom};
+        let segments = self.segments(id)?;
+        let mut line = Vec::new();
+        let hinted = hint.and_then(|h| {
+            let (index, (_, path)) =
+                segments.iter().enumerate().find(|(_, (n, _))| *n == h.segment)?;
+            let mut reader =
+                BufReader::with_capacity(64 * 1024, crate::config::private_state_file(path).ok()?);
+            reader.seek(SeekFrom::Start(h.offset)).ok()?;
+            line.clear();
+            reader.read_until(b'\n', &mut line).ok()?;
+            (record_seq(&line) == Some(from)).then_some((index, h.offset, reader))
+        });
+        let (start, mut first) = match hinted {
+            Some((index, offset, reader)) => (index, Some((offset, reader))),
+            None => (self.segment_starts.start(id, &segments, from.saturating_sub(1))?, None),
+        };
+        for (index, path) in segments.get(start..).unwrap_or_default() {
+            let (mut pos, mut reader) = match first.take() {
+                Some((offset, reader)) => (offset, reader),
+                None => {
+                    line.clear();
+                    let file = crate::config::private_state_file(path)?;
+                    (0, BufReader::with_capacity(256 * 1024, file))
+                }
+            };
+            loop {
+                // The hinted line was read already.
+                let n =
+                    if line.is_empty() { reader.read_until(b'\n', &mut line)? } else { line.len() };
+                if n == 0 {
+                    break;
+                }
+                let at = LinePos { segment: *index, offset: pos };
+                pos += n as u64;
+                let more = if line.iter().all(u8::is_ascii_whitespace)
+                    || record_seq(&line).is_some_and(|seq| seq < from)
+                {
+                    true
+                } else {
+                    match RecordHead::read(&line) {
+                        Some(head) => visit(&head, Some(at)),
+                        None => match parse_record(&line) {
+                            Ok(rec) if rec.seq >= from => {
+                                visit(&RecordHead::parsed(&rec), Some(at))
+                            }
+                            _ => true,
+                        },
+                    }
+                };
+                line.clear();
+                if !more {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// None once the log was compacted since it was saved: a compaction cuts records' strings
+    /// in place (`store/compact.rs`), which a fold of them would read differently. The file's
+    /// first line is the digest of the compaction marker it was saved under.
+    fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
+        let bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
+        let nl = bytes.iter().position(|&b| b == b'\n')?;
+        let (head, body) = bytes.split_at(nl);
+        (head == self.compaction_digest(id).as_bytes())
+            .then(|| body.get(1..).unwrap_or_default().to_vec())
+    }
+
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _open = self.writable()?;
+        let dir = self.dir(id);
+        // As `save_restore_point`: a chat whose folder went away gets no file of its own again.
+        let folder = crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir());
+        anyhow::ensure!(folder, "no folder for {id}");
+        let mut file = self.compaction_digest(id).into_bytes();
+        file.push(b'\n');
+        file.extend_from_slice(bytes);
+        write_atomic(&dir.join(ADOPTION_CHECKPOINT), &file)
     }
 
     /// Reads each line's head (`RecordHead::read`) and parses only the lines the reader asks
