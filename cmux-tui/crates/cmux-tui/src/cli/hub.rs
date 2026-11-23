@@ -163,6 +163,13 @@ pub(super) fn parse(
         [w, rest @ ..] => (w.clone(), rest),
         [] => return Err("expected a verb (cmux hub --help)".into()),
     };
+    // Refused before any flag is read, so `approve ID --remember` gets this answer and not "unexpected argument".
+    if matches!(kind.as_str(), "approve" | "deny" | "answer") {
+        return Err(
+            "approvals are answered by a person in cmux Settings > Integrations, not from the CLI"
+                .into(),
+        );
+    }
     let mut platform = None;
     let mut team = None;
     let mut token = None;
@@ -295,11 +302,6 @@ pub(super) fn parse(
         }
         "status" => Verb::Status { id: positional("call", "hcall_")? },
         "approvals" => none(Verb::Approvals)?,
-        "approve" | "deny" | "answer" => {
-            return Err(
-                "approvals are answered by a person in cmux Settings > Integrations, not from the CLI".into(),
-            );
-        }
         "policy" => none(Verb::Policy)?,
         "rule add" => none(Verb::RuleAdd { rule: rule_body(&values)? })?,
         "rule remove" => Verb::RuleRemove { id: positional("rule", "hubr_")? },
