@@ -66,7 +66,7 @@ final class ChangelogPageTab: InternalPageProvider {
 }
 
 nonisolated enum ChangelogPageStrings {
-    static var title: String { String(localized: "changelog.page.title", defaultValue: "What's New", table: "Handlers", bundle: .module) }
+    static var title: String { String(localized: "changelog.page.title", defaultValue: "What's New", table: "Handlers", bundle: .module.inAppLanguage) }
 }
 
 extension PageFactory {

@@ -58,6 +58,12 @@ enum SidebarLaneStatus {
                     }
                     row.chiefAvatar = owned.first.flatMap(chiefAvatar)
                 }
+                // `experiments.agentBadges`' Done pill: a chat's finished turn nobody has seen, as the Priority view ranks it.
+                row.agentDone = local.contains { lane in
+                    let read = marks.state.read[lane.id] == AgentPriorityMarks.stamp(lane)
+                    if case .done = AgentPriorityRanking.state(lane, read: read) { return true }
+                    return false
+                }
                 row.capacityWaitCount = local.reduce(0) { $0 + $1.capacityWaitCount }
                 guard mergesState || namesState || saysStep else { return row }
                 let standing = withoutSupersededFailures(local)

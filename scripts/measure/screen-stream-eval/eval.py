@@ -527,6 +527,11 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             if parts:
                 lines.append(f"| {kind.capitalize()} input→capture parts (p50): render / SCK / pickup / gate | "
                              + " / ".join(fmt((parts.get(k) or {}).get("p50"), " ms", 2) for k in ("render_ms", "sck_ms", "pickup_ms", "gate_ms")) + " |")
+                if parts.get("draw_ms") or parts.get("commit_to_vsync_ms"):
+                    hz = parts.get("refresh_hz")
+                    lines.append(f"| {kind.capitalize()} capture parts (p50 / p95) at {hz or '?'} Hz: draw / commit→vsync / vsync→callback | "
+                                 + " · ".join(fmt((parts.get(k) or {}).get("p50"), "", 2) + " / " + fmt((parts.get(k) or {}).get("p95"), " ms", 2)
+                                              for k in ("draw_ms", "commit_to_vsync_ms", "sck_ms")) + " |")
         for kind in ("key", "pointer"):
             present = get(t, "split", kind, "present") or {}
             if present:

@@ -305,12 +305,13 @@ impl Hub {
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
-        let (limits, capacity_route, release_interval) = {
+        let (limits, capacity_route, release_interval, hold_ms) = {
             let config = self.config.read().await;
             (
                 QueueLimits::of(&config),
                 super::capacity::Route::of(&config, &session.meta()),
                 super::capacity::release_interval(config.capacity.release_per_min),
+                super::person_hold::hold_ms(&config, &session.meta().name),
             )
         };
         let capacity_route = capacity_route.as_ref();
@@ -431,20 +432,36 @@ impl Hub {
                         *session.gathering.lock().unwrap_or_else(|e| e.into_inner()) =
                             Some((turn_id.clone(), until));
                     }
+                    // The person's prompt to a held chat waits in the queue for the person's
+                    // prompts after it, to go in with them (`person_hold.rs`).
+                    let hold =
+                        !waiting && !gather && hold_ms.is_some() && super::person_hold::holds(&p);
+                    if let Some(ms) = hold_ms.filter(|_| hold) {
+                        super::person_hold::open(session, &turn_id, ms);
+                    }
                     session.queued.fetch_add(1, Ordering::SeqCst);
-                    break waiting || gather;
+                    break waiting || gather || hold;
                 };
                 let withdraw = if waiting {
                     let (waits, position) = self
                         .enqueue_or_refuse(session, &p, &turn_id, limits)
                         .inspect_err(|_| {
                         super::digest::end_gather(session, &turn_id);
+                        super::person_hold::end(session, &turn_id);
                     })?;
                     let mut accepted = json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position});
                     if awaiting_owner {
                         accepted.set("awaitingOwner", json!(true));
                     }
                     accept(accepted);
+                    // A small model reads each of the person's prompts that holds or joins a
+                    // hold: urgent ones end it (`person_hold.rs`).
+                    if hold_ms.is_some()
+                        && super::person_hold::holds(&p)
+                        && super::person_hold::is_open(session)
+                    {
+                        self.triage_held(session, p.text.to_owned());
+                    }
                     // The person's own prompt takes a parked chat back (`rate_hold.rs`), once
                     // it is in the queue the continuation folds.
                     self.persons_prompt_unparks(session, p.agent, p.provenance);
@@ -1039,6 +1056,19 @@ impl Hub {
                     () = tokio::time::sleep_until(until) => {}
                     () = withdraw.notified() => {
                         super::digest::end_gather(session, turn_id);
+                        return Wait::Withdrawn;
+                    }
+                    () = moved.as_mut() => {}
+                }
+                continue;
+            }
+            // The person's prompt to a held chat waits out its hold first, unless the triage
+            // ends it (`person_hold.rs`); the person's prompts that come meanwhile queue behind.
+            if let Some(until) = super::person_hold::until(session, turn_id) {
+                tokio::select! {
+                    () = tokio::time::sleep_until(until) => {}
+                    () = withdraw.notified() => {
+                        super::person_hold::end(session, turn_id);
                         return Wait::Withdrawn;
                     }
                     () = moved.as_mut() => {}
