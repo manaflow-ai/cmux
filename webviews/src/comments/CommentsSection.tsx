@@ -26,6 +26,8 @@ export function CommentsSidebarSection({
   if (entries.length === 0 && !hasDraft) {
     return null;
   }
+  // A comment already sent as a thread stays listed with its reply; Send takes only the rest.
+  const unsent = entries.filter((entry) => entry.comment.thread == null).length;
   return (
     <div id="comments-section" aria-label={labels.comments}>
       <div id="comments-header">
@@ -36,7 +38,7 @@ export function CommentsSidebarSection({
             id="comments-send"
             className="comment-button comment-button-primary"
             data-state={sendState}
-            disabled={entries.length === 0 || sendState === "sending"}
+            disabled={unsent === 0 || sendState === "sending"}
             onClick={onSend}
           >
             {/* Both labels are laid out in one cell, so the button is as wide as the longer. */}
