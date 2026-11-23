@@ -392,7 +392,7 @@
   color: var(--agent-text);
 }
 .guest-mine__retry:focus-visible {
-  outline: 1.5px solid var(--agent-text);
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--agent-text);
   outline-offset: 2px;
 }
 /* "Waiting for <owner>" under a held bubble: a long owner name is cut, never widens the dock. */
