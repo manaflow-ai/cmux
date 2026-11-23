@@ -677,6 +677,13 @@ class PrChecksAdvisoryJobTest(unittest.TestCase):
                 self.assertFalse(step.labels, "a label event runs only pr-body-checks.yml's steps")
                 self.assertLessEqual(step.timeout, 10 * 60, "within the run step's timeout")
 
+    def test_split_plan_fits_its_fetches_in_its_timeout(self) -> None:
+        # The window fetch, its ref fallback, the deepen and its fallback: four bounded fetches, then the checker.
+        step = self.table.steps["split-plan"]
+        bound = int(re.search(r"fetch\(\) \{ timeout (\d+) ", step.run).group(1))
+        self.assertEqual(len(re.findall(r"^\s*(?:\|\| )?fetch ", step.run, re.M)), 4, step.run)
+        self.assertGreaterEqual(step.timeout, 4 * bound + 30, "the checker gets the step's last half minute")
+
     def test_it_runs_the_picked_steps_from_the_base_checkout(self) -> None:
         checkout = self.steps["Check out the advisory steps from the base"]
         self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha }}")
