@@ -2876,6 +2876,8 @@ function TranscriptView({
     if (pending !== pendingSentPromptCount) setPendingSentPromptCount(pending);
   }
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
+  /// The placement pass's other inputs as the last pass that ran took them (`unmovedPass`).
+  const passedWith = useRef<{ first: number; room: number; lift: number; followResume: number } | undefined>(undefined);
   /// `room`: the room kept under the last row (`room` below) as of the last placement pass.
   /// `reader`: the room the reader scrolled back down to (`readerKept` below): what the room held while they were
   /// scrolled up, kept under the last row once the view follows again, with the newest prompt it was
@@ -4106,8 +4108,55 @@ function TranscriptView({
       acpmuxPerf.commit(now - renderStart, layoutMs, spans, now);
     }
   });
+  /// Whether the placement pass has nothing to place: the view follows the latest row, and this commit moved no
+  /// row and changed none of the pass's other inputs since the last pass ran. A streamed chunk is that commit
+  /// most of the time: the reply keeps its drawn height until the row's observer reports a new one (a new
+  /// line), and that report places it with a pass of its own. The pass would read the scroller and write the
+  /// same offset back. Nothing is recorded, so the next pass that runs measures from the last one that ran (its
+  /// rows and layout, `previousRows`, `previousLayout`), as if the skipped commits were one. O(log rows).
+  const unmovedPass = (): boolean => {
+    const old = previousLayout.current;
+    const with_ = passedWith.current;
+    const view = previousViewport.current;
+    const oldRows = previousRows.current;
+    if (!old || !with_ || previousSession.current !== sessionId || !didOpenAtLatest.current) return false;
+    if (!followingRef.current || followDeferred.current || readerUpPending.current) return false;
+    // Anything in flight that the pass drives or hands over: a held or bottom-stacked fold, a ride, a jump, a
+    // live resize, the turn's end, a send's window, a drain.
+    if (foldAnchor.current || bottomStackFold.current || jumpTarget.current !== undefined) return false;
+    if (turnEndCapture.current !== undefined || liveResize.current.flow !== undefined) return false;
+    if (foldRide.current?.riding || heightFoldPlaying()) return false;
+    const now = performance.now();
+    if (sends !== seenSends.current || now < sendRiseUntil.current || now < chaseDrainUntil.current) return false;
+    if (view.height !== height || view.width !== width || view.dockSpace !== dockSpace || view.dockCard !== dockCard)
+      return false;
+    if (with_.first !== range.first || with_.room !== room || with_.lift !== lift) return false;
+    if (with_.followResume !== followResume || appliedLift.current !== lift || liftedBefore.current !== lifted)
+      return false;
+    // The same rows at the same places: their count, the first and last ids, the content's end, and the tops of
+    // the first mounted row and the last row.
+    const geometry = layout.geometry;
+    const was = old.geometry;
+    const count = geometry.count;
+    if (count === 0 || was.count !== count || rows.length !== oldRows.length) return false;
+    if (rows[0]?.id !== oldRows[0]?.id || rows[count - 1]?.id !== oldRows[count - 1]?.id) return false;
+    if (old.totalHeight !== layout.totalHeight || was.totalHeight !== geometry.totalHeight) return false;
+    if (was.topAt(count - 1) !== geometry.topAt(count - 1) || was.heightAt(count - 1) !== geometry.heightAt(count - 1))
+      return false;
+    const first = Math.min(range.first, count - 1);
+    if (was.topAt(first) !== geometry.topAt(first)) return false;
+    if (thread.current?.hasAttribute(TURN_END_ATTR) || thread.current?.classList.contains(FLOW_CLASS)) return false;
+    return !pageAway(ref.current?.ownerDocument ?? document);
+  };
   // Reads `openAt` and the rest of this render as they are, run only on the inputs below.
   const anchorPass = useCommittedEvent(() => {
+    // A streamed chunk that moved no row: nothing to place. Run, its reads of the scroller (`live`, the
+    // pinned line's top) laid the page out again in every chunk's commit, ahead of the key typed in it.
+    if (unmovedPass()) {
+      acpmuxPerf.render("transcript:anchor-skipped");
+      return;
+    }
+    acpmuxPerf.render("transcript:anchor-pass");
     // What the pinned live line is drawn held back by, before this pass's chase moves the thread.
     notePinPass(thread.current);
     /// This pass is the follow chase's (the last branch below): the rows under a change glide, against
@@ -4813,6 +4862,7 @@ function TranscriptView({
     // The rows a fold ride moved are placed where they showed: its hand-over is spent.
     foldRide.current?.takeHanded(drawnRef.current);
     previousViewport.current = { height, width, dockSpace, dockCard };
+    passedWith.current = { first: range.first, room, lift, followResume };
     // With the composer's growth, which is room again once the view stops following.
     // A hold for a line that went is room the rows still have: it stays in the room once scrolled up.
     heldRoom.current.room = under.next.heldRoom;
