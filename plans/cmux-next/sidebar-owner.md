@@ -1,6 +1,8 @@
 # cmux-next sidebar: owner note
 
 - 2026-11-22 (lane/sidebar-text-tokens): Sidebar-Look: Leo, 2026-10-27: "5 different font colors in sidebar (opacity?)". Text on the sidebar's own background takes three inks, `SidebarStyle.TextInk`: `title` (a workspace's, an item's and a folder group's name: `titleInk`, so a folder's name no longer reads in the brighter `textPrimary`), `secondary` (a section header's or a quiet group's name) and `tertiary` (every detail, count and machine word). No label carries an opacity of its own: an archived name drops to `tertiary` instead of its ink at 45%, and a group's member count drops to `tertiary` instead of the name's ink at 70% (`groupHeaderCountInkAlpha` is gone). On a group's colored fill (band, glass, tinted) the count and machine words take the name's readable ink at full strength. Icons, bars and pills still dim by `archivedAlpha`. Regression: `SidebarTextInkCountTests` (counts the distinct resolved text colors of a section, folder group, member, loose and archived row; prints `INKS|`).
+- 2026-11-22 (lane/split-preview-menus, ask-890db939a2): Sidebar-Look: Leo, 2026-11-22: "i dont think the shaped preview of the splits has merged/been written yet. like, e.g. i have this layout. so. the preview should be able to depict that." A workspace's hover card draws its shown screen's splits under the title (`WorkspacePaneShapeView`, 64 pt tall, the text column's width): one rounded tile per pane at its real share of the screen (the daemon's split ratios, and scrolling columns at their widths), the front tab's kind mark (agent, terminal, page) centered where it fits with room, the focused pane outlined in the accent. The shape is read in the row mapping (`SidebarMapping.paneShape`, ratios to hundredths) as `SidebarWorkspace.paneShape`; a one-pane or zoomed workspace has none and its card is unchanged. VoiceOver reads "Panes: N". Regression: `SidebarPaneShapeTests`.
+- 2026-11-22 (lane/split-preview-menus, ask-890db939a2): Sidebar-Look: Leo "pick a fucking option" / "why is there even a remove from top option. just move it yourself. you can drag it anywhere you want." The + button's right-click and chooser show only the rows that make something (the background keeps its view rows); a top row's menu (the Chief's too) has no Remove from Top and a workspace row's has no Add to Top: drag in and out. Regression: `TopRowMenuDragTests`.
 - 2026-11-22 (lane/cloud-icon-trailing): Sidebar-Look: Leo, 2026-11-22: "im not sure we want the cloud icon at the
   left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon. well. for
   consistency, what do we want?" The leading slot is for state only. A Cloud row draws no leading cloud (the old
@@ -12,6 +14,7 @@
   (`CloudStrings.desktopWorkspaceName(_:chats:)`). Regression: `SidebarCloudMachineHeaderTests`,
   `CloudChatTabBadgeTests`, `CloudDesktopPageIconTests`.
 - 2026-11-21 (nx-48363-glow-marks-overlap): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48363): "it happens for blue notification dot and the red error o, we need to fix this issue". On a hovered workspace row the ✕ and ⋮ never draw over the unread dot, the row badge or the status mark (the red error): the row's display pass (`updateNeedsYouGlow`) no longer sets those marks back to full opacity when the row does not glow, which undid the layout that clears them under the controls. The needs-you glow only clears them, the layout keeps them clear while the row glows, and when the glow stops the layout's hover rules bring them back. The row tracks the marks the glow cleared (`marksHiddenForGlow`), so a glow that ends by a display-only change (secondary selection, drop target) still asks for the layout that restores them. Regression: `SidebarRowCloseClearsMarksTests` (now runs the display pass after the hover layout and checks the unread or error mark returns after the hover).
+- 2026-11-21 (49579-standard-dialog-density): Sidebar-Look: user, 2026-11-21 (https://github.com/manaflow-ai/cmux/issues/49579): "The sidebar's 'cmux Is Up to Date' card uses its own oversized title/body text, padding and radius. Make it, and every similar sidebar/app dialog or toast card, use one standardized type scale and spacing that follows the text density settings." Every card reads one scale, `CmuxNextDesign/CardScale.swift`: `Typography.cardTitle` (TypeScale body step, emphasized), `cardBody`/`cardBodyDigits`/`cardButton` (detail step), `cardCaption` (caption step) and `dialogTitle` (title step), each times the density's text factor and the person's Text Size and Interface Size on the half-point grid (Default 13/12/11, Compact 11.5/11/10, Spacious 15.5/14.5/13), so a card's title sits under the rows' title at every density (it matched them). Spacing: `Metrics.cardPadding` `space4 + space1` (10 pt at Default; supersedes the tip card's 12 of 2026-11-19 and the Update Ready card's 5), `cardTextGap` `space1`, `cardRowGap` `space3`, `cardCornerRadius` concentric from the padding. Moved onto it: the notice cards (update status, tips, asks, announcements, star prompt), Update Ready, Now Playing (was `space3` and the surface corner), the card text buttons, switches and Automatic Updates label, toasts, and dialogs (`Metrics.dialogPadding` `space6`, was a fixed 16 times the text scale). Regression: `CardScaleDensityTests` (every density).
 - 2026-11-21 (a-tooltip-cuts): Sidebar-Look: Lawrence: "drastically simplify all parts of the UI" (a1315's tooltip
   cuts, picked by Chief: a tooltip is a name and a shortcut on one line; none on a control that shows its text; none on
   rows, which have hover cards). A workspace row carries no tooltip: its muted bell, usage warning triangle, badges,
@@ -165,6 +168,10 @@
   on a running row's edge, removed when it stops running or leaves the screen. It puts status words on rows, which
   design/sidebar.md otherwise forbids; that rule stands for the default. `SidebarAgentPillTests`; gallery
   `sidebar.agent-badges`.
+  2026-11-22 (lane/taste-agent-badges-clip2): an agent chat's Done pill now shows. Lanes never report success
+  and `agentChip` never says done, so rows carry `agentDone` (the Priority view's done: idle, unread, not marked
+  read) for the pill alone; the chip and the blue dot are unchanged. Tour `agent-badges` records
+  Running, Needs approval and Done. `SidebarRowStatusTests.aFinishedUnseenChatMarksItsRowDoneForThePill`.
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
@@ -2699,3 +2706,20 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   added half a pixel more (1.5 pt at scale 1). It now rounds toward the line. Regression: `SidebarSearchButtonTests`
   (red on feat-cmux-next and on base 19421bb).
   Sidebar-Look: Leo 2026-10-21 "move the magnifying glass a bit lower": one device pixel, no more.
+
+- 2026-11-21 (49583, 35f0edfcc6e): every sidebar row symbol (a pinned row's leading pin; a hovered row's Pin/Unpin,
+  ⋮, ✕, tree chevron and speaker; a pinned item's ⋮ and Unpin; a group header's ⋮, Unpin and chevron) draws at one
+  side, `SidebarStyle.rowSymbolSide`: the image side of the leading pin fitted to the rows' optical square. Before, the
+  hover pin and ✕ drew at `iconRowSize(smallIconSize - space2)` and the ⋮ at `iconRowSize(smallIconSize - space1)`, so
+  one row showed three sizes and stroke weights. Hit boxes stay one `controlSize` square on the row's center line.
+  Dev build: the leading pin's ink measured 16×23 px and the hover Pin's 16×24 px at 2x. Regression:
+  `SidebarRowSymbolsShareOneSizeTests`. https://github.com/manaflow-ai/cmux/issues/49583
+  Sidebar-Look: "are all of these the same size icons wise… look at the top left one… fix the problem"
+  2026-11-22: `rowSymbolSide` never goes under the pack's `iconFloor` (12 pt), which every glyph clamps to (Ultra-compact
+  computed 11.5).
+  2026-11-22 (scope add): a row's favicon (a page's, an app's or an agent's icon) draws at its horizontal tab's size,
+  `SidebarStyle.rowFaviconOpticalSide`: the tab's favicon box (`Metrics.tabIconSize`) grown with the sidebar's text size.
+  Pack glyphs (Home, the Chief's crown, pins) keep `rowGlyphOpticalSide`, 11/16 of that box, the share a glyph shows
+  on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
+  1.4x smaller than on its tab.
+  Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"

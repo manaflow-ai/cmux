@@ -81,6 +81,10 @@ extension AddDeviceCard {
         if params["mint"]?.boolValue == true, let join = model.joinLine, join.phase.mintsOnPress {
             if let name = params["name"]?.stringValue { join.name = name }
             await join.mint()
+        } else if let join = model.joinLine {
+            // A machine that joined through the hub alone changes no daemon, so no mesh change reads the
+            // list for it: each call reads it once while a line shows (a no-op otherwise).
+            await join.refresh()
         }
         var reply: [String: JSONValue] = ["shown": .bool(isShown), "way": .string(model.way.rawValue), "offersInvite": .bool(model.offersInvite)]
         if let join = model.joinLine {
