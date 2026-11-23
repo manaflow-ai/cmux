@@ -10,8 +10,8 @@
 // never dead. Resend lives in the menu. A prompt with versions
 // (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts, cx-ncc.61).
 // Fork forks the chat through the prompt's own turn, as its right-click Fork does. The images a
-// prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
-// once sent). A long prompt opens collapsed on its first twenty lines with Show more, and a pasted
+// prompt sent stay in the order they were pasted, each opening the image viewer (Leo, 2026-10-13:
+// they vanished once sent). A long prompt opens collapsed on its first twenty lines with Show more, and a pasted
 // block is the bubble's own text under that fold (PromptText.tsx); Copy still copies the whole prompt. A video
 // it sent is its poster and length among them, playing on a click (SentVideoTile.tsx), frames or not.
 // A Cloud chat's prompt whose turn has a machine checkpoint taken before it ran adds Back to before
@@ -126,12 +126,9 @@ export function UserBubble({
     return recordedPromptParts(row)?.filter((part) => !isImageOriginal(part, kept));
   }, [row]);
   // A prompt whose attachments the composer placed in its text (`placed`, acpmux keeps it;
-  // inlinePrompt.ts), or whose text follows an attachment (which the old shape never has), draws
-  // every attachment in one block above its bubble, in its recorded order, and its text as plain
-  // flow in the bubble below (Leo, 2026-11-17: "Attachments render inline in the middle of the
-  // text line, at odd sizes. Put them in a block above the text."), in every attachment view: the
-  // view places attachments in the composer only. The old shape (its text, then its pastes, then
-  // its attachments) keeps the legacy bands above the bubble.
+  // inlinePrompt.ts), or whose text follows an attachment, keeps every part in its recorded order
+  // in the bubble. The old shape (its text, then its pastes, then its attachments) keeps the
+  // legacy bands above the bubble.
   // The row's height estimate reads the same rule (bubbleParts.ts `bubbleLayout`).
   const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
   // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
@@ -139,7 +136,7 @@ export function UserBubble({
   // row while the DOM draws nothing and the next virtualized row jumps into that space.
   // The row's estimate reads the same rule (bubbleParts.ts `attachmentOnlyPrompt`).
   const inlineAttachmentOnly = attachmentOnly(orderedParts, text);
-  const strip = hasInterleaved || inlineAttachmentOnly;
+  const strip = inlineAttachmentOnly;
   // The legacy bands draw a prompt's `images` and files only when its recorded parts do not: an
   // attachment-only row carries both shapes (send and replay record each), and drawing both drew
   // every attachment twice.
