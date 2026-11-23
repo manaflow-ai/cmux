@@ -73,6 +73,11 @@ final class WorkspaceShiftMeasurement {
         let content = "content.\(surface)"
         let allowed = Set([page, row, content, "accessory.\(surface)",
                            surface == "agent" ? "chat.composer.field" : "\(surface).composer.field"])
+        // A slow correction can move several points in sub-point increments.
+        // Keep each visible edge's last accepted position as well as the prior
+        // frame. Only count the tick crossing the threshold; a stationary
+        // plateau after a jump does not add shifted frames.
+        var anchors: [String: [Double]] = [:]
         for index in frames.indices.dropFirst() {
             let previous = frames[index - 1]
             let current = frames[index]
@@ -87,6 +92,7 @@ final class WorkspaceShiftMeasurement {
                     result.missedTicksDuringMotion += max(1, Int((interval / previous.nominal).rounded()) - 1)
                 }
             }
+            anchors = anchors.filter { current.boxes[$0.key] != nil }
             var moved: [String: [Double]] = [:]
             for (id, box) in current.boxes where allowed.contains(id) || id.hasPrefix("toolbar.") {
                 guard let old = previous.boxes[id], old.count == 4, box.count == 4 else { continue }
@@ -95,7 +101,15 @@ final class WorkspaceShiftMeasurement {
                 // the height below that edge is not motion of that landmark.
                 let before = edges(old, topOnly: id == page || id == content)
                 let after = edges(box, topOnly: id == page || id == content)
-                let delta = zip(after, before).map { $0.0 - $0.1 }
+                var anchor = anchors[id] ?? before
+                let delta = after.indices.map { edge in
+                    let step = after[edge] - before[edge]
+                    let accumulated = after[edge] - anchor[edge]
+                    let movement = abs(accumulated) >= abs(step) ? accumulated : step
+                    if abs(movement) >= 1 { anchor[edge] = after[edge] }
+                    return movement
+                }
+                anchors[id] = anchor
                 guard delta.contains(where: { abs($0) >= 1 }) else { continue }
                 moved[id] = delta
                 result.shiftedElementFrames[id, default: 0] += 1
