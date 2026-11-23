@@ -107,12 +107,15 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
-      # The tooling comes from nightly-next, where the publish run runs.
+      # The tooling comes from nightly-next, where the publish run runs. stable_next.py imports
+      # its sibling deadline_http.py, so both come down (a lone stable_next.py dies on import).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: nightly-next
           persist-credentials: false
-          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout: |
+            scripts/ci/stable_next.py
+            scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
 
       - name: Is this the night window

@@ -57,12 +57,37 @@ class Values(unittest.TestCase):
                 self.assertTrue(found)
                 self.assertIn("set-owned-slots.sh", found[0])
 
+    def test_the_live_values_of_2026_11_21_pass(self) -> None:
+        # The values the scheduled check failed on for days: the persistent Linux pool (Leo, 2026-11-21 00:38Z:
+        # "just... accept all labels"; signing isolation deferred, cmux#13742) and owned pull request Macs.
+        live = ("LINUX_RUNNER=cmux-fleet-linux-x64\nMACOS_RUNNER_15=glaeda-std-xcode-26.6\n"
+                "MACOS_RUNNER_26_LARGE=glaeda-std-xcode-26.6\nMACOS_RUNNER_DISPLAY=glaeda-gui-std-xcode-26.6\n"
+                "MACOS_RUNNER_IOS=glaeda-ios-sim\nMACOS_RUNNER_PR=glaeda-std-xcode-26.6\n")
+        self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=live)), [])
+
+    def test_a_signing_variable_still_refuses_a_reused_machine_outside_the_deferral(self) -> None:
+        found = check.problems(env(CMUX_CI_RUNNER_VARIABLES="LINUX_RUNNER=glaeda-std-xcode-26.6\n"))
+        self.assertTrue(any(p.startswith("LINUX_RUNNER=") for p in found))
+
     def test_runner_labels_the_guard_refuses_fail(self) -> None:
-        for label in ("warp-macos-26-arm64-12x", "glaeda-std-xcode-26.6"):
+        # An owned pull request pool (glaeda-std-xcode-26.6) is allowed there now; a side lane's label is not.
+        for label in ("warp-macos-26-arm64-12x", "glaeda-side-std-xcode-26.6"):
             with self.subTest(label=label):
                 found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=f"MACOS_RUNNER_PR={label}\n"))
                 self.assertEqual(len(found), 1)
                 self.assertIn("MACOS_RUNNER_PR", found[0])
+
+    def test_a_github_hosted_label_fails_in_any_runner_variable(self) -> None:
+        # Leo, 2026-11-19: "Like, why the f*** do you keep having the f***ing GitHub hosted runners? F*** GitHub."
+        for name, label in (("CI_LINUX_HOSTED_RUNNER", "ubuntu-24.04"), ("LINUX_RUNNER", "ubuntu-latest"),
+                            ("CI_TRUSTED_RUNNER", "ubuntu-24.04"), ("WINDOWS_RUNNER", "windows-2025")):
+            with self.subTest(name=name):
+                record = json.dumps({"changed": {name: {"before": None, "after": label}}})
+                for extra in ({}, {"CI_CLOUD_OVERFLOW_SAVED": record}):
+                    base = "".join(line + "\n" for line in GOOD_RUNNERS.splitlines() if not line.startswith(f"{name}="))
+                    found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=base + f"{name}={label}\n", **extra))
+                    self.assertEqual(len([p for p in found if p.startswith(f"{name}=")]), 1, found)
+                    self.assertIn("GitHub-hosted", " ".join(found))
 
     def test_daemon_tests_never_share_the_pull_request_side_label(self) -> None:
         side = "CI_SIDE_LANE_RUNNER=glaeda-side-std-xcode-26.6\n"

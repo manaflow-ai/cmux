@@ -37,6 +37,9 @@ GH_CALL = re.compile(
 )
 INSTALL = re.compile(r"^bash\s+(?:(\S+)/)?scripts/ci/gh_budget_wait\.sh\s+--install$")
 JS_INSTALL = "if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core })"
+# The same install with more options after `github, core` (gh_budget_wait.cjs `spare`: a second client a
+# rate-limited read tries once before the wait; it stays unwrapped, so a dry spare falls back at once).
+JS_INSTALL_RE = re.compile(r"if \(process\.env\.GH_BUDGET_WAIT_JS\) require\(process\.env\.GH_BUDGET_WAIT_JS\)\.install\(\{ github, core(?:, [^;]*)? \}\)")
 DEFAULT_CAP = 3600
 # Room in the job's timeout beyond the wait cap, for the calls and steps themselves.
 MARGIN_SECONDS = 300
@@ -118,7 +121,7 @@ def job_problems(name: str, job: dict) -> list[str]:
     for i, step in enumerate(steps):
         if str(step.get("uses", "")).startswith("actions/github-script@"):
             script = str((step.get("with") or {}).get("script", ""))
-            if JS_INSTALL not in script:
+            if not JS_INSTALL_RE.search(script):
                 problems.append(f"{name}: github-script step {i} ({step.get('name')}) lacks `{JS_INSTALL};`")
             for client in re.findall(r"\b(?:const|let|var)\s+(\w+)\s*=\s*getOctokit\(", script):
                 if f"install({{ github: {client}, core }})" not in script:

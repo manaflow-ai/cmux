@@ -168,6 +168,31 @@ check(["list", "cmux-next.yml", "workflow_dispatch", "feat-cmux-next"] in calls,
 for status in ("in_progress", "queued", "waiting"):
     p, calls = run([tip_run(GREEN, status, None, age_min=90)])
     check(p["action"] == "skip" and not dispatched(calls), f"a {status} run must skip the tick, got {p}")
+# A run in flight past the stale bound whose suite job no runner took (run 45040477313 sat queued
+# for hours and held every tick) is stale: the tick goes on and the reason names it.
+for st in ("queued", "in_progress"):
+    q = tip_run(GREEN, st, None, age_min=240)
+    p, calls = run([q], jobs={q["id"]: [{"name": "cmux-next swift test", "status": "queued", "conclusion": None, "steps": []}]})
+    check(p["action"] == "dispatch" and str(q["id"]) in p["reason"] and "stale" in p["reason"],
+          f"a {st} run whose swift test sat queued 4 h must not hold the tick, got {p}")
+q = tip_run(GREEN, "queued", None, age_min=240)
+p, calls = run([q])
+check(p["action"] == "dispatch" and str(q["id"]) in p["reason"], f"a 4 h queued run with no jobs is stale, got {p}")
+q = daemon_run(GREEN, status="queued", conclusion=None, age_min=240)
+p, calls = run([q], jobs={q["id"]: [{"name": "cmux-next daemon tests", "status": "queued", "conclusion": None, "steps": []}]},
+               suite="daemon")
+check(p["action"] == "dispatch" and str(q["id"]) in p["reason"], f"a stale daemon run must not hold the daemon tick, got {p}")
+# Under the bound, or once a runner took the suite job, the run is in flight and holds the tick.
+q = tip_run(GREEN, "queued", None, age_min=30)
+p, calls = run([q], jobs={q["id"]: [{"name": "cmux-next swift test", "status": "queued", "conclusion": None, "steps": []}]})
+check(p["action"] == "skip", f"a run queued 30 minutes still holds the tick, got {p}")
+q = tip_run(GREEN, "in_progress", None, age_min=240)
+p, calls = run([q], jobs={q["id"]: [{"name": "cmux-next swift test", "status": "in_progress", "conclusion": None, "steps": []}]})
+check(p["action"] == "skip", f"a long run whose swift test is running still holds the tick, got {p}")
+# A stale run on the tip is a no-verdict attempt: retried, still capped at three per tip.
+q = tip_run(TIP, "queued", None, age_min=240)
+p, calls = run([q])
+check(p["action"] == "dispatch" and "retry" in p["reason"], f"a stale run on the tip is retried, got {p}")
 p, calls = run([tip_run(GREEN, conclusion="success", age_min=20)])
 check(p["action"] == "skip", f"a run created 20 minutes ago must skip the tick, got {p}")
 p, calls = run([tip_run(GREEN, conclusion="success", age_min=26)])
