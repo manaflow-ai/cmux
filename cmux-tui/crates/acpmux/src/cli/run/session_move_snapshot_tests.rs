@@ -97,7 +97,12 @@ async fn a_move_from_the_copy_lands_as_a_chat_with_its_transcript_and_name() {
             let msg: Value = serde_json::from_str(&line).unwrap();
             let Some(id) = msg.get("id").cloned() else { continue };
             let m = msg["method"].as_str().unwrap_or_default();
-            let reply = match served.transfer_request(m, &msg["params"]).await {
+            // `Client::connect` says hello first; the transfer steps follow.
+            let answer = match m {
+                "initialize" => Ok(json!({"protocolVersion": 1})),
+                _ => served.transfer_request(m, &msg["params"]).await,
+            };
+            let reply = match answer {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
                 Err(e) => json!({"jsonrpc": "2.0", "id": id,
                                  "error": {"code": e.code, "message": e.message}}),
