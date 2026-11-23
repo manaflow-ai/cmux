@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
-use cmux_mobile_link::{ChannelEvent, IncomingChannel};
+use cmux_mobile_link::{ChannelEvent, IncomingChannel, names};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -34,6 +34,15 @@ pub struct Peer {
     /// phone and this Mac negotiated one.
     pub video: Option<cmux_mobile_link::media::VideoOut>,
     pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    /// The link's path now (direct, TURN, TURN over TLS), if the link reports one.
+    pub path: Option<tokio::sync::watch::Receiver<cmux_mobile_link::dial::LinkPath>>,
+}
+
+impl Peer {
+    /// The wire name of the link's path now (`direct`, `turn`, `turn-tls`, `none`).
+    pub fn path_name(&self) -> Option<&'static str> {
+        self.path.as_ref().map(|path| crate::control::path_name(*path.borrow()))
+    }
 }
 
 /// Serve one incoming channel to completion. With pairing on, only `auth`
@@ -100,16 +109,19 @@ pub async fn serve(
         }
     }
     let result = match service.as_str() {
-        "auth" => crate::pairing::serve(
-            config.pairing.as_ref(),
-            &peer.device_id,
-            &link,
-            &args,
-            &sender,
-            &mut receiver,
-        )
-        .await
-        .map_err(|(code, reason)| Refusal::new(code, reason)),
+        "auth" => {
+            crate::pairing::note_phone_app(&peer.device_id, &args, peer.path_name());
+            crate::pairing::serve(
+                config.pairing.as_ref(),
+                &peer.device_id,
+                &link,
+                &args,
+                &sender,
+                &mut receiver,
+            )
+            .await
+            .map_err(|(code, reason)| Refusal::new(code, reason))
+        }
         _ if gate == crate::pairing::Gate::Busy => {
             Err(Refusal::new("busy", "too many channels wait for this iPhone's pairing"))
         }
@@ -137,7 +149,7 @@ pub async fn serve(
                 .await
                 .map_err(|(code, reason)| Refusal::new(code, reason))
         }
-        "appearance" => crate::appearance::serve(&sender, receiver).await,
+        "appearance" => crate::appearance::serve(&sender, receiver, &peer.device_id).await,
         "appearance-wallpaper" => crate::appearance::serve_wallpaper(&sender, &args).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
@@ -228,28 +240,29 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// waiting on this Mac, `pair_requests.rs`).
 /// `phone-frames-v1`: the `phone-frames` service (the phone's terminal scroll frame times,
 /// logged to `phone-frames.jsonl`, `phone_frames.rs`).
+/// The names are declared once in `cmux_mobile_link::names`.
 pub const CAPABILITIES: [&str; 9] = [
-    "removal-v1",
-    "file-preview-v1",
-    "localhost-forward-v1",
-    "cloud-directory-v1",
-    "cloud-acpmux-v1",
-    "needs-you-v1",
-    "appearance-v1",
-    "pair-requests-v1",
-    "phone-frames-v1",
+    names::REMOVAL,
+    names::FILE_PREVIEW,
+    names::LOCALHOST_FORWARD,
+    names::CLOUD_DIRECTORY,
+    names::CLOUD_ACPMUX,
+    names::NEEDS_YOU,
+    names::APPEARANCE,
+    names::PAIR_REQUESTS,
+    names::PHONE_FRAMES,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
-pub const BROWSER_STREAM: &str = "browser-stream-v1";
+pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
 /// video on the link's media lane when the link has one.
-pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
+pub const BROWSER_VIDEO_TRACK: &str = names::BROWSER_VIDEO_TRACK;
 /// Added when this Mac streams its phone tabs' simulators (`surface`), with
 /// `video: "track"` as for browser tabs.
-pub const SURFACE_STREAM: &str = "surface-stream-v1";
+pub const SURFACE_STREAM: &str = names::SURFACE_STREAM;
 /// Added with [`SURFACE_STREAM`]: `surface` also streams the owner's own Cloud
 /// machine desktop, view only (`c~<machine_id>~<team_id>`, `surface.rs`).
-pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
+pub const CLOUD_DESKTOP: &str = names::CLOUD_DESKTOP;
 
 /// What this host does that a phone may rely on.
 pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
@@ -454,7 +467,7 @@ where
         serde_json::json!({"cmd":"identify","id":"cloud-mobile-identify"}),
         serde_json::json!({"cmd":"set-client-info","id":"cloud-mobile-host",
             "kind":"ios","device_kind":"iphone",
-            "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}),
+            "capabilities":[names::CLOUD_MOBILE_CHAT,names::CONVERSATION_TABS,names::AGENT_SESSION_TABS]}),
     ] {
         write
             .write_all(request.to_string().as_bytes())
@@ -473,7 +486,7 @@ where
             && !response
                 .pointer("/data/capabilities")
                 .and_then(Value::as_array)
-                .is_some_and(|caps| caps.iter().any(|cap| cap == "cloud-mobile-chat-v1"))
+                .is_some_and(|caps| caps.iter().any(|cap| cap == names::CLOUD_MOBILE_CHAT))
         {
             return Err(Refusal::new(
                 "forbidden",
@@ -1858,6 +1871,15 @@ impl crate::browser_policy::MacPages for ServiceConfig {
     }
 }
 
+/// The surface check's query: page records (`page-tabs-v1`), then `list-workspaces`.
+fn surface_query() -> String {
+    format!(
+        "{{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"{}\",\"{}\"]}}\n{{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}}\n",
+        names::CONVERSATION_TABS,
+        names::PAGE_TABS
+    )
+}
+
 /// A phone tab is one this Mac's daemon lists now (`list-workspaces`); no
 /// answer streams nothing.
 impl crate::surface::SurfaceTabs for ServiceConfig {
@@ -1865,13 +1887,9 @@ impl crate::surface::SurfaceTabs for ServiceConfig {
         Box::pin(async move {
             // Page tabs read as their record (`conversation.page`) only for a client
             // that negotiated `page-tabs-v1`; without it every page tab reads `browser`.
-            daemon_query(
-                &self.daemon_socket(),
-                b"{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}\n",
-                "cmux-mobile-surface",
-            )
-            .await
-            .is_ok_and(|reply| crate::surface::phone_tab_in(&reply, surface))
+            daemon_query(&self.daemon_socket(), surface_query().as_bytes(), "cmux-mobile-surface")
+                .await
+                .is_ok_and(|reply| crate::surface::phone_tab_in(&reply, surface))
         })
     }
 }
@@ -2171,6 +2189,15 @@ async fn receive_upload(
 mod tests {
     use super::*;
 
+    /// The query is the bytes hostd always sent, its capability names now from the registry.
+    #[test]
+    fn surface_query_is_unchanged() {
+        assert_eq!(
+            surface_query(),
+            "{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}\n"
+        );
+    }
+
     /// A reply in one frame past tungstenite's default 16 MiB frame limit reads whole: an older
     /// acpmux sends its whole watch list so (24.8 MB on one Mac, 2026-11-06), and the push
     /// watcher dropped it and asked again about every minute.
@@ -2423,6 +2450,20 @@ mod tests {
         config.surface = config.surface.clone().without_simulators();
         assert!(!capabilities(&config).contains(&SURFACE_STREAM));
         assert!(capabilities(&config).ends_with(&[CLOUD_DESKTOP]));
+    }
+
+    /// Everything `version` can list is a host name in the registry, and every host name there
+    /// is one `version` can list.
+    #[test]
+    fn version_capabilities_are_the_registry_host_names() {
+        let listed: Vec<&str> = CAPABILITIES
+            .iter()
+            .copied()
+            .chain([BROWSER_STREAM, BROWSER_VIDEO_TRACK, SURFACE_STREAM, CLOUD_DESKTOP])
+            .collect();
+        let host: Vec<&str> =
+            names::ALL.iter().filter(|c| c.side == names::Side::Host).map(|c| c.name).collect();
+        assert_eq!(listed, host);
     }
 
     #[test]

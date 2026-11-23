@@ -51,6 +51,7 @@ pub mod join_input;
 pub(crate) mod last_reply;
 pub mod ledger;
 pub(crate) mod list_read;
+pub(crate) mod ls_far;
 pub(crate) mod ls_ssh;
 pub mod ls_table;
 pub mod machine_auth;
