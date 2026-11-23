@@ -4233,8 +4233,10 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     let batches = params.pointer("/_meta/acpmux/peerRowBatches").and_then(Value::as_bool);
     conn.peer_row_batches.store(batches == Some(true), Ordering::SeqCst);
     // Opt-in too: a client that does not ask hears each change as the whole row, as before.
-    let delta = params.pointer("/_meta/acpmux/sessionChangedDelta").and_then(Value::as_bool);
-    conn.session_delta.store(delta == Some(true), Ordering::SeqCst);
+    // Only a raw-text connection may: a patch is diffed from the raw row, and the peer masker
+    // (`peer_text.rs`) knows a summary only whole, so a masked peer always gets whole rows.
+    conn.session_delta
+        .store(super::session_patch::allowed(params, conn.raw_text), Ordering::SeqCst);
     *conn.sent_rows.lock_or_recover() = Default::default();
 }
 
