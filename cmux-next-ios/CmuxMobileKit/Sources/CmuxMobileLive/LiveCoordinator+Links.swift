@@ -340,6 +340,10 @@ extension LiveCoordinator {
         // The Mac's tabs (titles, favicons, pictures, terminal screens), for as long as this link lives.
         let tabs = self.tabs
         Task { await tabs.read(on: link, macID: macID) }
+        #if DEBUG
+        // Swift live code patches from the Mac, in cmux Dev launched by scripts/live-code/ios-device.sh.
+        Task.detached(priority: .utility) { await LiveCodeLinkFeed.read(on: link) }
+        #endif
         await chats.value
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
