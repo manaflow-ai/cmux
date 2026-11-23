@@ -63,6 +63,7 @@ import json
 import mmap
 import os
 import plistlib
+import select
 import shutil
 import subprocess
 import sys
@@ -399,7 +400,7 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
     if not shown:
         quit_app(inst, process)
         return None, "the prerun's window never showed"
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: the prerun stays up `seconds` after its window shows, on purpose
     rr.wait(lambda: rr.call(inst.sock, "system.ping", timeout=2).get("error") is None, 10, 0.25)
     return None, quit_app(inst, process)
 
@@ -475,7 +476,19 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
             posted += 1
             last_post = time.monotonic()
         time.sleep(KEY_EVERY_S)
-    time.sleep(0.2)
+    # Marks written as the loop ended: read until the pipe stays quiet for 0.2 s (or ends), at most 2 s.
+    drain_end = time.monotonic() + 2.0
+    while time.monotonic() < drain_end:
+        try:
+            ready, _, _ = select.select([fd], [], [], 0.2)
+        except (OSError, ValueError):
+            break
+        if not ready:
+            break
+        before = (len(buf), len(marks))
+        read_marks(fd, buf, marks)
+        if (len(buf), len(marks)) == before:
+            break  # readable with nothing new: the writer closed the pipe
     read_marks(fd, buf, marks)
     os.close(fd)
     if which == "terminal":
