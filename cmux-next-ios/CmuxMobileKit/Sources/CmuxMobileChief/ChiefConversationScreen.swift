@@ -124,6 +124,9 @@ extension ConversationPresentationOptions {
             trailingSymbol: ChiefPageMenu.symbol,
             header: ConversationHeaderPresentation(
                 scrollEdge: .system,
+                // Text under the header stops at it (iOS release bar read-back, 2026-11-22,
+                // shot 07; tbd d-189cea06b1).
+                hardTopEdge: true,
                 actionAccessibilityLabel: ChiefPageMenu.title,
                 avatarAccessibilityLabel: String(localized: "Chief"),
                 avatarAccessibilityHint: String(localized: "Opens Chief's settings")

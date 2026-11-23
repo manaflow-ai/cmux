@@ -386,7 +386,7 @@ public final class ConversationViewController: UIViewController {
             // is active), so the system pocket under the header takes over;
             // the header is its container (see +Background).
             collectionView.topEdgeEffect.isHidden = true
-            collectionView.topEdgeEffect.style = .soft
+            collectionView.topEdgeEffect.style = options.header.scrollEdge == .system && options.header.hardTopEdge ? .hard : .soft
             let top = UIScrollEdgeElementContainerInteraction()
             top.scrollView = collectionView
             top.edge = .top
