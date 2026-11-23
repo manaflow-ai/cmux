@@ -366,8 +366,12 @@ export function mentionInsert(item: MentionItem): { markdown: string; shown: str
       .replace(/^(\d+)([.)])(?= )/, "$1\\$2");
     return { markdown, shown };
   }
-  // A root file or folder named like a built-in tool (`computer-use`) goes as `./computer-use`, so the
-  // send never reads it as the tool's word.
-  const path = TOOL_IDS.has(item.path.toLowerCase()) ? `./${item.path}` : item.path;
+  const path = mentionPath(item.path);
   return mentionText(item.kind === "folder" ? `${path}/` : path);
+}
+
+/// A root file or folder named like a built-in tool (`computer-use`) goes as `./computer-use`, so the
+/// send never reads it as the tool's word: the @ picker and Search Files both write it so.
+export function mentionPath(path: string): string {
+  return TOOL_IDS.has(path.toLowerCase()) ? `./${path}` : path;
 }

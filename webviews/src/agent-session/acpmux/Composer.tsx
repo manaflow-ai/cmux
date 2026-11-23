@@ -1,5 +1,5 @@
 import { acpmuxPerf } from "./perf";
-import { runResumed } from "./composer/resumedSend";
+import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
 import { useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
@@ -68,6 +68,7 @@ import {
   loadRecentMentionPaths,
   mentionInsert,
   mentionItems,
+  mentionPath,
   mentionSelection,
   mentionWantsFiles,
   recentMentionScope,
@@ -1735,7 +1736,12 @@ function ComposerFrame({
     // field drops its node: inlineAttachments.tsx) is no place: it goes as the field will hold it.
     const draftText = withoutDeadTokens(unwrapped());
     // Held before anything binds the gesture (a hold for files, a side chat): the draft stays.
-    if (holdsSend?.(draftText, sendResuming.current)) return false;
+    // Only words that go to an agent: cmux's own commands other than `/side` and `/btw` (`/cd @folder`,
+    // `/model`) send no prompt, so they are never held.
+    const ownCommand = composerCommand(withoutInlineTokens(draftText, attachmentId).trim(), snapshot.summary?.harness);
+    const sendsPrompt =
+      ownCommand?.kind !== "cmux" || ownCommand.command.action === "side" || ownCommand.command.action === "btw";
+    if (sendsPrompt && holdsSend?.(draftText, sendResuming.current || submitResumed())) return false;
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
@@ -1991,8 +1997,9 @@ function ComposerFrame({
   });
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
-  const mention = (path?: string) => {
+  const mention = (picked?: string) => {
     if (composing.current) return;
+    const path = picked === undefined ? undefined : mentionPath(picked);
     const { text, caret } = promptRef.current;
     const at = markdownOffset(text, caret);
     const before = text.slice(0, at);

@@ -11,3 +11,13 @@ export function runResumed<T>(resuming: { current: boolean }, run: () => T): T {
     resuming.current = was;
   }
 }
+
+/// A submit no component started itself: dictation's auto-send, run when the dictated words land, long
+/// after the key or click that stopped it (dictation.ts). The composers' holds read it as resumed.
+const pageResuming = { current: false };
+export function runResumedSubmit<T>(run: () => T): T {
+  return runResumed(pageResuming, run);
+}
+export function submitResumed(): boolean {
+  return pageResuming.current;
+}

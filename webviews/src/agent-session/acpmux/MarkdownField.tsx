@@ -766,7 +766,9 @@ function mentionAround(state: EditorState): { from: number; to: number; query: s
   if (!found || (lo > 0 && found.index === 0 && !found[1])) return undefined;
   const hi = Math.min(block.content.size, offset + MENTION_WORD_MAX + 1);
   const after = block.textBetween(offset, hi, undefined, leaf);
-  const rest = /^[^\s@\uFFFC]*/.exec(after)![0];
+  // The word ends at punctuation that ends a mention too (`@bro|, please` keeps its comma); a `.` stays
+  // part of it, as a file name's.
+  const rest = /^[^\s@\uFFFC,;:!?)\]"'\u201D\u2019]*/.exec(after)![0];
   const query = found[2]!;
   return {
     from: $from.pos - query.length - 1,

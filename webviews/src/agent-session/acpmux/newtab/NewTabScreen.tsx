@@ -1,5 +1,5 @@
 import { SignInContext, useSignIn } from "../signIn";
-import { runResumed } from "../composer/resumedSend";
+import { runResumed, submitResumed } from "../composer/resumedSend";
 import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
@@ -1005,7 +1005,8 @@ export function NewTabScreen(props: Props) {
       : (props.runMode?.mode === "sandboxed" && props.onSandbox) || remoteTarget || elsewhere.current
         ? "machine"
         : "here";
-  const holdsSend = (prompt: string) => props.holdsSend?.(prompt, computerUsePlace(), sendResuming.current) === true;
+  const holdsSend = (prompt: string) =>
+    props.holdsSend?.(prompt, computerUsePlace(), sendResuming.current || submitResumed()) === true;
   // Match screenActions: an inherited tab folder is not the host's chat start folder.
   const localChatCwd = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
   const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
@@ -1186,7 +1187,17 @@ export function NewTabScreen(props: Props) {
   // A prompt that names a plugin (`@computer-use`, toolMentions.ts) is for an agent: only its Ask rows
   // stay, never a web search or an address for the same words.
   // Return reads `offered` too once the rows are dismissed, so Escape never brings back a Run or a search.
-  const offered = toolMentionsIn(text).length > 0 ? suggested.filter((row) => row.type === "ask") : suggested;
+  // A prompt naming a plugin lists its Ask rows, no web search; an open tab or workspace named exactly
+  // what was typed (`QA @computer-use`) stays, so Return still goes there.
+  const typedTitle = text.trim().toLowerCase();
+  const offered =
+    toolMentionsIn(text).length > 0
+      ? suggested.filter(
+          (row) =>
+            row.type === "ask" ||
+            ((row.type === "tab" || row.type === "workspace") && row.title.trim().toLowerCase() === typedTitle),
+        )
+      : suggested;
   const rows = text !== dismissed ? offered : NO_ROWS;
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
@@ -1568,8 +1579,16 @@ export function NewTabScreen(props: Props) {
     }
     const prompt = typed.trim();
     if (command.intercept(prompt, harness, attachments.length, true)) return;
-    // Held for Computer Use before anything waits or spends the gesture: the prompt stays.
-    if (!shell && holdsSend(prompt)) return;
+    // Held for Computer Use before anything waits or spends the gesture, when Return asks an agent (not
+    // when it goes to a tab or workspace the text names): the prompt stays.
+    const navigates = (() => {
+      const chosen = returnRow(rows, offered, current, {
+        address: isAddress(prompt, home),
+        attachments: attachments.length,
+      });
+      return chosen.takes && chosen.row !== undefined && chosen.row.type !== "ask";
+    })();
+    if (!shell && !navigates && holdsSend(prompt)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());

@@ -99,12 +99,19 @@ pub fn without_own_note(text: &str) -> std::borrow::Cow<'_, str> {
                 .collect();
             let Some(note) = note(&tools) else { continue };
             let joined = format!("\n\n{note}");
-            if !text.contains(&joined) {
-                continue;
-            }
-            let rest = text.replace(&joined, "");
-            if mentioned(&rest) == tools {
-                return std::borrow::Cow::Owned(rest);
+            // Only the generated copy: the last one outside code. A copy the person pasted in a
+            // fenced block or a code span is their text and stays.
+            let mut end = text.len();
+            while let Some(at) = text[..end].rfind(&joined) {
+                let through = &text[..at + joined.len()];
+                if without_code(through).trim_end().ends_with("</cmux-tools-context>") {
+                    let rest = format!("{}{}", &text[..at], &text[at + joined.len()..]);
+                    if mentioned(&rest) == tools {
+                        return std::borrow::Cow::Owned(rest);
+                    }
+                    break;
+                }
+                end = at;
             }
         }
     }
@@ -634,5 +641,20 @@ mod tests {
     fn tool_mention_scan_stays_linear_on_unclosed_backticks() {
         let text = format!("{} @computer-use", "`a ".repeat(50_000));
         assert_eq!(mentioned(&text), ["computer-use"]);
+    }
+}
+
+#[cfg(test)]
+mod own_note_tests {
+    use super::*;
+
+    /// A copy of the note the person pasted in a fenced example stays; the generated one goes.
+    #[test]
+    fn a_fenced_copy_of_the_note_stays_and_the_generated_one_goes() {
+        let note = note(&["browser-use"]).unwrap();
+        let typed = format!("use @browser-use\n\n```\n\n{note}\n```");
+        let delivered = format!("{typed}\n\n{note}");
+        assert_eq!(without_own_note(&delivered), typed);
+        assert_eq!(without_own_note(&typed), typed, "nothing generated to strip");
     }
 }
