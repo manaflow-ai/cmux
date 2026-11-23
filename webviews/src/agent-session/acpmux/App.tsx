@@ -7522,15 +7522,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (settledNow) settledReported.current = settledSession;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
     // the next frame, in one step.
-    if (first) {
-      swapChatSnapshot();
-      // When the host was told the page shows the chat: the flicker log's first-load record counts
-      // what moved after it apart, what the reader saw (firstLoadWatch.ts `seen`).
-      performance.mark?.(PANE_PAINTED_MARK);
-    }
+    if (first) swapChatSnapshot();
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
+        // When the host is told the page shows the chat, beside the report itself: the flicker log's
+        // first-load record counts what moved after it apart, what the reader saw (firstLoadWatch.ts
+        // `seen`); what moved before it was still under the host's cover.
+        if (first) performance.mark?.(PANE_PAINTED_MARK);
         void callNative("pane.painted", { drewKeptTail, ...(settledNow ? { settled: true } : {}) }).catch(
           () => undefined,
         );

@@ -44,11 +44,12 @@ export type FirstLoadFields = {
   seenPx: number;
 };
 
-/// How far a shift reason's box moved: the difference of its last two numbers ("from -> to").
+/// How far a shift reason's box moved: its trailing coordinate pair ("... 120.0 -> 98.5"). A row
+/// replaced, or the composer coming or going, names no distance: 0. Row ids hold digits too, so only
+/// the pair around the arrow is read.
 function movedPx(why: string): number {
-  const numbers = why.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
-  if (numbers.length < 2) return 0;
-  return Math.round(numbers[numbers.length - 1]! - numbers[numbers.length - 2]!);
+  const pair = /(-?\d+(?:\.\d+)?) -> (-?\d+(?:\.\d+)?)$/.exec(why);
+  return pair ? Math.round(Number(pair[2]) - Number(pair[1])) : 0;
 }
 
 /// The kind of a shift reason, with no row id in it.
@@ -63,8 +64,7 @@ function kindOf(why: string | undefined): string {
 export function firstLoadFields(frames: FrameRecord[], painted?: number): FirstLoadFields | undefined {
   const metrics = classifyFrames(frames);
   if (metrics.firstContentMs === null) return undefined;
-  const seen =
-    painted === undefined ? [] : metrics.shiftAt.filter((shift) => frames[shift.index]!.t >= painted);
+  const seen = painted === undefined ? [] : metrics.shiftAt.filter((shift) => frames[shift.index]!.t >= painted);
   return {
     painted: painted === undefined ? -1 : Math.round(painted),
     seen: seen.length,

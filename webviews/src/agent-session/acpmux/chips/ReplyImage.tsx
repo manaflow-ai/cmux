@@ -38,6 +38,7 @@ import {
   remoteImageHost,
   loadsWithoutClick,
   started,
+  declined,
   loaded,
   clicked,
   waiting,
@@ -60,11 +61,13 @@ function useImageLoad(src: string, auto: boolean, clickFree = false) {
     void callChipHost("image.load", asked ? { src, auto: true } : { src }).then((reply) => {
       const data = (reply as { src?: unknown } | undefined)?.src;
       if (typeof data === "string" && data.startsWith("data:image/")) {
+        declined.delete(src);
         if (byClick) clicked.set(src, data);
         else loaded.set(src, data);
         setState({ kind: "shown", src: data });
       } else if (asked) {
         // `started` keeps it, so it is not asked again by itself; a click loads it as any other.
+        declined.add(src);
         setState({ kind: "idle" });
       } else {
         started.delete(src);
@@ -308,8 +311,8 @@ function RemoteImage({
   const auto = policy.remoteImages === "always" || clickFree;
   const { state, load } = useImageLoad(src, auto, clickFree);
   // A web image that loads by itself is on its way: an opening chat waits for it, as for a file.
-  // One the host declined to load without a click (`started` keeps it, idle) waits for its click.
-  useUnsettledHeight(auto && (state.kind === "loading" || (state.kind === "idle" && !started.has(src))));
+  // One the host declined to load without a click waits for its click: nothing waits on it.
+  useUnsettledHeight(auto && (state.kind === "loading" || (state.kind === "idle" && !declined.has(src))));
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} thumb={thumb} />;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   const placeholder = (
