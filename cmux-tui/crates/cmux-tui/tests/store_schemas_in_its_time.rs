@@ -9,10 +9,10 @@
 //! small registry file with a stored schema number and nothing else: the
 //! check reads that number only.
 //!
-//! No row here measures a time, and no row waits. 13 rows call only the
+//! No row here measures a time, and no row waits. 14 rows call only the
 //! check's functions of cmux-tui-core. 2 of them use an end time that is
 //! past or far ahead and the text of `--within-ms`: the executable cannot
-//! show those with no wait. 11 of them use a first call that started 1 hour
+//! show those with no wait. 12 of them use a first call that started 1 hour
 //! ahead of the clock: for the executable each file that a row made is a
 //! file that changed a moment ago, so it cannot show which session a call
 //! does not read again. Where such a row needs a file that changed after
@@ -447,7 +447,7 @@ fn a_place_whose_start_time_is_after_this_call_is_no_place() {
     assert!(place["since_ms"].as_u64().is_some_and(|since| since < FAR), "{place}");
 }
 
-/// The clock of the 11 rows below: 1 hour ahead of the wall clock, in
+/// The clock of the 12 rows below: 1 hour ahead of the wall clock, in
 /// milliseconds since 1970. For a first call that started then, each file
 /// that a row made is a file that did not change after it.
 fn an_hour_ahead_ms() -> u64 {
@@ -567,6 +567,72 @@ fn a_change_that_is_in_the_wal_file_is_seen() {
     assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(14));
     set_written_after_the_start(&wal);
     assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(17));
+    drop(store);
+}
+
+/// The name of a store in a session folder can be a link to a store file in
+/// another folder. SQLite then keeps the `-wal` file next to the target of
+/// the link, not next to the link, and a write changes no time of the target
+/// before a checkpoint. A write through the link after the call that read
+/// the session must be seen all the same. Here the first call has an end
+/// time that is past: it reads the session with the link, whose number is
+/// 13, and stops with the place. Then the row sets the target's time of the
+/// last write to long ago, and a connection through the link writes 17 and
+/// stays open: the number is only in the `-wal` file next to the target, and
+/// the session folder has the link and nothing more. As in the row before,
+/// that `-wal` file gets a time 2 hours ahead: a write after the start. The
+/// call with the place must give 17, not the 14 of the other session.
+#[test]
+fn a_change_through_a_store_name_that_is_a_link_is_seen() {
+    let root = tempfile::tempdir().unwrap();
+    let kept = root.path().join("kept");
+    closed_wal_session(&kept, "store", 13);
+    let target = sessions_of(&kept).join("store").join(REGISTRY_FILE);
+    let sessions = sessions_of(root.path());
+    let linked = sessions.join("session-0");
+    fs::create_dir_all(&linked).unwrap();
+    let link = linked.join(REGISTRY_FILE);
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    session(root.path(), "session-1", 14);
+
+    let now_ms = an_hour_ahead_ms();
+    let place = place_at(&sessions, "session-0", Some(13), now_ms);
+    assert_eq!(
+        stored_from(&sessions, Some(Instant::now()), None, now_ms).unwrap(),
+        (Stored::NotReady { sessions: 2, sessions_read: 1 }, Some(place.clone())),
+        "the first call did not stop after the session with the link"
+    );
+
+    let long_ago = UNIX_EPOCH + Duration::from_secs(1_500_000_000);
+    fs::File::options().write(true).open(&target).unwrap().set_modified(long_ago).unwrap();
+    let store = Connection::open(&link).unwrap();
+    store.execute("UPDATE meta SET value = '17' WHERE key = 'schema_version'", []).unwrap();
+    assert_eq!(
+        fs::metadata(&target).unwrap().modified().unwrap(),
+        long_ago,
+        "the write of the number changed the time of the target"
+    );
+    let wal = sessions_of(&kept).join("store").join(format!("{REGISTRY_FILE}-wal"));
+    assert!(
+        fs::metadata(&wal).is_ok_and(|wal| wal.len() > 0),
+        "the write of the number is not in a -wal file with bytes next to the target"
+    );
+    let in_the_session_folder: Vec<String> = fs::read_dir(&linked)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        in_the_session_folder == [REGISTRY_FILE]
+            && fs::symlink_metadata(&link).unwrap().file_type().is_symlink(),
+        "the session folder does not have the link and nothing more: {in_the_session_folder:?}"
+    );
+    set_written_after_the_start(&wal);
+    assert_eq!(
+        stored_from(&sessions, None, Some(&place), now_ms).unwrap(),
+        the_number(17),
+        "the call with the place did not count the number that a write through the link made"
+    );
     drop(store);
 }
 
