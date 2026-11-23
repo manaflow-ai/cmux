@@ -51,8 +51,8 @@ Enter Key Mode… and Exit Key Mode.
   - cmux-action-catalog `catalog/key_mode.rs` holds `keyMode.enter` (arg `name`) and `keyMode.exit`.
 - Swift (the key router and context wiring):
   - `KeyContext.keyMode`, `KeyContext.inKeyMode` and `WhenClause.requiresKeyMode` are in CmuxNextActions.
-  - `KeyRouter+KeyModes.swift` handles the router side.
-  - `KeyModeHandlers.swift` holds the action handlers.
+  - `KeyModeLayer` (CmuxNextFocusUI) holds the mode, the indicator and the `keyMode.enter`/`exit` handlers.
+  - The key router's `routesBareKey` gives a mode its keys.
 
 Prior art: Lawrence's draft (#24186, `keyMode.enter.<name>`, context key `keyMode`) and the
 sticky keyboard modes (#20368).
