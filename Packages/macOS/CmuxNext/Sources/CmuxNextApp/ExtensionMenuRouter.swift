@@ -27,7 +27,10 @@ final class ExtensionMenuRouter: ExtensionMenuHandling {
         case .loadUnpacked: "browser.extensions.loadUnpacked"
         case .webStore: "browser.extensions.webStore"
         case .manage: "browser.extensions.manage"
-        case .siteAccess, .homePage, .manageExtension, .webPermissions: nil
+        case .siteAccess: "browser.extension.siteAccess"
+        case .homePage: "browser.extension.homePage"
+        case .manageExtension: "browser.extension.details"
+        case .webPermissions: "browser.extension.webPermissions"
         }
     }
 
@@ -49,20 +52,6 @@ final class ExtensionMenuRouter: ExtensionMenuHandling {
     }
 
     func perform(_ operation: ExtensionMenuOperation, extensionID: String?) {
-        if operation == .siteAccess {
-            // Chromium's own action menu (site access, pin, options, remove).
-            if let id = extensionID, let entry = services.cache.existingBrowser(tabKey),
-               let host = entry.tab as? any BrowserExtensionActionHosting {
-                host.showExtensionActionMenu(id, atScreenPoint: NSEvent.mouseLocation)
-            }
-            return
-        }
-        if let id = extensionID, let url = Self.page(for: operation, extensionID: id) {
-            // Chrome opens these pages in a new foreground tab.
-            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabKey))
-            AppActions.scope(services, invocation).pane?.newBrowserTab(url: url, engine: BrowserEngineTag.cef.rawValue)
-            return
-        }
         guard let id = Self.actionID(for: operation) else { return }
         var arguments: [String: ActionValue] = [:]
         if let extensionID { arguments["extension"] = .string(extensionID) }

@@ -52,6 +52,17 @@ enum ExtensionHandlers {
         bindToggle(registry, context, "browser.extension.disable") { $0.setEnabled($1, false) }
         bindToggle(registry, context, "browser.extension.remove") { $0.uninstall($1) }
         bindToggle(registry, context, "browser.extension.reload") { $0.reload($1) }
+        registry.bind("browser.extension.siteAccess", run: { invocation in
+            // Chromium's own action menu (site access, pin, options, remove), at the pointer.
+            let entry = try chromiumEntry(context, invocation)
+            guard let host = entry.tab as? any BrowserExtensionActionHosting else {
+                throw ActionFailure(message: ExtensionStrings.needsChromiumTab)
+            }
+            host.showExtensionActionMenu(try extensionID(invocation, entry), atScreenPoint: NSEvent.mouseLocation)
+        })
+        bindPage(registry, context, "browser.extension.homePage", .homePage)
+        bindPage(registry, context, "browser.extension.details", .manageExtension)
+        bindPage(registry, context, "browser.extension.webPermissions", .webPermissions)
         registry.bind("browser.extension.move", run: { invocation in
             let entry = try chromiumEntry(context, invocation)
             guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: ExtensionStrings.needsChromiumTab) }
@@ -77,6 +88,22 @@ enum ExtensionHandlers {
             let (_, store) = try managedStore(context, invocation)
             let extensionID = try known(invocation, store)
             guard body(store, extensionID) else { throw ActionFailure(message: ExtensionStrings.refused) }
+        })
+    }
+
+    /// An extension's own page (its home page, details or web permissions): a new foreground
+    /// Chromium tab in the pane, as Chrome opens them (`ExtensionMenuRouter.page`).
+    private static func bindPage(_ registry: ActionRegistry, _ context: AppActionContext, _ id: ActionID,
+                                 _ operation: ExtensionMenuOperation) {
+        registry.bind(id, run: { invocation in
+            let entry = try chromiumEntry(context, invocation)
+            // An id or an installed extension's name; the page needs no managed store.
+            let text = invocation["extension"]?.stringValue ?? ""
+            let extensionID = (entry.tab as? CEFTab)?.extensionStore.extensionInfo(matching: text)?.id ?? text
+            guard !extensionID.isEmpty else { throw ActionFailure(message: ExtensionStrings.unknownExtension(text)) }
+            guard let url = ExtensionMenuRouter.page(for: operation, extensionID: extensionID) else { return }
+            guard let pane = context.scope(invocation).pane else { throw ActionFailure(message: ExtensionStrings.needsPane) }
+            pane.newBrowserTab(url: url, engine: BrowserEngineTag.cef.rawValue)
         })
     }
 
