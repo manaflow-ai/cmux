@@ -19507,6 +19507,9 @@
     "zh-Hans": "访问权限",
     "zh-Hant": "存取權"
    },
+   "argument.agentShare.role.drive": {
+    "en": "Can drive"
+   },
    "argument.agentShare.role.talk": {
     "ar": "يمكنه التحدث",
     "bs": "Može pisati",

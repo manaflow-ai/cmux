@@ -79,7 +79,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "person.crop.circle.badge.plus",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "identity", 591).label(t("ActionCatalog", "action.agent.share.invite.menu", "Invite People…"))], ..SurfacePlan::DEFAULT },
-        arguments: &[args::ACCOUNT.optional(), args::ROLE.optional(), args::SURFACE.optional(), args::TTL.optional()],
+        arguments: &[args::ACCOUNT.optional(), args::INVITE_ROLE.optional(), args::SURFACE.optional(), args::TTL.optional()],
         targets: &["tab"],
         cli_name: "share invite",
         waits_for_result: true,

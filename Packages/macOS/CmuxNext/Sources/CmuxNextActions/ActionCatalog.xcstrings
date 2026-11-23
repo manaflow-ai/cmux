@@ -8770,6 +8770,17 @@
       }
     }
   },
+    "argument.agentShare.role.drive": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Can drive"
+        }
+      }
+    }
+  },
     "argument.agentShare.role.talk": {
     "extractionState": "manual",
     "localizations": {
