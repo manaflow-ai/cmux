@@ -3,6 +3,19 @@ import CmuxNextDesign
 import QuartzCore
 
 extension WorkspaceRowView {
+    /// Lays out the chat's subagent lines under the status block (`head`, the flipped y they start at), on the
+    /// title's text column (`textX`), and the head fill over the rest of the row.
+    func layoutSubagents(textX: CGFloat, head: CGFloat, full: NSRect) {
+        headFill.frame = CGRect(x: full.minX, y: full.minY, width: full.width, height: max(0, head - full.minY))
+        headFill.cornerRadius = fillCornerRadius
+        guard !subagentsView.isHidden else { return }
+        subagentsView.textX = textX - full.minX
+        subagentsView.indent = SidebarStyle.treeIndent
+        subagentsView.trailingInset = Metrics.space3
+        subagentsView.frame = NSRect(x: full.minX, y: head, width: full.width, height: subagentsHeight)
+        subagentsView.needsLayout = true
+    }
+
     /// Lays out the status block below the head (`head`, the flipped y the
     /// name lines end at) and the progress bar: in the block's slot before
     /// the progress label, else at the row's bottom edge (`bottom`).
