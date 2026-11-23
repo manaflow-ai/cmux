@@ -280,20 +280,20 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
 
 enum ChiefInspectorStrings {
     static var pageTitle: String {
-        String(localized: "handlers.chief.inspector.pageTitle", defaultValue: "Chief Memory", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.chief.inspector.pageTitle", defaultValue: "Chief Memory", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var serverOffline: String {
         String(localized: "handlers.chief.inspector.serverOffline",
-               defaultValue: "The server with this Chief is not connected.", table: "MiscHandlers", bundle: .module)
+               defaultValue: "The server with this Chief is not connected.", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var noLocalChief: String {
         String(localized: "handlers.chief.inspector.noLocalChief",
                defaultValue: "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Chief), then try again.",
-               table: "MiscHandlers", bundle: .module)
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var unreachable: String {
         String(localized: "handlers.chief.inspector.unreachable",
                defaultValue: "The Chief's Memory Inspector did not answer. Restart cmux to restart the Chief, then try again.",
-               table: "MiscHandlers", bundle: .module)
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
 }

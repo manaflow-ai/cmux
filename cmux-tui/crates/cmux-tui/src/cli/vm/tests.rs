@@ -717,6 +717,8 @@ fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
         &["vm", "new", "--size", "small"],
         &["vm", "exec", "vm_1", "--", "uname"],
         &["vm", "add", "box"],
+        &["vm", "runner", "new", "--wait"],
+        &["vm", "pool", "status"],
         &["vm", "--help"],
         &["vm"],
         &["cloud", "list-machines"],

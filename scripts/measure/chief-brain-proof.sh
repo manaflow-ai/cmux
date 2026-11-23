@@ -7,6 +7,8 @@
 #     --arg=brain=hermes|openclaw|default --arg=claude_url=http://HOST:PORT \
 #     [--arg=brain_url=http://HOST:PORT] [--arg=model=M] [--arg=claude=X.Y.Z] \
 #     [--arg=responsive=trivial,lookup] [--arg=runs=5] --timeout 7200
+# A failed check keeps the brain homes' logs in artifacts/brain-logs/run-N (submit with
+# --artifact artifacts/brain-logs to get them back).
 # runs=N (1-10): N proofs in a row, each on a new scratch Chief home; prints one BRAIN-PASSRATE
 # line per check (passes/N) and exits 1 when any check failed in any run.
 # responsive=CLASSES: after the proof, one round of measure/responsive.py (the
@@ -152,7 +154,7 @@ status=0
 for n in $(seq 1 "$runs"); do
   rs=0
   python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario brain \
-    --out "$work/run-$n" --bins "$work/bin" --turn-timeout 900 \
+    --out "$work/run-$n" --bins "$work/bin" --turn-timeout 900 --keep-brain-logs "$PWD/artifacts/brain-logs/run-$n" \
     --engine-harness "$engine_harness" --engine-model "$model" --brain-base-url "$brain_url" ${fallback_flag[@]+"${fallback_flag[@]}"} \
     --env "ANTHROPIC_BASE_URL=$claude_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-router-signs" \
     --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver-$n.log" 2>&1 &

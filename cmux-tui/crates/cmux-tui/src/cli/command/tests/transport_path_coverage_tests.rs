@@ -186,6 +186,24 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "session.journal.append",
         ),
+        // A terminal agent's approval (Claude's PermissionRequest) rides beside the event as
+        // live_approval.
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "PermissionRequest",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"make","description":"Build"}}"#,
+            ],
+            "session.journal.append",
+        ),
         // column.update: the pinned (Home) dock and whether it takes tabs (pinned-dock-v1).
         (
             vec![
@@ -366,6 +384,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // The browser import is the app's: it reads
                         // another browser's files, by path.
                         | "browser_import.read"
+                        // The app's languages on first use: only the
+                        // verified app asks, with its bundle's manifest.
+                        | "language_packs.ensure"
                         // Cloud API calls carry the caller's access token;
                         // `cmux cloud` reaches them through its own stdin
                         // request, not a CLI verb per op.

@@ -806,12 +806,12 @@ final class BrowserHibernation {
             favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshotImage(key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
+        placeholder.onPictureShown = { [weak self] in self?.wakeLog.pictureShown(key) }
         if let snapshot = saved.snapshot { keep(snapshot, for: key) }
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil
-        // A probe that kept the page before no longer applies (`debug.surfaces`).
-        exemptions[key] = nil
+        exemptions[key] = nil // a probe that kept the page before no longer applies (`debug.surfaces`)
         hoverRestores.drop(key)
         hibernatedCount += 1
         // Notice, not info: the field log keeps it, so a page that reloads on its next show can be traced.

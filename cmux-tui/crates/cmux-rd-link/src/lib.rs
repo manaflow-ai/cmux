@@ -52,9 +52,9 @@ pub const SEAL_OVERHEAD: usize = 1 + 8 + 1 + 16;
 const MAX_HANDSHAKE: usize = 256;
 /// Resend the last handshake message this often until the peer answers.
 pub const HANDSHAKE_RETRY_US: u64 = 250_000;
-/// Give up on a handshake after this long from first contact: the
-/// initiator's start (it dials at once), or the moment a responder first
-/// has the peer (a route from signaling, or a valid message 1).
+/// Give up on a handshake after this long from first contact: in an endpoint, the first
+/// route to the peer; in a bare link, the initiator's start (it dials at once), or the moment
+/// a responder first has the peer (a route from signaling, or a valid message 1).
 pub const HANDSHAKE_TIMEOUT_US: u64 = 10_000_000;
 /// The longest a responder waits for that first contact. A responder starts
 /// its link before signaling has carried its answer to the peer (its key and
@@ -62,6 +62,17 @@ pub const HANDSHAKE_TIMEOUT_US: u64 = 10_000_000;
 /// start is no part of the handshake's own [`HANDSHAKE_TIMEOUT_US`]. It
 /// matches the host's 30 s wait for a viewer (`cmux-rd serve`).
 pub const RESPONDER_WAIT_US: u64 = 30_000_000;
+/// Give up when signaling has supplied no route to the peer after this long. Signaling (the
+/// device hub, a relayed bench) can take longer than the handshake itself, so its wait does
+/// not count against [`HANDSHAKE_TIMEOUT_US`]; this bounds it, so a peer that never shows up
+/// does not hold the socket.
+pub const SIGNALING_TIMEOUT_US: u64 = 60_000_000;
+/// A viewer's bound for an established link that hears nothing at all
+/// ([`Link::set_peer_lost`]): the host's own grace for a silent viewer
+/// (`cmux-rd-host` `REATTACH_GRACE_NS`). A live peer answers a probe every
+/// second, so only a peer that is gone stays silent this long; a network
+/// drop or a sleep shorter than it still comes back.
+pub const PEER_LOST_US: u64 = 90_000_000;
 
 /// Inner kinds (first plaintext byte of a sealed packet).
 mod inner {
@@ -116,10 +127,17 @@ pub enum LinkError {
     /// The handshake did not finish in [`HANDSHAKE_TIMEOUT_US`] from first
     /// contact, or a responder heard of no peer in [`RESPONDER_WAIT_US`].
     HandshakeTimeout,
+    /// Signaling supplied no route to the peer in [`SIGNALING_TIMEOUT_US`].
+    NoRoute,
     /// A sealed packet or control record before the handshake finished.
     NotReady,
     /// Too many unacknowledged control records (the peer stopped answering).
     ControlBacklog,
+    /// An established link heard nothing from the peer for `silent_us`
+    /// ([`Link::set_peer_lost`]): the peer is gone without a close.
+    PeerLost {
+        silent_us: u64,
+    },
     /// A socket or thread could not be set up (the `net` driver).
     Io(String),
 }
@@ -130,8 +148,18 @@ impl std::fmt::Display for LinkError {
             Self::Noise(e) => write!(f, "noise: {e}"),
             Self::WrongPeer => write!(f, "the peer's key is not the one the hub vouched for"),
             Self::HandshakeTimeout => write!(f, "the secure handshake timed out"),
+            Self::NoRoute => {
+                write!(f, "no route to the peer arrived in {} s", SIGNALING_TIMEOUT_US / 1_000_000)
+            }
             Self::NotReady => write!(f, "the secure handshake has not finished"),
             Self::ControlBacklog => write!(f, "the peer stopped acknowledging control messages"),
+            Self::PeerLost { silent_us } => {
+                write!(
+                    f,
+                    "the peer stopped answering ({} s with nothing heard)",
+                    silent_us / 1_000_000
+                )
+            }
             Self::Io(e) => write!(f, "network: {e}"),
         }
     }
@@ -183,6 +211,10 @@ pub struct Link {
     out: VecDeque<Vec<u8>>,
     /// Control records the caller queued before the handshake finished.
     pending_control: VecDeque<Vec<u8>>,
+    /// When an authenticated packet last arrived (or the handshake finished).
+    heard_us: u64,
+    /// [`Link::set_peer_lost`]: how long an established link may hear nothing.
+    peer_lost_us: Option<u64>,
 }
 
 impl Link {
@@ -218,6 +250,8 @@ impl Link {
             control_in: ControlReceiver::default(),
             out: VecDeque::new(),
             pending_control: VecDeque::new(),
+            heard_us: now_us,
+            peer_lost_us: None,
         };
         if role == Role::Initiator {
             link.write_handshake(TAG_HANDSHAKE_1, now_us)?;
@@ -240,6 +274,14 @@ impl Link {
 
     pub fn is_established(&self) -> bool {
         matches!(self.state, State::Transport(_))
+    }
+
+    /// Ends an established link that hears nothing from the peer for
+    /// `after_us` ([`LinkError::PeerLost`] from the next poll). `None` (the
+    /// default) waits for the peer forever, as a host does: its session has
+    /// its own grace.
+    pub fn set_peer_lost(&mut self, after_us: Option<u64>) {
+        self.peer_lost_us = after_us;
     }
 
     fn write_handshake(&mut self, tag: u8, now_us: u64) -> Result<(), LinkError> {
@@ -268,6 +310,7 @@ impl Link {
         }
         let transport = handshake.into_stateless_transport_mode().map_err(LinkError::Noise)?;
         self.state = State::Transport(Box::new(transport));
+        self.heard_us = now_us;
         // The responder's last handshake message needs no resend: the
         // initiator's first sealed packet (or message 3's retry) answers it.
         self.last_handshake =
@@ -346,6 +389,7 @@ impl Link {
         let mut plain = vec![0u8; sealed.len()];
         let Ok(n) = transport.read_message(nonce, sealed, &mut plain) else { return Ok(()) };
         self.replay.accept(nonce);
+        self.heard_us = self.heard_us.max(now_us);
         plain.truncate(n);
         // Any sealed packet proves the initiator's message 3 arrived.
         if self.role == Role::Initiator {
@@ -458,6 +502,21 @@ impl Link {
         Ok(self.out.drain(..).collect())
     }
 
+    /// Starts the handshake's timeout clock over: the endpoint calls it when the first route
+    /// arrives, so the wait for signaling does not count against the handshake.
+    pub(crate) fn start_handshake_clock(&mut self, now_us: u64) {
+        if let State::Handshake(_) = self.state {
+            self.started_us = now_us;
+            self.contact_us = Some(now_us);
+        }
+    }
+
+    /// Ends a handshake that never got a route ([`LinkError::NoRoute`]).
+    pub(crate) fn fail_no_route(&mut self) -> LinkError {
+        self.state = State::Failed;
+        LinkError::NoRoute
+    }
+
     /// Advances handshake timers without creating another packet.  Endpoints
     /// use this while signaling has not supplied a route, so the queued first
     /// message stays available without a retry storm or a lost timeout.
@@ -471,6 +530,15 @@ impl Link {
         {
             self.state = State::Failed;
             return Err(LinkError::HandshakeTimeout);
+        }
+        if let Some(bound) = self.peer_lost_us
+            && self.is_established()
+        {
+            let silent_us = now_us.saturating_sub(self.heard_us);
+            if silent_us >= bound {
+                self.state = State::Failed;
+                return Err(LinkError::PeerLost { silent_us });
+            }
         }
         let mut retry = false;
         if let Some((_, sent)) = &mut self.last_handshake
@@ -487,9 +555,10 @@ impl Link {
         let handshake = self.last_handshake.as_ref().map(|(_, sent)| sent + HANDSHAKE_RETRY_US);
         let control =
             if self.is_established() { self.control_out.next_deadline_us() } else { None };
-        match (handshake, control) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        let lost = self
+            .peer_lost_us
+            .filter(|_| self.is_established())
+            .map(|bound| self.heard_us.saturating_add(bound));
+        [handshake, control, lost].into_iter().flatten().min()
     }
 }

@@ -1,0 +1,22 @@
+[package]
+name = "cmux-web-pieces"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The signed per-piece switch file of cmux's web updates: which web piece (agent pane, pages, viewers) an app serves live, from its last good update or from its own bundle, decided with no I/O for the Mac app, the cmux CLI and the iPhone app"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+# The envelope every signed cmux file opens through, before any payload field is read.
+cmux-signed-envelope = { path = "../cmux-signed-envelope" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# Signs the test switch files.
+ring.workspace = true

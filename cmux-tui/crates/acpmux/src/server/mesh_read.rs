@@ -84,7 +84,7 @@ const READ_PAGE_BYTES: u64 = 40 * 1024;
 const MIN_READ_PAGE_BYTES: u64 = 4 * 1024;
 
 /// How long a read waits for its answer. The hub expires an unanswered read after a minute.
-const READ_WAIT: Duration = Duration::from_secs(50);
+pub(crate) const READ_WAIT: Duration = Duration::from_secs(50);
 
 /// One wait on the receipt (the hub holds it at most 25 s).
 // timeout: one long-poll on the receipt (the hub holds it 25 s); READ_WAIT bounds the read.
@@ -240,10 +240,9 @@ pub(crate) async fn forward(
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
     let carried = READ_METHODS.contains(&m) || m == method::MUX_DETACH;
-    if !(carried || NOT_CARRIED.contains(&m)) || !may_read(conn) {
+    if !(carried || NOT_CARRIED.contains(&m)) || !may_reach_hub(conn) {
         return None;
     }
-    let mesh = hub.mesh.get()?;
     let key = session_key(params).ok()?;
     // `HOST/KEY`, or the bare id of a chat the hub lists for one machine (`hub/mesh_book.rs`),
     // which is how the app opens a listed chat.
@@ -261,11 +260,16 @@ pub(crate) async fn forward(
         ))
         .with_data(json!({"reason": "mesh.read_unsupported", "method": m, "peer": host}))));
     }
+    let (mesh, device) = match read_hub(hub, conn)? {
+        Ok(found) => found,
+        Err(e) => return Some(Err(e)),
+    };
     // A hub attach holds no stream, so there is nothing to detach.
     if m == method::MUX_DETACH {
         return Some(Ok(json!({})));
     }
-    let mut reply = read(mesh.as_ref(), host, rest, m, params).await;
+    let reply = read(mesh.as_ref(), host, rest, m, params).await;
+    let mut reply = settle(conn, device.as_deref(), reply);
     // The opened chat reads as its listed row does (`HOST/name`, its `qualifiedSessionId`).
     if m == method::MUX_ATTACH
         && let Ok(reply) = reply.as_mut()
@@ -287,20 +291,111 @@ pub(crate) async fn prompt(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    if m != method::SESSION_PROMPT || !may_read(conn) {
+    if m != method::SESSION_PROMPT || !may_reach_hub(conn) {
         return None;
     }
-    let mesh = hub.mesh.get()?;
     let key = params.get("sessionId").and_then(Value::as_str)?;
+    let target = hub_prompt_target(hub, key)?;
+    let (mesh, device) = match read_hub(hub, conn)? {
+        Ok(found) => found,
+        Err(e) => return Some(Err(e)),
+    };
+    let sent = super::super::mesh_send::send(hub, conn, &mesh, params, &target).await;
+    Some(settle(conn, device.as_deref(), sent))
+}
+
+/// The `HOST/ID` a prompt for `key` goes to through the hub: a chat the hub lists for one of the
+/// person's other machines (`hub/mesh_book.rs`), that nothing here or on an ssh peer resolves.
+/// None for anything else, which the usual prompt path takes.
+pub(crate) fn hub_prompt_target(hub: &Hub, key: &str) -> Option<String> {
     let target = match key.split_once('/') {
         Some((host, rest)) if !rest.is_empty() && hub.mesh_book_has_host(host) => key.to_owned(),
         Some(_) => return None,
         None => format!("{}/{key}", hub.mesh_book_host(key)?),
     };
-    if !hub.mesh_may_route(&target) {
+    hub.mesh_may_route(&target).then_some(target)
+}
+
+/// The hub client a read or prompt on `conn` goes through, and the device client when it is
+/// the browser's own (`web_device.rs`). A connection that presented a device reads with that
+/// device's credential only, never with this daemon's. One with no device reads with this
+/// daemon's identity only when [`may_read`] lets it; a web connection never may. None: nothing
+/// here reaches the hub for it. `device.revoked` once the hub revoked its device: no later call
+/// reaches the hub, and nothing falls back to this daemon's identity.
+#[allow(clippy::type_complexity)]
+fn read_hub(
+    hub: &Hub,
+    conn: &Conn,
+) -> Option<Result<(Arc<dyn crate::mesh::MeshHub>, Option<Arc<crate::mesh_http::HttpHub>>), RpcError>>
+{
+    use super::super::web_device::Slot;
+    match &*conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()) {
+        Slot::Device(device) => {
+            let mesh: Arc<dyn crate::mesh::MeshHub> = device.clone();
+            return Some(Ok((mesh, Some(Arc::clone(device)))));
+        }
+        Slot::Revoked(reason) => return Some(Err(super::super::web_device::revoked(reason))),
+        Slot::Empty => {}
+    }
+    if !may_read(conn) {
         return None;
     }
-    Some(super::super::mesh_send::send(hub, conn, &mesh, params, &target).await)
+    Some(Ok((hub.mesh.get()?, None)))
+}
+
+/// `_acpmux/send_status` of a `mesh:` delivery `id` for `conn`. A connection that presented a
+/// device reads it with that device alone (`device.revoked` once the hub refused it), and a web
+/// connection with none reads nothing at the hub. Any other connection reads it as before, with
+/// this daemon's identity (None when this daemon is on no hub).
+pub(crate) async fn mesh_status(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    id: &str,
+) -> Option<Result<Value, RpcError>> {
+    use super::super::web_device::Slot;
+    let device = match &*conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()) {
+        Slot::Device(device) => Some(Arc::clone(device)),
+        Slot::Revoked(reason) => return Some(Err(super::super::web_device::revoked(reason))),
+        Slot::Empty => None,
+    };
+    let Some(device) = device else {
+        if conn.origin == Origin::Web {
+            return Some(Err(RpcError::invalid_params(format!(
+                "no delivery {id}: a web connection reads the mesh hub only with its own device"
+            ))
+            .with_data(json!({"reason": "outbox.unknown", "deliveryId": id}))));
+        }
+        let mesh = hub.mesh.get()?;
+        return Some(super::super::mesh_send::status(hub, conn, &mesh, id).await);
+    };
+    let mesh: Arc<dyn crate::mesh::MeshHub> = device.clone();
+    let reply = super::super::mesh_send::status(hub, conn, &mesh, id).await;
+    Some(settle(conn, Some(&device), reply))
+}
+
+/// Whether anything here may reach the hub for `conn`: [`may_read`], or a device it presented
+/// (or had, until the hub revoked it). The cheap test before a request's routing.
+fn may_reach_hub(conn: &Conn) -> bool {
+    use super::super::web_device::Slot;
+    may_read(conn)
+        || !matches!(*conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()), Slot::Empty)
+}
+
+/// `reply` from the hub through `device`: when the hub refused the device's credential (401
+/// `machine.revoked`: revoked or unknown; 401 `mesh.unauthorized`: no credential of its own),
+/// the connection drops the device for good (its credential is wiped with the client) and the
+/// answer is `device.revoked` or `device.unauthorized`.
+fn settle(
+    conn: &Conn,
+    device: Option<&crate::mesh_http::HttpHub>,
+    reply: Result<Value, RpcError>,
+) -> Result<Value, RpcError> {
+    let Some(reason) = device.and_then(crate::mesh_http::HttpHub::refused) else {
+        return reply;
+    };
+    *conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()) =
+        super::super::web_device::Slot::Revoked(reason);
+    Err(super::super::web_device::revoked(reason))
 }
 
 /// Whether this connection may borrow this daemon's hub identity for a read: its own socket, or
@@ -393,7 +488,8 @@ const READ_ROUNDS: usize = 2;
 
 /// One read message to `HOST/KEY` through the hub, and the receiver's answer text. Each hub call
 /// is tried again on a failure that passes (`mesh_retry`), and a read whose receipt the hub let
-/// go of is sent again once, all within `READ_WAIT`.
+/// go of is sent again once, all within `READ_WAIT`: no try runs past it, and nothing is sent
+/// again once it has passed.
 async fn ask(
     mesh: &dyn crate::mesh::MeshHub,
     host: &str,
@@ -405,6 +501,10 @@ async fn ask(
     loop {
         match ask_once(mesh, host, key, body.clone(), deadline).await {
             Ok(text) => return Ok(text),
+            // A read sent again once its wait has run out is one no one waits for.
+            Err(Asked::Gone(_)) if tokio::time::Instant::now() >= deadline => {
+                return Err(unanswered(host));
+            }
             Err(Asked::Gone(e)) if round < READ_ROUNDS => {
                 tracing::debug!(host, error = %e, "the hub let go of a read's receipt; asking again");
                 round += 1;
@@ -429,7 +529,14 @@ async fn ask_once(
     body: String,
     deadline: tokio::time::Instant,
 ) -> Result<String, Asked> {
-    let failed = |e| Asked::Failed(hub_error(host, key, e));
+    // A failure once the read's wait has run out (a try it cut short among them) is no answer.
+    let failed = |e| {
+        Asked::Failed(if tokio::time::Instant::now() >= deadline {
+            unanswered(host)
+        } else {
+            hub_error(host, key, e)
+        })
+    };
     let message = OutMessage {
         to: recipient(host, key),
         from: Sender { host: Some(crate::pairing::machine_name()), ..Sender::default() },
@@ -440,8 +547,9 @@ async fn ask_once(
         idempotency_key: format!("read-{}", uuid::Uuid::now_v7()),
     };
     // One idempotency key for every try, so a send the hub took before a lost answer is one read.
-    let mut receipt =
-        crate::mesh_retry::retry(true, || mesh.send(&message)).await.map_err(failed)?;
+    let mut receipt = crate::mesh_retry::retry_within(true, deadline, || mesh.send(&message))
+        .await
+        .map_err(failed)?;
     loop {
         match receipt.state.as_str() {
             "delivered" => break,
@@ -461,11 +569,14 @@ async fn ask_once(
             return Err(Asked::Failed(unanswered(host)));
         }
         let id = receipt.message_id.clone();
-        receipt = crate::mesh_retry::retry(false, || mesh.answer(&id, left.min(ANSWER_WAIT)))
-            .await
-            .map_err(|e| {
-                if e.code.as_deref() == Some("mesh.not_found") { Asked::Gone(e) } else { failed(e) }
-            })?;
+        // Each try waits only as long as is left of the read's wait.
+        let call = || {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            mesh.answer(&id, left.min(ANSWER_WAIT))
+        };
+        receipt = crate::mesh_retry::retry_within(false, deadline, call).await.map_err(|e| {
+            if e.code.as_deref() == Some("mesh.not_found") { Asked::Gone(e) } else { failed(e) }
+        })?;
     }
     receipt.result.ok_or_else(|| {
         Asked::Failed(RpcError::internal(format!(

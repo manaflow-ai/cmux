@@ -303,6 +303,11 @@ ACPMUX_TREE_NAMES = (
     "cmux-tui-acpmux-aarch64-unknown-linux-musl",
     "cmux-tui-acpmux-aarch64-apple-darwin",
     "cmux-tui-acpmux-x86_64-apple-darwin",
+    # cmux-rd for a joined Linux machine (glibc), and its notices: optional the same way.
+    "cmux-tui-rd-x86_64-unknown-linux-gnu",
+    "cmux-tui-rd-aarch64-unknown-linux-gnu",
+    "cmux-tui-rd-notices-x86_64-unknown-linux-gnu.md",
+    "cmux-tui-rd-notices-aarch64-unknown-linux-gnu.md",
 )
 
 
@@ -324,7 +329,7 @@ def _uploaded(tmp_path: Path) -> dict[str, str]:
     return {item["key"].rsplit("/", 1)[-1]: item["text"] for item in uploads}
 
 
-def test_list_acpmux_companions_names_the_four_unix_targets() -> None:
+def test_list_acpmux_companions_names_the_unix_acpmux_and_linux_cmux_rd() -> None:
     assert publisher.ACPMUX_NAMES == ACPMUX_TREE_NAMES
     result = subprocess.run([sys.executable, str(SCRIPT), "--list-acpmux-companions"],
                             text=True, capture_output=True, check=True)

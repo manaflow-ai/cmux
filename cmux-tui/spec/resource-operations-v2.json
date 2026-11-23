@@ -7350,6 +7350,56 @@
               "name": "WorkspaceRef"
             }
           }
+        },
+        "created_by": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "kind": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "agent or script."
+              },
+              "session": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "The agent session that made it."
+              },
+              "session_name": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "That session's name."
+              },
+              "host": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "The host it ran on."
+              },
+              "purpose": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "One line on what the space is for."
+              }
+            },
+            "extra": false
+          },
+          "description": "Who made the space and why (created-by-detail-v1), when an agent or a script said so; absent for the person's own."
         }
       },
       "extra": false
@@ -15704,6 +15754,75 @@
             }
           },
           "description": "The pull request URLs it opened, oldest first."
+        },
+        "preview": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Its last reply, one short line as acpmux keeps it (a New Tab card's message); null before the first reply. Kept fresh with updated_ms and, like it, no change signal of its own. Absent from a daemon older than the field."
+        }
+      },
+      "extra": false
+    },
+    "LanguagePackState": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "bundled",
+              "ready",
+              "unavailable"
+            ]
+          },
+          "description": "bundled: nothing to fetch, the app uses what it ships. ready: the pack is extracted at root. unavailable: the pack could not be had now; code and message say why."
+        },
+        "root": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "ready: the pack's folder, <cache>/<sha256>."
+        },
+        "chromium_pak": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "ready, when the pack carries a Chromium locale: its locale.pak, <root>/ChromiumLocales/<catalog>.lproj/locale.pak."
+        },
+        "code": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "language_packs.offline",
+              "language_packs.verify",
+              "language_packs.bad_manifest",
+              "language_packs.io"
+            ]
+          },
+          "description": "unavailable: offline (the download failed), verify (size, hash or archive did not match), bad_manifest (the manifest is not readable or names a bad pack) or io (the cache folder could not be written)."
+        },
+        "message": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "unavailable: one plain English sentence."
         }
       },
       "extra": false
@@ -18925,7 +19044,54 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "description": "At most this many chats, the newest first. Omitted: every chat."
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ChatState"
+            },
+            "description": "Only the chats in this state (input: the ones waiting for the person)."
+          },
+          "before_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The page after a row: that row's updated_ms (its created_ms when updated_ms is null, 0 when both are). Needs before_id."
+          },
+          "before_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The page after a row: that row's id. Needs before_ms."
+          },
+          "before_machine": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The page after a row: that row's machine, when it has one (a peer's chat). Needs before_ms and before_id."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -18944,8 +19110,9 @@
         "validation.invalid"
       ],
       "constraints": [
-        "Every ACP chat acpmux on this machine knows, its peers' included, that is neither closed nor archived, in no particular order: the reader ranks them.",
-        "The daemon keeps the list from acpmux's own pushes, so a read costs no acpmux call. An App Store app's chat.changed fires once for each change of a listed field other than updated_ms.",
+        "Every ACP chat acpmux on this machine knows, its peers' included, that is neither closed nor archived, the newest first: by updated_ms, else created_ms, then id, then machine.",
+        "limit, state and the before_ms/before_id/before_machine cursor read only the rows they return from the daemon's ordered chat index: a read of the 5 newest chats costs 5 rows, never a sort of every chat. Page through every chat with limit and the cursor of each page's last row.",
+        "The daemon keeps the list from acpmux's own pushes, so a read costs no acpmux call. An App Store app's chat.changed fires once for each change of a listed field other than updated_ms and preview.",
         "Empty while acpmux is not running."
       ]
     },
@@ -29965,6 +30132,71 @@
         "validation.invalid"
       ]
     },
+    "language_packs.ensure": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "language": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 64
+            },
+            "description": "The language the app shows, as a pack key of the manifest (de, ja, zh-Hans, pt-BR). en or empty answers bundled."
+          },
+          "manifest": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the app bundle's language-packs.json. A missing file answers bundled."
+          },
+          "cache": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the folder that keeps extracted packs, one folder per pack SHA-256. The daemon makes it when it is missing."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "LanguagePackState"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only the verified app connection sends it (origin user, a local socket): it reads and writes folders by path and downloads. A page, an agent, an app and a link connection are refused.",
+        "The manifest is {version: 1, packs: {<language>: {url, sha256, size, strings?, chromium?}}}; chromium, when present, is one of the 54 Chromium locale paks for macOS other than en (en-US stays in the app), and a pack with strings false carries a chromium;  another version, a sha256 that is not 64 lowercase hex digits, a size of 0 or above 128 MiB, or a url that is not https://files-next.cmux.com/... is bad_manifest (debug builds also take http on 127.0.0.1 or localhost).",
+        "A pack whose folder <cache>/<sha256> holds .complete answers ready with no network. Otherwise the daemon downloads the url once (120 s in all, no redirect), refuses a body of another size or SHA-256 (verify), unpacks the zstd tar into a private .partial folder (only files and folders with relative names and no .., else verify), writes .complete last and renames the folder into place.",
+        "Requests for one pack share one download. After a ready answer the daemon removes the pack folders of <cache> the manifest no longer names and .partial folders older than an hour.",
+        "A failure is a reply, never an error: unavailable with code language_packs.offline (network), language_packs.verify (size, hash or archive), language_packs.bad_manifest or language_packs.io (the file system), and one sentence for a person."
+      ]
+    },
     "layout.bulk": {
       "class": "mutation",
       "idempotency": "required",
@@ -32901,6 +33133,64 @@
           "session": "required"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the space: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the space and why (created-by-detail-v1), never a trust claim. Shown as created_by on the space."
+          },
           "name": {
             "required": true,
             "type": {
@@ -34775,7 +35065,8 @@
           "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}},
           "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
           "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
-          "live_question": {"required": false, "description": "A question hook's question (Claude Code AskUserQuestion, Codex request_user_input) as compact JSON {harness, tool_use_id?, questions: [{id?, question, header?, multiSelect, isOther?, options: [{label, description?}]}]} (at most 16 KiB, 4 questions, 8 options each): kept in daemon memory only while the agent waits on it, carried by the question notification event as question and by its list-notifications row; never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
+          "live_question": {"required": false, "description": "A question hook's question (Claude Code AskUserQuestion, Codex request_user_input) as compact JSON {harness, tool_use_id?, questions: [{id?, question, header?, multiSelect, isOther?, options: [{label, description?}]}]} (at most 16 KiB, 4 questions, 8 options each): kept in daemon memory only while the agent waits on it, carried by the question notification event as question and by its list-notifications row; never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_approval": {"required": false, "description": "A Claude Code approval hook's request (PermissionRequest for a tool other than AskUserQuestion or ExitPlanMode) as compact JSON {harness: \"claude\", tool, command?, target?, description?} (at most 16 KiB, 2000 characters a field): kept in daemon memory only while the agent waits on it, carried by its list-notifications row as approval; never journaled or logged (the hook's private queue holds the request line only until the daemon answers it, as for the other live fields).", "type": {"kind": "primitive", "name": "string"}}
         },
         "extra": false
       },
@@ -37962,6 +38253,64 @@
           "pane": "optional"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the tab: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the tab and why (created-by-detail-v1), never a trust claim. Shown as extra.created_by on the tab."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -38073,6 +38422,64 @@
           "pane": "optional"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the tab: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the tab and why (created-by-detail-v1), never a trust claim. Shown as extra.created_by on the tab."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -41494,11 +41901,38 @@
                     "min_length": 1
                   },
                   "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
                 }
               },
               "extra": false
             },
-            "description": "Who made the workspace: a place hint, never a trust claim. An agent or script workspace goes below its creator workspace, after the creator's earlier children, in its group; with no live creator workspace, at the end. A person's workspace, or one without created_by, follows placement or the setting. Shown as extra.created_by on the workspace."
+            "description": "Who made the workspace: a place hint, never a trust claim. An agent or script workspace goes below its creator workspace, after the creator's earlier children, in its group; with no live creator workspace, at the end. A person's workspace, or one without created_by, follows placement or the setting. Shown as extra.created_by on the workspace. Its session_name, host and purpose say who made it and why (created-by-detail-v1); workspace list shows them."
           },
           "cwd": {
             "required": false,

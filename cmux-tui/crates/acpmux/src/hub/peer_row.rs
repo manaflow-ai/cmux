@@ -71,6 +71,9 @@ struct Hot {
     stale: bool,
     /// Its `(mux.parent, mux.handle)` tags.
     pair: Option<(Box<str>, Box<str>)>,
+    /// Its `usageStats` as JSON text, when it carries any: what `_acpmux/usage` sends of the row
+    /// (`usage_answer.rs`), read with no parse of the rest.
+    usage_stats: Option<Box<str>>,
 }
 
 impl Hot {
@@ -106,6 +109,10 @@ impl Hot {
             last_seen: number("lastSeen"),
             stale: summary.get("stale") == Some(&Value::Bool(true)),
             pair: pair_of(summary),
+            usage_stats: summary
+                .get("usageStats")
+                .filter(|stats| !stats.is_null())
+                .map(|stats| json_text(stats).into()),
         }
     }
 }
@@ -301,6 +308,11 @@ impl PeerRow {
 
     pub fn session_id(&self) -> Option<&str> {
         self.hot.session_id.as_deref()
+    }
+
+    /// Its `usageStats` as JSON text, when it carries any.
+    pub fn usage_stats_text(&self) -> Option<&str> {
+        self.hot.usage_stats.as_deref()
     }
 
     pub fn name(&self) -> Option<&str> {

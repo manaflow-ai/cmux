@@ -62,6 +62,8 @@ mod mcp_connect;
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/person_hold.rs"]
+mod person_hold;
 #[path = "hub_integration/presence.rs"]
 mod presence;
 #[path = "hub_integration/prompt_approval.rs"]
@@ -188,6 +190,13 @@ impl TestClient {
             }
         }
     }
+}
+
+/// `text` as another chat reads it when session `sender` sent it: the daemon writes its Sent-by
+/// line under it (`sent_by.rs`), and the receiver keeps it.
+pub(crate) fn signed(hub: &Hub, sender: &str, text: &str) -> String {
+    let who = acpmux::sent_by::of_session(hub, sender).expect("the sender's session");
+    format!("{text}\n\n{}", acpmux::sent_by::line(&who))
 }
 
 async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
@@ -1762,6 +1771,8 @@ mod lifecycle_fixes;
 mod quit_spawn;
 #[path = "hub_integration/session_hibernate.rs"]
 mod session_hibernate;
+#[path = "hub_integration/session_pause.rs"]
+mod session_pause;
 #[path = "hub_integration/start_retry.rs"]
 mod start_retry;
 

@@ -198,7 +198,9 @@ impl Supervisor {
         if family == super::system_calendar::FAMILY {
             inner.system_calendar.clear();
         }
-        Self::publish_stream_locked(&inner, &format!("{family}.changed"), json!({}));
+        let stream = format!("{family}.changed");
+        self.signals_pushed_locked(&inner, &stream);
+        Self::publish_stream_locked(&inner, &stream, json!({}));
         Ok(json!({}))
     }
 

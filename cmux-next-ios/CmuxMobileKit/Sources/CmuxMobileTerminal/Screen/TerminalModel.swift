@@ -41,17 +41,26 @@ public final class TerminalModel {
     public internal(set) var connectionState: TerminalConnectionState
     /// Says when a dropped connection may show its line (after 10 s).
     @ObservationIgnored public let quietStatus: QuietStatusGate
-    /// The one quiet status line by the composer: nil while attached and for
-    /// the first ``QuietStatusGate/threshold`` of an outage (the page keeps
-    /// showing its last frame meanwhile), then what is going on. Retry sits
-    /// beside it (``reconnect``).
+    /// What is going on with the connection: nil while attached and for the
+    /// first ``QuietStatusGate/threshold`` of an outage (the page keeps
+    /// showing its last frame meanwhile). It takes no row on the page: the
+    /// title pill's subtitle says the state, and the page menu offers
+    /// Reconnect (``reconnect``) only while this is set.
     public var connectionLine: String? {
         quietStatus.isShown ? connectionState.quietLine : nil
     }
+
+    /// The page menu's Reconnect: only past the quiet bound of an outage,
+    /// and only with a recovery to run.
+    public var offersReconnect: Bool { connectionLine != nil && reconnect != nil }
     var sticky = TerminalStickyModifiers()
 
     // Composer
-    public var composerText = ""
+    public var composerText = "" {
+        didSet { if composerText != oldValue { onDraftChange?() } }
+    }
+    /// Told when the draft to keep changes (``draftToKeep``): the shell writes it to disk.
+    @ObservationIgnored public var onDraftChange: (@MainActor () -> Void)?
     /// Voice mode on this terminal's agent (set by the shell); the composer's
     /// voice button shows only when there is one.
     public var voiceSource: (any AgentVoiceSource)?
@@ -81,6 +90,10 @@ public final class TerminalModel {
         return false
         #endif
     }
+    #if DEBUG
+    /// Set by `demoConnection`: the link state a demo holds.
+    @ObservationIgnored var demoHeldConnection: TerminalConnectionState?
+    #endif
     /// The terminal surface is first responder (keys go straight to the PTY).
     var surfaceFocused = false
     /// The terminal or its composer has focus.
@@ -283,7 +296,11 @@ public final class TerminalModel {
     }
 
     func ingest(_ event: TerminalSessionEvent) {
-        let connection = connectionState.applying(event)
+        var connection = connectionState.applying(event)
+        #if DEBUG
+        // A demo's link state holds while the mock shell keeps printing.
+        if let held = demoHeldConnection { connection = held }
+        #endif
         if connection != connectionState {
             connectionState = connection
             quietStatus.update(down: !connection.isAttached)
@@ -598,7 +615,10 @@ public final class TerminalModel {
     /// A composer send made while the terminal is not attached (a blip): the
     /// session holds its keys, and drops them if the terminal does not come
     /// back in time. Its text, with when it was sent, comes back then.
-    @ObservationIgnored var heldComposerSend: (text: String, at: TimeInterval)?
+    @ObservationIgnored var heldComposerSend: (text: String, at: TimeInterval)? {
+        // A held send is still the draft until the Mac has it (``draftToKeep``).
+        didSet { if oldValue?.text != heldComposerSend?.text { onDraftChange?() } }
+    }
     /// How long after a held send its text may come back (the session's hold, with room for the attach).
     static let heldComposerSendWindow: TimeInterval = 30
 
@@ -731,6 +751,15 @@ public final class TerminalModel {
             addAttachment(ComposerAttachment(kind: .image, name: "Photo \(index + 1).png", thumbnail: image, data: image.pngData()))
         }
         addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
+    }
+
+    /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a
+    /// live session reports it. A state that is not attached holds until the
+    /// next `demoConnection`, so the mock shell's output (which a live link
+    /// reads as attached) does not end it.
+    public func demoConnection(_ state: TerminalConnectionState) {
+        demoHeldConnection = state.isAttached ? nil : state
+        ingest(.connection(state))
     }
 
     /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.

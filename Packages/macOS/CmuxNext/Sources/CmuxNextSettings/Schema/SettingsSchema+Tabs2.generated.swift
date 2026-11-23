@@ -176,6 +176,19 @@ nonisolated enum TabSettingsSchema {
                 keywords: ["tab", "tabs", "overflow", "scroll", "scrolling", "shrink", "crowded", "width", "many"]
             ),
             SettingDescriptor(
+                TabShellIconThemeSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.shellIconTheme", "Shell Tab Icons"),
+                help: SettingsText.keyed("settings.tabs.shellIconTheme.help", "Machines shows each shell tab with the icon of the machine it runs on."),
+                kind: .choice([
+                    SettingChoice(TabShellIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
+                    SettingChoice(TabShellIconTheme.machine.rawValue, SettingsText.keyed("settings.choice.tabShellIconThemeMachine", "Machines")),
+                ]),
+                default: .string(TabShellIconThemeSetting.fallback.rawValue),
+                keywords: ["tab", "tabs", "icon", "icons", "shell", "terminal", "machine", "machines", "theme", "ssh", "cloud", "remote"]
+            ),
+            SettingDescriptor(
                 LayoutMetricSetting.tabMaxWidthPath,
                 section: .general,
                 group: group,

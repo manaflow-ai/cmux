@@ -65,7 +65,7 @@ impl Tool {
             if OBSERVES.contains(&self.name) {
                 props.insert(
                     "settle".into(),
-                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once."}),
+                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. adaptive (default setting): up to ~120 ms (less once the app signals a change), then until the window changes, at most 1 s; an app that signals nothing and shows nothing new returns after the first look. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once."}),
                 );
                 props.insert(
                     "observe".into(),
@@ -341,6 +341,32 @@ pub static TOOLS: &[Tool] = &[
             obj(
                 json!({"permission": {"type": "string", "enum": ["accessibility", "screen_capture"]}}),
                 &["permission"],
+            )
+        },
+    },
+    Tool {
+        name: "list_displays",
+        access: Access::Discover,
+        description: "The displays: id (what screenshot's display takes), frame (points), scale (pixels per point), main, and builtin and virtual where the OS says. Main first.",
+        schema: || obj(json!({}), &[]),
+    },
+    Tool {
+        name: "record",
+        access: Access::Observe,
+        description: "Record a display to an MP4 (H.264) video file on the machine. With seconds: records that long and returns when the file is complete. With action \"start\": returns at once with a recording_id and keeps recording, with no connection held, until action \"stop\" or max_seconds; action \"stop\" returns the finished file. The result has path, duration_ms, frames, bytes, width, height and why it ended. One recording runs at a time. Denied apps are left out of every frame as in a display screenshot, and a recording ends by itself when the screen locks or Computer Use is turned off. action \"read\" returns a finished file's bytes in pieces (data_base64, next_offset, eof) when the caller is on another machine.",
+        schema: || {
+            obj(
+                json!({
+                    "action": {"type": "string", "enum": ["record", "start", "stop", "read"], "description": "record (the default): record for seconds and return the file. start, stop: a recording that runs between two calls. read: bytes of a finished recording."},
+                    "seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": crate::record::MAX_SECONDS, "description": "How long to record (action record)."},
+                    "max_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": crate::record::MAX_SECONDS, "description": "action start: the recording ends by itself after this long (default 300)."},
+                    "display": {"type": "string", "description": "A display id; omit for the main display."},
+                    "fps": {"type": "integer", "minimum": 1, "maximum": crate::record::MAX_FPS, "description": "Frames per second to aim for (default 10)."},
+                    "max_edge": {"type": "integer", "minimum": crate::record::MIN_MAX_EDGE, "maximum": crate::record::MAX_MAX_EDGE, "description": "The picture's long edge in pixels at most (default 1920)."},
+                    "recording_id": {"type": "string", "description": "stop: the recording to stop (default: this session's). read: the finished recording to read."},
+                    "offset": {"type": "integer", "minimum": 0, "description": "read: where to read from (the last next_offset)."},
+                }),
+                &[],
             )
         },
     },

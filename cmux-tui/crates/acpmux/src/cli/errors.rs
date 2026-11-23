@@ -21,6 +21,9 @@ pub enum Code {
     PermissionDenied = 5,
     /// A conditional stop refused (`hub/stop_if_idle.rs`): nothing was stopped.
     NotIdle = 6,
+    /// The target refused a send at once (`send_async.rs`): its folder's trust, a bad prompt, a
+    /// paused or full agent pair. Nothing was delivered.
+    Refused = 7,
     /// Reserved: a SIGINT ends the process with the shell's own 130.
     #[allow(dead_code)]
     Interrupted = 130,
@@ -35,6 +38,7 @@ impl Code {
             Code::NoSession => "no_session",
             Code::PermissionDenied => "permission_denied",
             Code::NotIdle => "not_idle",
+            Code::Refused => "refused",
             Code::Interrupted => "interrupted",
         }
     }
@@ -97,7 +101,14 @@ impl AppError {
         // NAME on HOST; did you mean: a, b, c`.
         let field = |k: &str| data.and_then(|d| d.get(k)?.as_str()).filter(|v| !v.is_empty());
         if let (Some(host), Some(name)) = (field("host"), field("name")) {
-            let tail = if candidates.is_empty() {
+            // A Claude Code chat named by its id says how to reach it (`hub/no_session.rs`
+            // `unregistered_chat`), in place of the names it nearly matched.
+            let chat = data
+                .and_then(|d| d.get("unregisteredChat")?.get("text")?.as_str())
+                .filter(|t| !t.is_empty());
+            let tail = if let Some(chat) = chat {
+                chat.to_owned()
+            } else if candidates.is_empty() {
                 format!("run `{} ls` for its sessions", crate::cli::entry::program())
             } else {
                 format!("did you mean: {}", candidates.join(", "))
@@ -107,8 +118,16 @@ impl AppError {
                 "no_session",
                 format!("no session {name} on {host}; {tail}"),
             )
-            .with_data(serde_json::json!({"reason": "no_session", "session": key,
-                "candidates": candidates, "host": host, "name": name}));
+            .with_data({
+                let mut d = serde_json::json!({"reason": "no_session", "session": key,
+                    "candidates": candidates, "host": host, "name": name});
+                if let (Some(c), Some(o)) =
+                    (data.and_then(|d| d.get("unregisteredChat")), d.as_object_mut())
+                {
+                    o.insert("unregisteredChat".into(), c.clone());
+                }
+                d
+            });
         }
         if candidates.is_empty() {
             return Self::no_session(key);
@@ -414,6 +433,28 @@ mod typed_error_tests {
         );
         assert_eq!(plain.message, AppError::no_session("x").message);
         assert!(crate::cli::send_relay::no_such_session(&app.into()));
+    }
+
+    /// A send to a Claude Code chat by its id prints how to reach it (`hub/no_session.rs`
+    /// `unregistered_chat`) in place of close names, and keeps it in `--json`.
+    #[test]
+    fn a_send_refusal_for_a_chat_id_names_the_register_step() {
+        let chat = json!({"state": "unknown", "register": "claude-code-6e0bad7d",
+            "text": "if 6e0bad7d is a Claude Code chat acpmux did not start, it has no acpmux address until it registers"});
+        let refused = daemon(RpcError::invalid_params("no session: h/6e0bad7d").with_data(json!({
+            "reason": "no_session", "host": "h", "name": "6e0bad7d",
+            "candidates": ["lane"], "unregisteredChat": chat})));
+        let app = AppError::no_session_from("h/6e0bad7d", &refused);
+        assert_eq!(app.code, Code::NoSession);
+        assert!(
+            app.message.starts_with("no session 6e0bad7d on h; if 6e0bad7d is a Claude Code chat"),
+            "{}",
+            app.message
+        );
+        assert_eq!(
+            app.envelope()["error"]["data"]["unregisteredChat"]["register"],
+            "claude-code-6e0bad7d"
+        );
     }
 
     /// A send's refusal names the machine and the closest names there (`hub/no_session.rs`).

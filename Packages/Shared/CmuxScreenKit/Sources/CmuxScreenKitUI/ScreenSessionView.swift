@@ -497,8 +497,9 @@ public struct ScreenSessionView: View {
         switch session.phase {
         case .connecting:
             // A reconnect keeps the last frame and says nothing until it has run
-            // `ScreenSession.reconnectNoticeDelay`: a blip recovers silently.
-            if !session.isReconnecting || session.reconnectNoticeDue {
+            // `ScreenSession.reconnectNoticeDelay`: a blip recovers silently. A first
+            // connect waits `ScreenSession.connectNoticeDelay`: a quick one never flashes.
+            if session.connectingNoticeShown {
                 card {
                     CmuxSpinner()
                     Text(session.isReconnecting ? "Reconnecting to \(session.title)…" : "Connecting to \(session.title)…").font(.headline)

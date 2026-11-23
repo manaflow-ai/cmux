@@ -17,7 +17,9 @@ import QuartzCore
 /// child window (Chromium pages); the root keeps them on this view's
 /// displayed frame.
 final class PaneHostView: NSView, RestingPlacement {
-    private(set) var pane: PaneID
+    /// The identifier names the pane (`cmux.layout.pane.<id>`) for Point at Element and UI tests; it is
+    /// not an accessibility element, so VoiceOver's tree is unchanged.
+    private(set) var pane: PaneID { didSet { setAccessibilityIdentifier("cmux.layout.pane.\(pane.rawValue)") } }
     let content: NSView
     let chrome = PaneOverlayView()
     let clipView = PaneClipView()
@@ -42,6 +44,7 @@ final class PaneHostView: NSView, RestingPlacement {
         self.content = content
         self.holdsContentInMotion = holdsContentInMotion
         super.init(frame: .zero)
+        setAccessibilityIdentifier("cmux.layout.pane.\(pane.rawValue)")
         wantsLayer = true
         layer?.masksToBounds = true
         clipView.frame = bounds

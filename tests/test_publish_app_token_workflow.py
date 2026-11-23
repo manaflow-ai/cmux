@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 
 import workflow_jobs
+from nightly_workflow_text import nightly_text
 from job_lists_routing import release_environment_jobs, unresolved_environment_jobs
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -184,8 +185,10 @@ class WorkflowTests(unittest.TestCase):
     def test_uploaders_run_from_the_workflow_commit(self) -> None:
         # A build checkout may predate GH_APP_TOKEN support; these jobs run the uploader from
         # .publish-tooling (github.sha) so the App token is read.
+        # republish-nightly-deltas runs its uploader from scripts/ci/nightly-steps/; read that script inline.
+        expanded = workflow_jobs.jobs(nightly_text())
         for name in ("republish-nightly-deltas",):
-            steps = self.jobs[name]["steps"]
+            steps = expanded[name]["steps"]
             tooling = next(s for s in steps if (s.get("with") or {}).get("path") == ".publish-tooling")
             self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}", name)
             for script in ("scripts/ci/publish-release-assets.py", "scripts/ci/gh_app_token.sh"):

@@ -56,6 +56,37 @@ public struct TrafficLightsLine {
         apply(in: window, centerY: targetCenterY(in: window))
     }
 
+    /// Where `window`'s traffic lights rest on their line, in window coordinates: the frame ``apply(in:)`` gives the three
+    /// buttons, from the same numbers (the line, the close button's inset, macOS's spacing), never read back from the
+    /// buttons. After a new window title AppKit re-tiles the miniaturize and zoom buttons inside its own run loop callouts
+    /// and the owner puts them back only at the next pass; read from the buttons in between, the lights were a 51 x 23 pt
+    /// box 4.5 pt above their line, and Home's header laid out on it and kept it (HomeHeaderStaysPutTests). A layout that
+    /// follows the lights reads this. Where no owner places them (a window that keeps macOS's place, full screen, right to
+    /// left, a window coming back from full screen) it is the buttons' frames (``WindowTitlebar/trafficLightsFrame(in:)``).
+    public static func restingFrame(in window: NSWindow) -> CGRect? {
+        guard let owner = TrafficLightsOwner.existing(window), !window.styleMask.contains(.fullScreen),
+              window.windowTitlebarLayoutDirection == .leftToRight,
+              (window as? any TrafficLightsResting)?.restingTrafficLights == nil,
+              let close = window.standardWindowButton(.closeButton), close.window === window else {
+            return WindowTitlebar.trafficLightsFrame(in: window)
+        }
+        let native = window.frame.height - window.contentLayoutRect.maxY
+        let offsets = owner.offsets(for: window.styleMask)
+        guard native > 0, !offsets.isEmpty else { return WindowTitlebar.trafficLightsFrame(in: window) }
+        let placement = placement(centerY: targetCenterY(in: window), buttonHeight: close.frame.height, nativeHeight: native,
+                                  scale: window.backingScaleFactor)
+        let midY = window.frame.height - placement.centerY
+        var frame: CGRect?
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(type), !button.isHidden, button.window === window,
+                  let offset = offsets[type] else { continue }
+            let size = button.frame.size
+            let rect = CGRect(x: placement.leadingX + offset, y: midY - size.height / 2, width: size.width, height: size.height)
+            frame = frame.map { $0.union(rect) } ?? rect
+        }
+        return frame ?? WindowTitlebar.trafficLightsFrame(in: window)
+    }
+
     /// Moves `window`'s traffic lights onto `centerY` (from the window's top), or back to macOS's place for nil.
     ///
     /// Each button gets its whole place here, from fixed numbers: the line's center, the close button's inset and each
@@ -142,6 +173,11 @@ public final class TrafficLightsOwner {
         let owner = TrafficLightsOwner(window: window)
         objc_setAssociatedObject(window, &key, owner, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return owner
+    }
+
+    /// The owner of `window`'s lights when something placed them; nil otherwise (it makes none).
+    static func existing(_ window: NSWindow) -> TrafficLightsOwner? {
+        objc_getAssociatedObject(window, &key) as? TrafficLightsOwner
     }
 
     private init(window: NSWindow) { self.window = window }

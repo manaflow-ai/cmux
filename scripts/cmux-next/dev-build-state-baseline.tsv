@@ -1,5 +1,4 @@
 # path	count	reason (check-dev-build-state.py: reviewed sites; a rise fails the pre-push gate)
-cmux-tui/crates/cmux-tui/src/claude_wrapper.rs	2	read-only input of the Cloud Claude launcher: agent-auth.sh selects this isolated profile across builds, so refusal must be read there; the second site is a temporary test fixture, never a build's state
 Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsModels+Live.swift	1	not a shared read: each stored model key gets its own random account and a keychain:SERVICE/ACCOUNT reference only the storing build keeps (as cmux harness secret set), so no build reads or overwrites another's key (base #40159)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPageFlickerLog.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneFinishSound.swift	1	reads macOS's own com.apple.systemsound domain (the system alert volume), an input
@@ -31,6 +30,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildStatePaths.swift	3	the resol
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/NextSupport.swift	1	the resolver: shared builds keep this path, a DEV build gets its own (BuildStatePaths, NextSupport, BuildIdentity)
 Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/LaunchTimesFile.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/CloudLinkLauncher.swift	1	cmux-tui's default state root, only for a build without its own state directory (release); a DEV build has its own (linkStateRoot)
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/LanguagePackService.swift	1	per build: the language pack cache folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArtDownloads.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropImageStore.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShader.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
@@ -93,6 +93,8 @@ cmux-tui/crates/cmux-remote/src/secrets/files.rs	1	a Cloud or SSH machine's file
 cmux-tui/crates/cmux-server-core/src/layout.rs	1	the user-mode server (cmux host run, ~/.config/cmux/server.json): one per Mac, a DEV build never registers it (ServerLaunchAgent)
 cmux-tui/crates/cmux-tui-core/src/apps/local_reload.rs	2	an inline test module's temporary home, not product state
 cmux-tui/crates/cmux-tui-util/src/user_settings.rs	2	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
+cmux-tui/crates/cmux-tui/src/claude_wrapper.rs	2	read-only input of the Cloud Claude launcher: agent-auth.sh selects this isolated profile across builds, so refusal must be read there; the second site is a temporary test fixture, never a build's state
+cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/share.rs	1	an input of this Mac read by every build on purpose: the team build cache URL (app-share.json) the HQ menu bar app writes once per Mac, never written by a build
 cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs	3	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
 cmux-tui/crates/cmux-tui/src/cli/ext/dev.rs	1	text only (help, a description, an error message), no path is read
 cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	3	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
@@ -101,3 +103,4 @@ cmux-tui/crates/cmux-tui/src/cli/theme_file.rs	1	text only (help, a description,
 cmux-tui/crates/cmux-tui/src/coderouter_usage.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-tui/src/link/access_cli.rs	1	not a read or write: a deny-list entry (SECRET_PATHS) that keeps ~/.config/cmux/auth.json from being shared out of a folder (base #40159)
 cmux-tui/crates/cmux-tui/src/link/mod.rs	1	the user-mode server (cmux host run, ~/.config/cmux/server.json): one per Mac, a DEV build never registers it (ServerLaunchAgent)
+cmux-tui/crates/cmux-tui/src/localization/app_control.rs	4	text only (help, a description, an error message), no path is read

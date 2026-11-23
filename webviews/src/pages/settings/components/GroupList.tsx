@@ -1,6 +1,7 @@
-import { startTransition, useEffect, useState } from "react";
+import { Fragment, startTransition, useEffect, useState } from "react";
 import type { CategoryGroup } from "../categories";
 import { text } from "../strings";
+import { APP_LANGUAGE_KEY, LanguageRelaunchRow } from "./LanguageRelaunchRow";
 import { SettingRow } from "./SettingRow";
 import { MoreOptions } from "./MoreOptions";
 import type { ArrangedGroup } from "../rowLevels";
@@ -15,6 +16,12 @@ const FIRST_FRAME_ROWS = 24;
  * (test/settings-open-frames.test.ts). Opening another category later still draws 24 rows first.
  */
 let drewFirstCategory = false;
+
+/** The next category drawn draws whole, as the first does: a language change draws the shown
+ * category again (SettingsPage), and a page cut to 24 rows would shorten under its scroll offset. */
+export function drawNextCategoryWhole(): void {
+  drewFirstCategory = false;
+}
 
 /**
  * A group's title as its page draws it (leo-workspace design/settings.md, "No title repeats its
@@ -98,7 +105,11 @@ export function GroupList({
                   </div>
                 </div>
               ) : (
-                <SettingRow key={row.key} row={row} query={query} focused={row.key === focus} />
+                <Fragment key={row.key}>
+                  <SettingRow row={row} query={query} focused={row.key === focus} />
+                  {/* The menus keep the launch language: a Relaunch row under Language while they differ. */}
+                  {row.key === APP_LANGUAGE_KEY && <LanguageRelaunchRow />}
+                </Fragment>
               ),
             )}
             {/* The card's More Options row and the rows it opens (rowLevels.ts). */}

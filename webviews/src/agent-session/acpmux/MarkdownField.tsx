@@ -1141,8 +1141,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 copy: (editorView, event) => copied(editorView, event, false),
                 cut: (editorView, event) => copied(editorView, event, true),
                 paste: (editorView, event) => {
+                  // A copy made in a composer goes back in by the surface's own plan; a link it ends
+                  // in gets the space every pasted link gets.
+                  const pasteFrom = editorView.state.selection.from;
                   if (latest.current.onPasteFirst?.(event)) {
                     event.preventDefault();
+                    spaceAfterPastedLink(editorView, pasteFrom);
                     return true;
                   }
                   const data = event.clipboardData;

@@ -13,9 +13,9 @@ use base64::Engine as _;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
-use super::{GlobalArgs, parse_globals};
+use super::{GlobalArgs, MachineFlag, scan_globals};
 
-const HELP: &str = "Usage: cmux computer-use <status|tools|call|screenshot|approvals|machines>\n\ncmux Computer Use is built into cmux: agents get it in the cmux MCP server as the cu_* tools (scripted in cmux_exec as cu.click({...})). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp [--primary]              Serve the tools alone as an MCP stdio server (cmux-computer-use, for other MCP clients;\n                                                 --primary: the client's only Computer Use, never presented as a second choice)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID] [--machine M]\n                                                 Save a PNG of a window, or of the main display\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (needs the cmux app; use Settings > Computer Use)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
+const HELP: &str = "Usage: cmux computer-use <status|doctor|displays|tools|call|screenshot|record|approvals|machines>\n\ncmux Computer Use is built into cmux: agents get it in the cmux MCP server as the cu_* tools (scripted in cmux_exec as cu.click({...})). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp [--primary]              Serve the tools alone as an MCP stdio server (cmux-computer-use, for other MCP clients;\n                                                 --primary: the client's only Computer Use, never presented as a second choice)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID | --display ID] [--machine M]\n                                                 Save a PNG of a window, or of a display (default: the main one)\n  cmux computer-use record --out FILE --seconds N [--display ID] [--fps N] [--machine M]\n                                                 Record a display to an MP4 (H.264) for N seconds\n  cmux computer-use record start [--max-seconds N] [--display ID] [--machine M]\n  cmux computer-use record stop --out FILE       Start a recording and return; stop it later and save the file\n  cmux computer-use displays [--machine M]      The displays: id (what --display takes), frame, scale, main\n  cmux computer-use doctor [--machine M] [--json]\n                                                 Whether capture and input would work, and what fixes each failure (read-only, no prompts; exit 0 when all pass)\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (needs the cmux app; use Settings > Computer Use)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
 
 /// The daemon command for saved approvals (served with the worker's host).
 const APPROVALS_CMD: &str = "computer-use-approvals";
@@ -24,24 +24,67 @@ const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
 
 /// Handles `cmux computer-use` before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (global, command_args) = parse_globals(args).ok()?;
+    let (global, rest) = split(args)?;
+    Some(run(&global, &rest))
+}
+
+/// The global options and the words after `computer-use`, or None for
+/// another command. A `--machine` after `computer-use` stays the command's
+/// own flag: the global option swallowed it, so `status --machine m` and
+/// `call TOOL --machine m` ran on this machine instead of `m`.
+fn split(args: &[String]) -> Option<(GlobalArgs, Vec<String>)> {
+    let (global, command_args) = scan_globals(args, MachineFlag::Command).ok()?;
     let (first, rest) = command_args.split_first()?;
-    if first != "computer-use" {
-        return None;
-    }
-    Some(run(&global, rest))
+    (first == "computer-use").then(|| (global, rest.to_vec()))
 }
 
 /// What the command asked for.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Request {
     Help,
-    Mcp { primary: bool },
+    Mcp {
+        primary: bool,
+    },
     Tools,
-    Call { tool: String, args: Value, machine: Option<String> },
-    Screenshot { out: String, window: Option<String>, machine: Option<String> },
-    Approvals { action: &'static str, app: Option<String> },
+    Call {
+        tool: String,
+        args: Value,
+        machine: Option<String>,
+    },
+    Screenshot {
+        out: String,
+        window: Option<String>,
+        display: Option<String>,
+        machine: Option<String>,
+    },
+    Approvals {
+        action: &'static str,
+        app: Option<String>,
+    },
     Machines,
+    Doctor {
+        machine: Option<String>,
+        json: bool,
+    },
+    Record(record::RecordRequest),
+}
+
+impl Request {
+    /// `cmux --machine m computer-use status`: the global option names the
+    /// machine when the command named none.
+    fn on_machine(self, fallback: Option<&str>) -> Self {
+        let pick = |own: Option<String>| own.or_else(|| fallback.map(str::to_owned));
+        match self {
+            Request::Call { tool, args, machine } => {
+                Request::Call { tool, args, machine: pick(machine) }
+            }
+            Request::Screenshot { out, window, display, machine } => {
+                Request::Screenshot { out, window, display, machine: pick(machine) }
+            }
+            Request::Doctor { machine, json } => Request::Doctor { machine: pick(machine), json },
+            other => other,
+        }
+    }
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Request, String> {
@@ -51,6 +94,12 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         let mut out = Vec::new();
         let mut words = rest.iter();
         while let Some(word) = words.next() {
+            if let Some((flag, value)) = word.split_once('=')
+                && allowed.contains(&flag)
+            {
+                out.push((flag.to_owned(), value.to_owned()));
+                continue;
+            }
             if !allowed.contains(word) {
                 return Err(format!("unknown argument {word:?}"));
             }
@@ -76,6 +125,20 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             })
         }
         "machines" if rest.is_empty() => Ok(Request::Machines),
+        "displays" => {
+            let f = flags(rest, &["--machine"])?;
+            Ok(Request::Call {
+                tool: "list_displays".into(),
+                args: json!({}),
+                machine: get(&f, "--machine"),
+            })
+        }
+        "doctor" => {
+            let json = rest.contains(&"--json");
+            let rest: Vec<&str> = rest.iter().copied().filter(|w| *w != "--json").collect();
+            let f = flags(&rest, &["--machine"])?;
+            Ok(Request::Doctor { machine: get(&f, "--machine"), json })
+        }
         "call" => {
             let (tool, rest) = rest.split_first().ok_or("call needs a tool name")?;
             if tools::find(tool).is_none() {
@@ -95,13 +158,13 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             Ok(Request::Call { tool: (*tool).to_owned(), args, machine: get(&f, "--machine") })
         }
         "screenshot" => {
-            let f = flags(rest, &["--out", "--window", "--machine"])?;
+            let f = flags(rest, &["--out", "--window", "--display", "--machine"])?;
             let out = get(&f, "--out").ok_or("screenshot needs --out FILE")?;
-            Ok(Request::Screenshot {
-                out,
-                window: get(&f, "--window"),
-                machine: get(&f, "--machine"),
-            })
+            let (window, display) = (get(&f, "--window"), get(&f, "--display"));
+            if window.is_some() && display.is_some() {
+                return Err("pass --window or --display, not both".into());
+            }
+            Ok(Request::Screenshot { out, window, display, machine: get(&f, "--machine") })
         }
         "approvals" => match rest {
             ["list"] => Ok(Request::Approvals { action: "list", app: None }),
@@ -111,6 +174,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             ["revoke-sessions"] => Ok(Request::Approvals { action: "revoke_sessions", app: None }),
             _ => Err("usage: cmux computer-use approvals list|forget APP|revoke-sessions".into()),
         },
+        "record" => record::parse(rest).map(Request::Record),
         other => Err(format!("unknown computer-use command {other:?}")),
     }
 }
@@ -208,7 +272,7 @@ fn print(global: &GlobalArgs, outcome: Outcome) -> i32 {
 }
 
 fn run(global: &GlobalArgs, args: &[String]) -> i32 {
-    let request = match parse(args) {
+    let request = match parse(args).map(|r| r.on_machine(global.machine.as_deref())) {
         Ok(request) => request,
         Err(message) => {
             eprintln!("cmux computer-use: {message}\n\n{HELP}");
@@ -252,10 +316,14 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             let args = with_machine(args, machine.as_deref());
             print(global, caller(global).call(&tool, &args, &new_call_id()))
         }
-        Request::Screenshot { out, window, machine } => {
+        Request::Doctor { machine, json } => doctor::run(global, machine.as_deref(), json),
+        Request::Screenshot { out, window, display, machine } => {
             let mut args = json!({"force": true});
             if let Some(window) = window {
                 args.set("window_id", json!(window));
+            }
+            if let Some(display) = display {
+                args.set("display", json!(display));
             }
             let args = with_machine(args, machine.as_deref());
             match caller(global).call("screenshot", &args, &new_call_id()) {
@@ -316,8 +384,15 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
                 ),
             }
         }
+        Request::Record(request) => record::run(global, request),
     }
 }
+
+#[path = "computer_use_doctor.rs"]
+mod doctor;
+
+#[path = "computer_use_record.rs"]
+mod record;
 
 #[cfg(test)]
 #[path = "computer_use_tests.rs"]

@@ -25,6 +25,8 @@ on:
       - "scripts/ci/git_tree.py"
       - "scripts/ci/test_reds.py"
       - "tests/test_cargo_test_verdict.py"
+      - "scripts/ci/cargo-lib-tests-at-once.sh"
+      - "scripts/ci/tests/cargo-lib-tests-at-once.test.sh"
       # The router's own files (affected_jobs.py SELF): a change to them runs every routed job.
       - "scripts/ci/affected-jobs.json"
       - "scripts/ci/affected_jobs.py"
@@ -37,11 +39,13 @@ on:
       - "tests/test_ci_affected_jobs.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
       # (tests/test_cargo_test_verdict.py keeps this list whole).
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "Resources/theme-files/*.json"
       - "Resources/sidebar-looks/*.json"
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
       - "schemas/build-identity/vectors.json"
+      - "schemas/defaults/cmux-next.json"
       - "schemas/deeplinks/agent-link.json"
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
@@ -50,9 +54,11 @@ on:
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/general.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
       - "schemas/theme/theme-ink-vectors.json"
+      - "schemas/transcript-look/transcript-look.json"
       - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
@@ -121,8 +127,11 @@ permissions:
   contents: read
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
+  # keep them errors. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   # The router (cmux-tui-spec-changed.py): on a pull request, whether its change touches
@@ -144,10 +153,33 @@ jobs:
       acpmux_own: ${{ steps.acpmux-own.outputs.changed }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
+      # Blobless and narrow: the router reads names and trees from git, and blobs only under the dirs
+      # below (the crate graph's manifests and sources, the map, the scripts). A full depth-2 checkout
+      # of the whole tree took 36 s of this job's 44 s (p50, 2026-11-21). A blob outside these dirs
+      # reads as NeedsFullTree and routes every job (fail-open), never fewer.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+            /scripts/
+            /tests/
+            /cmux-tui/
+            /first-party-apps/
+            /workers/
+            /schemas/
+            /plans/
+
+      # The base side of the change: the crate graph also reads the base's copy of each changed file
+      # (base_tree), which a blobless checkout lacks. One batched fetch of just those blobs (git diff
+      # prefetches both sides); without it a change under cmux-tui/ would route every job.
+      - name: Fetch the base copies of the changed files
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: git diff --no-renames --numstat HEAD^1 HEAD -- .github scripts tests cmux-tui first-party-apps workers schemas plans > /dev/null
 
       - name: Test the router
         run: python3 .github/scripts/test_cmux_tui_spec_changed.py
@@ -345,6 +377,10 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
+          # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
+          # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
+          add-rust-environment-hash-key: false
 
       # `protocol::` selects exactly the protocol module's tests (src/protocol/tests.rs);
       # a filter that matches none (a moved module) fails rather than passing empty.
@@ -400,6 +436,8 @@ jobs:
   # shows its red on its own pull request (Leo, 2026-11-17: "we need to test out more of these
   # permission related combinations in ci"). The job and
   # step keep their names: the scope step finds earlier runs by them.
+  # tests/daemon_list_order_start.rs (the start task sorts the list order before any chat log
+  # is read) runs here too: no pull request check ran it.
   acpmux-tests:
     name: acpmux tests (lib, hub_integration)
     needs: changes
@@ -468,6 +506,11 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # The test step's library runner: a three-crate workspace, about 10 s.
+      - name: Test the library test runner
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        run: bash scripts/ci/tests/cargo-lib-tests-at-once.test.sh
+
       # Only a feat-cmux-next push saves the build cache; a pull request reads the base branch's.
       - name: Cache cargo build
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -475,10 +518,18 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-acpmux-tests
+          shared-key: cmux-tui-acpmux-tests-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Keyed on the pinned toolchain and the lockfile, not on rust-cache's environment hash: that
+          # hashes every toolchain `rustup toolchain list` shows, and the pool hosts keep different
+          # leftover ones (1.88, 1.98.1, 1.100 beside the pinned 1.95), so each host saved and looked
+          # under its own key: 117 of 133 runs in 18-23Z on 2026-11-21 found no cache and built cold.
+          # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
+          # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
+          # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
+          add-rust-environment-hash-key: false
 
       - name: v2 bench home emits all gate rows
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -514,9 +565,39 @@ jobs:
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
             -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
-            --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix --no-fail-fast)
+            --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix
+            --test daemon_list_order_start --no-fail-fast)
+          # The two concurrent runs below: every package with the libraries, every package with the
+          # integration test targets (tests/test_cargo_test_verdict.py reads `suites` itself).
+          pkgs=() targets=()
+          for ((i = 0; i < ${#suites[@]}; i++)); do
+            case "${suites[i]}" in
+              --locked) pkgs+=(--locked) ;;
+              -p) pkgs+=(-p "${suites[i + 1]}"); i=$((i + 1)) ;;
+              --test) targets+=(--test "${suites[i + 1]}"); i=$((i + 1)) ;;
+            esac
+          done
           started=$SECONDS
-          if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
+          # One build, then the library tests and the integration tests run at once: one after
+          # another the host sat mostly idle behind each binary's slowest few tests (acpmux's lib
+          # ~390 s, acpmux-book's ~200 s, hub_integration ~200 s on a quiet host). Both runs keep
+          # every -p, so cargo resolves the same features and rebuilds nothing;
+          # the integration tests print as they run and the libraries' log follows them.
+          run_all() {
+            cargo test "${suites[@]}" --no-run 2>&1 || return 1
+            local libs=0 tests=0
+            # Each package's library binary runs at once with the others (RFD 0016, one shard per
+            # workspace member group): `cargo test --lib` ran acpmux's (~431 s) and then
+            # acpmux-book's (~208 s). The log reads as cargo prints it, one binary after another.
+            ../scripts/ci/cargo-lib-tests-at-once.sh "$RUNNER_TEMP/acpmux-tests-lib" "${pkgs[@]}" \
+              > "$RUNNER_TEMP/acpmux-tests-lib.log" 2>&1 &
+            local lib_pid=$!
+            cargo test "${pkgs[@]}" "${targets[@]}" --no-fail-fast 2>&1 || tests=$?
+            wait "$lib_pid" || libs=$?
+            cat "$RUNNER_TEMP/acpmux-tests-lib.log"
+            (( libs == 0 && tests == 0 ))
+          }
+          if run_all 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
             echo "clean=true" >> "$GITHUB_OUTPUT"  # green on its own: the only green the tree result keeps
             exit 0
@@ -660,6 +741,10 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
+          # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
+          # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
+          add-rust-environment-hash-key: false
 
       - name: cargo test -p acpmux --features sim --test sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -752,6 +837,10 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
+          # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
+          # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
+          add-rust-environment-hash-key: false
 
       - name: cargo test -p cmux-remote --test carrier_sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -981,6 +1070,10 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
+          # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
+          # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
+          add-rust-environment-hash-key: false
 
       # A red the PR autofix repairs (machine-applicable lints in this change's own files) passes as autofixed
       # once the autofix push is on (vars.CMUX_PR_AUTOFIX_PUSH, cmux-next-pr-autofix-push.yml on main): the fix

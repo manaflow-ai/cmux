@@ -6,6 +6,7 @@ import {
   afterEachPaint,
   type PaintClock,
   bottomFoldOf,
+  heldRowDrift,
   insetCrop,
   isExpansionShift,
   sampleBoxes,
@@ -420,4 +421,55 @@ test("afterEachPaint: input before the read runs it first; a read the next frame
   hand.frame();
   hand.paint();
   expect(seen).toEqual(["painted", "after input"]);
+});
+
+// The held-bottom detector (Leo, 2026-11-18: "did we fix this scroll bounce at the bottom yet?").
+const transcriptRow = (y: number, extra: Partial<BoxSample> = {}) =>
+  row(y, { row: true, label: "div.acpmux-row", ...extra });
+
+test("a held run whose rows never move drifts 0", () => {
+  const still = frames(
+    [
+      [1, transcriptRow(100)],
+      [2, transcriptRow(140)],
+    ],
+    [
+      [1, transcriptRow(100)],
+      [2, transcriptRow(140)],
+    ],
+    [
+      [1, transcriptRow(100.3)],
+      [2, transcriptRow(140)],
+    ],
+  );
+  expect(heldRowDrift(still)).toEqual({ worst: 0, driftFrames: 0 });
+});
+
+test("rows that slide away together and come back are a bounce, though they moved as one follow", () => {
+  // Leo's recording: every row down 27, 56, 260 px over a few frames, then back up home.
+  const bounce = [0, 27, 56, 260, 120, 30, 0].map(
+    (dy) =>
+      new Map<number, BoxSample>([
+        [1, transcriptRow(100 + dy)],
+        [2, transcriptRow(140 + dy)],
+      ]),
+  );
+  const drift = heldRowDrift(bounce);
+  expect(drift.worst).toBe(260);
+  expect(drift.frame).toBe(3);
+  expect(drift.driftFrames).toBe(5);
+});
+
+test("the held detector skips boxes that are not rows and rows an entrance animates", () => {
+  const run = frames(
+    [
+      [1, row(100)],
+      [2, transcriptRow(200, { animating: true })],
+    ],
+    [
+      [1, row(160)],
+      [2, transcriptRow(240, { animating: true })],
+    ],
+  );
+  expect(heldRowDrift(run).worst).toBe(0);
 });

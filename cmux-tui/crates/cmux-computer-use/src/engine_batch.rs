@@ -838,7 +838,12 @@ impl Engine {
     /// Waits up to `slice` for the app to signal a change past `seen`; after
     /// one, lets the burst end (at most [`BURST_MAX`]). Without a watch that
     /// can block, the rest of `slice` passes. True when a signal woke it.
-    fn wait_change(&self, watch: Option<&dyn Watch>, seen: u32, slice: Duration) -> bool {
+    pub(super) fn wait_change(
+        &self,
+        watch: Option<&dyn Watch>,
+        seen: u32,
+        slice: Duration,
+    ) -> bool {
         let t0 = (self.clock)();
         let woke = watch.is_some_and(|w| w.wait_for_signal(seen, slice));
         if let (true, Some(w)) = (woke, watch) {

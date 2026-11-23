@@ -136,6 +136,8 @@ struct Shared {
     overflow: Vec<u64>,
     max_pending_calls: usize,
     subscriptions: BTreeSet<u64>,
+    /// Live watches of the daemon's signals cache (`watch`), under the same cap.
+    watches: BTreeSet<u64>,
     outbox_bytes: usize,
     /// The VM produced more messages, timers or subscriptions than allowed.
     flooded: bool,
@@ -511,6 +513,15 @@ impl AppVm {
         self.entry_unit("event", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppEvent", args))
     }
 
+    /// A daemon signals cache state for watch `watch` (`__cmuxAppWatch`).
+    pub fn watch_state(&mut self, watch: u64, state: &Value) -> Result<(), VmError> {
+        if !self.shared.borrow().watches.contains(&watch) {
+            return Ok(());
+        }
+        let args = (watch as f64, state.to_string());
+        self.entry_unit("watch", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppWatch", args))
+    }
+
     pub fn set_settings(&mut self, values: &Value) -> Result<(), VmError> {
         let args = (values.to_string(),);
         self.entry_unit("settings", move |ctx| {
@@ -841,6 +852,59 @@ fn install_native<'js>(
             if shared.subscriptions.remove(&(sub as u64)) {
                 shared.push(FromHost::Unsubscribe { sub: sub as u64 }, 16);
             }
+        })?,
+    )?;
+    let (s, g) = (shared.clone(), gate.clone());
+    native.set(
+        "watch",
+        Function::new(
+            ctx.clone(),
+            move |name: V<'js>,
+                  params: V<'js>,
+                  mount: V<'js>,
+                  every: f64|
+                  -> rquickjs::Result<f64> {
+                if g.stopped() {
+                    return Ok(0.0);
+                }
+                let (name, params, mount) = (text(&name)?, text(&params)?, text(&mount)?);
+                let mut shared = s.borrow_mut();
+                let watch = shared.next_sub;
+                shared.next_sub += 1;
+                if shared.subscriptions.len() + shared.watches.len() >= MAX_SUBSCRIPTIONS {
+                    shared.flood();
+                    return Ok(watch as f64);
+                }
+                shared.watches.insert(watch);
+                let bytes = name.len() + params.len() + mount.len();
+                let message = FromHost::Watch {
+                    watch,
+                    name,
+                    params: parse(&params),
+                    mount: (!mount.is_empty()).then_some(mount),
+                    every_seconds: (every.is_finite() && every > 0.0).then_some(every),
+                };
+                shared.push(message, bytes);
+                Ok(watch as f64)
+            },
+        )?,
+    )?;
+    let (s, g) = (shared.clone(), gate.clone());
+    native.set(
+        "unwatch",
+        Function::new(ctx.clone(), move |watch: f64, refresh: bool| {
+            if g.stopped() {
+                return;
+            }
+            let mut shared = s.borrow_mut();
+            let watch = watch as u64;
+            if !shared.watches.contains(&watch) {
+                return;
+            }
+            if !refresh {
+                shared.watches.remove(&watch);
+            }
+            shared.push(FromHost::Unwatch { watch, refresh }, 16);
         })?,
     )?;
     let (s, g) = (shared.clone(), gate.clone());

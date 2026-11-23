@@ -229,6 +229,7 @@ struct AgentChatsScreen: View {
     let source: WorkspaceTabsSource
     @State private var model: AgentChatsModel
     @State private var confirmingStopAll = false
+    @State private var showsUpdating = false
 
     private var stopAllTitle: String {
         let count = model.activeChats.count
@@ -244,6 +245,17 @@ struct AgentChatsScreen: View {
         @Bindable var model = model
         content
             .navigationTitle(model.scope == .archived ? "Archived Chats" : "Agent Chats")
+            // Like the Workspaces list: a reopen's refresh of the kept rows says "Updating…" here,
+            // and only once it is slow, instead of a row that pushes every chat down and back up.
+            .navigationSubtitle(showsUpdating && model.refreshing && !model.reconnecting ? "Updating…" : "")
+            .task(id: model.refreshing) {
+                guard model.refreshing else {
+                    showsUpdating = false
+                    return
+                }
+                try? await Task.sleep(for: .seconds(1.5))
+                if !Task.isCancelled { showsUpdating = true }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
@@ -314,10 +326,12 @@ struct AgentChatsScreen: View {
     private var list: some View {
         let rows = model.visible
         return List {
-            // The kept rows show while the Mac's newest page loads (a pull to refresh has its own).
-            if model.refreshing || model.reconnecting {
-                ListStatusRow(model.stale ? .stale : model.reconnecting ? .reconnecting : .updating)
-                    .accessibilityIdentifier(model.reconnecting ? "agentChats.reconnecting" : "agentChats.updating")
+            // The kept rows show while the Mac's newest page loads; a plain refresh says "Updating…"
+            // in the nav bar subtitle (see body), so no row is inserted above them and nothing
+            // shifts. A dropped or quiet link still says so here, in its own row.
+            if model.reconnecting {
+                ListStatusRow(model.stale ? .stale : .reconnecting)
+                    .accessibilityIdentifier("agentChats.reconnecting")
             }
             ForEach(rows) { chat in
                 row(chat)

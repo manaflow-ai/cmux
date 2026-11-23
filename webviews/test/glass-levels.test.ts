@@ -39,7 +39,7 @@ test("the levels are chrome, popover, menu and chip, each with its tint, blur an
 // page lays none: Glass.makeHostSurface). No surface keeps a tint of its own.
 test("every popup and hover card uses the transient material and lays no veil on the App's glass", () => {
   const glass = source("ui/glass/glass.css").replace(/\/\*[\s\S]*?\*\//g, "");
-  const at = glass.indexOf(".ui-popup.ui-glass,\n.ui-card.ui-glass {");
+  const at = glass.indexOf(".ui-popup.ui-glass,\n.ui-card.ui-glass,");
   expect(at).toBeGreaterThanOrEqual(0);
   const rule = glass.slice(at, glass.indexOf("}", at));
   expect(rule).toContain("var(--ds-transient-web-tint)");

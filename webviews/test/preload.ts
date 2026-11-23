@@ -16,9 +16,10 @@ export {};
 {
   const { writeStrings } = await import("../scripts/pages/gen-strings.mjs");
   writeStrings({ ifStale: true, bestEffort: true, log: () => {} });
-  // The agent pane table is consumed immediately below. Regenerate it unconditionally so a
-  // restored ignored output cache cannot leave tests rendering localization keys.
-  writeStrings({ only: ["agentPane"], bestEffort: true, log: () => {} });
+  // The agent pane table is consumed immediately below. Check it by content, not time, so a
+  // restored ignored output cache cannot leave tests rendering localization keys. A rebuild from
+  // its 12 MB catalog took about 200 ms of every `bun test` process; the content check about 20.
+  writeStrings({ only: ["agentPane"], ifUnchanged: true, bestEffort: true, log: () => {} });
   // The feature tips table is build output too (gen-feature-tips.mjs): made from this tree's highlights.
   const { writeFeatureTips } = await import("../scripts/pages/gen-feature-tips.mjs");
   writeFeatureTips({ log: () => {} });

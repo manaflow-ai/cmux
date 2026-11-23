@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 
 use base64::Engine;
 use cmux_customize::library::expire::{self, Expired, Expiring, Expiry};
-use cmux_customize::library::{Changed, Collection, Listing, Position, Recovered};
+use cmux_customize::library::{Changed, Collection, Listing, NoLongerApplies, Position, Recovered};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
 
@@ -194,7 +194,9 @@ pub(super) fn execute(
             human.push_str(&expired_lines(&customize.expired(now_ms), expiring.as_ref()));
             Answer::Library { json: json!({ "library": listing }), human }
         }
-        Request::Refresh => super::pr::refresh(customize, origin, now_ms)?,
+        Request::Refresh => {
+            with_no_longer_applies(customize, super::pr::refresh(customize, origin, now_ms)?)
+        }
         Request::Expire => super::expire::run(customize, origin, now_ms)?,
         Request::On { name } if name == expire::WEB_DEV_OVERLAY => {
             let path = customize.renew_overlay(now_ms)?;
@@ -265,7 +267,10 @@ pub(super) fn execute(
                 );
             }
             human.push_str(&expired_lines(&layers.expired, expiring.as_ref()));
-            Answer::Library { json: json!({ "layers": layers }), human }
+            with_no_longer_applies(
+                customize,
+                Answer::Library { json: json!({ "layers": layers }), human },
+            )
         }
         Request::Order { name, position } => {
             changed(customize.library_order(&name, position, origin, now_ms)?)
@@ -311,6 +316,30 @@ pub(super) fn execute(
             answer
         }
     })
+}
+
+/// `answer` with one line for each entry that is on with keys this app no
+/// longer reads as written (`no_longer_apply` in its JSON); unchanged when
+/// everything applies. Only says: nothing is turned off or rewritten.
+fn with_no_longer_applies(customize: &Customize, answer: Answer) -> Answer {
+    let stale = customize.library_no_longer_applies();
+    no_longer_applies_into(answer, &stale)
+}
+
+fn no_longer_applies_into(answer: Answer, stale: &[NoLongerApplies]) -> Answer {
+    match answer {
+        Answer::Library { mut json, mut human } if !stale.is_empty() => {
+            for entry in stale {
+                human.push_str(&entry.line());
+                human.push('\n');
+            }
+            if let Some(object) = json.as_object_mut() {
+                object.insert("no_longer_apply".to_owned(), json!(stale));
+            }
+            Answer::Library { json, human }
+        }
+        other => other,
+    }
 }
 
 /// The scopes the customize folder's views app asks for (`scopes` in its
@@ -418,7 +447,19 @@ fn change_lines(change: &Changed) -> String {
         )),
         // A code layer moves web-dev.json, which no generation holds.
         None if change.changed.iter().any(|key| key == cmux_customize::library::WEB_KEY) => {
-            out.push_str("web pages now load from the layer the library says; open pages reload\n");
+            let web = cmux_customize::library::WEB_KEY;
+            let serving = change.library.entries.iter().find(|entry| {
+                entry.on
+                    && entry.code.as_ref().is_some_and(|code| code.has_web())
+                    && !entry.overridden.iter().any(|key| key == web)
+            });
+            out.push_str(&match serving {
+                Some(entry) => {
+                    format!("web pages now load from {}; open pages reload\n", entry.name)
+                }
+                None => "no code layer is on: web pages are as they were before any; open pages reload\n"
+                    .to_owned(),
+            });
         }
         None => out.push_str("nothing live changed\n"),
     }
@@ -439,8 +480,12 @@ fn list_lines(listing: &Listing) -> String {
             entry.settings.iter().chain(entry.files.iter()).cloned().collect();
         if let Some(code) = &entry.code {
             what.push(if code.has_web() {
+                let base = match code.base.get(..12) {
+                    Some(base) => format!(" on {base}"),
+                    None => String::new(),
+                };
                 format!(
-                    "web layer of {} at {}",
+                    "web layer of {} at {}{base}",
                     code.source_label(),
                     code.head.get(..12).unwrap_or(&code.head)
                 )
@@ -451,6 +496,10 @@ fn list_lines(listing: &Listing) -> String {
             if !code.note.is_empty() {
                 what.push(code.note.clone());
             }
+        }
+        if let Some(until) = entry.until_ms {
+            let left = until.saturating_sub(super::now_ms());
+            what.push(format!("trying it on: off by itself in {}", expire::minutes(left)));
         }
         let words = entry.words.first().map(|w| format!("  \"{w}\"")).unwrap_or_default();
         out.push_str(&format!(

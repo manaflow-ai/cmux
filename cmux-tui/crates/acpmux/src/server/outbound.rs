@@ -42,7 +42,7 @@ use tokio::sync::{Notify, watch};
 pub(super) const BULK_WINDOW: usize = 256 << 10;
 
 /// Whether the answer to `method` goes in the read lane ([module docs](self)).
-pub(super) fn is_cheap_read(method: &str) -> bool {
+pub(crate) fn is_cheap_read(method: &str) -> bool {
     use crate::rpc::method;
     matches!(
         method,
@@ -164,6 +164,8 @@ struct State {
     capacity: usize,
     /// Every handle is gone: the pump sends what is left and ends.
     finished: bool,
+    /// The sum [`State::held`] counts toward: [`TOTAL_HELD`], or a test's own.
+    pool: &'static AtomicUsize,
     overrun: Option<Overrun>,
     /// The pump ended (its transport closed, the journal's writer ended, the daemon is stopping,
     /// or it overran): nothing queued now would ever be sent.
@@ -177,12 +179,12 @@ impl Drop for State {
 }
 
 impl State {
-    /// Sets [`State::held`], keeping [`TOTAL_HELD`] its sum over every queue.
+    /// Sets [`State::held`], keeping its pool ([`TOTAL_HELD`]) the sum over every queue.
     fn set_held(&mut self, held: usize) {
         if held >= self.held {
-            TOTAL_HELD.fetch_add(held - self.held, Ordering::Relaxed);
+            self.pool.fetch_add(held - self.held, Ordering::Relaxed);
         } else {
-            TOTAL_HELD.fetch_sub(self.held - held, Ordering::Relaxed);
+            self.pool.fetch_sub(self.held - held, Ordering::Relaxed);
         }
         self.held = held;
     }
@@ -250,6 +252,7 @@ struct Shared {
     /// True once the queue overran or its pump ended.
     closed: watch::Sender<bool>,
     bound: usize,
+    raised: Arc<Raised>,
     /// [`TOTAL_BYTE_BOUND`] and [`FAIR_SHARE`], or a test's.
     total_bound: usize,
     fair_share: usize,
@@ -263,10 +266,15 @@ impl Shared {
     }
 
     /// Queues `line` in `lane` with the lock held; false (and nothing queued) once it overran.
-    fn push_locked(&self, state: &mut State, line: Line, lane: Lane) -> bool {
+    fn push_locked(&self, state: &mut State, mut line: Line, lane: Lane) -> bool {
         if state.overrun.is_some() || state.ended {
             return false;
         }
+        // Read after the raise for this line (its caller raised first, `Conn::raise_gate`).
+        line.needs = Needs {
+            durable: self.raised.durable.load(Ordering::SeqCst),
+            written: self.raised.written.load(Ordering::SeqCst),
+        };
         let size = line.text.len();
         // A reader with nothing left to take is not behind.
         if state.held == 0 {
@@ -274,7 +282,7 @@ impl Shared {
         }
         let over_total = |state: &State| {
             state.held + size > self.fair_share
-                && TOTAL_HELD.load(Ordering::Relaxed) + size > self.total_bound
+                && state.pool.load(Ordering::Relaxed) + size > self.total_bound
                 && state.progress_at.elapsed() >= self.reader_stall
         };
         if state.held + size > self.bound || over_total(state) {
@@ -287,7 +295,7 @@ impl Shared {
                 held = state.held,
                 line = size,
                 bound = self.bound,
-                total = TOTAL_HELD.load(Ordering::Relaxed),
+                total = state.pool.load(Ordering::Relaxed),
                 total_bound = self.total_bound,
                 "{}",
                 if own {
@@ -346,14 +354,35 @@ impl Queue<'_> {
     }
 
     pub(super) fn push_in(&mut self, line: String, lane: Lane) -> bool {
-        self.shared.push_locked(&mut self.state, Line { text: line, ticket: None }, lane)
+        self.shared.push_locked(&mut self.state, Line { text: line, ..Line::default() }, lane)
     }
 }
 
 /// A control ticket stays held through the pump and the transport channel.
+#[derive(Default)]
 pub(super) struct Line {
     pub(super) text: String,
     pub(super) ticket: Option<super::controls::Ticket>,
+    /// What the journal must have reached before it goes out: set when it is queued.
+    pub(super) needs: Needs,
+}
+
+/// The journal's LSNs a line may show (`durable_gate.rs`): the connection's [`Raised`] when it
+/// was queued, so it waits for the changes acknowledged before it, never for later ones.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Needs {
+    /// The acknowledged changes: their records durable.
+    pub(super) durable: u64,
+    /// The kept changes: their records written.
+    pub(super) written: u64,
+}
+
+/// The highest LSNs a connection's lines raised so far (`durable_gate::Gate::raise`); every
+/// line queued after a raise carries it ([`Needs`]). Zero without the journal.
+#[derive(Default)]
+pub(super) struct Raised {
+    pub(super) durable: AtomicU64,
+    pub(super) written: AtomicU64,
 }
 
 impl Outbound {
@@ -515,6 +544,11 @@ impl Pump {
         true
     }
 
+    /// What this queue's lines were raised to (the durable gate raises it).
+    pub(super) fn raised(&self) -> Arc<Raised> {
+        Arc::clone(&self.shared.raised)
+    }
+
     /// The transport is gone, or the queue overran: the pump stops.
     pub(super) async fn stopped(&self) {
         let mut closed = self.shared.closed.subscribe();
@@ -557,20 +591,34 @@ pub(super) fn start_bounded(
     transport: mpsc::Sender<String>,
     bound: usize,
 ) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
-    start_limited(scope, durability, transport, bound, TOTAL_BYTE_BOUND, FAIR_SHARE, READER_STALL)
+    let limits = Limits {
+        pool: &TOTAL_HELD,
+        total_bound: TOTAL_BYTE_BOUND,
+        fair_share: FAIR_SHARE,
+        reader_stall: READER_STALL,
+    };
+    start_limited(scope, durability, transport, bound, limits)
 }
 
-/// [`start_bounded`] with the daemon-wide limits given: [`TOTAL_BYTE_BOUND`], [`FAIR_SHARE`] and
-/// [`READER_STALL`].
+/// The daemon-wide limits of a queue: the sum it counts toward ([`TOTAL_HELD`]), its bound
+/// ([`TOTAL_BYTE_BOUND`]), [`FAIR_SHARE`] and [`READER_STALL`]. A test gives its own pool, so other
+/// tests' queues, filling and draining beside it, never move its bound.
+pub(super) struct Limits {
+    pub(super) pool: &'static AtomicUsize,
+    pub(super) total_bound: usize,
+    pub(super) fair_share: usize,
+    pub(super) reader_stall: Duration,
+}
+
+/// [`start_bounded`] with the daemon-wide [`Limits`] given.
 pub(super) fn start_limited(
     scope: &cmux_scope::Scope,
     durability: Option<crate::store::Durability>,
     transport: mpsc::Sender<String>,
     bound: usize,
-    total_bound: usize,
-    fair_share: usize,
-    reader_stall: Duration,
+    limits: Limits,
 ) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
+    let Limits { pool, total_bound, fair_share, reader_stall } = limits;
     let (closed, _) = watch::channel(false);
     let shared = Arc::new(Shared {
         state: StdMutex::new(State {
@@ -584,12 +632,14 @@ pub(super) fn start_limited(
             transport: transport.downgrade(),
             capacity: transport.max_capacity(),
             finished: false,
+            pool,
             overrun: None,
             ended: false,
         }),
         wake: Notify::new(),
         closed,
         bound,
+        raised: Arc::default(),
         total_bound,
         fair_share,
         reader_stall,

@@ -168,6 +168,8 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
         vec!["-w"],
         vec!["--live"],
         vec!["--leads"],
+        vec!["--archived"],
+        vec!["--json", "--archived"],
         vec!["--pending"],
         vec!["--status", "idle"],
         vec!["--status", "running"],
@@ -244,6 +246,35 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
     assert!(more["nextCursor"].is_string(), "{more}");
 }
 
+/// `ls --archived` lists only the archived chats, here and on the v2 list alike, newest archive
+/// first, with `archivedAt` (null for an older client's `1`) and `archivedBy`.
+#[tokio::test]
+async fn ls_archived_lists_only_the_archived_chats() {
+    let daemon = serve(Serves::List, |hub| {
+        let rows = fixture(hub);
+        let tags = json!({"archived": "1700000000000", "archivedBy": "auto"});
+        hub.insert_test_session(meta("c-settled", "settled", "closed", 1_600_000_000_000, tags));
+        rows + 1
+    })
+    .await;
+    let now = 1_700_000_000_000 + 2 * 3_600_000;
+    for v2 in [false, true] {
+        let rows: Value =
+            serde_json::from_str(&ls(&daemon, &["--json", "--archived"], v2, now).await).unwrap();
+        let rows = rows["sessions"].as_array().unwrap();
+        let names: Vec<&str> = rows.iter().map(|r| r["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["settled", "archived-parent"], "v2: {v2}");
+        assert_eq!(rows[0]["archivedAt"], 1_700_000_000_000_u64);
+        assert_eq!(rows[0]["archivedBy"], "auto");
+        assert_eq!(rows[1]["archivedAt"], Value::Null);
+        assert_eq!(rows[1]["archivedBy"], "person");
+        let text = ls(&daemon, &["--archived"], v2, now).await;
+        assert!(text.starts_with("NAME"), "{text}");
+        assert!(text.contains("settled") && text.contains("2h ago"), "{text}");
+        assert!(!text.contains("closed-parent"), "{text}");
+    }
+}
+
 /// A walk of the whole view reads v1, whole, while another machine lists a closed row, and when
 /// the status does not say; a live form walks v2 all the same (decision 213).
 #[tokio::test]
@@ -282,6 +313,7 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
                     harness: "claude".into(),
                     state: "idle".into(),
                     last_seen_at: crate::store::now_ms(),
+                    ..Default::default()
                 };
                 hub.set_mesh_book(hosts, vec![row]);
             }

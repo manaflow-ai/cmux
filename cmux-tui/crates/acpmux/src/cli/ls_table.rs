@@ -61,6 +61,7 @@ pub const HELP: &str = "Examples:
   acpmux ls --wide                every column (AGENT, STATUS, usage, LAST)
   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
   acpmux ls --leads               the leaders: each live session others report to, with its reports
+  acpmux ls --archived            archived chats, newest archive first: when, and by whom (auto)
   acpmux ls --live --machine cosmic-gray   that machine's live sessions (--machine local: this one)
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
   acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
@@ -533,12 +534,8 @@ mod tests;
 /// (`hub/key_route.rs`). A tag the lane-gh broker wrote in its word alphabet carries its spaces
 /// as `+` ("Logan+dot+chats-going-blank"); it reads with spaces again.
 pub(crate) fn alias(row: &Value) -> Option<String> {
-    let raw = row.get("tags")?.get("session.alias")?.as_str()?.trim();
-    let text = if raw.contains('+') && !raw.contains(char::is_whitespace) {
-        raw.replace('+', " ")
-    } else {
-        raw.to_owned()
-    };
+    let raw = row.get("tags")?.get("session.alias")?.as_str()?;
+    let text = crate::session_handle::spoken_alias(raw);
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     (!text.is_empty()).then_some(text)
 }

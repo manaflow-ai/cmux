@@ -4766,10 +4766,9 @@ class SharedRunnerStateTests(unittest.TestCase):
             "cmux-next.yml": ("side_lane_placement.py", "portable_job_placement.py", "dev_landing_place.py"),
             "ci-macos.yml": ("admission_placement.py", "late_placement.py"),
             "ios-internal-nightly.yml": ("ios_internal_runner.py",),
-            "cmux-next-guards.yml": ("portable_job_placement.py",),
             "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
             "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py",
-                            "nightly_runner_preflight.py"),
+                            "nightly_runner_preflight.py", "nightly_next_signer_pick.py"),
         }
 
         def mappings(value):
@@ -4818,6 +4817,8 @@ class SharedRunnerStateTests(unittest.TestCase):
             "dev_landing_place.py", "ios_internal_runner.py",
             # Reads the census to fail a nightly whose routing label has no online runner (#40992).
             "nightly_runner_preflight.py",
+            # Picks the signer Mac for nightly-next-one, one build per Mac (#49139).
+            "nightly_next_signer_pick.py",
         }
         for workflow in WORKFLOWS.glob("*.yml"):
             doc = yaml.safe_load(workflow.read_text())

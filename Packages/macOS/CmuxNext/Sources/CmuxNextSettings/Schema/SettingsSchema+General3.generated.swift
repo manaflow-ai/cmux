@@ -4,6 +4,46 @@
 public import CmuxNextDesign
 
 extension GeneralSettingsSchema {
+    static var workspaceList: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
+        return [
+            SettingDescriptor(
+                CmuxConfigSnapshot.newWorkspacePlacementPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaces.newPlacement", "New Workspace Position"),
+                kind: .choice([
+                    SettingChoice(NewWorkspacePlacement.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
+                    SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue, SettingsText.keyed("settings.choice.afterCurrentWorkspace", "After Current Workspace")),
+                    SettingChoice(NewWorkspacePlacement.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                ]),
+                default: .string(CmuxConfigSnapshot.newWorkspacePlacementDefault.rawValue),
+                keywords: ["workspace", "new", "cmd-n", "position", "order", "top", "bottom", "after", "sidebar", "placement"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.groupByComputerPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupByComputer", "Group Workspaces by Computer"),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.groupByComputerDefault),
+                keywords: ["sidebar", "computer", "machine", "cloud", "remote", "group", "section", "header", "flat", "list"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.autoNameWorkspacesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaces.autoName", "Name Workspaces from Tabs"),
+                help: SettingsText.keyed("settings.workspaces.autoName.help", "An unnamed workspace shows its front tab's name. Your own name always wins."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.autoNameWorkspacesDefault),
+                keywords: ["workspace", "name", "rename", "auto", "title", "tab", "chat", "page", "folder", "sidebar"]
+            ),
+        ]
+    }
+}
+
+extension GeneralSettingsSchema {
     static var palette: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.palette", "Command Palette")
         return [

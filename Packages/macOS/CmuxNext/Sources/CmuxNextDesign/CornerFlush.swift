@@ -1,7 +1,8 @@
 public import AppKit
 public import CmuxNextDesignTokens
 
-/// The flush corner (Debug Settings, `chrome.cornerFlush`; Thunderdome round 2, direction A).
+/// The flush corner (`appearance.cornerFlush`, overridden by the Debug Settings tunable `chrome.cornerFlush`;
+/// Thunderdome round 2, direction A).
 ///
 /// Leo, 2026-11-05: the top area is the implicit top bar of everything, and the sidebar and the
 /// tabs must look like they come from one place. Under a flush value the sidebar, the titlebar
@@ -17,8 +18,8 @@ public import CmuxNextDesignTokens
 /// The default is `flush`, no goo, over the stock chrome (``defaultFits``): the selected tab runs into
 /// the card with no fillets (Leo, 2026-11-13: "lawrence wanted no goo by default"). `flush-goo`, the
 /// folder tab with fillets (Leo, 2026-11-10: "morph it in as like, you know how folder tabs look"),
-/// stays one Debug Settings choice away. Compact density keeps the pill under every value. `off`
-/// keeps the older pill look.
+/// is one `appearance.cornerFlush` choice away, which a theme file or a setup may set too. Compact density
+/// keeps the pill under every value. `off` keeps the older pill look.
 public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoice {
     /// The older corner: the selected tab is a gray pill on the frame.
     case off
@@ -41,16 +42,23 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public static let tunable = Tunable<CornerFlush>.choice(
         "chrome.cornerFlush", .sidebar, "Corner flush",
-        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. The default is flush, no goo, over the stock chrome; goo adds the folder tab's fillets. Off: the gray pill.",
+        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. The default is flush, no goo, over the stock chrome; goo adds the folder tab's fillets. Off: the gray pill. A pick here overrides the appearance.cornerFlush setting.",
         default: .flush, code: "CornerFlush.tunable")
 
     /// The value in effect: `off` at compact density, which keeps the pill; else a Debug Settings
-    /// value, else the default where the default chrome fits it (``defaultFits``), else `off`.
+    /// value, else `appearance.cornerFlush` when set (``chosen``), else the default where the default
+    /// chrome fits it (``defaultFits``), else `off`.
     @MainActor public static var current: CornerFlush {
         if Metrics.density == .compact { return .off }
-        if let chosen = tunable.override { return chosen }
+        if let chosen { return chosen }
         return defaultFits ? tunable.defaultValue : .off
     }
+
+    /// The value picked rather than defaulted: a Debug Settings pick of `chrome.cornerFlush` (DEV and NIGHTLY
+    /// only; it overrides the setting there), else `appearance.cornerFlush` (cmux-next.json, a theme file or a
+    /// setup; Leo, 2026-11-18: the gooey look "we have as a toggle maybe, and we can like do more stuff with
+    /// that"). Either draws over any chrome; nil leaves the default to ``defaultFits``.
+    @MainActor static var chosen: CornerFlush? { tunable.override ?? DesignSettings.shared.cornerFlush }
 
     /// The default draws only over the stock chrome: the shipped chrome style (`flat`, the
     /// `appearance.chromeStyle` fallback, or `default`), tabs on top and above a page's toolbar (a strip
@@ -69,9 +77,10 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
             && ChromeTunables.mainPaneCornerRadius.override == nil
     }
 
-    /// The flush corner was picked in Debug Settings, not taken by default, and draws (compact keeps
-    /// the pill): only then does it replace the sidebar's edge line, which `sidebar.border` sets otherwise.
-    @MainActor public static var isChosen: Bool { tunable.override != nil && current.isOn }
+    /// The flush corner was picked (Debug Settings or `appearance.cornerFlush`), not taken by default, and
+    /// draws (compact keeps the pill): only then does it replace the sidebar's edge line, which
+    /// `sidebar.border` sets otherwise.
+    @MainActor public static var isChosen: Bool { chosen != nil && current.isOn }
 
     public var isOn: Bool { self != .off }
 

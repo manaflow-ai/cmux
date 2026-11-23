@@ -162,7 +162,7 @@ FILES_API_LIMIT = 3000  # pulls/{n}/files lists at most this many
 LABEL_OPT_INS = ("full-ci", "dev-build")  # ci.yml's labels that ask for CI on a pull request nothing else starts
 DEFAULT_TYPES = ("opened", "synchronize", "reopened")
 LABEL_ACTIONS = ("labeled", "unlabeled")
-# Events the fallback does not listen for. `edited` re-runs only the description checks (pr-checks' size, the size
+# Events the fallback does not listen for. `edited` re-runs only the description checks (pr-checks' PR size, the size
 # budget's `size:` line) at a head its push already covered; listening would start a run for every title or HOLD-line
 # edit of every pull request (tests/test_ci_pr_runs_cancel_superseded.py, pattern pr-edit-fans-out-ci).
 UNCOVERED_TYPES = ("edited",)

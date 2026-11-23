@@ -3,6 +3,13 @@
 
 public import CmuxNextDesign
 
+extension AppLanguageSetting {
+    /// `app.language`: System follows the macOS language order, as before this setting. Every other value is a locale cmux ships; cmux-config's language module lists them and resolves fallbacks. Choice titles are endonyms, never translated.
+    public nonisolated static let configPath = ["app", "language"]
+    public nonisolated static let fallback = "system"
+    public nonisolated static let values = ["system", "en", "ar", "bs", "da", "de", "es", "fr", "it", "nb", "pl", "pt-BR", "tr", "vi", "ru", "uk", "th", "km", "ja", "ko", "zh-Hans", "zh-Hant"]
+}
+
 extension TerminalCommandHistorySetting {
     /// `history.terminalCommands`: Off: a command line can hold secrets, so recording commands is opt-in.
     public nonisolated static let configPath = ["history", "terminalCommands"]
@@ -222,6 +229,47 @@ extension ContextMenusSetting {
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum GeneralSettingsSchema {
+    static var language: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.language", "Language")
+        return [
+            SettingDescriptor(
+                AppLanguageSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.language", "Language"),
+                help: SettingsText.keyed("settings.app.language.help", "The language of cmux's menus, pages and messages."),
+                kind: .choice([
+                    SettingChoice("system", SettingsText.keyed("settings.app.language.system", "System")),
+                    SettingChoice("en", "English"),
+                    SettingChoice("ar", "العربية"),
+                    SettingChoice("bs", "Bosanski"),
+                    SettingChoice("da", "Dansk"),
+                    SettingChoice("de", "Deutsch"),
+                    SettingChoice("es", "Español"),
+                    SettingChoice("fr", "Français"),
+                    SettingChoice("it", "Italiano"),
+                    SettingChoice("nb", "Norsk bokmål"),
+                    SettingChoice("pl", "Polski"),
+                    SettingChoice("pt-BR", "Português (Brasil)"),
+                    SettingChoice("tr", "Türkçe"),
+                    SettingChoice("vi", "Tiếng Việt"),
+                    SettingChoice("ru", "Русский"),
+                    SettingChoice("uk", "Українська"),
+                    SettingChoice("th", "ไทย"),
+                    SettingChoice("km", "ខ្មែរ"),
+                    SettingChoice("ja", "日本語"),
+                    SettingChoice("ko", "한국어"),
+                    SettingChoice("zh-Hans", "简体中文"),
+                    SettingChoice("zh-Hant", "繁體中文"),
+                ]),
+                default: .string(AppLanguageSetting.fallback),
+                keywords: ["language", "locale", "localization", "translation", "Sprache", "langue", "idioma", "lingua", "言語", "언어", "语言", "язык"]
+            ),
+        ]
+    }
+}
+
+extension GeneralSettingsSchema {
     static var history: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.history", "History")
         return [
@@ -293,80 +341,6 @@ nonisolated enum GeneralSettingsSchema {
                 kind: .number(SettingNumber(ClosedHistoryRetentionSetting.maxAgeDaysRange, step: 1, unit: .days)),
                 default: .number(ClosedHistoryRetentionSetting.maxAgeDaysDefault),
                 keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy", "days"]
-            ),
-        ]
-    }
-}
-
-extension GeneralSettingsSchema {
-    static var window: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.window", "Window")
-        return [
-            SettingDescriptor(
-                WindowTitlebarSetting.configPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.window.titlebar", "Titlebar"),
-                help: SettingsText.keyed("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
-                kind: .choice([
-                    SettingChoice(TitlebarStyle.minimal.rawValue, SettingsText.keyed("settings.choice.minimal", "Minimal")),
-                    SettingChoice(TitlebarStyle.standard.rawValue, SettingsText.keyed("settings.choice.standard", "Standard")),
-                ]),
-                default: .string(WindowTitlebarSetting.fallback.rawValue),
-                keywords: ["traffic lights", "title"]
-            ),
-            SettingDescriptor(
-                TitlebarButtonsSetting.configPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
-                help: SettingsText.keyed("settings.window.titlebarButtons.help", "With the sidebar hidden, On Hover shows its buttons only over the top row."),
-                kind: .choice([
-                    SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
-                    SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
-                ]),
-                default: .string(TitlebarButtonsSetting.fallback.rawValue),
-                keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.globalHotKeyPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
-                help: SettingsText.keyed("settings.app.globalHotKey.help", "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
-                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows from any app"),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.globalHotKeyDefault),
-                keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.startAgentGlobalHotKeyPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
-                help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help", "⌃⌥⌘Space starts an agent while another app is in front."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyDefault),
-                keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.hideDockIconWithoutWindowsPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.hideDockIconWithoutWindows", "Hide Dock Icon When No Windows Are Open"),
-                help: SettingsText.keyed("settings.app.hideDockIconWithoutWindows.help", "cmux stays in the menu bar until a window opens."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault),
-                keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.showMenuBarIconPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.showMenuBarIconDefault),
-                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
             ),
         ]
     }

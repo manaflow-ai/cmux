@@ -7,9 +7,9 @@
 //!
 //! - `ticket_expire_renews_with_no_broken_circuit` (F1): 1 s tickets, [`RENEWALS_PER_RUN`]
 //!   renewals per run (200 over the default 20 runs), no failed dial, no broken circuit.
-//! - `mint_down_then_expiry_reports_a_reason` (F2, known red): the mint goes down, the ticket
-//!   expires, and within one renewal a dial must report why (the credential), not a
-//!   retryable "connecting" failure. Lane `rc-bounded-states` makes it pass.
+//! - `mint_down_then_expiry_reports_a_reason` (F2): the mint goes down, the ticket expires, and
+//!   within one renewal a dial reports why (`credential-unavailable`, the relay's answer for a
+//!   registration whose ticket ran out unrenewed), not a bare retryable "connecting" failure.
 //!
 //! ```text
 //! cargo test -p cmux-remote --test rc_faults -- --nocapture            # CMUX_FAULT_RUNS (20)
@@ -373,10 +373,15 @@ impl Probe {
 }
 
 /// What a person would see for one dial: connected, still "connecting" (a failure the client
-/// retries without a word), or a reason.
+/// retries without a word), or a reason. A retryable failure that names a reason (the words a
+/// link's offline reason is read from, acpmux `peer_carrier::reason`) is a reason: the link reads
+/// offline with it and an action, while attempts go on behind it.
 fn reading(outcome: &Result<Box<dyn FrameLink>, ProviderError>) -> String {
     match outcome {
         Ok(_) => "connected".into(),
+        Err(error) if error.to_string().contains("credential-unavailable:") => {
+            format!("reason: {error}")
+        }
         Err(error) if error.is_retryable_carrier_failure() => "connecting".into(),
         Err(error) => format!("reason: {error}"),
     }
@@ -387,11 +392,10 @@ fn reading(outcome: &Result<Box<dyn FrameLink>, ProviderError>) -> String {
 /// why within one renewal (the ticket's lifetime): the daemon's credential is unavailable. A
 /// retryable carrier failure is a "Connecting" that never ends, the failure this catches.
 ///
-/// Red on feat-cmux-next: the dial fails retryably and nothing on the route carries the
-/// registration's reason (the registration loop retries the mint forever and says so only on
-/// stderr). Lane `rc-bounded-states` (piece P3) makes it pass and removes the ignore.
+/// Red before the relay remembered a lapsed registration: the dial failed retryably with a bare
+/// `slot-offline` and nothing on the route carried the registration's reason. Now the relay
+/// answers a Connect to a slot whose ticket ran out unrenewed with `credential-unavailable`.
 #[test]
-#[ignore = "rc-bounded-states: a mint outage at expiry reads as Connecting forever (F2)"]
 fn mint_down_then_expiry_reports_a_reason() -> Result<(), Failed> {
     const TTL: Duration = Duration::from_secs(2);
     Runs::new("mint-down then ticket-expire", replay("mint_down")).run(|seed, trace| {
