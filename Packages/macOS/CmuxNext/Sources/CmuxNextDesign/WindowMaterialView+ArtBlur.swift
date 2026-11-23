@@ -19,15 +19,11 @@ extension WindowMaterialView {
     }
 
     /// Sets the art layer to show `image`: its blurred copy when ready, else what shows now while
-    /// one is made, else `image` sharp (nothing shows yet).
+    /// one is made (nothing when nothing shows: the sharp picture never flashes before its blur).
     func showArtContents(_ image: NSImage?) {
         guard let layer = artView.layer else { return }
         guard let image else { layer.contents = nil; return }
-        if let contents = artContents(for: image) {
-            layer.contents = contents
-        } else if layer.contents == nil {
-            layer.contents = image
-        }
+        if let contents = artContents(for: image) { layer.contents = contents }
     }
 
     /// Makes `image`'s blurred copy off the main actor, then shows it if `image` and the radius are
@@ -42,25 +38,28 @@ extension WindowMaterialView {
         artBlurPending = (image, radius)
         artBlur = Task { [weak self] in
             let blurred = await Self.blur(picture, radius: pixels)
-            guard !Task.isCancelled, let self, self.artImage === image, self.artBlurRadius == radius else { return }
-            self.artBlurPending = nil
-            guard let blurred else { return }
+            guard let self else { return }
+            // Done either way: a later ask for this picture and radius blurs it again.
+            if let pending = self.artBlurPending, pending.source === image, pending.radius == radius { self.artBlurPending = nil }
+            guard !Task.isCancelled, self.artImage === image, self.artBlurRadius == radius, let blurred else { return }
             self.blurredArt = (image, radius, blurred)
             self.fadeInBlurredArt(blurred)
         }
     }
 
-    /// Crossfades the art layer to its blurred copy (`MotionFade.wallpaper`) when on screen and
-    /// Reduce Motion is off; otherwise shows it at once.
+    /// Shows the art's blurred copy: a crossfade from what shows (`MotionFade.wallpaper`), or a fade
+    /// in (`MotionFade.fadeIn`) when nothing does, while on screen with Reduce Motion off; otherwise
+    /// at once.
     private func fadeInBlurredArt(_ blurred: CGImage) {
         guard let layer = artView.layer else { return }
         let from = layer.presentation()?.contents ?? layer.contents
-        guard from != nil, window?.isVisible == true || crossfadesOffScreen, !Motion.reduceMotion else {
-            layer.contents = blurred
-            return
-        }
         layer.contents = blurred
-        Motion.panes.set(layer, "contents", to: blurred, fade: .wallpaper, from: from)
+        guard window?.isVisible == true || crossfadesOffScreen, !Motion.reduceMotion else { return }
+        if let from {
+            Motion.panes.set(layer, "contents", to: blurred, fade: .wallpaper, from: from)
+        } else {
+            Motion.panes.set(layer, "opacity", to: artOpacity, fade: .fadeIn, from: Float(0))
+        }
     }
 
     /// The size the art fills: the view's, or its screen's before the view has a size (a window's

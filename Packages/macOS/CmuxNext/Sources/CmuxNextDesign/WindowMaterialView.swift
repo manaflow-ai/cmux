@@ -302,6 +302,9 @@ public final class WindowMaterialView: NSView {
         let shown = chosen?.resolved(dark: dark)
         // The desktop moved on (a new picture, a Space with its own): the Desktop Wallpaper reloads.
         let desktopMoved = shown == .desktop && loadedDesktopGeneration != wallpaper.generation
+        // Frosted over art blurs the art itself (and a video over it), by the material's radius: set
+        // before new art shows, so its first frame is already the blurred one.
+        applyArtBlur(backdrop.artBlurRadius)
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped || desktopMoved {
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
@@ -356,8 +359,6 @@ public final class WindowMaterialView: NSView {
                 addSubview(materialView, positioned: .below, relativeTo: glassTint.overlay)
             }
         }
-        // Frosted over art blurs the art itself (and a video over it), by the material's radius.
-        applyArtBlur(backdrop.artBlurRadius)
         let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
         // Where the desktop shows through, the tint takes its picture's hue (appearance.wallpaperTint).
         let leaned = WallpaperTint.tint(tint, wallpaper: wallpaper.tint, enabled: wallpaper.tintEnabled,
