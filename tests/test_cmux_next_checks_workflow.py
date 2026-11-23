@@ -82,9 +82,10 @@ def is_setup(step: dict) -> bool:
     """Checkout and toolchain steps: an action, not a check script; the reset of a reused
     workspace's submodule checkouts that follows checkout on a mini; the check Python (PyYAML)
     a mini lacks; and the start of the slow checks in the background, whose own steps wait for
-    their results."""
+    their results; and the read of the previous checked tip (`prev`, a base-tier dispatch's push range: it
+    prints outputs and gates nothing)."""
     run = str(step.get("run", ""))
-    return ("uses" in step or "scripts/ci/reset-stale-submodules.sh" in run
+    return ("uses" in step or step.get("id") == "prev" or "scripts/ci/reset-stale-submodules.sh" in run
             or step.get("name") == "Prepare check Python (PyYAML) and timeout"
             or "scripts/ci/run-checks-concurrently.sh --start" in run)
 
@@ -530,7 +531,9 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
         typecheck_run = "\n".join(step.get("run", "") for step in jobs["webviews-typecheck"]["steps"])
         self.assertIn("fast_gate_webviews_checks.py", typecheck_run)
         gated |= set(re.findall(r"--only (\S+)", typecheck_run))
-        gated_commands = {package["scripts"][name] for name in gated if name in package["scripts"]}
+        # A gated script may chain pieces (`typecheck` runs protocol:codegen first, #50853): each piece is gated.
+        gated_commands = {piece.strip() for name in gated if name in package["scripts"]
+                          for piece in package["scripts"][name].split("&&")}
         ci_web = ".github/workflows/ci-web.yml"
         loop_line = line_of(ci_web, "for check in ")
         script_key = "check:pieces" if "check:pieces" in scripts else "check"
@@ -3108,12 +3111,15 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertIs(compile_step.get("continue-on-error"), True)
         # An idle gateway runner from this attempt submits the check; otherwise a Linux runner reads the build
         # fleet's own Release (-Onone) compile of the push, fail closed on sha, repo, recipe and configuration.
+        # The gateway takes it only when the results service handed the head off (compile-status did not
+        # succeed with an empty handoff); every other run is on the one Linux label (#48644).
         self.assertTrue(one_runs_on(fast).startswith(
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "!(needs.compile-status.result == 'success' && needs.compile-status.outputs.handoff == '') && "
             "needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && "
             "needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || "),
             one_runs_on(fast))
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", one_runs_on(fast))
+        self.assertTrue(one_runs_on(fast).endswith("|| 'cmux-linux' }}"), one_runs_on(fast))
         run = next(step["run"] for step in fast["steps"] if step.get("id") == "compile")
         self.assertIn("compile-check --ref", run)
         self.assertIn("--app", run)
@@ -4328,14 +4334,12 @@ esac
                         "needs.macos-placement.outputs.blacksmith_6_jobs": f" {tier} "}
                 for result in ("success", "failure", "cancelled"):
                     context = {**base, f"needs.{client}.result": result}
-                    self.assertEqual(evaluate(one_runs_on(job), context), "blacksmith-2vcpu-ubuntu-2404")
-                    self.assertEqual(evaluate(one_runs_on(job), {**context, "vars.CI_CLOUD_OVERFLOW_SAVED": "1"}),
-                                     "blacksmith-4vcpu-ubuntu-2404")
-                    # Fleet Linux first (vars.LINUX_RUNNER naming our own runner); Blacksmith is only overflow.
-                    self.assertEqual(evaluate(one_runs_on(job), {**context, "vars.LINUX_RUNNER": "glaeda-linux"}),
-                                     "glaeda-linux")
-                    self.assertEqual(evaluate(one_runs_on(job), {**context, "vars.LINUX_RUNNER": "blacksmith-8vcpu-ubuntu-2404"}),
-                                     "blacksmith-2vcpu-ubuntu-2404")
+                    # A reporting tier takes the one Linux label of the owned pool (#48644, #49544): no
+                    # variable (CI_CLOUD_OVERFLOW_SAVED, LINUX_RUNNER) moves it to a hosted size.
+                    self.assertEqual(evaluate(one_runs_on(job), context), "cmux-linux")
+                    for variable in ({"vars.CI_CLOUD_OVERFLOW_SAVED": "1"}, {"vars.LINUX_RUNNER": "glaeda-linux"},
+                                     {"vars.LINUX_RUNNER": "blacksmith-8vcpu-ubuntu-2404"}):
+                        self.assertEqual(evaluate(one_runs_on(job), {**context, **variable}), "cmux-linux")
                     self.assertEqual(evaluate(job["timeout-minutes"], context), 5)
                 skipped = {**base, f"needs.{client}.result": "skipped"}
                 self.assertEqual(evaluate(one_runs_on(job), skipped), "blacksmith-6vcpu-macos-26")
@@ -4585,8 +4589,12 @@ class FastTierCargoRoute(unittest.TestCase):
                     path = entry["path"] + ("/src/lib.rs" if entry["kind"] == "cargo" else "")
                     self.assertTrue(self.reaches(path))
 
+    def test_a_webviews_change_runs_it(self):
+        # The daemon embeds the built web bundle (webviews/ is a daemon-test input since #48817).
+        self.assertTrue(self.reaches("docs/x.md", "webviews/src/app.tsx"))
+
     def test_a_change_that_reaches_no_entry_skips_it(self):
-        self.assertFalse(self.reaches("Packages/macOS/CmuxNext/Sources/CmuxNext/App.swift", "webviews/src/app.tsx",
+        self.assertFalse(self.reaches("Packages/macOS/CmuxNext/Sources/CmuxNext/App.swift",
                                       "docs/ci/x.md", ".github/workflows/ci-web.yml"))
         self.assertFalse(self.reaches())
 

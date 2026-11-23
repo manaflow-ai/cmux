@@ -41,7 +41,7 @@ STALE = "::error::Generated cmux-next files are stale. Regenerate them as the st
 class Expr:
     """A small evaluator of the GitHub Actions expressions these job conditions use:
     literals, property paths (with `.*.`), !, ==, !=, &&, || (operand-valued),
-    parentheses, cancelled() and contains(). Loose equality as GitHub does it:
+    parentheses, cancelled(), contains() and startsWith(). Loose equality as GitHub does it:
     values of different types compare as numbers (null and '' are 0)."""
 
     TOKEN = re.compile(r"\s*(?:(\d+)|'((?:[^']|'')*)'|(&&|\|\||==|!=|!|\(|\)|,)|([A-Za-z_][A-Za-z0-9_.*-]*))")
@@ -124,6 +124,9 @@ class Expr:
             if tok == "contains":
                 hay, needle = args
                 return needle in hay if isinstance(hay, (list, str)) else False
+            if tok == "startsWith":
+                hay, prefix = args
+                return str("" if hay is None else hay).lower().startswith(str("" if prefix is None else prefix).lower())
             raise ValueError(tok)
         if tok in ("true", "false", "null"):
             return {"true": True, "false": False, "null": None}[tok]
