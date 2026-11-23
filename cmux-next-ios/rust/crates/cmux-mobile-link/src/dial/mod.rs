@@ -99,9 +99,9 @@ impl TransportKind {
     }
 }
 
-/// [`DialOptions::impair_inbound`]'s hook: whether the datagram came through
-/// this side's TURN allocation, where from and its size, to `None` (drop) or
-/// `Some(delay)`.
+/// A [`DialOptions::impair_inbound`] hook: whether the datagram came through
+/// this side's TURN allocation, where from, and its size in bytes, to its fate
+/// (`None` drops it, `Some(delay)` delivers it that much later).
 #[doc(hidden)]
 pub type ImpairInbound = fn(bool, &std::net::SocketAddr, usize) -> Option<Duration>;
 

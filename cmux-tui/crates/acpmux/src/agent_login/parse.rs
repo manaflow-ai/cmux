@@ -23,10 +23,14 @@ pub const ALLOWED_HOSTS: &[&str] = &[
 /// Claude, Codex or Grok sign-in never offers one of these, nor Cursor's one of [`ALLOWED_HOSTS`].
 pub const CURSOR_HOSTS: &[&str] = &["cursor.com"];
 
+/// The host GitHub's device sign-in link may point at (`gh auth login --web`), and only GitHub's.
+pub const GITHUB_HOSTS: &[&str] = &["github.com"];
+
 /// The hosts `agent`'s sign-in link may point at.
 pub fn hosts(agent: Agent) -> &'static [&'static str] {
     match agent {
         Agent::Cursor => CURSOR_HOSTS,
+        Agent::Github => GITHUB_HOSTS,
         Agent::Claude | Agent::Codex | Agent::Gemini | Agent::Grok => ALLOWED_HOSTS,
     }
 }
@@ -209,6 +213,12 @@ pub fn grok_code(plain: &str) -> Option<String> {
     None
 }
 
+/// gh's one-time code: `! First copy your one-time code: XXXX-XXXX` (the line names the "code",
+/// the code is shaped like one), read as [`grok_code`] reads Grok's.
+pub fn github_code(plain: &str) -> Option<String> {
+    grok_code(plain)
+}
+
 /// What `agent`'s sign-in output offers so far, once it is complete: Claude's
 /// link; Codex's and Grok's link and code; Cursor's link. Gemini signs in with a key only.
 pub fn offer(agent: Agent, output: &str) -> Option<Offer> {
@@ -218,6 +228,7 @@ pub fn offer(agent: Agent, output: &str) -> Option<Offer> {
         Agent::Claude | Agent::Cursor => Some(Offer { url, user_code: None }),
         Agent::Codex => Some(Offer { url, user_code: Some(device_code(&plain)?) }),
         Agent::Grok => Some(Offer { url, user_code: Some(grok_code(&plain)?) }),
+        Agent::Github => Some(Offer { url, user_code: Some(github_code(&plain)?) }),
         Agent::Gemini => None,
     }
 }
