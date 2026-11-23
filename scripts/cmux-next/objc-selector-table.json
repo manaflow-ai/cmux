@@ -1251,6 +1251,9 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSTextView call:viewDidChangeEffectiveAppearance/0": {
+   "27.0": true
+  },
   "NSTextView get:textContainerOrigin/0": {
    "27.0.1": true
   },

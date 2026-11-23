@@ -9,6 +9,7 @@
 * blob tests/test_react_doctor_gate.py
 * blob scripts/ci/bun-install.sh
 * blob scripts/ci/receipt_input_key.py
+* blob scripts/ci/receipt_signed.py
 * blob scripts/ci/receipt-inputs/react-doctor.txt
 webviews tree webviews
 webviews tree config/vite-plus

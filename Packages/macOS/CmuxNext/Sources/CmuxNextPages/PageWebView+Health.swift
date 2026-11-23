@@ -20,6 +20,10 @@ public protocol PageHealthFeed: AnyObject {
     func pageInput(_ page: PageWebView)
     /// The page's view may have been shown or hidden; read ``PageWebView/isShownForHealth``.
     func pageVisibilityChanged(_ page: PageWebView)
+    /// The page's document started loading: a navigation the host started (a reload for a web source
+    /// change, crash recovery, a repair) or a main-frame load WebKit began. The page loads and is not
+    /// hung until ``pageLoaded(_:)``.
+    func pageNavigationStarted(_ page: PageWebView)
     /// A document finished loading.
     func pageLoaded(_ page: PageWebView)
     /// A main-frame load failed (not a cancelled one).

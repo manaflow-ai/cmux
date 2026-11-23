@@ -294,3 +294,8 @@ export function onChange<T>(live: Live<T>, fn: (value: T) => void, options: { in
 // Widgets (`cmux.widget/1`): the place and its glanceable layout helpers (widget.ts).
 
 export * from "./widget.ts"
+
+// ---------------------------------------------------------------------------------------------
+// Design systems (`cmux.design/1`): cmux's as data, a person's on top of it, and its viewer (design.ts).
+
+export * from "./design.ts"

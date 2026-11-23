@@ -4,6 +4,7 @@ judgement and the bisect, plus the manifest, the caller jobs and the callees kep
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,10 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import post_merge_batch as pmb  # noqa: E402
 
@@ -238,8 +243,9 @@ class BisectTest(unittest.TestCase):
     def test_first_parent_range_on_a_real_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             def g(*argv: str) -> str:
-                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *argv], cwd=tmp, check=True, capture_output=True, text=True).stdout.strip()
-            g("init", "-q")
+                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *argv], cwd=tmp, check=True,
+                                      capture_output=True, text=True, env=git_fixture_env.fixture_env()).stdout.strip()
+            git_fixture_env.init_repo(tmp)
             shas = []
             for i in range(4):
                 Path(tmp, "f").write_text(str(i))

@@ -29,6 +29,10 @@ mod paced;
 #[derive(Clone)]
 pub struct SessionCfg {
     pub display: String,
+    /// Linux X11: the viewer's display pick, an index into the host's display list (`main`
+    /// or none is the whole X screen). macOS picks through `display` itself.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub display_pick: Option<String>,
     pub max_fps: u32,
     /// `--encode-profile`: standard (default) or ultra (the engine marks every frame with it).
     pub encode_profile: cmux_rd_core::profile::EncodeProfile,
@@ -144,7 +148,8 @@ fn is_media_datagram(datagram: &[u8]) -> bool {
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
 /// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
-/// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
+/// this frame, once; `shown_us`, the vsync the window server composited the frame for
+/// (ScreenCaptureKit's display time, usually a few ms after `arrived_us`);
 /// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
 /// since the last frame; `release_us`, when the engine's gate released the frame's request;
 /// `capture_us`, the frame's `t_capture_us` (the capture ended; also on the viewer's frame);
