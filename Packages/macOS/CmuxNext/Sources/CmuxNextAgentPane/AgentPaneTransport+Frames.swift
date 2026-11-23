@@ -290,14 +290,14 @@ extension AgentPaneTransport {
     /// Starts ``provePerson`` and returns once its first frame is on the socket, or once it sends
     /// none: the proof stays the connection's second request, and its answer settles off the line.
     func sendPersonProof(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let sent = ProofSent(continuation)
-            // task-owner: one proof per connection; it ends with its answer, a re-key cap or the socket's close
-            Task { @MainActor in
-                await provePerson(socket: socket, ids: ids, sent: sent.resume)
-                sent.resume()
-            }
+        // Ends when the proof's first frame is sent, or when provePerson ends without one.
+        let (sent, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        // task-owner: one proof per connection; it ends with its answer, the re-key cap or the socket's close
+        Task {
+            await provePerson(socket: socket, ids: ids, sent: { signal.finish() })
+            signal.finish()
         }
+        for await _ in sent {}
     }
 
     func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds, sent: @escaping @MainActor () -> Void = {}) async {
@@ -684,18 +684,5 @@ extension AgentPaneTransport {
         if let method = facts.method {
             sessions.sent(method: method, id: facts.pageID, handoff: facts.handoffId, owned: facts.foreignSource)
         }
-    }
-}
-
-/// Resumes ``AgentPaneTransport/sendPersonProof(socket:ids:)``'s wait once, whichever comes first:
-/// the proof's first frame sent, or ``AgentPaneTransport/provePerson(socket:ids:sent:)`` ending.
-@MainActor private final class ProofSent {
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
-
-    func resume() {
-        continuation?.resume()
-        continuation = nil
     }
 }
