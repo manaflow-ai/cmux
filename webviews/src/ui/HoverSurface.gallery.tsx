@@ -30,6 +30,24 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
     if (!root) return;
     const under = () => root.querySelectorAll(".hover-surface-gallery-rows > *");
     const surfaces = [...root.querySelectorAll<HTMLElement>("[data-gallery-hover]")];
+    // Each surface sits where the app puts it: centered on its target, 4 px above (or below) it,
+    // inside the stage.
+    const stageBox = root.getBoundingClientRect();
+    for (const surface of surfaces) {
+      const target = root.querySelector(surface.dataset.galleryAnchor ?? "");
+      if (!target) continue;
+      const anchor = target.getBoundingClientRect();
+      const box = surface.getBoundingClientRect();
+      const gap = 4;
+      const centered = anchor.left + anchor.width / 2 - box.width / 2 - stageBox.left;
+      const left = Math.max(gap, Math.min(centered, stageBox.width - box.width - gap));
+      const top =
+        surface.dataset.gallerySide === "bottom"
+          ? anchor.bottom + gap - stageBox.top
+          : anchor.top - gap - box.height - stageBox.top;
+      surface.style.left = `${left}px`;
+      surface.style.top = `${top}px`;
+    }
     // Before, only a hover card blurred what it covered; now every hover surface does.
     const blurred = look === "now" ? surfaces.filter((surface) => surface.classList.contains("ui-card")) : surfaces;
     const stops = blurred.map((surface) => attachSeeThroughBlur(surface, under, hoverCardGlass));
@@ -53,7 +71,8 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
       </div>
       <div
         className="ui-tooltip ui-card ui-glass hover-surface-gallery-card"
-        style={{ top: 50, left: 170 }}
+        data-gallery-anchor=".hover-surface-gallery-subagent .hover-surface-gallery-chip"
+        data-gallery-side="top"
         role="tooltip"
         data-gallery-hover=""
       >
@@ -62,7 +81,8 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
       </div>
       <div
         className="ui-tooltip ui-glass hover-surface-gallery-label"
-        style={{ right: 16, bottom: 44 }}
+        data-gallery-anchor=".hover-surface-gallery-chips .hover-surface-gallery-chip"
+        data-gallery-side="top"
         role="tooltip"
         data-gallery-hover=""
       >
@@ -71,7 +91,8 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
       </div>
       <div
         className="ui-title-tooltip ui-glass hover-surface-gallery-title"
-        style={{ top: 32, right: 32 }}
+        data-gallery-anchor=".hover-surface-gallery-rows > p:nth-child(3)"
+        data-gallery-side="bottom"
         role="tooltip"
         data-gallery-hover=""
       >
@@ -92,7 +113,7 @@ export default componentEntry<Props>({
   },
   covers: ["ui/glass/glass.css", "ui/Tooltip.tsx#Tooltip", "ui/titleTooltips.ts#installTooltips", "ui/hoverSurface.ts"],
   load: async () => HoverSurfaceGallery,
-  styles: () => Promise.all([import("./HoverSurface.gallery.css")]),
+  styles: () => import("./HoverSurface.gallery.css"),
   variants: {
     now: { props: { look: "now" } },
     one: { props: { look: "one" } },
