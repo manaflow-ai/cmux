@@ -60,11 +60,17 @@ public final class CloudPlaceDriver {
 
     private func chat(_ id: String) -> CloudPlaceChat? { host?.placeChats().first { $0.id == id } }
 
+    /// The chat an action names: a chat-list row's session when it named one, else the tab's own chat.
+    private func chat(tab: String?, session: String?) -> CloudPlaceChat? {
+        if let session { return host?.placeChats().first { $0.session == session } }
+        return tab.flatMap(chat(_:))
+    }
+
     // MARK: Actions
 
     /// `chatPlace.set`: records the mode, and moves the chat where it puts it now (Cloud: its own VM; Local: back).
-    public func setMode(_ mode: String, tab: String, claims: CloudPlaceClaims = .init()) {
-        guard ["local", "cloud", "auto"].contains(mode), let chat = chat(tab) else { return }
+    public func setMode(_ mode: String, tab: String?, session: String? = nil, claims: CloudPlaceClaims = .init()) {
+        guard ["local", "cloud", "auto"].contains(mode), let chat = chat(tab: tab, session: session) else { return }
         place.setMode(mode, of: chat.session)
         switch mode {
         case "cloud" where !chat.onCloud: move(chat, toCloud: true, trigger: .person, claims: claims)
@@ -76,14 +82,15 @@ public final class CloudPlaceDriver {
 
     /// `chatMove.cancel`: the reducer decides whether the move stops (through `sync`) or finishes.
     public func cancel(tab: String?, session: String?) {
-        guard let session = tab.flatMap(chat(_:))?.session ?? session else { return }
+        guard let session = session ?? tab.flatMap(chat(_:))?.session else { return }
         place.cancel(session)
     }
 
-    /// `chatMove.retry`: the chat's move again, as the person's.
-    public func retry(tab: String, claims: CloudPlaceClaims = .init()) {
-        guard let chat = chat(tab) else { return }
-        run(chat, toCloud: !chat.onCloud, machine: nil, trigger: .person, claims: claims)
+    /// `chatMove.retry`: the chat's move again, as the person's, to the machine its first try was for (its own VM:
+    /// Rust's `own_machine` again, never whichever machine a nil would pick).
+    public func retry(tab: String?, session: String? = nil, claims: CloudPlaceClaims = .init()) {
+        guard let chat = chat(tab: tab, session: session) else { return }
+        if chat.onCloud { run(chat, toCloud: false, machine: nil, trigger: .person, claims: claims) } else { move(chat, toCloud: true, trigger: .person, claims: claims) }
     }
 
     /// `cloudEvacuate`: every local chat (or the named ones) to its own VM, as many at once as Rust's plan says.

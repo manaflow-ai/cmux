@@ -20,6 +20,18 @@ extension AgentPaneRequest {
             && token.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
     }
 
+    /// `action.run`'s `sessions`: Evacuate and Bring Back name 1...500 chats; a chat-list row's place pick, Cancel or
+    /// Retry names exactly one, and never with `session` (the tab's own chat). Each id is usable and has no comma
+    /// (the app's handlers read the list comma-joined).
+    static func areSessionTargets(_ sessions: [String], id: String, alongside session: String?) -> Bool {
+        let usable = sessions.allSatisfy { !$0.isEmpty && $0.count <= 256 && !$0.contains(",") }
+        switch id {
+        case "cloudEvacuate", "cloudBringBackAll": return usable && (1...500).contains(sessions.count)
+        case "chatPlace.set", "chatMove.cancel", "chatMove.retry": return usable && sessions.count == 1 && session == nil
+        default: return false
+        }
+    }
+
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -659,14 +671,19 @@ extension AgentPaneRequest {
             // `queued` and `hasDraft` are what the page knows of the chat's cargo (Chat Place's set and retry only); any other is refused.
             let queued = params?["queued"].map { $0 as? Int }
             let hasDraft = params?["hasDraft"].map { $0 as? Bool }
+            // `sessions` names the chats a chat-list row or Evacuate acts on (never the tab's own chat, so the
+            // shown-chat guard does not bind it): 1...500 usable ids, Evacuate, Bring Back and a row's place pick only.
+            let sessions = params?["sessions"].map { $0 as? [String] }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
                environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
                handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true,
                mode.map({ $0.map { id == "chatPlace.set" && ["local", "cloud", "auto"].contains($0) } ?? false }) ?? true,
                queued.map({ $0.map { ["chatPlace.set", "chatMove.retry"].contains(id) && (0...100_000).contains($0) } ?? false }) ?? true,
-               hasDraft.map({ $0 != nil && ["chatPlace.set", "chatMove.retry"].contains(id) }) ?? true {
-                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil)
+               hasDraft.map({ $0 != nil && ["chatPlace.set", "chatMove.retry"].contains(id) }) ?? true,
+               sessions.map({ $0.map { AgentPaneRequest.areSessionTargets($0, id: id, alongside: session ?? nil) } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, mode: mode ?? nil,
+                                  queued: queued ?? nil, hasDraft: hasDraft ?? nil, sessions: sessions ?? nil)
             } else {
                 self = .unsupported(method)
             }

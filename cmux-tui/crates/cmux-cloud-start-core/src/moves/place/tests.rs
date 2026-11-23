@@ -330,3 +330,40 @@ fn a_vm_that_could_not_start_names_its_cause() {
     );
     assert_eq!(cause(VmError { status: Some(500), ..VmError::default() }), None);
 }
+
+/// The events exactly as `CloudPlaceFlows.swift` sends them (camelCase fields, `atMs`): a
+/// field the reducer reads under another name failed `begin` and left the app no flow
+/// (review of cmux#51824, F1).
+#[test]
+fn the_apps_events_parse_as_sent() {
+    let event = |text: &str| serde_json::from_str::<Event>(text).expect(text);
+    let begin = event(
+        r#"{"event":"begin","session":"s1","direction":"toCloud","trigger":{"auto":"lowBattery"},
+            "from":"This Mac","to":"","cargo":{"turnRunning":true,"continuesTurn":false,"hasDraft":true,
+            "queued":2,"dirtyFiles":3,"branch":"feat"},"atMs":1000}"#,
+    );
+    let (flow, next) = reduce(None, begin);
+    assert_eq!(next, Next::Go);
+    let flow = flow.expect("a begin the app sends makes a flow");
+    assert_eq!(flow.started_ms, 1_000);
+    assert_eq!(flow.trigger, Trigger::Auto(AutoReason::LowBattery));
+    assert_eq!(flow.cargo.dirty_files, 3);
+    assert_eq!(flow.cargo.queued, 2);
+    assert!(flow.cargo.turn_running && flow.cargo.has_draft);
+    let (flow, _) = reduce(Some(flow), event(r#"{"event":"target","to":"vm-1"}"#));
+    let (flow, _) = reduce(flow, event(r#"{"event":"step","step":"machine","atMs":1500}"#));
+    let flow = flow.expect("flow");
+    assert_eq!(flow.step, Step::Machine);
+    for text in [
+        r#"{"event":"live","atMs":2000}"#,
+        r#"{"event":"failed","reason":"x","atMs":2000}"#,
+        r#"{"event":"cancel","atMs":2000}"#,
+    ] {
+        let _ = event(text);
+    }
+    // The flow the reducer returns comes back to it as the app keeps it (JSON round trip).
+    let (flow, _) = reduce(Some(flow), event(r#"{"event":"live","atMs":2000}"#));
+    let kept = serde_json::to_value(&flow).expect("flow serializes");
+    let again: Flow = serde_json::from_value(kept).expect("the kept flow parses");
+    assert!(matches!(again.outcome, Some(Outcome::Live { at_ms: 2000 })));
+}

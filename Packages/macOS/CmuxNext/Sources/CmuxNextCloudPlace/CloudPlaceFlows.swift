@@ -113,7 +113,8 @@ public final class CloudPlaceFlows {
 
     // MARK: Modes
 
-    public func mode(of session: String) -> String { modes[session] ?? "local" }
+    /// The mode the person picked; a chat with none runs where it is (a chat on Cloud reads Cloud, never Local).
+    public func mode(of session: String, onCloud: Bool = false) -> String { modes[session] ?? (onCloud ? "cloud" : "local") }
 
     public func setMode(_ mode: String, of session: String) {
         guard ["local", "cloud", "auto"].contains(mode), modes[session] != mode else { return }
@@ -141,7 +142,7 @@ public final class CloudPlaceFlows {
 
     /// `step` starts (the steps before it are done).
     @discardableResult
-    public func step(_ session: String?, _ step: String) -> Next { session.map { report(session, ["event": "step", "step": step, "atMs": nowMs]) } ?? .go }
+    public func step(_ session: String?, _ step: String) -> Next { session.map { report($0, ["event": "step", "step": step, "atMs": nowMs]) } ?? .go }
 
     /// The machine got its name.
     @discardableResult
@@ -224,8 +225,13 @@ public final class CloudPlaceFlows {
         var request: [String: Any] = ["event": event]
         if let flow = flows[session], let object = try? JSONSerialization.jsonObject(with: flow) { request["flow"] = object }
         guard let body = try? JSONSerialization.data(withJSONObject: request), let reply = core("cloud_move_place_reduce", body),
-              let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any], let flow = answer["flow"],
-              let kept = try? JSONSerialization.data(withJSONObject: flow) else { return .go }
+              let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] else { return .go }
+        // The reducer answers `"flow": null` for an event with no move to fold into (it ignored it): keep what
+        // was there. `data(withJSONObject:)` raises an uncatchable exception on a bare NSNull (review of #51824, F1).
+        guard let flow = answer["flow"] as? [String: Any], JSONSerialization.isValidJSONObject(flow),
+              let kept = try? JSONSerialization.data(withJSONObject: flow) else {
+            return (answer["next"] as? String).flatMap(Next.init(rawValue:)) ?? .go
+        }
         flows[session] = kept
         let nowMs = nowMs
         if let viewRequest = try? JSONSerialization.data(withJSONObject: ["flow": flow, "nowMs": nowMs] as [String: Any]),
@@ -240,7 +246,7 @@ public final class CloudPlaceFlows {
     /// `place: {mode, at, cloudName?, move?}` for the chat header, as JSON; nil with no session.
     public func placeJSON(session: String?, onCloud: Bool, cloudName: String?) -> Data? {
         guard let session else { return nil }
-        var place: [String: Any] = ["mode": mode(of: session), "at": onCloud ? "cloud" : "local"]
+        var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
         if let cloudName { place["cloudName"] = cloudName }
         if let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])

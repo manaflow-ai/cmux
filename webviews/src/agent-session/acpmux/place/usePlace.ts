@@ -63,7 +63,9 @@ export function evacuateActions(say?: (text: string) => void): EvacuateActions {
         ...(sessions ? { sessions: [...sessions] } : {}),
       }).catch(fail),
     cancelEvacuate: () => void callNative("action.run", { id: "cloudEvacuate.cancel" }).catch(fail),
-    setMode: (session, mode) => void callNative("action.run", { id: "chatPlace.set", mode, session }).catch(fail),
+    // A row names its chat in `sessions`: `session` is the tab's own chat, which the app refuses once the tab shows another.
+    setMode: (session, mode) =>
+      void callNative("action.run", { id: "chatPlace.set", mode, sessions: [session] }).catch(fail),
   };
 }
 

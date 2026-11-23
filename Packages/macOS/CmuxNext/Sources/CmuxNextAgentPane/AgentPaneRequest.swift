@@ -109,7 +109,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// tab still shows it. `environment`: New Cloud Machine's Cloud environment (`env_…`), from the
     /// composer's Environment chip; its setup dialog starts on that environment. `handoff`: New Cloud
     /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens.
-    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, mode: String? = nil, queued: Int? = nil, hasDraft: Bool? = nil)
+    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, mode: String? = nil, queued: Int? = nil, hasDraft: Bool? = nil,
+                   sessions: [String]? = nil)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the

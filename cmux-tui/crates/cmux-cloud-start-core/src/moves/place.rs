@@ -213,7 +213,7 @@ pub fn carries(cargo: &Cargo) -> Vec<Carry> {
 
 /// How a move ended.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
 pub enum Outcome {
     /// The chat is live at the new place.
     Live { at_ms: u64 },
@@ -248,7 +248,7 @@ pub struct Flow {
 
 /// What the app tells [`reduce`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "event")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "event")]
 pub enum Event {
     /// The move starts at `preflight`.
     Begin {

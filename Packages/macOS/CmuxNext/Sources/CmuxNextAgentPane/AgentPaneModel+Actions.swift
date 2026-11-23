@@ -50,7 +50,8 @@ extension AgentPaneModel {
     /// is an `unavailable` failure, so the page can say so, with the app's reason when it gave one
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
-    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, mode: String? = nil, queued: Int? = nil, hasDraft: Bool? = nil) -> [String: Any] {
+    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, mode: String? = nil, queued: Int? = nil, hasDraft: Bool? = nil,
+                   sessions: [String]? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
             || Self.terminalSwitchActions.contains(id) || Self.placeActions.contains(id) || screenShare
@@ -69,6 +70,8 @@ extension AgentPaneModel {
         if let hasDraft { arguments["hasDraft"] = String(hasDraft) }
         if let environment { arguments["environment"] = environment }
         if let handoff { arguments["handoff"] = handoff }
+        // The named chats (a chat-list row, Evacuate's selection), comma-joined as the app's handlers read them.
+        if let sessions, Self.placeActions.contains(id) { arguments["sessions"] = sessions.joined(separator: ",") }
         switch onRunAction(id, arguments) {
         case .ran: return AgentPaneReply.success()
         case .refused(let reason): return Self.refused(reason)

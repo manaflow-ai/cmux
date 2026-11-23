@@ -317,7 +317,7 @@ test("the calls are the app's actions, bound to the session", async () => {
     { id: "cloudEvacuate.cancel" },
     { id: "cloudBringBackAll" },
     { id: "cloudBringBackAll", sessions: ["a"] },
-    { id: "chatPlace.set", mode: "auto", session: "c" },
+    { id: "chatPlace.set", mode: "auto", sessions: ["c"] },
   ]);
 });
 

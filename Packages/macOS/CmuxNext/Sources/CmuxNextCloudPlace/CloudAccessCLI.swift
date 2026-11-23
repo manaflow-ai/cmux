@@ -95,7 +95,7 @@ public nonisolated struct CloudAccessCLI: Sendable {
     /// `answer`: the person's answer to request `request` of chat `session`. A secret's value goes on
     /// stdin, never in the arguments, and no remote root goes with it (nothing is copied).
     public func answer(socket: String, machine: String, session: String, request: String, remoteRoot: String, how: How) async throws -> Answer {
-        public let chat = ["link", "access", "answer", "--socket", socket, "--machine", machine, "--session", session, "--request", request]
+        let chat = ["link", "access", "answer", "--socket", socket, "--machine", machine, "--session", session, "--request", request]
         switch how {
         case .allow(let path, let target): return try await run(chat + ["--remote-root", remoteRoot, "--allow", path, "--target", target])
         case .always(let path, let target, let folder):
@@ -110,7 +110,7 @@ public nonisolated struct CloudAccessCLI: Sendable {
     /// of files is taken, and a failure or a cancel removes every file of this upload from the
     /// machine, the partial one and those already sent, before it answers.
     public func upload(socket: String, remoteRoot: String, files: [String]) async throws -> Answer {
-        public var sent = Answer(ok: true)
+        var sent = Answer(ok: true)
         for file in files {
             let answer: Answer
             do { answer = try await uploadOne(socket: socket, remoteRoot: remoteRoot, file: file) } catch {
@@ -133,8 +133,8 @@ public nonisolated struct CloudAccessCLI: Sendable {
         // answer comes. Only a silent link times out, and the idle window outlasts the CLI's own
         // 60 s per-read/write socket deadline (sync_cli/remote.rs IO_DEADLINE), so a transfer the
         // transport still allows is never cut short; elapsed time never imposes a file-size ceiling.
-        public let id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
-        public var answer: Answer
+        let id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+        var answer: Answer
         do {
             answer = try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id, file],
                                    progressIdle: Self.uploadIdle, outputTailBytes: Self.uploadOutputTailBytes)
@@ -155,7 +155,7 @@ public nonisolated struct CloudAccessCLI: Sendable {
     /// after them all when any stayed. It runs outside a cancelled caller's task (ProcessRunner reaps
     /// a stopped child first), so the files are gone before a cancel answers.
     public func removeUploads(socket: String, remoteRoot: String, ids: [String]) async throws {
-        public var removedAll = true
+        var removedAll = true
         for id in ids {
             let arguments = ["link", "access", "upload-cancel", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id]
             let cleanup = Task.detached(priority: .userInitiated) { try await run(arguments, outputTailBytes: Self.uploadOutputTailBytes) }
@@ -175,17 +175,17 @@ public nonisolated struct CloudAccessCLI: Sendable {
     }
 
     private func run(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil, progressIdle: Duration? = nil, outputTailBytes: Int? = nil) async throws -> Answer {
-        public let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
+        let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
                                                  timeout: progressIdle == nil ? (timeout ?? self.timeout) : timeout, progressIdle: progressIdle, outputTailBytes: outputTailBytes, clock: ContinuousClock())
-        public let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
+        let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
               let ok = object["ok"] as? Bool else {
             return Answer(ok: false, errorCode: CloudMoveCLI.badAnswer, error: "exit \(result.status)")
         }
-        public let listed = object["ask"] as? [[String: Any]] ?? []
-        public let failedSyncs = (object["synced"] as? [[String: Any]] ?? []).filter { $0["ok"] as? Bool != true }.count
-        public let uploaded = (object["uploads"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
+        let listed = object["ask"] as? [[String: Any]] ?? []
+        let failedSyncs = (object["synced"] as? [[String: Any]] ?? []).filter { $0["ok"] as? Bool != true }.count
+        let uploaded = (object["uploads"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
         return Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String, asks: listed.compactMap(Self.fileAsk),
                       secrets: listed.compactMap(Self.secretAsk), failures: (object["errors"] as? [Any] ?? []).count + failedSyncs, uploaded: uploaded)
     }
@@ -211,7 +211,7 @@ public nonisolated struct CloudAccessCLI: Sendable {
     private static func fileAsk(_ object: [String: Any]) -> FileAsk? {
         guard object["kind"] as? String == "file", let id = requestID(object),
               let session = object["session"] as? String, let path = object["path"] as? String, path.hasPrefix("/") else { return nil }
-        public let target = object["target"] as? String, always = object["always_folder"] as? String
+        let target = object["target"] as? String, always = object["always_folder"] as? String
         guard target?.hasPrefix("/") != false, always?.hasPrefix("/") != false else { return nil }
         return FileAsk(requestID: id, session: session, path: path, reason: object["reason"] as? String,
                        shareable: object["shareable"] as? Bool == true, target: target, folder: object["folder"] as? Bool, alwaysFolder: always)

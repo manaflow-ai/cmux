@@ -72,15 +72,18 @@ extension CloudHandlers {
             bind(id, registry, reason: cancels ? { nil } : reason) { invocation in
                 guard cancels || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id
+                // A chat-list row names its chat (`sessions`, one); the composer's controls act on the tab's own chat.
+                let named = invocation["sessions"]?.stringValue.map { $0.split(separator: ",").map(String.init) }
+                let row = named?.count == 1 ? named?.first : nil
                 switch id {
                 case AppServices.placeSet:
                     guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }
-                    if let tab { place.setMode(mode, tab: tab, claims: CloudPlaceClaims(invocation)) }
-                case AppServices.placeRetry: if let tab { place.retry(tab: tab, claims: CloudPlaceClaims(invocation)) }
-                case AppServices.placeCancel: place.cancel(tab: tab, session: invocation["session"]?.stringValue)
+                    place.setMode(mode, tab: tab, session: row, claims: CloudPlaceClaims(invocation))
+                case AppServices.placeRetry: place.retry(tab: tab, session: row, claims: CloudPlaceClaims(invocation))
+                case AppServices.placeCancel: place.cancel(tab: tab, session: row ?? invocation["session"]?.stringValue)
                 case AppServices.placeEvacuateCancel: place.cancelEvacuation()
-                case AppServices.placeBringBackAll: place.bringBackAll(sessions: invocation["sessions"]?.stringValue.map { $0.split(separator: ",").map(String.init) })
-                default: place.evacuate(sessions: invocation["sessions"]?.stringValue.map { $0.split(separator: ",").map(String.init) })
+                case AppServices.placeBringBackAll: place.bringBackAll(sessions: named)
+                default: place.evacuate(sessions: named)
                 }
             }
         }
