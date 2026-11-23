@@ -541,14 +541,26 @@
     },
     "agents.cmuxMcp" : {
       "default" : "ask",
-      "description" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
+      "description" : "Claude Code and Codex you start in cmux, in its terminals and agent chats, can use cmux’s tools, Computer Use included. Off until you turn it on. cmux never changes your agents’ own settings.",
       "enum" : [
         "ask",
         "on",
         "off"
       ],
-      "title" : "cmux Tools for Agents in cmux",
+      "title" : "Give Agents cmux’s Tools",
       "type" : "string"
+    },
+    "agents.cmuxMcpClaude" : {
+      "default" : true,
+      "description" : "Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on.",
+      "title" : "Use in Claude Code",
+      "type" : "boolean"
+    },
+    "agents.cmuxMcpCodex" : {
+      "default" : true,
+      "description" : "Off: Codex you start in cmux never gets cmux’s tools, even when they are on.",
+      "title" : "Use in Codex",
+      "type" : "boolean"
     },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",

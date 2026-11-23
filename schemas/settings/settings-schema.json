@@ -1419,7 +1419,9 @@
           {
             "key" : "settings.group.agentTools",
             "rows" : [
-              "agents.cmuxMcp"
+              "agents.cmuxMcp",
+              "agents.cmuxMcpClaude",
+              "agents.cmuxMcpCodex"
             ],
             "title" : {
               "key" : "settings.group.agentTools",
@@ -109639,7 +109641,7 @@
         {
           "title" : {
             "key" : "settings.agents.cmuxMcp.ask",
-            "text" : "Ask"
+            "text" : "Not Set"
           },
           "value" : "ask"
         },
@@ -109669,7 +109671,7 @@
       },
       "help" : {
         "key" : "settings.agents.cmuxMcp.help",
-        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."
+        "text" : "Claude Code and Codex you start in cmux, in its terminals and agent chats, can use cmux’s tools, Computer Use included. Off until you turn it on. cmux never changes your agents’ own settings."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.cmuxMcp",
@@ -109699,7 +109701,7 @@
       "section" : "general",
       "summary" : {
         "key" : "settings.agents.cmuxMcp.summary",
-        "text" : "Whether agents you start in cmux get cmux’s tools"
+        "text" : "Whether agents you start in cmux can use cmux’s tools"
       },
       "surfaces" : {
         "cli" : {
@@ -109786,7 +109788,271 @@
       },
       "title" : {
         "key" : "settings.agents.cmuxMcp",
-        "text" : "cmux Tools for Agents in cmux"
+        "text" : "Give Agents cmux’s Tools"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentTools",
+        "text" : "cmux Tools"
+      },
+      "help" : {
+        "key" : "settings.agents.cmuxMcpClaude.help",
+        "text" : "Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.cmuxMcpClaude",
+      "keywords" : [
+        "mcp",
+        "cmux tools",
+        "computer use",
+        "claude",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "cmuxMcpClaude"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.cmuxMcpClaude"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.cmuxMcpClaude",
+        "text" : "Use in Claude Code"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentTools",
+        "text" : "cmux Tools"
+      },
+      "help" : {
+        "key" : "settings.agents.cmuxMcpCodex.help",
+        "text" : "Off: Codex you start in cmux never gets cmux’s tools, even when they are on."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.cmuxMcpCodex",
+      "keywords" : [
+        "mcp",
+        "cmux tools",
+        "computer use",
+        "codex",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "cmuxMcpCodex"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.cmuxMcpCodex"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.cmuxMcpCodex",
+        "text" : "Use in Codex"
       },
       "validation" : "portable"
     },

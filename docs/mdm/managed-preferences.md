@@ -711,7 +711,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. A mode you pick in a chat applies to that chat only. |
 | `agents.promptCache` | string | `"1h"` | `1h`, `5m` | Prompt Cache. One hour keeps replies after a pause cheap; its cache writes cost a little more. |
 | `agents.modelRouter.model` | string | `"deepseek/deepseek-v4.1-flash-1017"` | `deepseek/deepseek-v4.1-flash-1017`, `deepseek/deepseek-v4.1-flash`, `deepseek/deepseek-v4-flash`, `deepseek/deepseek-v4-pro` | cmux Model Router Model. The model new cmux model router chats start on. |
-| `agents.cmuxMcp` | string | `"ask"` | `ask`, `on`, `off` | cmux Tools for Agents in cmux. Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings. |
+| `agents.cmuxMcp` | string | `"ask"` | `ask`, `on`, `off` | Give Agents cmux’s Tools. Claude Code and Codex you start in cmux, in its terminals and agent chats, can use cmux’s tools, Computer Use included. Off until you turn it on. cmux never changes your agents’ own settings. |
+| `agents.cmuxMcpClaude` | boolean | `true` |  | Use in Claude Code. Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on. |
+| `agents.cmuxMcpCodex` | boolean | `true` |  | Use in Codex. Off: Codex you start in cmux never gets cmux’s tools, even when they are on. |
 | `diagnostics.hangReports` | boolean | `false` |  | Send Hang Reports. Nightly builds send daily hang stacks and timings, never your files, URLs or text. |
 | `diagnostics.usagePatterns` | boolean | `false` |  | Record Usage Patterns. Counts how you use cmux on this Mac. Nothing you type is recorded; nothing is sent. |
 | `developerTools.appPages` | boolean | `true` |  | Developer Tools for cmux Pages. Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings. |

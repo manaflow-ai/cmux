@@ -878,11 +878,7 @@ fn the_refusal_names_the_setting_the_person_turns_on() {
     let message = refusal_for(&path, Caller::Outside, None).expect("off");
     assert!(message.contains("\"mcp\": {\"enabled\": false}"), "{message}");
     let [english, _] = messages::all();
-    assert!(
-        english
-            .disabled
-            .contains("Give Agents cmux’s Tools to On in cmux Settings > Agents")
-    );
+    assert!(english.disabled.contains("Give Agents cmux’s Tools to On in cmux Settings > Agents"));
     for messages in messages::all() {
         assert!(messages.disabled.contains("cmux settings set agents.cmuxMcp on --confirm"));
         assert!(messages.disabled.contains("{path}") && messages.switched_off.contains("{path}"));
@@ -1697,6 +1693,7 @@ mod live_open;
 mod machine_catalog;
 mod retained;
 mod settings;
+mod slides;
 mod terminal_wait_timeout;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
