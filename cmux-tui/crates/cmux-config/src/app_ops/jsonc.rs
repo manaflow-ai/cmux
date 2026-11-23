@@ -24,6 +24,26 @@ pub fn strip(request: &Value) -> Result<Value, OpError> {
     })
 }
 
+/// `{source, path}` to `{line, column}` (from 1; a column counts UTF-16
+/// code units, as the code editor does) of the key of the member at `path`,
+/// or `{}` when the text does not parse or has no such member.
+pub fn position_of(request: &Value) -> Result<Value, OpError> {
+    let source = string(request, "source")?;
+    let path: Vec<String> = request
+        .get("path")
+        .and_then(Value::as_array)
+        .and_then(|keys| keys.iter().map(|key| key.as_str().map(str::to_owned)).collect())
+        .ok_or_else(|| OpError::Invalid("expected a string array `path`".to_owned()))?;
+    if path.is_empty() {
+        return Ok(json!({}));
+    }
+    let Some(offset) = jsonc::member_start(source, &path) else { return Ok(json!({})) };
+    let before = &source[..offset];
+    let line = before.matches('\n').count() + 1;
+    let column = before.rsplit('\n').next().unwrap_or("").encode_utf16().count() + 1;
+    Ok(json!({ "line": line, "column": column }))
+}
+
 /// A read failure as a person reads it: what and where in the file, such as
 /// "the text is not valid JSON at line 5, column 3". Never the error's dump.
 pub fn problem(error: &JsoncError, source: &str) -> String {
@@ -116,6 +136,17 @@ mod tests {
         assert_eq!(position(0, "abc"), "line 1, column 1");
         assert_eq!(position(5, "ab\ncd"), "line 2, column 3");
         assert_eq!(position(3, "é\nx"), "line 2, column 1");
+    }
+
+    #[test]
+    fn position_of_finds_a_nested_key_in_utf16_columns() {
+        let source = "{\n  \"a\": {\n    \"b\": 1 },\n  \"é😀\": 2, \"c\": 3\n}";
+        let at = |path: Value| position_of(&json!({ "source": source, "path": path })).unwrap();
+        assert_eq!(at(json!(["a", "b"])), json!({ "line": 3, "column": 5 }));
+        assert_eq!(at(json!(["c"])), json!({ "line": 4, "column": 13 }));
+        assert_eq!(at(json!(["a", "x"])), json!({}));
+        assert_eq!(at(json!([])), json!({}));
+        assert_eq!(position_of(&json!({ "source": "{", "path": ["a"] })).unwrap(), json!({}));
     }
 
     #[test]
