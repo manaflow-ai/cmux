@@ -43,6 +43,7 @@
     {"name": "composer-quiet-row-gap", "pt": 4, "kind": "edge", "scaled": true, "description": "Gap below composer box", "formula": {"gap-foot": 1}},
     {"name": "composer-quiet-row-height", "pt": 28, "kind": "edge", "scaled": true, "description": "Quiet row height", "formula": {"row": 1}},
     {"name": "composer-quiet-row-text", "pt": 14, "kind": "derived", "scaled": true, "description": "First quiet chip text at leading glyph left edge", "formula": {"composer-lead-center": 1, "icon-box": -0.5}},
+    {"name": "card-radius", "pt": 16, "kind": "derived", "scaled": true, "description": "Corner of a card the composer's height with no round controls in it (the sidebar's Updated card): a third of the box on the base grid, never a capsule", "formula": {"base": 4}},
     {"name": "sidebar-highlight-inset", "pt": 8, "kind": "edge", "scaled": true, "description": "Highlight inset from the sidebar edge"},
     {"name": "sidebar-lead", "pt": 16, "kind": "edge", "scaled": true, "description": "Leading icon box left edge", "formula": {"sidebar-highlight-inset": 1, "gap": 1}},
     {"name": "sidebar-text", "pt": 40, "kind": "edge", "scaled": true, "description": "Compact text start", "formula": {"sidebar-lead": 1, "icon-box": 1, "gap": 1}},

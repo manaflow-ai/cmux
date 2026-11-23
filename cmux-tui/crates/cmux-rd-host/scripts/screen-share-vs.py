@@ -71,8 +71,10 @@ launched. The app's session goes through the hub to the host's sharing cmux NEXT
 bench's `cmux-rd serve`: --app-host-app APP (host) approves it and names the device, else pass
 --app-host-device ID. The budget's `presented_source` says which pane Total ended at
 (`app-viewer` or `presented-flags`), the Total cell's `via` the same, `app_ledger` the app's
-stages, and `app_timings` the pane's own decode, glass and decode_present ms (`debug.mac_screen
-state`, the last 120 frames; decode_present is the viewer's Decode+Present, released to on glass).
+stages, and `app_timings` the pane's own decode, glass and decode_present ms (`mac_screen.state`,
+every build's read, the last 120 frames; decode_present is the viewer's Decode+Present, released
+to on glass). The pane is driven through DEV-only methods, so --app-viewer needs a DEV build; a
+Release app (NIGHTLY) fails at launch and says so. A NIGHTLY's own timings: `cmux app mac-screens`.
 
 The Apple leg is a headless RFB client (the cua-vnc client, imported from --cua-vnc) on port 5900
 asking only for the marker's strip. It never opens Screen Sharing.app or any window on either Mac.
@@ -204,6 +206,17 @@ def motion_link(series):
         "target_kbps_last": kbps[-1] if kbps else None,
         "target_kbps_series": kbps,
     }
+
+
+def fine_rate(rows):
+    """The viewer bench's `series_100ms` rows ([ms, bytes, kbps]) as [ms, Mbit/s, kbps]: the
+    received rate over each 100 ms bucket beside the host's newest target."""
+    out, prev = [], 0
+    for ms, nbytes, kbps in rows:
+        span = max(ms - prev, 1)
+        out.append([ms, round(nbytes * 8 / span / 1e3, 2), kbps])
+        prev = ms
+    return out
 
 
 def host_frames(lines, cap_fps):
@@ -381,10 +394,13 @@ PRESENTED_KINDS = {
 }
 
 
-# The Mac Screen pane's own frame timings (`debug.mac_screen state`, MacScreenStateControl), each
+# The Mac Screen pane's own frame timings (`mac_screen.state`, MacScreenStateControl), each
 # {count, p50, p95, max} over its last APP_TIMING_WINDOW frames.
 APP_TIMING_FIELDS = ("decode_ms", "glass_ms", "decode_present_ms", "present_ms", "frame_interval_ms")
 APP_TIMING_WINDOW = 120
+# The pane-timings read every build registers (Release too: `cmux app mac-screens`,
+# MacScreenStateControl.releaseMethods); debug.mac_screen is DEV only.
+APP_STATE_METHOD = "mac_screen.state"
 
 
 def presented_source(kind, **fields):
@@ -492,7 +508,7 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
     if not app_timings:
         app_timings = null(cmux.get("skipped") or "no --app-viewer run")
     elif "null" not in app_timings:
-        app_timings = dict(app_timings, of="the app pane's own timings (debug.mac_screen), last "
+        app_timings = dict(app_timings, of="the app pane's own timings (mac_screen.state), last "
                            f"{APP_TIMING_WINDOW} frames: decode_present = released to on glass")
     apple = apple or {"skipped": "not run (--stacks)"}
     if cmux.get("skipped"):
@@ -853,6 +869,10 @@ def read_marker_rgb(rgb, width, origin, cell):
 # --- the clock probe --------------------------------------------------------------------
 
 
+# The longest one clock probe runs on the viewer; its control call gets this plus a margin.
+CLOCK_PROBE_SECONDS = 20.0
+
+
 def cmd_clock_serve(args):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind((args.bind, args.port))
@@ -875,7 +895,12 @@ def cmd_clock_probe(args):
     best = None
     rtts = []
     misses = 0
+    # A deadline, not only a count: on a lossy link each miss costs the 0.5 s socket timeout, so
+    # 200 probes could outlast the control call's own timeout and end the run with no offset.
+    deadline = time.time() + args.max_seconds
     for i in range(args.count):
+        if time.time() >= deadline:
+            break
         t0 = mono_ns()
         s.sendto(struct.pack("!Q", i), (host, int(port)))
         try:
@@ -912,7 +937,8 @@ MARKER_FLAGS = ("--motion", "--tick", "--verbose")
 # maps to the pattern of its value, or None for a switch, which is sent as `--flag 1` (cmux-rd's
 # options all take a value; `--flag=0` turns a switch off).
 NUMBER = r"[0-9]{1,9}"
-HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER}
+HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER,
+             "--stats-every-ms": NUMBER}
 VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
 
 
@@ -1241,7 +1267,7 @@ def cmd_app(args):
     if args.action == "rpc":
         out = app_call(paths, args.method, json.loads(args.params or "{}"))
     elif args.action == "launch":
-        alive = "error" not in app_call(paths, "debug.mac_screen", {"action": "state"}, timeout=10)
+        alive = "error" not in app_call(paths, "system.ping", timeout=10)
         out = {"socket": paths[0], "reused": alive}
         if alive:
             # An app that already runs keeps its own settings: the profile is whatever it has.
@@ -1271,12 +1297,21 @@ def cmd_app(args):
             subprocess.run(argv + [app], check=True, timeout=60)
             deadline = time.time() + args.wait
             while time.time() < deadline:
-                if "error" not in app_call(paths, "debug.mac_screen", {"action": "state"}, timeout=10):
+                if "error" not in app_call(paths, "system.ping", timeout=10):
                     break
                 time.sleep(0.5)  # bounded wait (--wait) for the launched app's socket
             else:
                 out["error"] = f"the app's socket did not answer in {args.wait:g} s ({paths[0]})"
             out["env"] = sorted(env)
+        if not out.get("error"):
+            # --app-viewer drives the pane through debug.device_hub and debug.mac_screen, which
+            # only DEV builds register: a Release app (NIGHTLY) answers method_not_found.
+            probe = app_call(paths, "debug.mac_screen", {"action": "state"}, timeout=10)
+            if "method_not_found" in str(probe.get("error") or ""):
+                out["error"] = (f"{app} is a Release build: debug.mac_screen and debug.device_hub, which "
+                                "--app-viewer drives, exist only in DEV builds. Pass a DEV build at or after "
+                                "cmux#47235; a Release app's own pane timings are `cmux app mac-screens` "
+                                f"({APP_STATE_METHOD})")
     elif args.action == "locate":
         png = os.path.join(os.path.expanduser(args.state), "app-viewer-locate.png")
         why = "no capture"
@@ -1490,8 +1525,10 @@ class Remote:
         return ["reach", self.name, cmd]
 
     def run(self, cmd, timeout=120, stdin=None):
-        p = subprocess.run(self.argv(cmd), input=stdin, capture_output=True, text=True,
-                           timeout=timeout)
+        # With no input, stdin is /dev/null: an inherited stdin lets `reach`/`ssh` read (and
+        # swallow) the orchestrator's own stdin, or wait on it, and the call stalls to its timeout.
+        kw = {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
+        p = subprocess.run(self.argv(cmd), capture_output=True, text=True, timeout=timeout, **kw)
         if p.returncode != 0:
             raise RuntimeError(f"{self.name}: {cmd[:80]}: exit {p.returncode}: {p.stderr.strip()[-400:]}")
         return p.stdout
@@ -1753,7 +1790,7 @@ class Orchestrator:
         self.presented = None  # cmux-rd observe's latencies (ms) through a visible viewer pane
         self.presented_source = None  # where that pane came from (presented_source())
         self.app_ledger = None  # the app viewer's own stage ledger (--app-viewer), or {"null"}
-        self.app_timings = None  # the pane's own frame timings (debug.mac_screen), or {"null"}
+        self.app_timings = None  # the pane's own frame timings (mac_screen.state), or {"null"}
         self.geometry = None  # the marker's motion-geometry, read from the shared Mac
         self.quality_null = None
         self.apple_g2g = None
@@ -1882,7 +1919,8 @@ class Orchestrator:
                 raise RuntimeError(f"clock-serve on {self.a.host} did not start: {line!r}")
             try:
                 out = self.viewer.run(f"{self.py} {self.me} clock-probe --addr {self.a.host_ip}:{port} "
-                                      f"--count {self.a.clock_count}", timeout=120)
+                                      f"--count {self.a.clock_count} --max-seconds {CLOCK_PROBE_SECONDS}",
+                                      timeout=CLOCK_PROBE_SECONDS + 60)
             except RuntimeError as e:
                 if tailnet(self.a.host_ip):
                     raise RuntimeError(f"{e}\n{TAILNET_UDP}") from None
@@ -1988,6 +2026,10 @@ class Orchestrator:
                     rec["fps"] = rep.get("fps")
                     rec["mbit_per_s"] = rep.get("bytes", 0) * 8 / max(rep.get("seconds", 1), 1e-3) / 1e6
                     rec.update(motion_link(rep.get("series") or []))
+                    if rep.get("series_100ms"):
+                        # [ms into the window, Mbit/s received, host target kbps] every 100 ms
+                        # (the target is fresh only with the host on --stats-every-ms 100).
+                        rec["rate_100ms"] = fine_rate(rep["series_100ms"])
                     if rep.get("marker_log") is not None:
                         rec["marker_log"] = rep["marker_log"]
                         # Each second's end (viewer wall ms) and the host's newest stats then.
@@ -2322,7 +2364,7 @@ class Orchestrator:
         return row
 
     def read_app_timings(self, tab):
-        """The pane's own frame timings from `debug.mac_screen state` (APP_TIMING_FIELDS, each a
+        """The pane's own frame timings from `mac_screen.state` (every build; APP_TIMING_FIELDS, each a
         {count, p50, p95, max} of the last frames): decode, glass (decoded to on glass, the
         drawable's presentedHandler) and decode_present (released to on glass). Waits up to 30 s
         for a full window of APP_TIMING_WINDOW frames; a short window is kept and says so."""
@@ -2330,8 +2372,8 @@ class Orchestrator:
         last = {}
 
         def full():
-            rows = self.app_rpc(self.viewer, a.app_viewer, "debug.mac_screen",
-                                {"action": "state", "tab": tab}).get("tabs") or [{}]
+            rows = self.app_rpc(self.viewer, a.app_viewer, APP_STATE_METHOD,
+                                {"tab": tab}).get("tabs") or [{}]
             last.update(rows[0])
             dp = rows[0].get("decode_present_ms") or {}
             return rows[0] if (dp.get("count") or 0) >= APP_TIMING_WINDOW else None
@@ -2653,7 +2695,9 @@ def build_parser():
     r.add_argument("--encode-profile", choices=("standard", "ultra"),
                    help="the cmux stack's profile, asked in the setup line as the app's viewer "
                         "asks it (default: none sent, so the host runs standard)")
-    r.add_argument("--clock-count", type=int, default=200)
+    r.add_argument("--clock-count", type=int, default=60,
+                   help="clock probes per try; the probe also stops after "
+                   f"{CLOCK_PROBE_SECONDS:g} s (the minimum-RTT sample needs few replies)")
     r.add_argument("--timeout", type=float, default=120)
     r.add_argument("--vnc-user", default=os.environ.get("VNC_USERNAME"))
     r.add_argument("--vnc-password-file", help="path on the viewing Mac (0600)")
@@ -2735,6 +2779,8 @@ def build_parser():
     p = sub.add_parser("clock-probe")
     p.add_argument("--addr", required=True)
     p.add_argument("--count", type=int, default=200)
+    p.add_argument("--max-seconds", type=float, default=CLOCK_PROBE_SECONDS,
+                   help="stop probing after this long, replies or not (a lossy link)")
     p.add_argument("--gap-ms", type=float, default=5)
     p.set_defaults(fn=cmd_clock_probe)
     b = sub.add_parser("rfb-bench")

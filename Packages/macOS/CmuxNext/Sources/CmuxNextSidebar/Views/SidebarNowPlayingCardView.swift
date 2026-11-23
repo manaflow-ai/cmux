@@ -157,7 +157,7 @@ final class SidebarNowPlayingCardView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        menuProvider?() ?? super.menu(for: event)
+        NSMenu.withoutSystemItems(menuProvider?() ?? super.menu(for: event))
     }
 
     /// Every card's padding and corner (``Metrics/cardPadding``, ``Metrics/cardCornerRadius``; #49579).

@@ -43,11 +43,14 @@ import type {
   HostLists,
   IntegrationsState,
   KeysState,
+  HubState,
   SharesState,
   TailnetState,
   ModelsState,
   LibraryListing,
+  DoctorReport,
 } from "../pages/settings/ops";
+import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -72,8 +75,14 @@ export type SettingsPageVariant = VariantBase & {
   library?: LibraryListing;
   /** The CLI refuses every library change with this text (a preview is open). */
   libraryRefusal?: string;
+  /** Personalization > Customization Problems: `cmux customize doctor`'s report; default none. */
+  doctor?: DoctorReport;
+  /** Where the doctor's one-line notice draws; default the shipped one (customizeDoctor.ts). */
+  doctorTreatment?: DoctorTreatment;
   /** Settings > Keys fixture state (requests and keys); default the mock's. */
   keys?: KeysState;
+  /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
+  hub?: HubState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
@@ -93,6 +102,8 @@ export type SettingsPageVariant = VariantBase & {
   channelSwitch?: ChannelSwitch | null;
   /** The host's refusal of every Switch; default none (Switch runs). */
   switchRefusal?: string;
+  /** An in-place sign-in's finish never answers, so the card stays on its code (logins done right). */
+  signInHold?: boolean;
   /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
   integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
