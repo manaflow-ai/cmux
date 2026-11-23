@@ -155,6 +155,12 @@ impl SocketDaemon {
         Self::from_candidates(super::daemon_socket::from_process())
     }
 
+    /// The daemon at `path` and no other: a socket another process's environment named (the
+    /// terminal a chat types into, `hub/terminal_input.rs`).
+    pub fn at(path: PathBuf) -> Self {
+        Self { path, looked: Vec::new() }
+    }
+
     /// The first of `candidates` whose socket exists, else the first.
     pub fn from_candidates(candidates: Vec<super::daemon_socket::Candidate>) -> Self {
         let path = super::daemon_socket::pick(&candidates)
