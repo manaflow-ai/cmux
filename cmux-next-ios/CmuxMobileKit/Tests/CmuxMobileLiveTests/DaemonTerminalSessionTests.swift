@@ -38,6 +38,10 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var missing = 0
     /// The `vt-state` replay an attach sends.
     var replay = "hello\r\n$ "
+    /// The Mac terminal's grid the `vt-state` replay is for.
+    var grid = (columns: 80, rows: 24)
+    /// The `vt-state` comes after the attach reply instead of before it.
+    var replayAfterReply = false
     /// Live output right after the attach reply (nil: none).
     var afterAttach: String? = "\u{1B}[?1049hTUI"
     /// `send` is recorded but never answered (its reply lost on the way).
@@ -178,7 +182,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                  "participants": [["id": "c1", "device_kind": "mac", "viewport": ["cols": 80, "rows": 24], "counts": true],
                                   ["id": "c2", "device_kind": "iphone", "device_id": "ios-1", "viewport": ["cols": 80, "rows": 30], "counts": true]]]
             }
-            var state: [String: Any] = ["event": "vt-state", "surface": live, "cols": 80, "rows": 24,
+            let (macGrid, after) = lock.withLock { (grid, replayAfterReply) }
+            var state: [String: Any] = ["event": "vt-state", "surface": live, "cols": macGrid.columns, "rows": macGrid.rows,
                                         "data": Data(replay.utf8).base64EncodedString()]
             let history = lock.withLock { historyRows }
             if let allowance = object["replay_history_rows"] as? Int, let asked = object["replay_history_start"] as? Int,
@@ -204,10 +209,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             } else {
                 lock.withLock { heldRows.append(history) }
             }
-            let lines: [Data] = [
-                Self.line(state),
-                reply(shared ? ["lease": "l1", "participant": "c2", "size_state": sizeState(1)] as [String: Any] : ["lease": "l1"]),
-            ] + (shared ? [Self.line(["event": "size-state", "surface": live, "self_participant": "c2", "state": sizeState(2)])] : [])
+            let answer = reply(shared ? ["lease": "l1", "participant": "c2", "size_state": sizeState(1)] as [String: Any] : ["lease": "l1"])
+            let lines: [Data] = (after ? [answer, Self.line(state)] : [Self.line(state), answer])
+                + (shared ? [Self.line(["event": "size-state", "surface": live, "self_participant": "c2", "state": sizeState(2)])] : [])
             let hybrid: [[String: Any]] = lock.withLock { declaredHybrid ? hybridEvents : [] }
             if !hybrid.isEmpty {
                 return lines + hybrid.map { event in

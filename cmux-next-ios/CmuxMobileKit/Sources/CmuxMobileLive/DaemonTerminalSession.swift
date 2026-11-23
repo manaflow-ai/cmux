@@ -66,6 +66,10 @@ public final class DaemonTerminalSession: TerminalSession {
     private var reportedRows: Int?
     /// The Mac's grid changed since the screen was last told (``TerminalSessionEvent/hostGrid(columns:rows:)``).
     private var hostGridChanged = false
+    /// An attach succeeded and its reset is not shown yet: it goes to the
+    /// screen with the replay's grid (`showAttachReset`), so the screen feeds
+    /// it for the Mac's rows, not the grid it had before the attach.
+    private var attachResetPending = false
     /// The Mac terminal's columns (`vt-state`, `resized`); nil before the
     /// first attach. The screen renders this grid when it is not the phone's.
     public var remoteColumns: Int? { reportedColumns }
@@ -565,6 +569,7 @@ public final class DaemonTerminalSession: TerminalSession {
         reclaimDeadline?.cancel()
         reclaimDeadline = nil
         reclaimHold = TerminalReclaimHold()
+        attachResetPending = false
         stopLeaseRefresh()
         // The Mac drops this attach (a tab cooled out of the warm set, or
         // gone). The size is released first and answered, so the Mac never
@@ -1081,7 +1086,15 @@ public final class DaemonTerminalSession: TerminalSession {
             if !resumesHybrid {
                 hybridResume = nil
                 reclaimHold.restart(alternate: isAlternateScreen)
-                show(.output(TerminalReclaimHold.reset))
+                // The reset goes to the screen after the replay's grid, not
+                // here: the screen turns it into the line feeds that put the
+                // Mac's first row under its taller mirror's (TerminalRowShift),
+                // for the grid it knows when it feeds it. Shown before a
+                // `vt-state` at another device's grid, it was fed for the
+                // phone's own rows whenever the screen fed it at once, and the
+                // replay sat that many rows (40 - 32) above the cursor the
+                // replay then put back (the pixel matrix's PTY stills).
+                attachResetPending = true
             }
             let held = heldEvents ?? []
             heldEvents = nil
@@ -1220,6 +1233,13 @@ public final class DaemonTerminalSession: TerminalSession {
 
     private func apply(_ event: DaemonTerminalInbound) {
         switch event {
+        case .output, .alternateScreen, .resetMirror, .detached:
+            // An attach's first event for the screen: its reset goes first.
+            showAttachReset()
+        case .columns, .rows, .historyRowsOmitted, .hybridFrame, .hybridFallback, .sameGridResize, .sizeState:
+            break
+        }
+        switch event {
         case .output(let data):
             show(.output(data))
         case .alternateScreen(let on):
@@ -1235,6 +1255,8 @@ public final class DaemonTerminalSession: TerminalSession {
                 hostGridChanged = false
                 show(.hostGrid(columns: columns, rows: rows))
             }
+            // The attach's reset, now that the screen has the replay's grid.
+            showAttachReset()
             // The Mac answered a size other than the one asked for (another
             // view of this terminal, the Mac's own window, sets the grid): the
             // request was overruled. A reattach then keeps the Mac's size
@@ -1314,8 +1336,17 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `.connection` events (a quiet line by the composer).
     /// It goes after whatever the reclaim hold has, in stream order.
     private func emitText(_ text: String) {
+        showAttachReset()
         releaseReclaimHold()
         handler?(.output(Data(text.utf8)))
+    }
+
+    /// Shows the reset of an attach that succeeded (``attachResetPending``):
+    /// after the replay's grid, before its first byte or screen switch.
+    private func showAttachReset() {
+        guard attachResetPending else { return }
+        attachResetPending = false
+        show(.output(TerminalReclaimHold.reset))
     }
 
     /// An event for the screen, through the reclaim hold: hidden, the Mac's
