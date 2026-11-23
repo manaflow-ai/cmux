@@ -358,7 +358,7 @@ struct CloudMove {
     /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed
     /// like Cmd-N whose only tab is the chat's (made once: `mutation` + `shown.key`), selected. No terminal first: as the first tab it took
     /// the window and `--focus` (capture baf4f76ab502); a new terminal beside the chat starts in its folder. Each window that
-    /// showed `tab`, the tab the chat leaves, shows it there even for a run with no `--focus`, as focus follows a moved tab.
+    /// showed `tab`, the tab the chat leaves, shows it there even for a run with no `--focus`, as focus follows a moved tab. On a Cloud machine its agent gets the credential a new chat there starts on.
     static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
                      mutation: String, leaving tab: TabModel, services: AppServices) async throws {
         guard let connection = daemon.connection, let host else { throw DaemonError.notConnected }
@@ -368,12 +368,12 @@ struct CloudMove {
             try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
                                                                    origin: AgentTabStore.createOrigin, mutationID: mutation + shown.key))
         }
-        let pane = services.locateTab(model: tab)?.1
-        let keeping = services.windows.controllers.filter { window in pane.map { window.showsOnScreen(tab.id, in: $0) } == true }.map(\.state.id)
+        let pane = services.locateTab(model: tab)?.1, keeping = services.windows.controllers.filter { window in pane.map { window.showsOnScreen(tab.id, in: $0) } == true }.map(\.state.id)
         if keeping.isEmpty { services.windows.reveal(workspaceID: workspace.rawValue) }
         ActionRunScope.carrying(ActionRunScope(origin: ActionRunScope.current?.origin ?? .user, allowsViewChange: true)) { keeping.forEach { services.windows.show(workspaceID: workspace.rawValue, inWindow: $0) } }
         let opened = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)", first = await daemon.store.firstPane(mirroring: workspace)
         for window in services.windows.controllers { if let first { window.state.selection.select(opened, in: first.id) } }
+        if let machine = services.machines.session(daemon.machineID), await !services.cloud.agentCredentials.moved(chat: opened, machine: machine.machineID, harness: shown.harness, surface: created.surface.rawValue, links: CloudMachineLinks(appLink: machine.appLink), endpoint: AgentTabRemoteHost.endpoint(on: daemon)) { Self.toast(services, "cloud-move-credential-" + opened, CloudMoveStrings.credentialFailed(machine.machine.title), duration: .seconds(12)) }
     }
 
     /// A moved chat's workspace name: its workspace's here, but never Home's (a machine's "Home" hid the chat): its folder's.

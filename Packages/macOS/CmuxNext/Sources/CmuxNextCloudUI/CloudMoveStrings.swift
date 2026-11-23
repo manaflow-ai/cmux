@@ -118,6 +118,10 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",
                               table: "Cloud", bundle: .localizedModule), machine, detail)
     }
+    public static func credentialFailed(_ machine: String) -> String {
+        String(format: String(localized: "cloud.move.credentialFailed", defaultValue: "The chat moved to %@, but your agent sign-in didn't reach it.",
+                              table: "Cloud", bundle: .module), machine)
+    }
     /// The app server's refusal of a create at the team's machine count limit (upstream `cloud.quota.vm_limit`).
     public nonisolated static let machineLimitCode = "cmux.cloud.vm_limit"
     public nonisolated static var machineLimit: String {
