@@ -371,9 +371,14 @@ fn run_agent(mut cfg: Config) -> u8 {
     // starts, so before the first bind.
     // When this start is that queued restart, the Cloud role reports the machine degraded
     // until the restarted session host answers (cloud/session.rs `Session::after_restart`).
+    // A gate that fails here leaves binds waiting for it (they retry).
     let restarted = cfg.paths.is_system_root()
         && crate::updater::gate::Gate::new(&cfg.paths)
-            .service_started_at(crate::cloud::role::wall_ms());
+            .service_started_at(crate::cloud::role::wall_ms())
+            .unwrap_or_else(|e| {
+                eprintln!("cmux host: the restart gate failed at start ({e}); binds wait for it");
+                false
+            });
     let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
         .with_root_bootstrap(bootstrap.clone())
         .after_queued_restart(restarted);

@@ -213,7 +213,7 @@ fn capture(
         std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES)
     });
     if kept.is_none() {
-        let _ = std::fs::remove_file(out);
+        let _ = crate::home_fs::remove_file(out);
     }
     kept
 }
@@ -221,10 +221,10 @@ fn capture(
 /// Drops a turn's pictures, and its chat's folder once that holds none, so a chat with no pair
 /// never counts toward [`KEEP_CHATS`].
 fn drop_turn(turn_dir: &Path) {
-    let _ = std::fs::remove_dir_all(turn_dir);
+    let _ = crate::home_fs::remove_dir_all(turn_dir);
     if let Some(chat) = turn_dir.parent() {
         // Fails, keeping it, while another turn's pictures are in it.
-        let _ = std::fs::remove_dir(chat);
+        let _ = crate::home_fs::remove_dir(chat);
     }
 }
 
@@ -256,7 +256,7 @@ fn prune(dir: &Path, keep: usize) {
     }
     folders.sort_by_key(|folder| std::cmp::Reverse(folder.0));
     for (_, path) in folders.into_iter().skip(keep) {
-        let _ = std::fs::remove_dir_all(path);
+        let _ = crate::home_fs::remove_dir_all(path);
     }
 }
 
@@ -273,7 +273,7 @@ pub(crate) fn remove_session(id: &str) {
     });
     drop(pending);
     if let Some(id) = segment(id) {
-        let _ = std::fs::remove_dir_all(root().join(id));
+        let _ = crate::home_fs::remove_dir_all(root().join(id));
     }
 }
 
@@ -318,7 +318,7 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
     }
     let socket = host_socket();
     tokio::task::spawn_blocking(move || {
-        let taken = std::fs::create_dir_all(&dir)
+        let taken = crate::home_fs::create_dirs(&dir)
             .ok()
             .and_then(|()| capture(&socket, &base, &workspace, None, &dir.join(BEFORE)));
         let Some(tab) = taken else {

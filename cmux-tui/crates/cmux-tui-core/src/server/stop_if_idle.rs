@@ -30,6 +30,9 @@ pub(super) struct BusyClient {
 pub(super) struct DaemonBusy {
     pub(super) clients: Vec<BusyClient>,
     pub(super) terminals: usize,
+    /// Of `terminals`, those whose last tab closed: each ends after the reap
+    /// grace unless a tab shows it again (Reopen Closed) or it is kept.
+    pub(super) closed_tabs: usize,
 }
 
 impl fmt::Display for DaemonBusy {
@@ -37,7 +40,17 @@ impl fmt::Display for DaemonBusy {
         let mut uses = Vec::new();
         if self.terminals > 0 {
             let s = if self.terminals == 1 { "" } else { "s" };
-            uses.push(format!("{} live terminal{s}", self.terminals));
+            uses.push(match self.closed_tabs {
+                0 => format!("{} live terminal{s}", self.terminals),
+                n if n == self.terminals => format!(
+                    "{} live terminal{s} of closed tabs, which end after the reap grace unless reopened; run the stop again then",
+                    self.terminals
+                ),
+                n => format!(
+                    "{} live terminal{s}, {n} of them of closed tabs, which end after the reap grace unless reopened",
+                    self.terminals
+                ),
+            });
         }
         if !self.clients.is_empty() {
             let names: Vec<String> = self
@@ -74,12 +87,15 @@ impl std::error::Error for DaemonBusy {}
 /// requester's disconnect) lowers it (`Mux::settle_idle_stop_fence`).
 pub(super) fn check(mux: &Arc<Mux>, requester: u64) -> anyhow::Result<()> {
     let clients = mux.control_clients.other_clients(requester);
+    // Only for what a refusal says: read before the registry lock (the
+    // state lock is never taken under it here).
+    let (unplaced, _) = mux.unplaced_and_placed_terminals();
     let mut registry =
         mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let snapshot = registry.terminal_snapshot().map_err(|error| {
         anyhow::anyhow!("cannot tell whether the daemon is idle, so it keeps running: {error}")
     })?;
-    let terminals = snapshot
+    let live: Vec<&str> = snapshot
         .terminals
         .iter()
         .filter(|t| {
@@ -90,7 +106,9 @@ pub(super) fn check(mux: &Arc<Mux>, requester: u64) -> anyhow::Result<()> {
                     | TerminalLifecycle::Running
             )
         })
-        .count();
+        .map(|t| t.terminal_id.as_str())
+        .collect();
+    let terminals = live.len();
     if clients.is_empty() && terminals == 0 {
         // Raised only while this stop still holds its reservation, checked
         // under the registry lock `Mux::settle_idle_stop_fence` takes: a
@@ -108,7 +126,16 @@ pub(super) fn check(mux: &Arc<Mux>, requester: u64) -> anyhow::Result<()> {
             )
         });
     }
-    Err(DaemonBusy { clients, terminals }.into())
+    // Terminals that end on their own: unplaced, not kept, and a reaper
+    // runs (a direct `--headless` owner without a reap grace has none).
+    // Unknown keeps: none is said to end on its own.
+    let closed_tabs = match (mux.terminal_reaper_running(), registry.kept_terminals()) {
+        (true, Ok(kept)) => {
+            live.iter().filter(|id| unplaced.contains(**id) && !kept.contains(**id)).count()
+        }
+        _ => 0,
+    };
+    Err(DaemonBusy { clients, terminals, closed_tabs }.into())
 }
 
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
@@ -122,5 +149,5 @@ pub(super) fn error_details(error: &anyhow::Error) -> Option<Value> {
         .iter()
         .map(|c| json!({"client": c.client, "name": c.name, "kind": c.kind}))
         .collect();
-    Some(json!({"clients": clients, "terminals": busy.terminals}))
+    Some(json!({"clients": clients, "terminals": busy.terminals, "closed_tabs": busy.closed_tabs}))
 }

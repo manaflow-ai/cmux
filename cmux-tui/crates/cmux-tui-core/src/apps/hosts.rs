@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 
 use super::grants::Grant;
 use super::host::{Exit, HostProcess};
+use super::mirror::Origin;
 use super::supervisor::{
     ApiError, Host, HostKey, HostState, Inner, MAX_CRASHES, Mount, MountKey, Out, Supervisor,
 };
@@ -29,8 +30,9 @@ const HEALTHY_AFTER: Duration = Duration::from_secs(30);
 const MAX_SUBSCRIPTIONS: usize = 256;
 
 impl Supervisor {
-    /// `apps-mount`. `context.preview = true` runs an app that is not
-    /// installed with no grants and no storage (store previews).
+    /// `apps-mount` from no gesture: what an app, a script or a test asks.
+    /// Only the tests call it; the daemon passes its origin to `mount_as`.
+    #[cfg(test)]
     pub fn mount(
         &self,
         client: u64,
@@ -38,6 +40,22 @@ impl Supervisor {
         app: &str,
         interface: &str,
         context: Value,
+    ) -> Result<Value, ApiError> {
+        self.mount_as(client, mount_id, app, interface, context, Origin::Script)
+    }
+
+    /// `apps-mount`. `context.preview = true` runs an app that is not
+    /// installed with no grants and no storage (store previews).
+    /// `context.surface = "overlay"` opens the app's overlay, which only the
+    /// person's own gesture (`origin` user) may do (`overlay.rs`).
+    pub fn mount_as(
+        &self,
+        client: u64,
+        mount_id: &str,
+        app: &str,
+        interface: &str,
+        context: Value,
+        origin: Origin,
     ) -> Result<Value, ApiError> {
         if mount_id.is_empty() || mount_id.len() > 128 {
             return Err(ApiError::new("bad-request", "mount_id must be 1 to 128 bytes"));
@@ -50,6 +68,7 @@ impl Supervisor {
                 .packages
                 .get(app)
                 .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
+            super::overlay::admit(package, interface, &context, origin)?;
             let export = package.export_for(interface).ok_or_else(|| {
                 ApiError::new(
                     "apps.interface",
@@ -183,6 +202,7 @@ impl Supervisor {
 
     pub(super) fn unmount_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
         let Some(mount) = inner.mounts.remove(key) else { return vec![] };
+        self.signals_mount_gone(key);
         self.cancel_widget_timers(mount.widget.as_ref());
         if let Some(process) = inner.hosts.get(&mount.host).and_then(|h| h.process.clone()) {
             process.send(&ToHost::Unmount { mount: key.wire() });
@@ -589,6 +609,13 @@ impl Supervisor {
             FromHost::Subscribe { sub, stream, .. } => {
                 self.subscribe_locked(inner, key, sub, stream)
             }
+            FromHost::Watch { watch, name, params, mount, every_seconds } => {
+                self.watch_locked(inner, key, watch, &name, params, mount, every_seconds)
+            }
+            FromHost::Unwatch { watch, refresh } => {
+                self.unwatch_locked(inner, key, watch, refresh);
+                vec![]
+            }
             FromHost::Unsubscribe { sub } => {
                 inner.hosts.get_mut(key).expect("host").subs.remove(&sub);
                 // An `onEvent` host with no subscription left may idle out.
@@ -685,6 +712,7 @@ impl Supervisor {
                 return;
             };
             host.process = None;
+            self.signals_host_gone(key);
             if let Some(timer) = host.idle.take() {
                 self.timers.cancel(timer);
             }
@@ -818,6 +846,7 @@ impl Supervisor {
             return;
         }
         let inner = self.inner.lock().unwrap();
+        self.signals_pushed_locked(&inner, stream);
         Self::publish_stream_locked(&inner, stream, body);
     }
 }
@@ -843,7 +872,7 @@ pub(super) fn new_host() -> Host {
     }
 }
 
-fn find_mount(inner: &Inner, key: &HostKey, wire: &str) -> Option<MountKey> {
+pub(super) fn find_mount(inner: &Inner, key: &HostKey, wire: &str) -> Option<MountKey> {
     inner.mounts.iter().find(|(k, m)| m.host == *key && k.wire() == wire).map(|(k, _)| k.clone())
 }
 

@@ -69,8 +69,12 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 tempfile = "3"
 cmux-json.workspace = true
+cmux-lifeline.workspace = true
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
+# `cmux vm new --provider gcp`'s sizes (args::create_size), the app's create's table.
+cmux-cloud-handlers.workspace = true
+cmux-apps.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
@@ -79,7 +83,11 @@ cmux-cloud-start-core.workspace = true
 ghostty-vt.workspace = true
 cmux-theme-tokens.workspace = true
 png.workspace = true
+# `slides`: a Markdown deck compiled to the deck page (cli/mcp/md_deck.rs); already linked for
+# cmux-conversation, no new crate.
+pulldown-cmark = { version = "0.13", default-features = false }
 cmux-tui-core.workspace = true
+cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 # The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
 cmux-focus-core.workspace = true
 # The daemon client every SDK user shares (cli/chief/link.rs talks through it).
@@ -100,8 +108,12 @@ cmux-vm-pool.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
+# `cmux pack`: theme packs read, checked, compiled and swapped.
+cmux-theme-pack.workspace = true
 cmux-customize.workspace = true
 cmux-customize-recipes.workspace = true
+# `cmux app web-pieces` (cli/app/web_pieces.rs): the signed per-piece switch file of web updates.
+cmux-web-pieces.workspace = true
 cmux-usage-patterns.workspace = true
 # `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.
 cmux-app-manifest.workspace = true
@@ -186,12 +198,15 @@ cmux-app-host = { workspace = true, features = ["engine"] }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-cloud-api.workspace = true
+# `cmux cloud journey` (cli/cloud_journey.rs): the agent test account's password sign-in.
+cmux-stack-auth.workspace = true
 # `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
 # unix files and processes, so the crate does not build for Windows.
 cmux-automations.workspace = true
 cmux-holder.workspace = true
 # `cmux carrier supervise`: the serve socket's lease between supervisors (carrier/supervise.rs).
 cmux-file-lock.workspace = true
+cmux-install-check.workspace = true
 # Projected folders (link/sync_cli/project.rs): the manifest and the stream the machine reads through.
 cmux-projection.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
@@ -201,11 +216,15 @@ flate2.workspace = true
 tar.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true
+# `cmux app try`: the Screen Sharing helper a live try swaps in is checked against the installed
+# helper's designated requirement, as the share host's staging checks it (cli/app/try_cmd/helper.rs).
+cmux-signed-bundle.workspace = true
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
 # The build identity (daemon skew, SSH re-bootstrap). Only this crate reads
 # it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
 cmux-build-identity.workspace = true
+cmux-host-budget.workspace = true
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
@@ -253,6 +272,8 @@ cmux-relay = { path = "../cmux-relay" }
 # Paused-clock tests of the Cloud dial's handshake wait.
 tokio = { workspace = true, features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# tests/terminal_restart_settled.rs: restores a GHOSTSNP READY the way the Mac surface does.
+ghostty-vt-sys = { workspace = true }
 # `read_timeout_or_ended`: a read timeout for a test socket whose peer can have closed first.
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true

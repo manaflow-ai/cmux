@@ -197,6 +197,29 @@
       "title" : "Prompt Coach",
       "type" : "boolean"
     },
+    "agentPane.display.rail.control" : {
+      "default" : false,
+      "description" : "Shows what the rail lists above it while you point at it.",
+      "title" : "Prompt Rail Button",
+      "type" : "boolean"
+    },
+    "agentPane.display.rail.show" : {
+      "default" : "prompts",
+      "description" : "Right-click the rail to change it.",
+      "enum" : [
+        "prompts",
+        "mine",
+        "received",
+        "replies",
+        "everything",
+        "errors",
+        "edits",
+        "tools",
+        "subagents"
+      ],
+      "title" : "Prompt Rail Shows",
+      "type" : "string"
+    },
     "agentPane.display.rail.side" : {
       "default" : "left",
       "description" : "Right-click the rail to move it.",
@@ -349,11 +372,14 @@
     },
     "agentPane.display.width" : {
       "default" : 800,
-      "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
-      "maximum" : 4000,
-      "minimum" : 480,
+      "description" : "The widest the chat's column gets. On a wider pane the chat stays centered. Also accepts a number from 480 to 4000 in a raw profile.",
+      "enum" : [
+        "narrow",
+        "medium",
+        "wide"
+      ],
       "title" : "Chat Text Width",
-      "type" : "number"
+      "type" : "string"
     },
     "agentPane.editedFiles.maxRows" : {
       "default" : 3,
@@ -395,6 +421,12 @@
       "title" : "Web Images in Replies",
       "type" : "string"
     },
+    "agentPane.links.openCitationsInEditor" : {
+      "default" : false,
+      "description" : "Open local chat links that name a line in your chosen text editor.",
+      "title" : "Open File Citations in Text Editor",
+      "type" : "boolean"
+    },
     "agentPane.links.outsideRoots" : {
       "default" : "open",
       "description" : "What a link to a file outside the chat's folders does. Keys and .env files never open.",
@@ -427,6 +459,17 @@
       "description" : "When off, sending while you are reading up keeps your place and shows new messages below.",
       "title" : "Scroll to Bottom When I Send",
       "type" : "boolean"
+    },
+    "agentPane.sessionWorktrees" : {
+      "default" : "off",
+      "description" : "Choose where to keep worktrees for local chats and forks.",
+      "enum" : [
+        "off",
+        "shared",
+        "project"
+      ],
+      "title" : "Session Worktrees",
+      "type" : "string"
     },
     "agentPane.showContextUsage" : {
       "default" : true,
@@ -495,6 +538,19 @@
       "minimum" : 10,
       "title" : "Only Above Context Used (%)",
       "type" : "number"
+    },
+    "agents.chats.archiveInactive" : {
+      "default" : "never",
+      "description" : "Archives chats after a period of no activity. Chats that are running or have background work never are.",
+      "enum" : [
+        "never",
+        "1d",
+        "3d",
+        "7d",
+        "30d"
+      ],
+      "title" : "Archive Inactive Chats",
+      "type" : "string"
     },
     "agents.chats.coldArchive" : {
       "default" : false,
@@ -1989,6 +2045,16 @@
       "title" : "Saturation",
       "type" : "number"
     },
+    "appearance.selection" : {
+      "default" : "accent",
+      "description" : "Accent tints the selected row and tab with the accent. Neutral keeps them gray.",
+      "enum" : [
+        "accent",
+        "neutral"
+      ],
+      "title" : "Selection",
+      "type" : "string"
+    },
     "appearance.sidebarSurface" : {
       "default" : "same",
       "description" : "Separate shades the sidebar darker than the main pane.",
@@ -2584,7 +2650,7 @@
       "type" : "boolean"
     },
     "browser.omnibar.maxRows" : {
-      "default" : 8,
+      "default" : 6,
       "description" : "browser.omnibar.maxRows",
       "maximum" : 15,
       "minimum" : 3,
@@ -3028,6 +3094,12 @@
       "default" : false,
       "description" : "Adds Customize Menu… to the end of every right-click menu.",
       "title" : "Show Customize Menu…",
+      "type" : "boolean"
+    },
+    "customize.doctorNotice" : {
+      "default" : true,
+      "description" : "customize.doctorNotice",
+      "title" : "Customization notices",
       "type" : "boolean"
     },
     "customize.fromTheApp" : {
@@ -3543,6 +3615,24 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "experiments.agentBadges" : {
+      "default" : false,
+      "description" : "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done.",
+      "title" : "Agent Badges",
+      "type" : "boolean"
+    },
+    "experiments.agentBadgesBeam" : {
+      "default" : false,
+      "description" : "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs.",
+      "title" : "Agent Badges: Running Beam",
+      "type" : "boolean"
+    },
+    "experiments.chatWidgets" : {
+      "default" : false,
+      "description" : "Installed extensions can show a card under a finished tool call in agent chat.",
+      "title" : "Extension Chat Widgets",
+      "type" : "boolean"
+    },
     "experiments.composerV2" : {
       "default" : false,
       "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
@@ -3553,6 +3643,12 @@
       "default" : false,
       "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
       "title" : "Glass Toolbar Groups",
+      "type" : "boolean"
+    },
+    "experiments.toastsV2" : {
+      "default" : false,
+      "description" : "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
+      "title" : "Toasts v2",
       "type" : "boolean"
     },
     "feed.agentPermissionPrompts" : {
@@ -3870,6 +3966,12 @@
       "default" : false,
       "description" : "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
       "title" : "Screen Sharing for Joined Machines",
+      "type" : "boolean"
+    },
+    "labs.pauseAgentMachines" : {
+      "default" : false,
+      "description" : "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
+      "title" : "Pause Agent Machines",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -4441,6 +4543,38 @@
       "title" : "Width",
       "type" : "number"
     },
+    "notifications.delivery.permissionRequest" : {
+      "default" : "banner",
+      "description" : "notifications.delivery.permissionRequest",
+      "enum" : [
+        "off",
+        "badge",
+        "banner"
+      ],
+      "title" : "Permission Request",
+      "type" : "string"
+    },
+    "notifications.delivery.question" : {
+      "default" : "banner",
+      "description" : "notifications.delivery.question",
+      "enum" : [
+        "off",
+        "badge",
+        "banner"
+      ],
+      "title" : "Question",
+      "type" : "string"
+    },
+    "notifications.delivery.taskComplete" : {
+      "default" : "banner",
+      "description" : "notifications.delivery.taskComplete",
+      "enum" : [
+        "off",
+        "banner"
+      ],
+      "title" : "Task Complete",
+      "type" : "string"
+    },
     "notifications.desktop" : {
       "default" : "unlessFocused",
       "description" : "notifications.desktop",
@@ -4870,6 +5004,16 @@
       "title" : "End Sharing When cmux Quits",
       "type" : "boolean"
     },
+    "remote.screenSharingProfile" : {
+      "default" : "balanced",
+      "description" : "Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network.",
+      "enum" : [
+        "balanced",
+        "ultra"
+      ],
+      "title" : "Screen Sharing Profile",
+      "type" : "string"
+    },
     "remote.ultra" : {
       "default" : "auto",
       "description" : "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data.",
@@ -5249,6 +5393,17 @@
       "title" : "Hide Bands Until Hover",
       "type" : "string"
     },
+    "sidebar.nav" : {
+      "default" : [
+
+      ],
+      "description" : "Rows at the top of the sidebar that run cmux actions, by action id, optionally \"id | Title | symbol\". Empty shows none.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Sidebar Nav Rows",
+      "type" : "array"
+    },
     "sidebar.noFade" : {
       "default" : false,
       "description" : "Stops the sidebar's edges fading and hides the bottom profile and search bar.",
@@ -5318,6 +5473,12 @@
       "default" : false,
       "description" : "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
       "title" : "Settle Finished Chats",
+      "type" : "boolean"
+    },
+    "sidebar.showAutomaticSessions" : {
+      "default" : false,
+      "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
+      "title" : "Show Automatic Sessions",
       "type" : "boolean"
     },
     "sidebar.showChats" : {
@@ -6038,6 +6199,16 @@
       "title" : "+ Button Visibility",
       "type" : "string"
     },
+    "tabs.shellIconTheme" : {
+      "default" : "default",
+      "description" : "Machines shows each shell tab with the icon of the machine it runs on.",
+      "enum" : [
+        "default",
+        "machine"
+      ],
+      "title" : "Shell Tab Icons",
+      "type" : "string"
+    },
     "tabs.swapCmdTAndCmdN" : {
       "default" : false,
       "description" : "Cmd-T opens a workspace and Cmd-N opens a tab.",
@@ -6273,7 +6444,7 @@
       "type" : "number"
     },
     "updates.downloadAutomatically" : {
-      "default" : false,
+      "default" : true,
       "description" : "Off: cmux asks before downloading. It always asks before restarting.",
       "title" : "Download Updates Automatically",
       "type" : "boolean"

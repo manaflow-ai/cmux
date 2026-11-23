@@ -267,24 +267,37 @@ pub(super) fn still_current(dir: &Path, unit: &dyn Unit) -> Res<()> {
     Err("this machine's join changed while its host was set up; the host is off".into())
 }
 
-/// The host this desktop serves at `run`'s start: a joined desktop's must be the current
-/// join's, signed in at that join's own hub, or it serves nothing (a unit started for an earlier
-/// join, or after a leave). A record from before joins were marked goes through [`join`]
+/// What [`current_join`] does with a join record from before joins were marked (#45369).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum OldRecord {
+    /// Signs it in again through [`join`], which rewrites it: only `run`, before it serves.
+    Heal,
+    /// Reads it as it is: any other command, which may run beside an older host serving it.
+    /// A rewrite would stop that host (it stops once its records change), and nothing but the
+    /// daemon's next start would start it again (review of #46477).
+    Keep,
+}
+
+/// The join this desktop serves: a joined desktop's must be the current join's, signed in at
+/// that join's own hub, or it serves nothing (a unit started for an earlier join, or after a
+/// leave). With [`OldRecord::Heal`] a record from before joins were marked goes through [`join`]
 /// instead, so an update heals the host at once rather than leaving it off until the daemon's
 /// next start. `read` is [`machine::Join::read`] (a seam for the tests' stub hub).
 pub(super) fn current_join(
     dir: &Path,
     joined: &machine::Joined,
     read: impl Fn(&Path) -> Res<Option<machine::Join>>,
+    old: OldRecord,
 ) -> Res<machine::Join> {
     let current = read(&joined.acpmux_home)?
         .ok_or_else(|| Fatal::needs("This machine's join was revoked or removed", Fatal::JOIN))?;
     if joined.unmarked_from(&joined.acpmux_home) {
-        // Nothing serves yet at `run`'s start, so there is no unit to stop first.
-        join(dir, &current, &ThisProcess)?;
-        return Ok(current);
-    }
-    if !joined.is(&joined.acpmux_home, &current.credential) {
+        if old == OldRecord::Heal {
+            // Nothing serves yet at `run`'s start, so there is no unit to stop first.
+            join(dir, &current, &ThisProcess)?;
+            return Ok(current);
+        }
+    } else if !joined.is(&joined.acpmux_home, &current.credential) {
         return Err(Fatal(format!(
             "This machine was joined again since this host signed in ({}). The host stopped and will not restart by itself; the acpmux daemon sets it up for the new join at its next start",
             dir.join(machine::JOINED_FILE).display()
@@ -551,8 +564,14 @@ fn save_pending(dir: &Path, pending: &[Pending]) -> Res<()> {
 fn add_pending(dir: &Path, entry: Pending) -> Res<()> {
     let now = cmux_hub_host::hub::now_ms();
     let mut pending = load_pending(dir).unwrap_or_default();
-    pending.retain(|p| p.device.id != entry.device.id && p.fresh(now));
-    pending.push(entry);
+    pending.retain(|p| p.fresh(now));
+    // Asked again for the same device: its age counts from the first time it was asked.
+    let since_ms = pending
+        .iter()
+        .filter(|p| p.device.id == entry.device.id)
+        .fold(entry.since_ms, |first, p| first.min(p.since_ms));
+    pending.retain(|p| p.device.id != entry.device.id);
+    pending.push(Pending { since_ms, ..entry });
     let extra = pending.len().saturating_sub(PENDING_KEPT);
     pending.drain(..extra);
     save_pending(dir, &pending)

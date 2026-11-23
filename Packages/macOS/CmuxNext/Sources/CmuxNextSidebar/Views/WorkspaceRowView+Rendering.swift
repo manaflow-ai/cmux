@@ -79,17 +79,13 @@ extension WorkspaceRowView {
     override func updateLayer() {
         performWithTheme {
             // Every row's title, named or not ("workspace-1", "~"), reads in the same ink (Lucas 2026-11-12).
-            title.textColor = SidebarStyle.titleInk
+            title.textColor = SidebarStyle.nameInk(.title, archived: isArchived)
             icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
             // A detail line is the Codex sidebar's `text-tertiary` (#39956): quieter than the title by a full step.
-            subtitle.setColor(Palette.textTertiary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
-            if isArchived { // dimmed (archiving-DESIGN.md)
-                title.textColor = title.textColor.withAlphaComponent(SidebarStyle.archivedAlpha)
-                subtitle.setColor(Palette.textTertiary)
-            }
-            tabCount.setColor(Palette.textTertiary)
+            // Archived (archiving-DESIGN.md): the title drops to the detail ink, no opacity of its own (Leo 2026-10-27).
+            [subtitle, timeLabel, metaLabel, tabCount].forEach { $0.setColor(SidebarStyle.TextInk.tertiary.color) }
             mutedMark.setTint(Palette.textTertiary)
-            cloudMark.setTint(Palette.textSecondary)
+            cloudMark.setTint(Palette.textTertiary)
             usageWarningMark.setTint(Palette.attention)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
@@ -224,7 +220,12 @@ extension WorkspaceRowView {
         if badge.state.isUnread, columnMark?.view !== badge {
             let w = badge.preferredWidth
             let h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
-            badge.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: h))
+            // On the pixel grid as the status glyph is (`statusGlyphFrame`): both share one center, and the count's
+            // edges stay sharp, not on a half pixel.
+            let scale = window?.backingScaleFactor ?? 2
+            var frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: h))
+            frame.origin = NSPoint(x: SidebarStyle.pixelSnapped(frame.minX, scale: scale), y: SidebarStyle.pixelSnapped(frame.minY, scale: scale))
+            badge.frame = frame
             badgeEdge = columns.trailingEdge(before: badge.frame)
         }
         var closeFrame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
@@ -255,17 +256,22 @@ extension WorkspaceRowView {
             mutedMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
             trailing = columns.trailingEdge(before: mutedMark.frame)
         }
+        // Where the row runs is a status mark like the bell-slash: a Cloud row's small muted cloud sits in the trailing
+        // cluster, never in the leading slot or against the name (Leo 2026-11-22).
+        if !cloudMark.isHidden {
+            cloudMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
+            trailing = columns.trailingEdge(before: cloudMark.frame)
+        }
         if !usageWarningMark.isHidden {
             // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
             // column's mark (`layoutColumnMark`), centered where every spinner above it centers (Lawrence 2026-10-30:
             // "triangle not aligned, not sure if triangle is even centered": it ended at the row's inset, in a smaller
-            // box). It never gives way to the hover controls: while they show it sits just left of them, so a person
-            // who hovers the row can still point at it and read its tooltip.
-            let onColumn = columnMark?.view === usageWarningMark
-            let end = onColumn ? usageWarningMark.frame.maxX : trailing
-            let shown = overlayStart.map { min(end, $0 - Metrics.space1) } ?? end
-            if !onColumn || shown < end { usageWarningMark.frame = statusGlyphFrame(trailing: shown, centerY: cy) }
-            if !onColumn { trailing = usageWarningMark.frame.minX - Metrics.space2 }
+            // box). Like every other mark it gives way to the hover controls in place (no move); the row's hover card
+            // still names each warning.
+            if columnMark?.view !== usageWarningMark {
+                usageWarningMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
+                trailing = usageWarningMark.frame.minX - Metrics.space2
+            }
         }
         if audioSlot.made?.isHidden == false {
             audioSlot.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
@@ -300,42 +306,42 @@ extension WorkspaceRowView {
         let inset = Self.labelInset
         title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : columns.lead)
         title.fadeWidth = SidebarStyle.titleFadeWidth
-        // A Cloud row's mark sits right after the name, which gives up room for it (it truncates first).
-        let cloudRoom = cloudMark.isHidden ? 0 : ind + Metrics.space1
-        let titleWidth = max(0, textW - inset - cloudRoom) // draws at its edge, so it runs to `trailing`
+        let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)
-        if !cloudMark.isHidden {
-            let nameEnd = title.frame.minX + min(title.intrinsicContentSize.width, title.frame.width)
-            cloudMark.frame = NSRect(x: nameEnd + Metrics.space1, y: title.frame.midY - ind / 2, width: ind, height: ind)
-        }
         // The hover actions draw over the text's end: the title and second
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
         let fade = SidebarStyle.titleFadeWidth
         // The drive indicator never gives way to the hover controls (it is a button the person came to press):
-        // while they show it sits just left of them, as the usage warning does.
+        // while they show it sits just left of them.
         if !driveIndicator.isHidden, let overlayStart, driveIndicator.frame.maxX > overlayStart - Metrics.space1 {
             driveIndicator.frame.origin.x = overlayStart - Metrics.space1 - driveIndicator.frame.width
         }
-        let warningStart = [usageWarningMark.isHidden ? nil : usageWarningMark.frame.minX,
-                            driveIndicator.isHidden ? nil : driveIndicator.frame.minX].compactMap { $0 }.min()
-        // The text and marks give way to the controls and to the badge beside them.
-        let coverStart = overlayStart.map { min($0, warningStart ?? $0) }
+        let driveStart = driveIndicator.isHidden ? nil : driveIndicator.frame.minX
+        // The text and marks give way to the controls and to the drive button beside them.
+        let coverStart = overlayStart.map { min($0, driveStart ?? $0) }
         title.setTrailingOcclusion(coverStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         updateCalmTitleTip()
         startMarqueeAfterLayout()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
+        // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the hovered
+        // buttons should just replace the other ones"): while the ✕, the ⋮ or the pin shows, the dot, the spinner, the
+        // status stack, the counts, the time and the usage warning hide in place (no layout shift). Only what a person
+        // points at keeps its place: the audio button, and the Cloud mark, which belongs to the name.
+        let controlsShow = !shownControls.isEmpty
         for mark in ([activity, rowBadge, agentMark, mutedMark, cloudMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
-            let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
-                : (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
-            // The usage warning never gives way (the layout keeps it left of the controls).
-            let underControl = mark !== usageWarningMark && Self.covers(shownControls, mark)
+            let keepsPlace = mark === cloudMark || mark === audioSlot.made
+                || (mark === agentMark && agentMarkVariant == .besideTitle)
+            let covered = mark === columnMark?.view ? markGivesWay || controlsShow
+                : (controlsShow && !keepsPlace) || (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
+            let underControl = Self.covers(shownControls, mark)
             fadeOpacity(mark, to: covered || underControl ? 0 : 1, fades: fades)
         }
         giveWayToControls(shownControls, fades: fades)
+        if showsNeedsYouGlow { hideMarksForNeedsYouGlow() } else { marksHiddenForGlow = false } // the mark pass showed them
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         if titleArrivalPending && !titleArrivalScheduled {
             titleArrivalScheduled = true
