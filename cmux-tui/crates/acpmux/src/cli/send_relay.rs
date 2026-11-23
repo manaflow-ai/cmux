@@ -133,11 +133,29 @@ pub(crate) fn relay_ls(relay: &SendRelay, deadline: Option<Instant>) -> Result<O
                 // How the row is reached: through the relay that listed it, not this daemon.
                 if let Some(fields) = row.as_object_mut() {
                     fields.insert("via".to_owned(), json!(VIA));
+                    given_handle(fields);
                 }
                 row
             })
             .collect(),
     ))
+}
+
+/// A relay row's given handle as `handle`, the key `ls`, `resolve` and `send` read
+/// ([`find_row`], `session_handle::matches`). A relay may carry it as `displayName` alone (the
+/// given handle only, `SessionSummary::display_name`) so a derived handle stays off its wire;
+/// without this, a renamed chat on another machine was found only by its older name (Leo,
+/// 2026-11-23: "the send/recieve messages are still only the older names").
+pub(crate) fn given_handle(row: &mut serde_json::Map<String, Value>) {
+    let valid = |v: Option<&Value>| {
+        v.and_then(Value::as_str).filter(|h| crate::session_handle::valid(h)).map(str::to_owned)
+    };
+    if valid(row.get("handle")).is_some() {
+        return;
+    }
+    if let Some(given) = valid(row.get("displayName")) {
+        row.insert("handle".to_owned(), Value::String(given));
+    }
 }
 
 /// The `via` of a row the relay lists: no peer link or hub of this daemon reaches it, so only
