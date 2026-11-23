@@ -169,10 +169,14 @@ import UniformTypeIdentifiers
         let store = r.store, conversation = Self.conversation
         r.view.fetchAttachment = { ref, variant in try await store.fetchAttachment(ref, variant: variant, in: conversation) }
         // The bubble stands for HomeStore's item (the send's alias), the item the projection opens files from.
+        // A display frame's store pass (HomeChatRig.frame) brings HomeStore's item into `shown`.
         let projection = r.view.projection
-        await until { projection.shown.contains { HomeMapping.id($0, aliases: projection.aliases) == bubble.id } }
+        await until {
+            projection.refresh()
+            return projection.shown.contains { HomeMapping.id($0, aliases: projection.aliases) == bubble.id }
+        }
         let item = try #require(projection.shown.first { HomeMapping.id($0, aliases: projection.aliases) == bubble.id },
-                                "the sent bubble is HomeStore's item")
+                                "the sent bubble \(bubble.id) is HomeStore's item; shown: \(projection.shown.map { HomeMapping.id($0, aliases: projection.aliases) })")
         let ref = try #require(item.parts.lazy.compactMap { p -> AttachmentRef? in if case let .attachment(a) = p { a } else { nil } }.first)
         _ = try await projection.media.original(ref)
         for copy in copies {
