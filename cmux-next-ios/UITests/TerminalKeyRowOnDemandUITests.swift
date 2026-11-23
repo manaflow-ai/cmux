@@ -26,7 +26,7 @@ final class TerminalKeyRowOnDemandUITests: XCTestCase {
         field.tap()
         XCTAssertTrue(key.waitForExistence(timeout: 5))
         XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
-        XCTAssertTrue(key.isHittable)
+        XCTAssertTrue(key.waitForHittable(timeout: 3), "the key row opens with the keyboard")
         // The row's slot opens with the keyboard (0.25 s): read the key once it has.
         let open = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in key.frame.height >= 44 }, object: nil)
         XCTAssertEqual(XCTWaiter().wait(for: [open], timeout: 3), .completed, "the key is \(key.frame)")
