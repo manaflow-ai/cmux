@@ -5739,6 +5739,37 @@ def _run_named_test(name: str) -> tuple[str, str | None]:
     return name, None
 
 
+def test_the_helper_walk_widens_a_narrow_sparse_checkout_before_it_searches() -> None:
+    # ci.yml's `changes` job checks out fewer paths than .github/checkout-lean.json's
+    # `sparse_checkout`; the walk's `git grep` sees only checked-out files, so it widens first
+    # and finds a referrer outside the narrow set. Without the table it cannot widen and
+    # answers None ("could not search"), which routes every area.
+    env = git_fixture_env.fixture_env()
+
+    def git(repo: Path, *args: str) -> None:
+        subprocess.run(["git", "-C", str(repo), *args], env=env, check=True, capture_output=True, text=True)
+
+    for keep_table in (True, False):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git_fixture_env.init_repo(Path(temp_dir) / "repo", env=env)
+            (repo / ".github").mkdir()
+            (repo / ".github" / "checkout-lean.json").write_text(
+                json.dumps({"sparse_checkout": ["/*", "!/drop/verify/"]}) if keep_table else "{}")
+            (repo / "drop").mkdir()
+            (repo / "drop" / "runner.sh").write_text("scripts/widen-probe.sh\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fixture")
+            git(repo, "sparse-checkout", "set", "--no-cone", "/*", "!/drop/")
+            assert not (repo / "drop" / "runner.sh").exists()
+            module._tree_is_complete.cache_clear()
+            found = module._files_naming(repo, "scripts/widen-probe.sh")
+            if keep_table:
+                assert found == ["drop/runner.sh"], found
+            else:
+                assert found is None, found
+    module._tree_is_complete.cache_clear()
+
+
 def _main() -> int:
     names = sorted(name for name, value in globals().items() if name.startswith("test_") and callable(value))
     # Most of these tests wait on git and the router in subprocesses, so they
