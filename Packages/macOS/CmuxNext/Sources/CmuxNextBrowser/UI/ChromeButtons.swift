@@ -229,7 +229,7 @@ final class ChromeIconButton: ClickableButton {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        menuProvider?() ?? super.menu(for: event)
+        NSMenu.withoutSystemItems(menuProvider?() ?? super.menu(for: event))
     }
 
     /// A right-click presses a button whose press opens a menu (the toolbar's
