@@ -23,6 +23,9 @@ struct BoundActionCatalogTests {
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
         // Make cmux Yours in the palette landed with its Rust row (catalog/home.rs); the pinned app FFI gains it on re-pin.
         "home.makeItYours",
+        // Edit Chief…, Set Chief Model…, Set Chief Effort… and Make Agent a Chief… (ChiefRegistryPaletteTests) land with their
+        // Rust rows; the pinned app FFI gains them on re-pin.
+        "home.editChief", "home.setChiefModel", "home.setChiefEffort", "home.adoptChief",
         // #46896 (the Priority view's Archived fold) adds this row to the Rust catalog
         // (cmux-action-catalog sidebar_priority.rs) and binds it in the same pull request: until the
         // re-pin carries it, Restore on an archived row does nothing.
