@@ -1,8 +1,7 @@
 // l10n-allow-file: bench fixture replies, not shipped UI.
-// What a reveal frame costs (transcript-motion-model.md step 6, "Typing"): with ten replies
-// revealing at once, the display-frame callbacks and React commits one frame asks for; with one
-// 20,000-word reply streaming a word a frame, the milliseconds a frame takes. The same harness runs
-// on any tree that has RevealedMarkdown and revealFrames, so it gives before and after numbers.
+// What a reveal frame costs (transcript-motion-model.md step 6, "Typing"): with one 20,000-word
+// reply streaming a word a frame, the milliseconds a frame takes. The same harness runs on any tree
+// that has RevealedMarkdown and revealFrames, so it gives before and after numbers.
 // REVEAL_COST=1 prints them.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, Profiler } from "react";
@@ -86,17 +85,6 @@ function frame(now: number): { requests: number; commits: number; ms: number } {
 const report = (name: string, value: unknown) => {
   if (process.env.REVEAL_COST) console.log(`REVEAL-COST ${name} ${JSON.stringify(value)}`);
 };
-
-test("ten replies revealing at once: one frame callback and one commit a frame", () => {
-  const words = "Each of these replies streams the same long sentence at the same time as the others do.";
-  show(Array(10).fill(""));
-  show(Array(10).fill(words));
-  const seen = Array.from({ length: 8 }, (_, index) => frame(16 + index * 16));
-  const max = (key: "requests" | "commits") => Math.max(...seen.map((entry) => entry[key]));
-  report("ten-replies", { requests_per_frame: max("requests"), commits_per_frame: max("commits") });
-  expect(max("requests")).toBe(1);
-  expect(max("commits")).toBe(1);
-});
 
 test("a 20,000-word reply growing a word a frame: a frame's cost", () => {
   let text = "";

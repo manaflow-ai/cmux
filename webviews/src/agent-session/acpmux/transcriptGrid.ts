@@ -18,9 +18,34 @@ export const TRANSCRIPT_RUN_GAP = gridLength("gap-run");
 /// line, then the block gap to whatever comes next.
 export const TRANSCRIPT_FOOTER_GAP = gridLength("gap-footer");
 export const TRANSCRIPT_FOOTER_CONTROL = gridLength("transcript-footer-control");
+/// The air a one-line row gets over its 22 line of words, split evenly above and below them: one token for every
+/// activity, tool, notice and message row, so every row kind moves together (conversation.css `--cv-row-air`). Leo,
+/// 2026-11-22 10:55Z, beside the newer ChatGPT's tool list (about 33 apart at our size, ours 22): "it's just too much
+/// fucking text crammed together. let's just follow the newer chatgpt that his this sort of spacing ... just add some
+/// more. our is too much of a dense eyesore right now." Gallery `agent-pane.row-air` shows the looks
+/// (`<html data-row-air>`); `shipped` is the default.
+export const ROW_AIR_LOOKS = {
+  /// Before: the 22 pitch (#29965), rows flush.
+  before: 0,
+  /// Candidate A: a 28 pitch.
+  a: 6,
+  /// Candidate C: a 34 pitch, ChatGPT's 33.
+  c: 12,
+  /// The pick: a 32 pitch.
+  shipped: 10,
+} as const;
+export type RowAirLook = keyof typeof ROW_AIR_LOOKS;
+export function rowAirLook(): RowAirLook {
+  const set = typeof document === "undefined" ? undefined : document.documentElement?.dataset?.rowAir;
+  return set !== undefined && set in ROW_AIR_LOOKS ? (set as RowAirLook) : "shipped";
+}
+/// A one-line row's words: the 22 line they had before any air (#29965).
+export const TRANSCRIPT_LINE_WORDS = 22;
 /// A one-line row's height: a step row, a status row, the live line in a run (conversation.css
-/// `--cv-tool-row-height` at the default density, "One-line row pitch", #29965).
-export const TRANSCRIPT_LINE_ROW = 22;
+/// `--cv-tool-row-height` at the default density, "One-line row pitch", #29965): its words' line and the row air.
+export const TRANSCRIPT_LINE_ROW = TRANSCRIPT_LINE_WORDS + ROW_AIR_LOOKS.shipped;
+/// The same for the look in force (`rowAirLook`), read per layout.
+export const transcriptLineRow = (): number => TRANSCRIPT_LINE_WORDS + ROW_AIR_LOOKS[rowAirLook()];
 
 /// The running turn's live line as its last row (`below`): the gap over it right under a step or status row (model.ts
 /// `isLiveStep`, MARK_LIVE_STEP), the room its row takes, and the box its words are drawn in, set here and nowhere
@@ -56,7 +81,8 @@ export function liveGapLook(): (typeof LIVE_GAP_LOOKS)[LiveGapLook] {
   const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.liveGap;
   return set !== undefined && set in LIVE_GAP_LOOKS ? LIVE_GAP_LOOKS[set as LiveGapLook] : LIVE_GAP_LOOKS.shipped;
 }
-const boxLength = (box: "line" | "slot") => (box === "slot" ? TRANSCRIPT_FOOTER_CONTROL : TRANSCRIPT_LINE_ROW);
+const boxLength = (box: "line" | "slot", line = TRANSCRIPT_LINE_ROW) =>
+  box === "slot" ? TRANSCRIPT_FOOTER_CONTROL : line;
 const boxVar = (box: "line" | "slot") => (box === "slot" ? "var(--cv-footer-row)" : "var(--cv-tool-row-height)");
 /// The room its row takes right under a step row.
 export const TRANSCRIPT_LIVE_STEP_BOX = LIVE_GAP_LOOKS.shipped.row as "line" | "slot";
@@ -69,7 +95,7 @@ export const TRANSCRIPT_LIVE_STEP_HEIGHT = boxLength(TRANSCRIPT_LIVE_STEP_BOX);
 export const TRANSCRIPT_LIVE_LINE_BOX = Math.min(boxLength(LIVE_GAP_LOOKS.shipped.box), TRANSCRIPT_LIVE_STEP_HEIGHT);
 /// The live gap and row height under a step row for the look in force (`liveGapLook`), read per layout.
 export const liveStepGap = (): number => gridLength(liveGapLook().gap);
-export const liveStepHeight = (): number => boxLength(liveGapLook().row);
+export const liveStepHeight = (): number => boxLength(liveGapLook().row, transcriptLineRow());
 /// Its box and gap as CSS custom properties, set on the transcript's root (VirtualTranscript.tsx): conversation.css
 /// sizes its row under a step with `--cv-live-step-height`, draws its words in `--cv-live-line-box` at the top of its
 /// row, and the gallery's plays read `--cv-live-step-gap`, never a length of their own.
@@ -180,6 +206,7 @@ type MarkedRow = {
   turnCopy?: readonly unknown[];
   plan?: unknown;
   turnEnded?: boolean;
+  turnPhase?: string;
 };
 export function rowMark(row: MarkedRow): number {
   if (row.kind === "user" && !row.incoming && !row.received) return MARK_PROMPT;
@@ -189,7 +216,9 @@ export function rowMark(row: MarkedRow): number {
   if ((row.kind === "working" || row.kind === "thinking" || row.kind === "activityLine") && row.below === true)
     return MARK_FOOTER_SLOT;
   // The live line (turns.ts WORKING and THINKING, by value: this module stays import-free).
-  if (row.kind === "working" || row.kind === "thinking") return MARK_INDICATOR;
+  // The turn's header in its running phase is that clock too (turns.ts `turnHeaderId`).
+  if (row.kind === "working" || row.kind === "thinking" || (row.kind === "worked" && row.turnPhase === "running"))
+    return MARK_INDICATOR;
   if (row.kind === "turnSummary")
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
     return row.status !== "failed" &&

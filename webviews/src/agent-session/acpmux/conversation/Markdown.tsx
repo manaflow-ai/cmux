@@ -6,7 +6,7 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { Fragment, memo, useId, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 
 import { CodeBlock } from "./CodeBlock";
 import { InlinePreview } from "./InlinePreview";
@@ -407,7 +407,22 @@ function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactN
 
 /// A top-level block that renders again only when its parsed block changes: a streaming reply's
 /// finished blocks keep their objects (IncrementalMarkdown), so each delta renders only the tail.
-const BlockView = memo(Block);
+/// `closed`: the block lies before the streaming reply's last safe boundary. While measuring
+/// (perf.ts), each committed render of a closed block counts as `markdown.closed`, and every one
+/// after its first as `markdown.closed.rerender`: a closed block is drawn once, so that one stays 0.
+const BlockView = memo(function TopBlock({
+  closed = false,
+  ...props
+}: Parameters<typeof Block>[0] & { closed?: boolean }) {
+  const closedRenders = useRef(0);
+  useLayoutEffect(() => {
+    if (!closed || !acpmuxPerf.enabled) return;
+    acpmuxPerf.render("markdown.closed");
+    if (closedRenders.current > 0) acpmuxPerf.render("markdown.closed.rerender");
+    closedRenders.current += 1;
+  });
+  return <Block {...props} />;
+});
 
 export type MarkdownProps = InlineOptions & {
   /** Markdown source. */
@@ -467,24 +482,21 @@ export function Markdown({
         : undefined,
     [commonmark, children, messageAt],
   );
-  if (!whole) acpmuxPerf.timed("markdown.parse", () => parser.current!.advance(children, { streaming, messageAt }));
-  // A growing reply's closed blocks never change again (incrementalMarkdown.ts): the same array until
-  // another block closes, so what is drawn from them is kept with it (`closedDrawn` below).
-  const closedBlocks = whole ? NO_BLOCKS : parser.current.closedBlocks;
-  const tailBlocks = whole ?? parser.current.tailBlocks;
-  const blocks = closedBlocks.length ? [...closedBlocks, ...tailBlocks] : tailBlocks;
+  const blocks =
+    whole ?? acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
+  // While streaming, the blocks before the parser's last safe boundary are closed (BlockView).
+  const closedCount = streaming && !whole ? parser.current!.closedCount : 0;
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
   // Blocks first drawn while entrances wait (the page hidden or just shown again).
   const awayBlocks = useRef(new Set<string>());
-  // The reveal draws a streaming reply again on every display frame, its source a few words longer
-  // each time. Its closed text is read once, as it closes, and only the text after it each frame
-  // (replyScan.ts), so a frame costs the same at 200 words and at 20,000.
+  // A streaming reply's closed text is read once, as it closes, and only the text after it on each
+  // chunk (replyScan.ts), so a chunk costs the same at 200 words and at 20,000.
   const scan = useRef<ReplyScan | null>(null);
   scan.current ??= new ReplyScan();
-  const closedEnd = whole ? -1 : parser.current.closedState.end;
-  const generation = whole ? -1 : parser.current.closedState.generation;
+  const closedEnd = whole ? -1 : parser.current!.closedState.end;
+  const generation = whole ? -1 : parser.current!.closedState.generation;
   const scanned = useMemo(
     () =>
       closedEnd < 0
@@ -547,74 +559,45 @@ export function Markdown({
   // came while the user was away: it never enters (WebKit would play its suspended entrance on
   // return, shared/pageReveal.ts). It still hands its code over like any live block.
   const away = streaming && !entranceAllowed();
-  // Every block but the last that is closed: drawn again only when another block closes or what
-  // they all read changes (their options, the stream's end, the page going away), never on a reveal
-  // frame, which then reconciles them as the same elements. The last block is the one a frame
-  // grows, and the one the trailing actions and the fresh fade go on.
-  const kept = Math.max(0, Math.min(closedBlocks.length, blocks.length - 1));
-  const closedDrawn = useMemo(() => {
-    const context: DrawContext = {
-      opts,
-      streaming,
-      away,
-      plainCode,
-      artifactIdentity,
-      artifactRevision,
-      atMount: atMount.current!,
-      awayBlocks: awayBlocks.current,
-      streamedFences: streamedFences.current,
-      artifactRevisions: artifactRevisions.current,
-    };
-    const drawn: ReactNode[] = [];
-    const notes: { entry: KeyedBlock; index: number }[] = [];
-    for (let index = 0; index < kept; index += 1) {
-      const entry = closedBlocks[index]!;
-      if (entry.block.type === "footnote") {
-        drawn.push(null);
-        notes.push({ entry, index });
-      } else drawn.push(drawBlock(entry, context, NOT_LAST));
-    }
-    return { drawn, notes };
-  }, [closedBlocks, kept, opts, streaming, away, plainCode, artifactIdentity, artifactRevision]);
+  const draw = (entry: KeyedBlock, index: number) => {
+    if (!artifactRevisions.current.has(entry.block)) artifactRevisions.current.set(entry.block, artifactRevision);
+    const live = !atMount.current!.has(entry.key);
+    if (live && away) awayBlocks.current.add(entry.key);
+    // The last block is a fence still arriving. Read from the parsed (safe) tail, not the raw
+    // fence count: a closer still being typed is held back (safeTail.ts), so the card stays open
+    // until the closed one draws the same lines, and an opener held back after a closed fence does
+    // not turn that fence back into an open one.
+    const open = streaming && index === blocks.length - 1 && entry.block.type === "code" && entry.block.open === true;
+    if (open) streamedFences.current.add(entry.key);
+    return (
+      <BlockView
+        key={entry.key}
+        closed={index < closedCount}
+        block={entry.block}
+        opts={opts}
+        depth={0}
+        enter={streaming && live && !awayBlocks.current.has(entry.key)}
+        code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
+        // Only the open block fades its newest text in: a closed block is drawn once and never again.
+        tail={index === blocks.length - 1 && index >= closedCount ? freshTail : undefined}
+        trailing={index === trailingIndex ? trailing : undefined}
+        artifactIdentity={artifactIdentity ? `${artifactIdentity}\u0000${entry.key}` : undefined}
+        artifactRevision={artifactRevisions.current.get(entry.block)}
+      />
+    );
+  };
   // Footnote definitions draw as the reply's notes, under a rule, in reference order (an
   // unreferenced note last).
-  const notes = [...closedDrawn.notes];
-  for (let index = kept; index < blocks.length; index += 1)
-    if (blocks[index]!.block.type === "footnote") notes.push({ entry: blocks[index]!, index });
-  notes.sort((a, b) => noteRank(a.entry.block, opts) - noteRank(b.entry.block, opts));
+  const notes = blocks
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => entry.block.type === "footnote")
+    .sort((a, b) => noteRank(a.entry.block, opts) - noteRank(b.entry.block, opts));
   // Notes are displayed in reference order, which may differ from their source order.
   const trailingIndex = notes.at(-1)?.index ?? blocks.length - 1;
-  const context: DrawContext = {
-    opts,
-    streaming,
-    away,
-    plainCode,
-    artifactIdentity,
-    artifactRevision,
-    atMount: atMount.current,
-    awayBlocks: awayBlocks.current,
-    streamedFences: streamedFences.current,
-    artifactRevisions: artifactRevisions.current,
-  };
-  const draw = (entry: KeyedBlock, index: number) =>
-    drawBlock(entry, context, {
-      // The last block is a fence still arriving. Read from the parsed (safe) tail, not the raw
-      // fence count: a closer still being typed is held back (safeTail.ts), so the card stays open
-      // until the closed one draws the same lines, and an opener held back after a closed fence does
-      // not turn that fence back into an open one.
-      open: streaming && index === blocks.length - 1 && entry.block.type === "code" && entry.block.open === true,
-      tail: index === blocks.length - 1 ? freshTail : undefined,
-      trailing: index === trailingIndex ? trailing : undefined,
-    });
-  const drawn = [...closedDrawn.drawn];
-  for (let index = kept; index < blocks.length; index += 1) {
-    const entry = blocks[index]!;
-    drawn.push(entry.block.type === "footnote" ? null : draw(entry, index));
-  }
   return (
     <ReplyFoldersContext.Provider value={folders}>
       <div className={`cv-md selectable ${className}`}>
-        {drawn}
+        {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}
         {notes.length > 0 && (
           <section className="cv-footnotes" role="doc-endnotes">
             <ol>{notes.map(({ entry, index }) => draw(entry, index))}</ol>
@@ -622,50 +605,5 @@ export function Markdown({
         )}
       </div>
     </ReplyFoldersContext.Provider>
-  );
-}
-
-const NO_BLOCKS: readonly KeyedBlock[] = [];
-
-/// What drawing a top-level block reads besides the block: the reply's options and state, and the
-/// sets Markdown keeps across renders.
-type DrawContext = {
-  opts: InlineOptions;
-  streaming: boolean;
-  away: boolean;
-  plainCode: boolean;
-  artifactIdentity?: string;
-  artifactRevision?: number;
-  atMount: Set<string>;
-  awayBlocks: Set<string>;
-  streamedFences: Set<string>;
-  artifactRevisions: WeakMap<MdBlock, number | undefined>;
-};
-
-/// What only the last block (or the note the trailing actions follow) draws.
-type LastPart = { open: boolean; tail?: FreshTail; trailing?: ReactNode };
-const NOT_LAST: LastPart = { open: false };
-
-function drawBlock(entry: KeyedBlock, context: DrawContext, last: LastPart): ReactNode {
-  const { artifactRevisions, atMount, awayBlocks, streamedFences } = context;
-  if (!artifactRevisions.has(entry.block)) artifactRevisions.set(entry.block, context.artifactRevision);
-  const live = !atMount.has(entry.key);
-  if (live && context.away) awayBlocks.add(entry.key);
-  if (last.open) streamedFences.add(entry.key);
-  return (
-    <BlockView
-      key={entry.key}
-      block={entry.block}
-      opts={context.opts}
-      depth={0}
-      enter={context.streaming && live && !awayBlocks.has(entry.key)}
-      code={
-        last.open ? "open" : context.plainCode ? "plain" : live || streamedFences.has(entry.key) ? "handoff" : "final"
-      }
-      tail={last.tail}
-      trailing={last.trailing}
-      artifactIdentity={context.artifactIdentity ? `${context.artifactIdentity}\u0000${entry.key}` : undefined}
-      artifactRevision={artifactRevisions.get(entry.block)}
-    />
   );
 }

@@ -83,7 +83,7 @@ env:
 jobs:
   debounce:
     if: ${{ github.event_name != 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && vars.CMUX_NEXT_BATCH_ENABLED == '1' && (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'next-batch/'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     # Skipped while the queue is off. Each event's run waits for quiet; an older
     # run that sees a newer one exits 0 (next_batch.py superseded), never cancelled.
@@ -94,7 +94,7 @@ jobs:
       # The trusted copy of the controller, never the pull request's.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           persist-credentials: false
           sparse-checkout: scripts/ci
       - name: Wait for quiet, then dispatch a batch
@@ -113,7 +113,7 @@ jobs:
   batch:
     environment: cmux-next-batch-agent
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'batch' && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Room for a batch plus a bisect; each validation is one heavy-tier run.
     timeout-minutes: 340
     # One batch at a time. A running batch is never cancelled; a newer
@@ -312,7 +312,7 @@ jobs:
 
   regen-linux:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'regen-linux' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
       contents: read
