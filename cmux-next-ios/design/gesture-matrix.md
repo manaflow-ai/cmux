@@ -63,19 +63,19 @@ Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 | 32 | Terminal | output x interactive dismissal | keyboard follows | OK | `TerminalKeyboardNoResizeUITests` |
 | 33 | Artifacts | image x pinch, pan, dismiss drag | zoom first, dismiss when fitted | OK | |
 | 34 | Feed | row x vertical vs trailing swipe | scroll vertical | OK | `FeedSwipeActionsUITests` |
-| 35 | Feed | reply field x drag vs row swipe | text owns it | OPEN | cluster B |
-| 36 | Feed | command card x horizontal scroll vs row swipe | code scrolls | OPEN | cluster B |
-| 37 | Feed | jump in flight x tap on a control | control works | OPEN | cluster B |
-| 38 | Feed | row x tap on a control vs row open | control wins | OPEN | cluster B |
+| 35 | Feed | reply field x drag vs row swipe | text owns it | FIXED | `testFeed_ReplyField_SwipeLeft_StaysOnText` |
+| 36 | Feed | command card x horizontal scroll vs row swipe | code scrolls; row swipe at the code's end | FIXED | `TouchOwnershipTests` (the demo's command fits its card) |
+| 37 | Feed | jump in flight x tap on a control | jump stops, control works | FIXED | `TouchOwnershipViewTests.controlsAndEditableTextOwnTheirTap`; UI test to add |
+| 38 | Feed | row x tap on a control vs row open | control wins | FIXED | `testFeed_ReplyField_Tap_StaysInFeed`, `feedRowTapsLeaveControlsTheirTouch` |
 | 39 | Feed | top x pull to refresh | only from the top | OK | |
 | 40 | Feed | list x interactive dismissal | keyboard follows | OK | |
 | 41 | Home, workspaces | search results x drag with keyboard | keyboard follows the finger (interactive) | OPEN | cluster C |
 | 42 | Home, workspaces | rows x scroll, swipe, long press | native | OK | `HomeRowSwipeUITests` |
 | 43 | Home, workspaces | top x pull to search, refresh | only from the top | OK | |
-| 44 | Sidebar | search field x rightward drag | caret moves, drawer stays shut | OPEN | cluster B |
-| 45 | Sidebar | drawer pan x simultaneous scroll views | only the touched scroller | OPEN | cluster B |
-| 46 | Sidebar | RTL x drawer vs row actions | same direction rule | OPEN | cluster B |
-| 47 | Sidebar | edge x two-axis scroller | back only once the edge swipe began | OPEN | cluster B |
+| 44 | Sidebar | text being edited x rightward drag | caret moves, drawer stays shut | FIXED | `theDrawerStaysShutForADragOnTextBeingEdited` |
+| 45 | Sidebar | drawer pan x simultaneous scroll views | only the touched scroller | FIXED | `theDrawerRunsAlongsideOnlyTheTouchedScroller` |
+| 46 | Sidebar | RTL x drawer vs row actions | drawer on the leading side, opens away from it | FIXED | `theDrawerOpensAwayFromTheLeadingEdge` |
+| 47 | Sidebar | edge x two-axis scroller | scroller reset only once the edge pop began | FIXED | code review; UI test to add |
 | 48 | Sidebar | content x drawer vs vertical scroll | scroll vertical | OK | |
 | 49 | Sheets | agent chooser, devices list x drag | list scrolls first (`.presentationContentInteraction(.scrolls)`) | OPEN | cluster C |
 | 50 | Sheets | Chief message x drag down with a draft | keeps the draft (confirm or refuse) | OPEN | cluster C |
@@ -93,7 +93,8 @@ below.
 - A, tabs and streamed browser (12-16): the content pop and `ZoomPinchGesture` take touches on the toolbar, cards and
   the streamed page. Register the toolbar capsule and overview cards with `NavigationPopExclusion` (TabsKit takes a
   region hook), give the stream view the web-view rule, and let the pinch start only on page or grid content.
-- B, feed and sidebar (35-38, 44-47): parent recognizers that never look at the touched view.
+- B, feed and sidebar (35-38, 44-47): parent recognizers that never looked at the touched view. Fixed in the
+  cluster B PR: each asks `TouchOwnership` (CmuxMobileDesign) where its touch started.
 - C, sheets, lists and Chief settings (11, 28, 41, 49, 50).
 
 The cluster PRs are linked here as they open.

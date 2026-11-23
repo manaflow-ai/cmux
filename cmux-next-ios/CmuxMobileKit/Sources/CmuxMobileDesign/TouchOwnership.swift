@@ -57,6 +57,16 @@ public extension TouchOwnership {
         chain(from: hit, upTo: root).contains { ($0 is UITextView || $0 is UITextField) && $0.isFirstResponder }
     }
 
+    /// A control (a button, switch, menu button) or a text input at or above `hit`: it owns a tap
+    /// that lands on it, before any row-wide tap or touch catcher above it.
+    static func isControlOrTextInput(from hit: UIView?, upTo root: UIView?) -> Bool {
+        chain(from: hit, upTo: root).contains { view in
+            if let control = view as? UIControl { return control.isEnabled }
+            if let text = view as? UITextView { return text.isEditable }
+            return false
+        }
+    }
+
     /// The innermost scroll view at or above `hit` that is wider than its bounds (code, a wide
     /// table, a chip row).
     static func wideScroller(from hit: UIView?, upTo root: UIView?) -> UIScrollView? {

@@ -94,6 +94,50 @@ final class GestureConflictUITests: XCTestCase {
         XCTAssertTrue(field.exists && field.isHittable, "still in the workspace with the composer open", file: file, line: line)
     }
 
+    // MARK: Feed: a row's swipe actions and taps leave the touched view its gesture
+
+    /// Cell 35: a leftward drag along a reply being typed moves the caret or selects; the row's
+    /// trailing swipe actions stay shut.
+    @MainActor
+    func testFeed_ReplyField_SwipeLeft_StaysOnText() {
+        let app = launch(demo: "kbd-feed")
+        let (list, field) = openFeedReply(app)
+        field.typeText("a reply long enough to drag the caret along")
+        let from = field.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: -200, dy: 0)), withVelocity: .fast,
+                   thenHoldForDuration: 0.05)
+        Thread.sleep(forTimeInterval: 0.6)
+        attach(app, "feed-reply-after-swipe-left")
+        XCTAssertFalse(list.buttons["Done"].exists, "the row's swipe actions stay shut")
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "the keyboard stays up: the drag was the text's")
+    }
+
+    /// Cell 38: a tap in the reply field puts the caret there; the row never opens its chat.
+    @MainActor
+    func testFeed_ReplyField_Tap_StaysInFeed() {
+        let app = launch(demo: "kbd-feed")
+        let (list, field) = openFeedReply(app)
+        field.typeText("one two three")
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
+        Thread.sleep(forTimeInterval: 0.8)
+        attach(app, "feed-reply-after-tap")
+        XCTAssertTrue(list.exists && field.exists && field.isHittable, "still on the Feed with the reply open")
+    }
+
+    @MainActor
+    private func openFeedReply(_ app: XCUIApplication) -> (XCUIElement, XCUIElement) {
+        let list = app.tables["feed.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 30), "the Feed\n\(app.debugDescription)")
+        let reply = list.buttons["Reply"].firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 10), "a row's Reply\n\(app.debugDescription)")
+        reply.tap()
+        let field = list.textViews["feed.reply.field"].firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the row's reply field\n\(app.debugDescription)")
+        if !app.keyboards.firstMatch.exists { field.tap() }
+        expect(app.keyboards.firstMatch, "exists == true", "the keyboard comes up")
+        return (list, field)
+    }
+
     // MARK: Helpers
 
     /// About ten wrapped lines at the 17 pt body on a phone: taller than the field's six.

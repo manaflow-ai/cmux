@@ -43,7 +43,7 @@ protocol FeedRowCellDelegate: AnyObject {
 /// `FeedListController`): UIKit slides the cell, draws the actions, arms the
 /// full swipe and plays its haptic.
 final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegate,
-    UIContextMenuInteractionDelegate {
+    UIContextMenuInteractionDelegate, UIGestureRecognizerDelegate {
     static let reuseID = "FeedRowCell"
 
     weak var delegate: FeedRowCellDelegate?
@@ -225,7 +225,9 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         body.clipsToBounds = true
         inlineText.numberOfLines = 0
         body.addSubview(inlineText)
-        body.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openTapped(_:))))
+        let open = UITapGestureRecognizer(target: self, action: #selector(openTapped(_:)))
+        open.delegate = self
+        body.addGestureRecognizer(open)
         row.addSubview(body)
         showMore.contentHorizontalAlignment = .leading
         showMore.addAction(UIAction { [weak self] _ in self.map { $0.delegate?.rowToggleExpanded($0.id) } }, for: .touchUpInside)
@@ -258,6 +260,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         }
 
         let header = UITapGestureRecognizer(target: self, action: #selector(headerTapped(_:)))
+        header.delegate = self
         row.addGestureRecognizer(header)
         row.addInteraction(UIContextMenuInteraction(delegate: self))
 
@@ -284,6 +287,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         text.textContainerInset = UIEdgeInsets(top: 9, left: 14, bottom: 9, right: 0)
         text.textContainer.lineFragmentPadding = 0
         text.delegate = self
+        text.accessibilityIdentifier = "feed.reply.field"
         composer.addSubview(text)
         composerText.value = text
         composerPlaceholder.textColor = .placeholderText
@@ -692,6 +696,18 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         // Only the header line opens the tab (the answer card, its padding and gaps never navigate).
         let point = tap.location(in: row)
         if layout.header.insetBy(dx: 0, dy: -4).contains(point) { delegate?.rowOpen(id) }
+    }
+
+    /// The row's taps (open, header) never take a touch that lands on a control or a text input
+    /// (design/gesture-matrix.md, cell 38): the reply field, the Other field, a permission button
+    /// or Show more gets it whole. Without this, a row-wide tap recognized first and cancelled the
+    /// touch in the field it landed on (its caret tap). Only the row's own taps have this delegate.
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        Self.rowTapMayBegin(on: touch.view, in: row)
+    }
+
+    static func rowTapMayBegin(on touched: UIView?, in row: UIView) -> Bool {
+        !TouchOwnership.isControlOrTextInput(from: touched, upTo: row.superview)
     }
 
     private func footerTapped(_ tag: Int, _ button: UIButton) {

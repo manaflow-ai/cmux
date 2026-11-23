@@ -236,6 +236,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         view.refreshControl = refresh
         let catcher = FeedJumpTouchCatcher(target: self, action: #selector(touchDuringJump(_:)))
         catcher.isArmed = { [weak self] in self?.jumpingToTop ?? false }
+        catcher.stopForControl = { [weak self] in self?.stopJumpForTouch() }
         view.addGestureRecognizer(catcher)
         view.onWidthChange = { [weak self] width in self?.widthChanged(width) }
 
@@ -893,7 +894,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     /// A touch on the list while a jump to the top moves it: the jump stops where it is (as a touch
     /// stops a fling), and the touch is the list's, never the row's that moved under the finger.
     @objc private func touchDuringJump(_ catcher: FeedJumpTouchCatcher) {
-        guard catcher.state == .began, let collectionView else { return }
+        guard catcher.state == .began else { return }
+        stopJumpForTouch()
+    }
+
+    private func stopJumpForTouch() {
+        guard let collectionView else { return }
         trace("touch during jump at \(Int(collectionView.contentOffset.y))")
         jumpingToTop = false
         // Within the last stretch (the pill already gone) the jump finishes: it lands at the top.
