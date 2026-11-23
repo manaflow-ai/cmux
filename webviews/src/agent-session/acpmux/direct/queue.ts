@@ -6,7 +6,6 @@ import type {
   PromptContentPart,
   QueuedPrompt,
   QueuedPromptImage,
-  PromptDelivery,
   PromptDeliveryHop,
 } from "../model";
 import {
@@ -229,13 +228,6 @@ export const deliveryTiming = {
   failMs: 60_000,
   localFailMs: 300_000,
   hostWaitMs: Number.POSITIVE_INFINITY,
-};
-
-export const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
-  sending: 0,
-  delivered: 1,
-  read: 2,
-  failed: 3,
 };
 
 /// The hop a refused or failed send stopped at: a transport error is the pane's connection to

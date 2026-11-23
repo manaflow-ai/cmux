@@ -1,0 +1,5933 @@
+{
+  "source": "cmux-tui/crates/acpmux-client/src/delivery.rs",
+  "version": 1,
+  "walks": [
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": true,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "slow_timer",
+          "generation": 1
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": true,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 1
+        },
+        "refusal": "already_slow"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "transport.closed",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": true,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "code": "transport.closed",
+          "event": "refused",
+          "generation": 1,
+          "hop": "agent"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "transport.closed",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "hand_back"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_machine_waking"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "trust.pending",
+          "event": "unanswered",
+          "generation": 1,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "trust.pending",
+          "event": "unanswered",
+          "generation": 1,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "held"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "release"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "held"
+      }
+    ],
+    [
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit_behind_turn"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": true,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "slow_timer",
+          "generation": 1
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": true,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "event": "accepted"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "already_taken"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "timeout",
+          "event": "unanswered",
+          "generation": 1,
+          "hop": "connection"
+        },
+        "refusal": "already_taken"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "stale_generation"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 1
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "already_taken"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "already_taken"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "already_taken"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "transport.closed",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "code": "transport.closed",
+          "event": "refused",
+          "generation": 1,
+          "hop": "connection"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "transport.closed",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "native.timed_out",
+          "event": "unanswered",
+          "generation": 1,
+          "hop": "acpmux"
+        },
+        "refusal": "already_refused"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "transport.closed",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 2
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 2
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "in_flight"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "submit"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "native.timed_out",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "code": "native.timed_out",
+          "event": "refused",
+          "generation": 1,
+          "hop": "agent"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "native.timed_out",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "hand_back"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 2
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 2
+          }
+        ],
+        "event": {
+          "event": "submit_behind_turn"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "state": "delivered"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 2
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "event": "accepted"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "delivered"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "already_taken"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "delivered"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 2
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "cause": "refused",
+            "code": "native.timed_out",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "delivered"
+          },
+          "issued": 2
+        },
+        "effects": [],
+        "event": {
+          "code": "native.timed_out",
+          "event": "refused",
+          "generation": 2,
+          "hop": "acpmux"
+        }
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 0,
+          "hop": "acpmux"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "native.timed_out",
+          "event": "refused",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "timeout",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "native.timed_out",
+          "event": "refused",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_machine_waking"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "trust.pending",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "refused",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "held"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "release"
+        }
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit_behind_turn"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 1,
+          "hop": "agent"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "already_refused"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 1
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "already_refused"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "hand_back"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "refused",
+          "generation": 1,
+          "hop": "acpmux"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 2
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 2
+          }
+        ],
+        "event": {
+          "event": "submit_behind_turn"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "connection",
+            "state": "failed"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 2
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 2,
+          "hop": "connection"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 3,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 3
+        },
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "connection",
+            "state": "failed"
+          },
+          "issued": 2
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 3
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 3
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 3,
+            "cause": "refused",
+            "code": "trust.pending",
+            "hop": "connection",
+            "state": "failed"
+          },
+          "issued": 3
+        },
+        "before": {
+          "delivery": {
+            "attempt": 3,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 3
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "code": "trust.pending",
+          "event": "refused",
+          "generation": 3,
+          "hop": "connection"
+        }
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "trust.pending",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "code": "trust.pending",
+          "event": "unanswered",
+          "generation": 1,
+          "hop": "agent"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "trust.pending",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "event": "read"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "already_read"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 1
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "already_read"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "trust.pending",
+          "event": "refused",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "already_read"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "already_taken"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 1
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "already_read"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "already_taken"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "already_taken"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "acpmux"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "fail_timer",
+          "generation": 1
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "event": "accepted"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "refused",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "native.timed_out",
+          "event": "refused",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "release"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      }
+    ],
+    [
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hand_back"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "trust.pending",
+          "event": "refused",
+          "generation": 0,
+          "hop": "acpmux"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "refused",
+          "generation": 0,
+          "hop": "acpmux"
+        },
+        "refusal": "not_awaited"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hand_back"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_machine_waking"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "timeout",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hand_back"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_machine_waking"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hand_back"
+        }
+      }
+    ],
+    [
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit_behind_turn"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "stale_generation"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "attempt": 1,
+              "behindTurn": true,
+              "reason": "host_starting",
+              "resent": false
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "host_away",
+          "generation": 1
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "attempt": 1,
+              "behindTurn": true,
+              "reason": "host_starting",
+              "resent": false
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 1
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "attempt": 1,
+              "behindTurn": true,
+              "reason": "host_starting",
+              "resent": false
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "event": "read"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "already_read"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "already_read"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "already_taken"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "already_read"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "already_read"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "unanswered",
+          "generation": 1,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 1,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "already_read"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "already_read"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "release"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "attempt": 1,
+              "behindTurn": false,
+              "reason": "host_starting",
+              "resent": false
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "host_away",
+          "generation": 1
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "attempt": 1,
+              "behindTurn": false,
+              "reason": "host_starting",
+              "resent": false
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 1
+        },
+        "refusal": "held"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "attempt": 1,
+              "behindTurn": false,
+              "reason": "host_starting",
+              "resent": false
+            },
+            "state": "held"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "event": "read"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "already_taken"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "state": "read"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "already_read"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_machine_waking"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hand_back"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit_behind_turn"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "trust.pending",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "stale_generation"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "in_flight"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "trust.pending",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "fail_timer",
+          "generation": 1
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "hand_back"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hand_back"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "native.timed_out",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "native.timed_out",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "connection"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "trust.pending",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_machine_waking"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "native.timed_out",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "release"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "state": "delivered"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "event": "accepted"
+        }
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "fail_timer",
+          "generation": 1
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 1,
+          "hop": "acpmux"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 0,
+          "hop": "acpmux"
+        },
+        "refusal": "already_refused"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "already_refused"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "already_refused"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "not_draft"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 2
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 2
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "attempt": 2,
+              "behindTurn": false,
+              "reason": "host_starting",
+              "resent": false
+            },
+            "state": "held"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 2
+        },
+        "effects": [],
+        "event": {
+          "event": "host_away",
+          "generation": 2
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "attempt": 2,
+              "behindTurn": false,
+              "reason": "host_starting",
+              "resent": false
+            },
+            "state": "held"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "hold_machine_waking"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "attempt": 3,
+              "behindTurn": false,
+              "reason": "host_starting",
+              "resent": true
+            },
+            "state": "held"
+          },
+          "issued": 3
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "attempt": 2,
+              "behindTurn": false,
+              "reason": "host_starting",
+              "resent": false
+            },
+            "state": "held"
+          },
+          "issued": 2
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 3
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 3
+          }
+        ],
+        "event": {
+          "event": "release"
+        }
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "trust.pending",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_machine_waking"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "machine_waking"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "release"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "submit"
+        },
+        "refusal": "in_flight"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 0,
+          "hop": "acpmux"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "release"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "timeout",
+          "event": "unanswered",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit_behind_turn"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "fail_timer",
+          "generation": 1
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 1
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "unanswered",
+            "code": "timeout",
+            "hop": "acpmux",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 2
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 2
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "cause": "refused",
+            "code": "trust.pending",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 2
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "code": "trust.pending",
+          "event": "refused",
+          "generation": 2,
+          "hop": "agent"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "cause": "refused",
+            "code": "trust.pending",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 2
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "refused",
+          "generation": 2,
+          "hop": "connection"
+        },
+        "refusal": "already_refused"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "cause": "refused",
+            "code": "trust.pending",
+            "hop": "agent",
+            "state": "failed"
+          },
+          "issued": 2
+        },
+        "event": {
+          "code": "native.timed_out",
+          "event": "refused",
+          "generation": 2,
+          "hop": "agent"
+        },
+        "refusal": "already_refused"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit"
+        },
+        "refusal": "held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "held"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "release"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 0
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "native.timed_out",
+          "event": "refused",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "hold_trust"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "accepted"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "before": {
+          "delivery": {
+            "hold": {
+              "reason": "trust"
+            },
+            "state": "held"
+          },
+          "issued": 0
+        },
+        "effects": [],
+        "event": {
+          "event": "release"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "transport.closed",
+          "event": "refused",
+          "generation": 0,
+          "hop": "acpmux"
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "code": "native.timed_out",
+          "event": "refused",
+          "generation": 0,
+          "hop": "agent"
+        },
+        "refusal": "not_awaited"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "hand_back"
+        },
+        "refusal": "not_sent"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "native.timed_out",
+            "hop": "connection",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "code": "native.timed_out",
+          "event": "refused",
+          "generation": 1,
+          "hop": "connection"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "native.timed_out",
+            "hop": "connection",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 2
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 2
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "state": "delivered"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 2
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "event": "accepted"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "delivered"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "fail_timer",
+          "generation": 1
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "state": "read"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "delivered"
+          },
+          "issued": 2
+        },
+        "effects": [],
+        "event": {
+          "event": "read"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "read"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "already_read"
+      }
+    ],
+    [
+      {
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "event": {
+          "event": "release"
+        },
+        "refusal": "not_held"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "state": "draft"
+          },
+          "issued": 0
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 1
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 1
+          }
+        ],
+        "event": {
+          "event": "submit"
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "slow": true,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": false,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [],
+        "event": {
+          "event": "slow_timer",
+          "generation": 1
+        }
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "connection",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "slow": true,
+            "state": "sending"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "code": "timeout",
+          "event": "refused",
+          "generation": 1,
+          "hop": "connection"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "connection",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "not_draft"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "connection",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "event": {
+          "event": "read"
+        },
+        "refusal": "already_refused"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 1,
+            "cause": "refused",
+            "code": "timeout",
+            "hop": "connection",
+            "state": "failed"
+          },
+          "issued": 1
+        },
+        "effects": [
+          {
+            "effect": "send_prompt",
+            "generation": 2
+          },
+          {
+            "effect": "arm_timers",
+            "generation": 2
+          }
+        ],
+        "event": {
+          "event": "submit_behind_turn"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "hold_trust"
+        },
+        "refusal": "in_flight"
+      },
+      {
+        "after": {
+          "delivery": {
+            "attempt": 2,
+            "state": "read"
+          },
+          "issued": 2
+        },
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "slow": false,
+            "state": "queued_behind_turn"
+          },
+          "issued": 2
+        },
+        "effects": [
+          {
+            "effect": "clear_timers"
+          }
+        ],
+        "event": {
+          "event": "read"
+        }
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "read"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 2
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "read"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 2
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "read"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "slow_timer",
+          "generation": 2
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "read"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "host_away",
+          "generation": 2
+        },
+        "refusal": "not_awaited"
+      },
+      {
+        "before": {
+          "delivery": {
+            "attempt": 2,
+            "state": "read"
+          },
+          "issued": 2
+        },
+        "event": {
+          "event": "submit_behind_turn"
+        },
+        "refusal": "already_read"
+      }
+    ]
+  ]
+}

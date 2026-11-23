@@ -246,6 +246,14 @@ import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversati
 import { promptCoachEnabled } from "./chatDisplay";
 import { PromptHeads, type PromptHead } from "./promptHeads";
 import {
+  deliveryEvent,
+  drawnDelivery,
+  projectDelivery,
+  releasedDelivery,
+  sentDelivery,
+} from "./delivery/promptDelivery";
+import { deliveryStep, type DeliveryMachine } from "./delivery/step";
+import {
   PRESET_APPROVAL,
   PresetApprovalFold,
   presetApprovalAsk,
@@ -323,7 +331,6 @@ import {
   recordImages,
   attachedImages,
   deliveryTiming,
-  DELIVERY_RANK,
   deliveryHop,
   rollingSummaryOf,
   mergeQueue,
@@ -1453,7 +1460,13 @@ export class AcpmuxDirectClient {
   /// Where each prompt this pane sent is on its way, by prompt id, and the row that shows it.
   private deliveries = new Map<
     string,
-    { delivery: PromptDelivery; rowId: string; timers: ReturnType<typeof setTimeout>[] }
+    {
+      delivery: PromptDelivery;
+      /// The composer delivery machine (delivery/step.ts) that decides each change to `delivery`.
+      machine: DeliveryMachine;
+      rowId: string;
+      timers: ReturnType<typeof setTimeout>[];
+    }
   >();
   private firstSeq?: number;
   /// Pages fetched by an indexed rail jump. They are scoped by session generation in the key, so a
@@ -11254,7 +11267,7 @@ export class AcpmuxDirectClient {
       ...(steer ? { queued: true } : {}),
       ...(this.summary?.host ? { connection: String(this.summary.host) } : {}),
     };
-    this.deliveries.set(promptId, { delivery, rowId, timers: [] });
+    this.deliveries.set(promptId, { delivery, machine: sentDelivery(before?.machine, steer), rowId, timers: [] });
     // On disk before it goes: a relaunch while it is on its way draws it again as not sent.
     this.keepUnsent(sessionId, { promptId, input, attachments, at });
     if (waits) {
@@ -11410,7 +11423,13 @@ export class AcpmuxDirectClient {
       if (emptyContinuation && !emptyContinuation()) throw staleContinuation();
       const answer = await untilHostAnswers(
         () => {
-          if (heldForHost) heldUntil = Date.now();
+          if (heldForHost) {
+            heldUntil = Date.now();
+            // The held frame goes again: the machine's Release (delivery/step.ts).
+            const entry = this.deliveries.get(promptId);
+            const released = entry && releasedDelivery(entry.machine);
+            if (entry && released) entry.machine = released;
+          }
           heldForHost = false;
           // The perf watch's new-chat span: the first prompt since the handshake (perfReporter.ts).
           acpmuxPerf.markAgent("promptSent");
@@ -11617,32 +11636,28 @@ export class AcpmuxDirectClient {
     return sessionId;
   }
 
-  /// Moves prompt `promptId` on its way (states only go forward; a send that timed out still takes
-  /// a late acceptance) and redraws the row or queue entry that shows it. False when nothing changed.
+  /// Moves prompt `promptId` on its way and redraws the row or queue entry that shows it. The
+  /// composer delivery machine decides each change (delivery/step.ts, replaying Rust's table: states
+  /// only go forward, a send that went unanswered still takes a late acceptance); the record's
+  /// `slow` and `waitingForHost` are its projection. False when nothing changed.
   private setDelivery(promptId: string, patch: Partial<PromptDelivery>, rowId?: string): boolean {
     const entry = this.deliveries.get(promptId);
     if (!entry) return false;
     const { delivery } = entry;
-    // A failure that only meant no answer came in time (the send's deadline, or a lost prompt whose
-    // connection went: `failLostPrompt`) gives way to acpmux's late word that it has the prompt.
-    const timedOut =
-      delivery.state === "failed" && (delivery.code === "timeout" || delivery.code === "native.timed_out");
-    if (patch.state && patch.state !== "failed") {
-      if (delivery.state === "failed" && !timedOut) return false;
-      if (!timedOut && DELIVERY_RANK[patch.state] < DELIVERY_RANK[delivery.state]) return false;
+    const timedOut = entry.machine.delivery.state === "failed" && entry.machine.delivery.cause === "unanswered";
+    const event = deliveryEvent(entry.machine, patch);
+    if (event) {
+      const stepped = deliveryStep(entry.machine, event);
+      if (!stepped.ok) return false;
+      entry.machine = stepped.machine;
     }
-    if (patch.state === "failed" && delivery.state === "failed" && !timedOut) return false;
-    const next: PromptDelivery = { ...delivery, ...patch };
+    const next: PromptDelivery = projectDelivery({ ...delivery, ...patch }, entry.machine);
     if (next.state !== "failed") {
       delete next.hop;
       delete next.code;
       delete next.reason;
       delete next.error;
       delete next.failedAt;
-    }
-    if (next.state !== "sending") {
-      delete next.slow;
-      delete next.waitingForHost;
     }
     entry.delivery = next;
     if (rowId) entry.rowId = rowId;
@@ -11867,7 +11882,7 @@ export class AcpmuxDirectClient {
     this.restoredUnsent.add(promptId);
     this.promptRowKeys.set(promptId, rowId);
     this.optimisticPromptRows.set(promptId, rowId);
-    this.deliveries.set(promptId, { delivery, rowId, timers: [] });
+    this.deliveries.set(promptId, { delivery, machine: drawnDelivery(delivery), rowId, timers: [] });
     this.failedPrompts.set(rowId, { input, attachments, promptId });
     this.rows.set(rowId, {
       id: rowId,
@@ -13852,7 +13867,7 @@ export class AcpmuxDirectClient {
     const at = Date.now();
     const delivery: PromptDelivery = { state: "sending", promptId, sessionId, sentAt: at - PROMPT_PENDING_AFTER_MS };
     this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
-    this.deliveries.set(promptId, { delivery, rowId, timers: [] });
+    this.deliveries.set(promptId, { delivery, machine: drawnDelivery(delivery), rowId, timers: [] });
     // Drawn as its send drew it (`sentPromptShape`): a paste is the bubble's text, never a token.
     const { inline, text, pasted } = sentPromptShape(input, attachments, { dropped: () => false });
     this.promptRowKeys.set(promptId, rowId);
