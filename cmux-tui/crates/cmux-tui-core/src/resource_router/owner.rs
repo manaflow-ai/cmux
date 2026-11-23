@@ -341,6 +341,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefEngineGet
         | ResourceOperation::ChiefEngineSet
         | ResourceOperation::ChiefStop
+        | ResourceOperation::ChiefAutomationList
+        | ResourceOperation::ChiefAutomationUpdate
         | ResourceOperation::ChiefContinue
         | ResourceOperation::ChiefRetry
         | ResourceOperation::ChiefProfileList
