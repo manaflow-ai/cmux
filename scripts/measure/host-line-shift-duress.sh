@@ -25,7 +25,7 @@ for arg in "$@"; do
 done
 [[ ${#shas[@]} -gt 0 ]] || { echo "usage: host-line-shift-duress.sh SHA... [LOAD=1] [REPLAY=fixture]" >&2; exit 2; }
 loaders=()
-stop_load() { [[ ${#loaders[@]} -gt 0 ]] && kill "${loaders[@]}" 2>/dev/null; }
+stop_load() { [[ ${#loaders[@]} -gt 0 ]] && kill ${loaders[@]+"${loaders[@]}"} 2>/dev/null; }
 trap stop_load EXIT
 if [[ "$load" == 1 ]]; then
   for _ in $(seq "$(nproc)"); do yes >/dev/null & loaders+=($!); done
@@ -33,7 +33,7 @@ if [[ "$load" == 1 ]]; then
   echo "LOAD $(cut -d' ' -f1-3 /proc/loadavg) on $(nproc) cores"
 fi
 cd "$here/../../webviews" && { bun install --frozen-lockfile >/dev/null 2>&1 || bun install >/dev/null 2>&1; }
-ENV="$(IFS=,; echo "${env_pairs[*]-}")" "$here/bench-at-commits.sh" bench/host-line-shift-duress.bench.ts "${shas[@]}"
+ENV="$(IFS=,; echo "${env_pairs[*]-}")" "$here/bench-at-commits.sh" bench/host-line-shift-duress.bench.ts ${shas[@]+"${shas[@]}"}
 status=$?
 [[ "$load" == 1 ]] && echo "LOAD $(cut -d' ' -f1-3 /proc/loadavg) at the end"
 exit "$status"
