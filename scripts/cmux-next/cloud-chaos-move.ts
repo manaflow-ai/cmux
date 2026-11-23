@@ -88,6 +88,17 @@ export function moveRng(seed: string): () => number {
 }
 const pick = <T>(rng: () => number, xs: readonly T[]): T => xs[Math.floor(rng() * xs.length) % xs.length];
 
+/**
+ * The buttons lane's Step a drill step falls in (cmux-cloud-start-core src/moves/place.rs Step, as relayed by the
+ * kill-mid-move-drills lane): freeze, carry or commit. bulk_sync is the folder's first sync before the move, which
+ * these steps never stop in.
+ */
+export function buttonStep(step: MoveStep): "freeze" | "carry" | "commit" {
+  if (step === "before-begin" || step === "after-begin") return "freeze";
+  if (step === "frozen-sync") return "carry";
+  return "commit";
+}
+
 /** Where the pump stops for a step: which socket role, which command, its request or its answer. */
 export type MoveTrigger = { roles: Array<"from" | "to" | "sync" | "sync-from">; cmd: string | null; on: "request" | "answer" };
 export function moveTrigger(step: MoveStep): MoveTrigger {
@@ -550,6 +561,8 @@ export type MoveResult = {
   seed: string;
   direction: MoveDirection;
   step: MoveStep;
+  /** The buttons lane's Step name for `step` (buttonStep). */
+  button_step: "freeze" | "carry" | "commit";
   kill: MoveKill;
   outcome: "pass" | "fail" | "unmeasured";
   /** What the person lost; empty: nothing. */
@@ -640,7 +653,7 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
         : plan.direction === "cloud-local" ? [cloudSide(0), localSide] : [cloudSide(0), cloudSide(1)];
       ctx.log(`move: run ${run} seed ${plan.seed}: ${plan.direction} ${plan.step} ${plan.kill}`);
       const r = await moveRun(ctx, { ...plan, run, root, src, dst, local, carriers }).catch((e: Error): MoveResult => ({
-        run, seed: plan.seed, direction: plan.direction, step: plan.step, kill: plan.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1,
+        run, seed: plan.seed, direction: plan.direction, step: plan.step, button_step: buttonStep(plan.step), kill: plan.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1,
         draft: "", edit: "", commit: "", pump_first: "", pump_retry: "", seen_ms: null, fault_s: null, detail: `the run broke: ${e.message}`, trace: [],
       }));
       results.push(r);
@@ -842,7 +855,7 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   const faultS = a.kill === "cut" ? cutS : a.kill.startsWith("pause") ? pauseS : null;
   if (!wire.fired) {
     return {
-      run: a.run, seed: a.seed, direction: a.direction, step: a.step, kill: a.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1, draft: "", edit: "", commit: "",
+      run: a.run, seed: a.seed, direction: a.direction, step: a.step, button_step: buttonStep(a.step), kill: a.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1, draft: "", edit: "", commit: "",
       pump_first: pumpText(first), pump_retry: "not run", seen_ms: null, fault_s: faultS, detail: `the pump never reached ${a.step} (${wire.refused ? `the step's answer was a refusal: ${pumpText(first)}` : a.step === "mid-copy" ? `${wire.writes} writes` : "no such request"})`, trace,
     };
   }
@@ -915,7 +928,7 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   if (survivor === a.dst && !landed.edit && editAt.length) strand.push(`edit only in the ${edit}`);
   if (survivor === a.dst && !landed.commit && commitAt.length) strand.push(`commit only in the ${commit}`);
   return {
-    run: a.run, seed: a.seed, direction: a.direction, step: a.step, kill: a.kill,
+    run: a.run, seed: a.seed, direction: a.direction, step: a.step, button_step: buttonStep(a.step), kill: a.kill,
     outcome: lost.length ? "fail" : "pass", lost, open, queued_runs: qRuns, queued_src: qSrc, queued_dst: qDst, draft, edit, commit,
     pump_first: pumpText(first), pump_retry: pumpText(retry), seen_ms: seenMs, fault_s: faultS,
     detail: `${last.ok ? "move finished" : `move did not finish: ${last.json?.error_code ?? "no answer"}`}${strand.length ? `; ${strand.join("; ")}` : ""}`,
@@ -925,6 +938,6 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
 
 /** The results as a markdown table: direction × step × kill → what was lost. */
 export function moveTable(results: MoveResult[]): string {
-  const rows = results.map((r) => `| ${r.direction} | ${r.step} | ${r.kill} | ${r.outcome} | ${r.lost.join("; ") || "nothing"} | ${r.open} | ${r.queued_runs} (src ${r.queued_src ?? "?"}, dst ${r.queued_dst ?? "?"}) | ${r.draft} | ${r.edit} | ${r.commit} | ${r.pump_first}${r.pump_retry !== "not run" ? ` → retry ${r.pump_retry}` : ""} | ${r.seen_ms ?? ""} | ${r.run} | ${r.seed} |`);
+  const rows = results.map((r) => `| ${r.direction} | ${r.step} (${r.button_step}) | ${r.kill} | ${r.outcome} | ${r.lost.join("; ") || "nothing"} | ${r.open} | ${r.queued_runs} (src ${r.queued_src ?? "?"}, dst ${r.queued_dst ?? "?"}) | ${r.draft} | ${r.edit} | ${r.commit} | ${r.pump_first}${r.pump_retry !== "not run" ? ` → retry ${r.pump_retry}` : ""} | ${r.seen_ms ?? ""} | ${r.run} | ${r.seed} |`);
   return ["| direction | step | kill | outcome | lost | open | queued ran | draft | edit | commit | pump (person sees) | seen ms | run | seed |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|", ...rows].join("\n");
 }
