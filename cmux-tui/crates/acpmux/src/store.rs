@@ -10,7 +10,7 @@ use crate::no_panic::LockExt;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -26,6 +26,7 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_heads;
 mod kind_index;
+mod sealed_segments;
 mod segment_starts;
 mod segment_table;
 pub use kind_heads::KindHead;
@@ -134,7 +135,7 @@ impl std::fmt::Display for SessionStatus {
 }
 
 /// What a watched chat follows (`hub/watch.rs`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Watching {
     /// `claude` or `codex`.
@@ -151,6 +152,47 @@ pub struct Watching {
     /// comes, or Take Over settles it. Kept so a daemon restart goes on with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open: Option<WatchedTurn>,
+    /// The terminal the chat handed its conversation to (`acpmux resume-here`,
+    /// `hub/release_to_watch.rs`): the chat's prompts go into that terminal's harness
+    /// (`hub/bridge.rs`) while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<TerminalDriver>,
+    /// Prompts the terminal took while a turn ran (Claude Code's `queue-operation` enqueue), shown
+    /// at once, oldest first, so the line that runs each later does not show it again (`watch.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued: Vec<String>,
+    /// Prompts the terminal took while a turn ran that did not show at once (past the cap, or
+    /// text a delivery may have): one shows as typed when the turn takes it in (`watch.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unshown: Vec<String>,
+}
+
+/// The process a chat handed its conversation to (`Watching::terminal`): `acpmux resume-here`,
+/// which becomes the harness (`exec`, same pid).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalDriver {
+    pub pid: u32,
+    /// When `pid` started (ms since the epoch), so a later process under a reused pid is not it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started: Option<u64>,
+    /// The harness's store the conversation is in (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
+    pub store: PathBuf,
+    /// The cmux terminal that process runs in, as the environment its exec was given names it
+    /// (read from the kernel, `hub/terminal_input.rs` `of_process`): the chat's Stop,
+    /// and its prompts while the harness has no inbox, reach the harness as keys typed there
+    /// (`hub/terminal_input.rs`). None outside a cmux terminal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<TerminalInput>,
+}
+
+/// A cmux terminal's input (`TerminalDriver::input`): its session daemon's socket
+/// (`CMUX_TUI_SOCKET`) and the terminal's id there (`CMUX_TUI_TERMINAL_ID`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalInput {
+    pub socket: PathBuf,
+    pub terminal_id: String,
 }
 
 /// A watched chat's open turn (`Watching::open`).
@@ -1923,13 +1965,23 @@ impl LocalStore {
     /// The log's segments, in order, as the folder lists them, and whether a cut's intent
     /// (`store/compact.rs` `CUT`) is beside them: read in the same listing, so it costs nothing.
     /// A cold archive's log is rehydrated first (`store/cold.rs`).
+    /// Segments zstd'd in place by a tool outside acpmux are decoded back first
+    /// (`store/sealed_segments.rs`): the same listing says whether there are any.
     fn list_segments(&self, id: &str) -> Result<(SegmentList, bool)> {
-        let listed = self.listed_files(id)?;
-        if listed.0.is_empty() {
-            self.rehydrate(id)?;
-            return self.listed_files(id);
+        let (mut segments, mut cut_pending, sealed) = self.listed_files(id)?;
+        if sealed {
+            match self.thaw_sealed(id) {
+                Ok(0) => {}
+                Ok(_) => (segments, cut_pending, _) = self.listed_files(id)?,
+                Err(e) => tracing::warn!(session = %id, "sealed segments stay sealed: {e:#}"),
+            }
         }
-        Ok(listed)
+        if segments.is_empty() {
+            self.rehydrate(id)?;
+            let (segments, cut_pending, _) = self.listed_files(id)?;
+            return Ok((segments, cut_pending));
+        }
+        Ok((segments, cut_pending))
     }
 
     /// The segments on the disk now, never rehydrated.
@@ -1937,8 +1989,9 @@ impl LocalStore {
         Ok(self.listed_files(id)?.0)
     }
 
-    /// [`Self::segment_files`], and whether a cut's intent is beside them.
-    fn listed_files(&self, id: &str) -> Result<(SegmentList, bool)> {
+    /// [`Self::segment_files`], whether a cut's intent is beside them, and whether a segment
+    /// zstd'd in place with no plain one of its name is (`store/sealed_segments.rs`).
+    fn listed_files(&self, id: &str) -> Result<(SegmentList, bool, bool)> {
         self.segment_table.list(id, &self.dir(id).join("events"))
     }
 
@@ -2025,7 +2078,8 @@ impl LocalStore {
     /// chat's log however little of it stays. Every session the hub creates logs `created`
     /// right after its first save, so a record without a log is a purged session's that a
     /// late save wrote back.
-    /// A cold archive (`store/cold.rs`) is a log too, and is not opened.
+    /// A cold archive (`store/cold.rs`) is a log too, and is not opened; so is a segment
+    /// zstd'd in place (`store/sealed_segments.rs`), which its first read decodes back.
     fn has_records(&self, id: &str) -> Result<bool> {
         // A home that is no longer the held one is an error, never "no record" (#41721
         // review F1): a closed chat with no record reads as purged.
@@ -2034,7 +2088,11 @@ impl LocalStore {
         {
             return Ok(true);
         }
-        for (_, path) in self.segment_files(id)? {
+        let (segments, _, sealed) = self.listed_files(id)?;
+        if sealed {
+            return Ok(true);
+        }
+        for (_, path) in segments {
             // An unreadable segment counts as a log: the session is listed as before.
             match crate::home_fs::symlink_metadata(&path) {
                 Ok(meta) if meta.len() == 0 => {}
