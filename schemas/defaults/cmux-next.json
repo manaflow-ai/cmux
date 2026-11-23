@@ -738,6 +738,7 @@
     "setting.notifications.attention.style": "steady",
     "setting.notifications.attention.terminals": "glow",
     "setting.notifications.attention.width": 2,
+    "setting.notifications.delivery.blocked": "off",
     "setting.notifications.delivery.permissionRequest": "banner",
     "setting.notifications.delivery.question": "banner",
     "setting.notifications.delivery.taskComplete": "banner",
