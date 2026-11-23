@@ -1968,6 +1968,22 @@
    "27.0.1": true,
    "26.5.1": true,
    "26.6": true
+  },
+  "NSButton call:mouseUp/1": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true,
+   "26.5.1": true,
+   "26.6": true
+  },
+  "NSButton call:mouseDragged/1": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true,
+   "26.5.1": true,
+   "26.6": true
   }
  }
 }
