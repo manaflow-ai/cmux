@@ -1586,10 +1586,10 @@ export class MockSettingsProvider {
     loaded: true,
     applying: false,
     failed: false,
-    choice: "ask",
+    choice: "on",
     rows: [
-      { id: "claude", name: "Claude Code", state: "ready" },
-      { id: "codex", name: "Codex", state: "ready" },
+      { id: "claude", name: "Claude Code", state: "terminals" },
+      { id: "codex", name: "Codex", state: "terminals" },
     ],
     manual: [
       "claude mcp add --scope user cmux -- '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' mcp serve",

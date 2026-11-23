@@ -3,12 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
 import {
-  agentToolsState,
   agentsState,
   computerUseState,
   importState,
   makeItYoursState,
-  type AgentToolsFixture,
   type AgentsFixture,
   type ComputerUseFixture,
   type ImportFixture,
@@ -23,11 +21,10 @@ import { OnboardingStore } from "./store";
 import { READINESS, type ReadinessFixture, type ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 export type OnboardingGalleryProps = {
-  step?: "agents" | "importData" | "computerUse" | "agentTools" | "makeItYours";
+  step?: "agents" | "importData" | "computerUse" | "makeItYours";
   agents?: AgentsFixture;
   importer?: ImportFixture;
   computerUse?: ComputerUseFixture;
-  agentTools?: AgentToolsFixture;
   look?: AgentsLook;
   makeItYours?: MakeItYoursFixture;
   makeLook?: MakeItYoursLook;
@@ -41,7 +38,6 @@ export function OnboardingGallery({
   agents,
   importer,
   computerUse,
-  agentTools,
   look,
   makeItYours,
   makeLook,
@@ -53,11 +49,9 @@ export function OnboardingGallery({
         ? importState(importer)
         : step === "computerUse"
           ? computerUseState(computerUse)
-          : step === "agentTools"
-            ? agentToolsState(agentTools)
-            : step === "makeItYours"
-              ? makeItYoursState(makeItYours)
-              : agentsState(agents);
+          : step === "makeItYours"
+            ? makeItYoursState(makeItYours)
+            : agentsState(agents);
     const state = readiness ? withReadiness(base, READINESS[readiness]) : base;
     return { provider: new MockOnboardingProvider(step, state), state };
   });

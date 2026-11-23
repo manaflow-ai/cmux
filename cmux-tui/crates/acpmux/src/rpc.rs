@@ -937,6 +937,11 @@ pub mod method {
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";
     pub const MUX_PLAN_COMPARE: &str = "_acpmux/plan/compare";
     pub const MUX_PLAN_KEEP: &str = "_acpmux/plan/keep";
+    /// The machine's one GitHub poller for a pull request's state (`server/github_prs.rs`,
+    /// `pr_poller.rs`): `{repo, pr}` -> `{pr, poller}`, and the same after a wait
+    /// `{repo, pr, timeoutSecs?, until?}` until it is settled or changed.
+    pub const MUX_GITHUB_PR_STATE: &str = "_acpmux/github/pr_state";
+    pub const MUX_GITHUB_PR_WAIT: &str = "_acpmux/github/pr_wait";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";

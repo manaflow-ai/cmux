@@ -863,6 +863,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github/pr_state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github/pr_wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/worktree/report",
       "params": true,
       "result": true
