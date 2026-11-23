@@ -77,7 +77,11 @@ pub(crate) fn from_settings(root: &Value, base: PolicyConfig) -> PolicyConfig {
         config.mode = mode;
     }
     if let Some(list) = section.get("deniedApps").and_then(Value::as_array) {
-        config.denied_apps = list.iter().filter_map(Value::as_str).map(str::to_string).collect();
+        // A list copied from an earlier default drops the terminals and cmux
+        // (`migrate_denied_apps`); the person's own entries stay.
+        config.denied_apps = cmux_computer_use::policy::migrate_denied_apps(
+            list.iter().filter_map(Value::as_str).map(str::to_string).collect(),
+        );
     }
     if let Some(settle) = section
         .get("settle")
@@ -111,6 +115,9 @@ pub(crate) fn from_settings(root: &Value, base: PolicyConfig) -> PolicyConfig {
     }
     if let Some(value) = flag("whileLocked") {
         config.while_locked = value;
+    }
+    if let Some(value) = flag("alerts") {
+        config.alerts = value;
     }
     config
 }

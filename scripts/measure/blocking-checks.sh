@@ -47,7 +47,7 @@ DETECTOR_SYMBOL='BlockingViolationTable|BlockingPendingRing|BlockingSiteIndex|Bl
 release_build() {  # $1: name, $2...: extra build settings
   local name="$1"; shift
   ( cd Packages/macOS/CmuxNext && "$ROOT/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
-      xcodebuild -scheme CmuxNextApp -configuration Release -destination 'generic/platform=macOS' \
+      xcodebuild -skipPackagePluginValidation -scheme CmuxNextApp -configuration Release -destination 'generic/platform=macOS' \
       -derivedDataPath "$scratch/$name" ARCHS=arm64 ONLY_ACTIVE_ARCH=NO COMPILER_INDEX_STORE_ENABLE=NO \
       CODE_SIGNING_ALLOWED=NO "$@" build ) >"$OUT/$name.log" 2>&1
 }

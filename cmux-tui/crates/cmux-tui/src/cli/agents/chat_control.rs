@@ -647,6 +647,10 @@ fn session_meta(chat: &NewChat, workspace_key: &str) -> Map<String, Value> {
     }
     if chat.peer.is_none() {
         meta.insert("env".into(), json!({"CMUX_WORKSPACE_ID": uuid_form(workspace_key)}));
+    } else if chat.name.is_some() {
+        // On another machine it keeps its name: a taken one gets a `-N` suffix there, never the
+        // agent's name (acpmux `NewRequest::suffix_taken_name`).
+        meta.insert("ifNameTaken".into(), json!("suffix"));
     }
     meta
 }
@@ -687,6 +691,11 @@ pub(in crate::cli) fn new(
             "chat.create_failed",
             format!("acpmux answered no session: {created}"),
         ));
+    }
+    // Started here, in this cmux session's workspace (a peer's chat runs in none of them):
+    // `cmux chat --prompt … --wait` reaches it next with no second lookup (turn.rs).
+    if chat.peer.is_none() {
+        chat::note_started(chat::Chat { id: session.clone(), app: app_socket.clone() });
     }
     // The chat `cmux chat send TEXT` and `chat wait|read last` mean next (last_chat.rs); an
     // agent's own MCP calls are not the person's last chat.

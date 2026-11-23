@@ -233,10 +233,8 @@ test("a classic New Tab starts its deferred chat before changing model", async (
 test("a classic New Tab holds its effort and Fast mode picks on a deferred chat", async () => {
   const { chatCalls } = await mount();
   await open();
-  // The level lands and closes the menu (David Beyer 2026-11-20); Fast, in the menu opened again,
-  // lands as it is clicked.
+  // The columns stay open: the level, then Fast, each land as they are clicked.
   await pick("High");
-  await open();
   await pick("Fast");
   expect(chatCalls()).toEqual([
     { method: "chat.new", params: deferred },
