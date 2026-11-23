@@ -23,6 +23,8 @@ import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
 import type { HandoffDO } from "./handoffs/handoff-do.ts"
 import type { HandoffIndexDO } from "./handoffs/index-do.ts"
+import type { AutoSessionDO } from "./auto-sessions/session-do.ts"
+import type { AutoSessionIndexDO } from "./auto-sessions/index-do.ts"
 
 /** A build space: "" (nightly and stable) or `dev:<slug>` (one tagged dev build; build-space.ts). */
 export type BuildSpace = "" | `dev:${string}`
@@ -57,6 +59,9 @@ export interface WorkerBindings {
   /** Cloud work mode's hand-offs (handoffs/): one HandoffDO per handed-off session, one HandoffIndexDO per owner. Unbound in production until hand-off ships there. */
   readonly HANDOFF_DO?: DurableObjectNamespace<HandoffDO>
   readonly HANDOFF_INDEX_DO?: DurableObjectNamespace<HandoffIndexDO>
+  /** Auto mode (auto-sessions/): one AutoSessionDO per Auto chat, one AutoSessionIndexDO per owner. Unbound in production until Auto mode ships there. */
+  readonly AUTO_SESSION_DO?: DurableObjectNamespace<AutoSessionDO>
+  readonly AUTO_SESSION_INDEX_DO?: DurableObjectNamespace<AutoSessionIndexDO>
   /** One DomainDO per lowercased email domain: which team verified it (enterprise SSO). */
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
