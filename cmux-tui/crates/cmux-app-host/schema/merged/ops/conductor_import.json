@@ -4,7 +4,7 @@
     "conductor_import.plan": {
       "source": "local",
       "class": "read",
-      "digest": "0160ac663bd788da"
+      "digest": "a1a16a67e1b3bc37"
     },
     "conductor_import.record": {
       "source": "local",
