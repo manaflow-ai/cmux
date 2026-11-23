@@ -126,12 +126,12 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
     await page.keyboard.press("Control+End");
     await page.mouse.move(0, 0);
     await rest(page);
-    return page;
+    return { page, cdp };
   };
 
   for (const theme of ["Apple System Colors", "Apple System Colors Light"])
     test(`${theme}: a field that grows by a line it fits draws no thumb; one past its cap does`, async () => {
-      const page = await open(theme);
+      const { page, cdp } = await open(theme);
       try {
         // A second line first: Codex's look (the default since #42247) holds two lines' room at rest
         // (composerLook.css --acpmux-codex-editor-min), so only the third line grows the field.
@@ -164,6 +164,9 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
         for (const read of reads) expect(read.ink, JSON.stringify(read)).toBeLessThan(24);
         expect(await laneInk(page)).toBeLessThan(24);
 
+        // Full speed again: the thumb's fade runs on the frames' clock, which the slowdown
+        // stretches tenfold past the fixed wait below.
+        await cdp.send("Animation.setPlaybackRate", { playbackRate: 1 });
         // Past the cap, no thumb once the field rests (past the 800 ms scroll mark and its fade);
         // a wheel over the draft shows it, and scrolling still works.
         for (let line = 0; line < 24; line++) {
