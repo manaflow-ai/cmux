@@ -286,17 +286,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             staticCardID = source.showStaticCard(for: new) ? new : nil
         }
         .onAppear {
-            zoomDriver.onSettle = { phase in
-                if phase == .page {
-                    zoomTabId = nil
-                    queuedOpen = nil
-                    chrome.expand(tap: true, theme)
-                }
-                if phase == .overview, let id = queuedOpen {
-                    queuedOpen = nil
-                    if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
-                }
-            }
+            zoomDriver.onSettle = { phase in settled(phase) }
         }
         #if DEBUG
         // Screenshot harness: use the same action and menu as a toolbar tap.
@@ -644,6 +634,19 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     /// Done or a card: grid -> page, or reverse a zoom heading to the grid.
+    /// The zoom settled (`TabZoomDriver.onSettle`): a page expands its chrome; the overview opens a tab
+    /// queued while it animated. Its own function: inline in `.onAppear` it outran the type checker.
+    private func settled(_ phase: TabZoomState.Phase) {
+        if phase == .page {
+            zoomTabId = nil
+            queuedOpen = nil
+            chrome.expand(tap: true, theme)
+        }
+        guard phase == .overview, let id = queuedOpen else { return }
+        queuedOpen = nil
+        if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
+    }
+
     private func closeOverview(selecting tabId: String?) {
         guard overviewVisible else { return }
         if zoomState.phase == .overview {
