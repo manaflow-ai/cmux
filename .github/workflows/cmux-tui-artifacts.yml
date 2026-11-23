@@ -345,19 +345,36 @@ jobs:
       owns_key: ${{ steps.inspect.outputs.owns_key }}
       stale: ${{ steps.stale.outputs.stale }}
     steps:
+      # Only the files these steps read: the full working tree took 54 s of this job's 56 s (n=4,
+      # 2026-11-23). Tree keys come from tree objects, which blob:none keeps; cmux_tui_tree_key.py
+      # reads cmux-tui-tree-inputs.txt with lazy fetch off, so its blob must be in the sparse set.
+      # Any file a step here starts reading is added to this list.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 1
+          filter: blob:none
+          # BASH_ENV (above) sources scripts/ci/api_call_log/env.sh in every step.
+          sparse-checkout: |
+            scripts/ci/api_call_log/
+            scripts/ci/cmux_tui_superseded_push.py
+            scripts/ci/cmux-tui-darwin-builder
+            scripts/cmux-next/cmux-tui-build-profiles.json
+            scripts/ci/cmux_tui_tree_key.py
+            scripts/cmux-next/cmux-tui-tree-inputs.txt
+            scripts/ci/cmux-tui-tree-claim.sh
+            scripts/ci/cmux_tui_publisher_testing.py
+            scripts/ci/nightly_tree_source.py
+          sparse-checkout-cone-mode: false
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      # This checkout is sparse, so it keeps its sparse set (the sparse jobs' form of the repair).
       - name: Repair a reused self-hosted checkout
         if: runner.os == 'Linux'
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
 
