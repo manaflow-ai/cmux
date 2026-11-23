@@ -562,6 +562,7 @@ export function FolderPopover({
         side={side}
         flip={flip}
         finalFocus={false}
+        resize={{ id: "composer.folder" }}
       >
         <span className="acpmux-folder-fit" aria-hidden="true">
           {fit.map((line) => (
