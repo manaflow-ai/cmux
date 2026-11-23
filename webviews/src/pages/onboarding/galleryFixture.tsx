@@ -1,5 +1,5 @@
 // l10n-allow-file: public-safe gallery fixtures.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
 import {
@@ -11,12 +11,14 @@ import {
   type ComputerUseFixture,
   type ImportFixture,
   type MakeItYoursFixture,
+  withReadiness,
 } from "./fixtures";
 import type { MakeItYoursLook } from "./MakeItYoursStep";
 import table from "./generated/strings.json";
 import { MockOnboardingProvider } from "./mockProvider";
 import { OnboardingPage } from "./Onboarding";
 import { OnboardingStore } from "./store";
+import { READINESS, type ReadinessFixture, type ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 export type OnboardingGalleryProps = {
   step?: "agents" | "importData" | "computerUse" | "makeItYours";
@@ -26,6 +28,9 @@ export type OnboardingGalleryProps = {
   look?: AgentsLook;
   makeItYours?: MakeItYoursFixture;
   makeLook?: MakeItYoursLook;
+  /** The host's sign-in state on the agents step (shared/signIn/galleryFixtures.ts READINESS): sent
+   * as `signInReadiness` and `signInAccounts`, its sign-in started through the mock's op. */
+  readiness?: ReadinessFixture;
 };
 
 export function OnboardingGallery({
@@ -36,9 +41,10 @@ export function OnboardingGallery({
   look,
   makeItYours,
   makeLook,
+  readiness,
 }: OnboardingGalleryProps) {
-  const [store] = useState(() => {
-    const state =
+  const [mock] = useState(() => {
+    const base =
       step === "importData"
         ? importState(importer)
         : step === "computerUse"
@@ -46,8 +52,31 @@ export function OnboardingGallery({
           : step === "makeItYours"
             ? makeItYoursState(makeItYours)
             : agentsState(agents);
-    return new OnboardingStore(new MockOnboardingProvider(step), state);
+    const state = readiness ? withReadiness(base, READINESS[readiness]) : base;
+    return { provider: new MockOnboardingProvider(step, state), state };
   });
+  const [store] = useState(() => new OnboardingStore(mock.provider, mock.state));
   const [strings] = useState(() => createStrings(table));
-  return <OnboardingPage store={store} strings={strings} agentsLook={look} makeItYoursLook={makeLook} />;
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!readiness) return;
+    // The page follows the mock host's changes (a finished sign-in turns the row ready).
+    void store.start();
+    // The sign-in the case shows, started the way a click starts it: held on its code, or refused.
+    const fixture: ReadinessFixtureCase = READINESS[readiness];
+    const signIn = fixture.signIn;
+    if (signIn) {
+      if (signIn.refusal) mock.provider.signIn.refusal = signIn.refusal;
+      else mock.provider.signIn.hold = new Promise<void>(() => {});
+      root.current
+        ?.querySelector<HTMLButtonElement>(`[data-ready-family="${signIn.family}"] [data-ready-action="signIn"]`)
+        ?.click();
+    }
+    return () => store.stop();
+  }, [readiness, store, mock]);
+  return (
+    <div ref={root} style={{ display: "contents" }}>
+      <OnboardingPage store={store} strings={strings} agentsLook={look} makeItYoursLook={makeLook} />
+    </div>
+  );
 }

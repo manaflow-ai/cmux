@@ -29,6 +29,7 @@ import entryIndex from "virtual:cmux-gallery/entry-index";
 import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
 import { startBoxTracker } from "../shift";
 import { collectInvariants, type Violation } from "../invariants";
+import { installScrollingMarks } from "../../scrollers";
 
 installGalleryClock();
 // A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
@@ -217,6 +218,11 @@ const context: StageContext = {
   log: (method, params) => log.push({ method, params }),
   options: optionValues,
 };
+
+// The pages mark each scroller a wheel or scroll moves (pages/shared/pageHealth.ts), which shows a
+// shown scroller's thumb only while it scrolls (Leo 2026-11-22: "the thumb only appears when it's
+// relevant"); the stage does the same, or no gallery thumb could ever show.
+installScrollingMarks(document);
 
 if (stageRoot) {
   stageRoot.textContent = "";
