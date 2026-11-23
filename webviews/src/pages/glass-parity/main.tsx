@@ -82,7 +82,7 @@ export const PARITY_CLASS: Record<ParityKind, string> = {
   menu: "ui-popup ui-menu ui-glass",
   popover: "ui-popup ui-glass ui-popover",
   card: "ui-tooltip ui-card ui-glass",
-  tooltip: "ui-tooltip",
+  tooltip: "ui-tooltip ui-glass",
   dialog: "ui-dialog ui-glass ui-glass-floats",
   toast: "ui-notice ui-glass",
   // Docked glass: the root level of .ui-glass (glass.css: panes, bars, rails).

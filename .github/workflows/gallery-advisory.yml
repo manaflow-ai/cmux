@@ -70,7 +70,7 @@ jobs:
     # concurrency group and can cancel a synchronize run, so it must mark stale
     # too. stale() writes nothing when the section already shows this head.
     if: ${{ vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     continue-on-error: true
     timeout-minutes: 5
     permissions:
@@ -110,7 +110,7 @@ jobs:
     # The capture step may fail (a browser or gallery build unavailable); the
     # frame check after it decides the job's result, and the artifact step
     # always runs.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
       - name: Initialize evidence directory
@@ -137,6 +137,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /examples/gallery/
+            /examples/looks/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -424,7 +426,7 @@ jobs:
     # Not on a cancelled run: a newer push cancelled it, and its mark-stale
     # line must stand until the newer capture lands.
     if: ${{ !cancelled() && needs.capture.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     continue-on-error: true
     timeout-minutes: 5
     permissions:
