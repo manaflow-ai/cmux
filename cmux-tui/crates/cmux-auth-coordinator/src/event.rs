@@ -38,6 +38,9 @@ pub struct Persisted {
 /// The staleness context a restore captures at entry (Swift `checkExistingSessionBody`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RestoreTicket {
+    /// Which restore run this answer belongs to: one run at a time owns the
+    /// restore, and the answers of a finished run are dropped.
+    pub id: u64,
     pub generation: u64,
     pub store_write_high_water: u64,
     pub retry_on_storage_available: bool,
@@ -84,8 +87,8 @@ impl SignInKind {
 pub enum AfterTeams {
     /// Nothing: a plain refresh.
     Nothing,
-    /// The restore with this ticket finishes.
-    Restore,
+    /// The restore run with this id finishes.
+    Restore { id: u64 },
     /// The sign-in flow completes.
     SignIn(SignInFlow),
 }
@@ -93,6 +96,9 @@ pub enum AfterTeams {
 /// The context of one team-list read (Swift `refreshTeams(generation:)`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TeamRefreshTicket {
+    /// Which read this is: each read is answered once, and a repeated or
+    /// unknown answer is dropped.
+    pub id: u64,
     pub generation: u64,
     pub mutation_generation: u64,
     pub list_generation: u64,
@@ -233,13 +239,43 @@ pub enum Event {
     /// A `42` sign-in remembered its DEBUG credentials.
     DebugCredentialsRemembered,
     SignOutRequested,
-    /// Sign-out captured its teardown credentials and cleared the local token store.
-    SignOutLocalCleared,
+    /// Sign-out captured its teardown credentials and cleared the local token
+    /// store. `sign_out_epoch` is the one its capture effect carried.
+    SignOutLocalCleared {
+        sign_out_epoch: u64,
+    },
     /// A token read found the session definitively gone.
     TokenReadUnauthorized(TokenReadKind),
     DevAuthAccessTokenFinished {
         got_token: bool,
     },
+}
+
+impl Event {
+    /// The restore ticket this event answers, if it answers a restore effect.
+    pub fn restore_ticket(&self) -> Option<&RestoreTicket> {
+        match self {
+            Self::TokensProbed { ticket, .. }
+            | Self::TokenStorageAvailability { ticket, .. }
+            | Self::ProbeRetryDue { ticket, .. }
+            | Self::CachedSessionValidated { ticket, .. }
+            | Self::SurvivingRefreshTokenRead { ticket, .. }
+            | Self::StaleSessionCleared { ticket, .. }
+            | Self::AutoLoginFinished { ticket, .. } => Some(ticket),
+            _ => None,
+        }
+    }
+
+    /// The sign-in flow this event answers, if it answers a sign-in effect.
+    pub fn sign_in_flow(&self) -> Option<SignInFlow> {
+        match self {
+            Self::TokenWorkQuiesced { flow, .. }
+            | Self::OnlineChecked { flow, .. }
+            | Self::ExchangeFinished { flow, .. }
+            | Self::SignInUserFetched { flow, .. } => Some(*flow),
+            _ => None,
+        }
+    }
 }
 
 /// An output of the reducer: I/O or a publication for the caller to run.
@@ -340,8 +376,10 @@ pub enum Effect {
     ClearPhaseDampers(&'static [AuthPhase]),
     /// Read the stored access and refresh tokens with no network, forget the
     /// latest sign-in refresh token, clear the local token store, then send
-    /// [`Event::SignOutLocalCleared`].
-    CaptureTeardownCredentialsAndClearLocalSession,
+    /// [`Event::SignOutLocalCleared`] with the same epoch.
+    CaptureTeardownCredentialsAndClearLocalSession {
+        sign_out_epoch: u64,
+    },
     EndSignOutCredentialCapture,
     WaitForPostSignInHooks,
     /// The bounded best-effort hook and session revocation with the captured tokens.

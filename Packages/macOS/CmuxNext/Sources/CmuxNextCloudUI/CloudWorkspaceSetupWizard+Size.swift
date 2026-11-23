@@ -78,17 +78,17 @@ extension CloudWorkspaceSetupWizard {
 }
 
 enum CloudWorkspaceSetupWizardSizeStrings {
-    nonisolated static let label = String(localized: "cloud.workspaceSetup.sizeLabel", defaultValue: "Machine size", table: "Cloud", bundle: .module)
-    nonisolated static let automatic = String(localized: "cloud.workspaceSetup.sizeAutomatic", defaultValue: "Automatic (sized for the chat's repository)", table: "Cloud", bundle: .module)
+    nonisolated static let label = String(localized: "cloud.workspaceSetup.sizeLabel", defaultValue: "Machine size", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let automatic = String(localized: "cloud.workspaceSetup.sizeAutomatic", defaultValue: "Automatic (sized for the chat's repository)", table: "Cloud", bundle: .localizedModule)
     /// vCPU is a unit with no plural form, so the count is a formatted number, not a plural.
     nonisolated static func size(vcpus: String, memoryGB: String) -> String {
-        String(format: String(localized: "cloud.workspaceSetup.size", defaultValue: "%1$@ vCPU, %2$@ GB memory", table: "Cloud", bundle: .module), vcpus, memoryGB)
+        String(format: String(localized: "cloud.workspaceSetup.size", defaultValue: "%1$@ vCPU, %2$@ GB memory", table: "Cloud", bundle: .localizedModule), vcpus, memoryGB)
     }
     nonisolated static func memoryOnly(_ memoryGB: String) -> String {
-        String(format: String(localized: "cloud.workspaceSetup.sizeMemory", defaultValue: "%@ GB memory", table: "Cloud", bundle: .module), memoryGB)
+        String(format: String(localized: "cloud.workspaceSetup.sizeMemory", defaultValue: "%@ GB memory", table: "Cloud", bundle: .localizedModule), memoryGB)
     }
     /// The size and its hourly rate: "2 vCPU, 4 GB memory · $0.13/h".
     nonisolated static func withRate(_ size: String, rate: String) -> String {
-        String(format: String(localized: "cloud.workspaceSetup.sizeRate", defaultValue: "%1$@ · %2$@/h", table: "Cloud", bundle: .module), size, rate)
+        String(format: String(localized: "cloud.workspaceSetup.sizeRate", defaultValue: "%1$@ · %2$@/h", table: "Cloud", bundle: .localizedModule), size, rate)
     }
 }

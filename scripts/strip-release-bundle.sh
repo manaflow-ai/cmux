@@ -86,9 +86,19 @@ strip_executable "$APP_PATH/Contents/MacOS/cmux"
 if [ "$APP_CODE" != "$APP_PATH/Contents/MacOS/cmux" ]; then
   strip_if_macho "$APP_CODE"
 fi
-# bin/cmux is the Rust cmux-tui binary, which ships no dSYM: keep its global
-# symbols (-S -x) so its crash reports still name functions.
-strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
+# bin/cmux is the Rust cmux-tui binary (cmux-tui, its host and acpmux). Its
+# release build leaves every Rust function global (thin LTO, cmux#43411), so
+# -S -x kept 62,017 names: 6.9 MB of 143.4 MB (nightly 4413904924501). Keep
+# them in Resources/cmux-tui-symbols.bin, 0.8 MB, then strip fully: its panic
+# logs and crash sidecars name frames through the map (cmux-panic-log), and
+# its macOS crash reports go to Sentry as image offsets, which the binary's
+# cmux-tui.dSYM (same UUID) resolves to functions and lines: the tree build
+# uploads it (cmux-tui-artifacts.yml sentry-dsyms), the fast nightly client too.
+if [ -f "$APP_PATH/Contents/Resources/bin/cmux" ] && [ ! -L "$APP_PATH/Contents/Resources/bin/cmux" ]; then
+  python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-app-symbol-map.py" \
+    "$APP_PATH/Contents/Resources/bin/cmux" "$APP_PATH/Contents/Resources/cmux-tui-symbols.bin"
+fi
+strip_executable "$APP_PATH/Contents/Resources/bin/cmux"
 strip_executable "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
 # Every other helper in bin/ and libexec/ keeps its global symbols: the
 # nightly's optchat-chief, cmux-app-host, cmux-browser-host, cmux-cloud, ghostty

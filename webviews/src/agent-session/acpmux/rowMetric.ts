@@ -4,14 +4,23 @@
 // chip and one glyph, so no row kind can drift taller than the others (Leo, 2026-11-17, on a
 // coordinator chat whose rows had grown apart: "these are too big").
 //
-// conversation.css holds the same four values as `--cv-tool-row-height`, `--cv-row-font-size`,
+// The row's height is its 22 line of words and the row air over them (transcriptGrid.ts
+// ROW_AIR_LOOKS; Leo, 2026-11-22: "our is too much of a dense eyesore right now"), so the metric
+// shrinks the words, the chips, the glyphs and "Worked for"'s rule, and keeps the air between rows.
+//
+// conversation.css holds the same values as `--cv-tool-row-height`, `--cv-row-font-size`,
 // `--cv-row-chip-height` and `--cv-row-glyph`; model.ts estimates every one-line row from
-// ROW_METRIC.height; test/transcript-row-metric-tokens.test.ts fails when the stylesheet and this
+// transcriptGrid.ts TRANSCRIPT_LINE_ROW, which is ROW_METRIC.height; test/transcript-row-metric-tokens.test.ts fails when the stylesheet and this
 // file disagree, and test/transcript-activity-row-density.test.ts measures every row kind of
 // gallery entry agent-pane.activity-row-density against it.
 
+import { ROW_AIR_LOOKS, TRANSCRIPT_LINE_WORDS } from "./transcriptGrid";
+
+/** The shipped row: its words' line and the row air. */
+const ROW = TRANSCRIPT_LINE_WORDS + ROW_AIR_LOOKS.shipped;
+
 export type RowMetric = {
-  /** A one-line row's height, top to top: the rows sit flush. CSS px. */
+  /** A one-line row's height, top to top (its words' line and the row air): the rows sit flush. CSS px. */
   height: number;
   /** The row's words, CSS px at the default reading size (the prose is 14). */
   font: number;
@@ -26,10 +35,11 @@ export type RowMetric = {
 };
 
 /// The candidates the gallery compares (agent-pane.activity-row-density): `roomy` is what shipped
-/// before, prose-sized; `compact` is the pick; `dense` is the tightest that still holds a chip.
+/// before, prose-sized; `compact` is the pick; `dense` is the tightest that still holds a chip. All
+/// three keep the row air, so they differ in the words, chips and glyphs, and `dense` in a 20 line.
 export const ROW_METRIC_VARIANTS = {
   roomy: {
-    height: 22,
+    height: ROW,
     font: 14,
     chip: 18,
     glyph: 16,
@@ -38,7 +48,7 @@ export const ROW_METRIC_VARIANTS = {
     note: "Before: the rows at the prose's size.",
   },
   compact: {
-    height: 20,
+    height: ROW,
     font: 13,
     chip: 16,
     glyph: 16,
@@ -47,7 +57,7 @@ export const ROW_METRIC_VARIANTS = {
     note: "The pick: one point under the prose, a desktop chat agent's activity list.",
   },
   dense: {
-    height: 18,
+    height: ROW - 2,
     font: 12,
     chip: 15,
     glyph: 14,

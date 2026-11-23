@@ -135,9 +135,9 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
   };
 
   const lineRows = (rows: Row[]) => rows.filter((row) => row.kind !== "");
-  /** An opened run draws a row per call with the grid base (4) between calls: how many rows tall. */
-  const callsIn = (height: number) => Math.round((height + 4) / (ROW_METRIC.height + 4));
-  const runHeight = (calls: number) => calls * ROW_METRIC.height + (calls - 1) * 4;
+  /** An opened run draws a row per call, flush (`.cv-tools` gap 0): how many rows tall. */
+  const callsIn = (height: number) => Math.round(height / ROW_METRIC.height);
+  const runHeight = (calls: number) => calls * ROW_METRIC.height;
 
   for (const variant of MEASURED) {
     test(`each shut one-line row is one row of the metric, ${ROW_METRIC.height}px (${variant})`, async () => {

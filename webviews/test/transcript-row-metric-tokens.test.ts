@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
-import { TRANSCRIPT_LINE_ROW } from "../src/agent-session/acpmux/transcriptGrid";
+import { ROW_AIR_LOOKS, TRANSCRIPT_LINE_ROW, TRANSCRIPT_LINE_WORDS } from "../src/agent-session/acpmux/transcriptGrid";
 import { SYSTEM_ROW_PITCH, TRANSCRIPT_SPACING } from "../src/agent-session/acpmux/transcriptSpacing";
 
 const ACPMUX = path.resolve(import.meta.dir, "../src/agent-session/acpmux");
@@ -26,13 +26,15 @@ describe("the shared row metric", () => {
   test("the stylesheet's row tokens are rowMetric.ts's", () => {
     expect({
       height: token(css, "--cv-tool-row-height"),
+      air: token(css, "--cv-row-air"),
       font: token(css, "--cv-row-font-size"),
       chip: token(css, "--cv-row-chip-height"),
       glyph: token(css, "--cv-row-glyph"),
       ruleAbove: token(css, "--cv-worked-rule-above"),
       ruleBelow: token(css, "--cv-worked-rule-below"),
     }).toEqual({
-      height: `${ROW_METRIC.height}px`,
+      height: `calc(${TRANSCRIPT_LINE_WORDS}px + var(--cv-row-air))`,
+      air: `${ROW_AIR_LOOKS.shipped}px`,
       font: `calc(var(--cv-font-size) * ${ROW_METRIC.font} / ${PROSE})`,
       chip: `${ROW_METRIC.chip}px`,
       glyph: `${ROW_METRIC.glyph}px`,
@@ -43,7 +45,8 @@ describe("the shared row metric", () => {
   test("the row estimates read the metric, never a literal", () => {
     const model = read("model.ts");
     expect(TRANSCRIPT_LINE_ROW).toBe(ROW_METRIC.height);
-    expect(model).toContain("const TOOL_ROW_PT = TRANSCRIPT_LINE_ROW;");
+    expect(ROW_METRIC.height).toBe(TRANSCRIPT_LINE_WORDS + ROW_AIR_LOOKS.shipped);
+    expect(model).toContain("let lineRowPt = TRANSCRIPT_LINE_ROW;");
     expect(model).toContain("const WORKED_GAP_PT = ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow;");
   });
   test("the spacing spec's one-line pitch is the metric's row", () => {

@@ -46,10 +46,12 @@ final pushed head.
 
 ## Test wiring
 
+What CI runs for a new test, and how to see the plan before pushing: [adding a test](references/adding-a-test.md).
+
 App tests live in `Packages/macOS/CmuxNext/Tests/<Module>Tests`; SwiftPM discovers
 them, so no project wiring is needed. The `cmux` CLI is the cmux-tui Rust
 binary (plans/cmux-next/cli.md); its tests live in `cmux-tui/` and run with
-cargo on a Blacksmith Testbox or in CI. Maintainers never run cargo on the
+cargo on the fleet (`cmux-ci`, Linux first) or in CI. Maintainers never run cargo on the
 local Mac; outside contributors, who cannot dispatch hosted verification, run
 focused tests locally as described in `cmux-tui/AGENTS.md`.
 

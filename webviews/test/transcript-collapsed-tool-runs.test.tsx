@@ -4,7 +4,6 @@
 // Codex app draws it (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean"). Opened, it
 // lists the rows it holds as they draw on their own. The call in flight stays out of it, on the
 // live line; a failed call is counted on it; an edit waiting for its permission keeps its run open.
-import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -12,6 +11,7 @@ import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { layoutConversation } from "../src/agent-session/acpmux/model";
+import { TRANSCRIPT_LINE_ROW } from "../src/agent-session/acpmux/transcriptGrid";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { mainToolRunCategory } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -117,8 +117,8 @@ test("the app routes a folded mixed run to tool rows and estimates one summary l
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   expect(work.foldRun).toBe(true);
   expect(isEditRow(work)).toBe(false);
-  // One 22px line (design/chat-transcript.md "One-line row pitch", #29965).
-  expect(layoutConversation([work], 760).heights[0]).toBe(ROW_METRIC.height);
+  // One one-line row (design/chat-transcript.md "One-line row pitch", #29965; TRANSCRIPT_LINE_ROW).
+  expect(layoutConversation([work], 760).heights[0]).toBe(TRANSCRIPT_LINE_ROW);
 });
 
 test("the line's glyph is the run's main kind of work", () => {

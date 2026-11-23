@@ -535,6 +535,56 @@
             "generated": false,
             "module": "CmuxNextCompat"
           }
+        },
+        {
+          "key": "notifications.toast.style",
+          "name": "toastStyle",
+          "note": "A theme hook: themes set it in cmux.json. A pick in the Toast Playground (Debug) wins over it (CmuxToastStyleStore). CmuxToastStyle has more cases; only these are settable here.",
+          "title": {
+            "key": "settings.notifications.toastStyle",
+            "text": "Toast Style"
+          },
+          "help": {
+            "key": "settings.notifications.toastStyle.help",
+            "text": "How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.glass",
+                "text": "Glass"
+              }
+            },
+            {
+              "value": "solid",
+              "title": {
+                "key": "settings.choice.editor.solid",
+                "text": "Solid"
+              }
+            },
+            {
+              "value": "flat",
+              "title": {
+                "key": "settings.choice.chromeStyle.flat",
+                "text": "Flat"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "toast",
+            "theme",
+            "flat",
+            "glass"
+          ],
+          "page_hidden": "a theme hook, set in cmux.json by themes; the Toast Playground picks a style on the page",
+          "swift_enum": {
+            "name": "CmuxToastStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          }
         }
       ]
     },
@@ -967,6 +1017,49 @@
           "keywords": []
         },
         {
+          "key": "notifications.attention.mark",
+          "note": "Leo 2026-11-19: \"needs you\" as motion, a look customization, off by default (the badge stays the default).",
+          "title": {
+            "key": "settings.attention.mark",
+            "text": "Needs You Look"
+          },
+          "help": {
+            "key": "settings.attention.mark.help",
+            "text": "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.badge",
+                "text": "Badge"
+              }
+            },
+            {
+              "value": "glow",
+              "title": {
+                "key": "settings.choice.glow",
+                "text": "Glow"
+              }
+            }
+          ],
+          "default": "badge",
+          "keywords": [
+            "needs you",
+            "glow",
+            "badge",
+            "unread",
+            "waiting",
+            "motion"
+          ],
+          "swift_enum": {
+            "name": "AttentionMarkLook",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          }
+        },
+        {
           "key": "notifications.attention.moveToTop",
           "title": {
             "key": "settings.attention.moveToTop",
@@ -1287,6 +1380,135 @@
             "mute"
           ],
           "page_hidden": "ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"
+        }
+      ]
+    },
+    {
+      "name": "delivery",
+      "section": "notifications",
+      "group": {
+        "key": "settings.group.notificationDelivery",
+        "text": "Delivery by Event"
+      },
+      "rows": [
+        {
+          "key": "notifications.delivery.permissionRequest",
+          "name": "permissionRequestDelivery",
+          "title": {
+            "key": "settings.notifications.delivery.permissionRequest",
+            "text": "Permission Request"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.badge",
+                "text": "Badge"
+              }
+            },
+            {
+              "value": "banner",
+              "title": {
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
+              }
+            }
+          ],
+          "default": "banner",
+          "keywords": [
+            "banner",
+            "delivery",
+            "permissionRequest"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": true
+          }
+        },
+        {
+          "key": "notifications.delivery.question",
+          "name": "questionDelivery",
+          "title": {
+            "key": "settings.notifications.delivery.question",
+            "text": "Question"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.badge",
+                "text": "Badge"
+              }
+            },
+            {
+              "value": "banner",
+              "title": {
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
+              }
+            }
+          ],
+          "default": "banner",
+          "keywords": [
+            "banner",
+            "delivery",
+            "question"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.delivery.taskComplete",
+          "name": "taskCompleteDelivery",
+          "title": {
+            "key": "settings.notifications.delivery.taskComplete",
+            "text": "Task Complete"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "banner",
+              "title": {
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
+              }
+            }
+          ],
+          "default": "banner",
+          "keywords": [
+            "banner",
+            "delivery",
+            "taskComplete"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": false
+          }
         }
       ]
     }

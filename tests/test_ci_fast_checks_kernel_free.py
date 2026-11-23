@@ -63,7 +63,9 @@ class KernelFreeMacRouteTests(unittest.TestCase):
 
     def test_the_mac_job_runs_on_the_owned_side_light_pool(self) -> None:
         # The one owned label: no caller-chosen label, variable or paid label reaches the Mac job.
-        self.assertEqual(document()["jobs"][MAC_JOB]["runs-on"], MAC_LABEL)
+        # (the owned label's own override variable is the only other input: vars.CI_LIGHT_LANE_RUNNER)
+        self.assertEqual(document()["jobs"][MAC_JOB]["runs-on"],
+                         "${{ vars.CI_LIGHT_LANE_RUNNER || '" + MAC_LABEL + "' }}")
 
     def test_the_mac_job_holds_no_secret_or_write_token(self) -> None:
         job = document()["jobs"][MAC_JOB]

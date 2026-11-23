@@ -46,15 +46,39 @@ versions; the scout's next run publishes the current projection again).
 
 ## The model scout (automation `models-scout`)
 
-`scripts/models/scout.ts`, run every 6 h by the cmux automation `models-scout` on
-cmux-lawrence's Mac (`scripts/models/run-scout.sh`, in its own worktree
-`~/cmux-worktrees/models-scout`, moved to the newest `feat-cmux-next` before each run). One run:
+`scripts/models/scout.ts`, run every 6 h by the cmux automation `models-scout`
+(`scripts/models/run-scout.sh`). It runs where no Mac must be awake: on the team Cloud machine
+"Cloud Machine 2" (since 2026-11-20; the Mac's launchd copy is deleted, so one copy runs), from a
+checkout the runner moves to the newest `feat-cmux-next` before each run. The first run on a machine
+clones the repo (about 1.1 GB, several minutes) detached from the start step, so it fits in the run's
+timeout; later runs only fetch. Make it with a CLI from nightly 4487759453601 or later (it has c8b0ee73,
+the detached clone). Its steps run at most 100 s (3a27f805); since cmux-vm sends a long exec as a
+provider background request, steps of up to 290 s pass too (the provider's edge had cut an exec held
+open at about 125 s, "the machine did not answer"). Proved 2026-11-21 by run
+run_6095baeb0a9532d05c31: a fresh clone, then the scout, in 216 s:
+
+```sh
+cmux automation create models-scout --command 'bash scripts/models/run-scout.sh' \
+  --repo manaflow-ai/cmux --ref feat-cmux-next --every 6h --timeout 20m --catch-up latest \
+  --target cloud --machine 'Cloud Machine 2'   # --machine: needed when the team has 2+ machines (a CLI with 1603df5c)
+# each secret from a hidden prompt or stdin, never an argument:
+cmux automation secret set models-scout MODELS_CATALOG_TOKEN_STAGING --target cloud
+```
+
+Its secrets (environment variables; on a Mac, `~/.secrets` files instead): `MODELS_CATALOG_TOKEN_STAGING`,
+`MODELS_CATALOG_TOKEN_PRODUCTION` (publish, run reports), `CMUX_E2E_EMAIL`, `CMUX_E2E_PASSWORD`,
+`CMUX_STACK_PUBLISHABLE_KEY` (the production e2e account, router smoke), `VERTEX_RELAY_KEY` (the
+production console's Vertex relay, `INFERENCE_VERCEL_RELAY_KEY` of production: smoke turns on Vertex
+with no Google key), `GH_TOKEN` (push a branch and open a draft PR in manaflow-ai/cmux). With a gcloud
+login (a Mac) the Vertex model list is Vertex's own; on a Cloud machine it is models.dev's
+`google-vertex` list, and the smoke turn says whether our Vertex serves the model. A failed run (exit 3
+or 1, or a timeout) posts a Feed notice to the automation's creator. One run:
 
 1. projects models.dev through the overrides and publishes it to staging, then production, only
    when its content changed (a model a harness's overrides admit appears with no human step);
 2. smoke-tests every router model on production with a real tool-call turn (the e2e account);
 3. lists Google's models on our Vertex AI (project cmux-489202); a chat model new since the last
-   run gets a tool-call smoke turn there. Pass: a draft PR adds it to the router on staging (a
+   run gets a tool-call smoke turn there, through the console's relay. Pass: a draft PR adds it to the router on staging (a
    human decides the price and production). Fail: a cmux notification "New model not served" and
    a failed run;
 4. reports the run to cloud-api; exits 3 when anything failed (the automation runner then shows
@@ -62,7 +86,8 @@ cmux-lawrence's Mac (`scripts/models/run-scout.sh`, in its own worktree
 
 Watch it:
 
-- `cmux automation history models-scout`, `cmux automation logs <run>`, the Automations page;
+- `cmux automation history models-scout --target cloud`, `cmux automation logs <run> --target cloud`,
+  the Automations page;
 - `GET /v1/models/catalog/health` (public): last run, what it added, what failed; 503 when no good
   run landed in 13 hours (uptime checks can poll it);
 - by hand: `bun scripts/models/scout.ts --dry-run` (no publish, no PR, no state written).

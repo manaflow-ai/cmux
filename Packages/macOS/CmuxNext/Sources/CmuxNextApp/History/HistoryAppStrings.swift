@@ -3,7 +3,7 @@ import Foundation
 /// App strings for history (table History.xcstrings).
 enum HistoryAppStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "History", bundle: .module)
+        String(localized: key, defaultValue: value, table: "History", bundle: .module.inAppLanguage)
     }
 
     static var nothingBack: String { t("history.refusal.nothingBack", "No earlier location to go back to") }

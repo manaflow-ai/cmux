@@ -9,7 +9,12 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { TRANSCRIPT_LIVE_STEP_GAP, TRANSCRIPT_LIVE_STEP_HEIGHT } from "../src/agent-session/acpmux/transcriptGrid";
+import {
+  TRANSCRIPT_LIVE_STEP_GAP,
+  TRANSCRIPT_LIVE_STEP_HEIGHT,
+  TRANSCRIPT_LINE_ROW,
+  TRANSCRIPT_LINE_WORDS,
+} from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -246,16 +251,16 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             console.log(`transcript-cohesion ${variant} ${label}: ${JSON.stringify(measured)}`);
             if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
               // Worked for's rule sits between its words and the next row, open or closed:
-              // 4 under its 22px line, 8 over the next row, and no stack gap after it (Codex parity,
+              // 4 under its one-line row (TRANSCRIPT_LINE_ROW: its 22 line of words and the row air), 8 over the next row, and no stack gap after it (Codex parity,
               // Lucas, 2026-11-07; conversation.css `.cv-worked.has-divider.is-toggle`, model.ts
               // WORKED_GAP_PT, transcriptGrid.ts MARK_WORKED).
-              expect(measured.headerHeight).toBeCloseTo(ROW_METRIC.height + ROW_METRIC.ruleAbove, 1);
+              expect(measured.headerHeight).toBeCloseTo(TRANSCRIPT_LINE_ROW + ROW_METRIC.ruleAbove, 1);
               if (variant === "codex-closed") {
                 expect(measured.replyGap).toBeCloseTo(ROW_METRIC.ruleBelow, 1);
                 expect(
                   Math.abs(
                     measured.replyCenterGap -
-                      (ROW_METRIC.height / 2 + ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow + 11.375),
+                      (TRANSCRIPT_LINE_ROW / 2 + ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow + 11.375),
                   ),
                 ).toBeLessThan(1);
               } else expect(measured.nextGap).toBeCloseTo(ROW_METRIC.ruleBelow, 1);
