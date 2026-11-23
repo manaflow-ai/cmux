@@ -603,6 +603,7 @@ import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { copyShowsRunningTurn, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
+import { snapshotDraft } from "./chatSnapshot/restoredDraft";
 import { watchLaunchSettle } from "./launchSettle";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -6470,7 +6471,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // relaunch's attach no longer meets (Leo, 2026-11-08: "what you saw when you clicked the
       // restart button ... here's literally what you just had").
       directClient.current?.handOverCurrentTail();
-      return callNative("chat.snapshot.put", params);
+      // The prompt the markup shows, as text: the next launch's composer holds it from its first
+      // frame (chatSnapshot/restoredDraft.ts), so the copy's composer and the live one are one size.
+      // A miss (a copy too large to keep) carries it too; a forget carries nothing.
+      const draft =
+        "html" in params || "miss" in params ? snapshotDraft(composerHandle.current?.draft().text) : undefined;
+      return callNative("chat.snapshot.put", draft ? { ...params, draft } : params);
     });
   }, [snapshotSession]);
   const summary = snapshot.summary;
