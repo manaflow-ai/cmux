@@ -100,7 +100,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         command.env(
             acpmux::agent_tools::TOOLS_ANSWER_ENV,
             crate::agent_mcp_choice::tools_answer(
-                cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+                cmux_tui_core::user_settings::AgentsCmuxMcp::current_for("claude"),
             ),
         );
         match prepare_hooks(args) {
@@ -183,7 +183,7 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<(Vec<OsString>, Option<Pat
     // variadic `--mcp-config`, so a prompt is never read as a config.
     if let Some(socket) = std::env::var_os("CMUX_TUI_SOCKET").filter(|s| !s.is_empty())
         && let Some(config) = crate::agent_mcp_choice::claude_mcp_config(
-            cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+            cmux_tui_core::user_settings::AgentsCmuxMcp::current_for("claude"),
             &executable,
             Path::new(&socket),
         )
