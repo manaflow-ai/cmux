@@ -134,6 +134,8 @@ final class SidebarUpdateCardView: NSView {
         closeButton.setAccessibilityIdentifier("cmux.sidebar.update.hide")
         button.onPress = { [weak self] in self?.onInstall?() }
         closeButton.takesKeyFocus = true
+        // Its highlights popup forwards a click in its clear band (over this corner) as a press, then a release.
+        closeButton.pressesOnRelease = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
         toggle.onToggle = { [weak self] on in self?.onAutomaticUpdates?(on) }
         setAccessibilityElement(false)

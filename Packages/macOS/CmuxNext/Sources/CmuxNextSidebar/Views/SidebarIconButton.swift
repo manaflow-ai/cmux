@@ -279,13 +279,34 @@ final class SidebarIconButton: ClickableButton {
     /// Whether a pointer press at `timestamp` (an `NSEvent.timestamp`) is ignored.
     func ignoresPointer(at timestamp: TimeInterval) -> Bool { timestamp < ignoresPointerUntil }
 
-    /// NSButton tracks the click inside `super.mouseDown` and returns on release.
+    /// The press and the release reach the button as two events, with no tracking loop of its own: the Update Ready
+    /// card's x, under the clear band of its highlights popup, which forwards the press and then the release to the
+    /// sidebar's window (`HoverCardPanel` click-through). NSButton's own loop would dequeue that release still
+    /// addressed to the popup's window, read it in the wrong window's points and drop the click.
+    var pressesOnRelease = false
+    /// A press waits for its release (``pressesOnRelease``).
+    private var releasePending = false
+
+    /// NSButton tracks the click inside `super.mouseDown` and returns on release (unless ``pressesOnRelease``).
     override func mouseDown(with event: NSEvent) {
         if ignoresPointer(at: event.timestamp) { return }
         guard isEnabled else { return super.mouseDown(with: event) }
         changeHover { $0.pressed = true }
+        if pressesOnRelease {
+            releasePending = true
+            return
+        }
         super.mouseDown(with: event)
         changeHover { $0.pressed = false }
+    }
+
+    /// ``pressesOnRelease``: a release inside presses the button.
+    override func mouseUp(with event: NSEvent) {
+        guard pressesOnRelease, releasePending else { return super.mouseUp(with: event) }
+        releasePending = false
+        changeHover { $0.pressed = false }
+        guard isEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        sendAction(action, to: target)
     }
 
     /// A button hidden under the pointer (the header + while the sidebar
@@ -293,6 +314,7 @@ final class SidebarIconButton: ClickableButton {
     /// reappears with the hover the pointer gives it then.
     override func viewDidHide() {
         super.viewDidHide()
+        releasePending = false
         changeHover { $0.pressed = false }
         hover.pointer?.refresh()
     }
