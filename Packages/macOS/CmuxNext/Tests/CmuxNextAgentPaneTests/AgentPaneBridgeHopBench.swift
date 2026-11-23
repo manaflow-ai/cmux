@@ -60,7 +60,7 @@ struct AgentPaneBridgeHopBench {
     }
 
     @Test func theHostShareOfTheHop() throws {
-        try #require(records.count > 2_000, "the chat-sim replay fixture is missing")
+        try #require(Self.records.count > 2_000, "the chat-sim replay fixture is missing")
         // Replies: the inbound pass for its page's method, then the main thread's push text.
         for (name, method, count, bytes, runs) in [("attach-128KiB", "_acpmux/attach", 400, 128 << 10, 200),
                                                    ("older-1MiB", "_acpmux/events", 2_000, 1 << 20, 40)] {
@@ -88,7 +88,7 @@ struct AgentPaneBridgeHopBench {
             Self.report("main.script", name, bytes: texts[0].utf8.count, ms: script)
         }
         // Stream records: `_acpmux/event` notifications, one at a time and as a full flush.
-        let stream = records.filter { (350...700).contains($0.utf8.count) }
+        let stream = Self.records.filter { (350...700).contains($0.utf8.count) }
             .map { #"{"jsonrpc":"2.0","method":"_acpmux/event","params":\#($0)}"# }
         for (name, frames, runs) in [("record-x1", Array(stream.prefix(1)), 5_000), ("records-x512", Array(stream.prefix(512)), 100)] {
             let ids = AcpmuxRequestIds()

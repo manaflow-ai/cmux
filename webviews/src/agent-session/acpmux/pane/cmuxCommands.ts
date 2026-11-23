@@ -29,6 +29,7 @@ import { openPicker } from "../pickerOpeners";
 import { runResume } from "../resumeCommand";
 import type { RunMode } from "../sandboxRun";
 import type { useSessionInfo } from "../session-info/useSessionInfo";
+import type { SessionInfoSectionId } from "../session-info/sessionInfoState";
 import { authText, slashLogin, type SessionAuth } from "../sessionAuth";
 import type { SignIn } from "../signIn";
 import { knownRefusalText } from "../transportErrors";
@@ -54,6 +55,7 @@ export type CmuxCommandDeps = {
   openCloudChatWith: (start: { prompt?: string; cwd?: string }) => Promise<unknown>;
   /// The chat tab's name editor (the header's Rename); absent where there is no tab (Quick Chat).
   openRename: (() => void) | undefined;
+  openSummarySection: (section: SessionInfoSectionId) => void;
   sessionAuth: SessionAuth;
   sessionInfo: ReturnType<typeof useSessionInfo>;
   setContinuing: Dispatch<SetStateAction<boolean>>;
@@ -89,6 +91,7 @@ export function handleCmuxCommand(
     ignoreFailure,
     openCloudChatWith,
     openRename,
+    openSummarySection,
     sessionAuth,
     sessionInfo,
     setContinuing,
@@ -122,6 +125,14 @@ export function handleCmuxCommand(
   if (command.action === "rename") {
     if (fresh || !openRename || !snapshot.sessionId) return t("composer.cmuxUnavailable");
     openRename();
+    return true;
+  }
+  // A bare /mcp opens Session Info on Connectors, the chat's MCP servers, now, mid-turn too: it
+  // sends nothing, so nothing waits. `/mcp <args>` is the agent's own command and goes as typed;
+  // New Tab has no chat whose servers to show, so there it goes to the harness as typed.
+  if (command.action === "mcp") {
+    if (args?.trim() || fresh) return CMUX_PASS_THROUGH;
+    openSummarySection("connectors");
     return true;
   }
   // /resume: the chats search, the same page Show all chats and Cmd-K open, where an earlier chat
