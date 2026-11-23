@@ -1216,7 +1216,16 @@ the newest build. A daemon that does not answer is started at once, a stamp from
 is ignored, a rollback is never held, and `machine update --now`, `machine setup --now` or `machine
 self-update --now` restarts it anyway. The window is the host's: seconds in
 `~/.acpmux/update.restart-window`, else `ACPMUX_UPDATE_RESTART_WINDOW_SECS` in `acpmux.service`'s
-environment or the host shell's; 0 turns it off. The updates reach the daemon through the
+environment or the host shell's; 0 turns it off. The hour bounds a *forced* restart; the timer's
+update (`machine self-update`) also restarts at the first run that finds no session mid-turn or
+waiting on a permission, even inside the window (the sessions are read before the copy and again
+right before the restart, and the binary goes back if a turn started). A run that finds one busy
+changes nothing (`busy`, reason `restartWindow`) and the first run after the window forces the
+restart as before. It always installs the channel's newest build, so moves that land while it waits
+are one restart, and early restarts are a window apart (`~/.acpmux/update.idle-restarted`
+holds the time of the last one; the next waits a full window after it). New behaviour,
+default on: `0` in `~/.acpmux/update.idle-restart`, else `ACPMUX_UPDATE_IDLE_RESTART=0` in the
+timer's environment, gives back the plain hour. The updates reach the daemon through the
 `ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
 `--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `held`, `needsBinary`,
 `rolledBack` or `failed`. `machine setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
@@ -1547,6 +1556,11 @@ so an agent messages another lane or session with a tool call instead of piping 
   title or peer; the list stops at `limit` (default 100, at most 500) and says how many more match.
 - `acpmux_last {name, count?}`: a session's last replies.
 - `acpmux_info {name}`: a session's state, as `cmux agent session info`.
+- `acpmux_machine_read {machine, path, op?}`, `acpmux_machine_edit {machine, path, text | edits
+  | patch}`, `acpmux_machine_exec {machine, command | argv}`: one file or command action on
+  another of the person's signed-in machines, for an agent whose loop runs on a VM and needs
+  something that exists only on the person's Mac. That machine's grant and policy decide each
+  call. [Per-call tool placement](docs/tool-placement.md) has the rule and the limits.
 
 Each tool is the request the agent's own `acpmux` CLI makes, on this daemon's socket, with the
 session's caller token. The tools can do nothing that CLI can't, and the receiver's chat
