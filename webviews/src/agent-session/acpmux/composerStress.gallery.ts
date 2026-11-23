@@ -1,0 +1,176 @@
+// l10n-allow-file: gallery fixtures (sample chats, long names), not shipped UI.
+// The composer under the objective edge cases (Leo 2026-11-23: "there is objectivity in design. we
+// cannot miss these edge cases like this and let them languish"): panes of 280, 360 and 480 px,
+// an empty draft, a draft of 200+ characters, one unbroken word, many attachments with long file
+// names, long queued prompts, a long model name and mode, and the slash and @ menus open.
+// Checks to read each shot against: controls keep their slot (bottom, never on a wrapped line),
+// text gives way before controls (ellipsis), nothing overlaps or clips, no scrollbar at rest, the
+// light and dark themes alike.
+import { agentPaneEntry } from "../../gallery/format";
+import { assistant, CATALOG, chat, user } from "../../gallery/fixtures/acpmux";
+import type { Play, PlayContext } from "../../gallery/play";
+import type { AcpmuxSnapshot } from "./model";
+
+const finished = [user("Add retries with backoff to the fetch helper", 10), assistant("Done.", 9)];
+const working = [user("Add retries with backoff to the fetch helper", 10)];
+
+const effort = {
+  id: "effort",
+  name: "Reasoning",
+  category: "thought_level",
+  currentValue: "xhigh",
+  options: [
+    { value: "low", name: "Low" },
+    { value: "medium", name: "Medium" },
+    { value: "high", name: "High" },
+    { value: "xhigh", name: "Extra High" },
+  ],
+};
+const modes = {
+  currentModeId: "long",
+  availableModes: [
+    { id: "ask", name: "Supervised", description: "Ask before changing files" },
+    { id: "long", name: "Auto-accept edits and run safe commands", description: "A long mode name" },
+  ],
+};
+
+const LONG_MODEL = "claude-opus-5-5-1m";
+const longCatalog = CATALOG.map((entry) =>
+  entry.id === "claude"
+    ? {
+        ...entry,
+        models: [
+          {
+            id: LONG_MODEL,
+            name: "Opus 5.5 with a one-million-token context window",
+            efforts: ["low", "medium", "high", "xhigh"],
+          },
+          ...entry.models,
+        ],
+      }
+    : entry,
+);
+
+function stress(
+  rows = finished,
+  fields: Parameters<typeof chat>[1] = {},
+  extra: Partial<NonNullable<AcpmuxSnapshot["summary"]>> = {},
+) {
+  const snapshot = chat(rows, { title: "Composer stress", model: LONG_MODEL, ...fields });
+  return {
+    ...snapshot,
+    catalog: longCatalog,
+    summary: { ...snapshot.summary!, configOptions: [effort], modes, steering: true, ...extra },
+  } satisfies AcpmuxSnapshot;
+}
+
+const SENTENCE = "Check composer wrapping and keep the first line, caret and controls in place as the prompt grows. ";
+const LONG_DRAFT = SENTENCE.repeat(3);
+const UNBROKEN = "https://example.com/" + "a-very-long-unbroken-path-segment".repeat(6);
+const LONG_NAME = "Screenshot 2026-11-23 at 04.50.12 - the sidebar flickers when the pane is resized narrow.png";
+
+/** Drops `count` screenshots with long names on the composer, in the strip view (a row at the top). */
+const dropMany =
+  (count: number): Play =>
+  async (ctx: PlayContext) => {
+    const view = ctx.document.defaultView!;
+    view.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
+    const files = await Promise.all(
+      Array.from({ length: count }, async (_, index) => {
+        const canvas = ctx.document.createElement("canvas");
+        canvas.width = 96;
+        canvas.height = 96;
+        const drawing = canvas.getContext("2d")!;
+        drawing.fillStyle = `hsl(${(index * 47) % 360} 70% 60%)`;
+        drawing.fillRect(0, 0, 96, 96);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        return new view.File([blob], `${index + 1} ${LONG_NAME}`, { type: "image/png" });
+      }),
+    );
+    const drop = new view.Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
+    ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+    await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment").length >= count);
+  };
+
+const queue = [
+  {
+    id: "q1",
+    prompt:
+      "Then add a test for the 429 path and make sure the backoff is jittered between each of the three tries. " +
+      UNBROKEN,
+  },
+  { id: "q2", prompt: "And update the README" },
+  { id: "q3", prompt: LONG_DRAFT },
+];
+
+export default agentPaneEntry({
+  id: "agent-pane.composer-stress",
+  title: "Composer stress: narrow panes, long names, many items",
+  area: "Agent pane",
+  height: 460,
+  widths: { narrow: 280, normal: 360, wide: 480 },
+  anchors: [{ selector: ".acpmux-composer-box" }],
+  covers: ["agent-session/acpmux/Composer.tsx#Composer", "agent-session/acpmux/composerLocation.css"],
+  variants: {
+    empty: {
+      composerLook: "claude",
+      note: "Empty draft: the placeholder wraps or clips inside its slot, never under the controls.",
+      snapshot: stress(),
+    },
+    "draft-200": {
+      composerLook: "claude",
+      note: "A 280-character draft wraps; the controls stay on the bottom row.",
+      ready: { draft: LONG_DRAFT },
+      snapshot: stress(),
+    },
+    "draft-unbroken": {
+      composerLook: "claude",
+      note: "One unbroken 200-character word: it breaks, never widens the box.",
+      ready: { draft: UNBROKEN },
+      snapshot: stress(),
+    },
+    "long-model-and-mode": {
+      composerLook: "claude",
+      note: "A long model name and mode label give way before the controls do.",
+      snapshot: stress(),
+    },
+    "working-draft": {
+      composerLook: "claude",
+      note: "Running, with a draft: Stop and Send slot.",
+      ready: { draft: LONG_DRAFT },
+      snapshot: stress(working, { isWorking: true }),
+    },
+    "queued-long": {
+      composerLook: "claude",
+      note: "Three long queued prompts, one of them an unbroken word: each cuts with an ellipsis; actions keep their slot.",
+      snapshot: stress(working, { isWorking: true, queue }),
+    },
+    "attachments-many": {
+      composerLook: "claude",
+      note: "Eight long-named screenshots in the top row: they scroll sideways; the prompt and controls stay put.",
+      ready: { draft: "What do these show?" },
+      snapshot: stress(),
+      play: dropMany(8),
+    },
+    "attachments-one-long": {
+      composerLook: "claude",
+      note: "One screenshot with a very long file name.",
+      ready: { draft: "What does this show?" },
+      snapshot: stress(),
+      play: dropMany(1),
+    },
+    "slash-menu": {
+      composerLook: "claude",
+      note: "The slash menu opens over the composer, inside the pane.",
+      ready: { draft: "/" },
+      snapshot: stress(),
+    },
+    "mention-menu": {
+      composerLook: "claude",
+      note: "The @ menu opens over the composer, inside the pane.",
+      ready: { draft: "Look at @" },
+      snapshot: stress(),
+    },
+  },
+});
