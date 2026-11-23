@@ -342,6 +342,22 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_a_swift_trailing_closure_button_is_an_action(self):
+        """`Button { retry() } label: { … }` is a button like `Button("Retry") { … }` (iOS ConnectionChip, #49316)."""
+        view = ("struct LinkChip: View {\n"
+                "    var word: String { \"Reconnecting\" }\n"
+                "    var body: some View {\n"
+                "        Button { retry() } label: { Text(word) }\n"
+                "    }\n}\n")
+        tree = Tree(self)
+        tree.write(f"{IOS}/LinkChip.swift", view)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{IOS}/LinkChip.swift", view.replace("Button { retry() } label: { Text(word) }", "Text(word)"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("LinkChip shows a connection state ('Reconnecting')", out)
+
     def test_tests_and_galleries_are_not_read(self):
         tree = Tree(self)
         tree.write(f"{IOS}/Tests/TerminalStatusLineTests.swift", IOS_OLD)

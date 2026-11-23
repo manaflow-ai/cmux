@@ -126,9 +126,10 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 )
 
 # A person action on the same unit.
+# A Swift Button is `Button("Retry") { … }` or the trailing-closure form `Button { … } label: { … }`.
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
-    r"|\bButton\s*\(|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
+    r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\.)"
 )
 # Lines that are not UI text: logs, errors, assertions.
