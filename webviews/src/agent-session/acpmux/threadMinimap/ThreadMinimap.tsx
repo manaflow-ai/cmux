@@ -531,6 +531,8 @@ function ThreadMinimapView({
   const listOffset = useRef(0);
   /// The chat the rail's list was last placed for: a switch places it in the next frame (the offset effect).
   const placedSession = useRef<string | undefined>(undefined);
+  /// The turn count the rail's list was last placed for: a new turn places it in the next frame too.
+  const placedTurns = useRef(-1);
   /// A wheel over the rail means the person is browsing its history. Keep their offset until a tick
   /// click takes them back to the transcript; transcript scrolling must not snap the rail beneath them.
   /// Held for the session it was taken in: the transcript is reused across chats, and another chat's
@@ -1425,7 +1427,14 @@ function ThreadMinimapView({
     // transcript's anchor pass laid it out again after its own writes (bench/settled-page.bench.ts
     // chat_switch: 45 ms of a 190 ms switch). In the next frame's callback, before that frame paints, the
     // page is laid out once by then and the write only moves the list: the rail is placed in the first frame.
-    if (placedSession.current !== sessionId) {
+    // A new turn (the reader's send, a prompt from elsewhere) is the same: its commit mounted the turn's
+    // rows and the send's own writes followed, so the write here forced the page's style and layout
+    // again inside the Enter's task (11.5 ms of a 99 ms send at 2,001 rows, cmuxterm-hq
+    // docs/findings/2026-11-23-agent-pane-send-paint.md). Its next frame's callback places it before
+    // that frame paints, the frame that draws the sent bubble.
+    const newTurn = placedTurns.current !== turns.length;
+    placedTurns.current = turns.length;
+    if (placedSession.current !== sessionId || newTurn) {
       placedSession.current = sessionId;
       const frame = requestAnimationFrame(place);
       return () => cancelAnimationFrame(frame);

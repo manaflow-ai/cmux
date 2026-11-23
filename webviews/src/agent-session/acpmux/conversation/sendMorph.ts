@@ -20,6 +20,7 @@
 // the page, when the next send starts, or after ROW_MS with no sent row to land on.
 import { MOTION_EASE_SEND, MOTION_SEND_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
+import { motionToken } from "../../../ui/motion/motionTokens";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { cssTimeMs } from "./fold";
 
@@ -242,7 +243,7 @@ export function noteSendOrigins(
 function sendMs(node: Element): number {
   const doc = node.ownerDocument;
   if (motionMode(doc, node) !== "full" || !entranceAllowed(doc)) return 0;
-  return cssTimeMs(getComputedStyle(node).getPropertyValue("--agent-motion-send")) ?? MOTION_SEND_MS;
+  return cssTimeMs(motionToken(node, "--agent-motion-send")) ?? MOTION_SEND_MS;
 }
 
 /// The transcript's word on the send the composer just noted: `fromLatest` when the view follows the
