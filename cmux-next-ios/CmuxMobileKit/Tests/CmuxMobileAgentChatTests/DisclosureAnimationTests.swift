@@ -200,7 +200,10 @@ import UIKit
         await chat.frames(20)
         // Off screen: no visible cell (UIKit may keep a hidden one parked for reuse).
         let parked = chat.list.cell(for: x)
-        try #require(!chat.scroll.visibleCells.contains { $0 === parked }, "the first group is off screen")
+        try #require(!chat.scroll.visibleCells.contains { $0 === parked }, """
+            the first group is off screen: offset \(chat.scroll.contentOffset.y), content \(chat.scroll.contentSize.height), \
+            following \(chat.surface.following), x at \(parked?.frame.minY ?? -1)
+            """)
         let y = try lowest(chat, "group")
         let keyY = try #require(chat.key(y))
         _ = try await fold(chat, y) {

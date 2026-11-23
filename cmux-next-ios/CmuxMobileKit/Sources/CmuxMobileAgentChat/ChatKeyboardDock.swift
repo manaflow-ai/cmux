@@ -467,9 +467,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     private var bottomOffset: CGPoint {
         let inset = scrollView.contentInset
-        // The content's own height: the scroll view's content size updates
-        // only when it lays out, after this controller's layout pass.
-        return CGPoint(x: 0, y: max(-inset.top, contentHeight + inset.bottom - view.bounds.height))
+        // The content's own height as the list laid it out now: the scroll
+        // view's content size updates only when it lays out, after this
+        // controller's layout pass, and `contentHeight` only when that pass
+        // reports it (`transcriptLaidOut`). Rows put in above a reader
+        // scrolled up (older turns read back) move the offset down by their
+        // height in the list's reload, before either: measured from the old
+        // bottom, the moved offset read as "at the newest turn", following
+        // came back on and the next pass pinned the chat to its newest turn.
+        return CGPoint(x: 0, y: max(-inset.top, list.layout.laidOutContentHeight + inset.bottom - view.bounds.height))
     }
 
     private var distanceFromBottom: CGFloat {
