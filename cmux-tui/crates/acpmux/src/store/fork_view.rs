@@ -870,6 +870,32 @@ impl Store for ForkView {
     fn on_rehydrate(&self, hook: RehydrateHook) {
         self.inner.on_rehydrate(hook)
     }
+    /// A cold segment keeps every byte and reads back in place (`store/cold_segments.rs`): a fork
+    /// that shows the chat's records keeps its reference and reads them through the archive.
+    /// Segment `000000`, a fork's own history, never goes cold.
+    fn stage_cold_segments(
+        &self,
+        id: &str,
+        max: usize,
+        level: i32,
+    ) -> Result<Option<StagedColdSegments>> {
+        self.inner.stage_cold_segments(id, max, level)
+    }
+    fn prepare_cold_segments(&self, id: &str, staged: &StagedColdSegments) -> Result<bool> {
+        self.inner.prepare_cold_segments(id, staged)
+    }
+    fn commit_cold_segments(&self, id: &str, staged: StagedColdSegments) -> Result<ColdMoved> {
+        self.inner.commit_cold_segments(id, staged)
+    }
+    fn settle_cold_segments(&self, id: &str) -> Result<()> {
+        self.inner.settle_cold_segments(id)
+    }
+    fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        self.inner.warm_cold_segments(id)
+    }
+    fn on_segment_sealed(&self, hook: SealHook) {
+        self.inner.on_segment_sealed(hook)
+    }
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.
     fn release_history(&self, id: &str) -> Result<()> {
