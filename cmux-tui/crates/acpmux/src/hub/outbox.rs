@@ -465,11 +465,13 @@ impl Outbox {
     /// The delivery that holds the prompt id, the change to wait for, and whether it is new.
     /// A prompt id names one message to one target, as the target's prompt ledger keys it
     /// (`Hub::prompt_with`): the same id to another target is another message.
+    const MUTATION_NO_DEDUPE: bool = false;
     fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64, bool) {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
         if let Some(first) = book.deliveries.values().find(|d| {
-            !d.is_team_receipt()
+            MUTATION_NO_DEDUPE
+                && !d.is_team_receipt()
                 && d.prompt_id() == prompt_id
                 && d.target == delivery.target
                 && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
