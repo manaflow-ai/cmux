@@ -250,7 +250,12 @@ impl Pen {
         let nf = f64::from(n.max(1));
         for i in 0..n.max(1) {
             let a = from.lerp(to, f64::from(i) / nf);
-            let b = from.lerp(to, (f64::from(i) + 1.) / nf);
+            // The last piece ends exactly on `to` (the path closes on its start).
+            let b = if i.saturating_add(1) >= n.max(1) {
+                to
+            } else {
+                from.lerp(to, (f64::from(i) + 1.) / nf)
+            };
             self.cubic(a.lerp(b, 1. / 3.), a.lerp(b, 2. / 3.), b);
         }
     }
@@ -616,11 +621,13 @@ mod tests {
         assert_eq!(neck(&b, &RoundedRect::new(140., 0., 80., 30., 8.), 14.), rest);
         assert_eq!(neck(&b, &RoundedRect::new(110., 0., 80., 30., 8.), 0.), rest);
         let near = neck(&b, &RoundedRect::new(106., 0., 80., 30., 8.), 14.);
-        let reach = near.p.iter().map(|p| p.x).fold(f64::MIN, f64::max);
-        assert!(
-            reach > rest.p.iter().map(|p| p.x).fold(f64::MIN, f64::max) + 2.,
-            "the neck reaches out: {reach}"
-        );
+        // The trailing side (x = 100 between the corner and the fillet) bulges
+        // toward the neighbour 6 points away.
+        let side = |o: &Outline| {
+            o.p.iter().filter(|p| p.y > 10. && p.y < 20.).map(|p| p.x).fold(f64::MIN, f64::max)
+        };
+        let reach = side(&near);
+        assert!(reach > side(&rest) + 2., "the neck reaches out: {reach}");
         // The bottom edge stays on the card's top.
         assert!(near.p.iter().all(|p| p.y <= b.baseline + 1.), "{near:?}");
     }
