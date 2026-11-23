@@ -431,6 +431,9 @@ OPTIONS:
   create: --device-key KEY [--device-name NAME] binds the invitation to the
 device whose key `cmux remote device-key` printed: only that device can use
 it, and it enrolls with no approval step
+  create: --via-machine KEY names the hub route the invitation carries (a
+machine's node key); a machine joined to a hub carries its own by default, so
+redeeming it elsewhere dials through the hub with no --via-machine
   create relay access: repeat --relay-route ROUTE --relay-slot SLOT with
 --relay-ticket-file PATH, in occurrence order,
 for up to two relay fallbacks
@@ -713,6 +716,9 @@ ID とセッション:
   create: --device-key キー [--device-name 名前] で、`cmux remote device-key`
 が出力したキーのデバイスに招待を限定します。そのデバイスだけが使え、
 承認なしで登録されます
+  create: --via-machine キー で、招待が持つハブ経路 (マシンのノード鍵) を
+指定します。ハブに参加したマシンは既定で自分の鍵を持たせるので、別の
+マシンで使うときも --via-machine なしでハブ経由で接続します
   create のリレーアクセスでは --relay-route、--relay-slot、
 --relay-ticket-file の組を出現順に最大 2 回指定します。
   connect では `cmux remote connect` の全オプションを使用できます。
