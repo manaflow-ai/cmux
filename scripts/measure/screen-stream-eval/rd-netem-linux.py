@@ -36,6 +36,14 @@ see it; jitter is netem's default distribution, which reorders packets):
                    Ablations: wifi-away-short, wifi-away-long, wifi-away-loss. Same `lo` topology;
                    passive then key session; reports the target's largest fall and its recovery,
                    gate wait, and the share of key samples over 50 ms. Opt-in (--profile).
+  rtt18            delay 9ms: an 18 ms round trip, no jitter or loss. Opt-in (--profile).
+
+--still-seconds N (veth profiles only) shows a still screen (`testapp --workload idle`) for the passive
+session's first N seconds, then motion (a `--workload motion` window opened above it), and lengthens the
+passive session by N. Each row then has `quiet_motion`: the wall time motion's first frame was drawn,
+the host target in the last second before it, the lowest target after it, the seconds from motion start
+until the target and the received Mbps reached 15 Mbps, and the viewer veth's bytes and mean Mbps while
+the screen was still. Without it every profile runs motion from the first frame, as before.
 
 Each profile starts a fresh host and runs two viewer sessions against it:
   passive  `bench --input none --duration-s N`: received Mbps per second and the host's target
@@ -57,6 +65,7 @@ import math
 import os
 import random
 import re
+import select
 import shutil
 import signal
 import statistics
@@ -91,7 +100,11 @@ PROFILES = {
     "wifi-away-short": "delay 4ms",
     "wifi-away-long": "delay 4ms",
     "wifi-away-loss": "delay 4ms loss random 2%",
+    # An 18 ms round trip with no jitter or loss (a nearby network), for --still-seconds runs.
+    "rtt18": "delay 9ms",
 }
+# The bitrate a --still-seconds run times the climb to, kbps.
+TARGET_LEVEL_KBPS = 15_000
 STALL_PERIOD_S, STALL_HOLD_S = 5.0, 0.6
 # Profiles that run host and viewer in the host namespace over its own `lo` (one qdisc, each
 # direction crosses it once), with HoldDriver applying their holds.
@@ -119,6 +132,7 @@ PROFILE_LABELS = {
     "wifi-away-short": "Wi-Fi away: short holds only",
     "wifi-away-long": "Wi-Fi away: long holds only",
     "wifi-away-loss": "Wi-Fi away: 2% loss only",
+    "rtt18": "18 ms RTT (9 ms each way)",
 }
 
 
@@ -191,6 +205,90 @@ def summarize_passive(report: dict | None) -> dict:
 def seconds_to(series: list, level: float):
     """The 1-based second in which a per-second series first reaches level, or None."""
     return next((i + 1 for i, v in enumerate(series) if v is not None and v >= level), None)
+
+
+def motion_phase(report: dict | None, motion_ms: float, level_kbps: float = TARGET_LEVEL_KBPS) -> dict:
+    """How the bitrate answered motion that started at motion_ms (wall clock) after a still screen.
+
+    From the passive bench's per-second `series` (each row's `unix_ms` is its second's end): the host
+    target in the last second that ended before motion, the lowest target after it, the seconds from
+    motion start to the end of the first second whose target, and whose received kbps, reached
+    level_kbps, and the received Mbps over the seconds that ended before motion."""
+    rows = [r for r in (report or {}).get("series") or [] if _num(r.get("unix_ms")) is not None]
+    before = [r for r in rows if r["unix_ms"] <= motion_ms]
+    after = [r for r in rows if r["unix_ms"] > motion_ms]
+
+    def target(r):
+        return _num((r.get("host_stats") or {}).get("kbps"))
+
+    def received_kbps(r):
+        b, ms = _num(r.get("bytes")), _num(r.get("duration_ms"))
+        return b * 8 / ms if b is not None and ms else None
+
+    def seconds_until(value):
+        hit = next((r for r in after if (v := value(r)) is not None and v >= level_kbps), None)
+        return round((hit["unix_ms"] - motion_ms) / 1000, 2) if hit else None
+
+    targets_after = [t for t in map(target, after) if t is not None]
+    still_bytes = sum(_num(r.get("bytes")) or 0 for r in before)
+    still_ms = sum(_num(r.get("duration_ms")) or 0 for r in before)
+    return {
+        "level_kbps": level_kbps,
+        "target_at_motion_kbps": target(before[-1]) if before else None,
+        "target_min_after_kbps": min(targets_after) if targets_after else None,
+        "target_s_to_level": seconds_until(target),
+        "received_s_to_level": seconds_until(received_kbps),
+        "seconds_before": len(before),
+        "seconds_after": len(after),
+        "still_received_mbps": round(still_bytes * 8 / still_ms / 1000, 3) if still_ms else None,
+    }
+
+
+def still_wire(samples: list[tuple[float, int, int]], motion_mono: float, skip_s: float = 2.0) -> dict:
+    """Bytes on the viewer veth while the screen was still: from the first (monotonic s, rx bytes,
+    tx bytes) sample to the last one taken at or before motion_mono (same clock). `tail_down_mbps`
+    leaves out the first skip_s seconds (the session's start: handshake and first keyframe)."""
+    still = [s for s in samples if s[0] <= motion_mono]
+    out = {"seconds": None, "down_bytes": None, "up_bytes": None, "down_mbps": None,
+           "tail_seconds": None, "tail_down_mbps": None}
+    if len(still) < 2:
+        return out
+    (t0, r0, x0), (t1, r1, x1) = still[0], still[-1]
+    out.update(seconds=round(t1 - t0, 2), down_bytes=r1 - r0, up_bytes=x1 - x0,
+               down_mbps=round((r1 - r0) * 8 / (t1 - t0) / 1e6, 3) if t1 > t0 else None)
+    tail = next((s for s in still if s[0] >= t0 + skip_s), None)
+    if tail is not None and t1 > tail[0]:
+        out.update(tail_seconds=round(t1 - tail[0], 2),
+                   tail_down_mbps=round((r1 - tail[1]) * 8 / (t1 - tail[0]) / 1e6, 3))
+    return out
+
+
+def quiet_motion_table(rows: list[dict]) -> str:
+    """Rows measured with --still-seconds: the still phase's bytes and the climb once motion starts."""
+    level = f"{TARGET_LEVEL_KBPS / 1000:g} Mbps"
+    out = [f"| cmux-rd | host args | profile | still s | still wire Mbps down (after its first 2 s) "
+           f"| still wire bytes down / up | target at motion start kbps | min target after kbps "
+           f"| s from motion to {level} target / received |",
+           "|" + "---|" * 9]
+    for r in rows:
+        q = r.get("quiet_motion")
+        if not q or r.get("error"):
+            continue
+        m, w = q.get("motion") or {}, q.get("still_wire") or {}
+        out.append(f"| {rd_cell(r)} | {' '.join(r.get('host_args') or []) or '–'} "
+                   f"| {PROFILE_LABELS.get(r['profile'], r['profile'])} | {_fmt(r.get('still_seconds'))} "
+                   f"| {_fmt(w.get('down_mbps'), 3)} ({_fmt(w.get('tail_down_mbps'), 3)}) "
+                   f"| {_fmt(w.get('down_bytes'))} / {_fmt(w.get('up_bytes'))} "
+                   f"| {_fmt(m.get('target_at_motion_kbps'))} | {_fmt(m.get('target_min_after_kbps'))} "
+                   f"| {_fmt(m.get('target_s_to_level'), 2)} / {_fmt(m.get('received_s_to_level'), 2)} |")
+    return "\n".join(out) + "\n" if len(out) > 2 else ""
+
+
+def analysis(rows: list[dict]) -> str:
+    """Every table for these rows; the quiet-motion table only when a row has one."""
+    text = markdown_table(rows) + "\n" + stall_table(rows) + "\n" + lo_table(rows)
+    quiet = quiet_motion_table(rows)
+    return text + "\n" + quiet if quiet else text
 
 
 def pct_over(sample_times, ms: float):
@@ -626,6 +724,37 @@ class WireSampler:
         self.thread.join(timeout=5)
 
 
+class Screen:
+    """The --still-seconds test app: one `cmux-rd testapp` window at a time. `show(kind)` opens the
+    next workload's window above the current one, waits for its `ready` line (its first frame is
+    drawn), then stops the old one, so the screen never shows anything between the two."""
+
+    def __init__(self, rig: "Rig", binary: Path, display: str):
+        self.rig, self.binary, self.display, self.proc = rig, binary, display, None
+
+    def show(self, kind: str, timeout: float = 15.0) -> tuple[float, float] | None:
+        """(wall ms, monotonic s) when the window was ready, or None when it never said so."""
+        proc = self.rig.spawn(self.rig.host_ns, [str(self.binary), "testapp", "--display", self.display,
+                                                 "--workload", kind], stdout=subprocess.PIPE)
+        ready, buf, deadline = None, b"", time.monotonic() + timeout
+        while (left := deadline - time.monotonic()) > 0 and proc.poll() is None:
+            if select.select([proc.stdout], [], [], left)[0]:
+                chunk = os.read(proc.stdout.fileno(), 4096)
+                if not chunk:
+                    break
+                buf += chunk
+                if b"ready" in buf:
+                    ready = (time.time() * 1000, time.monotonic())
+                    break
+        stop(self.proc)
+        self.proc = proc
+        return ready
+
+    def stop(self):
+        stop(self.proc)
+        self.proc = None
+
+
 def stop(proc: subprocess.Popen | None):
     """Stops a child this script started (by its own pid; sudo forwards the signal)."""
     if proc is None or proc.poll() is not None:
@@ -719,13 +848,18 @@ def bench(rig: Rig, binary: Path, token: Path, args: list[str], timeout: float,
 
 
 def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: Path, display: str,
-                    passive_s: int, samples: int) -> dict:
+                    passive_s: int, samples: int, still_s: int = 0, screen: Screen | None = None) -> dict:
     row = {"schema": SCHEMA, "commit": commit, "profile": profile, "netem_each_direction": PROFILES[profile],
-           "workload": "motion", "carrier": "udp", "host_args": HOST_ARGS,
+           "workload": "still-then-motion" if still_s else "motion", "carrier": "udp", "host_args": HOST_ARGS,
            "openh264": "cisco" if LIB_ARGS else "source"}
+    if still_s:
+        row["still_seconds"] = still_s
     row["qdisc"] = rig.shape(profile)
     if profile in LO_PROFILES:
         return measure_lo(rig, binary, row, scratch, display, passive_s, samples)
+    if screen is not None and screen.show("idle") is None:
+        row["error"] = "testapp --workload idle never said ready"
+        return row
     # The token lives in the private 0700 scratch, never under --out (an uploaded artifact).
     token = scratch / "token"
     token.write_text(os.urandom(32).hex())
@@ -746,9 +880,27 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
         start = timing.stat().st_size
         wire = WireSampler(rig)
         wire.start()
-        passive, perr = bench(rig, binary, token, ["--input", "none", "--duration-s", str(passive_s)], passive_s + 60)
+        motion: dict = {}
+        mover = None
+        if screen is not None:
+            # Motion's window opens still_s seconds after the passive session starts.
+            def start_motion(at=time.monotonic() + still_s):
+                time.sleep(max(0.0, at - time.monotonic()))
+                motion["ready"] = screen.show("motion")
+            mover = threading.Thread(target=start_motion, daemon=True)
+            mover.start()
+        seconds = passive_s + still_s
+        passive, perr = bench(rig, binary, token, ["--input", "none", "--duration-s", str(seconds)], seconds + 60)
         wire.stop()
         row["wire"] = wire_summary(wire.samples)
+        if mover is not None:
+            mover.join(timeout=30)
+            ready = motion.get("ready")
+            row["quiet_motion"] = ({"error": "testapp --workload motion never said ready"} if ready is None else {
+                "motion_start_unix_ms": round(ready[0], 1),
+                "motion": motion_phase(passive, ready[0]),
+                "still_wire": still_wire(wire.samples, ready[1]),
+            })
         mid = timing.stat().st_size
         key, kerr = bench(rig, binary, token, ["--input", "key", "--samples", str(samples)], samples * 3 + 90)
         end = timing.stat().st_size
@@ -847,7 +999,7 @@ def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, ar
     rig.down()
     # Private scratch (token, logs); --keep-logs copies only the logs into --out afterwards.
     scratch = Path(tempfile.mkdtemp(prefix=f"rd-netem-{commit[:12]}-"))
-    rows, procs = [], []
+    rows, procs, screen = [], [], None
     try:
         try:
             LIB_ARGS[:] = openh264_lib(binary, scratch)
@@ -865,20 +1017,29 @@ def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, ar
         display = f":{170 + os.getpid() % 50}"
         procs.append(rig.spawn(rig.host_ns, ["Xvfb", display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"]))
         time.sleep(1.5)
-        procs.append(rig.spawn(rig.host_ns, [str(binary), "testapp", "--display", display, "--workload", "motion"]))
-        time.sleep(1.5)
-        for profile in profiles:
+        if args.still_seconds:
+            # Each profile shows the still screen first (Screen.show in measure_profile).
+            screen = Screen(rig, binary, display)
+        else:
+            procs.append(rig.spawn(rig.host_ns, [str(binary), "testapp", "--display", display, "--workload", "motion"]))
+            time.sleep(1.5)
+        for run_i, profile in ((i, p) for i in range(args.repeat) for p in profiles):
             try:
-                row = measure_profile(rig, binary, commit, profile, scratch, display, args.passive_s, args.samples)
+                row = measure_profile(rig, binary, commit, profile, scratch, display, args.passive_s, args.samples,
+                                      args.still_seconds, screen)
             except Exception as error:  # noqa: BLE001 - one profile's failure is that row's data
                 row = {"schema": SCHEMA, "commit": commit, "profile": profile, "error": repr(error)}
             row["kernel"] = os.uname().release
+            if args.repeat > 1:
+                row["run"] = run_i + 1
             line = json.dumps(row)
             print(line, flush=True)
             with open(out / "results.jsonl", "a") as f:
                 f.write(line + "\n")
             rows.append(row)
     finally:
+        if screen is not None:
+            screen.stop()
         for proc in reversed(procs):
             stop(proc)
         rig.down()
@@ -904,7 +1065,7 @@ def main(argv: list[str]) -> int:
         if len(argv) != 2:
             raise SystemExit("usage: rd-netem-linux.py table RESULTS.jsonl")
         rows = read_rows(Path(argv[1]))
-        sys.stdout.write(markdown_table(rows) + "\n" + stall_table(rows) + "\n" + lo_table(rows))
+        sys.stdout.write(analysis(rows))
         return 0
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--commit", action="append", default=[], help="full cmux commit to build and measure")
@@ -920,6 +1081,11 @@ def main(argv: list[str]) -> int:
                          f"the bench feature's source build ({SOURCE_BUILT}), or Cisco's library at PATH")
     ap.add_argument("--passive-s", type=int, default=20)
     ap.add_argument("--samples", type=int, default=60)
+    ap.add_argument("--still-seconds", type=int, default=0, metavar="N",
+                    help="show a still screen for the passive session's first N s, then motion; reports the "
+                         "climb to 15 Mbps and the still phase's bytes (veth profiles only)")
+    ap.add_argument("--repeat", type=int, default=1, metavar="N",
+                    help="measure every profile N times (rows get `run`)")
     ap.add_argument("--deps", action="store_true", help="apt-get the build and rig packages first")
     ap.add_argument("--keep-logs", action="store_true", help="keep host logs and timing records under --out")
     args = ap.parse_args(argv)
@@ -931,6 +1097,11 @@ def main(argv: list[str]) -> int:
         if not re.fullmatch(r"[0-9a-f]{40}", c):
             ap.error(f"--commit {c}: a full 40-hex sha")
     profiles = args.profile or ["clean", "jitter-5", "jitter-15-burst", "jitter-30-loss2", "stall"]
+    if args.still_seconds < 0 or args.repeat < 1:
+        ap.error("--still-seconds takes 0 or more, --repeat 1 or more")
+    if args.still_seconds and any(p in LO_PROFILES for p in profiles):
+        ap.error("--still-seconds runs on the veth profiles only, not "
+                 + ", ".join(p for p in profiles if p in LO_PROFILES))
     HOST_ARGS[:] = args.host_arg
     OPENH264[:] = [args.openh264]
     args.out.mkdir(parents=True, exist_ok=True)
@@ -960,10 +1131,10 @@ def main(argv: list[str]) -> int:
                 continue
             rows += measure_binary(binary, commit, profiles, args.out, args)
             mine = [r for r in rows if r["commit"] == commit]
-            print(markdown_table(mine) + "\n" + stall_table(mine) + "\n" + lo_table(mine), file=sys.stderr, flush=True)
+            print(analysis(mine), file=sys.stderr, flush=True)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    table = markdown_table(rows) + "\n" + stall_table(rows) + "\n" + lo_table(rows)
+    table = analysis(rows)
     (args.out / "results.md").write_text(table)
     print(table)
     return 0 if rows and not any(r.get("error") for r in rows) else 1

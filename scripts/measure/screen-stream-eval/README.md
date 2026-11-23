@@ -384,6 +384,14 @@ cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp 
 DRIVER_SHA is any commit with this script; each `--commit` is the cmux revision measured. A
 prebuilt binary runs with `--bin LABEL=PATH` instead of `--commit`.
 
+`--still-seconds N` (veth profiles; `rtt18` is a plain 18 ms round trip for it) shows a still screen
+(`testapp --workload idle`) for the passive session's first N seconds and then opens the motion window,
+so a row also says how the bitrate climbs once motion starts after a quiet screen and what the quiet
+screen cost on the wire: `quiet_motion` holds the host target at motion start, its lowest value after,
+the seconds from motion start until the target and the received Mbps reached 15 Mbps, and the viewer
+veth's bytes and Mbps during the still phase. The printed analysis adds one table of them.
+`--repeat N` measures each profile N times. Without `--still-seconds` nothing changes.
+
 Hosts encode with Cisco's OpenH264 binary, the one shipped hosts load: the measured binary's own
 `cmux-rd openh264-install` fetches it and checks its pinned SHA-256. `--openh264 PATH` uses a copy
 you already have. `--openh264 source` keeps OpenH264 compiled from source by the `bench` feature.
