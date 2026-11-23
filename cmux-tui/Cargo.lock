@@ -1767,6 +1767,7 @@ name = "cmux-daemon-launch-core"
 version = "0.1.0"
 dependencies = [
  "cmux-local-auth",
+ "libc",
  "serde",
  "serde_json",
 ]
@@ -2672,6 +2673,7 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-handlers",
  "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
@@ -2680,6 +2682,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-customize",
  "cmux-customize-recipes",
+ "cmux-daemon-launch-core",
  "cmux-device-kind",
  "cmux-fault",
  "cmux-file-lock",
@@ -2739,6 +2742,7 @@ dependencies = [
  "parking_lot",
  "plist",
  "png",
+ "pulldown-cmark",
  "ratatui",
  "regex",
  "reqwest",
