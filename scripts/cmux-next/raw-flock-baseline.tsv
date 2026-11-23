@@ -4,6 +4,7 @@ cmux-tui/crates/acpmux/src/agent_host/mod.rs	2	c-agenthost lock audit: explicit 
 cmux-tui/crates/acpmux/src/agent_host/wait.rs	6	c-agenthost lock audit: explicit unlock: take_death_lock unlocks at 132, dead_now_in probe at 207, test at 237, all before close.
 cmux-tui/crates/acpmux/src/bg_hook.rs	1	c-agenthost lock audit: audit OK no spawn: the hook process starts no child while it holds the first-time lock
 cmux-tui/crates/acpmux/src/bg_run.rs	1	c-agenthost lock audit: held for the process life: Runner lock held for the runner process life (liveness); O_CLOEXEC, task child execs.
+cmux-tui/crates/acpmux/src/cli/cloud_join.rs	1	c-agenthost lock audit: unlocking Drop: HeldLock, Drop at line 443 calls unlock().
 cmux-tui/crates/acpmux/src/cli/host_approvals.rs	1	c-agenthost lock audit: audit OK no spawn: close-only probe in a CLI that starts no child
 cmux-tui/crates/acpmux/src/cli/host_lock.rs	2	c-agenthost lock audit: audit OK: step lock no spawn; the lease is held for the self-update command's life (CLOEXEC); :45 is a remote shell script
 cmux-tui/crates/acpmux/src/cli/machine_consent.rs	1	c-agenthost lock audit: unlocking Drop: Uses cloud_join::HeldLock, Drop at cloud_join.rs:443 unlocks.
