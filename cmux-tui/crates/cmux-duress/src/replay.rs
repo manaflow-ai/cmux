@@ -565,6 +565,8 @@ fn projection_run(
         for (t, from_input) in &held {
             if *from_input {
                 metrics.push("scroll_to_paint_ms", "ms", present - t);
+                // The part that is not the link's, as the terminal path reports it.
+                metrics.push("paint_over_link_ms", "ms", present - t - (arrived - sent));
             }
         }
         let mac_text = mac.viewport_text().map_err(vt_err)?;
@@ -574,6 +576,7 @@ fn projection_run(
             .count("paint_mismatch", if trim(&mac_text) == trim(&phone_text) { 0.0 } else { 1.0 });
     }
     metrics.declare("scroll_to_paint_ms", "ms");
+    metrics.declare("paint_over_link_ms", "ms");
     Ok(())
 }
 
@@ -1030,6 +1033,10 @@ ui = ["X"]
         let run = run(&s, &recordings()).unwrap();
         assert_eq!(run.metrics.0["paint_mismatch"].samples, vec![0.0]);
         assert!(run.metrics.0["scroll_to_paint_ms"].samples.len() >= 30);
+        assert_eq!(
+            run.metrics.0["paint_over_link_ms"].samples.len(),
+            run.metrics.0["scroll_to_paint_ms"].samples.len()
+        );
         for stage in [
             "mac_queue_ms",
             "mac_grid_ms",
