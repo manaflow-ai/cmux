@@ -54,7 +54,7 @@ extension DaemonLanePolicy {
         "list-tab-groups": [],
         "list-terminals": [],
         "list-workspace-groups": [],
-        "list-workspaces": ["known", "limit"],
+        "list-workspaces": ["after", "known", "limit"],
         "machine-listening-tcp": [],
         "machine-usage": [],
         "move-tab": ["index", "pane", "surface", "transaction"],
