@@ -447,7 +447,7 @@ fn unsigned_only(commit: &str) -> BootstrapError {
         "cmux-tui {} is published without a signed release file (release.json), so its build \
          cannot be verified; install a cmux build that bundles its Linux build, or one built \
          after Linux release files were signed",
-        &commit[..12]
+        commit.get(..12).unwrap_or(commit)
     ))
 }
 
