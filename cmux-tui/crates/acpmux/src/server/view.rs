@@ -55,6 +55,7 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
         }
     };
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    conn.interest.attach(&s.id);
     // Its live stream starts after the chat's last record now; read under the subscriptions'
     // lock, so a lap's catch-up never reads from before it (`stream_cursor.rs`).
     conn.stream_cursors.start(&s.id, s.meta().last_seq);
@@ -111,6 +112,7 @@ pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<Su
     let mut next = opts.or(before).unwrap_or_default();
     next.remote = true;
     next.idle = false;
+    conn.interest.attach(id);
     subs.insert(id.to_owned(), next);
 }
 
@@ -119,6 +121,7 @@ pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<Su
 /// peer's chat of the same raw id becomes this one.
 pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    conn.interest.attach(&s.id);
     match subs.get_mut(&s.id) {
         None => {
             // A lap catches this ACP subscription up from here too (`stream_cursor.rs`); a
@@ -146,6 +149,7 @@ pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, &s.id);
     conn.stream_cursors.forget(&s.id);
     if let Some(mut before) = subs.remove(&s.id) {
+        conn.interest.detach(&s.id);
         conn.unbind_mailbox_receipt(&s.id);
         if !before.remote {
             settle_idle(hub, s, &mut before);

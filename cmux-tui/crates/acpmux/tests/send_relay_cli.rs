@@ -430,7 +430,8 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
         legs.push((mode, stall_leg(&dir, "idle", runs, 0, mode)));
         legs.push((mode, stall_leg(&dir, "cpu hogs", runs, cores * 10, mode)));
     }
-    // A kept listing (a minute old): plain `ls` serves it and does not wait on the relay.
+    // A kept listing (a minute old): plain `ls` reads the stalled relay for it once, by 250 ms,
+    // then lists it at once while the refresh that miss started runs.
     write_kept_listing(&dir);
     if !report_only {
         legs.push((Mode::Warm, stall_leg(&dir, "idle", runs, 0, Mode::Warm)));
