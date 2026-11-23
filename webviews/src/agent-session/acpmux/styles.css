@@ -7,7 +7,8 @@
 .acpmux-stage{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}
 .acpmux-transcript-after-latest{flex:none;min-width:0}.acpmux-open-app-cards{display:flex;flex:none;flex-direction:column;gap:var(--ds-space-2);box-sizing:border-box;padding:var(--ds-space-2) var(--cv-inset-end,var(--cv-inset,var(--ds-space-4))) var(--ds-space-2) var(--cv-inset,var(--ds-space-4))}.acpmux-open-app-card{display:flex;flex:none;align-items:center;justify-content:space-between;gap:var(--ds-space-3);box-sizing:border-box;padding:var(--ds-space-2) var(--ds-space-3);border:1px solid var(--agent-border);border-radius:var(--ds-radius-xl);background:var(--acpmux-composer-tray);color:var(--agent-text)}.acpmux-open-app-card__copy{display:flex;min-width:0;flex-direction:column;gap:var(--ds-space-1);overflow:hidden}.acpmux-open-app-card__copy strong,.acpmux-open-app-card__copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-open-app-card__copy strong{font-size:var(--text-control);font-weight:var(--weight-emphasis)}.acpmux-open-app-card__copy span{color:var(--agent-muted);font-size:var(--text-detail)}.acpmux-open-app-card__error{color:var(--agent-danger,#d35c5c)!important}.acpmux-open-app-card__button{flex:none;display:grid;border:0;border-radius:var(--ds-radius-control);padding:var(--ds-space-1) var(--ds-space-3);background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit}.acpmux-open-app-card__button:disabled{opacity:.7}.acpmux-open-app-card__button-label{grid-area:1/1}.acpmux-open-app-card__button-label[aria-hidden="true"]{visibility:hidden}.acpmux-open-app-card__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 
-.acpmux-diff-add{color:var(--acpmux-add)}.acpmux-diff-del{color:var(--acpmux-del)}.acpmux-diff-main{flex:1;display:flex;min-height:0}.acpmux-diff-body{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden}.acpmux-diff-file{border-bottom:1px solid var(--agent-border)}.acpmux-fh-spacer{flex:1}
+/* The counts a tenth toward the text: they hold 4.5:1 on a card's fill too (the raw ink was 4.43:1). */
+.acpmux-diff-add{color:color-mix(in srgb,var(--acpmux-add) 90%,var(--agent-text))}.acpmux-diff-del{color:color-mix(in srgb,var(--acpmux-del) 90%,var(--agent-text))}.acpmux-diff-main{flex:1;display:flex;min-height:0}.acpmux-diff-body{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden}.acpmux-diff-file{border-bottom:1px solid var(--agent-border)}.acpmux-fh-spacer{flex:1}
 .acpmux-diff-empty-edit{padding:8px 16px;color:var(--agent-muted);font-size:12px}.acpmux-main{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}.acpmux-header>div{display:flex;align-items:center;min-width:0}.acpmux-session-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--agent-muted)}.acpmux-session-mark-input{color:var(--acpmux-needs-you-mark)}.acpmux-session-mark-unread::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--agent-accent)}.acpmux-session-mark-running{color:var(--agent-accent)}
 /* Composer (Composer.tsx, ComposerPickers.tsx), with metrics and font from the
    reference prototype (src/shell Composer): the prompt over a bar with +,
@@ -271,6 +272,15 @@
 .acpmux-emoji-menu.is-strip .acpmux-emoji-glyph{width:auto;font-size:var(--text-heading)}
 .acpmux-emoji-strip-code{height:var(--ds-control-compact);padding:0 var(--ds-space-2);display:flex;align-items:center;color:var(--acpmux-composer-dim);font-size:var(--text-caption);white-space:nowrap}
 .acpmux-slash-empty{padding:0 var(--ui-row-padding-inline);height:var(--ui-row-height);display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:var(--ui-row-radius)}
+.acpmux-help-sheet{--popup-scroll-cap:calc(12 * var(--ui-row-height,28px) + 2 * var(--ui-popup-padding,4px));display:flex;flex-direction:column;overflow:hidden}
+.acpmux-help-search{flex:none;height:var(--ui-row-height);margin:0 0 var(--ui-popup-padding);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;outline:none}
+.acpmux-help-search::placeholder{color:var(--acpmux-composer-dim)}
+.acpmux-help-list{flex:1 1 auto;min-height:0;overflow:auto}
+.acpmux-help-row:has(.acpmux-help-label){flex-wrap:wrap;height:auto;min-height:var(--ui-row-height)}
+.acpmux-help-label{flex:0 0 100%;padding-top:var(--grid-step);padding-bottom:var(--grid-half-step);font-size:var(--text-caption);color:var(--acpmux-composer-dim);pointer-events:none}
+.acpmux-help-row[data-help-kind="key"] .acpmux-slash-name{flex:1 1 0}
+.acpmux-help-keys{flex:none;display:flex;gap:var(--grid-half-step)}
+.acpmux-help-keys kbd{/* concentric-allow: a keycap, not a container of buttons */font:var(--text-caption)/1 var(--font-ui);padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft)}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
@@ -287,7 +297,7 @@
 .acpmux-newtab{--acpmux-newtab-mark:26px}
 .acpmux-newtab-box{border-radius:22px;background:color-mix(in srgb,var(--acpmux-composer-bg) var(--ds-glass-popover-tint),transparent);-webkit-backdrop-filter:var(--ds-glass-popover-blur);backdrop-filter:var(--ds-glass-popover-blur);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2)}
 /* Reduce Transparency: the New Tab box is the solid composer surface, as the composer card is (glass.css). */
-:root[data-reduce-transparency] .acpmux-newtab-box{background:var(--acpmux-composer-solid,var(--cmux-surface-solid,Canvas))}
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-newtab-box{background:var(--acpmux-composer-solid,var(--cmux-surface-solid,Canvas))}
 @media (prefers-reduced-transparency:reduce){.acpmux-newtab-box{background:var(--acpmux-composer-solid,var(--cmux-surface-solid,Canvas))}}
 /* The field row's one-line height: the row and the prompt editor in it share it (--acpmux-newtab-row). */
 .acpmux-newtab{--acpmux-newtab-row:56px}
@@ -436,6 +446,26 @@
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-host-line button:disabled{opacity:.6}
 .acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* The host line is out of flow (HostError.tsx HostLineSlot, ConnectionChip; Leo, 2026-11-21: "stop layout
+   shifting"). The slot is a zero-height box in the dock in every state; what it holds is positioned over the
+   transcript's last pixels above the composer, so a chip or a Restart line appearing, changing or going moves
+   no row (noLayoutShift.test.tsx). Its box is click-through; only the chip and the line's own controls take clicks. */
+.acpmux-host-slot{position:relative;height:0;margin:0;padding:0;z-index:var(--layer-sticky);pointer-events:none}
+.acpmux-host-slot>*{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:flex-end}
+.acpmux-host-slot>.acpmux-host-line,.acpmux-host-slot>.acpmux-host-line-group{pointer-events:none}
+.acpmux-host-slot .acpmux-host-line>*{pointer-events:auto}
+.acpmux-host-slot>.acpmux-host-line-group{flex-direction:column;align-items:flex-end}
+.acpmux-host-slot .acpmux-host-line{padding-bottom:var(--ds-space-2)}
+.acpmux-host-slot>.acpmux-host-line-group>.acpmux-host-line:first-child{padding-bottom:var(--ds-space-2)}
+.acpmux-host-slot .acpmux-host-line-message{background:color-mix(in srgb,var(--agent-surface,var(--ds-surface-inset)) 92%,transparent);border-radius:var(--ds-radius-control);padding:0 var(--ds-space-1)}
+/* The chip: a dot and one word, small and muted, in the composer column's end. */
+.acpmux-host-slot>.acpmux-host-chip{pointer-events:none;left:auto;--acpmux-host-chip-end:var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2))));right:calc(var(--acpmux-host-chip-end) - var(--acpmux-stack-outset,0px));bottom:var(--ds-space-2);width:max-content;max-width:calc(100% - var(--ds-space-5));align-items:center;gap:var(--ds-space-1);height:20px;padding:0 var(--ds-space-2);border-radius:999px;background:color-mix(in srgb,var(--agent-surface,var(--ds-surface-inset)) 92%,transparent);color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing);white-space:nowrap}
+.acpmux-host-chip-dot{--acpmux-host-chip-dot:6px;flex:none;width:var(--acpmux-host-chip-dot);height:var(--acpmux-host-chip-dot);border-radius:50%;background:currentColor;opacity:.7}
+.acpmux-host-chip-words{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.acpmux-host-chip[data-chip="dot"]{padding:0;width:20px;justify-content:center}
+.acpmux-host-slot>.acpmux-host-chip[data-chip="dot"]{width:20px}
+/* corner: the chip fixed in the pane's top end corner, away from the composer. */
+.acpmux-host-slot>.acpmux-host-chip[data-chip="corner"]{position:fixed;inset:8px 12px auto auto;bottom:auto;left:auto}
 /* A Fork Conversation acpmux has not answered (ForkPendingLine.tsx): the host line's look, with its
    spinner first and its time after the words, in the same muted tone; Cancel is its quiet button. */
 .acpmux-fork-pending .acpmux-fork-pending-time{margin-left:var(--ds-space-1);font-variant-numeric:tabular-nums}
@@ -835,7 +865,10 @@ button.acpmux-edited-file:hover{background:var(--ds-surface-hover)}
 @media (max-width:360px){.acpmux-chief-dock-cards{width:100%}}
 .acpmux-quick[data-floating=compact] .acpmux-chief-dock{position:relative;left:auto;right:auto;bottom:auto;transform:none;align-items:center;align-self:center;flex:none}
 @media (prefers-reduced-transparency:reduce){.acpmux-chief-dock-rail,.acpmux-chief-dock-cards,.acpmux-chief-card{background:var(--surface-popup);-webkit-backdrop-filter:none;backdrop-filter:none}}
-:root[data-reduce-transparency] .acpmux-chief-dock-rail,:root[data-reduce-transparency] .acpmux-chief-dock-cards,:root[data-reduce-transparency] .acpmux-chief-card{background:var(--surface-popup);-webkit-backdrop-filter:none;backdrop-filter:none}
+/* Liquid Glass off paints the rail and each card, never the clear list between the cards. */
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-chief-dock-rail,:root[data-reduce-transparency] .acpmux-chief-dock-cards,:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-chief-card{background:var(--surface-popup);-webkit-backdrop-filter:none;backdrop-filter:none}
+/* Liquid Glass off (appearance.liquidGlass): no lit inset edges either; the plain border and the elevation stay (a focus ring still wins). */
+:where(:root[data-glass="off"]) :is(.acpmux-chief-dock-rail,.acpmux-chief-card){box-shadow:var(--elevation-1)}
 @keyframes acpmux-chief-dock-attention{0%,100%{opacity:.35;transform:scale(.96)}50%{opacity:0;transform:scale(1.12)}}
 @media (prefers-reduced-motion:reduce){.acpmux-chief-dock,.acpmux-chief-dock-rail,.acpmux-chief-dock-mascot,.acpmux-chief-card,.acpmux-chief-dock-cards{transition:none;animation:none}.acpmux-chief-dock-mascot img{animation:none;transition:none}}
 .acpmux-link-missing{margin:8px 24px;color:var(--agent-text);font-size:12px}
@@ -1048,7 +1081,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-keycap{display:inline-flex;align-items:center;justify-content:center;min-width:var(--ds-control-icon);height:var(--ds-control-icon);margin:0;padding:0 4px;border-radius:calc(var(--ds-radius-control, 8px) - var(--ds-space-1, 4px));background:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 35%,transparent);color:color-mix(in srgb,currentColor 75%,transparent);font-family:var(--font-ui);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* The answer's letter, then its other keys: a faint slash between them reads as "or", never as a chord. */
-.acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 45%,transparent);font:var(--text-caption)/1 var(--font-ui)}
+.acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 75%,transparent);font:var(--text-caption)/1 var(--font-ui)}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-permission-action-shortcut{margin:0}
 /* The key hint (KeyHint): smaller and fainter than the label, on its baseline, a fixed step after it;
    the modifiers fainter still so the digit leads. No box: a keycap crowds a 24px button. */
@@ -1126,6 +1159,21 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-palette-menu .ui-separator{flex:none;height:0;margin:4px 8px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:none}
 /* The composer's + (Picker) splits its groups with the same hairline, on the group itself. */
 .acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section,.acpmux-menu.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section{margin-top:4px;padding-top:4px;box-shadow:none;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
+/* What Return does, on the highlighted row (PaletteMenu `returnLook`): the shared Keycap at the row's end, after
+   any shortcut, with the verb before it in the description's quiet voice. It takes no room from other rows. */
+.acpmux-palette-return{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:var(--ds-space-1,4px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-palette-return .acpmux-keycap{margin-right:0}
+/* The composer's + (Picker `returnHint`): the same verb and keycap, at the end of the highlighted row only. Every row
+   carries it hidden, so the highlight moving re-renders nothing; a hidden one takes no room. */
+.acpmux-menu-return{display:none;flex:none;margin-left:auto;align-items:center;gap:var(--ds-space-1,4px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-menu-item[data-highlighted] .acpmux-menu-return{display:inline-flex}
+.acpmux-menu-return .acpmux-keycap{margin-right:0}
+.acpmux-menu-hint+.acpmux-menu-return{margin-left:var(--ds-space-2,8px)}
+/* The `footer` look: the outcome with its target in one quiet line under the list, no rule above it (space and
+   fill, not lines). */
+.acpmux-palette-outcome{flex:none;display:flex;align-items:center;gap:var(--ds-space-1,4px);min-width:0;padding:var(--ds-space-1,4px) var(--cmux-menu-icon-x) var(--ui-popup-padding);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-palette-outcome .acpmux-keycap{flex:none;margin-right:0}
+.acpmux-palette-outcome-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-palette-empty{padding:var(--ui-row-height) var(--ui-row-padding-inline);color:var(--agent-muted);text-align:center}
 
 /* Keep search rows on the same shared menu metrics. */

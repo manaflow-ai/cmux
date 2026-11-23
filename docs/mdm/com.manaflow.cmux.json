@@ -3639,6 +3639,12 @@
       "title" : "Glass Toolbar Groups",
       "type" : "boolean"
     },
+    "experiments.toastsV2" : {
+      "default" : false,
+      "description" : "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
+      "title" : "Toasts v2",
+      "type" : "boolean"
+    },
     "feed.agentPermissionPrompts" : {
       "default" : false,
       "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
@@ -3954,6 +3960,12 @@
       "default" : false,
       "description" : "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
       "title" : "Screen Sharing for Joined Machines",
+      "type" : "boolean"
+    },
+    "labs.pauseAgentMachines" : {
+      "default" : false,
+      "description" : "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
+      "title" : "Pause Agent Machines",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -5457,6 +5469,12 @@
       "title" : "Settle Finished Chats",
       "type" : "boolean"
     },
+    "sidebar.showAutomaticSessions" : {
+      "default" : false,
+      "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
+      "title" : "Show Automatic Sessions",
+      "type" : "boolean"
+    },
     "sidebar.showChats" : {
       "default" : true,
       "description" : "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -6175,6 +6193,16 @@
       "title" : "+ Button Visibility",
       "type" : "string"
     },
+    "tabs.shellIconTheme" : {
+      "default" : "default",
+      "description" : "Machines shows each shell tab with the icon of the machine it runs on.",
+      "enum" : [
+        "default",
+        "machine"
+      ],
+      "title" : "Shell Tab Icons",
+      "type" : "string"
+    },
     "tabs.swapCmdTAndCmdN" : {
       "default" : false,
       "description" : "Cmd-T opens a workspace and Cmd-N opens a tab.",
@@ -6410,7 +6438,7 @@
       "type" : "number"
     },
     "updates.downloadAutomatically" : {
-      "default" : false,
+      "default" : true,
       "description" : "Off: cmux asks before downloading. It always asks before restarting.",
       "title" : "Download Updates Automatically",
       "type" : "boolean"

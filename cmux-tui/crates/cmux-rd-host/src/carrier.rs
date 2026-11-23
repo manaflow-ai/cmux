@@ -328,11 +328,67 @@ pub fn turn_servers(setups: &[TurnSetup]) -> Vec<cmux_rd_link::net::TurnServer> 
         .collect()
 }
 
+/// Public STUN servers a session asks when its hub ticket names none. The hub hands out
+/// STUN and TURN only with the cmux relay (a plan that includes it, workers/device-hub
+/// `mintTurn`), so without it both ends gathered host candidates alone, and two machines with
+/// no shared network (a Mac at home, a cloud VM) had nothing to punch through with. A STUN
+/// server only tells each side its public address; no session traffic goes through it.
+#[cfg(feature = "link")]
+pub const FALLBACK_STUN: [&str; 2] = ["stun.cloudflare.com:3478", "stun.l.google.com:19302"];
+
+/// The link's STUN servers: the ticket's `names`, resolved now (IPv4), or, when it names none
+/// and the session is not relay only, [`FALLBACK_STUN`] resolving off the session's path
+/// (for [`cmux_rd_link::net::Net::add_stun_later`]), so a slow resolver never delays a start.
+#[cfg(feature = "link")]
+pub fn stun_servers(
+    names: &[String],
+    relay_only: bool,
+) -> (Vec<SocketAddr>, Option<cmux_rd_link::net::Later<SocketAddr>>) {
+    if !names.is_empty() || relay_only {
+        return (resolve_ipv4(names.iter().map(String::as_str)), None);
+    }
+    let found = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let slot = std::sync::Arc::clone(&found);
+    let spawned = std::thread::Builder::new().name("cmux-rd-stun".into()).spawn(move || {
+        let servers = resolve_ipv4(FALLBACK_STUN.into_iter());
+        *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers);
+    });
+    if spawned.is_err() {
+        return (Vec::new(), None);
+    }
+    let later: cmux_rd_link::net::Later<SocketAddr> =
+        Box::new(move || found.lock().unwrap_or_else(|e| e.into_inner()).take());
+    (Vec::new(), Some(later))
+}
+
+/// Each `host:port` resolved to its first IPv4 address; an unresolvable one is skipped.
+#[cfg(feature = "link")]
+fn resolve_ipv4<'a>(names: impl Iterator<Item = &'a str>) -> Vec<SocketAddr> {
+    names
+        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
+        .collect()
+}
+
 #[cfg(all(test, feature = "link"))]
 mod path_tests {
     use super::*;
     use cmux_rd_link::net::{Net, NetConfig};
     use cmux_rd_link::{EndpointEvent, KeyPair, Role, Route};
+
+    #[test]
+    fn a_ticket_without_stun_falls_back_to_public_stun_unless_relay_only() {
+        // The ticket's servers resolve now and nothing comes later.
+        let (now, later) = stun_servers(&["127.0.0.1:3478".to_owned()], false);
+        assert_eq!(now, vec!["127.0.0.1:3478".parse::<SocketAddr>().expect("addr")]);
+        assert!(later.is_none());
+        // None in the ticket: the fallback resolves off the start path.
+        let (now, later) = stun_servers(&[], false);
+        assert!(now.is_empty());
+        assert!(later.is_some(), "a ticket with no STUN still gets a reflexive candidate");
+        // Relay only never asks a STUN server.
+        let (now, later) = stun_servers(&[], true);
+        assert!(now.is_empty() && later.is_none());
+    }
 
     fn carrier() -> LinkCarrier {
         let net = Net::start(NetConfig {
