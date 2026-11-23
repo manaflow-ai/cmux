@@ -59,6 +59,17 @@ export const BENCHES: readonly Bench[] = [
   // chat-open takes about 36 s on the perf runner (2026-11-12).
   { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 105_000 },
   { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
+  // settled_page.score_max (NOW settled_page_score_max, cmuxterm-hq goals/settled-page-ceiling.md). The in-page
+  // transitions only until first-load-after-restart.bench.ts has its BOUND mode; about 3 min on a 32-core VM, its own
+  // part so it never pushes the suite past its cap.
+  {
+    name: "settled-page",
+    file: "settled-page.bench.ts",
+    args: ["3", "120"],
+    env: { ONLY: "chat_switch,workspace_switch" },
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   {
     name: "transcript-scroll-frame",
     file: "transcript-scroll-frame.bench.ts",
@@ -143,6 +154,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // Scrolling up a long chat page by page at 1k, 10k and 100k rows: each older page's ask to its drawn frame (target
+  // 50 ms p95), loading and blank frames, the anchor's shift, and the 100k / 1k ratio (target 1.2x). perf-cron.py's
+  // web-ui-scroll-up part runs it.
+  {
+    name: "transcript-scroll-up-scale",
+    file: "transcript-scroll-up-scale.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // A chat at any length (goal chats-flat-at-any-length): a 100k-row chat opened and grown live, one and 20 at once,
   // against empty chats; renderer idle CPU, streaming CPU and PSS, and their worst ratio. perf-cron.py's web-ui-flat
   // part runs it, under that part's 30-minute run cap.
@@ -154,6 +175,15 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_200_000,
     ownPart: true,
   },
+  // Several heavy coordinators streaming at 10x while readers attach, scroll, find, switch and type (coord-sim's
+  // records: cmux-tui/crates/coord-sim, which must be built first; COORD_SIM_BIN names it). Run only by name.
+  {
+    name: "coord-sim-load",
+    file: "coord-sim-load.bench.ts",
+    args: ["3", "10", "60", "5000"],
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
   // part, under that part's 30-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
   // repeats fit under that cap.
@@ -163,6 +193,26 @@ export const BENCHES: readonly Bench[] = [
     args: ["100000", "20"],
     env: { CASES: "grown-many", IDLE_S: "5", STREAM_S: "5" },
     timeoutMs: 1_770_000,
+    ownPart: true,
+  },
+  // The sim's stress ladder (goal sim-fidelity-flat-ladder): chats and browser tabs at 1, 10 and 100 in one shared
+  // renderer listing 3,000 chats; the cost per added item at 100 over at 10 (sim_ladder.ratio_max). perf-cron.py's
+  // web-ui-ladder part runs it, under that part's 30-minute run cap.
+  {
+    name: "sim-ladder",
+    file: "sim-ladder.bench.ts",
+    args: ["--sessions", "3000"],
+    timeoutMs: 1_700_000,
+    ownPart: true,
+  },
+  // The same sim at a profile of Leo's running NIGHTLY (goal sim-fidelity-flat-ladder): its pages, tabs, listed chats,
+  // change rate and load, against its frame p95, keydown, script ms/s and agent renderer RSS; divergence past 1.5x is
+  // red. perf-cron.py's web-ui-fidelity part runs it.
+  {
+    name: "sim-fidelity",
+    file: "sim-ladder.bench.ts",
+    args: ["--profile", "bench/profiles/leo-nightly.json"],
+    timeoutMs: 600_000,
     ownPart: true,
   },
   // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
@@ -228,6 +278,19 @@ export const BENCHES: readonly Bench[] = [
     file: "chat-open.bench.ts",
     args: ["7", "300"],
     env: { FIXTURE: "god", PAIRED: "1" },
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
+  // A chat's cold open to its composer taking a key, ten rounds (goal startup-every-path; Leo 2026-11-22: "i hope
+  // we're still pursuing startup times for the app itself aka percieved time and percieved interactive time"):
+  // dom_content_loaded, first_row and composer_interactive with each round's value (COMPOSER=1, chat-open.bench.ts).
+  // cmuxterm-hq's synthetic-probes.yml web-startup job runs it (`--only chat-open-startup`) and records the
+  // web-chat-open-startup probe's p50 and p95; the perf cron does not.
+  {
+    name: "chat-open-startup",
+    file: "chat-open.bench.ts",
+    args: ["10", "300"],
+    env: { COMPOSER: "1" },
     timeoutMs: 300_000,
     ownPart: true,
   },
