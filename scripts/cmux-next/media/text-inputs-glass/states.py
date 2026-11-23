@@ -67,7 +67,11 @@ def g_chief(tag):
         + native_states("Chief composer (native)", rpc("debug.home.drive", {"action": "focus"}), tag)
 
 def g_home_search(tag):
-    return [step("Home", cmux("action", "run", "home.show"), wait=4, shot=False), KEY()] \
+    # The Chief fills Home and the list (with its search field) is folded until Chats shows it; a
+    # Home with the Chief alone folds it too. Three fixture chats and Chats on show the field.
+    return [step("Home", cmux("action", "run", "home.show"), wait=4, shot=False),
+            step("Three more chats", rpc("debug.home.sidebar_fixture", {"count": 3, "pinned": 0}), shot=False, wait=0.5),
+            step("Chats shows the list", rpc("debug.home.sidebar_fixture", {"chatList": True}), shot=False, wait=1), KEY()] \
         + native_states("Home sidebar search (native)", rpc("debug.text_field", {"focus": "CmuxSidebarSearchField"}), tag)
 
 def chat_setup(tag):
@@ -89,9 +93,10 @@ def g_chat_find(tag):
         + web_states("Chat find bar (web)", "cmux.agent", ".acpmux-find__bar input", tag)
 
 def g_newtab_web(tag):
-    # The New Tab's field is .nt-field (.acpmux-newtab-field is the classic New Tab page's). The dark
-    # pass keeps the same tab.
-    first = {}
+    # The New Tab's field is .nt-field (.acpmux-newtab-field is the classic New Tab page's). The app's
+    # first chat page draws it; the second is the next tab's warm spare, which also has a field and
+    # which a probe picks while the window is not key. The dark pass keeps the same tab.
+    first = {"instance": 1}
     opens = page_tab(tag) if "light" in tag else [KEY()]
     return opens + [step("The New Tab field draws", rpc("debug.page", {"page": "cmux.agent", "action": "wait", "selector": ".nt-field .ProseMirror", "timeout_ms": 10000, **first}), shot=False, wait=0.2)] \
         + web_states("New tab composer (web)", "cmux.agent", ".nt-field .ProseMirror", tag, pick=first)
@@ -114,10 +119,21 @@ def g_omnibar(tag):
         + [step("Close the browser tab", cmux("tab", name, "close"), shot=False, wait=1)]
 
 def g_browser_find(tag):
-    # In a workspace of its own, so Find goes to the page and not to the Chief pane beside it.
-    name, setup = web_tab(tag)
-    setup = [step("A browser workspace", cmux("workspace", "new", "--name", f"Find {tag}"), shot=False, wait=2)] + setup
-    return setup + [KEY(), step("Browser find bar opens", cmux("action", "run", "find"), shot=False, wait=1)] + native_states("Browser find bar (native)", rpc("debug.text_field", {"focus": "Find in page"}), tag)
+    # In a workspace of its own, shown and selected, so Find goes to the browser pane and not to the
+    # Chief or the terminal beside it; Find needs the key window, which activation makes a beat later.
+    name = "Web " + " ".join(re.findall(r"[a-z]+", tag))
+    setup = [step("A browser workspace", cmux("workspace", "new", "--name", f"Find {tag}"), shot=False, wait=1.5),
+             step("Show it", cmux("workspace", f"name:Find {tag}", "focus"), shot=False, wait=1.5),
+             step("A browser tab", cmux("tab", "create", "browser", "--url", "https://example.com", "--name", name), shot=False, wait=4),
+             step("Select it", cmux("tab", name, "focus"), shot=False, wait=1.5), KEY(),
+             step("The window is key (activation lands a beat later)", rpc("debug.text_field", {"key": True}), shot=False, wait=2),
+             # Find goes to the key window's focused pane, and a capture's window is not key until cmux
+             # is the front app: a real Cmd-F through the front-app driver (hq#17594) brings it forward.
+             {"title": "Browser find bar opens (Cmd-F, cmux in front)", "key": "f", "modifiers": ["cmd"],
+              "front": True, "wait": 1.5, "display": True, "shot": False}]
+    # The dark pass keeps the light pass's tab and its open bar (the appearance changes under it).
+    if "dark" in tag: setup = [KEY()]
+    return setup + native_states("Browser find bar (native)", rpc("debug.text_field", {"focus": "Find in page"}), tag)
 
 def g_term_find(tag):
     return [step("A terminal workspace", cmux("workspace", "new", "--name", f"Term {tag}"), shot=False, wait=1.5),
@@ -136,9 +152,25 @@ def g_settings(tag):
         + web_states("Settings search field (web)", "cmux.settings", None, tag,
                      focus=rpc("debug.page", {"page": "cmux.settings", "action": "command", "command": "focusSearch"}))
 
+def g_dialog(tag):
+    # A dialog's text field with a placeholder: the Cloud workspace fixture, its field cleared so the
+    # placeholder shows (a dialog field is a ThemedTextField in a ThemedFieldBox).
+    return [step("A dialog with a text field", rpc("debug.dialog", {"open": "cloudWorkspaceActions"}), shot=False, wait=1.5), KEY(),
+            step(f"{tag} Dialog field (native): empty, placeholder", rpc("debug.dialog", {"set": {"repository": ""}}), shot="empty"),
+            step(f"{tag} Dialog field (native): typed", rpc("debug.dialog", {"set": {"repository": TEXT}}), shot="typed"),
+            step("Dialog: close", rpc("debug.dialog", {"dismiss": True}), shot=False, wait=0.8)]
+
+def g_palette(tag):
+    # The command palette's search, opened with a real Cmd-Shift-P with cmux in front (hq#17594).
+    return [{"title": "Command palette opens (Cmd-Shift-P, cmux in front)", "key": "p", "modifiers": ["cmd", "shift"],
+             "front": True, "wait": 1.5, "display": True, "shot": False},
+            step(f"{tag} Palette search (native): empty, placeholder", None, shot="empty"),
+            step("Palette: close", rpc("debug.key", {"key": "escape"}), shot=False, wait=0.8)]
+
 GROUPS = {"chief": g_chief, "home-search": g_home_search, "chat": g_chat, "chat-find": g_chat_find,
           "newtab-web": g_newtab_web, "newtab-native": g_newtab_native, "omnibar": g_omnibar,
-          "browser-find": g_browser_find, "terminal-find": g_term_find, "rename": g_rename, "settings": g_settings}
+          "browser-find": g_browser_find, "terminal-find": g_term_find, "rename": g_rename, "settings": g_settings,
+          "dialog": g_dialog, "palette": g_palette}
 
 import os
 out = sys.argv[1]

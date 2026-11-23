@@ -54,14 +54,82 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(why(run(run_attempt=2)), "keep:attempt")
 
     def test_other_events_and_forks_are_kept(self):
-        for event in ("schedule", "workflow_dispatch", "merge_group", "workflow_run"):
+        for event in ("schedule", "workflow_dispatch", "merge_group", "issue_comment"):
             self.assertTrue(why(run(event=event)).startswith("keep:event-"), event)
         self.assertEqual(why(run(head_repository={"full_name": "someone/cmux"})), "keep:fork")
         self.assertEqual(why(run(head_repository=None)), "keep:fork")
 
     def test_protected_branches_are_kept(self):
-        for branch in ("main", "master", "feat-cmux-next", "release/1.2", "nightly-next", "gh-pages", ""):
-            self.assertEqual(why(run(head_branch=branch)), "keep:protected-branch", branch)
+        for branch in ("master", "release/1.2", "nightly-next", "gh-pages", ""):
+            for event in ("push", "pull_request", "workflow_run"):
+                self.assertEqual(why(run(head_branch=branch, event=event)), "keep:protected-branch", branch)
+
+    def test_lane_workflow_run_of_a_replaced_head_is_shed(self):
+        self.assertEqual(why(run(event="workflow_run")), "superseded")
+        self.assertEqual(why(run(event="workflow_run", head_sha="tip")), "keep:current-workflow_run")
+        self.assertEqual(why(run(event="workflow_run", head_branch="deleted")), "branch-gone")
+
+    def test_base_push_runs_are_shed_only_when_a_newer_push_replaced_them(self):
+        base = dict(head_branch="feat-cmux-next", event="push")
+        self.assertEqual(why(run(**base)), "superseded-base")
+        # The tip's own run is never touched: the newest head is always tested.
+        self.assertEqual(why(run(**base, head_sha="base")), "keep:current-push")
+        # Only push runs: any other base event answers one event, not one commit.
+        for event in ("pull_request", "workflow_run", "schedule", "workflow_dispatch", "issue_comment"):
+            self.assertEqual(why(run(head_branch="feat-cmux-next", event=event)), f"keep:event-{event}", event)
+        # A base branch missing from the tips read is unread, never "gone".
+        self.assertEqual(why(run(head_branch="main", event="push")), "keep:base-unread")
+        self.assertEqual(why(run(**base, run_attempt=2)), "keep:attempt")
+        self.assertEqual(why(run(**base, head_repository={"full_name": "someone/cmux"})), "keep:fork")
+
+    def test_base_publishing_workflows_keep_every_push(self):
+        base = dict(head_branch="feat-cmux-next", event="push")
+        for path in shed.BASE_KEEP_PATHS:
+            self.assertEqual(why(run(**base, path=path)), "keep:publishes-per-commit", path)
+            # On a lane branch the same workflow is shed like any other.
+            self.assertEqual(why(run(event="push", path=path)), "superseded", path)
+        for name in ("Nightly NEXT", "Dev build", "Promote", "Release", "Publish"):
+            self.assertEqual(why(run(**base, name=name)), "keep:protected-workflow", name)
+
+
+def job(status="queued", **over):
+    return {"status": status, "runner_id": None, "runner_name": None, "steps": [], **over}
+
+
+class UnstartedTests(unittest.TestCase):
+    def test_only_a_run_with_nothing_running_or_claimed_is_unstarted(self):
+        self.assertTrue(shed.unstarted([job("completed"), job()]))
+        self.assertTrue(shed.unstarted([job(), job()]))
+        self.assertFalse(shed.unstarted([]))  # nothing read: not known to be unstarted
+        self.assertFalse(shed.unstarted([job("completed")]))  # nothing left to stop
+        self.assertFalse(shed.unstarted([job(), job("in_progress")]))
+        self.assertFalse(shed.unstarted([job(runner_id=7)]))
+        self.assertFalse(shed.unstarted([job(runner_name="r")]))
+        self.assertFalse(shed.unstarted([job(steps=[{"name": "Set up job"}])]))
+        self.assertFalse(shed.unstarted([job("waiting")]))
+
+    def test_in_progress_run_is_shed_only_with_its_jobs_read_and_unstarted(self):
+        r = run(status="in_progress")
+        self.assertEqual(shed.verdict(r, REPO, TIPS), "keep:status-in_progress")
+        self.assertEqual(shed.verdict(r, REPO, TIPS, {}), "keep:status-in_progress")
+        self.assertEqual(shed.verdict(r, REPO, TIPS, {r["id"]: [job("completed"), job()]}), "superseded")
+        self.assertEqual(shed.verdict(r, REPO, TIPS, {r["id"]: [job(), job("in_progress")]}), "keep:running")
+        tip = run(status="in_progress", head_sha="tip")
+        self.assertEqual(shed.verdict(tip, REPO, TIPS, {tip["id"]: [job()]}), "keep:current-pull_request")
+        for status in ("completed", "waiting", "requested", "pending"):
+            self.assertEqual(why(run(status=status)), f"keep:status-{status}", status)
+
+    def test_needs_jobs_reads_only_in_progress_runs_it_would_shed_oldest_first_under_the_cap(self):
+        a = run(status="in_progress", created_at="2026-11-19T20:03:00Z")
+        b = run(status="in_progress", created_at="2026-11-19T20:01:00Z")
+        c = run(status="in_progress", created_at="2026-11-19T20:02:00Z", head_branch="feat-cmux-next", event="push")
+        kept = [run(status="in_progress", head_sha="tip"), run(), run(status="in_progress", name="Nightly NEXT"),
+                run(status="in_progress", head_branch="feat-cmux-next", event="workflow_run")]
+        got = shed.needs_jobs([a, b, c, a, *kept], REPO, TIPS, 300)
+        self.assertEqual([r["id"] for r in got], [b["id"], c["id"], a["id"]])
+        self.assertEqual([r["id"] for r in shed.needs_jobs([a, b, c], REPO, TIPS, 2)], [b["id"], c["id"]])
+        self.assertEqual(shed.needs_jobs([a, b], REPO, TIPS, 0), [])
+        self.assertEqual(shed.needs_jobs([a, b], REPO, TIPS, -1), [])
 
     def test_protected_workflows_are_kept(self):
         for name in ("Nightly NEXT", "Dev build", "Promote", "Release", "TestFlight", "App Store upload",
@@ -83,6 +151,17 @@ class PlanTests(unittest.TestCase):
 
     def test_zero_cap_cancels_nothing(self):
         self.assertEqual(shed.plan([run()], REPO, TIPS, 0)[0], [])
+
+    def test_plan_sheds_base_and_unstarted_runs_with_their_own_verdicts(self):
+        base = run(head_branch="feat-cmux-next", event="push", created_at="2026-11-19T20:01:00Z")
+        idle = run(status="in_progress", created_at="2026-11-19T20:02:00Z")
+        busy = run(status="in_progress", created_at="2026-11-19T20:03:00Z")
+        unread = run(status="in_progress", created_at="2026-11-19T20:04:00Z")
+        jobs = {idle["id"]: [job()], busy["id"]: [job("in_progress")]}
+        picks, counts = shed.plan([base, idle, busy, unread], REPO, TIPS, 10, jobs)
+        self.assertEqual([(r["id"], w) for r, w in picks], [(base["id"], "superseded-base"), (idle["id"], "superseded")])
+        self.assertEqual(counts, {"superseded-base": 1, "superseded": 1, "keep:running": 1,
+                                  "keep:status-in_progress": 1})
 
 
 class WindowTests(unittest.TestCase):

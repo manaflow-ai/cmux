@@ -250,6 +250,8 @@ class CloseApp(base.FakeApp):
         self.closes, self.mark_before, self.focus = True, 100.0, True
         # Each key sequence by `debug.key`: its params. `refuse_sequence`: the app's refusal of each one.
         self.sequences, self.refuse_sequence = [], None
+        # An app that a person works in: it is active and its shell window is the key window (a hold runs only then).
+        self.active = self.is_key = True
 
     def clock(self):
         return self.now

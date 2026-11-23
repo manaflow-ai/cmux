@@ -28,14 +28,54 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    Click { window: String, point: Option<Point>, element: Option<String>, count: u8 },
-    Type { window: String, element: Option<String>, text: String },
-    Keys { window: String, combo: KeyCombo },
-    Scroll { window: String, dx: f64, dy: f64 },
-    Drag { window: String, from: Point, to: Point },
-    SetValue { window: String, element: String, value: String },
-    Action { window: String, element: String, action: String },
+    Click {
+        window: String,
+        point: Option<Point>,
+        element: Option<String>,
+        count: u8,
+    },
+    Type {
+        window: String,
+        element: Option<String>,
+        text: String,
+    },
+    Keys {
+        window: String,
+        combo: KeyCombo,
+    },
+    Scroll {
+        window: String,
+        dx: f64,
+        dy: f64,
+    },
+    Drag {
+        window: String,
+        from: Point,
+        to: Point,
+    },
+    /// A pointer move with no press (a hover).
+    Move {
+        window: String,
+        point: Option<Point>,
+        element: Option<String>,
+        delivery: Delivery,
+    },
+    SetValue {
+        window: String,
+        element: String,
+        value: String,
+    },
+    Action {
+        window: String,
+        element: String,
+        action: String,
+    },
     Launch(String),
+    /// A system alert's button pressed ([`Desktop::press_alert_button`]).
+    AlertPress {
+        alert: String,
+        button: String,
+    },
 }
 
 pub struct FakeDesktop {
@@ -139,6 +179,9 @@ pub struct FakeDesktop {
     pub reframed: Mutex<Vec<(String, Rect)>>,
     /// The screen is locked ([`Desktop::screen_locked`]).
     pub locked: Mutex<bool>,
+    /// The system alerts on screen ([`Desktop::system_alerts`]); a pressed
+    /// button takes its alert away.
+    pub alerts: Mutex<Vec<crate::alerts::RawAlert>>,
 }
 
 /// A fake watch: the signals the desktop's `signals` holds when read.
@@ -238,6 +281,7 @@ impl FakeDesktop {
             holds_after_step: Mutex::new(None),
             type_fails_at: Mutex::new(None),
             type_calls: Mutex::new(0),
+            alerts: Mutex::new(Vec::new()),
         }
     }
 
@@ -557,6 +601,15 @@ impl Desktop for FakeDesktop {
         self.excludes_apps
     }
 
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        _fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        Ok(Box::new(crate::record::synthetic::SyntheticEncoder::new(width, height)))
+    }
+
     fn capture_apps(&self) -> DResult<Vec<App>> {
         let mut apps = self.apps.clone();
         apps.extend(self.capture_only_apps.iter().cloned());
@@ -759,6 +812,15 @@ impl Desktop for FakeDesktop {
         self.push(Event::Scroll { window: target.window_id().into(), dx, dy });
         Ok(self.delivered())
     }
+    fn move_pointer(&self, target: &PointerTarget, delivery: Delivery) -> DResult<ActionOutcome> {
+        self.known(target.window_id())?;
+        let (point, element) = match target {
+            PointerTarget::Point { point, .. } => (Some(*point), None),
+            PointerTarget::Element { element_id, .. } => (None, Some(element_id.clone())),
+        };
+        self.push(Event::Move { window: target.window_id().into(), point, element, delivery });
+        Ok(self.delivered())
+    }
     fn drag(
         &self,
         window_id: &str,
@@ -858,6 +920,28 @@ impl Desktop for FakeDesktop {
         *lock(&self.menu_policy) = Some(policy);
     }
 
+    fn system_alerts(&self) -> DResult<Vec<crate::alerts::RawAlert>> {
+        Ok(lock(&self.alerts).clone())
+    }
+
+    fn press_alert_button(&self, alert: &crate::alerts::RawAlert, title: &str) -> DResult<()> {
+        let mut alerts = lock(&self.alerts);
+        let Some(at) = alerts.iter().position(|a| a == alert) else {
+            return Err(DesktopError::Failed(format!(
+                "alert {} changed since it was read; call list_alerts again",
+                alert.window_id
+            )));
+        };
+        let has_button = alerts.get(at).is_some_and(|a| a.buttons.iter().any(|b| b == title));
+        if !has_button {
+            return Err(DesktopError::TargetNotFound(format!("button {title:?}")));
+        }
+        alerts.remove(at);
+        drop(alerts);
+        self.push(Event::AlertPress { alert: alert.window_id.clone(), button: title.into() });
+        Ok(())
+    }
+
     fn restore_focus(&self, prior: &FocusSnapshot) -> DResult<bool> {
         self.restores.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(prior.clone());
         if self.restore_works {
@@ -865,5 +949,17 @@ impl Desktop for FakeDesktop {
                 Some(prior.clone());
         }
         Ok(self.restore_works)
+    }
+
+    /// The one display `capture(Display(_))` returns.
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        Ok(vec![crate::displays::Display {
+            id: "0".into(),
+            frame: Rect { x: 0.0, y: 0.0, width: 1000.0, height: 800.0 },
+            scale: self.scale,
+            main: true,
+            builtin: Some(false),
+            is_virtual: Some(true),
+        }])
     }
 }

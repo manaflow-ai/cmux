@@ -3,6 +3,7 @@
 // chat's status changes as they happen, in a small rolling log, so a read opens no session log.
 // Everything here is pure: the reply's shape, the layout of a lane's spans as fractions of the
 // shown window, and which rows a scroll position mounts.
+import { intl } from "../../../ui/intl";
 import type { Translate } from "../i18n";
 
 export type WaitingState = "working" | "blocked";
@@ -212,12 +213,12 @@ export function formatWaited(ms: number, t: Translate): string {
 
 /** The clock time of `at` in the person's language. */
 export function clockTime(at: number, language?: string): string {
-  return new Intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(new Date(at));
+  return intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(new Date(at));
 }
 
 /** The hour of `at`, short ("9 AM", "21"). */
 export function hourLabel(at: number, language?: string): string {
-  return new Intl.DateTimeFormat(language, { hour: "numeric" }).format(new Date(at));
+  return intl.DateTimeFormat(language, { hour: "numeric" }).format(new Date(at));
 }
 
 /** What the reply is asked again on: each listed chat's status. A chat that starts, stops or

@@ -20,6 +20,21 @@ let lastDay: WaitingDay | undefined;
 // never overwrites a newer one's.
 let latestAsk = 0;
 
+// Module state is written only from these plain functions: the React Compiler skips a hook that
+// updates a module variable itself.
+function nextAsk(): number {
+  latestAsk += 1;
+  return latestAsk;
+}
+
+function isLatestAsk(asked: number): boolean {
+  return asked === latestAsk;
+}
+
+function keepDay(parsed: WaitingDay): void {
+  lastDay = parsed;
+}
+
 export function useWaitingDay(
   read: ReadWaitingDay | undefined,
   key: string,
@@ -51,14 +66,14 @@ export function useWaitingDay(
     }
     let live = true;
     const ask = () => {
-      const asked = ++latestAsk;
+      const asked = nextAsk();
       const until = Date.now();
       read({ since: localMidnight(until), until }).then(
         (reply) => {
-          if (!live || asked !== latestAsk) return;
+          if (!live || !isLatestAsk(asked)) return;
           const parsed = parseWaitingDay(reply);
           if (!parsed) return;
-          lastDay = parsed;
+          keepDay(parsed);
           setDay(parsed);
         },
         () => undefined,

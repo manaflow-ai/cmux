@@ -750,6 +750,38 @@ fn a_second_ask_while_the_chat_waits_notifies_again() {
 }
 
 #[test]
+fn agent_delivery_classifies_each_ask_even_while_another_kind_is_waiting() {
+    for (first, first_kind, second_request, second_kind) in [
+        ("question", AgentEvent::Question, json!({}), AgentEvent::PermissionRequest),
+        (
+            "permission",
+            AgentEvent::PermissionRequest,
+            json!({"toolCall": {"_meta": {"acpmux": {"question": {"items": []}}}}}),
+            AgentEvent::Question,
+        ),
+        (
+            "permission",
+            AgentEvent::PermissionRequest,
+            json!({"toolCall": {"_meta": {"claude": {"tool": "AskUserQuestion"}}}}),
+            AgentEvent::Question,
+        ),
+    ] {
+        let mut waiting = Chat::of(&json!({
+            "sessionId": "chat-1", "indicator": "input", "waitingOn": first,
+        }))
+        .unwrap();
+        assert_eq!(waiting.notices(None)[0].event, Some(first_kind));
+        assert!(waiting.asked(&ask("p1", None, 10)).is_none());
+        let mut second = ask("p2", None, 11);
+        second["request"] = second_request;
+        assert_eq!(waiting.asked(&second).unwrap().event, Some(second_kind));
+        assert!(waiting.asked(&second).is_none());
+    }
+    assert_eq!(ended("turn", true, false).notices(None)[0].event, Some(AgentEvent::TaskComplete));
+    assert_eq!(chat("lost", 12).notices(None)[0].event, None);
+}
+
+#[test]
 fn a_burst_grouped_on_one_card_notifies_once() {
     let mut waiting = after(&chat("working", 8), "input", 10);
     waiting.asked(&ask("p1", None, 10));

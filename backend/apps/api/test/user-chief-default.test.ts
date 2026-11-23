@@ -2,10 +2,11 @@ import { env } from "cloudflare:workers"
 import { runInDurableObject as runIn } from "cloudflare:test"
 import type { Principal, ReduceContext, ReduceResult } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
-import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_REBIND, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefIdentity, defaultChiefWorkspace } from "../src/domains/user-chief-default.ts"
+import { DEFAULT_CHIEF_BACKFILL, DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_REBIND, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefIdentity, defaultChiefWorkspace } from "../src/domains/user-chief-default.ts"
 import { personalTeamIdFor, userDomain, type UserState } from "../src/domains/user.ts"
-import { deliverSignupChief, ensureChiefMachine, rebindDefaultChief, type DefaultMachinePlatform } from "../src/user-chief-provision.ts"
+import { backfillDefaultChief, deliverSignupChief, ensureChiefMachine, rebindDefaultChief, type DefaultMachinePlatform } from "../src/user-chief-provision.ts"
 import type { TargetItem } from "../src/do-outbox.ts"
+import type { Env } from "../src/env.ts"
 import { fireAlarm, quiesce } from "./setup/alarm.ts"
 import { cloudTestUser } from "./setup/cloud-teams.ts"
 import { bindFile, cloudStub, frame, reply, SIZE, vmKey, WG_KEY, DAEMON } from "./cloud-bind-support.ts"
@@ -193,6 +194,229 @@ describe("signup default Chief", () => {
     expect(state.chiefs?.[chief!]?.cloud_machine).toEqual(binding)
     await expect(deliverSignupChief(USER, "user:other", items, host)).rejects.toMatchObject({ retryable: false })
     await expect(deliverSignupChief(USER, `user:${USER}`, [{ ...items[1]!, params: { machine: "foreign" } }], host)).rejects.toMatchObject({ retryable: false })
+  })
+})
+
+describe("default Chief backfill for accounts older than signup provisioning", () => {
+  const ON = { CHIEF_BRAIN_ENABLED: "1", HANDS_ENABLED: "1" } as unknown as Env
+  const signupOutbox = [
+    { kind: DEFAULT_CHIEF_ENSURE, entity: HOSTED_DEFAULT_KEY, payload: {}, target: { class: "UserDO", name: USER } },
+    { kind: DEFAULT_CHIEF_PROVISION, entity: `chief-default-machine:${USER}`, payload: {}, target: { class: "UserDO", name: USER } }
+  ]
+  // An account whose first ensure predates #33131: a profile, a Mac-made hosted Chief, no machine.
+  const oldAccount = (): UserState => decided(userDomain.reduce(existing(), "chief.create", { display_name: "Chief", is_default: true }, { ...context(session), idempotencyKey: HOSTED_DEFAULT_KEY })).state
+  const host = (start: UserState) => {
+    let state = start
+    const outbox: Array<unknown> = []
+    const keys: Array<string> = []
+    const submit = (op: string, key: string) => {
+      keys.push(key)
+      const principal: Principal = { identity: defaultChiefIdentity(USER), kind: "system" }
+      const refused = userDomain.authorize?.(state, op, {}, principal)
+      const r = refused ? { ok: false as const, ...refused } : userDomain.reduce(state, op, {}, context(principal, key))
+      if (!r.ok) return { frames: [{ t: "reject" as const, tx: key, idempotency_key: key, code: r.code, message: r.message, retryable: false, replayed: false }] }
+      state = r.state
+      outbox.push(...(r.outbox ?? []))
+      return { frames: [{ t: "result" as const, tx: key, idempotency_key: key, value: r.value, revision: "1", replayed: false }] }
+    }
+    return { submit, outbox, keys, state: () => state }
+  }
+
+  it("an old account queues the signup outbox exactly once, and the outbox gives its Chief the machine", async () => {
+    const h = host(oldAccount())
+    expect(backfillDefaultChief(ON, h.state(), h.submit)).toBe("queued")
+    expect(h.outbox).toEqual(signupOutbox)
+    // The selection is made at enqueue, before the owner can change anything.
+    expect(h.state().hosted_default).toBe(Object.keys(h.state().chiefs ?? {})[0])
+    expect(h.keys).toEqual([`chief-default-backfill:${USER}`])
+    // Later ensures, and a second ensure racing the first, find the account marked and queue nothing.
+    expect(backfillDefaultChief(ON, h.state(), h.submit)).toBe("not_due")
+    const raced = decided(userDomain.reduce(h.state(), DEFAULT_CHIEF_BACKFILL, {}, context(undefined, "raced")))
+    expect(raced.changed).toBe(false)
+    expect(raced.outbox).toBeUndefined()
+    expect(h.outbox).toHaveLength(2)
+    // The queued outbox adopts the Mac's Chief (no second Chief) and binds its machine.
+    let state = h.state()
+    const chief = Object.keys(state.chiefs ?? {})
+    const items = signupOutbox.map((o, i) => ({ id: i + 1, op: o.kind, key: o.entity, params: {} }))
+    const delivered = await deliverSignupChief(USER, `user:${USER}`, items, {
+      platform: platform(),
+      current: () => state,
+      activate: async () => ({ ok: true as const }),
+      deliver: async (batch: ReadonlyArray<TargetItem>) => {
+        for (const item of batch) state = machineState(decided(userDomain.reduce(state, item.op, item.params, context())).state)
+        return { done: batch.map((item) => item.id) }
+      },
+      bind: (machine: typeof binding) => {
+        state = decided(userDomain.reduce(state, DEFAULT_CHIEF_BIND, machine, context())).state
+        return { frames: [{ t: "result" as const, tx: "bind", idempotency_key: "bind", value: machine, revision: "1", replayed: false }] }
+      }
+    })
+    expect(delivered).toEqual({ done: [1, 2] })
+    expect(Object.keys(state.chiefs ?? {})).toEqual(chief)
+    expect(state.hosted_default).toBe(chief[0])
+    expect(state.chiefs?.[chief[0]!]?.cloud_machine).toEqual(binding)
+  })
+
+  it("an account that already has its machine, or chose otherwise, is untouched", () => {
+    const bound = decided(userDomain.reduce(machineState(), DEFAULT_CHIEF_BIND, binding, context())).state
+    const selected = ensured(), id = selected.hosted_default!, chief = selected.chiefs![id]!
+    const archived: UserState = { ...selected, chiefs: { [id]: { ...chief, archived_at: new Date(1).toISOString() } } }
+    const deleted: UserState = { ...selected, chiefs: {} }
+    const placed: UserState = { ...selected, chiefs: { [id]: { ...chief, brain_place: { host: "host_00000000000000000001", install: "inst_00000000000000000009" } as never } } }
+    for (const state of [bound, archived, deleted, placed, { ...oldAccount(), migrations: { default_chief_machine: true as const } }]) {
+      const h = host(state)
+      expect(backfillDefaultChief(ON, state, h.submit)).toBe("not_due")
+      expect(h.keys).toEqual([])
+      const direct = decided(userDomain.reduce(state, DEFAULT_CHIEF_BACKFILL, {}, context()))
+      expect(direct.changed).toBe(false)
+      expect(direct.state).toBe(state)
+    }
+    // A new account's first ensure queues signup provisioning and marks it, so the backfill never doubles it.
+    const signup = decided(userDomain.reduce(userDomain.initial(), "user.ensure", {}, context(session))).state
+    expect(signup.migrations?.default_chief_machine).toBe(true)
+    expect(backfillDefaultChief(ON, signup, host(signup).submit)).toBe("not_due")
+  })
+
+  it("an account older than signup (no hosted_default) is due only for its hosted, unplaced default Chief or no Chief ever", () => {
+    const legacy = oldAccount()
+    expect(legacy.hosted_default).toBeUndefined()
+    const id = Object.keys(legacy.chiefs ?? {})[0]!, hosted = legacy.chiefs![id]!
+    const PLACE = { host: "host_00000000000000000001", install: "inst_00000000000000000009" } as never
+    const placedChief = { ...hosted, id: "agent_00000000000000000009", display_name: "Chief (Mac mini)", brain_place: PLACE }
+    const at = new Date(1).toISOString()
+    const due = (state: UserState) => {
+      const h = host(state)
+      const outcome = backfillDefaultChief(ON, state, h.submit)
+      const direct = decided(userDomain.reduce(state, DEFAULT_CHIEF_BACKFILL, {}, context()))
+      expect(direct.changed !== false).toBe(outcome === "queued")
+      if (outcome !== "queued") expect(direct.state).toBe(state)
+      return outcome
+    }
+    // The Mac's ensureHosted Chief, and an account that never had a Chief, are due (as at signup).
+    expect(due(legacy)).toBe("queued")
+    expect(due(existing())).toBe("queued")
+    // The default Chief is placed on a server (the Mac mini), alone or beside a hosted non-default one.
+    expect(due({ ...legacy, chiefs: { [id]: { ...hosted, brain_place: PLACE } } })).toBe("not_due")
+    expect(due({ ...legacy, chiefs: { [id]: { ...hosted, is_default: false }, [placedChief.id]: placedChief } })).toBe("not_due")
+    // The person archived or deleted their Chiefs and none is left.
+    expect(due({ ...legacy, chiefs: { [id]: { ...hosted, is_default: false, archived_at: at } } })).toBe("not_due")
+    expect(due({ ...legacy, chiefs: {}, chief_tombstones: { [id]: { id, owner_user: USER, archived_at: at } } })).toBe("not_due")
+    // A live Chief that is not the default, with the hosted one archived: no plain default to adopt.
+    expect(due({ ...legacy, chiefs: { [id]: { ...hosted, is_default: false, archived_at: at }, other: { ...hosted, id: "other", is_default: false } } })).toBe("not_due")
+  })
+
+  it("enqueue, then an owner change, then delivery: the owner's choice stands and no hosted default is made", async () => {
+    const PLACE = { host: "host_00000000000000000001", install: "inst_00000000000000000009" } as never
+    const at = new Date(2).toISOString()
+    const deliver = async (start: UserState) => {
+      let state = start
+      const activated: Array<string> = []
+      const items = signupOutbox.map((o, i) => ({ id: i + 1, op: o.kind, key: o.entity, params: {} }))
+      const done = await deliverSignupChief(USER, `user:${USER}`, items, {
+        platform: platform(),
+        current: () => state,
+        activate: async (agent: string) => { activated.push(agent); return { ok: true as const } },
+        deliver: async (batch: ReadonlyArray<TargetItem>) => {
+          for (const item of batch) state = machineState(decided(userDomain.reduce(state, item.op, item.params, context(undefined, `deliver-${item.id}`))).state)
+          return { done: batch.map((item) => item.id) }
+        },
+        bind: (machine: typeof binding) => {
+          state = decided(userDomain.reduce(state, DEFAULT_CHIEF_BIND, machine, context())).state
+          return { frames: [{ t: "result" as const, tx: "bind", idempotency_key: "bind", value: machine, revision: "1", replayed: false }] }
+        }
+      })
+      return { state, activated, done }
+    }
+    for (const start of [oldAccount(), existing()]) {
+      const h = host(start)
+      expect(backfillDefaultChief(ON, h.state(), h.submit)).toBe("queued")
+      const queued = h.state(), id = queued.hosted_default!, hosted = queued.chiefs![id]!
+      const placed = { ...hosted, id: "agent_00000000000000000009", display_name: "Chief (Mac mini)", brain_place: PLACE }
+      const changes: Record<string, UserState> = {
+        // The owner made a placed Chief the default, then archived or deleted the hosted one.
+        archived: { ...queued, chiefs: { [id]: { ...hosted, is_default: false, archived_at: at }, [placed.id]: placed } },
+        deleted: { ...queued, chiefs: { [placed.id]: placed }, chief_tombstones: { [id]: { id, owner_user: USER, archived_at: at } } },
+        // The owner placed the hosted Chief itself on a server.
+        placed: { ...queued, chiefs: { [id]: { ...hosted, brain_place: PLACE } } }
+      }
+      for (const [kind, changed] of Object.entries(changes)) {
+        const r = await deliver(changed)
+        expect(r.done, kind).toEqual({ done: [1, 2] })
+        expect(r.state.chiefs, kind).toEqual(changed.chiefs)
+        expect(r.state.hosted_default, kind).toBe(id)
+        expect(r.activated, kind).toEqual([])
+      }
+      // The owner made the placed Chief the default and kept the hosted one: the default stays theirs.
+      const switched: UserState = { ...queued, chiefs: { [id]: { ...hosted, is_default: false }, [placed.id]: { ...placed, is_default: true } } }
+      const r = await deliver(switched)
+      expect(Object.keys(r.state.chiefs ?? {}).sort()).toEqual([id, placed.id].sort())
+      expect(r.state.chiefs?.[placed.id]).toEqual(switched.chiefs![placed.id])
+      expect(r.state.chiefs?.[id]?.is_default).toBe(false)
+    }
+  })
+
+  it("a Chief on a harness the machine does not run stays hosted; Claude and Codex Chiefs are due", () => {
+    const legacy = oldAccount(), id = Object.keys(legacy.chiefs ?? {})[0]!, chief = legacy.chiefs![id]!
+    const withHarness = (state: UserState, harness: string | null): UserState => ({ ...state, chiefs: { ...state.chiefs, [state.hosted_default ?? id]: { ...state.chiefs![state.hosted_default ?? id]!, harness } } })
+    for (const start of [legacy, ensured()]) {
+      for (const harness of ["opencode", "claude-sr", "pi", "gemini"]) {
+        const state = withHarness(start, harness)
+        const h = host(state)
+        expect(backfillDefaultChief(ON, state, h.submit), harness).toBe("not_due")
+        expect(h.keys).toEqual([])
+        expect(decided(userDomain.reduce(state, DEFAULT_CHIEF_BACKFILL, {}, context())).state).toBe(state)
+      }
+      for (const harness of [null, "claude", "codex"]) expect(backfillDefaultChief(ON, withHarness(start, harness), host(withHarness(start, harness)).submit), String(harness)).toBe("queued")
+    }
+    expect(chief.harness).toBeNull()
+  })
+
+  it("an owner on the Claude Code route keeps it: no machine would take its turns over", () => {
+    const cc = { ...ON, ENVIRONMENT: "staging", CHIEF_CC_ENABLED: "1", CHIEF_CC_FREESTYLE_API_KEY: "k", CHIEF_CC_TS_OAUTH: "o", CHIEF_CC_SNAPSHOT: "s", CHIEF_CC_OWNERS: TEAM, CHIEF_BRAIN_CLAUDE_OWNERS: USER } as unknown as Env
+    const h = host(oldAccount())
+    expect(backfillDefaultChief(cc, h.state(), h.submit)).toBe("not_due")
+    expect(h.keys).toEqual([])
+    // Named on the list but not a paid-model owner: not on the route, so due.
+    expect(backfillDefaultChief({ ...cc, CHIEF_BRAIN_CLAUDE_OWNERS: "" } as unknown as Env, h.state(), h.submit)).toBe("queued")
+  })
+
+  it("is off unless both CHIEF_BRAIN_ENABLED and HANDS_ENABLED are 1, as production is today", () => {
+    for (const env of [{}, { CHIEF_BRAIN_ENABLED: "1" }, { HANDS_ENABLED: "1" }, { CHIEF_BRAIN_ENABLED: "1", HANDS_ENABLED: "0" }]) {
+      const h = host(oldAccount())
+      expect(backfillDefaultChief(env as unknown as Env, h.state(), h.submit)).toBe("off")
+      expect(h.keys).toEqual([])
+    }
+  })
+
+  it("only the account's own system identity can queue it", () => {
+    for (const principal of [session, { identity: "system:user:someone-else", kind: "system" as const }, { identity: "system:cloud", kind: "system" as const }]) {
+      expect(userDomain.authorize?.(oldAccount(), DEFAULT_CHIEF_BACKFILL, {}, principal)?.code).toBe("auth.forbidden")
+      expect(userDomain.reduce(oldAccount(), DEFAULT_CHIEF_BACKFILL, {}, context(principal))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    }
+    expect(userDomain.reduce(oldAccount(), DEFAULT_CHIEF_BACKFILL, { machine: "foreign" }, context())).toMatchObject({ ok: false, code: "validation.invalid" })
+  })
+
+  it("a failure to queue never fails the ensure, and a provisioning outage stays in the outbox to retry", async () => {
+    const state = oldAccount()
+    expect(backfillDefaultChief(ON, state, () => { throw new Error("storage") })).toBe("failed")
+    expect(backfillDefaultChief(ON, state, (_op, key) => ({ frames: [{ t: "reject" as const, tx: key, idempotency_key: key, code: "x", message: "x", retryable: true, replayed: false }] }))).toBe("failed")
+    // The platform is down: delivery throws a retryable error for the outbox, and the user's state is unchanged.
+    const h = host(state)
+    expect(backfillDefaultChief(ON, h.state(), h.submit)).toBe("queued")
+    let current = h.state()
+    const items = [{ id: 1, op: DEFAULT_CHIEF_ENSURE, key: HOSTED_DEFAULT_KEY, params: {} }, { id: 2, op: DEFAULT_CHIEF_PROVISION, key: `chief-default-machine:${USER}`, params: {} }]
+    await expect(deliverSignupChief(USER, `user:${USER}`, items, {
+      platform: { ensureDefaultMachine: async () => { throw new Error("down") } },
+      current: () => current,
+      activate: async () => ({ ok: true as const }),
+      deliver: async (batch: ReadonlyArray<TargetItem>) => {
+        for (const item of batch) current = decided(userDomain.reduce(current, item.op, item.params, context())).state
+        return { done: batch.map((item) => item.id) }
+      },
+      bind: () => { throw new Error("unreachable") }
+    })).rejects.toMatchObject({ message: "chief.provision.platform_unreachable", retryable: true })
+    expect(current.user).toEqual(profile)
   })
 })
 

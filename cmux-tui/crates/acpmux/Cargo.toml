@@ -20,6 +20,11 @@ path = "src/main.rs"
 name = "v2"
 harness = false
 
+# A turn's cost by stage with a stand-in model that answers at once (benches/turn_overhead.rs).
+[[bench]]
+name = "turn_overhead"
+harness = false
+
 [features]
 default = ["build-id"]
 # The stamped build id (acpmux-build-id) as the default of `hub::build()`.
@@ -55,6 +60,9 @@ dhat-heap = ["dep:dhat"]
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.4"
+# `acpmux fork-run` (`src/cli/fork_run.rs`): cmux Cloud's fork runs, called with the caller's own
+# Cloud credential.
+cmux-cloud-api.workspace = true
 # The share host (`src/share_host/`): this Mac's device hub device, its hub link and serving one
 # share through the Screen Sharing helper, the same code `cmux-rd linux-host` runs.
 cmux-hub-host.workspace = true
@@ -70,6 +78,8 @@ cmux-embed.workspace = true
 # The list's read and follow for the CLI and MCP list callers (`cli/list_read.rs`).
 acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 acpmux-core = { path = "../acpmux-core" }
+# cmux.share-approval.v1, shared with the iPhone that asks with it (share_approval.rs).
+cmux-share-approval.workspace = true
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 acpmux-hot = { workspace = true, optional = true, features = ["wasm"] }
 arc-swap.workspace = true
@@ -85,8 +95,12 @@ cmux-config.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
+# The `cmux.wire/1` op trait the earned-access record read implements (`hub/earned_events.rs`).
+cmux-cloud-wire.workspace = true
 # Each deployment's device hub origin, for the share host's machine sign-in (`share_host/`).
 cmux-cloud-environment.workspace = true
+# A browser's own email-code sign-in on the web listener (`server/web_device.rs`).
+cmux-stack-auth.workspace = true
 # The event log's journal (R-DURABILITY S2; always on).
 cmux-journal.workspace = true
 cmux-chat-index.workspace = true
@@ -112,6 +126,8 @@ cmux-agent-customize.workspace = true
 cmux-file-lock.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
+# The trusted session-flag hook a Codex start at a repository head gets (src/codex_repo_gate.rs).
+cmux-tui-hooks.workspace = true
 cmux-worktree-care.workspace = true
 cmux-wg.workspace = true
 anyhow = "1"
@@ -123,6 +139,7 @@ cmux-device-kind.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
 cmux-usage-patterns.workspace = true
+cmux-usage-share.workspace = true
 # What package installs a shell call runs (`hub/tool_installs.rs`).
 cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }
@@ -162,6 +179,7 @@ libc = "0.2"
 notify.workspace = true
 # Session tokens and secrets (the OS generator on every platform).
 getrandom.workspace = true
+glob.workspace = true
 base64 = "0.22"
 bytes.workspace = true
 tempfile = "3"
@@ -242,6 +260,8 @@ turmoil = "0.7.2"
 # The native relay the hub carrier's integration test runs in process (tests/hub_carrier.rs).
 cmux-relay = { path = "../cmux-relay" }
 axum.workspace = true
+# The Remote and Cloud fault harness (tests/rc_faults.rs: disk-full mid-turn).
+cmux-fault.workspace = true
 # WireGuard's construction hash, which the hub carrier's Noise hash must equal (tests/hub_carrier.rs).
 blake2 = "0.10"
 # A Codex state database for the Codex desktop bridge's tests (`codex_desktop_tests.rs`).
