@@ -37,7 +37,9 @@ const UDP_WAIT: Duration = Duration::from_millis(2000);
 /// A stream allocation starts this long after the UDP one, unless UDP
 /// failed sooner: UDP to the nearest TURN server takes two round trips
 /// where it works, so a network that answers UDP never opens a TLS
-/// connection it does not need.
+/// connection it does not need. A dial starts it at once instead (relay
+/// first): it pays one TLS connection, dropped when UDP wins, so that a
+/// network that drops UDP is not held for the stagger.
 const STREAM_STAGGER: Duration = Duration::from_millis(500);
 /// Bound on a stream allocation (TCP, TLS and two TURN round trips).
 const STREAM_WAIT: Duration = Duration::from_millis(4000);
@@ -138,13 +140,7 @@ fn parse_url(url: &str, username: &str, credential: &str) -> Option<TurnServer> 
 /// The TURN servers of `servers` to try: the first one over UDP, and the
 /// best one over a stream (TLS on 443, else any TLS, else plain TCP).
 pub fn turn_servers(servers: &[IceServer]) -> (Option<TurnServer>, Option<TurnServer>) {
-    let all: Vec<TurnServer> = servers
-        .iter()
-        .filter_map(|server| Some((server, server.username.as_deref()?, server.credential.as_deref()?)))
-        .flat_map(|(server, username, credential)| {
-            server.urls.iter().filter_map(move |url| parse_url(url, username, credential))
-        })
-        .collect();
+    let all = servers_in_order(servers);
     let udp = all.iter().find(|server| server.transport == TurnTransport::Udp).cloned();
     let rank = |server: &TurnServer| match server.transport {
         TurnTransport::Tls if server.address.ends_with(":443") => 0,
@@ -345,6 +341,23 @@ impl TurnCarrier {
     /// blocked), then, if UDP gives nothing, a stream (TLS on 443 first).
     /// `None` when there is no server or every allocation failed in time.
     pub async fn allocate(options: &DialOptions) -> Option<Self> {
+        Self::allocate_with(options, None, false).await
+    }
+
+    /// [`Self::allocate`], told by the STUN wait running beside it whether
+    /// UDP looks blocked (`udp_silent` true: STUN asked, nothing came back
+    /// in [`super::wireguard::STUN_SILENT`]). On such a network the stream
+    /// allocation starts then instead of after its whole stagger, and UDP
+    /// gets no grace once the stream is ready: waiting out UDP there held
+    /// every dial on a network that drops UDP (a hotel, a guest network)
+    /// about 1.5 s before TURN over TLS. `stream_now` (a dial): the stream
+    /// allocation starts at once, beside UDP, instead of after its stagger.
+    pub(crate) async fn allocate_with(
+        options: &DialOptions,
+        udp_silent: Option<watch::Receiver<bool>>,
+        stream_now: bool,
+    ) -> Option<Self> {
+        let silent_now = || udp_silent.as_ref().is_some_and(|silent| *silent.borrow());
         let (udp, stream) = turn_servers(&options.ice_servers);
         let udp = udp.filter(|_| !options.block_udp);
         let tried_udp = udp.is_some();
@@ -356,9 +369,13 @@ impl TurnCarrier {
         };
         let stream_attempt = |delay: Duration| {
             let stream = stream.clone();
+            let silent = udp_silent.clone();
             async move {
                 let server = stream?;
-                tokio::time::sleep(delay).await;
+                tokio::select! {
+                    () = tokio::time::sleep(delay) => {}
+                    () = until_silent(silent) => {}
+                }
                 bounded(STREAM_WAIT, Self::allocate_on(server, options)).await
             }
         };
@@ -367,20 +384,30 @@ impl TurnCarrier {
         }
         tokio::pin!(udp);
         let started = tokio::time::Instant::now();
-        let staggered = stream_attempt(STREAM_STAGGER);
+        // Relay first (a dial): the stream attempt runs beside UDP from the
+        // start, so a network that drops UDP has TLS ready by the time STUN
+        // has been silent long enough to tell.
+        let staggered = stream_attempt(if stream_now { Duration::ZERO } else { STREAM_STAGGER });
         tokio::pin!(staggered);
         tokio::select! {
             udp = &mut udp => match udp {
                 Some(carrier) => Some(carrier),
                 // UDP failed: the stream need not wait out its stagger, and
-                // one already under way goes on.
-                None if started.elapsed() >= STREAM_STAGGER => staggered.await,
+                // one already under way (its stagger over, or cut short
+                // because UDP looked blocked) goes on.
+                None if started.elapsed() >= STREAM_STAGGER || silent_now() => staggered.await,
                 None => stream_attempt(Duration::ZERO).await,
             },
             stream = &mut staggered => match stream {
-                Some(carrier) => match tokio::time::timeout(UDP_GRACE, &mut udp).await {
-                    Ok(Some(udp)) => Some(udp),
-                    _ => Some(carrier),
+                // UDP looks blocked: its allocation would only run out its wait.
+                Some(carrier) if silent_now() => Some(carrier),
+                // UDP gets its grace, cut short once STUN has been silent.
+                Some(carrier) => tokio::select! {
+                    udp = tokio::time::timeout(UDP_GRACE, &mut udp) => match udp {
+                        Ok(Some(udp)) => Some(udp),
+                        _ => Some(carrier),
+                    },
+                    () = until_silent(udp_silent.clone()) => Some(carrier),
                 },
                 None => udp.await,
             },
@@ -548,6 +575,17 @@ impl TurnCarrier {
     }
 }
 
+/// Returns once the STUN wait beside an allocation saw UDP look blocked;
+/// never when there is no STUN wait, or it ended with UDP answering.
+async fn until_silent(silent: Option<watch::Receiver<bool>>) {
+    if let Some(mut silent) = silent {
+        if silent.wait_for(|silent| *silent).await.is_ok() {
+            return;
+        }
+    }
+    std::future::pending::<()>().await;
+}
+
 /// `attempt`, or `None` when it fails or takes longer than `limit`.
 async fn bounded(
     limit: Duration,
@@ -584,6 +622,58 @@ impl Drop for TurnCarrier {
             });
         }
     }
+}
+
+/// One timed TURN allocation (measurement support: cmux-mobile-path-probe).
+#[derive(Debug, Clone)]
+pub struct TimedAllocation {
+    /// The server allocated on (`host:port`).
+    pub server: String,
+    pub transport: TurnTransport,
+    /// Connect plus allocate: from the first byte sent (the TCP SYN on a
+    /// stream) until the server granted the allocation.
+    pub elapsed: Duration,
+    /// The relayed address the server granted.
+    pub relayed: SocketAddr,
+}
+
+/// Allocate once on the first TURN server of `servers` reached over
+/// `transport` (TLS: on 443 first, as [`turn_servers`] ranks them), time it,
+/// and release it at once. This is the allocation a WireGuard dial makes,
+/// alone: no STUN beside it, no stagger.
+#[doc(hidden)]
+pub async fn timed_allocation(
+    servers: &[IceServer],
+    transport: TurnTransport,
+    options: &DialOptions,
+) -> Result<TimedAllocation, String> {
+    let mut candidates: Vec<TurnServer> =
+        servers_in_order(servers).into_iter().filter(|server| server.transport == transport).collect();
+    // UDP: the first listed, as a dial takes it. A stream: 443 first (stable).
+    if transport.is_stream() {
+        candidates.sort_by_key(|server| !server.address.ends_with(":443"));
+    }
+    let server = candidates.into_iter().next().ok_or_else(|| format!("no TURN server over {transport:?}"))?;
+    let address = server.address.clone();
+    let started = tokio::time::Instant::now();
+    let carrier = tokio::time::timeout(CONNECT_WAIT + STREAM_WAIT, TurnCarrier::allocate_on(server, options))
+        .await
+        .map_err(|_| "TURN allocation timed out".to_owned())??;
+    let elapsed = started.elapsed();
+    let relayed = carrier.relayed;
+    drop(carrier);
+    Ok(TimedAllocation { server: address, transport, elapsed, relayed })
+}
+
+/// Every TURN server of `servers`, in the order listed.
+fn servers_in_order(servers: &[IceServer]) -> Vec<TurnServer> {
+    servers
+        .iter()
+        .filter_map(|server| Some((server, server.username.as_deref()?, server.credential.as_deref()?)))
+        .flat_map(|(server, username, credential)| {
+            server.urls.iter().filter_map(move |url| parse_url(url, username, credential))
+        })
+        .collect()
 }
 
 #[cfg(test)]

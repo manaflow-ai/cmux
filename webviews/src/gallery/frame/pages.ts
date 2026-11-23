@@ -7,6 +7,7 @@ import type { DiffCommentRecord } from "../../comments/types";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { AppsOps, OPEN_ACTION } from "../../pages/apps/types";
 import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
+import { NewTabOps } from "../../pages/apps/UseAsNewTab";
 import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
@@ -227,6 +228,15 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
   const source = { kind: "branch", repoRoot: repo, baseRef: state.baseRef ?? "main" };
   const prefs: Record<string, unknown> = {};
   let comments: DiffCommentRecord[] = [...(state.comments ?? [])];
+  const sessionOpened = () => ({
+    type: "sessionOpened",
+    value: {
+      sessionId: "gallery",
+      patch: { id: patchPath, mediaType: "text/x-diff", byteLength: patch.length, revision: 1 },
+      source,
+      generatedPaths: [],
+    },
+  });
   const host = installMockHost(
     {
       "cmux.diff.config": () => ({
@@ -256,15 +266,15 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
         type: "handshake",
         value: { protocolVersion: 1, capabilities: ["sessions", "branches"] },
       }),
-      "cmux.diff.sessionOpen": () => ({
-        type: "sessionOpened",
-        value: {
-          sessionId: "gallery",
-          patch: { id: patchPath, mediaType: "text/x-diff", byteLength: patch.length, revision: 1 },
-          source,
-          generatedPaths: [],
-        },
-      }),
+      "cmux.diff.sessionOpen": async () => {
+        if (state.mode === "loading") return await new Promise<never>(() => {});
+        if (state.mode === "error")
+          throw new HostError(
+            state.openError?.code ?? "cmux.diff.open_failed",
+            state.openError?.message ?? "git diff failed: not a git repository.",
+          );
+        return sessionOpened();
+      },
       "cmux.diff.git.fingerprint": () => {
         if (state.fingerprintError) throw new HostError(state.fingerprintError.code, state.fingerprintError.message);
         return { fingerprint: hash(patch) };
@@ -358,11 +368,22 @@ export async function mountAppsPage(state: AppsPageVariant, _context: StageConte
     provider.failNext(AppsOps.catalogGet, new HostError(state.detailError.code, state.detailError.message));
   }
   const host = installMockHost(
-    pageOps(provider, [...Object.values(AppsOps), OPEN_ACTION.op, "cmux.page.connection", "cmux.page.command"], {
-      mode: state.mode === "normal" ? undefined : state.mode,
-      firstOperation: AppsOps.catalogList,
-      error: state.error,
-    }),
+    pageOps(
+      provider,
+      [
+        ...Object.values(AppsOps),
+        OPEN_ACTION.op,
+        NewTabOps.get,
+        NewTabOps.set,
+        "cmux.page.connection",
+        "cmux.page.command",
+      ],
+      {
+        mode: state.mode === "normal" ? undefined : state.mode,
+        firstOperation: AppsOps.catalogList,
+        error: state.error,
+      },
+    ),
     [AppsOps.watch, "cmux.page.connection", "cmux.page.command"],
   );
   host.delayMs = 0;

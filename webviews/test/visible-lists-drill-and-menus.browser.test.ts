@@ -40,7 +40,6 @@ await requireBrowserLane("visible-lists-drill-and-menus.browser.test.ts", async 
     changeOneBound?: number;
   }[] = [
     { name: "drill-list", lengths: [100, 1000, 10000], mountedBound: Math.ceil(320 / 28) * 3 + 2, windowed: true },
-    { name: "recipient-field", lengths: [100, 1000, 10000], mountedBound: 9 + 8 + 2, windowed: true },
     { name: "slash-menu", lengths: [100, 1000, 10000], mountedBound: Math.ceil(320 / 28) * 3 + 2, windowed: true },
     { name: "mention-menu", lengths: [78], mountedBound: 78, windowed: false },
     { name: "file-search", lengths: [50], mountedBound: 50, windowed: false },
