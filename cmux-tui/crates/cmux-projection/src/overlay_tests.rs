@@ -713,3 +713,22 @@ fn a_pin_made_with_the_mac_away_holds_and_stops_at_the_first_absence() {
     assert_eq!((report.files, report.failed), (6, 0));
     assert_eq!(report.fetched_bytes, report.bytes);
 }
+
+#[test]
+fn hydration_after_a_restart_keeps_the_disk_reserve() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    let (_, _, away) = setup(true);
+    drop(overlay);
+    // Pinned with the Mac away: recorded, nothing fetched.
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    overlay.pin("src").unwrap();
+    drop(overlay);
+    // The disk filled since: the hydration stops with ENOSPC before asking for anything.
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(u64::MAX / 2);
+    let calls = fake.calls.load(Ordering::Relaxed);
+    let report = overlay.hydrate_pins();
+    assert_eq!(report.first_error, Some(libc::ENOSPC));
+    assert_eq!(report.fetched_bytes, 0);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls);
+}

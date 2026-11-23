@@ -336,6 +336,8 @@ pub struct Overlay {
     inflight: Mutex<HashSet<Key>>,
     landed: Condvar,
     temp: AtomicU64,
+    /// Unique to this overlay (see [`Overlay::scratch_path`]).
+    temp_prefix: u64,
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
@@ -533,6 +535,17 @@ impl Overlay {
             inflight: Mutex::new(HashSet::new()),
             landed: Condvar::new(),
             temp: AtomicU64::new(0),
+            temp_prefix: {
+                static OPENED: AtomicU64 = AtomicU64::new(0);
+                let now =
+                    std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+                fnv(&[
+                    now.as_nanos().to_le_bytes().as_slice(),
+                    &OPENED.fetch_add(1, Ordering::Relaxed).to_le_bytes(),
+                    &std::process::id().to_le_bytes(),
+                ]
+                .concat())
+            },
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
@@ -914,7 +927,10 @@ impl Overlay {
     }
 
     fn scratch_path(&self) -> PathBuf {
-        self.scratch.join(format!("t{}", self.temp.fetch_add(1, Ordering::Relaxed)))
+        // The overlay's own prefix: an old overlay's thread still landing a fetch after a remount
+        // reopened this state never shares a scratch name with the new one.
+        let n = self.temp.fetch_add(1, Ordering::Relaxed);
+        self.scratch.join(format!("t{:x}-{n}", self.temp_prefix))
     }
 
     // MARK: Reads

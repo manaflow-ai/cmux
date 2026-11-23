@@ -101,11 +101,15 @@ impl Overlay {
         if missing.saturating_add(self.pin_reserve) > self.disk_free()? {
             return Err(libc::ENOSPC);
         }
-        self.cache_lock().pin(&files);
         {
+            // Pins, then the cache, under the pins lock: an unpin never misses this pin, and the
+            // file on disk is written before memory changes (a failed write changes nothing).
             let mut pins = self.pins_lock();
-            pins.insert(path);
-            self.write_pins(&pins)?;
+            let mut next = pins.clone();
+            next.insert(path);
+            self.write_pins(&next)?;
+            *pins = next;
+            self.cache_lock().pin(&files);
         }
         Ok(self.hydrate(&files, bytes))
     }
@@ -113,18 +117,19 @@ impl Overlay {
     /// Unpins `path`; its files not under another pin go back to the LRU (and down to the cap).
     pub fn unpin(&self, path: &str) -> Result<(), i32> {
         let path = normalize(path)?;
-        let others: Vec<String> = {
-            let mut pins = self.pins_lock();
-            if !pins.remove(&path) {
-                return Err(ENOENT);
-            }
-            self.write_pins(&pins)?;
-            pins.iter().cloned().collect()
-        };
+        // The whole change under the pins lock (pins, then the cache), as in `pin`.
+        let mut pins = self.pins_lock();
+        if !pins.contains(&path) {
+            return Err(ENOENT);
+        }
+        let mut next = pins.clone();
+        next.remove(&path);
+        self.write_pins(&next)?;
+        *pins = next;
         // A path this manifest no longer has held no files.
         let (mut freed, _) = self.files_under(&path).unwrap_or_default();
-        for other in others {
-            if let Ok((kept, _)) = self.files_under(&other) {
+        for other in pins.iter() {
+            if let Ok((kept, _)) = self.files_under(other) {
                 freed.retain(|file| !kept.contains(file));
             }
         }
@@ -218,8 +223,9 @@ impl Overlay {
     }
 
     /// Fetches every blob of `files` the cache lacks, in entry order (so a folder's small files go
-    /// in batches). Stops at the first `EHOSTDOWN`: every later fetch would wait out the same
-    /// absence.
+    /// in batches). Stops at the first `EHOSTDOWN` (every later fetch would wait out the same
+    /// absence), and with `ENOSPC` before a file that would leave less than the reserve free (a
+    /// hydration after a restart is held to the same disk rule as the pin).
     fn hydrate(&self, files: &HashSet<u32>, bytes: u64) -> PinReport {
         let mut report = PinReport { files: files.len() as u64, bytes, ..PinReport::default() };
         let before = self.remote_bytes.load(Ordering::Relaxed);
@@ -227,6 +233,12 @@ impl Overlay {
         order.sort_unstable();
         for file in order {
             let Some(size) = self.manifest.entry(file).map(|entry| entry.size) else { continue };
+            let lacking = !Self::keys_of(file, size).all(|key| self.cache_lock().has(key));
+            if lacking && size.saturating_add(self.pin_reserve) > self.disk_free().unwrap_or(0) {
+                report.failed += 1;
+                report.first_error.get_or_insert(libc::ENOSPC);
+                break;
+            }
             let mut failed = None;
             for key in Self::keys_of(file, size) {
                 if self.cache_lock().has(key) {
