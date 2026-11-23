@@ -218,3 +218,66 @@ for (const button of [1, 2]) {
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 }
+
+test("Return looks: keycap and verb by default; the footer look adds the outcome under the list", async () => {
+  const sections = [
+    {
+      title: "Chats",
+      verb: "Open",
+      choices: [
+        { id: "a", name: "Fix the login bug", outcome: "opens “Fix the login bug” in this pane" },
+        { id: "b", name: "New Browser Tab", description: "Open a browser tab", verb: "Run" },
+      ],
+    },
+  ];
+  const keyDown = (key: string) =>
+    act(async () =>
+      container
+        .querySelector<HTMLInputElement>("input")!
+        .dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true })),
+    );
+  await act(async () => root!.render(<PaletteMenu label="Add" button="+" sections={sections} />));
+  await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  const defaultCaps = container.querySelectorAll(".acpmux-palette-return");
+  expect(defaultCaps.length).toBe(1);
+  expect(defaultCaps[0]!.textContent).toContain("Open");
+  expect(container.querySelector(".acpmux-palette-outcome")).toBeNull();
+  expect(container.querySelector<HTMLInputElement>("input")!.placeholder).toBe("Search actions, chats and tabs");
+  expect(container.querySelector(".acpmux-menu-description")).toBeNull();
+
+  await act(async () =>
+    root!.render(
+      <PaletteMenu label="Add" button="+" sections={sections} returnLook="none" quietDescriptions={false} />,
+    ),
+  );
+  expect(container.querySelector(".acpmux-palette-return")).toBeNull();
+  expect(container.querySelector(".acpmux-menu-description")?.textContent).toBe("Open a browser tab");
+
+  await act(async () =>
+    root!.render(
+      <PaletteMenu
+        label="Add"
+        button="+"
+        sections={sections}
+        returnLook="footer"
+        placeholder="Search"
+        quietDescriptions
+      />,
+    ),
+  );
+  const caps = container.querySelectorAll(".acpmux-palette-return");
+  expect(caps.length).toBe(1);
+  expect(caps[0]!.closest("[role=option]")?.getAttribute("aria-selected")).toBe("true");
+  expect(caps[0]!.textContent).toContain("Open");
+  const input = container.querySelector<HTMLInputElement>("input")!;
+  expect(input.placeholder).toBe("Search");
+  expect(container.querySelector(".acpmux-palette-outcome")?.textContent).toContain(
+    "opens “Fix the login bug” in this pane",
+  );
+  expect(input.getAttribute("aria-describedby")).toBe(container.querySelector(".acpmux-palette-outcome")!.id);
+  expect(container.querySelector(".acpmux-menu-description")).toBeNull();
+
+  await keyDown("ArrowDown");
+  expect(container.querySelector(".acpmux-palette-return")?.textContent).toContain("Run");
+  expect(container.querySelector(".acpmux-palette-outcome")).toBeNull();
+});
