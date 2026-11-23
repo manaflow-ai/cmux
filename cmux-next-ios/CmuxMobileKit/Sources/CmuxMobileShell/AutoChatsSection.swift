@@ -17,17 +17,21 @@ import SwiftUI
 final class AutoChatsPresentation {
     /// The account's Auto chats; nil until the section first shows.
     var model: AutoChatsModel?
-    /// The chat that is open.
-    var selected: AutoChatRow?
+    /// The page over the list.
+    enum Route: Hashable {
+        case chat(AutoChatRow)
+        case newChat
+    }
+
+    /// The page that is open over the list: a chat, or New Chat.
+    var route: Route?
     /// What reads and draws the chat that was opened last. It stays while the chat slides away.
     private(set) var opened: AutoChatsModel.Open?
-    /// The New Chat sheet is up.
-    var starting = false
 
     /// Opens `row`: its reading starts here, once, not when its screen is drawn.
     func open(_ row: AutoChatRow) {
         opened = model?.chat(row)
-        selected = row
+        route = .chat(row)
     }
 
     /// The person went back to the list: the chat's held request ends.
@@ -58,7 +62,7 @@ struct AutoChatsSection: View {
                     Button { auto.open(row) } label: { AutoChatRowLabel(row: row) }
                         .accessibilityIdentifier("autoChats.row")
                 }
-                Button { auto.starting = true } label: {
+                Button { auto.route = .newChat } label: {
                     Label(AutoChatWords.newChat, systemImage: "square.and.pencil")
                 }
                 .accessibilityIdentifier("autoChats.new")
@@ -86,7 +90,7 @@ private struct AutoChatRowLabel: View {
     }
 }
 
-/// What the Cloud chats screen adds for its Auto section: the open chat, the New Chat sheet and
+/// What the Cloud chats screen adds for its Auto section: the open chat, the New Chat page and
 /// the list's load.
 struct AutoChatsHost: ViewModifier {
     let auto: AutoChatsPresentation
@@ -104,18 +108,22 @@ struct AutoChatsHost: ViewModifier {
     func body(content: Content) -> some View {
         @Bindable var auto = auto
         content
-            .navigationDestination(item: $auto.selected) { _ in
-                if let open = auto.opened {
-                    AutoChatScreen(open: open, makeMachine: makeMachine)
+            // New Chat is a page of this list, not a sheet: Cloud chats is a sheet already, and the
+            // HIG shows one sheet at a time. Starting the chat puts it in New Chat's place.
+            .navigationDestination(item: $auto.route) { route in
+                switch route {
+                case .chat:
+                    if let open = auto.opened {
+                        AutoChatScreen(open: open, makeMachine: makeMachine)
+                    }
+                case .newChat:
+                    if let model = auto.model {
+                        AutoNewChatScreen(model: model, started: { auto.open($0) }, makeMachine: makeMachine)
+                    }
                 }
             }
-            .onChange(of: auto.selected) { _, selected in
-                if selected == nil { auto.left() }
-            }
-            .sheet(isPresented: $auto.starting) {
-                if let model = auto.model {
-                    AutoNewChatSheet(model: model, started: { auto.open($0) }, makeMachine: makeMachine)
-                }
+            .onChange(of: auto.route) { before, now in
+                if case .chat = before, now == nil { auto.left() }
             }
             .task(id: Load(enabled: enabled, refresh: refresh)) {
                 guard enabled else { return }
@@ -165,9 +173,12 @@ private struct AutoChatBar: View {
                         .font(.footnote)
                         .accessibilityIdentifier("autoChat.newMachine")
                 } else if keeps {
-                    Toggle(AutoChatWords.keepInCloud,
-                           isOn: Binding(get: { source.row.keepInCloud }, set: { source.keepInCloud($0) }))
+                    // Outside a list, the HIG's toggle is a button whose background says its state.
+                    Toggle(isOn: Binding(get: { source.row.keepInCloud }, set: { source.keepInCloud($0) })) {
+                        Label(AutoChatWords.keepInCloud, systemImage: "cloud")
+                    }
                         .toggleStyle(.button)
+                        .labelStyle(.titleAndIcon)
                         .controlSize(.small)
                         .font(.footnote)
                         .accessibilityIdentifier("autoChat.keepInCloud")
@@ -185,14 +196,14 @@ private struct AutoChatBar: View {
 
 /// New Chat: a repository and branch from the account's recent Auto chats, and a first message.
 /// With no Cloud machine for Auto chats it says so in one line, with the way to make one.
-private struct AutoNewChatSheet: View {
+private struct AutoNewChatScreen: View {
     let model: AutoChatsModel
+    /// The chat started: it takes this page's place.
     let started: (AutoChatRow) -> Void
     let makeMachine: () -> Void
-    @Environment(\.dismiss) private var dismiss
     @State private var repo: AutoChatRepo?
     @State private var text = ""
-    /// Made once for this sheet's message: Start again after a failure reaches the same chat.
+    /// Made once for this page's message: Start again after a failure reaches the same chat.
     @State private var messageID = UUID().uuidString
     @State private var sending = false
     @State private var failed = false
@@ -205,52 +216,48 @@ private struct AutoNewChatSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                if model.hasMachine == false {
-                    Section {
-                        Text(verbatim: AutoChatWords.needsMachine)
-                        Button(AutoChatWords.newMachine, action: makeMachine)
-                            .accessibilityIdentifier("autoChats.newMachine")
-                    }
+        Form {
+            if model.hasMachine == false {
+                Section {
+                    Text(verbatim: AutoChatWords.needsMachine)
+                    Button(AutoChatWords.newMachine, action: makeMachine)
+                        .accessibilityIdentifier("autoChats.newMachine")
                 }
-                if model.repos.isEmpty {
-                    Section {
-                        Text(verbatim: AutoChatWords.noRecent).foregroundStyle(.secondary)
-                    }
-                } else {
-                    Section {
-                        Picker(AutoChatWords.repository, selection: Binding(get: { chosen }, set: { repo = $0 })) {
-                            ForEach(model.repos) { repo in
-                                Text(verbatim: "\(repo.name) · \(repo.branch)").tag(Optional(repo))
-                            }
+            }
+            if model.repos.isEmpty {
+                Section {
+                    Text(verbatim: AutoChatWords.noRecent).foregroundStyle(.secondary)
+                }
+            } else {
+                Section {
+                    Picker(AutoChatWords.repository, selection: Binding(get: { chosen }, set: { repo = $0 })) {
+                        ForEach(model.repos) { repo in
+                            Text(verbatim: "\(repo.name) · \(repo.branch)").tag(Optional(repo))
                         }
-                        .pickerStyle(.navigationLink)
-                        .accessibilityIdentifier("autoChats.repository")
                     }
-                    Section {
-                        TextField(AutoChatWords.message, text: $text, axis: .vertical)
-                            .lineLimit(3...8)
-                            .accessibilityIdentifier("autoChats.message")
-                    } footer: {
-                        if failed { Text(verbatim: AutoChatWords.startFailed) }
-                    }
+                    .pickerStyle(.navigationLink)
+                    .accessibilityIdentifier("autoChats.repository")
+                }
+                Section {
+                    TextField(AutoChatWords.message, text: $text, axis: .vertical)
+                        .lineLimit(3...8)
+                        .accessibilityIdentifier("autoChats.message")
+                } footer: {
+                    if failed { Text(verbatim: AutoChatWords.startFailed) }
                 }
             }
-            .navigationTitle(AutoChatWords.newChat)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(AutoChatWords.cancel) { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(AutoChatWords.start) { start() }
-                        .disabled(!canStart)
-                        .accessibilityIdentifier("autoChats.start")
-                }
-            }
-            .task { await model.readMachine() }
         }
+        .navigationTitle(AutoChatWords.newChat)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Back leaves without starting; the one action is on the trailing edge.
+            ToolbarItem(placement: .confirmationAction) {
+                Button(AutoChatWords.start) { start() }
+                    .disabled(!canStart)
+                    .accessibilityIdentifier("autoChats.start")
+            }
+        }
+        .task { await model.readMachine() }
     }
 
     private func start() {
@@ -264,7 +271,6 @@ private struct AutoNewChatSheet: View {
             sending = false
             switch outcome {
             case let .chat(row):
-                dismiss()
                 started(row)
             case .noMachine:
                 break

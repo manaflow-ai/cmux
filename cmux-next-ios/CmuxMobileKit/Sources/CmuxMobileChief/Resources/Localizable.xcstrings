@@ -883,20 +883,6 @@
         "ja": {"stringUnit": {"state": "translated", "value": "開始"}}
       }
     },
-    "mobile.auto.cancel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Cancel"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Abbrechen"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Annuler"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "إلغاء"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Cancelar"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "取消"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "取消"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "취소"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "キャンセル"}}
-      }
-    },
     "mobile.auto.noRecent": {
       "extractionState": "manual",
       "localizations": {

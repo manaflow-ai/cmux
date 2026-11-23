@@ -44,7 +44,6 @@ public enum AutoChatWords {
     }
     public static var message: String { String(localized: "mobile.auto.message", defaultValue: "Message", bundle: .module) }
     public static var start: String { String(localized: "mobile.auto.start", defaultValue: "Start", bundle: .module) }
-    public static var cancel: String { String(localized: "mobile.auto.cancel", defaultValue: "Cancel", bundle: .module) }
     public static var noRecent: String {
         String(localized: "mobile.auto.noRecent",
                defaultValue: "A new chat starts in a repository of one of your Auto chats. Turn on Auto for a chat on your Mac first.",
