@@ -108,7 +108,8 @@ extension MacScreenPages {
     }
 
     private var hostState: JSONValue {
-        ["screen_recording": .bool(host.screenRecordingGranted), "accessibility": .bool(host.accessibilityGranted)]
+        ["screen_recording": .bool(host.screenRecordingGranted), "accessibility": .bool(host.accessibilityGranted),
+         "grants_unread": host.grantsUnreadReason.map(JSONValue.string) ?? .null]
     }
 
     /// A screen-space point rectangle for the benchmark observer. The observer

@@ -83,6 +83,10 @@ if CMUX_DAYBREAK_LANE_TIMEOUT=2 bash "$HERE/nightly.sh" 2>/dev/null; then fail "
 [[ $(( $(date +%s) - start )) -lt 60 ]] || fail "lane timeout did not stop the hung worker"
 [[ "$(cat "$T/state/last-demo.sha")" == "$before" ]] || fail "state advanced past an unaudited range"
 grep -q 'lane timeout' "$run_log" || fail "a hung worker was not logged as a lane timeout"
-sleep 1
+# Until the hung worker's child has gone after the watchdog's SIGTERM (10s at most).
+for _ in $(seq 1 100); do
+  kill -0 "$(cat "$FAKE_CHILD")" 2>/dev/null || break
+  sleep 0.1
+done
 ! kill -0 "$(cat "$FAKE_CHILD")" 2>/dev/null || { kill "$(cat "$FAKE_CHILD")"; fail "the hung worker's child process was left running"; }
 echo "PASS"
