@@ -211,6 +211,25 @@ pub(crate) fn handed_off(key: &str, queued: &Value, status: &Value) -> Result<Ha
             .with_session(key)
             .into());
     }
+    // Queued because the target is a registered chat its daemon cannot reach now (its app is not
+    // running it, or Claude Code restarted and the new process has not registered): not
+    // delivered, so this send fails loudly with the daemon's why (the live process, the
+    // transcript, the step that ends it), instead of a plain `queued` read as sent. The delivery
+    // stays queued and is tried again, so the caller must not send it again.
+    if let Some(why) = unreached_chat(state, status) {
+        let id = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default();
+        let program = crate::cli::entry::program();
+        let message = format!(
+            "{key}: NOT delivered: {why}. It stays queued as {id} and goes in once the chat is reachable; do not send it again (`{program} send --status {id}`)"
+        );
+        return Err(errors::AppError::new(errors::Code::Runtime, "not_delivered", message)
+            .with_session(key)
+            .with_data(json!({
+                "reason": "not_delivered", "deliveryId": id, "status": state,
+                "error": why, "queued": true,
+            }))
+            .into());
+    }
     // Queued because the target's machine is down: said, so a sender knows it waits for it.
     let unreachable = queued.get("hostUnreachable") == Some(&json!(true))
         || (state == "queued"
@@ -285,6 +304,20 @@ pub(crate) fn handoff_json(
             accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
     }
     out
+}
+
+/// The refusals of a registered chat its daemon cannot reach (`hub/bridge.rs`).
+const UNREACHED_REASONS: [&str; 3] =
+    ["bridge.not_running", "bridge.registration_stale", "bridge.registration_contested"];
+
+/// The daemon's why, when a queued delivery's first attempt found a registered chat it cannot
+/// reach ([`UNREACHED_REASONS`]); None for any other state or error.
+pub(crate) fn unreached_chat(state: &str, status: &Value) -> Option<String> {
+    if state != "queued" {
+        return None;
+    }
+    let error = status.get("error").and_then(Value::as_str)?;
+    UNREACHED_REASONS.iter().any(|r| error.contains(r)).then(|| error.trim().to_owned())
 }
 
 /// The daemon answered that it has no such method: it is older than this CLI.
@@ -557,6 +590,22 @@ mod tests {
             "failed: no_session  host/proc-title  60s ago  attempt 1  d3  last error: no_session: no session proc-title on host; did you mean: feed-lane"
         );
         assert_eq!(state_label(&json!({"status": "queued", "reason": null})), "queued");
+    }
+
+    /// Repro (2026-11-22): `acpmux send --no-wait desktop-leo` printed `queued` while
+    /// the chat's registration was stale, and the sender took it as sent. A first attempt that
+    /// found a registered chat unreachable is that send's error now; any other queued one is not.
+    #[test]
+    fn a_queued_send_to_an_unreachable_registered_chat_is_not_delivered() {
+        let stale = json!({"status": "queued", "error": "bridge.registration_stale: desktop-leo is unreachable, registration stale: Claude Code restarted (now process 35713) (transcript /x.jsonl); the message waits and is tried again"});
+        let why = unreached_chat("queued", &stale).expect("not delivered");
+        assert!(why.contains("now process 35713") && why.contains("/x.jsonl"), "{why}");
+        let closed = json!({"status": "queued", "error": "bridge.not_running: interim-coord's app is not running it now"});
+        assert!(unreached_chat("queued", &closed).is_some());
+        let down = json!({"status": "queued", "error": "peer_unreachable"});
+        assert_eq!(unreached_chat("queued", &down), None, "a machine that is down still queues");
+        assert_eq!(unreached_chat("queued", &json!({"status": "queued"})), None);
+        assert_eq!(unreached_chat("delivered", &stale), None);
     }
 
     #[test]

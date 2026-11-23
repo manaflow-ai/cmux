@@ -328,6 +328,7 @@ mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 mod bridge;
 pub(crate) mod desktop_bridge;
+mod live_chat;
 pub(crate) mod register;
 pub(crate) use shutdown::{
     AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,

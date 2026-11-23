@@ -262,15 +262,21 @@ prints on stderr that the receiver cannot reply yet. Run the
 `cmux agent register NAME --code ...` line the message gives; replies then reach
 `HOST/NAME`, and your later sends carry that address. Send again what still
 needs an answer. The message itself is sent either way; no second code goes
-while one waits. A chat registered before (say `desktop-zoe`) that restarted
-gets its code under that name and keeps its address.
+while one waits. A chat registered before (say `desktop-zoe`) whose Claude Code
+restarted with `--resume` (the desktop app's restart, `claude --resume ID`) is
+taken over by its first send in one step, no code; any other restart gets its
+code under that name and keeps its address. A chat left `closed` by its old
+process reopens once its conversation runs again: at its registration, at a
+delivery into it, or when its transcript grows while a live process runs it.
 
 The daemon checks who runs the shell by the kernel's process tree, never by
 what you type. A Claude Code session's message opens with its own
 `CLAUDE_CODE_MESSAGING_TOKEN` (the inbox Claude Code documents for a script or
 hook) and arrives as another session's message, under its inbound rules. While
-the app is closed the message waits as `bridge.not_running`; register again
-after the session restarts. Which harness can send, receive, steer and wake:
+the app is closed the message waits as `bridge.not_running`, and a
+registration a restart left stale as `bridge.registration_stale`: a
+`send --no-wait` that meets either exits 1 with `NOT delivered`, the live
+process and the transcript, while the message stays queued (do not resend it). Which harness can send, receive, steer and wake:
 `cmux-tui/crates/acpmux/docs/address-book.md`.
 
 Start an agent for a task (its own worktree and brief) with one command; running

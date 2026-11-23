@@ -21,9 +21,14 @@
 //! only), is refused as `bridge.registration_stale`, and one two live processes claim as
 //! `bridge.registration_contested`: both retried the same way, both naming what ends them, and
 //! the chat's row says it too (`bridge.unreachable`, STUCK in `acpmux ls`) until a delivery goes or
-//! the session registers again. acpmux never binds the new process itself: the registration's
-//! proof is the session echoing a code delivered with its own token (`register.rs`), and the
-//! daemon has no token of the new process to deliver one with.
+//! the session registers again. The daemon has no token of the new process, so it cannot bind it
+//! alone: the new process's own `acpmux send` (its automatic register step) or the desktop
+//! chat's prompt hook hands it over, and for a registered chat whose old process is gone and
+//! whose new one the kernel says was launched for this conversation (`--resume ID`), that one
+//! step takes the chat over, with no code to echo (`register.rs` `takes_over_in_one_step`). A
+//! `--no-wait` send whose first attempt meets either refusal fails loudly with it
+//! (`cli/run/send_async.rs`), still queued, instead of printing `queued` as if sent. A delivery
+//! into a chat left closed by an older process reopens it (`live_chat.rs`).
 //! Deliveries are kept in memory (the newest 256 answered ones too, so a resend is not delivered
 //! again). After a daemon restart, a delivered line the watch had not shown yet shows only its
 //! answer, as any other session's peer message does. A prompt id is delivered at most once per
@@ -299,9 +304,11 @@ impl Hub {
                 // outbox carries (here, or a peer's forwarded) waits and is tried again, instead
                 // of failing as a read-only chat's would, and says why. A person's own prompt
                 // still gets the read-only refusal, with Take Over.
-                let name = session.read_meta(|m| m.name.clone());
+                let (name, transcript) = session.read_meta(|m| {
+                    (m.name.clone(), m.watching.as_ref().map(|w| w.file.display().to_string()))
+                });
                 return (registered && retried_client(client))
-                    .then(|| Err(unreached_error(&name, why.as_ref())));
+                    .then(|| Err(unreached_error(&name, why.as_ref(), transcript.as_deref())));
             }
         };
         let Some(text) = text_of(blocks) else {
@@ -383,6 +390,11 @@ impl Hub {
         if let Some(ids) = delivered_ids().get_mut(&session.id) {
             ids.insert(prompt_id.clone());
         }
+        // Its app runs the conversation: a chat closed when an older process ended shows it
+        // again, and its watch shows this prompt's turn (`live_chat.rs`). A closed chat's watch
+        // stopped, so the answer below waited its whole window for a turn nothing showed.
+        let pid = details.get("pid").and_then(Value::as_u64).and_then(|p| u32::try_from(p).ok());
+        self.revive_live_chat(session, pid, "delivered");
         if let Some(f) = opts.on_accepted.take() {
             f(
                 json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "state": "delivered", "bridged": true}),
@@ -640,15 +652,23 @@ fn unreached_text(name: &str, why: &Unreached) -> Option<(&'static str, String)>
 
 /// A registered chat's delivery found no process to take it: retried by the outbox
 /// (`server/outbox.rs` `next`), saying why.
-fn unreached_error(name: &str, why: Option<&Unreached>) -> RpcError {
+/// `transcript` is the conversation's transcript, named so a sender knows where the live chat is.
+fn unreached_error(name: &str, why: Option<&Unreached>, transcript: Option<&str>) -> RpcError {
     let Some((reason, text)) = why.and_then(|w| unreached_text(name, w)) else {
         return not_running(name);
     };
+    let pid = match why {
+        Some(Unreached::Restarted { pid }) => Some(*pid),
+        _ => None,
+    };
+    let at = transcript.map(|t| format!(" (transcript {t})")).unwrap_or_default();
     RpcError::new(
         -32000,
-        format!("{reason}: {name} is unreachable, {text}; the message waits and is tried again"),
+        format!(
+            "{reason}: {name} is unreachable, {text}{at}; the message waits and is tried again"
+        ),
     )
-    .with_data(json!({"reason": reason, "retryable": true}))
+    .with_data(json!({"reason": reason, "retryable": true, "pid": pid, "transcript": transcript}))
 }
 
 impl Hub {

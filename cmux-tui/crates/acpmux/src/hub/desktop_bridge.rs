@@ -43,6 +43,11 @@ impl Hub {
             return;
         };
         let mut was_on = false;
+        // The live Claude Code processes the last registry read found (every entrypoint), for
+        // reopening closed chats whose conversation runs again (`live_chat.rs`), and the scans
+        // since that check.
+        let mut live_claude: Vec<Peer> = Vec::new();
+        let mut since_revive = 0u32;
         loop {
             let Some(h) = hub.upgrade() else { return };
             if h.shutting_down() {
@@ -76,17 +81,23 @@ impl Hub {
             let config = h.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).claude.clone();
             let registry = crate::claude_peers::registry(&config);
             let modified = std::fs::metadata(&registry).and_then(|m| m.modified()).ok();
+            since_revive = since_revive.saturating_add(1);
             if modified.is_none() || modified != seen {
                 seen = modified;
-                let peers = tokio::task::spawn_blocking(move || {
+                let (all, peers) = tokio::task::spawn_blocking(move || {
                     let listed = crate::claude_peers::listed_entrypoints();
-                    crate::claude_peers::live(&config)
-                        .into_iter()
+                    let all = crate::claude_peers::live(&config);
+                    let peers = all
+                        .iter()
                         .filter(|p| p.entrypoint.as_ref().is_some_and(|e| listed.contains(e)))
-                        .collect::<Vec<_>>()
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    (all, peers)
                 })
                 .await
                 .unwrap_or_default();
+                live_claude = all;
+                since_revive = super::live_chat::REVIVE_EVERY_SCANS;
                 // A session with no transcript yet (no turn so far) is not found: it is tried
                 // again at the next scan. Its first turn rewrites its entry in place, which leaves
                 // the folder's modification time as it was (seen in the Codex rehearsal).
@@ -99,6 +110,13 @@ impl Hub {
                         );
                     }
                 }
+            }
+            // A closed chat whose conversation a live process runs again, and whose transcript
+            // went on, is reopened (`live_chat.rs`): at each registry change, and every few scans
+            // for one that resumed quietly and wrote later.
+            if since_revive >= super::live_chat::REVIVE_EVERY_SCANS {
+                since_revive = 0;
+                h.revive_live_chats(&live_claude);
             }
             h.scan_codex_desktop(&mut codex_seen).await;
             drop(h);
