@@ -11,17 +11,20 @@ import Observation
 /// Updated!" card (Lawrence 2026-10-18). Agent chats on other machines never show here either: the
 /// top band holds Home and what the person put there (Lawrence 2026-10-26); those chats are in the
 /// Priority view and Home. A look's nav block (`sidebar.nav`) draws first, above Home (`SidebarTransientItem.nav`).
+/// The one exception is the Labs Hosts section (`labs.hostsSidebar`, off by default): feature modules add its
+/// transient rows through the `additional` source, and those rows never enter the durable sidebar document.
 extension SidebarModel {
     /// Keeps `transientTopItems` current until cancelled. `document`: the app's own sidebar document, which every
     /// window of that app draws from.
     public func followTopItems(chief: ChiefSidebar = .shared,
-                               document: @escaping @MainActor @Sendable () -> SidebarDocStore?) -> Task<Void, Never> {
+                               document: @escaping @MainActor @Sendable () -> SidebarDocStore?,
+                               additional: @escaping @MainActor @Sendable () -> [SidebarTransientItem] = { [] }) -> Task<Void, Never> {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task { [weak self] in
             for await items in ObservationStream({ [weak self] in
                 // Placed in a band, or anywhere in the sidebar document (a group or a machine list): never this window's
                 // rows, which its workspace membership filters, so every window's feed tells the same.
-                (Self.topItems(chief: chief), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil } == true
+                (Self.topItems(chief: chief) + additional(), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil } == true
                     || document()?.placesItem(with: .builtIn(.chief)) == true,
                  self.map { model in SidebarTransientItem.chiefAnchors.contains { model.layout.firstItem(with: $0) != nil } } == true)
             }) {
