@@ -285,9 +285,9 @@ impl Reassembler {
     /// ticking on a fixed period.
     pub fn next_expiry_us(&self) -> Option<u64> {
         self.pending
-            .values()
-            .filter(|p| !Self::decodable(p))
-            .map(|p| self.expires_after_us(p).saturating_add(1))
+            .iter()
+            .filter(|(_, p)| !Self::decodable(p))
+            .map(|(&f, p)| self.expires_after_us(f, p).saturating_add(1))
             .min()
     }
 
@@ -295,7 +295,22 @@ impl Reassembler {
     /// newest shard ([`KEYFRAME_REPAIR_WAIT_US`] for a keyframe, if longer), at most
     /// [`MAX_FRAME_WAIT_US`] ([`MAX_KEYFRAME_WAIT_US`] for a keyframe; or the deadline, if
     /// longer) after its first.
-    fn expires_after_us(&self, p: &Pending) -> u64 {
+    ///
+    /// A frame behind an incomplete keyframe waits at least as long as that keyframe: it
+    /// cannot be shown before it, and its expiry would sweep the keyframe away mid-repair.
+    fn expires_after_us(&self, frame: u32, p: &Pending) -> u64 {
+        let own = self.own_expiry_us(p);
+        if p.flags & flags::KEYFRAME != 0 {
+            return own;
+        }
+        self.pending
+            .range(..frame)
+            .rev()
+            .find(|(_, k)| k.flags & flags::KEYFRAME != 0 && !Self::decodable(k))
+            .map_or(own, |(_, k)| own.max(self.own_expiry_us(k)))
+    }
+
+    fn own_expiry_us(&self, p: &Pending) -> u64 {
         let keyframe = p.flags & flags::KEYFRAME != 0;
         let (wait, after) = if keyframe {
             (MAX_KEYFRAME_WAIT_US, self.deadline_us.max(KEYFRAME_REPAIR_WAIT_US))
@@ -314,7 +329,7 @@ impl Reassembler {
         let expired: Vec<u32> = self
             .pending
             .iter()
-            .filter(|(_, p)| !Self::decodable(p) && now_us > self.expires_after_us(p))
+            .filter(|(&f, p)| !Self::decodable(p) && now_us > self.expires_after_us(f, p))
             .map(|(&f, _)| f)
             .collect();
         for frame in expired {

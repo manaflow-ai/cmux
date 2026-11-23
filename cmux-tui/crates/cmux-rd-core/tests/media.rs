@@ -506,3 +506,21 @@ fn an_incomplete_keyframe_waits_for_its_repairs() {
     let (h, payload) = DatagramHeader::decode(&out.datagrams[0]).expect("decode");
     assert_eq!(r.push(&h, payload, 1_000 + 700_000).len(), 1, "the repaired keyframe");
 }
+
+/// On a lossy path a P-frame behind the first keyframe also misses a shard. Its
+/// own 200 ms deadline must not drop the keyframe while repairs are on the way
+/// (a 2% loss, 8 Mbit/s link released no frame in 15 s when it did).
+#[test]
+fn an_incomplete_frame_behind_a_keyframe_does_not_drop_it() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(200_000);
+    let key = shards(&mut p, 1, flags::KEYFRAME, &body(1, 5000, true), 0);
+    let next = shards(&mut p, 2, 0, &body(2, 3000, false), 0);
+    assert!(push_all(&mut r, &key[1..], 1_000).is_empty());
+    assert!(push_all(&mut r, &next[1..], 20_000).is_empty());
+    assert!(r.tick(20_000 + 400_000).is_empty());
+    assert!(r.take_losses().is_empty(), "a P-frame's deadline dropped the keyframe");
+    let released = push_all(&mut r, &key[..1], 600_000);
+    assert_eq!(released, vec![1], "the repaired keyframe");
+    assert_eq!(push_all(&mut r, &next[..1], 610_000), vec![2], "then its P-frame");
+}
