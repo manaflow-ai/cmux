@@ -170,6 +170,7 @@ pub(crate) fn seed_pull(
     remote_root: &str,
     base: &SeedBase,
 ) -> anyhow::Result<SeedPulled> {
+    let mut laps = crate::link::spans::Laps::new("pull");
     let folder = std::fs::canonicalize(local_folder)
         .with_context(|| format!("cannot open {}", local_folder.display()))?;
     let dirs = GitDirs::of(&folder)?.context("the folder is not a git working copy")?;
@@ -180,6 +181,7 @@ pub(crate) fn seed_pull(
             return Err(NoSeedBase.into());
         }
     }
+    laps.mark("verify_base");
     let mut remote = Remote::connect(socket)?;
     let (parent, _) = super::remote::split(remote_root)?;
     let nanos = std::time::SystemTime::now()
@@ -192,6 +194,7 @@ pub(crate) fn seed_pull(
     );
     let since = json!({ "since_work": base.work, "since_head": base.head });
     let exported = export(&mut remote, remote_root, since, &remote_bundle)?;
+    laps.mark("export");
     let new_base = json!({
         "head": exported.head, "index": exported.index, "work": exported.work,
         "stash": exported.stash,
@@ -224,9 +227,11 @@ pub(crate) fn seed_pull(
     let downloaded = download(&mut remote, &remote_bundle, &bundle);
     let _ = remote.delete(&[remote_bundle]);
     downloaded?;
+    laps.mark("download");
     let quarantine = staging.path.join("quarantine.git");
     git_back::quarantined(&quarantine, &dirs.common)?;
     receive(&quarantine, &bundle, &exported)?;
+    laps.mark("receive");
 
     // The branch and the staged changes are read on both sides of the
     // snapshot the merge decides from, so the decision and the check in
@@ -240,6 +245,7 @@ pub(crate) fn seed_pull(
         );
     }
     let hooks = pull::hook_folders(&folder)?;
+    laps.mark("read_here");
     let q = Quarantine(&quarantine);
     let mut conflicts = Vec::new();
     let mut reasons = Vec::new();
@@ -295,6 +301,7 @@ pub(crate) fn seed_pull(
     // The working tree.
     let theirs = q.diff(&base.work, &exported.work)?;
     let ours = q.diff(&base.work, &here.work)?;
+    laps.mark("decide");
     let root = Dir::open(&folder)?;
     let mut planned: Vec<(String, Option<TreeEntry>, Option<TreeEntry>)> = Vec::new();
     for (relative, (base_entry, machine)) in theirs {
@@ -353,8 +360,10 @@ pub(crate) fn seed_pull(
             }
         }
     }
+    laps.mark("stage");
     // Only objects so far: this repository gets the machine's commits.
     q.fetch_into(&folder, &exported)?;
+    laps.mark("fetch_into");
     // Deletes first, so a file may take the place of a folder it emptied.
     steps.sort_by_key(|step| matches!(step, Step::Write { .. }));
     let mut transaction = Transaction::new(&folder, &staging.path)?;
@@ -378,6 +387,7 @@ pub(crate) fn seed_pull(
         return undone(transaction, &staging, error);
     }
     transaction.finish();
+    laps.mark("apply");
     Ok(SeedPulled::Done(json!({
         "ok": true,
         "unchanged": false,
@@ -497,15 +507,17 @@ fn export(
         .context("the export answered no job")?
         .to_string();
     let deadline = Instant::now() + EXPORT_DEADLINE;
+    let mut wait = crate::link::spans::PollWait::up_to(EXPORT_POLL);
     let status = loop {
         let status = remote.call("git.seed.status", json!({ "job": job })).map_err(refused)?;
         if status.get("state").and_then(Value::as_str) != Some("running") {
+            crate::link::spans::remote("git.seed.export", &status);
             break status;
         }
         if Instant::now() > deadline {
             bail!("the machine's export did not finish");
         }
-        std::thread::sleep(EXPORT_POLL);
+        wait.sleep("seed.export poll");
     };
     let text = |name: &str| status.get(name).and_then(Value::as_str);
     if text("state") != Some("done") {
