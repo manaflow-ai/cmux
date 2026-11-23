@@ -138,9 +138,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # A PR layer merges the PR head onto base, so it needs their history (no blobs).
-          fetch-depth: ${{ (inputs.pr || inputs.ref) && '0' || '1' }}
-          filter: ${{ (inputs.pr || inputs.ref) && 'blob:none' || '' }}
+      # A PR layer merges the PR head onto base, so it needs their history (no blobs): feat-cmux-next's alone,
+      # not checkout's fetch-depth 0 of every branch and tag, which stalled and failed (job 137969522125).
+      - name: Fetch feat-cmux-next's history without blobs
+        if: inputs.pr || inputs.ref
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
 
       # A PR layer: the PR's head merged onto base, built and published like a push.
       # The build below runs the PR's code with no secret, as it runs a push's.
