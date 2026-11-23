@@ -150,7 +150,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
                            noBack: activeTab?.features.contains(.history) != true)
     }
 
-    var body: some View {
+    // `body` is three expressions (`layers`, `gridWatched`, then the rest of the chain), not
+    // one: as one chain the compiler gave up on it ("unable to type-check this expression in
+    // reasonable time", kit runs 45162895110 and 45164938964) once cmux#51837 added one more
+    // `onChange`. A new modifier goes on the shortest of the three.
+    @ViewBuilder private var layers: some View {
         let layout = toolbarLayout
         ZStack(alignment: .topLeading) {
             overview
@@ -254,6 +258,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .coordinateSpace(.named(TabsScreenSpace.name))
         .gesture(ZoomPinchGesture { handlePinch($0) })
+    }
+
+    /// `layers` with what follows the grid: its shape, safe area, static card and settle.
+    private var gridWatched: some View {
+        layers
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
         .onChange(of: GridShape(width: size.width, columns: overviewColumns)) { old, _ in keepGridPlace(from: old) }
         .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
@@ -288,6 +297,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .onAppear {
             zoomDriver.onSettle = { phase in zoomSettled(phase) }
         }
+    }
+
+    var body: some View {
+        gridWatched
         #if DEBUG
         // Screenshot harness: use the same action and menu as a toolbar tap.
         // The single delay is bounded and cancelled when this screen disappears.
