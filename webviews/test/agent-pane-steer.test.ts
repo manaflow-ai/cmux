@@ -36,17 +36,16 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
 
   const SESSION = "steer-session";
-  // The retained stop metadata names cmux's forced end without adding visible recovery text: the
-  // stopped mark's hover card and accessible description (WithFacts, FactsHoverCard.tsx), which
-  // replaced its `title` (a1e7752d4c3).
-  const FORCED_TEXT = "The agent didn't answer Stop, so cmux ended its turn.";
+  // The retained stop metadata names cmux's forced end without adding visible recovery text.
+  // It is the stopped word's description (FactsHoverCard.tsx `WithFacts`, aria-describedby), not a `title`.
+  const FORCED_STOP_TEXT = "The agent didn't answer Stop, so cmux ended its turn.";
   const forcedStops = (page: Page) =>
     page.evaluate(
       (text) =>
-        [...document.querySelectorAll(".cv-turn-stopped[aria-describedby]")].filter(
-          (mark) => document.getElementById(mark.getAttribute("aria-describedby")!)?.textContent === text,
+        [...document.querySelectorAll(".cv-turn-stopped")].filter(
+          (word) => document.getElementById(word.getAttribute("aria-describedby") ?? "")?.textContent === text,
         ).length,
-      FORCED_TEXT,
+      FORCED_STOP_TEXT,
     );
   // A compaction still running: the running turn's live line while the turn runs (Thinking.tsx
   // `data-compacting`), its own transcript row once the turn has ended.
@@ -475,7 +474,8 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       // Read the stopped turn at rest after any end-of-turn motion.
       await page.locator("[data-turn-end-folding]").waitFor({ state: "detached", timeout: 5_000 });
       expect(await forcedStops(page)).toBe(1);
-      expect(await page.locator("body").innerText()).not.toContain(FORCED_TEXT);
+      // Not in the transcript's visible words: only the stopped word's hidden description holds it.
+      expect(await page.getByText(FORCED_STOP_TEXT, { exact: true }).filter({ visible: true }).count()).toBe(0);
       expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
       await page.getByRole("button", { name: "Resume", exact: true }).waitFor();
       // The cancelled compaction can report its boundary after a new explicit prompt. It must not

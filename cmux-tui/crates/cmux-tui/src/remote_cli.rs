@@ -62,6 +62,7 @@ mod exec_cp;
 mod remote_link_binding_tests;
 mod remote_link_mux;
 mod self_install;
+mod spill;
 use daemon_lifecycle::*;
 use enroll::*;
 use exec_cp::{ExitWith, run_cp, run_exec};
@@ -131,6 +132,7 @@ fn run_inner(
         Some("rpc") => run_rpc(rest),
         Some("remote-exec") => run_exec(rest),
         Some("remote-cp") => run_cp(rest),
+        Some("spill") => spill::run_spill(rest),
         Some("enroll") => run_enroll(rest, load_config),
         Some("known-daemons") => run_known_daemons(rest),
         Some("remote-device-key") => run_device_key(rest),
@@ -240,6 +242,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("rpc") => client.rpc_help,
         Some("remote-exec") => client.exec_help,
         Some("remote-cp") => client.cp_help,
+        Some("spill") => spill::HELP,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
         Some("remote-device-key") => client.device_key_help,

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// ``BillingAPI`` over the cmux web API with native Stack bearer auth.
 ///
