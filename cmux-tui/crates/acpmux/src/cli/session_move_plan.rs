@@ -13,6 +13,12 @@
 //! - Any other folder under this machine's home maps to the same path under the target's home
 //!   (`~/Projects/x` stays `~/Projects/x`), made there if missing (`Folder::Plain`). Its files do
 //!   not move. A folder outside the home is refused: pass `--cwd`.
+//! - A checkout on a shared default branch (`main`, `master`, or the branch `origin/HEAD` names)
+//!   never pushes that branch: other people's work lands there, and a move that pushed it would
+//!   either fail (origin moved on) or publish this machine's unpushed commits to everyone. Its
+//!   HEAD is pushed to a ref of the move's own outside `refs/heads` instead
+//!   (`refs/acpmux/moves/ID`), and the target checks that commit out detached
+//!   (`Folder::Worktree { snapshot: true }`); uncommitted changes go as for any branch.
 //! - `--cwd PATH` (`target_cwd`) runs the chats in PATH on the target as it is there, for any
 //!   folder: no worktree is made and no branch pushed.
 
@@ -30,6 +36,14 @@ pub(crate) struct Checkout {
     pub origin: Option<String>,
     /// It has uncommitted changes (tracked or untracked, ignoring ignored files).
     pub dirty: bool,
+    /// The branch `origin/HEAD` names (`main` for `refs/remotes/origin/main`), when it is set.
+    pub default_branch: Option<String>,
+}
+
+/// Whether `branch` is one others share and a move must never push: `main`, `master`, or the
+/// checkout's `default_branch` (origin's HEAD).
+pub(crate) fn shared_branch(branch: &str, default_branch: Option<&str>) -> bool {
+    matches!(branch, "main" | "master") || default_branch == Some(branch)
 }
 
 /// Where the chat's folder goes on the target.
@@ -38,7 +52,16 @@ pub(crate) enum Folder {
     /// The same path under the target's home.
     Plain { cwd: String },
     /// A worktree of `branch` of `repo` (`owner/name`) on the target, then `subdir` inside it.
-    Worktree { repo: String, url: String, branch: String, subdir: String, dirty: bool },
+    /// `snapshot`: `branch` is shared (`shared_branch`), so it is never pushed; HEAD goes under a
+    /// ref of the move's own and the target's checkout is of that commit, detached.
+    Worktree {
+        repo: String,
+        url: String,
+        branch: String,
+        subdir: String,
+        dirty: bool,
+        snapshot: bool,
+    },
 }
 
 /// Whether the chat `summary` (`_acpmux/info`) may move now; the reason when not.
@@ -176,6 +199,7 @@ pub(crate) fn plan_folder(
             branch: branch.to_owned(),
             subdir,
             dirty: c.dirty,
+            snapshot: shared_branch(branch, c.default_branch.as_deref()),
         });
     }
     let rel = under(cwd, home).ok_or_else(|| {
