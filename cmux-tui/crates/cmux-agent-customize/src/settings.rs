@@ -322,8 +322,22 @@ pub fn report(ctx: &Context, agent: Agent) -> Value {
             })
         })
         .collect();
+    // The session variables, each once with its winning scope; values stay masked.
+    let env_prefix = format!("{}.", env_table(agent));
+    let env: Vec<Value> = entries
+        .iter()
+        .filter(|e| e.get("inactive").is_none())
+        .filter_map(|e| {
+            let name = e["key"].as_str()?.strip_prefix(&env_prefix)?;
+            valid_env_name(name).then(
+                || json!({"name": name, "value": MASK, "scope": e["scope"], "path": e["path"]}),
+            )
+        })
+        .collect();
     let mut answer = json!({
         "agent": agent.id(),
+        "envTable": env_table(agent),
+        "env": env,
         "files": files,
         "entries": entries,
         "curated": curated_rows,
@@ -859,6 +873,77 @@ pub fn apply(
     })
 }
 
+/// Where an agent keeps the variables every session it starts gets: Claude Code's `env` object,
+/// Codex's `[shell_environment_policy.set]` table (the variables its shell tool's commands get).
+pub fn env_table(agent: Agent) -> &'static str {
+    match agent {
+        Agent::Claude => "env",
+        Agent::Codex => "shell_environment_policy.set",
+    }
+}
+
+/// A variable name both agents take: a letter or `_`, then letters, digits and `_`.
+pub fn valid_env_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && name.len() <= 128
+}
+
+/// Sets (`Some`) or removes (`None`) one session variable in one scope's file (default `user`):
+/// `env.NAME` for Claude Code, `shell_environment_policy.set.NAME` for Codex. The value is never
+/// echoed back; `settings get` shows it masked like every env value.
+pub fn apply_env(
+    ctx: &Context,
+    agent: Agent,
+    name: &str,
+    value: Option<&str>,
+    scope: Option<&str>,
+) -> Result<Written, SettingsError> {
+    if !valid_env_name(name) {
+        return Err(SettingsError::new(
+            "agent_config.invalid_name",
+            format!(
+                "{name:?} is not a variable name; use letters, digits and _, not starting with a digit"
+            ),
+        ));
+    }
+    if let Some(value) = value
+        && (value.contains(['\0', '\n', '\r']) || value.len() > 32 * 1024)
+    {
+        return Err(SettingsError::new(
+            "agent_config.invalid_value",
+            format!("{name} is one line of at most 32 KiB with no NUL"),
+        ));
+    }
+    let scope = scope.unwrap_or("user");
+    let key = format!("{}.{name}", env_table(agent));
+    let path = scope_path(ctx, agent, scope)?;
+    let store = ctx.homes.edits.clone();
+    let _lock = store.lock(&path).map_err(|e| io_error(&path, e))?;
+    let backup_target = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+    let existed = path.exists();
+    match agent {
+        Agent::Claude => write_json(&store, &path, &key, value)?,
+        Agent::Codex => {
+            let lock_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+            let _codex_lock = (lock_dir == ctx.homes.codex).then(|| {
+                cmux_tui_platform::codex_config_lock::lock(
+                    &lock_dir.join(cmux_tui_platform::codex_config_lock::LOCK_FILE),
+                )
+            });
+            write_codex_env(&store, &path, name, value)?;
+        }
+    }
+    Ok(Written {
+        agent,
+        key,
+        scope: scope.to_owned(),
+        path,
+        backup: existed.then(|| store.backup_path(&backup_target)),
+    })
+}
+
 fn validate(row: &Curated, value: &str) -> Result<(), SettingsError> {
     if !row.choices.is_empty() {
         if row.choices.contains(&value) {
@@ -997,6 +1082,16 @@ fn write_json(
     } else {
         edit(&source, &parts, value.map(|v| Value::String(v.to_owned()))).map_err(fail)?
     };
+    if value.is_none()
+        && parts.len() == 2
+        && parts[0] == "env"
+        && serde_json::from_str::<Value>(&text).is_ok_and(|v| {
+            v.get("env").is_some_and(|env| env.as_object().is_some_and(|o| o.is_empty()))
+        })
+    {
+        // The last variable out takes its empty `env` with it.
+        text = edit(&text, &parts[..1], None).map_err(fail)?;
+    }
     if key == "statusLine.command" && value.is_some() {
         text = edit(&text, &["statusLine".to_owned(), "type".to_owned()], Some(json!("command")))
             .map_err(fail)?;
@@ -1041,6 +1136,86 @@ fn write_toml(
         None => {
             if doc.remove(key).is_none() {
                 return Ok(());
+            }
+        }
+    }
+    let text = doc.to_string();
+    if text == source {
+        return Ok(());
+    }
+    store.replace(path, &text).map_err(|e| io_error(path, e))
+}
+
+/// Codex's `[shell_environment_policy.set]`: a table or an inline table, edited in place.
+fn write_codex_env(
+    store: &write::Store,
+    path: &Path,
+    name: &str,
+    value: Option<&str>,
+) -> Result<(), SettingsError> {
+    let source = read_existing(path)?;
+    let mut doc = source.parse::<toml_edit::DocumentMut>().map_err(|error| {
+        SettingsError::new(
+            "agent_config.parse",
+            format!(
+                "{} is not valid TOML ({}); fix it in the file first",
+                path.display(),
+                error.message()
+            ),
+        )
+    })?;
+    let not_table = |what: &str| {
+        SettingsError::new(
+            "agent_config.parse",
+            format!("{} has {what} that is not a table; fix it in the file first", path.display()),
+        )
+    };
+    match value {
+        Some(value) => {
+            let policy = doc.entry("shell_environment_policy").or_insert_with(|| {
+                let mut table = toml_edit::Table::new();
+                table.set_implicit(true);
+                toml_edit::Item::Table(table)
+            });
+            let policy =
+                policy.as_table_like_mut().ok_or_else(|| not_table("shell_environment_policy"))?;
+            if policy.get("set").is_none() {
+                // A table inside a table policy (`[shell_environment_policy.set]`); inside an
+                // inline policy it becomes an inline table.
+                policy.insert("set", toml_edit::Item::Table(toml_edit::Table::new()));
+            }
+            let set = policy
+                .get_mut("set")
+                .and_then(toml_edit::Item::as_table_like_mut)
+                .ok_or_else(|| not_table("shell_environment_policy.set"))?;
+            match set.get_mut(name) {
+                Some(toml_edit::Item::Value(existing)) => {
+                    let decor = existing.decor().clone();
+                    *existing = toml_edit::Value::from(value);
+                    *existing.decor_mut() = decor;
+                }
+                _ => {
+                    set.insert(name, toml_edit::value(value));
+                }
+            }
+        }
+        None => {
+            let Some(policy) = doc
+                .get_mut("shell_environment_policy")
+                .and_then(toml_edit::Item::as_table_like_mut)
+            else {
+                return Ok(());
+            };
+            let Some(set) = policy.get_mut("set").and_then(toml_edit::Item::as_table_like_mut)
+            else {
+                return Ok(());
+            };
+            if set.remove(name).is_none() {
+                return Ok(());
+            }
+            // The last variable out takes its empty `set` table with it.
+            if set.is_empty() {
+                policy.remove("set");
             }
         }
     }
