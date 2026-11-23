@@ -136,10 +136,10 @@
   resize: vertical;
 }
 
+/* A text field shows focus through its caret and border, never a ring (pages/shared/desktop.css). */
 .forum-search:focus-visible,
 .forum-input:focus-visible {
-  outline: 2px solid var(--ds-color-focus);
-  outline-offset: -1px;
+  border-color: var(--ds-color-focus);
 }
 
 .forum-tabs {
@@ -164,7 +164,7 @@
   background: var(--page-hover);
 }
 
-.forum-tab[aria-selected="true"] {
+.forum-tab[aria-pressed="true"] {
   background: var(--page-selection);
   color: var(--page-text);
 }
@@ -243,7 +243,7 @@
   background: var(--page-hover);
 }
 
-.forum-thread-row[aria-selected="true"] {
+.forum-thread-row[aria-current="true"] {
   background: var(--page-selection);
 }
 

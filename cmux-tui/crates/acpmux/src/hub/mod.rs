@@ -25,6 +25,7 @@ mod prompt_coach;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 pub use person_hold::PromptTriager;
+pub(crate) mod restricted;
 mod rolling_summary;
 pub(crate) mod stop_condition;
 mod surge_triage;
