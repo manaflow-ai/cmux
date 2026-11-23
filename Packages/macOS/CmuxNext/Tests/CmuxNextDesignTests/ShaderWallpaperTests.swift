@@ -11,7 +11,8 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct ShaderWallpaperTests {
     @Test func everyShaderIsAPickerChoiceTheSettingReadsBack() {
         let ids = BackdropCatalog.shaders.map(\.id)
-        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:aero"])
+        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:aero",
+                        "shader:sakura", "shader:sumi", "shader:koi", "shader:snowfall", "shader:lanterns", "shader:rain"])
         for choice in BackdropCatalog.shaders {
             #expect(BackdropSelection(id: choice.id) == choice, "\(choice.id) does not read back")
             #expect(choice.pickerCollection?.id == BackdropShader.collection)
@@ -128,6 +129,21 @@ import Testing
         #expect(h.shader.moves || h.backdrop.shaderView.metalLayer.device == nil)
         h.shader.visibleOverride = false
         #expect(!h.shader.moves, "a window no one can see keeps drawing")
+    }
+
+    @Test func aWarmMacHalvesTheFrameRateAndASeriousOneHoldsTheFrame() {
+        let h = make(.shader(.aurora))
+        defer { h.close() }
+        h.shader.thermalOverride = .nominal
+        #expect(h.shader.framesPerSecond == BackdropShaderView.maximumFramesPerSecond)
+        h.shader.thermalOverride = .fair
+        #expect(h.shader.framesPerSecond == BackdropShaderView.warmFramesPerSecond)
+        #expect(BackdropShaderView.warmFramesPerSecond * 2 == BackdropShaderView.maximumFramesPerSecond)
+        #expect(h.shader.moves || h.backdrop.shaderView.metalLayer.device == nil, "a warm Mac stops the wallpaper instead of slowing it")
+        h.shader.thermalOverride = .serious
+        #expect(!h.shader.moves, "a serious thermal state keeps a living wallpaper drawing")
+        h.shader.thermalOverride = .nominal
+        #expect(h.shader.framesPerSecond == BackdropShaderView.maximumFramesPerSecond)
     }
 
     @Test func thePointerIsEasedAndItsSpeedBecomesEnergyThatFades() {
