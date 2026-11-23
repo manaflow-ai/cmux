@@ -61,9 +61,10 @@ const PIPE_BYTES: usize = 256 * 1024;
 
 /// Whether another of the person's machines may have this one run calls, given this machine's
 /// consent status: the workspace grant's own rule (`session_service::decide`), with the refusal
-/// worded for this service. The bool is whether the refusal is the machine's one ask.
+/// worded for this service. The bool is whether the refusal is the machine's one ask. A join from
+/// another device admits workspaces there, never control: only the person's own grant does.
 pub fn decide(consent: &Value, account: Option<&str>) -> Result<(), (ServiceRefusal, bool)> {
-    match crate::session_service::decide(consent, account) {
+    match crate::session_service::decide(consent, account, false) {
         Decision::Admit => Ok(()),
         Decision::Refuse { refusal, ask } => {
             let message = if refusal.reason == CONSENT_DECLINED {

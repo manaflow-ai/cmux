@@ -159,7 +159,8 @@ pub const MACHINE_CALL_SERVICE: &str = "machine-call";
 
 /// Which of a pair's two kept circuits a stream rides (RFD 0039 cut 5, H13): a cheap read never
 /// waits behind bulk bytes in one circuit's TCP. A plain port pipe (`remote.pipe`: ssh, scp,
-/// rsync, a forwarded port) is bulk; the acpmux and cmux-tui session services are cheap.
+/// rsync, a forwarded port) is bulk; the acpmux and cmux-tui session services are cheap, and so is
+/// a machine call (one bounded line each way, which a click must not wait behind a copy for).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CircuitLane {
     Cheap,
@@ -170,7 +171,9 @@ impl CircuitLane {
     pub fn of(service: CircuitService) -> Self {
         match service {
             CircuitService::CmuxTui { .. } => Self::Bulk,
-            CircuitService::Acpmux | CircuitService::CmuxTuiSession => Self::Cheap,
+            CircuitService::Acpmux
+            | CircuitService::CmuxTuiSession
+            | CircuitService::MachineCall => Self::Cheap,
         }
     }
 
