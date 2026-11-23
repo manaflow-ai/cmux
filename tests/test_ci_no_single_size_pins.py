@@ -226,7 +226,7 @@ class NoSingleSizePins(unittest.TestCase):
         self.assertFalse(FORK_READS_POOLS.search(value))
         self.assertFalse(any(VARS_READ.search(value[s.start:s.stop]) for s in fork_operands(value)))
         self.assertEqual(pins_in(value), [])
-        other = one.replace("github.repository && 'ubuntu-24.04'", "github.repository && vars.LINUX_RUNNER")
+        other = one.replace("github.repository && 'ubuntu-24.04'", "github.repository && (vars.LINUX_RUNNER || 'ubuntu-24.04')")
         self.assertTrue(any(VARS_READ.search(other[s.start:s.stop]) for s in fork_operands(other)))
 
     def test_a_fork_branch_that_reads_a_variable_is_flagged(self) -> None:
