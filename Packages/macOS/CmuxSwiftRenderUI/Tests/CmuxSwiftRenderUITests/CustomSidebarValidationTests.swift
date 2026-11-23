@@ -384,12 +384,8 @@ struct CustomSidebarSampleContextTests {
         #expect(remote["target"] == .string("aws-m4pro-1"))
         #expect(remote["connected"] == .bool(true))
         #expect(populated["latestAt"] == .int(1_779_999_400))
-        // pr is prs[0]; the builder adds branch only when a pull request has one,
-        // so prs also carries a branchless pull request.
-        let prs = try #require(SwiftValue.arrayElements(populated["prs"]))
-        #expect(prs.first == .object(pr))
         #expect(pr["branch"] == .string("main"))
-        #expect(prs.compactMap { SwiftValue.objectFields($0) }.contains { $0["branch"] == nil && $0["number"] != nil })
+        #expect(populated["prs"] == .array([.object(pr)]))
         #expect(populated["status"] == .string("working"))
 
         // clock is the builder's object, its fields read from one instant.
@@ -417,9 +413,17 @@ struct CustomSidebarSampleContextTests {
                        "latestMessage", "latestPrompt", "latestAt", "remote"] {
             #expect(quiet[absent] == nil, "\(absent) should be omitted like the builder omits it (#7944)")
         }
+
+        // The linked sample: the builder adds branch only when a pull request has
+        // one, so its pr (also prs[0]) has none.
+        let linked = try sampleWorkspace(titled: "Linked Workspace")
+        let linkedPR = try #require(SwiftValue.objectFields(linked["pr"]))
+        #expect(linkedPR["number"] == .int(5790))
+        #expect(linkedPR["branch"] == nil, "a pull request without a branch omits it like the builder (#7944)")
+        #expect(linked["prs"] == .array([.object(linkedPR)]))
     }
 
-    @Test("a sidebar reading pr and progress draws its data rows against the sample context")
+    @Test("a sidebar reading pr, pr.branch and progress draws its data rows against the sample context")
     func dataRowsDrawAgainstTheSampleContext() throws {
         let node = try #require(SwiftViewInterpreter().evaluate(
             """
@@ -434,6 +438,14 @@ struct CustomSidebarSampleContextTests {
                 if w.pr == nil {
                   Text("no pr")
                 }
+                if w.pr.branch != nil {
+                  Text(w.pr.branch)
+                }
+                if w.pr != nil {
+                  if w.pr.branch == nil {
+                    Text("no branch")
+                  }
+                }
               }
             }
             """,
@@ -443,6 +455,8 @@ struct CustomSidebarSampleContextTests {
         #expect(drawn.contains("PR 5812"))
         #expect(drawn.contains("Running tests"))
         #expect(drawn.contains("no pr"))
+        #expect(drawn.contains("main"))
+        #expect(drawn.filter { $0 == "no branch" }.count == 1)
     }
 
     /// Every string drawn under `node`, in draw order.
