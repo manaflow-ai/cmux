@@ -9,7 +9,8 @@ workflow on any branch can check out feat-cmux-next anywhere and run
 
 Subcommands, all through the public App Store Connect API with the CI key:
 
-  sync-notes          Render AppStoreReview/review-notes-asc.txt and write it to
+  sync-notes          Render AppStoreReview/review-notes-asc.txt (--config
+                      TestFlight: review-notes-asc-internal.txt) and write it to
                       the version's App Review notes. The demo account, public
                       inbox and contact come from App Store Connect (a value
                       it has no field for would come from the environment,
@@ -60,6 +61,10 @@ IOS_DIR = Path(__file__).resolve().parents[1]
 PROJECT_YML = IOS_DIR / "project.yml"
 REVIEW_DIR = IOS_DIR / "AppStoreReview"
 DEFAULT_NOTES_TEMPLATE = REVIEW_DIR / "review-notes-asc.txt"
+# Each configuration's record gets its own notes: cmux INTERNAL (TestFlight)
+# sells nothing, so its notes promise no purchase (app_review_gate.py
+# iap.review-notes, lane internal-submission).
+NOTES_TEMPLATES = {"AppStore": DEFAULT_NOTES_TEMPLATE, "TestFlight": REVIEW_DIR / "review-notes-asc-internal.txt"}
 METADATA_DIR = REVIEW_DIR / "metadata"
 VERSION_METADATA_DIR = METADATA_DIR / "version"
 NOTES_LIMIT = 4000
@@ -367,7 +372,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     notes_p = sub.add_parser("sync-notes")
     notes_p.add_argument("--version", help="App Store version (default: MARKETING_VERSION in project.yml)")
-    notes_p.add_argument("--template", type=Path, default=DEFAULT_NOTES_TEMPLATE)
+    notes_p.add_argument("--template", type=Path,
+                         help="notes template (default: the --config record's, review-notes-asc.txt for AppStore, "
+                              "review-notes-asc-internal.txt for TestFlight)")
     notes_p.add_argument("--dry-run", action="store_true")
     support_p = sub.add_parser("sync-listing")
     support_p.add_argument("--version", help="App Store version (default: MARKETING_VERSION in project.yml)")
@@ -380,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         version = args.version or marketing_version(config=args.config)
         api = Api()
         if args.command == "sync-notes":
-            sync_notes(api, args.app, version, args.template, args.dry_run)
+            sync_notes(api, args.app, version, args.template or NOTES_TEMPLATES[args.config], args.dry_run)
             return 0
         if args.command == "sync-listing":
             listing = version_listing(version)
