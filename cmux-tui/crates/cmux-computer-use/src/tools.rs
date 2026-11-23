@@ -27,8 +27,17 @@ pub fn safe_tag(tag: &str) -> Option<String> {
 }
 
 /// The acting tools whose result carries the window's state after acting.
-pub const OBSERVES: &[&str] =
-    &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "batch"];
+pub const OBSERVES: &[&str] = &[
+    "click",
+    "move_pointer",
+    "type_text",
+    "press_key",
+    "scroll",
+    "drag",
+    "set_value",
+    "perform_action",
+    "batch",
+];
 
 /// The acting tools whose pre-action guards `force` skips ([`crate::observe::guards`]).
 pub const GUARDED: &[&str] = &["click", "type_text", "scroll", "set_value", "perform_action"];
@@ -92,6 +101,15 @@ impl Tool {
             }
         }
         schema
+    }
+
+    /// Whether `tools/list` names the tool on this host. `record` needs an
+    /// H.264 encoder, which only the macOS desktop has (VideoToolbox): elsewhere
+    /// (a Linux cmux Cloud machine) a call answers `unsupported`, so the tool
+    /// is left out of the list, as the image check `cua-video-refused` requires
+    /// of a machine with no screen video. A direct call still reaches it.
+    pub fn listed(&self) -> bool {
+        self.name != "record" || cfg!(target_os = "macos")
     }
 
     /// Whether the tool may change something (for retries and look-only).
@@ -184,6 +202,22 @@ pub static TOOLS: &[Tool] = &[
                     "count": {"type": "integer", "minimum": 1, "maximum": 3},
                     "modifiers": {"type": "array", "items": {"type": "string"}, "description": "shift, ctrl, alt/option, cmd/meta"},
                     "menu_item": {"type": "string", "description": "For a click that opens a menu (right click, control-click, a pop-up or menu button): the title of the item to choose (exact, any case, or a unique prefix), or a path for an item in a submenu (\"Sort By > Name\"); the menu opens, the item is pressed and the menu closes in one call."},
+                    "delivery": delivery()
+                }),
+                &[],
+            )
+        },
+    },
+    Tool {
+        name: "move_pointer",
+        access: Access::Act,
+        description: "Move the pointer onto an element (element_id) or a point (x, y in screenshot pixels) of a window and press nothing: a hover, to show a tooltip, a hover card, a row's hover controls or a menu that opens on hover. Targets exactly as click does (with no window_id, x and y are pixels of your latest display screenshot). The result shows the window after the move. background (default): the move is sent to the app only; nothing takes focus, no window is raised and the person's pointer stays where it is, so hover effects the app draws from its own mouse-moved events show (web pages, most custom views), while some native tooltips and hover highlights that follow the real pointer may not. foreground: raises the window, brings its app to the front and moves the person's real pointer there, where it stays; only when background shows nothing and the person allowed it.",
+        schema: || {
+            obj(
+                json!({
+                    "window_id": window_id(),
+                    "element_id": {"type": "string"},
+                    "x": {"type": "number"}, "y": {"type": "number"},
                     "delivery": delivery()
                 }),
                 &[],
@@ -400,6 +434,7 @@ pub fn find(name: &str) -> Option<&'static Tool> {
 pub fn mcp_list() -> Value {
     let tools: Vec<Value> = TOOLS
         .iter()
+        .filter(|t| t.listed())
         .map(|t| {
             json!({
                 "name": t.name,
@@ -428,5 +463,67 @@ allowed it, and only for a system-wide shortcut or to bring a window to them. If
 setting would allow it; never change those settings yourself.";
 
 #[cfg(test)]
-#[path = "tools_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_tool_has_an_object_schema_with_machine() {
+        for t in TOOLS {
+            let s = t.schema();
+            assert_eq!(s["type"], "object", "{}", t.name);
+            assert!(s["properties"]["machine"].is_object(), "{}", t.name);
+            assert_eq!(
+                s["properties"]["observe"].is_object(),
+                OBSERVES.contains(&t.name),
+                "{}",
+                t.name
+            );
+        }
+        let names: std::collections::HashSet<_> = TOOLS.iter().map(|t| t.name).collect();
+        assert_eq!(names.len(), TOOLS.len(), "duplicate tool names");
+    }
+
+    /// An acting tool takes an optional `cursor_tag`; a look-only one does not.
+    #[test]
+    fn acting_tools_take_a_cursor_tag_and_it_is_kept_short_and_on_one_line() {
+        for t in TOOLS {
+            let s = t.schema();
+            assert_eq!(s["properties"][CURSOR_TAG_ARG].is_object(), t.acts(), "{}", t.name);
+            let required = s["required"].as_array().cloned().unwrap_or_default();
+            assert!(!required.contains(&serde_json::json!(CURSOR_TAG_ARG)), "{}", t.name);
+        }
+        assert_eq!(safe_tag("Fix\nthe\tbuild").as_deref(), Some("Fix the build"));
+        assert_eq!(safe_tag(" \u{7} "), None);
+        assert_eq!(safe_tag(&"y".repeat(61)).map(|t| t.chars().count()), Some(60));
+    }
+
+    /// `record` is listed only where the desktop can encode H.264 (macOS);
+    /// every other tool is listed everywhere, and `find` reaches them all.
+    #[test]
+    fn record_is_listed_only_on_macos() {
+        let list = mcp_list();
+        let names: Vec<&str> =
+            list["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+        assert_eq!(names.contains(&"record"), cfg!(target_os = "macos"), "{names:?}");
+        assert_eq!(names.len(), TOOLS.iter().filter(|t| t.listed()).count());
+        assert!(TOOLS.iter().filter(|t| t.name != "record").all(Tool::listed));
+        assert!(find("record").is_some());
+    }
+
+    /// The batch schema names every step field an agent can use.
+    #[test]
+    fn the_batch_schema_lists_its_step_fields() {
+        let s = find("batch").unwrap().schema();
+        let step = &s["properties"]["actions"]["items"]["properties"];
+        assert_eq!(s["properties"]["actions"]["maxItems"], crate::engine::BATCH_MAX);
+        for key in
+            ["action", "require", "target", "until", "value_equals", "value_contains", "timeout_ms"]
+        {
+            assert!(step[key].is_object(), "{key}");
+        }
+        let actions = step["action"]["enum"].as_array().unwrap();
+        assert!(actions.contains(&json!("wait_for")));
+        assert_eq!(step["require"]["enum"], json!(["confirmed", "not_no_effect", "no_error"]));
+        assert_eq!(step["target"]["additionalProperties"], false);
+    }
+}

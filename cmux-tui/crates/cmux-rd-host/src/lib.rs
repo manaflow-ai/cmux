@@ -4,10 +4,10 @@
 //!   host     --listen-systemd --peer-uid 0 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--codec openh264] [--no-udp-link] [--link-stun HOST:PORT,...]
 //!            (Linux, the production Cloud mode: the socket comes from systemd; src/systemd.rs;
 //!            media moves to a UDP link when the viewer offers one: src/hybrid.rs)
-//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--resolution-ladder 1 [--max-qp N (default 40)]] [--max-width PX (macOS)] [--codec auto|vaapi|openh264|x264|videotoolbox (auto: VAAPI on a GPU, else openh264)] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
+//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--rtt-tail-probe 1] [--resolution-ladder 1 [--max-qp N (default 40)]] [--max-width PX (macOS)] [--codec auto|vaapi|openh264|x264|videotoolbox (auto: VAAPI on a GPU, else openh264)] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
 //!            [--source synthetic|synthetic-still|synthetic-tick [--synthetic-size WxH] [--synthetic-scene bars|text|noise|churn]] (macOS bench builds, `host` and `serve`:
 //!            a generated picture with the marker instead of the display; no grants needed; src/synthetic.rs)
-//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--marker-log 1 (none: each marker change with its decode time)] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--caps video.scaled (read a smaller picture scaled up to the stream)] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
+//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--marker-log 1 (none: each marker change with its decode time)] [--rtt-nack-retry 1] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--caps video.scaled (read a smaller picture scaled up to the stream)] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
 //!   observe  --mode passive --pid VIEWER_PID --window CGWINDOW_ID --start-file PATH --marker-origin X,Y --cell-size N [--expected-nonce 32 lowercase hex] [--duration-s 10] [--interval-ms 1000]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
@@ -355,5 +355,38 @@ pub fn run_cli(args: &[String]) -> i32 {
 }
 
 #[cfg(test)]
-#[path = "cli_tests.rs"]
-mod cli_tests;
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn help_prints_usage_and_succeeds() {
+        for flag in ["-h", "--help", "help"] {
+            assert_eq!(run_cli(&[flag.to_string()]), 0, "{flag}");
+        }
+    }
+
+    #[test]
+    fn a_typo_is_an_unknown_command_with_usage() {
+        let msg = unknown_command("bnech");
+        assert!(msg.starts_with("unknown command bnech"), "{msg}");
+        assert!(msg.contains(USAGE), "{msg}");
+    }
+
+    #[test]
+    fn a_left_out_command_says_it_is_not_in_this_build() {
+        let msg = unknown_command("bench");
+        assert!(msg.starts_with("not in this build"), "{msg}");
+        if !cfg!(feature = "bench") {
+            assert!(msg.contains("--features bench"), "{msg}");
+        }
+        assert!(unknown_command("windows-host").starts_with("not in this build"));
+    }
+
+    #[test]
+    fn every_usage_command_is_known() {
+        let list = USAGE.trim_start_matches("usage: cmux-rd ").split(' ').next().unwrap();
+        for cmd in list.split('|') {
+            assert!(KNOWN_COMMANDS.contains(&cmd), "{cmd}");
+        }
+    }
+}

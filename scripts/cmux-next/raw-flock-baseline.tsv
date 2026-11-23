@@ -24,7 +24,9 @@ cmux-tui/crates/cmux-coderouter/src/lib.rs	1	c-agenthost lock audit: held for th
 cmux-tui/crates/cmux-customize/src/store.rs	1	c-agenthost lock audit: unlocking Drop: Lock, Drop at line 133 calls fs4 unlock.
 cmux-tui/crates/cmux-holder/src/lib.rs	1	c-agenthost lock audit: held for the process life: hold_copy_in_use: O_CLOEXEC fd kept open with LOCK_SH for the holder process life.
 cmux-tui/crates/cmux-host/src/team_ssh/store.rs	1	c-agenthost lock audit: audit OK no spawn: ApplyLock is held for one apply with no child started
+cmux-tui/crates/cmux-host/src/updater/gate.rs	2	c-agenthost lock audit: explicit unlock: Test probe free() unlocks at line 330 before close.
 cmux-tui/crates/cmux-link/src/key_holder.rs	1	c-agenthost lock audit: held for the process life: Test-only python new holder keeps the lock until its stdin closes (KeyHolder Drop at 152 is separate).
+cmux-tui/crates/cmux-remote/src/admin.rs	2	c-agenthost lock audit: explicit unlock: Test-only: LOCK_UN at line 1063 before drop (a panic before it skips it).
 cmux-tui/crates/cmux-remote/src/owner_lock.rs	2	c-agenthost lock audit: unlocking Drop: OwnerFileLock, Drop at line 32 calls fs4 unlock.
 cmux-tui/crates/cmux-remote/src/secrets/replay.rs	2	c-agenthost lock audit: unlocking Drop: Lock, Drop at line 60 calls unlock().
 cmux-tui/crates/cmux-tasks/src/store/mod.rs	1	c-agenthost lock audit: audit OK lifetime (owner) / no spawn (CLI fallback)

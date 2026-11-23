@@ -3,6 +3,7 @@
 //! bundled daemon and its app always agree.
 
 mod accepts;
+pub(crate) mod aliases;
 mod app_id;
 mod backdrop;
 mod build_defaults;
@@ -18,14 +19,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
+pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color};
+pub use aliases::{choice_alias, choice_aliases};
 pub use backdrop::normalize_backdrop;
 pub use backdrop::{
     RECENTS_CAP, is_selection as is_background, previous_background, recents_of, record_recent,
 };
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
-pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
+pub use retired::{
+    Replaced, Retired, replaced_by_row, replaced_keys, retired_entries, retired_keys,
+    retired_reason,
+};
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
@@ -473,5 +478,45 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
 }
 
 #[cfg(test)]
-#[path = "row_text_tests.rs"]
-mod row_text_tests;
+mod row_text_tests {
+    use super::*;
+
+    /// The hash before rows were parsed one at a time: SHA-256 of every row
+    /// value in one array, serialized compact.
+    fn rows_hash_reference(text: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let document: Value = serde_json::from_str(text).expect("parses");
+        let rows = document["rows"].as_array().expect("rows").clone();
+        let bytes = serde_json::to_vec(&rows).expect("serializes");
+        Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    #[test]
+    fn the_schema_hash_equals_the_whole_array_hash() {
+        assert_eq!(Schema::embedded().schema_hash, rows_hash_reference(EMBEDDED.get()));
+        let empty = r#"{"version":1,"sections":[],"rows":[]}"#;
+        assert_eq!(Schema::parse(empty).expect("parses").schema_hash, rows_hash_reference(empty));
+    }
+
+    #[test]
+    fn embedded_rows_keep_slices_of_the_compiled_text_not_heap_copies() {
+        let range = EMBEDDED.get().as_bytes().as_ptr_range();
+        let rows = &Schema::embedded().rows;
+        assert!(!rows.is_empty());
+        for row in rows {
+            let RowText::Embedded(text) = &row.raw else {
+                panic!("{}: an embedded row holds a heap copy", row.key);
+            };
+            let start = text.as_ptr();
+            assert!(range.contains(&start), "{}: not a slice of the embedded text", row.key);
+        }
+        // Another text keeps owned compact rows that give back the same values.
+        let parsed = Schema::parse(EMBEDDED.get()).expect("parses");
+        assert_eq!(parsed.schema_hash, Schema::embedded().schema_hash);
+        for (owned, embedded) in parsed.rows.iter().zip(rows) {
+            assert!(matches!(owned.raw, RowText::Owned(_)));
+            assert_eq!(owned.raw(), embedded.raw(), "{}", owned.key);
+            assert_eq!(owned, embedded, "{}", owned.key);
+        }
+    }
+}

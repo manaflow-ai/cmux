@@ -197,6 +197,7 @@ cmux-tui/crates/chatmux-relay/src/workspace/git.rs	3
 cmux-tui/crates/cmux-app-host/src/script/session.rs	1
 cmux-tui/crates/cmux-automations/src/exec.rs	6
 cmux-tui/crates/cmux-automations/src/watch.rs	3
+cmux-tui/crates/cmux-browser-host/src/bin/cmux-browser-host.rs	1
 cmux-tui/crates/cmux-browser-host/src/cdp/pipe.rs	1
 cmux-tui/crates/cmux-build-identity/build.rs	1
 cmux-tui/crates/cmux-coderouter/src/free_tier.rs	2

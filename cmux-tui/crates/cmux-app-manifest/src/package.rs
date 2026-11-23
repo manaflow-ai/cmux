@@ -66,6 +66,9 @@ pub fn validate_package_file(dir: &Path, file_name: &str) -> PackageReport {
         catalog = fragment;
         issues.extend(found);
     }
+    if crate::is_valid(&issues) {
+        issues.extend(wallpaper_folders(dir, &manifest));
+    }
     PackageReport { manifest: Some(manifest), catalog, issues }
 }
 
@@ -107,6 +110,15 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
     }
     for (i, notice) in m["notices"].as_array().into_iter().flatten().enumerate() {
         add(&format!("/notices/{i}/path"), notice.get("path"));
+    }
+    for (i, w) in m
+        .pointer("/contributes/wallpapers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        add(&format!("/contributes/wallpapers/{i}/path"), w.get("path"));
     }
     let files: Option<Vec<&str>> =
         m["files"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect());
@@ -157,6 +169,103 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
     out
 }
 
+/// `contributes.wallpapers` (plans/cmux-next/live-wallpapers.md): each listed
+/// folder's `wallpaper.json` passes cmux-wallpaper's manifest check, its program
+/// exists and is at most 64 KiB, and no two share an id. The program itself
+/// (sandbox and translation, naga) is checked only with the feature
+/// `wallpaper-programs`; without it the report carries a
+/// `wallpaper.programNotChecked` warning, never a pass. The paths themselves
+/// (inside the package, present, listed in `files`) were checked by
+/// `referenced_files`; every file read here also resolves through symlinks to
+/// a place inside the package ([`inside`]) and is read only up to its limit.
+fn wallpaper_folders(dir: &Path, m: &Value) -> Vec<Issue> {
+    let mut out = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
+    let list = m.pointer("/contributes/wallpapers").and_then(Value::as_array);
+    for (i, w) in list.into_iter().flatten().enumerate() {
+        let at = format!("/contributes/wallpapers/{i}/path");
+        let Some(rel) = w["path"].as_str() else { continue };
+        let manifest_rel = format!("{}/wallpaper.json", rel.trim_end_matches('/'));
+        let limit = cmux_wallpaper::manifest::MAX_MANIFEST_BYTES as u64;
+        let raw = match inside(dir, &manifest_rel).and_then(|path| read_limited(&path, limit)) {
+            Some(raw) if raw.len() as u64 > limit => {
+                out.push(Issue::error(
+                    at,
+                    "wallpaper.manifest",
+                    format!("{manifest_rel} is larger than {} KiB", limit >> 10),
+                ));
+                continue;
+            }
+            Some(raw) => raw,
+            None => {
+                out.push(Issue::error(
+                    at,
+                    "wallpaper.manifest",
+                    format!("{rel}/wallpaper.json not found"),
+                ));
+                continue;
+            }
+        };
+        let manifest = match cmux_wallpaper::Manifest::parse(&raw) {
+            Ok(manifest) => manifest,
+            Err(e) => {
+                out.push(Issue::error(
+                    at,
+                    "wallpaper.manifest",
+                    format!("{rel}/wallpaper.json{}: {}", e.pointer, e.message),
+                ));
+                continue;
+            }
+        };
+        if ids.contains(&manifest.id) {
+            out.push(Issue::error(
+                at.clone(),
+                "wallpaper.duplicate",
+                format!("wallpaper id {} is contributed twice", manifest.id),
+            ));
+        }
+        ids.push(manifest.id.clone());
+        // The manifest's shader path is checked relative (no `..`, no leading `/`).
+        let shader_rel = format!("{}/{}", rel.trim_end_matches('/'), manifest.shader);
+        let limit = cmux_wallpaper::MAX_SOURCE_BYTES as u64;
+        match inside(dir, &shader_rel).and_then(|path| read_limited(&path, limit)) {
+            None => out.push(Issue::error(
+                at,
+                "wallpaper.program",
+                format!("{shader_rel} is not a file inside the package"),
+            )),
+            Some(source) if source.len() as u64 > limit => out.push(Issue::error(
+                at,
+                "wallpaper.program",
+                format!("{shader_rel} is larger than 64 KiB"),
+            )),
+            Some(source) => match cmux_wallpaper::check_program(&source) {
+                cmux_wallpaper::ProgramCheck::Passed => {}
+                cmux_wallpaper::ProgramCheck::Refused { message, location } => {
+                    let place = location.map(|(l, c)| format!(":{l}:{c}")).unwrap_or_default();
+                    out.push(Issue::error(
+                        at,
+                        "wallpaper.program",
+                        format!("{rel}/{}{place}: {message}", manifest.shader),
+                    ));
+                }
+                // This build has no shader compiler (feature `wallpaper-programs` off,
+                // as in the app, the daemon and the CLI): say so, never imply a pass.
+                cmux_wallpaper::ProgramCheck::NotChecked => out.push(Issue::warning(
+                    at,
+                    "wallpaper.programNotChecked",
+                    format!(
+                        "{rel}/{} was not checked: this build has no wallpaper program check \
+                         (cmux-app-manifest feature wallpaper-programs)",
+                        manifest.shader
+                    ),
+                )),
+            },
+        }
+    }
+    out
+}
+
 /// `dir/rel` resolved through symlinks, only when it stays under `dir`
 /// resolved the same way: an extension cannot point its catalog at a file
 /// outside its own folder (the check `Package::read` made before the
@@ -191,5 +300,66 @@ fn catalog_file(dir: &Path, m: &Value) -> (Option<Value>, Vec<Issue>) {
 }
 
 #[cfg(test)]
-#[path = "package_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn dir() -> std::path::PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-manifest-limit-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A manifest past 64 KiB is refused on its size alone: nothing past
+    /// the limit is parsed, so a broken far end reports no JSON error, and
+    /// no manifest comes back (base red: the whole file was read and parsed,
+    /// and a valid oversize manifest came back parsed).
+    #[test]
+    fn an_oversize_manifest_is_refused_without_parsing_it() {
+        let dir = dir();
+        let pad = "x".repeat(MANIFEST_LIMIT as usize);
+        std::fs::write(dir.join("cmux-app.json"), format!(r#"{{"name":"{pad}"}}"#)).unwrap();
+        let valid_json = validate_package(&dir);
+        std::fs::write(dir.join("cmux-app.json"), format!(r#"{{"name":"{pad}" BROKEN"#)).unwrap();
+        let broken_tail = validate_package(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        for report in [valid_json, broken_tail] {
+            assert!(report.manifest.is_none(), "an oversize manifest is not parsed");
+            let codes: Vec<&str> = report.issues.iter().map(|i| i.code).collect();
+            assert_eq!(codes, ["limit.manifest"], "{:?}", report.issues);
+        }
+    }
+
+    /// A catalog that is a symlink to a file outside the package is refused
+    /// and not kept (base of this PR: the fragment was read through the
+    /// link and handed to the catalog).
+    #[cfg(unix)]
+    #[test]
+    fn a_catalog_symlinked_outside_the_package_is_refused() {
+        let root = dir();
+        let pkg = root.join("pkg");
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(root.join("outside.json"), r#"{"ops":{}}"#).unwrap();
+        std::os::unix::fs::symlink(root.join("outside.json"), pkg.join("catalog.json")).unwrap();
+        let m = serde_json::json!({ "catalog": "catalog.json" });
+        let (fragment, issues) = catalog_file(&pkg, &m);
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(fragment.is_none(), "an escaped catalog is not kept");
+        let codes: Vec<&str> = issues.iter().map(|i| i.code).collect();
+        assert_eq!(codes, ["catalog.json"], "{issues:?}");
+    }
+
+    #[test]
+    fn read_limited_stops_one_byte_past_the_limit() {
+        let dir = dir();
+        let path = dir.join("big");
+        std::fs::write(&path, vec![b'a'; 1 << 20]).unwrap();
+        let raw = read_limited(&path, 1024);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(raw.map(|r| r.len()), Some(1025));
+    }
+}
