@@ -341,6 +341,8 @@ async fn async_main(parsed: Parsed) -> Result<()> {
     let command = cli.command;
     match command {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
+        Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
+        Some(Command::Ci(ci)) => crate::cli::ci_wait::run(ci, json_out).await,
         // Before anything that reads or writes the home: this runs as root.
         #[cfg(target_os = "linux")]
         Some(Command::DaemonEnroll { person_key_fd }) => {
@@ -521,6 +523,13 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::ForkRun(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::fork_run::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Task(cmd)) => {
             let json_out = cli.json;
             match crate::cli::task::run(cmd, json_out).await {
@@ -566,6 +575,13 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         Some(Command::Forum(cmd)) => {
             let json_out = cli.json;
             match crate::cli::forum::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Trigger(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::trigger::run(cmd, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }
