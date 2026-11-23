@@ -12,6 +12,16 @@
       "title" : "Attachment View",
       "type" : "string"
     },
+    "agentPane.composerLook" : {
+      "default" : "auto",
+      "description" : "Where the mode, model and effort sit: under the box or inside it.",
+      "enum" : [
+        "auto",
+        "studio"
+      ],
+      "title" : "Composer Look",
+      "type" : "string"
+    },
     "agentPane.composerRing" : {
       "default" : "context",
       "description" : "What the ring at the end of the composer shows.",
@@ -325,6 +335,26 @@
       "title" : "Shimmer Speed",
       "type" : "number"
     },
+    "agentPane.display.transcriptLook" : {
+      "default" : "cmux",
+      "description" : "How messages, cards and spacing look.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Transcript Look",
+      "type" : "string"
+    },
+    "agentPane.display.transcriptTokens" : {
+      "default" : {
+
+      },
+      "description" : "Token values that override the transcript look.",
+      "title" : "Transcript Look Tokens",
+      "type" : "string"
+    },
     "agentPane.display.transcriptView" : {
       "default" : "normal",
       "description" : "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -408,6 +438,16 @@
         "never"
       ],
       "title" : "Edited Files Card",
+      "type" : "string"
+    },
+    "agentPane.emptyChatComposerPosition" : {
+      "default" : "bottom",
+      "description" : "Where the message box sits in a chat with no messages yet.",
+      "enum" : [
+        "bottom",
+        "center"
+      ],
+      "title" : "Empty Chat Message Box",
       "type" : "string"
     },
     "agentPane.images.remote" : {
@@ -6669,6 +6709,18 @@
       ],
       "title" : "New Workspace Position",
       "type" : "string"
+    },
+    "worktrees.autoCleanup" : {
+      "default" : true,
+      "description" : "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens.",
+      "title" : "Clean Up Agent Worktrees",
+      "type" : "boolean"
+    },
+    "worktrees.cleanBuildCaches" : {
+      "default" : false,
+      "description" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
+      "title" : "Clean Up Build Caches",
+      "type" : "boolean"
     }
   },
   "title" : "cmux (com.manaflow.cmux)"
