@@ -337,15 +337,13 @@ async fn collect(hub: &Arc<Hub>, done: &mut std::collections::BTreeSet<String>) 
     json!({"ok": true, "pinned": pinned, "asked": asked, "policy": policy, "peers": peers})
 }
 
-/// Serves one consent circuit whose hello was read: the gate admits `from` or the refusal is the
-/// answer; then one request, one answer, and the circuit closes.
-pub(crate) async fn serve(
+/// Whether the gate admits the machine whose hub `daemonId` is `from` (as the Noise handshake
+/// proved it): the gate and the host its book lists, else the refusal.
+pub(crate) async fn admit(
     gate: Option<Arc<dyn ConsentGate>>,
     from: Option<String>,
-    link: Box<dyn FrameLink>,
-    wait: Duration,
-) {
-    let admitted = match (gate, from) {
+) -> Result<(Arc<dyn ConsentGate>, String), ServiceRefusal> {
+    match (gate, from) {
         (Some(gate), Some(from)) => gate.admit(&from).await.map(|host| (gate, host)),
         (None, _) => Err(ServiceRefusal::new(
             "service.off",
@@ -355,8 +353,18 @@ pub(crate) async fn serve(
             "service.unknown_machine",
             "the circuit's machine key is not one this machine admitted",
         )),
-    };
-    let (gate, host) = match admitted {
+    }
+}
+
+/// Serves one consent circuit whose hello was read: the gate admits `from` or the refusal is the
+/// answer; then one request, one answer, and the circuit closes.
+pub(crate) async fn serve(
+    gate: Option<Arc<dyn ConsentGate>>,
+    from: Option<String>,
+    link: Box<dyn FrameLink>,
+    wait: Duration,
+) {
+    let (gate, host) = match admit(gate, from).await {
         Ok(admitted) => admitted,
         Err(refusal) => {
             tracing::info!("hub carrier: a consent circuit was refused: {refusal}");
@@ -376,6 +384,46 @@ pub(crate) async fn serve(
     };
     let _ = link.send(Bytes::from(answer.to_string())).await;
     let _ = link.close().await;
+}
+
+/// Serves one consent stream of a kept circuit that `gate` admitted for `host` (the circuit
+/// already answered its hello): one request, one answer, then the stream ends.
+pub(crate) async fn serve_stream<S>(
+    gate: Arc<dyn ConsentGate>,
+    host: String,
+    mut io: S,
+    wait: Duration,
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let answer = match tokio::time::timeout(wait, read_stream_request(&mut io)).await {
+        Ok(Some(request)) => gate.answer(&host, request).await,
+        _ => json!({"ok": false, "reason": "request.malformed", "error": "no request arrived"}),
+    };
+    let _ = io.write_all(answer.to_string().as_bytes()).await;
+    let _ = io.shutdown().await;
+}
+
+/// [`read_request`] on a byte stream: bytes until they make one JSON value, or past
+/// [`MAX_REQUEST_BYTES`] (which the handler refuses).
+async fn read_stream_request<S>(io: &mut S) -> Option<Vec<u8>>
+where
+    S: tokio::io::AsyncRead + Unpin,
+{
+    let mut request = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = io.read(&mut buf).await.ok()?;
+        if n == 0 {
+            return None;
+        }
+        request.extend_from_slice(buf.get(..n)?);
+        if request.len() > MAX_REQUEST_BYTES
+            || serde_json::from_slice::<serde::de::IgnoredAny>(&request).is_ok()
+        {
+            return Some(request);
+        }
+    }
 }
 
 /// The request: records until they make one JSON value, or past [`MAX_REQUEST_BYTES`] (which the

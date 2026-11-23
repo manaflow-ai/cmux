@@ -124,3 +124,40 @@ fn a_create_beside_steps_left_keeps_the_list() {
     update(&mut plan, "u1", "1", "completed");
     assert_eq!(entries(create(&mut plan, "c3", "echo c", "3")).as_array().map(Vec::len), Some(3));
 }
+
+/// Leo, 2026-11-22: "we need to figure out how to do better plans and have them expired". A
+/// coordinator's Claude Code session holds 120 tasks from early turns it never went back to; the
+/// plan a later turn draws is its own steps only, not those old ones.
+#[test]
+fn tasks_untouched_for_a_whole_turn_age_out_of_the_drawn_plan() {
+    let mut plan = TaskPlan::default();
+    plan.begin_turn();
+    for n in 0..120 {
+        create(&mut plan, &format!("old{n}"), &format!("ops note {n}"), &format!("{n}"));
+    }
+    update(&mut plan, "u-old", "0", "in_progress");
+    // The next turn still draws them: it may go on with them.
+    plan.begin_turn();
+    let next = entries(create(&mut plan, "c-next", "next turn step", "200"));
+    assert_eq!(next.as_array().unwrap().len(), 121);
+    // A turn later nobody touched them: only that turn's steps are drawn.
+    plan.begin_turn();
+    plan.begin_turn();
+    let drawn = entries(create(&mut plan, "c-new", "fresh step", "300"));
+    assert_eq!(
+        drawn,
+        json!([{"content": "fresh step", "status": "pending", "priority": "medium"}])
+    );
+    // An update brings an old task back, as Claude still holds it.
+    let back = entries(update(&mut plan, "u-back", "7", "in_progress"));
+    assert_eq!(back.as_array().unwrap().len(), 2);
+    assert_eq!(back[0]["content"], "ops note 7");
+    // Finishing what is drawn clears it, though aged-out tasks were left pending.
+    update(&mut plan, "u-a", "7", "completed");
+    update(&mut plan, "u-b", "300", "completed");
+    let after = entries(create(&mut plan, "c-after", "after the finish", "301"));
+    assert_eq!(
+        after,
+        json!([{"content": "after the finish", "status": "pending", "priority": "medium"}])
+    );
+}
