@@ -257,6 +257,7 @@ EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
         "terminal.input.keys",
         "terminal.input.mouse",
         "terminal.input.write",
+        "terminal.tail_pin.set",
         "terminal.viewport.scroll",
         "workspace.close",
         "workspace.create",

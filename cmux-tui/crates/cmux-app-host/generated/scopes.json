@@ -1961,6 +1961,10 @@
       "scope": "terminal:read",
       "class": "read"
     },
+    "terminal.tail_pin.set": {
+      "scope": "terminal:write",
+      "class": "mutation"
+    },
     "terminal.viewport.scroll": {
       "scope": "terminal:write",
       "class": "mutation"

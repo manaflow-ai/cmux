@@ -153,8 +153,7 @@ impl Mux {
         true
     }
 
-    /// Whether `view`'s terminal is pinned.
-    #[cfg(test)]
+    /// Whether `view`'s terminal is pinned (`terminal.tail_pin.set` with no `pinned` flips it).
     pub(crate) fn terminal_tail_pinned(&self, view: SurfaceId) -> bool {
         self.surface(view).and_then(|surface| surface.tail_pin().map(|slot| slot.is_pinned()))
             == Some(true)

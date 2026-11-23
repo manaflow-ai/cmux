@@ -10,18 +10,23 @@ import Testing
 /// workspaces. Only an explicit End Everything (Quit and End Everything in the
 /// command palette, `cmux app quit --end-everything`) deletes them.
 struct QuitEndEverythingGuardTests {
+    /// What `QuitCoordinator` decides with `app.quitBehavior` set to BEHAVIOR.
+    private func decide(_ origin: QuitOrigin, behavior: QuitBehavior) -> QuitSessionsChoice {
+        QuitRules.decide(origin, remembered: QuitSessionsChoice(rawValue: behavior.rawValue))
+    }
+
     @Test func aRememberedEndEverythingNeverDeletesTheWorkspaces() {
-        #expect(QuitPolicy.decide(.interactive, behavior: .endEverything) == .keep)
-        #expect(QuitPolicy.decide(.scripted, behavior: .endEverything) == .endKeepLayout)
+        #expect(decide(.interactive, behavior: .endEverything) == .keep)
+        #expect(decide(.scripted, behavior: .endEverything) == .endKeepLayout)
     }
 
     @Test func anExplicitEndEverythingStillRunsAsAsked() {
-        #expect(QuitPolicy.decide(.explicit(.endEverything), behavior: .keep) == .endEverything)
-        #expect(QuitPolicy.decide(.explicit(.endEverything), behavior: .endEverything) == .endEverything)
+        #expect(decide(.explicit(.endEverything), behavior: .keep) == .endEverything)
+        #expect(decide(.explicit(.endEverything), behavior: .endEverything) == .endEverything)
     }
 
     @Test func powerOffAndSignalsNeverEndAnything() {
-        #expect(QuitPolicy.decide(.powerOff, behavior: .endEverything) == .keep)
-        #expect(QuitPolicy.decide(.signal, behavior: .endEverything) == .keep)
+        #expect(decide(.powerOff, behavior: .endEverything) == .keep)
+        #expect(decide(.signal, behavior: .endEverything) == .keep)
     }
 }

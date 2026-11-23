@@ -76,6 +76,7 @@ fn only_ephemeral_interaction_operations_are_receipt_only() {
         "terminal.input.mouse",
         "terminal.input.focus",
         "terminal.history.clear",
+        "terminal.tail_pin.set",
         "terminal.viewport.scroll",
         "browser.input.key",
         "browser.input.text",

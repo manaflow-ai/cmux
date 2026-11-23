@@ -315,15 +315,12 @@ pub(super) fn parse_terminal(
                 "off" => false,
                 _ => return Err(UsageError::new("terminal pin-tail must be on or off")),
             };
-            Ok(CommandPlan::RawCommand(super::super::raw::RawCommandPlan {
-                request: json!({
-                    "id": 1,
-                    "cmd": "set-terminal-tail-pin",
-                    "terminal": selector,
-                    "pinned": pinned,
-                }),
-                stream: false,
-            }))
+            // One typed request (terminal.tail_pin.set), the one the palette's Show Last Line in
+            // Sidebar row sends (catalog_request_matches_cli).
+            selectors.insert("terminal", "term", &selector)?;
+            let mut params = Map::new();
+            params.insert("pinned".into(), Value::Bool(pinned));
+            request(ResourceOperation::TerminalTailPinSet, selectors, flags, params)
         }
         _ => usage("terminal action"),
     }

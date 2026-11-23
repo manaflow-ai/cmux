@@ -91,6 +91,11 @@
       "class": "read",
       "digest": "6a07a471350478f8"
     },
+    "terminal.tail_pin.set": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "811308fb2bb9cf2d"
+    },
     "terminal.viewer.release": {
       "source": "local",
       "class": "connection_control",

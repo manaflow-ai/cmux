@@ -11,5 +11,6 @@ extension AppServices: CatalogRequestHost {
     func catalogAcpmux() async -> AcpmuxEnvironment? { await AcpmuxEnvironment.resolvedApp(build: environment.build, mock: environment.showcase) }
     func catalogWorkspace(_ invocation: ActionInvocation) -> String? { AppActions.scope(self, invocation).workspace?.resourceID?.rawValue }
     func catalogPane(_ invocation: ActionInvocation) -> String? { AppActions.scope(self, invocation).pane?.pane.resourceID?.rawValue }
+    func catalogTerminal(_ invocation: ActionInvocation) -> String? { AppActionContext(services: self).daemonTab(invocation)?.tab.ptyTerminalResourceID }
     func catalogToast(_ message: String) { CmuxToastCenter.shared.showNotice(message, id: "catalogRequest", in: windows.active?.window) }
 }

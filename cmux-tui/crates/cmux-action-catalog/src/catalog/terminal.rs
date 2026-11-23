@@ -132,8 +132,8 @@ pub static ACTIONS: &[Action] = &[
     },
     // Show Last Line in Sidebar: the tab's terminal's last output line under its workspace in the
     // sidebar (`terminal-tail-pin-v1`), as `cmux terminal <term> pin-tail on|off`; off clears it.
-    // In the workspace category, where the line shows: a row in a terminal category needs its App
-    // handler before it lands (HandlerCoverage), and this one's follows the re-pin.
+    // One typed request, terminal.tail_pin.set: On omitted flips the pin, so the palette row is a
+    // toggle with no handler of its own. In the workspace category, where the line shows.
     Action {
         id: "terminal.pinTail",
         group: GROUP,
@@ -145,6 +145,14 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::ON.optional()],
         targets: &["tab"],
         cli_name: "terminal pin-tail",
+        request: Some(Request {
+            lane: RequestLane::Session,
+            operation: "terminal.tail_pin.set",
+            params: &[
+                RequestParam { name: "terminal", source: ParamSource::Target("terminal") },
+                RequestParam { name: "pinned", source: ParamSource::Argument("on") },
+            ],
+        }),
         ..Action::DEFAULT
     },
     // Show Terminal in New Tab: a new tab in the pane showing a live terminal (one kept running

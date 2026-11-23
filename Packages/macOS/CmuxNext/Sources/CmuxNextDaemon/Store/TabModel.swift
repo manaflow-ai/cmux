@@ -189,6 +189,10 @@ public final class TabModel: Identifiable {
     /// A live daemon terminal: a pty that is not dead and not a creation's stand-in (a provisional surface).
     public var isLiveTerminal: Bool { kind == .pty && !dead && !ProvisionalTab.isProvisional(surface: surface) }
 
+    /// The public id (`term_…`) of the terminal a pty tab shows; nil for a page tab. What a catalog request
+    /// row's `terminal` param takes (`CatalogRequestHost.catalogTerminal`).
+    public var ptyTerminalResourceID: String? { kind == .pty ? terminalResourceID?.rawValue : nil }
+
     /// Whether the tab holds an unread notification. A notification this
     /// client read (``expectNotificationRead()``) shows read before the
     /// daemon's echo.

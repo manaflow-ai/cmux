@@ -69,6 +69,7 @@ fn owns_every_non_stream_terminal_and_browser_content_operation() {
         ResourceOperation::TerminalStateRead,
         ResourceOperation::TerminalHistoryRead,
         ResourceOperation::TerminalHistoryClear,
+        ResourceOperation::TerminalTailPinSet,
         ResourceOperation::TerminalOutputRead,
         ResourceOperation::TerminalWait,
         ResourceOperation::TerminalWaitExit,
