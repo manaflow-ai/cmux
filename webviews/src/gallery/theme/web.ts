@@ -156,6 +156,9 @@ export function webThemePayload(
     statusIndicators: options.reducedMotion ? "static" : "animated",
     workingLook: "spinner",
     motion: options.reducedMotion ? "reduced" : "full",
+    // The gallery keeps glass by default, though the app sends "off" until Settings > Appearance >
+    // Liquid Glass is on: its states show each glass surface, and the off look has its own states
+    // (agent-pane.composer-look/composer-material-liquid-glass-off).
     glass: options.glass ?? "plain",
   };
 }
