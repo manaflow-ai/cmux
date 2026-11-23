@@ -225,10 +225,7 @@ extension AgentPaneTransport {
                 await provePerson(socket: socket, ids: ids)
                 // Journal replay bypasses the page send line, so it needs the same trust barrier.
                 await finishTrustBeforeReplay(socket: socket, ids: ids)
-                if self.socket === socket, !socket.isClosed {
-                    hostSendsOpen = true
-                    await relay?.resend(socket: socket, ids: ids, computerUse: computerUse?.state)
-                }
+                if self.socket === socket, !socket.isClosed { await relay?.resend(socket: socket, ids: ids) }
             }
         }
         draining = false

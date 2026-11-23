@@ -73,14 +73,10 @@ nonisolated struct AgentPanePromptRelay: Sendable {
     }
 
     /// Sends each left-over prompt of this daemon as it was recorded, with `_meta.acpmux.resend`
-    /// and its own promptId, under a host request id (its reply never reaches the page). A prompt
-    /// that names `@computer-use` while Computer Use is known and not ready (`computerUse`) is held:
-    /// it stays in the journal, unsent, and goes at a later call once Computer Use is ready
-    /// (``AgentPaneComputerUse`` calls ``AgentPaneTransport/replayHeldPrompts()`` then), so a prompt
-    /// admitted before a disconnect never runs after Computer Use was turned off (review round 3 of #48024).
-    @concurrent func resend(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds, computerUse: AgentPaneComputerUseState? = nil) async {
+    /// and its own promptId, under a host request id (its reply never reaches the page).
+    @concurrent func resend(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
         var sent = 0
-        let claimed = journal.claimLeftovers(daemon: daemon, owner: owner) { Self.holds($0, computerUse: computerUse) }
+        let claimed = journal.claimLeftovers(daemon: daemon, owner: owner)
         for (index, entry) in claimed.enumerated() {
             let id = ids.hostID()
             guard let text = Self.resendFrame(entry, id: id) else {
@@ -100,20 +96,6 @@ nonisolated struct AgentPanePromptRelay: Sendable {
         if sent > 0 { Self.logger.info("resent \(sent, privacy: .public) unacknowledged prompt(s)") }
     }
 
-    /// Whether the journal holds `entry` back from a resend: its text names `@computer-use`
-    /// (``AgentPaneComputerUseState/isNamed(in:)``) while Computer Use is known and not ready.
-    static func holds(_ entry: AgentPanePromptJournal.Entry, computerUse: AgentPaneComputerUseState?) -> Bool {
-        guard let computerUse, computerUse != .ready else { return false }
-        return AgentPaneComputerUseState.isNamed(in: promptText(entry))
-    }
-
-    /// The text blocks of a recorded prompt (`params.prompt`'s `{type: "text", text}`), one per line.
-    static func promptText(_ entry: AgentPanePromptJournal.Entry) -> String {
-        guard let params = (try? JSONSerialization.jsonObject(with: Data(entry.params.utf8))) as? [String: Any],
-              let blocks = params["prompt"] as? [[String: Any]] else { return "" }
-        return blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n")
-    }
-
     /// The `session/prompt` request for a recorded prompt: its params, marked as a resend. A steer
     /// goes as a plain prompt: the turn it was meant for ended with the app.
     static func resendFrame(_ entry: AgentPanePromptJournal.Entry, id: Int) -> String? {
@@ -127,19 +109,5 @@ nonisolated struct AgentPanePromptRelay: Sendable {
         meta["acpmux"] = acpmux
         params["_meta"] = meta
         return AcpmuxRequestIds.encode(["jsonrpc": "2.0", "id": id, "method": "session/prompt", "params": params])
-    }
-}
-
-extension AgentPaneTransport {
-    /// Replays the journal's left-over prompts on this connection again: Computer Use turned ready, so a prompt that
-    /// names `@computer-use` and was held at the connection's first replay goes now (``AgentPaneComputerUse/set(_:)``).
-    /// Only once the connection's person proof and trust barrier went (``hostSendsOpen``), and only on an open local
-    /// connection; a prompt another replay claimed meanwhile is not sent twice (the journal holds one claim each). A
-    /// prompt still held stays in the journal, on disk, until a replay sends it or it expires (``AgentPanePromptJournal/maximumAge``).
-    func replayHeldPrompts() {
-        guard hostSendsOpen, let socket, !socket.isClosed, let relay = promptRelay, let ids = requestIds else { return }
-        let state = computerUse?.state
-        // task-owner: one journal replay on this connection; a closed one claims nothing (its relay ended).
-        Task { await relay.resend(socket: socket, ids: ids, computerUse: state) }
     }
 }

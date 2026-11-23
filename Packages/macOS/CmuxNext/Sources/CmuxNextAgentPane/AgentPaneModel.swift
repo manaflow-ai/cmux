@@ -421,9 +421,8 @@ public final class AgentPaneModel {
     /// The chat's live preview card (``AgentPaneComputerUsePreview``), and the App's answer to a click on it (its session).
     @ObservationIgnored public internal(set) var computerUsePreview: AgentPaneComputerUsePreview?
     @ObservationIgnored public var onComputerUsePreview: (@MainActor (_ session: String, _ action: AgentPaneComputerUsePreview.Action) -> Void)?
-    /// Computer Use's state for this pane's page (``AgentPaneComputerUse``, the App's one); nil (tests): none. Its
-    /// transport's prompt journal follows it too (``AgentPaneTransport/computerUse``).
-    @ObservationIgnored var computerUse: AgentPaneComputerUse? { didSet { computerUse?.follow(transport) } }
+    /// Computer Use's state for this pane's page (``AgentPaneComputerUse``, the App's one); nil (tests): none.
+    @ObservationIgnored var computerUse: AgentPaneComputerUse?
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?

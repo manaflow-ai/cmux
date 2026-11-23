@@ -175,9 +175,9 @@ struct AgentPaneComputerUseStateTests {
         #expect(bound)
         let follower = AgentPaneComputerUse(read: nil)
         follower.set(.needsSetup)
-        #expect(!follower.holdsSubmit("open Notes with @computer-use", startsRemote: true, registry: registry, refusal: "off"))
+        #expect(!follower.holdsSubmit("open Notes with @computer-use", startsRemote: true, registry: registry, refusal: "off", event: nil))
         #expect(runs == 0, "a remote page opened this Mac's setup")
-        #expect(follower.holdsSubmit("open Notes with @computer-use", registry: registry, refusal: "off"))
+        #expect(follower.holdsSubmit("open Notes with @computer-use", registry: registry, refusal: "off", event: nil))
 
         let remote = AgentPaneNewTab(kind: .agent).warmedOnThisMac(false)
         let local = AgentPaneNewTab(kind: .agent).warmedOnThisMac()

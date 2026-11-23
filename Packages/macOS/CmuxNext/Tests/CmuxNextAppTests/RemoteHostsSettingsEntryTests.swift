@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextPages
 import CmuxNextSettings
+import Foundation
 import Testing
 
 @MainActor
@@ -17,6 +18,7 @@ struct RemoteHostsSettingsEntryTests {
         let page = PageDescriptor.settings
         #expect(page.actions.contains("remote.newGroup"))
         #expect(page.gestureActions == ["remote.newGroup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
+        #expect(page.personBackedActions == ["palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
         #expect(!page.actions.contains("remote.removeGroup"))
     }
 
@@ -43,7 +45,7 @@ struct RemoteHostsSettingsEntryTests {
         for action in ["palette.computerUse.accessibility", "palette.computerUse.screenRecording"] {
             #expect(page.actions.contains(action) && page.gestureActions.contains(action), "\(action)")
             let recorder = Recorder()
-            let provider = PageGestureActionProvider(page: page, wrapping: recorder)
+            let provider = PageGestureActionProvider(page: page, wrapping: recorder, backs: { $0 == 7_001 })
             let run: JSONValue = ["action": .string(action)]
             let click = PageCallContext(page: page.id, userGesture: true, gestureEvent: 7_001)
             _ = try await provider.call(PageNativeOp.actionRun, params: run, context: PageCallContext(page: page.id))
@@ -57,6 +59,39 @@ struct RemoteHostsSettingsEntryTests {
         // Set Up and Restart start nothing by themselves: they stay page runs.
         #expect(!page.gestureActions.contains("palette.computerUse.setup"))
         #expect(!page.gestureActions.contains("palette.computerUse.restart"))
+    }
+
+    /// Final review of #48024 (P1): a click another process posts on Grant Access reaches WebKit as a real event, so the
+    /// page gesture alone is no proof. A grant run whose gesture the HID ledger does not back (`backs`) is refused and
+    /// never reaches the native provider, as the person's or as the page's; with no `backs` none is backed. Page script
+    /// with no gesture still only opens the window (a page run), and the host picker keeps its gesture rule.
+    @Test func aPostedGrantClickIsRefusedNotPromoted() async throws {
+        let page = PageDescriptor.settings
+        let unbacked: [(@MainActor (TimeInterval) -> Bool)?] = [{ _ in false }, nil]
+        for backs in unbacked {
+            for action in ["palette.computerUse.accessibility", "palette.computerUse.screenRecording"] {
+                let recorder = Recorder()
+                let provider = PageGestureActionProvider(page: page, wrapping: recorder, backs: backs, refusal: "person only")
+                let run: JSONValue = ["action": .string(action)]
+                let posted = PageCallContext(page: page.id, userGesture: true, gestureEvent: 6_001)
+                await #expect(throws: PageError.self, "\(action)") { try await provider.call(PageNativeOp.actionRun, params: run, context: posted) }
+                do {
+                    _ = try await provider.call(PageNativeOp.actionRun, params: run, context: posted)
+                } catch let error as PageError {
+                    #expect(error.code == PageNativeOp.userOnlyCode && error.message == "person only")
+                }
+                #expect(recorder.contexts.isEmpty, "\(action): an unbacked click reached the native provider")
+                #expect(!provider.runsAsPerson(action, posted), "\(action)")
+                _ = try await provider.call(PageNativeOp.actionRun, params: run, context: PageCallContext(page: page.id))
+                #expect(recorder.contexts.map(\.isConfirmedUser) == [false], "\(action): page script did not stay a page run")
+            }
+            // The host picker needs no HID backing: a fresh click still opens it as the person.
+            let recorder = Recorder()
+            let provider = PageGestureActionProvider(page: page, wrapping: recorder, backs: backs)
+            _ = try await provider.call(PageNativeOp.actionRun, params: ["action": "remote.newGroup"],
+                                        context: PageCallContext(page: page.id, userGesture: true, gestureEvent: 6_002))
+            #expect(recorder.contexts.map(\.isConfirmedUser) == [true])
+        }
     }
 
     /// The App Store's Open is the person's own `app.open` on a fresh click, so a widget app's Open
