@@ -17,8 +17,17 @@ enum PagedListKeepLine {
         var bottomEdge: CGFloat
     }
 
+    /// The reader's top edge, except while the list's own slide to its newest row runs (following,
+    /// no finger, no fling): then the bottom edge. A row on screen that changes height mid-slide (an
+    /// arrival measuring from its estimate, an edit) moves the offset with it, so the rows under it
+    /// stay where they are drawn and the slide's position moves by the same amount
+    /// (``PagedListScrollSpring`` carries any outside move of the offset): what is drawn changes
+    /// only by the slide's step. In both directions: an `.up` list keeps its newest row on the bottom
+    /// edge as older rows grow (Messages), a `.down` list keeps what is read still while the rows
+    /// arriving at its top size themselves on the way in. At rest the layout pass keeps the newest row
+    /// (`stayOnNewest`), and a list read mid-list keeps the reader's row, as before.
     static func line(_ state: State) -> CGFloat {
-        state.readerTop
+        state.follows && state.sliding && !state.scrolling ? state.bottomEdge : state.readerTop
     }
 }
 #endif
