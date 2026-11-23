@@ -2,7 +2,8 @@
 // (pageHost.ts); otherwise Swift's `agentSession` message handler
 // (CmuxNextAgentPane AgentPaneRequest), which answers `{ok: true, value}` or `{ok: false, error}`.
 import { NativeError, type NativeErrorReply } from "./nativeError";
-import { callPageHost, pageHostClient } from "./pageHost";
+import { callPageHost, pageHostClient, settlePageCall } from "./pageHost";
+import { takeEarlyHandshake } from "./earlyHandshake";
 import { translate } from "./i18n";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: NativeErrorReply };
@@ -51,4 +52,21 @@ export function postNative<T>(method: string, params: Record<string, unknown> = 
       return reply.value;
     },
   );
+}
+
+/// The handshake `main.tsx` asked before the App booted (earlyHandshake.ts), settled as `postNative`
+/// settles a `ready`, once; undefined when none was asked (the pane asks itself then).
+export function takeEarlyReady<T>(): { reply: Promise<T>; startedAt: number } | undefined {
+  const early = takeEarlyHandshake();
+  if (!early) return undefined;
+  nativePosts.set("ready", (nativePosts.get("ready") ?? 0) + 1);
+  if (early.route === "page")
+    return { reply: settlePageCall<T>(early.reply as Promise<T>), startedAt: early.startedAt };
+  return {
+    startedAt: early.startedAt,
+    reply: (early.reply as Promise<Reply<T>>).then((reply) => {
+      if (!reply.ok) throw new NativeError(reply.error);
+      return reply.value;
+    }),
+  };
 }

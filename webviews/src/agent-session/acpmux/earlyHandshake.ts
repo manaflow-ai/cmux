@@ -26,8 +26,14 @@ const HANDSHAKE_OP = "cmux.agent.handshake";
 /// The early request, by the route that took it. `page`: the raw page call, whose `PageError`
 /// pageHost maps as `callPageHost` does. `legacy`: the `agentSession` handler's `{ok, value}` reply.
 export type EarlyHandshake =
-  | { route: "page"; client: PageClient; reply: Promise<unknown>; startedAt: number }
+  | {
+      route: "page";
+      client: PageClient;
+      reply: Promise<unknown>;
+      startedAt: number;
+    }
   | { route: "legacy"; reply: Promise<unknown>; startedAt: number };
+// `startedAt` is `Date.now()` time, as the launch marks are (perf.ts `markLaunch`).
 
 type HeldEvents = {
   client: PageClient;
@@ -51,7 +57,7 @@ function legacyHandler(): LegacyHandler | undefined {
 /// Asks the host for the pane's handshake now. Does nothing where the page answers its own `ready`
 /// (`cmuxAcpmuxActions`: the gallery, the mock dev page) or no host is there yet (the browser pane
 /// installs its host in `main.tsx`'s body): the pane's effect asks then, as before.
-export function startEarlyHandshake(now = performance.now()): void {
+export function startEarlyHandshake(now = Date.now()): void {
   if (early || typeof window === "undefined") return;
   if ((window as { cmuxAcpmuxActions?: Record<string, unknown> }).cmuxAcpmuxActions?.ready) return;
   const client = createPageClient();
@@ -59,7 +65,11 @@ export function startEarlyHandshake(now = performance.now()): void {
     pageClient = client;
     // Subscribed first, as the pane's effect did (`startHostEvents` before `connectHost`), so an
     // event the host sends while answering `ready` (the tab row offered again) reaches the page.
-    const held: HeldEvents = { client, held: [], subscription: Promise.resolve(() => undefined) };
+    const held: HeldEvents = {
+      client,
+      held: [],
+      subscription: Promise.resolve(() => undefined),
+    };
     held.subscription = client.subscribe(HOST_EVENTS, (event) => {
       if (held.sink) held.sink(event as never);
       else held.held.push(event);
@@ -73,7 +83,13 @@ export function startEarlyHandshake(now = performance.now()): void {
   }
   const handler = legacyHandler();
   if (!handler) return;
-  const reply = Promise.resolve(handler.postMessage({ id: crypto.randomUUID(), method: "ready", params: {} }));
+  const reply = Promise.resolve(
+    handler.postMessage({
+      id: crypto.randomUUID(),
+      method: "ready",
+      params: {},
+    }),
+  );
   reply.catch(() => undefined);
   early = { route: "legacy", reply, startedAt: now };
 }

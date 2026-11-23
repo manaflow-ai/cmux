@@ -269,12 +269,12 @@ export async function startHostEvents(page: PageClient): Promise<void> {
       takeEarlyHostEvents<HostEvent>(page, applyHostEvent) ??
       page.subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event))
     ).then(
-        () => undefined,
-        (error) => {
-          subscribed.delete(page);
-          throw error;
-        },
-      );
+      () => undefined,
+      (error) => {
+        subscribed.delete(page);
+        throw error;
+      },
+    );
     subscribed.set(page, ready);
   }
   await ready;
