@@ -589,11 +589,10 @@
 {"file":"icon-picker/styles.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"icon-picker/styles.css","kind":"height","property":"height","values":{"30px":3,"18px":4,"40px":1,"17px":1,"var(--icon-header, 34px)":1,"var(--icon-cell, 72px)":1,"calc(var(--icon-cell, 72px) - var(--icon-gap))":1,"calc(var(--icon-cell, 72px) * 0.4)":1}}
 {"file":"icon-picker/styles.css","kind":"height","property":"min-height","values":{"120px":1}}
-{"file":"icon-picker/styles.css","kind":"radius","property":"border-radius","values":{"7px":1,"calc(var(--icon-cell, 72px) * 0.17)":1,"5px":1}}
+{"file":"icon-picker/styles.css","kind":"radius","property":"border-radius","values":{"7px":1,"calc(var(--icon-cell, 72px) * 0.17)":1}}
 {"file":"icon-picker/styles.css","kind":"spacing","property":"gap","values":{"6px":3,"10px":3,"2px":1}}
 {"file":"icon-picker/styles.css","kind":"spacing","property":"margin","values":{"0 2px":1}}
-{"file":"icon-picker/styles.css","kind":"spacing","property":"margin-inline-start","values":{"-2px":1}}
-{"file":"icon-picker/styles.css","kind":"spacing","property":"padding","values":{"0 10px 0 8px":1,"0 6px":1,"0 2px 9px":1,"0 14px":1,"0 5px":2,"4px 16px calc(var(--icon-bar-height) + 20px)":1}}
+{"file":"icon-picker/styles.css","kind":"spacing","property":"padding","values":{"0 10px 0 8px":1,"0 6px":1,"0 2px 9px":1,"0 14px":1,"0 5px":1,"4px 16px calc(var(--icon-bar-height) + 20px)":1}}
 {"file":"markdown-task-checkbox.css","kind":"height","property":"height","values":{"14px":1,"10px":1}}
 {"file":"motion/syncMotion.gallery.css","kind":"color","property":"background","values":{"#000":1}}
 {"file":"motion/syncMotion.gallery.css","kind":"color","property":"border","values":{"8px solid #111":1}}
@@ -743,7 +742,7 @@
 {"file":"pages/keybindings/styles.css","kind":"spacing","property":"gap","values":{"10px":1,"3px":1,"2px":2}}
 {"file":"pages/keybindings/styles.css","kind":"spacing","property":"margin","values":{"10px 18px 0":1,"0 2px":1}}
 {"file":"pages/keybindings/styles.css","kind":"spacing","property":"margin-left","values":{"6px":2}}
-{"file":"pages/keybindings/styles.css","kind":"spacing","property":"padding","values":{"18px var(--page-edge) 10px":1,"6px 10px":2,"3px 10px":1,"4px 10px 18px":1,"1px 6px":1,"1px 4px":1,"2px 4px":2,"2px 8px":1}}
+{"file":"pages/keybindings/styles.css","kind":"spacing","property":"padding","values":{"18px var(--page-edge) 10px":1,"6px 10px":2,"3px 10px":1,"4px 10px 18px":1,"1px 4px":1,"2px 4px":2,"2px 8px":1}}
 {"file":"pages/keybindings/styles.css","kind":"token-copy","property":"gap","values":{"2px":2}}
 {"file":"pages/keybindings/styles.css","kind":"token-copy","property":"margin","values":{"2px":1}}
 {"file":"pages/keybindings/styles.css","kind":"token-copy","property":"padding","values":{"2px":3}}
