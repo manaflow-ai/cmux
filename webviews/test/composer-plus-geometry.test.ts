@@ -5,7 +5,8 @@
 // design/composer.md (Controls) and design/grid.md 5.1.
 //
 // 1. The + to text gap (Claude's look): the text (the placeholder, the caret, what is typed) starts
-//    one `--acpmux-composer-lead-gap` (8 px) after the + button.
+//    one `--acpmux-composer-lead-gap` (4 px; 8 before Leo 2026-11-22: "we probably ought to be able to
+//    type at least one more character or two ... SHRINK THE INSIDE BIT") after the + button.
 // 2. One left column: + starts on the box's control inset, and the rows that hang off the box stand
 //    on it. A row of boxes (the attachment tiles in it) starts on the inset; a row of marks (the
 //    project and machine strip over it, the quiet row under it, New Tab's suggestions) puts its
@@ -13,7 +14,7 @@
 // 3. Centered controls: +, the mic and Send are one size (`--acpmux-composer-control`), each glyph
 //    sits at its button's center, and every button stands the same inset off the box's edges on
 //    every side it meets (left, top and bottom for +; right, top and bottom for the last trailing
-//    control). Claude's three centers are the prompt's first line's center; Codex's chat look puts
+//    control). Claude's three centers are the prompt's last line's center; Codex's chat look puts
 //    them together on a lower row, below a full-width prompt (Leo 2026-11-04's ChatGPT reference).
 // 4. Room around the text (Claude's look; Leo, 2026-11-01: "this is all still not aligned there's not
 //    enough of a space at the bottom"): the caret's center is +'s center, the first line has as much
@@ -43,7 +44,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     return;
   }
   /** --acpmux-composer-lead-gap: from the + button's right edge to the text's start. */
-  const GAP = 8;
+  const GAP = 4;
+  /** New Tab's own lead gap (newtab/screen.css: --ds-space-2 at its density). */
+  const NEW_TAB_GAP = 8;
   /** Subpixel rounding. */
   const TOLERANCE = 0.5;
   /** Codex's chat look: the prompt-to-row gap and the room under the row (composerLook.css). */
@@ -532,8 +535,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     } else {
       if (m.text === null) return ["the text's start is not drawn"];
       const gap = m.text - plus.right;
-      if (Math.abs(gap - GAP) > TOLERANCE)
-        out.push(`the text (${m.textSource}) starts ${f(gap)} px after +, not ${GAP}`);
+      const want = layout.name.startsWith("new-tab") ? NEW_TAB_GAP : GAP;
+      if (Math.abs(gap - want) > TOLERANCE)
+        out.push(`the text (${m.textSource}) starts ${f(gap)} px after +, not ${want}`);
     }
     // The column is the + glyph's 16 px box (its left edge and center), not its ink.
     const glyph = m.plus.glyphBox;

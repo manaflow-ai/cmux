@@ -11,7 +11,9 @@
 //! or `{"id", "ok": false, "error", "error_code"}`, and from then on the dial carries the
 //! projection's asks and the Mac's answers (`cmux_projection::wire`) until the Mac closes it.
 //! The mount stays when the dial ends; reads wait a few seconds for the Mac's next dial, then fail
-//! with "Host is down".
+//! with "Host is down". The agent sessions working in the folder are told once per away episode
+//! (`cmux_projection::away`), in a notice naming the folder and the reads that failed
+//! ([`away_notice`]); the Mac's next dial ends the episode.
 //!
 //! Bring Back (`cmux_projection::way_back`) reads what the agent changed with three more dials,
 //! each one request and its answer, by projection `name`, mounted or not (the state folder
@@ -254,6 +256,9 @@ struct Projected {
     at: PathBuf,
     #[cfg(target_os = "linux")]
     mounted: Mutex<Option<cmux_projection::mount::Mounted>>,
+    /// Its away episodes: the agent is told once of each ([`away_notice`]).
+    #[cfg(target_os = "linux")]
+    away: Arc<cmux_projection::away::Away>,
 }
 
 fn projections() -> &'static Mutex<HashMap<String, Arc<Projected>>> {
@@ -325,7 +330,91 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
             return;
         }
     };
+    // The Mac is back: the next read that fails for its absence starts a new episode.
+    #[cfg(target_os = "linux")]
+    projected.away.back();
     projected.link.serve(reader, framed(writer));
+}
+
+/// Where an away episode's notice goes: `(mount point, prompt id, notice title, notice text)`.
+/// The daemon installs it once ([`tell_away_with`]); with none, nobody is told.
+type AwayTeller = Box<dyn Fn(&Path, &str, &str, &str) + Send + Sync>;
+
+fn away_teller() -> &'static OnceLock<AwayTeller> {
+    static TELLER: OnceLock<AwayTeller> = OnceLock::new();
+    &TELLER
+}
+
+/// Sends every projection's away notices through `teller` (the first call wins): the daemon
+/// hands each one to the agent sessions working in the folder.
+pub(crate) fn tell_away_with(teller: impl Fn(&Path, &str, &str, &str) + Send + Sync + 'static) {
+    let _ = away_teller().set(Box::new(teller));
+}
+
+/// The sender an away notice names.
+pub(crate) const AWAY_SENDER: &str = "cmux";
+
+/// The title and body of the notice that tells the agent about away episode `report` of the
+/// projection mounted at `at` (RFD 0007: "The session tells the agent once, in its context, that
+/// the Mac is away and which reads failed; it does not retry on its own").
+#[must_use]
+pub(crate) fn away_notice(at: &Path, report: &cmux_projection::away::Report) -> (String, String) {
+    let reads = if report.failed == 1 { "read" } else { "reads" };
+    let title = if report.back {
+        format!("The Mac was away: {} {reads} in a projected folder failed", report.failed)
+    } else {
+        format!("The Mac is away: {} {reads} in a projected folder failed", report.failed)
+    };
+    let mut body = if report.back {
+        format!(
+            "The Mac that projects {} was asleep or offline and is back now. The reads below \
+             failed with EHOSTDOWN (\"Host is down\") while it was away; nothing retries them on \
+             its own, so read them again.",
+            at.display()
+        )
+    } else {
+        format!(
+            "The Mac that projects {} is asleep or offline. A read of a file not fetched from it \
+             yet waits {} s, then fails with EHOSTDOWN (\"Host is down\"); files already read \
+             keep working. Nothing retries on its own: read these again once the Mac is back.",
+            at.display(),
+            cmux_projection::link::AWAY_WAIT.as_secs()
+        )
+    };
+    body.push_str(&format!("\nReads that failed ({}):", report.failed));
+    for path in &report.paths {
+        body.push_str(&format!("\n- {path}"));
+    }
+    let more = report.failed.saturating_sub(report.paths.len());
+    if more > 0 {
+        body.push_str(&format!("\n- and {more} more"));
+    }
+    (title, body)
+}
+
+/// The prompt text of a notice from [`AWAY_SENDER`] (acpmux's `prompt_provenance::notice_text`
+/// for a `warn` notice with no host or links), so an agent or page that knows no notice reads it.
+#[must_use]
+pub(crate) fn away_prompt(title: &str, body: &str) -> String {
+    format!("[notice from {AWAY_SENDER} · WARN] {title}\n{body}")
+}
+
+/// Tells the installed teller about episode `report` of projection `name` at `at`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn tell_away(name: &str, at: &Path, report: &cmux_projection::away::Report) {
+    let (title, body) = away_notice(at, report);
+    let started = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis());
+    // Unique across daemon restarts: acpmux answers a resent prompt id from its log.
+    let prompt_id = format!("projection-away-{name}-{started}-{}", report.episode);
+    eprintln!(
+        "cmux-tui: projection {name}: the Mac is away, {} reads failed; telling the agent",
+        report.failed
+    );
+    if let Some(teller) = away_teller().get() {
+        teller(at, &prompt_id, &title, &away_prompt(&title, &body));
+    }
 }
 
 fn send_line(writer: &mut impl Write, value: &Value) -> std::io::Result<()> {
@@ -793,13 +882,18 @@ fn mount(
     let meta = std::fs::metadata(state).map_err(|error| io("reading the state folder", &error))?;
     let link = Arc::new(cmux_projection::link::Link::default());
     let fetch: Arc<dyn cmux_projection::Fetch> = link.clone();
+    let away = {
+        let (name, at) = (name.to_owned(), at.to_path_buf());
+        cmux_projection::away::Away::new(move |report| tell_away(&name, &at, &report))
+    };
     let overlay = cmux_projection::overlay::Overlay::open(
         Arc::new(manifest),
         state,
         fetch,
         (meta.uid(), meta.gid()),
     )
-    .map_err(|error| io("opening the projection", &format!("{error:#}")))?;
+    .map_err(|error| io("opening the projection", &format!("{error:#}")))?
+    .with_away(away.clone());
     let overlay = Arc::new(overlay);
     let mounted = cmux_projection::mount::mount(overlay.clone(), at)
         .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
@@ -817,6 +911,7 @@ fn mount(
         digest,
         at: at.to_path_buf(),
         mounted: Mutex::new(Some(mounted)),
+        away,
     });
     table.insert(name.to_owned(), projected.clone());
     // RFD 0007, seed bundles: with `CMUX_PROJECTION_GIT_SWAP=1`, a `.git` with a public remote
