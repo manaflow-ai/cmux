@@ -25,6 +25,14 @@
 //! `lastTurn` and the notifications cmux-tui-core posts from it do not move), and its words never
 //! become the chat's `preview` / `lastMessage` (the sidebar line and a later notice's body).
 //!
+//! A turn of its own that ends on the account's rate limit (its `result` is the 429's error) is a
+//! strike of the chat and holds it as a prompted turn's 429 does (`rate_hold.rs`
+//! [`Hub::hold_at_failure`]): acpmux cannot stop Claude Code from starting it, but what acpmux
+//! would start next waits for the hold, and the strikes grow toward parking. Before, only a turn
+//! acpmux prompted counted, so a chat that a background task or a `/loop` tick woke on its 429
+//! kept getting the queue's turns at once (Leo, 2026-11-18: "claude-sr2-coord fell into a weird
+//! "rate limited" loop again 429 and whatever").
+//!
 //! `quiet` says how the transcript draws it, and is decided here only: a turn whose reply is at
 //! most one short line ([`SHORT_LINE`] characters), with no question and no link, is quiet and
 //! draws as one muted line that opens on a click. Any other one draws in full, still without a
@@ -183,10 +191,29 @@ impl BackgroundTurns {
         }))
     }
 
+    /// The turn of its own a `result` line ends, while no acpmux turn runs: the running one's id,
+    /// or one only begun (its `system/init` came, no model work yet) named by its init's seq.
+    fn own_turn(&self, acpmux_turn: bool) -> Option<String> {
+        if acpmux_turn {
+            return None;
+        }
+        let running = self.running.as_ref().map(|r| r.id.clone());
+        running.or_else(|| self.pending.map(|(_, seq)| format!("bg-{seq}")))
+    }
+
     /// Whether a reply message is a background turn's.
     fn owns_message(&self, id: &str) -> bool {
         self.messages.iter().any(|m| m == id)
     }
+}
+
+/// The error of a Claude `result` line that failed on the account's usage or rate limit.
+fn rate_limit_result(method: &str, line: &Value) -> Option<String> {
+    if !method.starts_with("claude.result") || line.get("is_error") != Some(&Value::Bool(true)) {
+        return None;
+    }
+    let error = line.get("result").and_then(Value::as_str)?;
+    (crate::turn_errors::resume_cause(error, error) == Some("rate_limit")).then(|| error.to_owned())
 }
 
 impl Hub {
@@ -258,15 +285,27 @@ impl Hub {
 
     /// The tap saw a raw Claude line (`claude.*`): logs the background-turn records it starts or
     /// ends, before the line itself.
-    pub(super) fn background_turn_line(&self, session: &Session, method: &str, line: &Value) {
+    /// A turn of its own that ends on the account's limit is a strike and holds the chat (the
+    /// module doc).
+    pub(super) fn background_turn_line(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        method: &str,
+        line: &Value,
+    ) {
         let acpmux_turn = session.turn().is_some();
         let seq = session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq + 1;
         let mut state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
         let acpmux_turn = acpmux_turn || state.adopted_turn;
+        let limited =
+            rate_limit_result(method, line).and_then(|e| Some((state.own_turn(acpmux_turn)?, e)));
         let records = state.on_line(method, line, acpmux_turn, seq);
         drop(state);
         for msg in records {
             self.append(session, "mux", RECORD_KIND, msg);
+        }
+        if let Some((turn, error)) = limited {
+            let _parked = self.hold_at_failure(session, &turn, &error, None);
         }
     }
 

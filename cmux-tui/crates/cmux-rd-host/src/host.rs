@@ -149,6 +149,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         // stream moving while that measurement is still unknown.
         frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
+        rtt_tail_probe: opts.flag("rtt-tail-probe"),
         resolution_ladder: opts.flag("resolution-ladder"),
         max_qp: ladder_max_qp(opts)?,
         max_width: opts
@@ -528,6 +529,8 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(caps::FEC_BLOCKS);
     if crate::desktop::scales_pictures() {
         host_caps.push(caps::VIDEO_SCALED);
     }

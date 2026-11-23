@@ -99,7 +99,9 @@ def shown(rpc, look, sleep, launched=None, run=subprocess.run):
 
     def pause(seconds):
         waited[0] += seconds
-        sleep(seconds)  # test harness: the picture's load and the tint's blend, between 2 reads of the app
+        # sleep-ok: the poll step of window_look.shown_look's deadline loop (it re-reads until the look shows and its tint
+        # stops blending); this wrapper only counts the waited seconds as that loop's clock.
+        sleep(seconds)
 
     def ask(method, params=None):
         return rpc(method, params, 10)

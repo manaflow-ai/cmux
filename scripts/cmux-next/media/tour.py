@@ -137,7 +137,7 @@ MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
-TOUR_KEYS = {"title", "steps", "settings", "env", "customize", "launch_args", "harnessFixture"}
+TOUR_KEYS = {"title", "steps", "settings", "env", "customize", "launch_args", "harnessFixture", "menus"}
 # A directional focus right after a pane close (focus_after_close).
 DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
 # Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
@@ -254,6 +254,8 @@ def load_tour(path: Path) -> dict[str, Any]:
     if harness_fixture is not None and (not isinstance(harness_fixture, dict)
                                         or not isinstance(harness_fixture.get("harnesses", {}), dict)):
         raise TourError(f"{path}: `harnessFixture` is an acpmux harness fixture object ({{\"harnesses\": {{...}}}})")
+    if not isinstance(data.get("menus", False), bool):
+        raise TourError(f"{path}: `menus` must be true or false")
     launch_args = data.get("launch_args", [])
     if not isinstance(launch_args, list) or not all(isinstance(arg, str) for arg in launch_args):
         raise TourError(f"{path}: `launch_args` must be a list of strings (arguments the app launches with)")
@@ -351,7 +353,7 @@ def load_tour(path: Path) -> dict[str, Any]:
         harness_fixture = json.loads(json.dumps(harness_fixture).replace("{repo}", json.dumps(repo)[1:-1]))
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
             "env": launch_env, "customize": data.get("customize", False), "launch_args": launch_args,
-            "harness_fixture": harness_fixture}
+            "harness_fixture": harness_fixture, "menus": data.get("menus", False)}
 
 
 def _action(step: dict[str, Any]) -> str | None:
@@ -639,8 +641,12 @@ def frame_interval(mode: str) -> float:
 
 
 class WindowVideo:
-    def __init__(self, session, pid: int | None, directory: Path, scratch: Path):
+    """capture.mov of the app's largest window (record-window.swift). With `menus`, every window of the app
+    cut to that window's frame, so an open native menu (its own window) is in the video too."""
+
+    def __init__(self, session, pid: int | None, directory: Path, scratch: Path, menus: bool = False):
         self.session, self.pid = session, pid
+        self.menus = menus
         self.path = directory / "capture.mov"
         self.scratch = scratch
         self.process = None
@@ -664,7 +670,7 @@ class WindowVideo:
             for mode, prefix in self.session.capture_routes:
                 self.path.unlink(missing_ok=True)
                 self.log = self.log_path.open("w+")
-                self.process = subprocess.Popen(prefix + [str(binary), str(self.pid), str(self.path)],
+                self.process = subprocess.Popen(prefix + [str(binary), str(self.pid), str(self.path)] + (["--menus"] if self.menus else []),
                                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log,
                                                 text=True)
                 with selectors.DefaultSelector() as ready:
@@ -1312,7 +1318,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
               launch_env=launch_env, launch_args=tour.get("launch_args"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
-    video = WindowVideo(session, None, session.shareable(directory), screen.scratch)
+    video = WindowVideo(session, None, session.shareable(directory), screen.scratch, menus=bool(tour.get("menus")))
     video_started = False
     # When the recording (video or stills) began: each step's `at` is its start on that clock, which
     # whats-new-clips.py's render-tour uses to cut a step range out of capture.mov.
@@ -1352,7 +1358,8 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
             video_started = video.start()
             clock = time.monotonic()
             if video_started:
-                manifest["video_mode"] = "ScreenCaptureKit window, requested 60 fps"
+                manifest["video_mode"] = ("ScreenCaptureKit window with the app's menus" if video.menus
+                                          else "ScreenCaptureKit window") + ", requested 60 fps"
             else:
                 manifest["video_fallback"] = video.reason
                 print(f"[{tour['name']}] still-only video fallback: {video.reason}", flush=True)

@@ -231,7 +231,7 @@ def sample_compilers(root_pid: int, log_file: BinaryIO | None, stdout_fd: int) -
             return
         write_child_output(("[idle timeout] compiler process snapshot (before)\n" +
                             "\n".join(row for _, row in first) + "\n").encode(), log_file, stdout_fd)
-        time.sleep(1)
+        time.sleep(1)  # sleep-ok: the sampling interval between the two diagnostic snapshots
         second = compiler_process_snapshot(root_pid, timeout=min(2, max(0.1, deadline - time.monotonic())))
         write_child_output(("[idle timeout] compiler process snapshot (after)\n" +
                             "\n".join(row for _, row in second) + "\n").encode(), log_file, stdout_fd)
