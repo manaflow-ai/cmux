@@ -45,9 +45,6 @@ pub(super) async fn run(
         }
         outcomes.push(o);
     }
-    if !args.dry_run {
-        settle_arrivals(src, &mut outcomes).await;
-    }
     let failed = outcomes.iter().filter(|o| o.error.is_some()).count();
     if json_out {
         let rows: Vec<Value> = outcomes
@@ -56,7 +53,7 @@ pub(super) async fn run(
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "via": "hub",
                        "there": o.there, "targetSessionId": o.there,
-                       "reachable": o.reachable, "error": o.error})
+                       "error": o.error})
             })
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
@@ -163,8 +160,6 @@ async fn steps(
     o.moved = true;
     o.cwd = moved["cwd"].as_str().map(str::to_owned);
     o.there = moved["sessionId"].as_str().map(str::to_owned);
-    // Listed here as `HOST/ID` once the hub link mirrors the target's row (`Hub::rows_by_key`).
-    o.arrival_key = o.there.as_ref().map(|there| format!("{host}/{there}"));
     Ok(())
 }
 
