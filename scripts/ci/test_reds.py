@@ -182,13 +182,23 @@ XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or tes
                             r"Test Case '-\[)(\S+)[ .](\w+)\]?'? crashed|"
                             r"Restarting after unexpected exit, crash, or test timeout in (\S+?)\.(\w+)\(\)")
 # What the CI wrapper or GitHub prints when a run's results are cut short: an error line, never test output.
+# Each word below is the wrapper's own word, so it is read as a word and never as part of a longer token: `\b` alone
+# let a file name carry it, and any annotation naming such a file called the job cut short. 2026-11-22,
+# cmuxterm-hq eb73df0c's 'go vet + go test' (job 137452468531) was refused as cut short because actions/checkout
+# annotated `##[error]error: Path 'docs/handbook/stalled-work-nobody-moves.md' not uptodate; will not remove from
+# working tree.` -- `\bstalled` inside that path -- while the job ran five more minutes and ended in a plain
+# `FAIL\tcmuxterm-hq/build-fleet/cmd/controller`, a failure the comparison can name. A word in a path or inside a
+# longer identifier (stalled-work..., TestTimeout, timeouts.go) is not that word.
+TOKEN_BEFORE, TOKEN_AFTER = r"(?<![\w./-])", r"(?![\w-])"
 TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with\" summary line|"
-                       r"swift test ended early|reported fewer tests than it ran|swift test stuck|.*\bnever finished\b|"
+                       r"swift test ended early|reported fewer tests than it ran|swift test stuck|"
+                       r".*" + TOKEN_BEFORE + r"never finished" + TOKEN_AFTER + r"|"
                        r"The job running on runner .* has exceeded the maximum execution time|"
                        r"The operation was canceled|.*\blog (?:is|was) truncated|"
                        # the hang watchdog (hung_test_watchdog.py) and run_with_timeout.py
-                       r".*\b(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|[Hh]ung test|"
-                       r"[Cc]ancelled test|[Tt]imeout))|^This log was truncated", re.I)
+                       r".*" + TOKEN_BEFORE + r"(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|"
+                       r"[Hh]ung test|[Cc]ancelled test|[Tt]imeout)" + TOKEN_AFTER + r")|"
+                       r"^This log was truncated", re.I)
 # package-test-lane.sh suite: a suite the lane named whose tests did not run (all skipped, or skipped for a missing
 # same-tree cmux-tui) is no result: never a base red, whatever the base shows.
 NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests did not run\b")
@@ -1911,9 +1921,11 @@ def web_cut_short(log: str | None) -> tuple[list[str], list[str], list[str]] | N
 
 
 def web_base_red_files(base_logs: list) -> set[str]:
-    """The webview test files the base logs name as red: failed (any of their tests, or the file) or timed out."""
+    """The webview test files the base logs name as red: failed (any of their tests, or the file). A file that only
+    timed out on the base is not red there: a cut-short file is never a base red, on the head or on the base (review
+    of #39840, F1)."""
     seen = merged_web(base_logs)
-    return {name.split(" > ", 1)[0] for name in seen.failed} | set(seen.timed_out)
+    return {name.split(" > ", 1)[0] for name in seen.failed}
 
 
 def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: str = "the base") -> Verdict | None:
