@@ -303,6 +303,7 @@ type PreparedPickerCatalog = {
   sourceCatalog: ModelCatalog;
   user: unknown;
   acpmux: AcpmuxCatalog;
+  sourceAcpmux: AcpmuxCatalog;
   members: Map<string, AcpmuxHarness[]>;
   hidden: Set<string>;
   overrides: Record<string, Record<string, unknown>>;
@@ -316,7 +317,11 @@ type PreparedPickerCatalog = {
 let preparedPicker: PreparedPickerCatalog | undefined;
 
 function preparePickerCatalog(catalog: ModelCatalog, user: unknown, acpmux: AcpmuxCatalog): PreparedPickerCatalog {
-  if (preparedPicker?.catalog === catalog && preparedPicker.user === user && preparedPicker.acpmux === acpmux)
+  if (
+    preparedPicker?.sourceCatalog === catalog &&
+    preparedPicker.user === user &&
+    preparedPicker.sourceAcpmux === acpmux
+  )
     return preparedPicker;
   // A chat folder's own profiles stay out of the join, and routers cannot replace a real launcher.
   const filtered = acpmux.filter((entry) => !entry.folder && !isModelRouterKind(entry.kind));
@@ -331,6 +336,7 @@ function preparePickerCatalog(catalog: ModelCatalog, user: unknown, acpmux: Acpm
     catalog: layered,
     sourceCatalog: catalog,
     acpmux: filtered,
+    sourceAcpmux: acpmux,
     members,
     hidden: hiddenHarnesses(user),
     overrides: userOverrides(user),

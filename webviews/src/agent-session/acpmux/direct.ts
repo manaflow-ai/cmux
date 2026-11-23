@@ -1073,9 +1073,8 @@ function seedRoots(
 }
 
 export class AcpmuxDirectClient {
-  /// Stream rows are folded when a hidden pane is shown. A bounded batch keeps a long-hidden
-  /// client from retaining an unbounded deferred list, while still making the common hidden case
-  /// entirely reducer-free until wake.
+  /// Stream rows are folded when a hidden pane is shown. The small queue covers the common case.
+  /// A longer hidden stream becomes a readback gap, so the client never retains an unbounded list.
   private static readonly HIDDEN_DEFERRED_MAX = 256;
   // A busy daemon may legitimately emit no frame for many seconds, so quiet alone never ends a
   // socket. Once a request has waited this long, and the daemon proved itself no sooner, the pane
@@ -1106,6 +1105,15 @@ export class AcpmuxDirectClient {
   /// reducing only the state they need for an eventual wake, and publish one snapshot on return.
   private hiddenEmit?: string;
   private hiddenDeferred: EventRecord[] = [];
+  /// A hidden stream past `HIDDEN_DEFERRED_MAX`: the records after this seq are not all held, and
+  /// the pane reads them back when shown (`startHiddenGapRead`).
+  private hiddenGapAfterSeq?: number;
+  private hiddenGapRead?: Promise<void>;
+  /// Hidden stream records dropped into the gap so far: a read asked before the newest drop may not
+  /// hold it, so its answer does not close the gap.
+  private hiddenGapDrops = 0;
+  /// Times the page was hidden: a gap read that spans one had a page's refold left (`rebuild`).
+  private hides = 0;
   /// Latest observed `isWorking`, also while hidden: completion accounting must not require a draw.
   private drawnWorking = false;
   private drawnWorkingSession?: string;
@@ -1969,6 +1977,9 @@ export class AcpmuxDirectClient {
     this.copyLive = undefined;
     this.events = [];
     this.hiddenDeferred = [];
+    this.hiddenGapAfterSeq = undefined;
+    this.hiddenGapRead = undefined;
+    this.hiddenGapDrops = 0;
     this.streamedOutputs.clear();
     this.queue = [];
     this.drewKeptTail = false;
@@ -2879,6 +2890,8 @@ export class AcpmuxDirectClient {
     this.stoppingEnded();
     this.events = [];
     this.hiddenDeferred = [];
+    this.hiddenGapAfterSeq = undefined;
+    this.hiddenGapRead = undefined;
     this.streamedOutputs.clear();
     this.turnOpener = undefined;
     this.turnPrompt = undefined;
@@ -4513,6 +4526,7 @@ export class AcpmuxDirectClient {
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
   private showChanged = (): void => {
     if (!pageShown()) {
+      this.hides += 1;
       // A visibility switch can race the old hidden fallback timer. Cancel it so the page
       // contributes no timeout callback while another page owns the renderer.
       if (this.hiddenDraw !== undefined) {
@@ -6667,8 +6681,30 @@ export class AcpmuxDirectClient {
     if (copy?.offline && !copy.attaching && copy.sessionId === event.sessionId && event.seq > copy.lastSeq) return;
     // The reader scrolled far up and the newest records are left: the record moves the live state alone.
     if (this.newerLeft && event.seq > this.newerLeft.after) return this.heardAway(event);
+    const hiddenStream = !pageShown() && hiddenStreamEvent(event);
     if (event.seq <= this.lastSeq) {
+      if (this.hiddenGapAfterSeq !== undefined && hiddenStream) return;
       this.mergeLate(event);
+      return;
+    }
+    if (this.hiddenGapAfterSeq !== undefined && pageShown()) {
+      // Keep one visible arrival in the held window while the readback fills the hidden gap. The
+      // read's rebuild includes it, so it cannot overtake the records that were skipped hidden.
+      this.holdLive(event);
+      this.sawPrompt(event);
+      this.lastSeq = event.seq;
+      this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
+      this.streamGrew = false;
+      this.startHiddenGapRead();
+      this.emitInFrame(event.kind, event.kind === "tool_call_update");
+      return;
+    }
+    if (this.hiddenGapAfterSeq !== undefined && hiddenStream) {
+      this.hiddenGapDrops += 1;
+      this.lastSeq = event.seq;
+      this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
+      this.streamGrew = false;
+      this.emitInFrame(event.kind, true);
       return;
     }
     this.holdLive(event);
@@ -6676,10 +6712,10 @@ export class AcpmuxDirectClient {
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.streamGrew = false;
-    if (!pageShown() && hiddenStreamEvent(event)) {
+    if (hiddenStream) {
       this.hiddenDeferred.push(event);
       this.emitInFrame(event.kind, true);
-      if (this.hiddenDeferred.length >= AcpmuxDirectClient.HIDDEN_DEFERRED_MAX) this.flushHiddenDeferred();
+      if (this.hiddenDeferred.length >= AcpmuxDirectClient.HIDDEN_DEFERRED_MAX) this.beginHiddenGap();
       return;
     }
     this.flushHiddenDeferred();
@@ -6721,18 +6757,74 @@ export class AcpmuxDirectClient {
     }
   }
 
-  /// Applies the row-heavy records held while this page was hidden. They stay in arrival order so
-  /// the resulting rows are the same as an eager fold. The caller publishes one snapshot after the
-  /// batch, instead of one frame per deferred record.
-  private flushHiddenDeferred(): void {
-    if (this.hiddenDeferred.length === 0) return;
-    const pending = this.hiddenDeferred;
+  /// Drops the bounded hidden queue into a readback gap. The records are already in `events` and
+  /// will be folded once the pane is shown, so no hidden stream chunk reaches `reduce`.
+  private beginHiddenGap(): void {
+    const first = this.hiddenDeferred[0]?.seq;
+    if (first === undefined) return;
+    this.hiddenGapAfterSeq = first - 1;
     this.hiddenDeferred = [];
-    for (const event of pending) {
-      this.streamGrew = false;
-      this.reduce(event);
-    }
+    this.events = this.events.filter((event) => event.seq < first || !hiddenStreamEvent(event));
+    this.streamedOutputs.clear();
+  }
+
+  /// Applies the row-heavy records held while this page was hidden. They stay in arrival order so
+  /// the resulting rows are the same as an eager fold. A long hidden stream is read back after the
+  /// visibility change instead of retaining or reducing an unbounded batch.
+  private flushHiddenDeferred(): void {
+    if (!pageShown()) return;
+    if (this.hiddenGapAfterSeq !== undefined) return this.startHiddenGapRead();
+    const first = this.hiddenDeferred[0]?.seq;
+    if (first === undefined) return;
+    this.hiddenDeferred = [];
+    // Every record before the first deferred one is folded in order: the refold starts there.
+    this.rebuild(first);
+    this.shedOlderHeld();
     this.followQuietWatch();
+  }
+
+  private startHiddenGapRead(): void {
+    const sessionId = this.selectedSessionId;
+    const afterSeq = this.hiddenGapAfterSeq;
+    if (
+      afterSeq === undefined ||
+      this.hiddenGapRead ||
+      this.closed ||
+      !pageShown() ||
+      !sessionId ||
+      this.attachedGeneration !== this.selectionGeneration
+    )
+      return;
+    const generation = this.selectionGeneration;
+    // acpmux holds every record it sent, so the read answers at least through the newest one heard.
+    const through = this.lastSeq;
+    const drops = this.hiddenGapDrops;
+    const hides = this.hides;
+    const read = this.fetchMissedEvents(sessionId, generation, afterSeq, false);
+    this.hiddenGapRead = read;
+    void read.then(
+      () => {
+        if (this.hiddenGapRead !== read || this.closed || generation !== this.selectionGeneration) return;
+        this.hiddenGapRead = undefined;
+        // Hidden again before the answer: the read's records are held but its refold was left
+        // (`rebuild`), so the gap stays from where it began and the next show reads and folds it.
+        if (!pageShown()) return;
+        // Hidden and shown again while it read: a page that answered hidden was held, not folded.
+        if (this.hides !== hides) this.rebuildKeepingLiveState(undefined, afterSeq + 1);
+        // Shown, and folded through `through`. A record dropped after the read was asked (the pane
+        // hid and showed again meanwhile) can be past its answer: read on from there.
+        if (this.hiddenGapDrops !== drops) {
+          this.hiddenGapAfterSeq = through;
+          return this.startHiddenGapRead();
+        }
+        this.hiddenGapAfterSeq = undefined;
+        this.shedOlderHeld();
+        this.followQuietWatch();
+      },
+      () => {
+        if (this.hiddenGapRead === read) this.hiddenGapRead = undefined;
+      },
+    );
   }
 
   /// A live record at or below the newest seq folded. One the pane holds is a duplicate and is dropped. One it
@@ -7688,7 +7780,7 @@ export class AcpmuxDirectClient {
   /// messages"; 2026-11-12: "even if a chat is long, there should be no percievable difference").
   /// A seek (`replayThrough`) still folds everything it shows.
   private rebuild(changedFrom?: number): void {
-    this.flushHiddenDeferred();
+    if (!pageShown() && (this.hiddenDeferred.length > 0 || this.hiddenGapAfterSeq !== undefined)) return;
     const left = this.newerLeft;
     if (!left) return this.rebuildHeld(changedFrom);
     // The held records end before the chat's (`newerLeft`): their refold's turn state is the window end's, where a
