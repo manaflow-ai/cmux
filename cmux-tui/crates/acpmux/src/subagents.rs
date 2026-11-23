@@ -95,9 +95,11 @@ pub struct SubagentTree {
     expiry: Expiry,
     /// The latest subagents, live and finished, each with its state: the summary's
     /// `recentSubagents`, which the sidebar nests under the chat (`subagents_recent.rs`).
+    #[serde(default)]
     recent: std::collections::VecDeque<recent::RecentEntry>,
     /// Moves once on each live change to `recent`, so the hub tells watchers the list moved
     /// even when the running count did not (`hub/tap.rs`).
+    #[serde(default)]
     recent_revision: u64,
 }
 

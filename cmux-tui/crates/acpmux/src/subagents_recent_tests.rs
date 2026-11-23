@@ -140,3 +140,25 @@ fn a_listed_title_has_its_secrets_masked() {
     assert!(!title.contains(&token), "the token survives in {title:?}");
     assert!(title.starts_with("Push with"), "{title:?}");
 }
+
+/// A host checkpoint saves the tree (#47558): the list and each state come back as they were, and a
+/// checkpoint written before the list existed still loads, with no list.
+#[test]
+fn the_list_survives_a_checkpoint() {
+    let mut tree = SubagentTree::default();
+    spawn(&mut tree, "t1", "Checkout: label the form fields");
+    spawn(&mut tree, "t2", "Images: lazy-load below the fold");
+    state(&mut tree, "t1", "completed");
+    state(&mut tree, "t2", "failed");
+    let saved = serde_json::to_value(&tree).unwrap();
+    let back: SubagentTree = serde_json::from_value(saved.clone()).unwrap();
+    let states: Vec<_> = back.recent(true).iter().map(|s| (s.id.clone(), s.state)).collect();
+    assert_eq!(states, [("t1".to_owned(), "done"), ("t2".to_owned(), "failed")]);
+
+    let mut old = saved;
+    let fields = old.as_object_mut().unwrap();
+    fields.remove("recent");
+    fields.remove("recent_revision");
+    let back: SubagentTree = serde_json::from_value(old).unwrap();
+    assert!(back.recent(true).is_empty());
+}

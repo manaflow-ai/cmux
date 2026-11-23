@@ -4,18 +4,40 @@
 //! [`SubagentTree`]; bounded at [`RECENT_SUBAGENTS`] whatever the chat starts.
 
 use super::SubagentTree;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// The most subagents a summary lists (`recentSubagents`); `subagentsSeen` counts all.
 pub const RECENT_SUBAGENTS: usize = 8;
 
 /// One listed subagent as the tree keeps it: its parent subagent and its last state.
-#[derive(Debug, Clone, PartialEq)]
+/// Saved with the tree in a host checkpoint (#47558), so a resumed host keeps the list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(from = "RecentEntryWire")]
 pub(super) struct RecentEntry {
     id: String,
     parent: Option<String>,
     state: &'static str,
+}
+
+/// A checkpoint's [`RecentEntry`]: its state read back onto the four a list says.
+#[derive(Deserialize)]
+struct RecentEntryWire {
+    id: String,
+    parent: Option<String>,
+    state: String,
+}
+
+impl From<RecentEntryWire> for RecentEntry {
+    fn from(wire: RecentEntryWire) -> Self {
+        let state = match wire.state.as_str() {
+            "running" => "running",
+            "done" => "done",
+            "failed" => "failed",
+            _ => "stopped",
+        };
+        RecentEntry { id: wire.id, parent: wire.parent, state }
+    }
 }
 
 /// One of a chat's latest subagents as its summary lists it (`recentSubagents[]`).
