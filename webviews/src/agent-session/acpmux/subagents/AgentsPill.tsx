@@ -5,13 +5,13 @@
 // sits right under it, moved in (`nestAgents`). A click on an agent opens
 // it: its pane, or its view in this pane (App.tsx `showSubagent`). The pill is a part of the
 // bottom stack (bottomStack.css), not laid over the transcript, so it never hides the latest row.
-import { memo, useId } from "react";
+import { memo, useContext, useId } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
-import { elapsed, running, useNow } from "./subagentGroupModel";
+import { elapsed, running, SubagentHarnessContext, useNow } from "./subagentGroupModel";
 import type { Subagent } from "./subagentFold";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
@@ -33,6 +33,8 @@ export const AgentsPill = memo(function AgentsPill({
   onOpen: (id: string) => void;
 }) {
   const t = useT();
+  // A harness's own subagent names no harness: it runs on the chat's, and wears its mark.
+  const chatHarness = useContext(SubagentHarnessContext);
   const { open, setOpen, button, popover, toggle } = usePopover();
   const listId = useId();
   const live = agents.filter(running);
@@ -95,7 +97,7 @@ export const AgentsPill = memo(function AgentsPill({
                         {/* The harness's mark when it has one, else the agent's dot in its own tone. */}
                         <AgentIdentity
                           className="acpmux-agents-list__mark"
-                          harness={agent.harness}
+                          harness={agent.harness ?? chatHarness}
                           tone={tones.get(agent.id) ?? agentTone(agent.id)}
                           size={9}
                           fallbackNode={<span className="acpmux-agents-list__dot" />}
