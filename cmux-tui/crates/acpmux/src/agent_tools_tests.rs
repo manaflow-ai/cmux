@@ -291,7 +291,7 @@ fn the_acpmux_server_gets_the_agents_gh_sign_in() {
     };
     let tools = super::AgentTools {
         servers: vec![server("cmux"), server(crate::acpmux_mcp_names::SERVER_NAME)],
-        // The person said yes to cmux's tools (agents.cmuxMcp), so `cmux` stays.
+        // cmux's tools are on for agents (agents.cmuxMcp), so `cmux` stays.
         cmux_for_agents: true,
         ..Default::default()
     };
@@ -809,7 +809,7 @@ fn acpmux_processes(config: &serde_json::Value, exe: &std::path::Path) -> Vec<St
 }
 
 /// One chat starts at most [`ACPMUX_PROCESSES_PER_CHAT`] acpmux processes, with the `cmux`
-/// server (folded) and without it (the person has not said yes to cmux's tools: each of acpmux's
+/// server (folded) and without it (the person turned cmux's tools off: each of acpmux's
 /// servers its own entry), and the entries keep their names, so the tool names
 /// (`mcp__cmux-forum__...`) and every allowlist naming them stay.
 #[tokio::test]
@@ -824,7 +824,7 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
         secrets: true,
         offers: true,
         subsessions: true,
-        ..memory_inputs(&root, None)
+        ..memory_inputs(&root, Some(r#"{"agents": {"cmuxMcp": "off"}}"#))
     };
     let gateway = crate::mcp_gateway::bind(
         &root.join("home"),
@@ -880,11 +880,11 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
 }
 
 /// Every agent cmux starts gets the one `cmux` server ([`super::cmux_server`]): this CLI's `mcp
-/// serve` with the app's settings file, and only with the person's yes (`agents.cmuxMcp` on).
-/// Unanswered, `off` or a file that does not parse: the session's other servers, standalone. A
-/// Chief turn (a preset naming its cmux tools) keeps it either way.
+/// serve` with the app's settings file, unless the person turned it off (`agents.cmuxMcp` `off`):
+/// then the session's other servers, standalone. No file, no key, `ask`, another value or a file
+/// that does not parse: on. A Chief turn (a preset naming its cmux tools) keeps it either way.
 #[test]
-fn the_cmux_server_goes_only_with_the_persons_yes() {
+fn the_cmux_server_goes_unless_the_person_turned_it_off() {
     let root = tempfile::tempdir().unwrap();
     let cmux = root.path().join("cmux");
     crate::test_exec::write_executable(&cmux, "#!/bin/sh\nexit 0\n");
@@ -902,14 +902,7 @@ fn the_cmux_server_goes_only_with_the_persons_yes() {
             .collect::<Vec<_>>()
     };
     let none = std::collections::BTreeMap::new();
-    for json in [
-        None,
-        Some("{}"),
-        Some(r#"{"agents": {"cmuxMcp": "ask"}}"#),
-        Some(r#"{"agents": {"cmuxMcp": "off"}}"#),
-        Some(r#"{"agents.cmuxMcp": "yes"}"#),
-        Some("{"),
-    ] {
+    for json in [Some(r#"{"agents": {"cmuxMcp": "off"}}"#), Some(r#"{"agents.cmuxMcp": "off"}"#)] {
         let names = names(json, &none);
         assert!(!names.contains(&"cmux".to_owned()), "{json:?}: {names:?}");
         assert!(names.contains(&crate::acpmux_mcp::SERVER_NAME.to_owned()), "{json:?}: {names:?}");
@@ -921,19 +914,31 @@ fn the_cmux_server_goes_only_with_the_persons_yes() {
             super::resolve(&inputs(json)).scoped(&chief).servers.iter().any(|s| s.name == "cmux")
         );
     }
-    for json in [r#"{"agents": {"cmuxMcp": "on"}}"#, "{\n// mine\n\"agents.cmuxMcp\": \"on\",\n}"] {
-        let tools = super::resolve(&inputs(Some(json))).scoped(&none);
+    for json in [
+        None,
+        Some("{}"),
+        Some(r#"{"agents": {"cmuxMcp": "on"}}"#),
+        Some(r#"{"agents": {"cmuxMcp": "ask"}}"#),
+        Some(r#"{"agents.cmuxMcp": "yes"}"#),
+        Some("{\n// mine\n\"agents.cmuxMcp\": \"on\",\n}"),
+        Some("{"),
+    ] {
+        let tools = super::resolve(&inputs(json)).scoped(&none);
         let server =
-            tools.servers.iter().find(|s| s.name == "cmux").unwrap_or_else(|| panic!("{json}"));
+            tools.servers.iter().find(|s| s.name == "cmux").unwrap_or_else(|| panic!("{json:?}"));
         assert_eq!(server.command, cmux);
         assert_eq!(server.args, ["mcp", "serve"]);
         // Folded: one server, `cmux`, the others behind it.
         let folded = tools.for_session("s-1").folded();
         assert_eq!(folded.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["cmux"]);
     }
-    // MCP off in the settings file: no `cmux` server even with the yes.
-    let off = r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#;
-    assert!(!names(Some(off), &none).contains(&"cmux".to_owned()));
+    // MCP off in the settings file: no `cmux` server even with the setting on.
+    for off in [
+        r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#,
+        r#"{"mcp": {"enabled": false}}"#,
+    ] {
+        assert!(!names(Some(off), &none).contains(&"cmux".to_owned()), "{off}");
+    }
 }
 
 #[test]
@@ -1104,7 +1109,7 @@ fn a_chat_started_from_another_mac_gets_cmux_by_that_macs_answer() {
     let (on, off) = (r#"{"agents": {"cmuxMcp": "on"}}"#, r#"{"agents": {"cmuxMcp": "off"}}"#);
     assert!(has_cmux(off, Some("on")));
     assert!(!has_cmux(on, Some("off")));
-    assert!(!has_cmux(on, Some("ask")), "anything but on is no");
+    assert!(!has_cmux(on, Some("ask")), "a forwarded answer other than on is no");
     // Started here: this machine's answer.
     assert!(has_cmux(on, None));
     assert!(!has_cmux(off, None));
