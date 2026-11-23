@@ -224,7 +224,7 @@ import CmuxNextDesignTokens
         swatch.wantsLayer = true
         swatch.layer?.backgroundColor = swatchColor.nsColor.cgColor
         container.addSubview(swatch)
-        let samples = catalog(scope: scope, disabled: disabled, onMenuGlass: ground.isGlass)
+        let samples = catalog(scope: scope, disabled: disabled)
         // The most any ink reaches on a see-through ground: the theme's own primary text there.
         // Read as the capture holds them, 8 bits a channel: Rose Pine Dawn's text is 2.363:1 on its exact ground and
         // 2.354:1 on the 8-bit one, so the theme's own ink failed its own ceiling.
@@ -242,6 +242,10 @@ import CmuxNextDesignTokens
         scope.root(container)
         container.layoutSubtreeIfNeeded()
         for view in allViews(container) { view.viewDidChangeEffectiveAppearance(); view.needsDisplay = true }
+        container.layoutSubtreeIfNeeded()
+        // A SwiftUI control learns the ground it sits on from the view tree once it is in the window, and takes it after
+        // the frame commit (`AfterFrameCommit`): run the main run loop through one pass, then lay out again.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         container.layoutSubtreeIfNeeded()
         // The veil was added to the panel's content while it had no size, and draws in updateLayer, which
         // cacheDisplay does not run: it takes its content's bounds and draws now.
@@ -299,9 +303,9 @@ import CmuxNextDesignTokens
         GlassMenuMaterial.glass(tokens, veil: GlassMenuMaterial.veil(for: tokens), over: page)
     }
 
-    /// Every shared button look, as the app constructs it: SwiftUI content a menu panel hosts is marked as on its glass
-    /// (`cmuxOnMenuGlass`), as the Downloads popup marks its own.
-    static func catalog(scope: ThemeScope, disabled: Bool, onMenuGlass: Bool = false) -> [Sample] {
+    /// Every shared button look, as the app constructs it. Nothing marks SwiftUI content as on a menu panel's glass: a
+    /// control finds the panel in its view tree, as each AppKit control does (``NSView/buttonGround(_:)``).
+    static func catalog(scope: ThemeScope, disabled: Bool) -> [Sample] {
         let enabled = !disabled
         func appKit(_ name: String, _ button: NSControl, icon: Bool = false) -> Sample {
             button.isEnabled = enabled
@@ -343,8 +347,7 @@ import CmuxNextDesignTokens
             swiftUI("system bezel: SwiftUI Button, selection tint", Button("More…") {}.tint(selection), reference: true),
             swiftUI("system bezel: SwiftUI Button", Button("Remove") {}, reference: true),
             swiftUI("CmuxDialogActionButton (selection tint)", CmuxDialogActionButton("Done", hint: .return) {}.tint(selection)),
-            swiftUI("SwiftUI Button (cmuxPressFill)", Button("Rename") {}.buttonStyle(.cmuxPressFill).foregroundStyle(ink)
-                .cmuxOnMenuGlass(onMenuGlass ? scope.tokens : nil)),
+            swiftUI("SwiftUI Button (cmuxPressFill)", Button("Rename") {}.buttonStyle(.cmuxPressFill).foregroundStyle(ink)),
         ]
     }
 

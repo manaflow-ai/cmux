@@ -21,7 +21,9 @@ pub use compact::{CompactMode, Compaction, Staged};
 mod deferred;
 pub use deferred::{Deferral, HeldBack, Keep, held_file};
 mod cold;
+pub(crate) mod cold_segments;
 pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
+pub use cold_segments::{ColdMoved, ColdWarmed, SealHook, StagedColdSegments};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_heads;
@@ -577,6 +579,12 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// The key its creator sent with its `session/new` (`_meta.acpmux.createKey`,
+    /// `hub/create_key.rs`): a create sent again with that key, after a daemon restart closed
+    /// the connection before the reply, answers with this session instead of making another.
+    /// Kept on disk, so the next daemon finds it too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_key: Option<String>,
     /// The journal seq the agent's own session ends at, when the journal went past it without
     /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
     /// to a fresh machine from an older disk). The agent resumes its own older session, so its
@@ -1714,11 +1722,57 @@ pub trait Store: Send + Sync {
     fn is_cold(&self, _id: &str) -> bool {
         false
     }
+    /// Moves a cold-archived chat's archive to the person's cloud history store (opt-in,
+    /// `cmux-session-cloud`), leaving a stub; its next read fetches it back. The bytes freed, or
+    /// None when the chat is not archived here, cloud history is off, or the archive changed.
+    fn offload_cold(&self, _id: &str) -> Result<Option<u64>> {
+        Ok(None)
+    }
+    /// Registers this machine's cloud history GC root: one tree naming the blob of every chat
+    /// offloaded here, so the store keeps them (roots expire unless registered again within 90
+    /// days). Call it after a batch of offloads, not per chat. The blobs named, or None when cloud
+    /// history is off.
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        Ok(None)
+    }
     /// Called with a chat's id each time its log comes back from its cold archive, on any path
     /// (a read, an append, a fork's history): the hub drops the chat's preview
     /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
     /// own that a store caller may hold. Set once.
     fn on_rehydrate(&self, _hook: RehydrateHook) {}
+    /// Writes and checks the archives of at most `max` of `id`'s sealed segments still hot, at
+    /// zstd `level`, beside them (`store/cold_segments.rs`). None: nothing to move, or a store
+    /// that keeps no segments.
+    fn stage_cold_segments(
+        &self,
+        _id: &str,
+        _max: usize,
+        _level: i32,
+    ) -> Result<Option<StagedColdSegments>> {
+        Ok(None)
+    }
+    /// Readies the store for a cold segments' commit, with no lock of the chat held: the journal
+    /// store's checkpoint must cover every line of them. False: not now.
+    fn prepare_cold_segments(&self, _id: &str, _staged: &StagedColdSegments) -> Result<bool> {
+        Ok(true)
+    }
+    /// Puts staged archives in place of their segments, each unless it changed since. The caller
+    /// holds the chat's append lock. What it moved.
+    fn commit_cold_segments(&self, _id: &str, _staged: StagedColdSegments) -> Result<ColdMoved> {
+        Ok(ColdMoved::default())
+    }
+    /// Finishes what a crash left of a move of `id`'s segments (`store/cold_segments.rs`).
+    fn settle_cold_segments(&self, _id: &str) -> Result<()> {
+        Ok(())
+    }
+    /// Brings every cold segment of `id` back to a plain `.ndjson`, each checked against its
+    /// index's SHA-256 before it goes in place (`store/cold_segments.rs`, `cmux chats warm`).
+    fn warm_cold_segments(&self, _id: &str) -> Result<ColdWarmed> {
+        Ok(ColdWarmed::default())
+    }
+    /// Called with a chat's id when its log seals a segment (rolls over to the next), under the
+    /// store's writers' lock: it may only note the id and wake a worker. Set once.
+    fn on_segment_sealed(&self, _hook: SealHook) {}
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1894,11 +1948,20 @@ pub struct LocalStore {
     sync_failed: std::sync::atomic::AtomicBool,
     /// [`Store::unlisted`]: folders whose `session.json` is there and did not read.
     unlisted: Mutex<std::collections::BTreeSet<String>>,
-    /// Held by a cold archive's commit and by a rehydrate (`store/cold.rs`), always after the
-    /// writers' lock when both are taken: two reads of an archived chat rehydrate it once.
-    cold: Mutex<()>,
+    /// One lock per chat ([`cold::ChatLocks`]), held by every change that removes one of the
+    /// chat's log's copies: a cold archive's commit, a rehydrate and its settle
+    /// (`store/cold.rs`), and a cold segment's commit, warm and settle
+    /// (`store/cold_segments.rs`). Always after the writers' lock when both are taken: two reads
+    /// of an archived chat rehydrate it once.
+    cold: cold::ChatLocks,
+    /// What this store's temporary cold-segment files carry in their names
+    /// (`store/cold_segments.rs`): a settle removes only those of another store, a crash's,
+    /// never one a move or warm of this store is writing (#43562 review F1).
+    cold_tag: String,
     /// [`Store::on_rehydrate`].
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
+    /// [`Store::on_segment_sealed`].
+    seal_hook: std::sync::OnceLock<SealHook>,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
     /// The segments' record heads a keyed scan read (`store/kind_heads.rs`).
@@ -1940,7 +2003,9 @@ impl LocalStore {
             sync_failed: Default::default(),
             unlisted: Default::default(),
             cold: Default::default(),
+            cold_tag: format!("{}x{}", std::process::id(), uuid::Uuid::now_v7().simple()),
             rehydrate_hook: Default::default(),
+            seal_hook: Default::default(),
             parts: Default::default(),
             kind_heads: Default::default(),
             segment_starts: Default::default(),
@@ -2100,13 +2165,15 @@ impl LocalStore {
     /// chat's log however little of it stays. Every session the hub creates logs `created`
     /// right after its first save, so a record without a log is a purged session's that a
     /// late save wrote back.
-    /// A cold archive (`store/cold.rs`) is a log too, and is not opened; so is a segment
-    /// zstd'd in place (`store/sealed_segments.rs`), which its first read decodes back.
+    /// A cold archive (`store/cold.rs`) is a log too, and is not opened; so is its cloud stub
+    /// (an archive offloaded to cloud history), and a segment zstd'd in place
+    /// (`store/sealed_segments.rs`), which its first read decodes back.
     fn has_records(&self, id: &str) -> Result<bool> {
         // A home that is no longer the held one is an error, never "no record" (#41721
         // review F1): a closed chat with no record reads as purged.
         if crate::home_fs::try_exists_nofollow(self.marker(id))?
             || crate::home_fs::try_exists_nofollow(self.cold_path(id))?
+            || crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id))?
         {
             return Ok(true);
         }
@@ -2133,7 +2200,11 @@ impl LocalStore {
         // Never segment `000000`: it holds only a fork's history, written whole and renamed in
         // place (`history_writer`), which would replace a record appended to it (review of
         // #37020). A log whose only segment it is goes on in `000001`.
+        // Nor a cold segment's archive (`store/cold_segments.rs`): the log goes on in the next.
         let (index, path) = match segs.last().filter(|(i, _)| *i > 0) {
+            Some((i, p)) if cold_segments::is_cold(p) => {
+                (i + 1, dir.join(format!("{:06}.ndjson", i + 1)))
+            }
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };
@@ -2585,7 +2656,7 @@ impl Store for LocalStore {
         let mut pass = crate::perf_watch::LogPass::start(id, true);
         for (_, path) in self.segments(id)? {
             let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
+                BufReader::with_capacity(256 * 1024, cold_segments::open_segment(&path)?);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
@@ -2843,8 +2914,46 @@ impl Store for LocalStore {
         LocalStore::is_cold(self, id)
     }
 
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        let _open = self.writable()?;
+        LocalStore::offload_cold(self, id)
+    }
+
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        LocalStore::register_cloud_root(self)
+    }
+
     fn on_rehydrate(&self, hook: RehydrateHook) {
         let _ = self.rehydrate_hook.set(hook);
+    }
+
+    fn stage_cold_segments(
+        &self,
+        id: &str,
+        max: usize,
+        level: i32,
+    ) -> Result<Option<StagedColdSegments>> {
+        LocalStore::stage_cold_segments(self, id, max, level)
+    }
+
+    fn prepare_cold_segments(&self, _id: &str, _staged: &StagedColdSegments) -> Result<bool> {
+        Ok(true)
+    }
+
+    fn commit_cold_segments(&self, id: &str, staged: StagedColdSegments) -> Result<ColdMoved> {
+        LocalStore::commit_cold_segments(self, id, staged)
+    }
+
+    fn settle_cold_segments(&self, id: &str) -> Result<()> {
+        LocalStore::settle_cold_segments(self, id)
+    }
+
+    fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        LocalStore::warm_cold_segments(self, id)
+    }
+
+    fn on_segment_sealed(&self, hook: SealHook) {
+        let _ = self.seal_hook.set(hook);
     }
 
     fn seal(&self) {
@@ -3099,7 +3208,7 @@ impl LocalStore {
         let start = self.segment_starts.start(id, &segments, after)?;
         for (_, path) in &segments[start..] {
             let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
+                BufReader::with_capacity(256 * 1024, cold_segments::open_segment(path)?);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
