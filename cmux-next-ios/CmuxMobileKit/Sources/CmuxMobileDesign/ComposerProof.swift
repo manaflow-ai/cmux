@@ -34,6 +34,7 @@ import UIKit
     /// Runs once per screen name.
     public static func start(_ host: ComposerProofHost, screen: String) {
         guard enabled, !running.contains(screen) else { return }
+        KeyboardFrameWatch.shared.begin()
         running.insert(screen)
         Task { @MainActor in await run(host, screen: screen) }
     }
@@ -134,12 +135,30 @@ import UIKit
                       keyboard ? "up" : "down", card.height, frac)
     }
 
+    /// The keyboard's top in the window, from its last frame notification (the window's
+    /// keyboardLayoutGuide read 0 here: no view constrains to it).
     private static func keyboardMinY(in window: UIWindow) -> CGFloat {
-        window.keyboardLayoutGuide.layoutFrame.minY
+        guard let frame = KeyboardFrameWatch.shared.endFrame else { return window.bounds.height }
+        return min(window.bounds.height, window.convert(frame, from: nil).minY)
     }
 
     private static func pause(_ seconds: Double) async {
         try? await Task.sleep(for: .seconds(seconds))
+    }
+}
+
+@MainActor private final class KeyboardFrameWatch {
+    static let shared = KeyboardFrameWatch()
+    private(set) var endFrame: CGRect?
+    private var token: NSObjectProtocol?
+
+    func begin() {
+        guard token == nil else { return }
+        token = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification,
+                                                       object: nil, queue: .main) { note in
+            let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+            MainActor.assumeIsolated { KeyboardFrameWatch.shared.endFrame = frame }
+        }
     }
 }
 
