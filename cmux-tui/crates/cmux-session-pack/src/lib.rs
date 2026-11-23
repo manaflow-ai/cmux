@@ -35,7 +35,8 @@
 //! - **blob table**: each of those blobs' length, encoding and hash.
 //!
 //! A full segment is sealed and never changes. The last, partial one is rewritten by the next
-//! [`pack`], which reads only the lines after the last sealed segment.
+//! [`pack`], which hashes the log to find the sealed segments it still holds and encodes only
+//! what follows them.
 //!
 //! # Reading
 //!
@@ -44,7 +45,9 @@
 //! The manifest also lists the lines that start a turn ([`Params::marks`]), so "the last 50
 //! turns" is one range. A range's name (`<session>@<first line>-<last line>`,
 //! [`RangeId`]) is what a compaction summary keeps in place of the text it summarized: the agent,
-//! or the view, asks for that name and gets the lines back (partial decompaction).
+//! or the view, asks for that name and gets the lines back (partial decompaction), as the
+//! records themselves or as a few kilobytes of text ([`digest`]) that name each tool result it
+//! cut short.
 //!
 //! # Moving
 //!
@@ -54,6 +57,7 @@
 //! it, so it is sent the segments sealed since and the partial one.
 
 mod codec;
+pub mod digest;
 mod manifest;
 mod pack;
 mod read;

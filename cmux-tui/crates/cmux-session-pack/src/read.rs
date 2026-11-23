@@ -4,10 +4,36 @@ use crate::Result;
 use crate::codec::{Blobs, Events};
 use crate::manifest::{Manifest, Segment};
 use crate::store::{Store, unhex};
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
-use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+
+/// `f` of each item, on as many threads as there are items and cores; the results in order.
+fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> Result<R> + Sync) -> Result<Vec<R>> {
+    if items.len() < 2 {
+        return items.iter().map(f).collect();
+    }
+    let next = AtomicUsize::new(0);
+    let out: Mutex<Vec<Option<Result<R>>>> = Mutex::new(items.iter().map(|_| None).collect());
+    let workers = std::thread::available_parallelism().map_or(1, usize::from).min(items.len());
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(item) = items.get(i) else { break };
+                    let r = f(item);
+                    if let Ok(mut o) = out.lock() {
+                        o[i] = Some(r);
+                    }
+                }
+            });
+        }
+    });
+    let out = out.into_inner().map_err(|_| "a read worker panicked")?;
+    out.into_iter().map(|r| r.ok_or("a read worker stopped early")?).collect()
+}
 
 /// An open pack. It keeps the blob chunks it has read, so a second range that names the same
 /// blobs does not read them again.
@@ -15,7 +41,7 @@ pub struct Pack {
     store: Store,
     /// The session's manifest.
     pub manifest: Manifest,
-    blobs: RefCell<HashMap<usize, Rc<Blobs>>>,
+    blobs: Mutex<HashMap<usize, Arc<Blobs>>>,
 }
 
 impl Pack {
@@ -28,28 +54,42 @@ impl Pack {
 
     /// A pack of `manifest`, whose chunks are in `store`.
     pub fn with_manifest(store: &Store, manifest: Manifest) -> Self {
-        Self { store: store.clone(), manifest, blobs: RefCell::new(HashMap::new()) }
+        Self { store: store.clone(), manifest, blobs: Mutex::new(HashMap::new()) }
     }
 
-    fn segment_blobs(&self, seg: usize) -> Result<Rc<Blobs>> {
-        if let Some(b) = self.blobs.borrow().get(&seg) {
-            return Ok(b.clone());
+    fn cached(&self, seg: usize) -> Option<Arc<Blobs>> {
+        self.blobs.lock().ok()?.get(&seg).cloned()
+    }
+
+    fn segment_blobs(&self, seg: usize) -> Result<Arc<Blobs>> {
+        if let Some(b) = self.cached(seg) {
+            return Ok(b);
         }
         let (blobs, table) =
             self.manifest.segments[seg].blob_chunks.as_ref().ok_or("a segment with no blobs")?;
-        let b = Rc::new(Blobs::decode(
+        let b = Arc::new(Blobs::decode(
             self.store.get(&unhex(blobs)?)?,
             &self.store.get(&unhex(table)?)?,
         )?);
-        self.blobs.borrow_mut().insert(seg, b.clone());
+        if let Ok(mut cache) = self.blobs.lock() {
+            cache.insert(seg, b.clone());
+        }
         Ok(b)
     }
 
-    fn push_blob(&self, n: u64, out: &mut Vec<u8>) -> Result<()> {
+    /// The segment that was the first to hold blob `n`.
+    fn blob_segment(&self, n: u64) -> Result<usize> {
         let segs = &self.manifest.segments;
         let seg = segs.partition_point(|s| s.blob + s.blobs <= n);
-        let s = segs.get(seg).filter(|s| s.blob <= n).ok_or_else(|| format!("no blob {n}"))?;
-        self.segment_blobs(seg)?.get((n - s.blob) as usize, out)
+        match segs.get(seg) {
+            Some(s) if s.blob <= n => Ok(seg),
+            _ => Err(format!("no blob {n}").into()),
+        }
+    }
+
+    fn push_blob(&self, n: u64, out: &mut Vec<u8>) -> Result<()> {
+        let seg = self.blob_segment(n)?;
+        self.segment_blobs(seg)?.get((n - self.manifest.segments[seg].blob) as usize, out)
     }
 
     /// Blob `n`: the string, as the log has it between its quotes.
@@ -73,19 +113,46 @@ impl Pack {
         Ok(e)
     }
 
-    /// The lines of `range` (cut to the log's end), each without its newline.
-    pub fn read_lines(&self, range: Range<u64>) -> Result<Vec<Vec<u8>>> {
-        let end = range.end.min(self.manifest.lines);
-        let mut out = Vec::new();
+    /// The segments that hold lines of `range`.
+    fn covering(&self, range: &Range<u64>) -> &[Segment] {
         let segs = &self.manifest.segments;
         let first = segs.partition_point(|s| s.line + s.lines <= range.start);
-        let mut blob = |n: u64, o: &mut Vec<u8>| self.push_blob(n, o);
-        for s in &segs[first..] {
-            if s.line >= end {
-                break;
+        let last = segs.partition_point(|s| s.line < range.end);
+        &segs[first.min(last)..last]
+    }
+
+    /// Reads, at once, every blob chunk the lines `range` of `events` name and the cache lacks.
+    fn load_blobs(&self, parts: &[(&Segment, Events)], range: &Range<u64>) -> Result<()> {
+        let mut refs = Vec::new();
+        for (s, e) in parts {
+            for l in range.start.max(s.line)..range.end.min(s.line + s.lines) {
+                e.blob_refs((l - s.line) as usize, &mut refs);
             }
-            let e = self.events(s)?;
-            for l in range.start.max(s.line)..end.min(s.line + s.lines) {
+        }
+        let mut need = BTreeSet::new();
+        for n in refs {
+            let seg = self.blob_segment(n)?;
+            if self.cached(seg).is_none() {
+                need.insert(seg);
+            }
+        }
+        let need: Vec<usize> = need.into_iter().collect();
+        par_map(&need, |seg| self.segment_blobs(*seg).map(drop))?;
+        Ok(())
+    }
+
+    /// The lines of `range` (cut to the log's end), each without its newline. The segments and
+    /// blob chunks it needs are read and decompressed side by side, one a core.
+    pub fn read_lines(&self, range: Range<u64>) -> Result<Vec<Vec<u8>>> {
+        let range = range.start..range.end.min(self.manifest.lines);
+        let segs: Vec<&Segment> = self.covering(&range).iter().collect();
+        let events = par_map(&segs, |s| self.events(s))?;
+        let parts: Vec<(&Segment, Events)> = segs.into_iter().zip(events).collect();
+        self.load_blobs(&parts, &range)?;
+        let mut out = Vec::new();
+        let mut blob = |n: u64, o: &mut Vec<u8>| self.push_blob(n, o);
+        for (s, e) in &parts {
+            for l in range.start.max(s.line)..range.end.min(s.line + s.lines) {
                 let mut line = Vec::new();
                 e.line((l - s.line) as usize, &mut blob, &mut line)?;
                 out.push(line);
@@ -111,33 +178,33 @@ impl Pack {
         Ok(None)
     }
 
-    /// One segment's bytes of the log.
-    fn segment_raw(&self, s: &Segment) -> Result<Vec<u8>> {
-        let e = self.events(s)?;
-        let mut blob = |n: u64, o: &mut Vec<u8>| self.push_blob(n, o);
-        let mut out = Vec::with_capacity(s.raw as usize);
-        for i in 0..e.len() {
-            e.line(i, &mut blob, &mut out)?;
-            if self.manifest.final_newline || s.line + (i as u64) + 1 < self.manifest.lines {
-                out.push(b'\n');
-            }
-        }
-        Ok(out)
-    }
-
     /// Writes the whole log to `out`, each segment checked against its hash first.
     pub fn cat(&self, out: &mut dyn std::io::Write) -> Result<()> {
-        for s in &self.manifest.segments {
-            let raw = self.segment_raw(s)?;
-            if blake3::hash(&raw).to_hex().as_str() != s.raw_hash {
-                return Err(format!(
-                    "segment at line {} does not read back as it was packed",
-                    s.line
-                )
-                .into());
+        let mut blob = |n: u64, o: &mut Vec<u8>| self.push_blob(n, o);
+        let segs: Vec<&Segment> = self.manifest.segments.iter().collect();
+        // A few segments at a time: the whole log is never held decoded at once.
+        for group in segs.chunks(4) {
+            let events = par_map(group, |s| self.events(s))?;
+            let parts: Vec<(&Segment, Events)> = group.iter().copied().zip(events).collect();
+            self.load_blobs(&parts, &(0..self.manifest.lines))?;
+            for (s, e) in &parts {
+                let mut raw = Vec::with_capacity(s.raw as usize);
+                for i in 0..e.len() {
+                    e.line(i, &mut blob, &mut raw)?;
+                    if self.manifest.final_newline || s.line + (i as u64) + 1 < self.manifest.lines
+                    {
+                        raw.push(b'\n');
+                    }
+                }
+                if blake3::hash(&raw).to_hex().as_str() != s.raw_hash {
+                    return Err(format!(
+                        "segment at line {} does not read back as it was packed",
+                        s.line
+                    )
+                    .into());
+                }
+                out.write_all(&raw)?;
             }
-            out.write_all(&raw)?;
-            self.blobs.borrow_mut().retain(|_, b| Rc::strong_count(b) > 1);
         }
         Ok(())
     }

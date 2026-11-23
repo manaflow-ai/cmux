@@ -36,7 +36,7 @@ pub struct BlobIndex {
 impl BlobIndex {
     /// Adds a sealed segment's blobs, the first numbered `first`.
     pub fn add_table(&mut self, first: u64, table: &[u8]) -> Result<()> {
-        if table.len() % ENTRY != 0 {
+        if !table.len().is_multiple_of(ENTRY) {
             return Err("a blob table's length is not a whole number of entries".into());
         }
         let mut n = first;
@@ -56,7 +56,7 @@ impl BlobIndex {
         if let Some(n) = self.map.get(&h) {
             return Some(*n);
         }
-        let decoded = (s.len() >= B64_MIN && s.len() % 4 == 0)
+        let decoded = (s.len() >= B64_MIN && s.len().is_multiple_of(4))
             .then(|| STANDARD.decode(s).ok())
             .flatten()
             .filter(|d| STANDARD.encode(d).as_bytes() == s);
@@ -301,6 +301,23 @@ impl Events {
         self.rests.len()
     }
 
+    /// The numbers of the blobs line `i` names, appended to `out`.
+    pub fn blob_refs(&self, i: usize, out: &mut Vec<u64>) {
+        let (s, e) = self.rests[i];
+        let mut span = &self.payload[s..e];
+        while let Some(p) = memchr::memchr(ESC, span) {
+            span = &span[p + 1..];
+            if span.first() == Some(&ESC) {
+                span = &span[1..];
+            } else if let Some(end) = memchr::memchr(b';', span)
+                && let Some(n) = std::str::from_utf8(&span[..end]).ok().and_then(|d| d.parse().ok())
+            {
+                out.push(n);
+                span = &span[end + 1..];
+            }
+        }
+    }
+
     /// Appends line `i` (without a newline) to `out`; `blob` appends a blob by its number.
     pub fn line(
         &self,
@@ -337,7 +354,7 @@ pub struct Blobs {
 impl Blobs {
     /// Reads a blobs chunk and its table.
     pub fn decode(bytes: Vec<u8>, table: &[u8]) -> Result<Self> {
-        if table.len() % ENTRY != 0 {
+        if !table.len().is_multiple_of(ENTRY) {
             return Err("a blob table's length is not a whole number of entries".into());
         }
         let mut at = 0usize;

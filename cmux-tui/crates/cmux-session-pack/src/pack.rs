@@ -21,14 +21,17 @@ pub struct PackStats {
     pub stored_bytes: u64,
     /// The manifest's size.
     pub manifest_bytes: u64,
-    /// Bytes of the log this pack read.
-    pub read_bytes: u64,
+    /// Bytes of the log this pack encoded (the rest were only hashed).
+    pub encoded_bytes: u64,
     /// Chunk files this pack wrote, and their size.
     pub new_chunks: u64,
     pub new_bytes: u64,
     /// Segments kept from the last pack.
     pub kept_segments: u64,
 }
+
+/// A written chunk: its id, its file's size, and whether this pack wrote it.
+type Written = Result<(String, u64, bool)>;
 
 fn read_span(files: &[PathBuf], lens: &[u64], start: u64, end: u64) -> Result<Vec<u8>> {
     let mut out = Vec::with_capacity((end - start) as usize);
@@ -52,8 +55,8 @@ fn read_span(files: &[PathBuf], lens: &[u64], start: u64, end: u64) -> Result<Ve
 /// Packs the log that is `files` back to back into `store` as session `name`.
 ///
 /// When the store holds a pack of the session with the same `params`, its sealed segments are
-/// kept as long as the log still holds the last of them byte for byte, and only the log after
-/// them is read. `full` packs the whole log again whatever the store holds.
+/// kept up to the first one the log no longer holds byte for byte, and only the log after them
+/// is encoded. `full` packs the whole log again whatever the store holds.
 pub fn pack(
     store: &Store,
     name: &str,
@@ -73,20 +76,20 @@ pub fn pack(
         && let Some(old) = Manifest::load(store, name)?
         && old.params == *params
     {
-        kept = old.segments.into_iter().take_while(|s| s.sealed).collect();
-        let offset: u64 = kept.iter().map(|s| s.raw).sum();
-        let same = match kept.last() {
-            None => true,
-            Some(last) => {
-                offset <= total
-                    && blake3::hash(&read_span(files, &lens, offset - last.raw, offset)?)
-                        .to_hex()
-                        .as_str()
-                        == last.raw_hash
+        // A log is not always only appended to (a retention pass rewrites a closed chat's
+        // segments in place), so every kept segment is checked against the log, not just the last:
+        // hashing is about 1 ms a segment, encoding one is about a second.
+        let mut offset = 0u64;
+        for s in old.segments.into_iter().take_while(|s| s.sealed) {
+            let end = offset + s.raw;
+            if end > total
+                || blake3::hash(&read_span(files, &lens, offset, end)?).to_hex().as_str()
+                    != s.raw_hash
+            {
+                break;
             }
-        };
-        if !same {
-            kept.clear();
+            offset = end;
+            kept.push(s);
         }
     }
     let offset: u64 = kept.iter().map(|s| s.raw).sum();
@@ -154,8 +157,7 @@ pub fn pack(
 
     // Compress and write the chunks, on every core.
     let next = AtomicUsize::new(0);
-    let done: Mutex<Vec<Option<Result<(String, u64, bool)>>>> =
-        Mutex::new((0..tasks.len()).map(|_| None).collect());
+    let done: Mutex<Vec<Option<Written>>> = Mutex::new((0..tasks.len()).map(|_| None).collect());
     let workers =
         std::thread::available_parallelism().map_or(1, usize::from).min(tasks.len().max(1));
     std::thread::scope(|scope| {
@@ -164,7 +166,7 @@ pub fn pack(
                 loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some((kind, payload)) = tasks.get(i) else { break };
-                    let one = || -> Result<(String, u64, bool)> {
+                    let one = || -> Written {
                         let id = chunk_id(*kind, payload);
                         if store.has(&id) {
                             return Ok((hex(&id), store.stored_len(&id)?, false));
@@ -183,7 +185,7 @@ pub fn pack(
     });
     let mut stats = PackStats {
         raw_bytes: total,
-        read_bytes: data.len() as u64,
+        encoded_bytes: data.len() as u64,
         kept_segments: kept.len() as u64,
         ..Default::default()
     };

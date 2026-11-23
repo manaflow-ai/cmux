@@ -1,6 +1,8 @@
 //! `session-pack`: pack a session's log, read ranges of it back, move it between stores.
 
-use cmux_session_pack::{Manifest, Pack, Params, RangeId, Result, Store, hex, pack, ship, unhex};
+use cmux_session_pack::{
+    Manifest, Pack, Params, RangeId, Result, Store, digest, hex, pack, ship, unhex,
+};
 use std::collections::HashSet;
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -10,7 +12,9 @@ const USAGE: &str = "session-pack: a session's event log as content-addressed zs
   session-pack pack NAME FILE...        pack the log (FILEs back to back); again later: only what was appended
                [--full] [--segment-bytes N] [--blob-min N] [--level N]
   session-pack stat NAME                sizes, segments, turns
+  session-pack outline NAME             one line a turn: its range name, start (ms), records, what was asked
   session-pack range NAME@FIRST-LAST    those lines (both included): what a compaction summary points at
+               [--digest]               as text for an agent: prompts, replies, tool calls, the start of each result
   session-pack tail NAME --turns N      the last N turns (--lines N: the last N lines)
   session-pack turns NAME               each turn's range name
   session-pack seq NAME SEQ             the acpmux record with that seq (one tool result)
@@ -30,7 +34,7 @@ struct Args {
 
 impl Args {
     fn parse() -> Self {
-        let flags = ["--full", "--help", "-h"];
+        let flags = ["--full", "--digest", "--help", "-h"];
         let (mut pos, mut opts) = (Vec::new(), Vec::new());
         let mut it = std::env::args().skip(1);
         while let Some(a) = it.next() {
@@ -103,7 +107,7 @@ fn run() -> Result<()> {
             }
             let (m, s) = pack(&store, args.at(1)?, &files, &params, args.flag("--full"))?;
             println!(
-                "{{\"name\":\"{}\",\"lines\":{},\"rawBytes\":{},\"storedBytes\":{},\"manifestBytes\":{},\"segments\":{},\"keptSegments\":{},\"readBytes\":{},\"newChunks\":{},\"newBytes\":{},\"ratio\":{:.2}}}",
+                "{{\"name\":\"{}\",\"lines\":{},\"rawBytes\":{},\"storedBytes\":{},\"manifestBytes\":{},\"segments\":{},\"keptSegments\":{},\"encodedBytes\":{},\"newChunks\":{},\"newBytes\":{},\"ratio\":{:.2}}}",
                 m.name,
                 m.lines,
                 s.raw_bytes,
@@ -111,7 +115,7 @@ fn run() -> Result<()> {
                 s.manifest_bytes,
                 m.segments.len(),
                 s.kept_segments,
-                s.read_bytes,
+                s.encoded_bytes,
                 s.new_chunks,
                 s.new_bytes,
                 s.raw_bytes as f64 / (s.stored_bytes + s.manifest_bytes).max(1) as f64
@@ -131,6 +135,16 @@ fn run() -> Result<()> {
                 m.stored_bytes(),
                 manifest_bytes,
                 m.raw_bytes as f64 / (m.stored_bytes() + manifest_bytes).max(1) as f64
+            );
+        }
+        "outline" => {
+            print!("{}", digest::outline(&Pack::open(&store, args.at(1)?)?)?);
+        }
+        "range" if args.flag("--digest") => {
+            let r = RangeId::parse(args.at(1)?)?;
+            print!(
+                "{}",
+                digest::digest(&Pack::open(&store, &r.name)?, &r, digest::Limits::default())?
             );
         }
         "range" => {

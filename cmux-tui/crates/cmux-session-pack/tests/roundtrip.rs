@@ -86,9 +86,9 @@ fn an_appended_log_repacks_to_the_same_chunks_and_ships_only_the_new_ones() {
 
     // Here: packed at 90%, then again once the log grew.
     let here = Store::new(dir.path().join("here"));
-    pack(&here, "s", &[old.clone()], &params(), false).unwrap();
-    let (grown, stats) = pack(&here, "s", &[whole.clone()], &params(), false).unwrap();
-    assert!(stats.kept_segments > 0 && stats.read_bytes < stats.raw_bytes / 4, "{stats:?}");
+    pack(&here, "s", std::slice::from_ref(&old), &params(), false).unwrap();
+    let (grown, stats) = pack(&here, "s", std::slice::from_ref(&whole), &params(), false).unwrap();
+    assert!(stats.kept_segments > 0 && stats.encoded_bytes < stats.raw_bytes / 4, "{stats:?}");
     // The same as packing the whole log at once.
     let fresh = Store::new(dir.path().join("fresh"));
     let (full, _) = pack(&fresh, "s", &[whole], &params(), false).unwrap();
@@ -122,7 +122,7 @@ fn a_rewritten_log_is_packed_from_the_start() {
     let file = dir.path().join("log.ndjson");
     std::fs::write(&file, &bytes).unwrap();
     let store = Store::new(dir.path().join("store"));
-    pack(&store, "s", &[file.clone()], &params(), false).unwrap();
+    pack(&store, "s", std::slice::from_ref(&file), &params(), false).unwrap();
     bytes[10] = b'9';
     std::fs::write(&file, &bytes).unwrap();
     let (_, stats) = pack(&store, "s", &[file], &params(), false).unwrap();

@@ -2514,6 +2514,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-session-pack"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "memchr",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-share-approval"
 version = "0.1.0"
 dependencies = [
