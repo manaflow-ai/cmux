@@ -3285,6 +3285,48 @@ class WebShardBaseVerdict(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "refused at setup: re-run"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
 
+    def test_a_web_status_whose_need_was_cancelled_names_the_job_state_and_the_rerun(self):
+        """Run 45093415114: 'web / Web status' red, 'web / web-subarea-scope' cancelled, nothing failed under it.
+
+        The gate went red because a dependency holds no verdict. That is an inability to compare, not a verdict on
+        this PR's red, and a lander may not judge the red itself: the refusal must name the job, its state and the
+        call that resolves it, never only "no failed job under its needs" (which the lander read as the PR's own and
+        parked with no step on it).
+        """
+        scope = "web / web-subarea-scope"
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
+                gh.jobs[6] = dict(failed_job(6, 10, HEAD, name=scope), conclusion="cancelled")
+                with self.assertRaises(excuse.Refused) as caught:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
+                said = str(caught.exception)
+                self.assertIn(scope, said)
+                self.assertIn("cancelled", said)
+                self.assertIn("holds no verdict", said)
+                self.assertIn(f"run-requeue {REPO} 10", said)
+                self.assertIn(f"gh run rerun 10 -R {REPO} --failed", said)
+                self.assertNotIn("no failed job under its needs", said)
+
+    def test_a_web_status_whose_gate_says_no_verdict_is_refused_with_the_rerun(self):
+        """A required dependency GitHub shows `skipped` is never listed as a child at all (head_jobs drops skipped),
+        so only the gate's own `no verdict: ` annotation (scripts/ci/needs_verdict.py) names it. It must read as an
+        inability with a step, like a cancelled one."""
+        no_verdict = ("no verdict: web: web-subarea-scope skipped; nothing it summarizes was judged: "
+                      "re-run the run")
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
+                gh.logs[5] = log(WEB_STATUS, "Check routed web jobs", "##[error]" + no_verdict,
+                                 "##[error]Process completed with exit code 3.")
+                with self.assertRaises(excuse.Refused) as caught:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
+                said = str(caught.exception)
+                self.assertIn("gave no verdict", said)
+                self.assertIn("web-subarea-scope skipped", said)
+                self.assertIn(f"run-requeue {REPO} 10", said)
+                self.assertNotIn("no failed job under its needs", said)
+
     def test_a_web_shard_green_on_the_pushed_base_is_the_prs_own_red(self):
         gh = WebShardBaseGitHub()
         gh.jobs[4].update(conclusion="success",
@@ -12086,7 +12128,7 @@ RAW_LOG_READERS = {
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
 LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "unplaced_head_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "passed_on_base_verdict", "guard_routes_view", "guard_group_report",
-                          "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
+                          "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "rollup_no_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
 # unjudged: an unplaced log split by its echoes, no step judged (owned_unnamed; #41329's review follow-up F3).
@@ -15799,6 +15841,9 @@ SCANNERS = {
     "test_reds.unjudged": lambda f: TR.unjudged(f.log),
     "test_reds.red_steps": lambda f: TR.red_steps(f.log),
     "test_reds.red_lines": lambda f: TR.red_lines(f.log),
+    "test_reds.cargo_captured": lambda f: TR.cargo_captured(f.lines),
+    "test_reds._cargo_closing_lists": lambda f: TR._cargo_closing_lists(f.lines),
+    "test_reds.outer_lines": lambda f: TR.outer_lines(f.lines),
     "test_reds.failed_in": lambda f: TR.failed_in(f.log, []),
     "test_reds.step_lines": lambda f: TR.step_lines(f.log),
     "test_reds.crash_rule_failure": lambda f: TR.crash_rule_failure(f.log),
@@ -15852,6 +15897,10 @@ NOT_SWEPT = {
     "test_reds._kept": "the parse cache: it calls the reader it is given",
     "base_red_excuse.ws_check_step": "counted, not timed (WsCheckStepIsLinear): on HostileLog it reads no section, so "
                                      "the sweep timed only a list copy, whose CPU time grows past 8x on a runner",
+    "base_red_excuse.validate_run_rollup": "reads no log: `said` is the one `no verdict: ` line its caller already "
+                                           "read for it (rollup_no_verdict, a fetcher, swept through "
+                                           "summary_no_verdict), and all it does with it is put said[:300] in a "
+                                           "refusal",
 }
 
 
@@ -16936,10 +16985,11 @@ class OtherPrSetupRed(unittest.TestCase):
                 "raw_url": f"https://github.com/{REPO}/raw/{self.HEAD_SHA}/{changed}", "patch": "@@ -1 +1 @@\n-a\n+b"}
 
     def github(self, *, other_pulls=(43755,), other_branch="lane/perf-cmux-571-restore-chat", edit=None,
-               changed=(), related="diverged"):
+               changed=(), related="diverged", event="pull_request"):
         """A fake serving the head run, the other PR's run (OTHER_PULLS, OTHER_BRANCH) and no base run; EDIT(jobs,
         logs) changes the recorded jobs and logs first. CHANGED: what the PR changes (file); RELATED: GitHub's
-        compare status of the other run's head with this head."""
+        compare status of the other run's head with this head. EVENT: the pull-request event every run of the
+        workflow has, and the one its `on:` names (a workflow is triggered by one of PR_EVENTS, never both)."""
         case = self
         jobs, logs = {}, {}
         for job_id in (*self.HEAD_JOBS.values(), *self.OTHER_JOBS.values()):
@@ -16977,10 +17027,10 @@ class OtherPrSetupRed(unittest.TestCase):
                 if f"...{case.HEAD_SHA}?per_page=1" in route:  # the other run's head with this one (shares_commits)
                     return {"status": related, "merge_base_commit": {"sha": BASE_SHA}}
                 if f"/actions/workflows/{case.WORKFLOW}/runs?" in route:
-                    if "event=pull_request" not in route:
-                        return {"workflow_runs": []}  # it never runs on feat-cmux-next
+                    if f"event={event}&" not in route:
+                        return {"workflow_runs": []}  # it never runs on feat-cmux-next, nor on the other PR event
                     return {"workflow_runs": [
-                        {"id": run, "event": "pull_request", "status": "completed", "conclusion": "failure",
+                        {"id": run, "event": event, "status": "completed", "conclusion": "failure",
                          "path": case.PATH, "workflow_id": case.WORKFLOW, "updated_at": "2026-11-15T17:17:00Z",
                          "html_url": f"https://github.com/{REPO}/actions/runs/{run}", **record[run]}
                         for run in (case.OTHER_RUN, case.HEAD_RUN)]}
@@ -17000,14 +17050,15 @@ class OtherPrSetupRed(unittest.TestCase):
                                                                   "head_sha": case.HEAD_SHA, "path": case.PATH}]}]
                 if "/actions/runs/" in route:
                     run = int(route.rsplit("/", 1)[1])
-                    return {"id": run, "workflow_id": case.WORKFLOW, "path": case.PATH, "event": "pull_request",
+                    return {"id": run, "workflow_id": case.WORKFLOW, "path": case.PATH, "event": event,
                             "name": "iOS E2E", "head_sha": case.HEAD_SHA, **record[run]}
                 raise AssertionError(route)
 
             def blob(self, repo, ref, path):
                 self.refs.append(ref)
                 assert path == case.PATH, path
-                return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text()
+                return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text().replace(
+                    "\n  pull_request:\n", f"\n  {event}:\n")
 
             def blob_if_present(self, repo, ref, path):
                 assert path == ".gitmodules", path
@@ -17072,6 +17123,14 @@ class OtherPrSetupRed(unittest.TestCase):
             logs[mac] = logs[mac].replace(self.AXE, "##[error]Error: No available formula with the name \"axe\".")
         with self.assertRaisesRegex(excuse.Refused, "'mac-ios-e2e': no feat-cmux-next run"):
             self.judge(self.github(edit=edit), checks=["ios-e2e-status"])
+
+    def test_a_pull_request_target_workflows_other_pr_is_listed_under_its_own_event(self):
+        # cmux#50878, 2026-11-22: cla-policy-guard.yml is triggered by pull_request_target alone, so a listing of its
+        # `event=pull_request` runs answered with none and its red had no other PR to share (handoff cmux#51045).
+        github = self.github(event="pull_request_target")
+        self.assertIn("excused 'backend'", self.judge(github, checks=["backend"]))
+        self.assertIn(f"runs?event=pull_request_target&status=failure&per_page={excuse.OTHER_PR_LIST}",
+                      "\n".join(github.routes))
 
     def test_a_different_error_on_the_other_pr_is_refused(self):
         def edit(jobs, logs):
@@ -17380,7 +17439,8 @@ class OtherPrPeerVerdict(unittest.TestCase):
         return {"index": index, "number": 44000 + index if number is None else number, "sha": f"{index:x}" * 40
                 if index < 16 else f"{index:040x}", "changed": changed, "related": related, "step": step, "base": base}
 
-    def github(self, peers, *, changed=()):
+    def github(self, peers, *, changed=(), event="pull_request"):
+        """EVENT: the pull-request event every run of the workflow has, and the one its `on:` names."""
         case = self
         head_job, head_log = OtherPrSetupRed.fixture(self, self.HEAD_JOB)
         peer_job, peer_log = OtherPrSetupRed.fixture(self, self.PEER_JOB)
@@ -17425,10 +17485,10 @@ class OtherPrPeerVerdict(unittest.TestCase):
                     peer = by_sha[route.split("/compare/", 1)[1].split("...", 1)[0]]
                     return {"status": peer["related"], "merge_base_commit": {"sha": BASE_SHA}}
                 if f"/actions/workflows/{case.WORKFLOW}/runs?" in route:
-                    if "event=pull_request" not in route:
-                        return {"workflow_runs": []}  # it never runs on feat-cmux-next
+                    if f"event={event}&" not in route:
+                        return {"workflow_runs": []}  # it never runs on feat-cmux-next, nor on the other PR event
                     return {"workflow_runs": [
-                        {"event": "pull_request", "status": "completed", "conclusion": "failure", "path": case.PATH,
+                        {"event": event, "status": "completed", "conclusion": "failure", "path": case.PATH,
                          "workflow_id": case.WORKFLOW, "updated_at": "2026-11-15T17:17:00Z",
                          "html_url": f"https://github.com/{REPO}/actions/runs/{run['id']}", **run}
                         for run in runs.values()]}
@@ -17448,13 +17508,14 @@ class OtherPrPeerVerdict(unittest.TestCase):
                                                                   "head_sha": case.HEAD_SHA, "path": case.PATH}]}]
                 if "/actions/runs/" in route:
                     run = int(route.rsplit("/", 1)[1])
-                    return {"workflow_id": case.WORKFLOW, "path": case.PATH, "event": "pull_request",
+                    return {"workflow_id": case.WORKFLOW, "path": case.PATH, "event": event,
                             "name": "iOS E2E", **runs[run]}
                 raise AssertionError(route)
 
             def blob(self, repo, ref, path):
                 assert path == case.PATH, path
-                return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text()
+                return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text().replace(
+                    "\n  pull_request:\n", f"\n  {event}:\n")
 
             def blob_if_present(self, repo, ref, path):
                 assert path == ".gitmodules", path
@@ -17508,6 +17569,16 @@ class OtherPrPeerVerdict(unittest.TestCase):
             with self.subTest(what, fourth=True):
                 self.assertIn("excused 'backend'", self.judge(self.github([self.peer(1), self.peer(2), peer,
                                                                            self.peer(4)])))
+
+    def test_a_pull_request_target_workflows_peers_are_listed_under_its_own_event(self):
+        # cmux#50878, 2026-11-22: a workflow triggered by pull_request_target alone has no `event=pull_request` run
+        # anywhere, so peers listed under that event found none and its red was unexcusable on every PR, for ever
+        # (handoff cmux#51045; leo-workspace#8742 is the same fix in land-judge's pr_only_peer_excuse).
+        github = self.github([self.peer(i) for i in (1, 2, 3)], event="pull_request_target")
+        self.assertIn("excused 'backend'", self.judge(github))
+        self.assertEqual([route for route in github.routes if "status=completed" in route],
+                         [f"repos/{REPO}/actions/workflows/{self.WORKFLOW}/runs?event=pull_request_target"
+                          f"&status=completed&per_page={excuse.PR_ONLY_PEER_RUNS}"])
 
     def test_its_reads_are_bounded(self):
         github = self.github([self.peer(i, step="Start per-run backend") for i in range(1, 15)])
