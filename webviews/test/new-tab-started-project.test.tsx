@@ -489,9 +489,9 @@ test("cmd-N: this run's started project the host no longer lists gives way to th
   expect(after!.label).toContain("atlas");
   // The host listed only the run's own (fresh) folder: it still names that one, as before.
   stored.set(STARTED_KEY, AGENT_FOLDER);
-  expect((await firstFrame({ startedProject: PICKED }, { knownProjects: [PICKED, AGENT_FOLDER] })).after!.label).toContain(
-    "gui-push",
-  );
+  expect(
+    (await firstFrame({ startedProject: PICKED }, { knownProjects: [PICKED, AGENT_FOLDER] })).after!.label,
+  ).toContain("gui-push");
 });
 
 test("cmd-N: a kept recent folder the host no longer lists gives way to the next kept one, not to a blank chip", async () => {
