@@ -1794,8 +1794,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard canEditTabs else { return [] }
         return [
             // The Mac's Fork Conversation destinations (AgentActionCatalog): beside the chat,
-            // in a new tab, or in a new workspace.
-            TabsKitMenuItem(id: "fork-conversation", title: "Fork Conversation…", systemImage: "arrow.triangle.branch") { [weak self] in
+            // in a new tab, or in a new workspace. Its glyph is the pack's agent.fork split arrow, as on the Mac.
+            TabsKitMenuItem(id: "fork-conversation", title: "Fork Conversation…", systemImage: CmuxSymbol.fork,
+                            symbolBundle: CmuxSymbol.bundle) { [weak self] in
                 self?.forkingTab = tab
             },
             TabsKitMenuItem(title: "Archive", systemImage: "archivebox") { [weak self] in Task { await self?.archive(tab.id) } },
