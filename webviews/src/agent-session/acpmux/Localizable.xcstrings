@@ -284727,127 +284727,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«دائمًا» يسمح أيضًا بطلبات هذه الدردشة اللاحقة حتى تتوقف الدردشة."
+            "value": "«دائمًا» يشمل بقية هذه الدردشة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uvijek dozvoljava i kasnije zahtjeve ovog razgovora dok se razgovor ne zaustavi."
+            "value": "Uvijek važi za ostatak ovog razgovora."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Altid tillader også chattens senere anmodninger, indtil chatten stopper."
+            "value": "Altid gælder resten af denne chat."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„Immer“ erlaubt auch spätere Anfragen in diesem Chat, bis der Chat endet."
+            "value": "„Immer“ gilt für den Rest dieses Chats."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always also allows this chat's later requests until the chat stops."
+            "value": "Always covers the rest of this chat."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Siempre también permite las solicitudes posteriores de este chat hasta que el chat se detenga."
+            "value": "Siempre cubre el resto de este chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Toujours autorise aussi les demandes suivantes de ce chat jusqu'à son arrêt."
+            "value": "Toujours couvre la suite de ce chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sempre consente anche le richieste successive di questa chat finché la chat non si ferma."
+            "value": "Sempre vale per il resto di questa chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「常に許可」は、このチャットが終了するまで以降のリクエストも許可します。"
+            "value": "「常に許可」はこのチャットの残りにも適用されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជានិច្ច អនុញ្ញាតសំណើបន្ទាប់ៗក្នុងការជជែកនេះផងដែរ រហូតដល់ការជជែកឈប់។"
+            "value": "ជានិច្ច គ្របដណ្ដប់ការជជែកនេះដែលនៅសល់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "항상 허용은 채팅이 멈출 때까지 이 채팅의 이후 요청도 허용합니다."
+            "value": "항상 허용은 이 채팅의 나머지에 적용됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alltid tillater også senere forespørsler i denne chatten til chatten stopper."
+            "value": "Alltid gjelder resten av denne chatten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zawsze zezwala też na kolejne żądania w tym czacie, dopóki czat się nie zatrzyma."
+            "value": "Zawsze obejmuje resztę tego czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sempre também permite as próximas solicitações deste chat até que ele pare."
+            "value": "Sempre vale para o resto deste chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Всегда» также разрешает последующие запросы в этом чате, пока чат не остановится."
+            "value": "«Всегда» действует до конца этого чата."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุญาตเสมอจะอนุญาตคำขอต่อ ๆ ไปในแชตนี้ด้วยจนกว่าแชตจะหยุด"
+            "value": "อนุญาตเสมอใช้กับส่วนที่เหลือของแชตนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Her zaman, sohbet durana kadar bu sohbetin sonraki isteklerine de izin verir."
+            "value": "Her zaman, bu sohbetin geri kalanını kapsar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Завжди» також дозволяє наступні запити в цьому чаті, доки чат не зупиниться."
+            "value": "«Завжди» діє до кінця цього чату."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Luôn cho phép cũng cho phép các yêu cầu sau này trong cuộc trò chuyện này cho đến khi nó dừng."
+            "value": "Luôn cho phép áp dụng cho phần còn lại của cuộc trò chuyện này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“始终允许”也会允许此聊天之后的请求，直到聊天停止。"
+            "value": "“始终允许”适用于此聊天的其余部分。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「一律允許」也會允許此聊天之後的請求，直到聊天停止。"
+            "value": "「一律允許」適用於此聊天的其餘部分。"
           }
         }
       }
