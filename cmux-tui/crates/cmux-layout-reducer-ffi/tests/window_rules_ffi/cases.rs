@@ -935,6 +935,35 @@ fn launch_pending_home_waits_then_lands_in_the_front_window() {
     assert_eq!(call(c"window_launch_pending_home", b"[").0, ERR_INVALID);
 }
 
+/// Open in Editor: the table the app reads, and the pick with the person's `editor.default`.
+#[test]
+fn editors_table_and_pick_answer_the_app() {
+    let (code, body) = call_json(c"window_editors_table", &json!({}));
+    assert_eq!(code, OK);
+    let first = &body["editors"][0];
+    assert_eq!(first["id"], "vscode");
+    assert_eq!(first["bundleIds"][0], "com.microsoft.VSCode");
+    assert_eq!(first["remoteScheme"], "vscode");
+    assert_eq!(
+        call_json(
+            c"window_editors_pick",
+            &json!({"installed": ["zed", "vscode"], "configured": "zed"})
+        ),
+        (OK, json!({"default": "zed", "ordered": ["zed", "vscode"]}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_editors_pick",
+            &json!({"installed": ["zed", "vscode"], "configured": null})
+        ),
+        (OK, json!({"default": "vscode", "ordered": ["vscode", "zed"]}))
+    );
+    assert_eq!(
+        call_json(c"window_editors_pick", &json!({"installed": [], "configured": "nova"})),
+        (OK, json!({"default": null, "ordered": []}))
+    );
+}
+
 /// Leo ask-b7aac8d3f9: a fresh launch lands on Home, a New Tab workspace when no saved window is open, and waits
 /// while Home is not ensured yet.
 #[test]

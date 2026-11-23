@@ -36,9 +36,11 @@
 /* Claude Code's split adds the quiet row (28 px and its 4 px gap) under the card: the transcript
    gives that up first, down to 64 px above the stack, so a short pane with a queued prompt keeps the
    quiet row inside it (re-review of #22285). */
-/* The dock is the `:has()` subject, never the pane: one on the pane would be checked again for every node a
-   streamed chunk inserts into the transcript (test/agent-pane-stream-composer-still.test.ts). */
-.acpmux-main[data-dock="float"] > .acpmux-dock:has(.acpmux-composer-foot) {
+/* The dock's `data-foot` (App.tsx: the dock draws the composer, whose card always draws its quiet
+   row), never a `:has()`: one on the pane, or on the dock with a descendant argument, was checked
+   again for every node a streamed chunk or a keystroke inserts (test/agent-pane-stream-composer-still.test.ts,
+   transcript-motion-model step 7). */
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-foot] {
   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
 }
 /* A part of the floating stack is a band the pane's width wide whose card or bar sits inset in it by
@@ -129,7 +131,7 @@
    is the card's vivid one. Reduce Transparency, Lens and Spectrum over art, and the gallery's `cards`
    look keep what they drew. test/composer-hat-material.test.ts measures it. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+  :root:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"]):not(
       [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
     )
     .acpmux-dock
@@ -152,12 +154,12 @@
       inset 1px 1.5px 1px -1px var(--acpmux-tray-specular),
       inset 0 16px 20px -16px var(--acpmux-tray-sheen);
   }
-  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-bottom-stack="cards"], [data-glass="lens"], [data-glass="spectrum"])
+  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"], [data-glass="lens"], [data-glass="spectrum"])
     .acpmux-dock
     > .acpmux-running-tray[data-card]:has(+ .acpmux-composer > .acpmux-composer-box.ui-glass-material) {
     --acpmux-tray-frost: var(--glass-material-backdrop);
   }
-  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+  :root:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"]):not(
       [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
     )
     .acpmux-dock
@@ -212,6 +214,43 @@
   overflow-y: auto;
   /* The stack is a no-scroll zone (wheelPassThrough.ts): reaching a part's end scrolls nothing else. */
   overscroll-behavior: contain;
+}
+/* The folder trust question folding out once answered (App.tsx `trustFold`, conversation/fold.ts)
+   takes the stack's gap beside it inside the height its fold animates, and, when nothing else is left
+   in the stack (`data-leaving`), the stack's floor and foot too: the stack's top and the rows over it
+   travel the whole height on the fold's clock, and nothing is left to drop in one frame when it goes.
+   At rest the layout is the same. */
+.acpmux-asks-stack > .acpmux-trust-fold:not(:last-child) {
+  margin-bottom: -8px;
+}
+.acpmux-asks-stack > * + .acpmux-trust-fold:last-child {
+  margin-top: -8px;
+}
+.acpmux-asks-stack > .acpmux-trust-fold:not(:last-child)::after,
+.acpmux-asks-stack > * + .acpmux-trust-fold:last-child::before {
+  content: "";
+  display: block;
+  padding-top: var(--ds-space-2, 8px);
+}
+.acpmux-dock > .acpmux-asks-stack[data-leaving] {
+  min-height: 0;
+  padding-bottom: 0;
+}
+/* The stack's foot (styles.css `.acpmux-asks-stack` padding-bottom), carried inside the fold. */
+.acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child {
+  --acpmux-stack-foot: 10px;
+}
+.acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child::after {
+  content: "";
+  display: block;
+  padding-top: var(--acpmux-stack-foot);
+}
+/* The gallery's wipe arm (`agent-pane.bottom-stack` trust-fold-wipe): the question holds still and the
+   fold cuts it from its top, where the shipped fold slides it down under what is below it. */
+[data-trust-fold="wipe"] .acpmux-trust-fold {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 /* The tray never scrolls as a whole: its header stays pinned and only its list scrolls
    (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane.

@@ -6,10 +6,13 @@
 /// position needs no flip. Every function draws light or dark from `u.dark`.
 nonisolated enum BackdropShaderSource {
     /// Bumped whenever a shader's look changes: the posters' file names carry it.
-    static let version = 1
+    static let version = 2
 
-    /// The uniforms every fragment reads; ``BackdropShaderUniforms`` is its Swift twin.
-    static let source = #"""
+    /// The Metal source: the shared helpers and the first five shaders, then the calm ones
+    /// (``calmSource``). ``BackdropShaderUniforms`` is the Swift twin of the uniforms every fragment reads.
+    static let source = baseSource + calmSource
+
+    private static let baseSource = #"""
     #include <metal_stdlib>
     using namespace metal;
 
@@ -21,6 +24,8 @@ nonisolated enum BackdropShaderSource {
         float dark;      // 1 in the dark appearance
         float pad;
         float4 rings[4]; // a click: xy where, z when (shader time), w 1 while live
+        float2 pointer;  // the pointer as it is this frame, not smoothed, in pixels from the bottom left
+        float2 pad2;
     };
 
     struct VOut { float4 pos [[position]]; };
@@ -53,6 +58,17 @@ nonisolated enum BackdropShaderSource {
     }
 
     static float2 pixel(float4 pos, constant Uniforms& u) { return float2(pos.x, u.res.y - pos.y); }
+
+    // The last step of every fragment: triangular-PDF noise of at most 1 step of the 8-bit
+    // drawable, so slow dark gradients never band. Interleaved gradient noise (no texture) with a
+    // new offset each 1/30 s, remapped from uniform to triangular; never more than 1 step, which
+    // would read as grain. A held frame (Reduce Motion, posters) keeps one fixed pattern.
+    static float3 dither(float3 col, float4 pos, constant Uniforms& u) {
+        float2 q = pos.xy + 5.588238 * fmod(floor(u.time * 30.0), 64.0);
+        float n = fract(52.9829189 * fract(dot(q, float2(0.06711056, 0.00583715)))) * 2.0 - 1.0;
+        n = sign(n) * (1.0 - sqrt(1.0 - abs(n)));
+        return clamp(col, 0.0, 1.0) + n / 255.0;
+    }
 
     // How bright the rings of recent clicks are at p (units of the short side).
     static float rings(float2 p, constant Uniforms& u, float s, float speed, float width) {
@@ -88,7 +104,7 @@ nonisolated enum BackdropShaderSource {
         float3 col = mix(lightInk, darkInk, u.dark);
         float glow = exp(-r2 * 30.0) * (0.04 + 0.10 * u.energy) + rings(pixel(in.pos, u) / s, u, s, 0.45, 0.03) * 0.18;
         col += glow * mix(float3(0.25, 0.35, 0.45), float3(0.55, 0.75, 0.85), u.dark);
-        return float4(col, 1.0);
+        return float4(dither(col, in.pos, u), 1.0);
     }
 
     // The pond's surface height at p: the clicks' rings, the pointer's wake, a slow swell.
@@ -123,7 +139,7 @@ nonisolated enum BackdropShaderSource {
         darkWater += caustic * float3(0.05, 0.16, 0.16) + spec * float3(0.55, 0.70, 0.72);
         float3 lightWater = mix(float3(0.80, 0.90, 0.91), float3(0.62, 0.80, 0.84), depth) * (0.85 + 0.2 * diffuse);
         lightWater += caustic * float3(0.10, 0.12, 0.10) + spec * float3(0.35, 0.35, 0.33);
-        return float4(mix(lightWater, darkWater, u.dark), 1.0);
+        return float4(dither(mix(lightWater, darkWater, u.dark), in.pos, u), 1.0);
     }
 
     // One curtain of light: where it hangs (its foot), how it waves, how bright its rays are.
@@ -158,7 +174,7 @@ nonisolated enum BackdropShaderSource {
             - c * float3(0.30, 0.10, 0.02) * 0.25;
         float3 col = mix(lightCol, darkCol, u.dark);
         col += rings(p, u, s, 0.5, 0.025) * mix(float3(-0.08, -0.04, 0.0), float3(0.10, 0.25, 0.18), u.dark);
-        return float4(clamp(col, 0.0, 1.0), 1.0);
+        return float4(dither(col, in.pos, u), 1.0);
     }
 
     static float sq(float x) { return x * x; }
@@ -254,7 +270,7 @@ nonisolated enum BackdropShaderSource {
             col = aeroBubble(col, p, c, r, mix(tint, tint * 0.8 + 0.1, u.dark), e);
         }
         col = 1.0 - (1.0 - col) * (1.0 - clamp(rings(p, u, s, 0.5, 0.02) * 0.35, 0.0, 1.0) * swoosh);
-        return float4(clamp(col, 0.0, 1.0), 1.0);
+        return float4(dither(col, in.pos, u), 1.0);
     }
 
     // Dot Field: a grid of dots the pointer pushes away and the clicks' rings shove outward.
@@ -270,7 +286,7 @@ nonisolated enum BackdropShaderSource {
             for (int i = -2; i <= 2; i++) {
                 float2 id = cell + float2(i, j);
                 float2 center = (id + 0.5) * gap;
-                float2 away = center - u.mouse;
+                float2 away = center - u.pointer; // the dots part where the cursor is now, not where it was
                 float dist = max(length(away), 0.001);
                 float push = gap * (1.2 + 1.6 * u.energy) * exp(-dist * dist / (reach * reach));
                 float2 dir = away / dist;
@@ -296,12 +312,106 @@ nonisolated enum BackdropShaderSource {
         float3 tint = 0.5 + 0.5 * cos(6.28318 * (hue + float3(0.0, 0.33, 0.67)));
         float3 darkCol = mix(float3(0.035, 0.035, 0.05), mix(float3(0.55, 0.60, 0.70), tint, 0.55), ink);
         float3 lightCol = mix(float3(0.96, 0.95, 0.93), mix(float3(0.30, 0.32, 0.38), tint * 0.7, 0.5), ink);
-        return float4(mix(lightCol, darkCol, u.dark), 1.0);
+        return float4(dither(mix(lightCol, darkCol, u.dark), in.pos, u), 1.0);
+    }
+    // Block Matrix: a fine, even matrix of faint dots lit by one smooth field of light: a glow on
+    // the pointer, a few soft lights that ease in and out like blocks of a store filling and
+    // draining, and the clicks' rings. Each dot reads the field on two coarse block grids, softly
+    // stepped, so light arrives in rectangular blocks, while the dots swell smoothly to the pointer.
+    // Ported from the WGSL Block Matrix of manaflow-ai/cmux#45930 ("tuned to the reference").
+    static float bmHash(float3 p) {
+        p = fract(p * 0.1031);
+        p += dot(p, p.zyx + 31.32);
+        return fract((p.x + p.y) * p.z);
+    }
+
+    static float bmGauss(float2 d, float r) { return exp(-dot(d, d) / (r * r)); }
+
+    // Flat-topped: level across most of its radius, then a quick falloff, so a drifting light lifts
+    // the dots under it by one even amount, like a block, instead of a long dim rim.
+    static float bmFlat(float2 d, float r) {
+        float q = dot(d, d) / (r * r);
+        return exp(-q * q);
+    }
+
+    // The light at x (in dots): the pointer, the drifting lights and the rings, clamped to 0...1.
+    static float bmField(float2 x, float2 grid, float pitch, constant Uniforms& u) {
+        // Centered on the pointer as it is this frame, never the eased one, so the glow stays
+        // under the cursor at any speed (ask-4b6ce9c1aa: "it doesnt actually follow the cursor").
+        // The eased pointer lags it by about 0.11 s: a dim, short trail there and a fainter, wider
+        // afterglow further back, so dots it leaves fade out instead of switching off.
+        float r = 11.0 * (1.0 + 0.25 * u.energy);
+        float2 p = u.pointer / pitch;
+        float2 back = p - u.mouse / pitch;
+        float backLen = length(back);
+        if (backLen > r * 1.5) back *= r * 1.5 / backLen;
+        float f = 0.5 * (bmGauss(x - p, r) + bmFlat(x - p, r)) * (0.85 + 0.15 * u.energy)
+            + 0.2 * bmGauss(x - (p - back), r * 1.2) + 0.08 * bmGauss(x - (p - 2.5 * back), r * 1.5);
+        // Each slot, once per period of 3.5 to 5.5 seconds, picks a new spot, eases in, holds and
+        // eases out; about one slot per 450 dots, so the density holds at any window size.
+        int count = int(clamp(round(grid.x * grid.y / 450.0), 2.0, 12.0));
+        for (int i = 0; i < 12; i++) {
+            if (i >= count) break;
+            float fi = float(i);
+            float period = 3.5 + 2.0 * bmHash(float3(fi, 7.0, 3.0));
+            float tt = u.time + period * bmHash(float3(fi, 7.0, 4.0));
+            float epoch = floor(tt / period);
+            float ph = tt / period - epoch;
+            float ease = smoothstep(0.0, 0.2, ph) * (1.0 - smoothstep(0.35, 0.62, ph));
+            float3 k = float3(epoch, fi, 7.0);
+            float2 c = grid * float2(bmHash(k + 1.0), bmHash(k + 2.0));
+            f += 0.39 * (0.6 + 0.4 * bmHash(k + 3.0)) * ease * bmFlat(x - c, 5.25 + 6.25 * bmHash(k + 4.0));
+        }
+        // A click: a ring of blocks running out from where it landed.
+        for (int i = 0; i < 4; i++) {
+            float4 rg = u.rings[i];
+            float age = u.time - rg.z;
+            if (rg.w < 0.5 || age < 0.0 || age > 4.0) continue;
+            float d = length(x - rg.xy / pitch) - age * 45.0;
+            f += 0.6 * exp(-d * d / 16.0) * exp(-age * 0.8);
+        }
+        return clamp(f, 0.0, 1.0);
+    }
+
+    // Soft steps: a value holds at one of 8 levels and eases to the next over the second half of
+    // each step, so a block brightens a level at a time, smoothly, as light reaches it.
+    static float bmSteps(float v) {
+        float s = clamp(v, 0.0, 1.0) * 8.0;
+        return (floor(s) + smoothstep(0.5, 1.0, fract(s))) / 8.0;
+    }
+
+    fragment float4 wp_matrix(VOut in [[stage_in]], constant Uniforms& u [[buffer(0)]]) {
+        float s = min(u.res.x, u.res.y);
+        float2 px = pixel(in.pos, u);
+        float pitch = clamp(s / 140.0, 5.0, 14.0);
+        float2 grid = u.res / pitch;
+        float2 d = floor(px / pitch);
+        float2 local = px / pitch - d - 0.5;
+        float2 x = d + 0.5;
+        // The field on two block grids, the second twice as coarse and offset, so block edges
+        // step at more than one size; the dot's own reading keeps the swell smooth.
+        float b = 4.0, b2 = 8.0;
+        float2 ca = (floor(d / b) + 0.5) * b;
+        float2 cb = (floor((d + b) / b2) + 0.5) * b2 - b;
+        float q = 0.5 * (bmSteps(bmField(ca, grid, pitch, u)) + bmSteps(bmField(cb, grid, pitch, u)));
+        float fine = bmField(x, grid, pitch, u);
+        // A hot core right under the pointer, smooth and not stepped: the brightest, largest dots.
+        float core = bmGauss(x - u.pointer / pitch, 6.6);
+        float lit = clamp(0.7 * q + 0.3 * core + 0.15 * q * fine, 0.0, 1.0);
+        // A faint, even matrix everywhere; a lit dot is brighter and larger.
+        float level = 0.08 + 0.92 * pow(lit, 0.75);
+        float radius = mix(0.13, 0.32, sqrt(lit));
+        float aa = 0.6 / pitch;
+        float dotInk = 1.0 - smoothstep(radius - aa, radius + aa, length(local));
+        float3 paper = mix(float3(0.955, 0.955, 0.945), float3(0.030, 0.032, 0.040), u.dark);
+        float3 ink = mix(float3(0.10, 0.11, 0.14), float3(0.93, 0.94, 0.97), u.dark);
+        float3 col = mix(paper, ink, clamp(dotInk * level, 0.0, 1.0));
+        return float4(dither(col, in.pos, u), 1.0);
     }
     """#
 }
 
-/// The uniforms in ``BackdropShaderSource/source``'s layout: 16-byte aligned, 96 bytes.
+/// The uniforms in ``BackdropShaderSource/source``'s layout: 16-byte aligned, 112 bytes.
 nonisolated struct BackdropShaderUniforms: Equatable, Sendable {
     var resolution: SIMD2<Float> = .zero
     var mouse: SIMD2<Float> = .zero
@@ -310,9 +420,12 @@ nonisolated struct BackdropShaderUniforms: Equatable, Sendable {
     var dark: Float = 0
     var pad: Float = 0
     var rings: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) = (.zero, .zero, .zero, .zero)
+    /// The pointer this frame, not smoothed: a light meant to sit under the cursor reads this.
+    var pointer: SIMD2<Float> = .zero
+    var pad2: SIMD2<Float> = .zero
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.resolution == rhs.resolution && lhs.mouse == rhs.mouse && lhs.time == rhs.time && lhs.energy == rhs.energy
+        lhs.resolution == rhs.resolution && lhs.mouse == rhs.mouse && lhs.pointer == rhs.pointer && lhs.time == rhs.time && lhs.energy == rhs.energy
             && lhs.dark == rhs.dark && lhs.rings.0 == rhs.rings.0 && lhs.rings.1 == rhs.rings.1
             && lhs.rings.2 == rhs.rings.2 && lhs.rings.3 == rhs.rings.3
     }

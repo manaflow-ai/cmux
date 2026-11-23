@@ -1,0 +1,64 @@
+{
+ "title": "Chat header icons, Contextual with the rest on hover: revealed while the chat menu is open",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "An agent chat in /tmp",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 5,
+   "shot": false,
+   "optional": "agent backend unavailable on this runner"
+  },
+  {
+   "title": "Style: contextualPeek",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "agentChat.headerIcons.contextual",
+     "value": "contextualPeek"
+    }
+   },
+   "wait": 1.5,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "A turn that edits three files and names http://localhost:5173/",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "worked-turn-page"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Open the chat menu",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "text": "Chat actions"
+    }
+   },
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Peek revealed: Terminal fades in at the leading end, nothing else moved",
+   "wait": 1
+  }
+ ]
+}

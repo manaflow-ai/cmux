@@ -36,11 +36,14 @@ impl Hub {
             return;
         }
         // The journal can be ahead of asynchronously saved session.json after a crash. Read
-        // only to the newest turn boundary; a newer open turn supersedes any earlier retry.
+        // only to the newest turn boundary; a newer open turn supersedes any earlier retry. Both
+        // kinds are in the log's kind copies (`store/kind_index.rs`): a chat whose newest
+        // boundary is far back (a long streamed turn, a watched chat with none) reads its copies,
+        // not its whole log back from the end, at every start (ask-5136ca7948).
         let mut last = None;
         if self
             .store
-            .scan_back(
+            .scan_back_indexed(
                 &session.id,
                 0,
                 u64::MAX,
@@ -241,6 +244,9 @@ impl Hub {
             let Some(_error) = text("error") else { return };
             let from = text("from").map(str::to_owned);
             let full_access_device = text("fullAccessDevice").map(str::to_owned);
+            // Recorded since the rate-limit gate (`retry_turn.rs` `retry_rate_gate`); an older
+            // record says nothing, and counts as no person's.
+            let person = saved.get("person").and_then(Value::as_bool).unwrap_or(false);
             let wake = Arc::new(Notify::new());
             pending.replace(Mark::Waiting {
                 turn: turn_id.clone(),
@@ -255,6 +261,7 @@ impl Hub {
                 trust_gate,
                 full_access_device,
                 from,
+                person,
             };
             tokio::spawn(async move {
                 let _ = hub.retry_turn_restored(&session, by).await;
