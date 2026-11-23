@@ -4955,6 +4955,22 @@ serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the b
 
 ## note-553
 
+Above `jobs:` in `.github/workflows/cmux-next.yml`.
+
+The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml: Trusted runs (a same-repository
+pull request, a push or a dispatch) stay on vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while
+owned pools are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback. Manual reruns stay
+minis-first. The rescue re-admits a queued run after the five-minute queue alarm: placement first uses a free
+owned GUI/session Mac, then the workflow's Blacksmith macOS route. macos-placement records idle side runners
+with the main picker's idle_placement() and publishes free role labels for the bot retry, so a job does not
+keep a shared concurrency slot on a busy Blacksmith label indefinitely. When a job takes the side label,
+macos-placement uploads the owned-pool-watch marker: ci-owned-pool-rescue.yml's sweeper on main adopts the run
+(owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves queued or refuses. Bot attempt 2 and
+later drop the stale placement output and re-admits it through the same fast-checks/owned-Mac/Blacksmith
+order; a person's re-run stays on the side label.
+
+## note-554
+
 Above `down) ...` in the `case "$word"` of app-compile-fleet, swift-canary-fleet and release-compile-fast in `.github/workflows/cmux-next.yml`.
 
 `down` from scripts/ci/fleet_compile_result.py: the build controller, which serves the tip check's results, was reached and gave no answer for 60 s (the CDN's 524 or the read's own timeout). A compile submits to that same process, so the job gives no verdict at once instead of submitting. 2026-11-23 from 09:30Z the controller answered a plain read in 78 s: 48 of 52 app compile jobs from 10:00 to 10:50Z spent 6.4-7.5 min reading and 5-8.5 min more in `cmux-ci compile-check` (exit 69 or 75), with no verdict at the end.
