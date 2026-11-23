@@ -1567,7 +1567,7 @@ impl Hub {
             // The caller dismissed it: the audit trail keeps it apart from a withdrawal.
             self.review_index.mark_settled(&session.id, permission_id, Settled::Caller);
         }
-        let mut outcome = match option_id {
+        let mut outcome = match option_id.as_deref() {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
             None => json!({"outcome": "cancelled"}),
         };
