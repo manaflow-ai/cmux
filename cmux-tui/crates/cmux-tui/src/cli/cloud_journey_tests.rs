@@ -53,7 +53,7 @@ fn summary_matches_the_ts_format() {
         step("start agent (claude)", Status::Pass, 600, "a|b\nc"),
         step("delete", Status::Pass, 0, "m1"),
     ];
-    let meta = json!({ "tag": "jr-1", "agent": "claude" });
+    let meta = [("tag", "jr-1".to_owned()), ("agent", "claude".to_owned())];
     let md = summary_markdown("staging", "https://api", &meta, &steps);
     let lines: Vec<&str> = md.lines().collect();
     assert_eq!(
@@ -75,7 +75,7 @@ fn a_failed_step_fails_the_summary_and_drops_ready_time() {
         step("running (status)", Status::Fail, 2000, "timeout"),
         step("delete", Status::Skip, 0, ""),
     ];
-    let md = summary_markdown("dev", "https://api", &json!({}), &steps);
+    let md = summary_markdown("dev", "https://api", &[], &steps);
     assert!(md.starts_with("FAIL: Cloud journey on `dev` (https://api), 3.0 s\n"));
     assert!(md.contains("| **FAIL** | running (status) | 2000 | timeout |"));
     assert!(md.contains("| skip | delete | 0 |  |"));

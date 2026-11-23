@@ -183,7 +183,8 @@ pub(super) struct Step {
 /// The run's steps, written to `--out` after each one (cloud-journey.ts `Journey`).
 struct Journey {
     backend: Value,
-    meta: Value,
+    /// In the TS journey's order: the summary prints it as given.
+    meta: Vec<(&'static str, String)>,
     out: Option<PathBuf>,
     secrets: Vec<String>,
     steps: Vec<Step>,
@@ -219,7 +220,9 @@ impl Journey {
     }
 
     fn json(&self) -> Value {
-        json!({ "backend": self.backend, "meta": self.meta, "steps": self.steps })
+        let meta: serde_json::Map<String, Value> =
+            self.meta.iter().map(|(k, v)| ((*k).to_owned(), Value::from(v.as_str()))).collect();
+        json!({ "backend": self.backend, "meta": meta, "steps": self.steps })
     }
 
     fn flush(&self) {
@@ -251,7 +254,12 @@ fn ready_ms(steps: &[Step]) -> Option<u64> {
 }
 
 /// cloud-journey.ts `summaryMarkdown`, line for line.
-pub(super) fn summary_markdown(name: &str, api: &str, meta: &Value, steps: &[Step]) -> String {
+pub(super) fn summary_markdown(
+    name: &str,
+    api: &str,
+    meta: &[(&str, String)],
+    steps: &[Step],
+) -> String {
     let failed = steps.iter().any(|s| s.status == Status::Fail);
     let total: u64 = steps.iter().map(|s| s.ms).sum();
     let ready = ready_ms(steps)
@@ -262,12 +270,7 @@ pub(super) fn summary_markdown(name: &str, api: &str, meta: &Value, steps: &[Ste
         if failed { "FAIL" } else { "PASS" },
         total as f64 / 1000.0
     )];
-    let extra: Vec<String> = meta
-        .as_object()
-        .map(|m| {
-            m.iter().map(|(k, v)| format!("{k}: {}", v.as_str().unwrap_or_default())).collect()
-        })
-        .unwrap_or_default();
+    let extra: Vec<String> = meta.iter().map(|(k, v)| format!("{k}: {v}")).collect();
     lines.push(if extra.is_empty() { String::new() } else { format!("\n{}", extra.join(", ")) });
     lines.push(String::new());
     lines.push("| result | step | ms | detail |".to_owned());
@@ -505,13 +508,20 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
     let tag = run_tag();
     let mut j = Journey {
         backend: json!({ "name": name, "api": api, "stack": if stack_project == cmux_cloud_environment::PRODUCTION_STACK_PROJECT { "prod" } else { "dev" } }),
-        meta: json!({
-            "tag": tag,
-            "team": args.team.clone().unwrap_or_else(|| "(personal)".into()),
-            "agent": "claude",
-            "driver": concat!("cmux cloud journey (Rust, cmux-tui ", env!("CARGO_PKG_VERSION"), ")"),
-            "model": if args.model_stub.is_some() { "stub (on the machine)" } else { "real" },
-        }),
+        meta: vec![
+            ("tag", tag.clone()),
+            ("team", args.team.clone().unwrap_or_else(|| "(personal)".into())),
+            ("agent", "claude".into()),
+            (
+                "driver",
+                concat!("cmux cloud journey (Rust, cmux-tui ", env!("CARGO_PKG_VERSION"), ")")
+                    .into(),
+            ),
+            (
+                "model",
+                if args.model_stub.is_some() { "stub (on the machine)" } else { "real" }.into(),
+            ),
+        ],
         out: args.out.clone(),
         secrets: vec![login.clone()],
         steps: Vec::new(),
@@ -833,7 +843,11 @@ async fn chat_steps(
     );
 
     // start agent (claude)
-    let tag = j.meta.get("tag").and_then(Value::as_str).unwrap_or("jr").to_owned();
+    let tag = j
+        .meta
+        .iter()
+        .find(|(k, _)| *k == "tag")
+        .map_or_else(|| "jr".to_owned(), |(_, v)| v.clone());
     let session = format!("journey-{tag}");
     let t0 = Instant::now();
     let program = format!(
