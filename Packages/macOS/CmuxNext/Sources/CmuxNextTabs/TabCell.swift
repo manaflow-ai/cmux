@@ -232,9 +232,10 @@ final class TabCell {
         backgroundLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
-        // Keep a tab's distinguishing suffix visible when its chip is narrow (for example,
-        // "Helper 1" and "Helper 2"). The hover marquee still expands to the full title.
-        titleLayer.truncation = .middle
+        // Titles are clipped by TitleFade, never Core Text truncation. Starting with a
+        // truncation mode leaves a new cell drawing a stale partial glyph before its first
+        // layout decides the visible width.
+        titleLayer.truncation = nil
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)

@@ -54,4 +54,38 @@ import Testing
         #expect(TabCell.titleTruncation(textWidth: 200, visibleWidth: 20) == nil)
         #expect(TabCell.titleTruncation(textWidth: 60, visibleWidth: 120) == nil)
     }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
+    func renderCrowdedTabGallery() throws {
+        let out = AANestedGroupsGalleryTests.packageRoot.appending(path: "crowded-tab-title-gallery")
+        try? FileManager.default.removeItem(at: out)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let titles = ["127.0.0.1:8080 / a very long browser title", "Agent session — long working title", "New Tab"]
+        for (name, width) in [("narrow", CGFloat(360)), ("wide", CGFloat(520))] {
+            let tabs = (0..<26).map { TabItem(id: TabID("tab\($0)"), title: titles[$0 % titles.count]) }
+            let model = TabStripModel(tabs: tabs, selectedID: tabs[0].id)
+            let strip = TabStripView(model: model)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+            defer { window.close() }
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.contentView = strip
+            strip.frame = NSRect(x: 0, y: 0, width: width, height: TabStripView.preferredHeight)
+            strip.layoutSubtreeIfNeeded()
+            strip.layoutSubtreeIfNeeded()
+            let rep = try #require(strip.bitmapImageRepForCachingDisplay(in: strip.bounds))
+            strip.cacheDisplay(in: strip.bounds, to: rep)
+            try AAGroupHeaderDensityGalleryTests.write(try #require(rep.cgImage), to: out.appending(path: "\(name)-many.png"))
+
+            for index in 26..<29 {
+                let id = TabID("rapid-\(index)")
+                model.tabs.append(TabItem(id: id, title: "New Tab"))
+                model.selectedID = id
+                strip.sync(fromModel: true, animating: false)
+            }
+            strip.layoutSubtreeIfNeeded()
+            let rapid = try #require(strip.bitmapImageRepForCachingDisplay(in: strip.bounds))
+            strip.cacheDisplay(in: strip.bounds, to: rapid)
+            try AAGroupHeaderDensityGalleryTests.write(try #require(rapid.cgImage), to: out.appending(path: "\(name)-rapid.png"))
+        }
+    }
 }
