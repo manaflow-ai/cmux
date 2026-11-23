@@ -246,9 +246,13 @@ impl Overlay {
         for by in (-(limit / 4)..limit).filter(|by| *by != 0) {
             let score = lined_up(by);
             // Kept best first; a later shift needs strictly more rows to displace one.
-            if let Some(at) = tries[1..].iter().position(|(_, best)| score > *best) {
-                tries[1 + at..].rotate_right(1);
-                tries[1 + at] = (by, score);
+            let Some((_, kept)) = tries.split_first_mut() else { continue };
+            let Some(at) = kept.iter().position(|(_, best)| score > *best) else { continue };
+            if let Some(tail) = kept.get_mut(at..) {
+                tail.rotate_right(1);
+                if let Some(slot) = tail.first_mut() {
+                    *slot = (by, score);
+                }
             }
         }
         let mut best: Option<(Delta, usize)> = None;
