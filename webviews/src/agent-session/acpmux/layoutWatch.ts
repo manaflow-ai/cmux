@@ -46,7 +46,7 @@ const NEW_TAB_PARTS = [
 /// The default New Tab page's parts inside `.nt-screen` (newtab/NewTabScreen.tsx and its blocks), each by its
 /// class: the composer with the strip above its box, the box, the input, the field's slot, the field, the
 /// pickers and the foot; the toolbar; the room that the composer keeps in the list layout; the stage with its
-/// cards; the starters, the player, the open tabs, the chats with their cards, and the list of all chats. A
+/// cards; the player, the open tabs, the chats with their cards, and the list of all chats. A
 /// second node of a class is `NAME:1`. The list of suggestions (`nt-rows`) is drawn in a layer of the
 /// document, outside the root (ui/Popover.tsx): it is read in the whole document while the root is there.
 export const NEW_TAB_SCREEN_PARTS = [
@@ -64,7 +64,6 @@ export const NEW_TAB_SCREEN_PARTS = [
   "nt-stage",
   "nt-stage-cards",
   "nt-stage-card",
-  "nt-starters",
   "nt-player",
   "nt-open-tabs",
   "nt-chats",

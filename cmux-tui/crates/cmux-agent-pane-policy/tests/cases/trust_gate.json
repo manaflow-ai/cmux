@@ -111,17 +111,30 @@
    "breaks": true
   },
   {
-   "name": "trust gate: initialize may not carry any _meta",
+   "name": "trust gate: initialize's _meta carries only acpmux (cmux#49148 allows _meta.acpmux.peerRowBatches)",
    "frame": {
     "jsonrpc": "2.0",
     "method": "initialize",
     "id": 1,
     "params": {
      "protocolVersion": 1,
-     "_meta": {}
+     "_meta": {"cmuxGesture": "aaaa"}
     }
    },
    "breaks": true
+  },
+  {
+   "name": "trust gate: initialize may ask for peer row batches",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "id": 1,
+    "params": {
+     "protocolVersion": 1,
+     "_meta": {"acpmux": {"peerRowBatches": true}}
+    }
+   },
+   "breaks": false
   },
   {
    "name": "trust gate: prompt may not carry a forward mark (via app)",

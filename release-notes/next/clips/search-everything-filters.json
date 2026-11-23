@@ -1,0 +1,67 @@
+{
+  "caption": "In Search, in:tabs lists only tabs and in:settings searches only settings.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Search everything, with the filter hint under the field",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "scope": "search"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "in:tabs lists every tab, most used first",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "scope": "search",
+            "query": "in:tabs"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "in:settings with words searches only settings",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "scope": "search",
+            "query": "in:settings font"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0.2,
+    0.05,
+    0.6,
+    0.85
+  ]
+}

@@ -72,6 +72,7 @@ import { useWholeReport, type WholeReport } from "./wholeReport";
 import { WholeReportBody } from "./WholeReportBody";
 import { SubagentChipPreview } from "./SubagentPreview";
 import "./SubagentDoneLine.css";
+import { Described } from "../chips/FactsHoverCard";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -217,16 +218,20 @@ function DoneLine({
     );
   };
   const restartButton = restart && controls.line.includes("restart") && (
-    <button
-      type="button"
-      className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
-      aria-label={t("subagents.restart")}
-      title={t("subagents.restart")}
-      data-tooltip-detail={t("subagents.restartDetail")}
-      onClick={() => restart(agent)}
-    >
-      <Retry size={14} />
-    </button>
+    <Described text={t("subagents.restartDetail")}>
+      {(described) => (
+        <button
+          {...described}
+          type="button"
+          className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
+          aria-label={t("subagents.restart")}
+          title={t("subagents.restart")}
+          onClick={() => restart(agent)}
+        >
+          <Retry size={14} />
+        </button>
+      )}
+    </Described>
   );
   // Resume where acpmux can start it again, else Restart: one control on the line.
   const lineButton = resumed.button || restartButton;

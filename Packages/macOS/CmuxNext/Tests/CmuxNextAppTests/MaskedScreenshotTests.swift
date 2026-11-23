@@ -331,7 +331,7 @@ import WebKit
     }
 
     /// A native page tab (no PageWebView inside) is masked whole unless its page was checked: a
-    /// Phone or Mac Screen frame, Passwords or a page nobody checked never reaches automation.
+    /// Phone frame, Passwords or a page nobody checked never reaches automation (Mac Screen masks only its picture).
     @Test func aNativePageTabIsMaskedUnlessListed() throws {
         let phone = InternalPageView(key: "mask-phone", page: InternalPageID(rawValue: "phone"), content: NSView())
         let unchecked = InternalPageView(key: "mask-new", page: InternalPageID(rawValue: "not-checked"), content: NSView())
