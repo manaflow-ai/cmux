@@ -962,7 +962,8 @@ function playReplace(
     for (const { node, top, height } of fresh) {
       const key = `${Math.round(top)} ${Math.round(height)}`;
       // Out of view the row is simply drawn where it lands, whole: no fade, no clip, nothing played
-      // (`play` above). Not latched: a later pass (a scroll, a placement) animates it once it is seen.
+      // (`play` above). Not latched: a later placement pass animates it once it is seen. The reader's
+      // scroll never does: it ends the swap (`endOnReaderScroll` below).
       const seen = boxSeen(top, height);
       // A row still playing its own entrance keeps its fade; the clip alone is the swap's. Its class
       // stays once the entrance ended, so the entrance itself is what counts.
@@ -1076,11 +1077,21 @@ function playReplace(
     attributes: true,
     attributeFilter: ["style", "aria-posinset"],
   });
+  // The reader's own scroll ends the swap at once, as it ends `playTurnEnd`'s fold (rule 4): every row
+  // drawn where it lands, the old frame's copies gone. Played on, the `scroll` pass below read the
+  // scroll as a new place for every row (its key is a top in the view) and started each one's wipe
+  // again, on rows the reader scrolled to and rows it carried past the edge (the motion gate's
+  // `offscreen-start` residual). Registered first, so the reader's scroll settles the swap before
+  // that pass runs: `settleTurnEnd` takes the pass's listener off, and a listener taken off during a
+  // dispatch is not called. What still reaches the pass is the view's own scroll (the bottom kept
+  // pinned), which plays on from the same clock.
+  const unscroll = endOnReaderScroll(thread, scroller, fold);
   scroller?.addEventListener("scroll", pass, { passive: true });
   fold.stop = () => {
     if (firstFrame !== undefined) View?.cancelAnimationFrame(firstFrame);
     observer?.disconnect();
     scroller?.removeEventListener("scroll", pass);
+    unscroll();
     for (const name of READER_GESTURES) page.removeEventListener(name, gesture, true);
   };
   arm();
