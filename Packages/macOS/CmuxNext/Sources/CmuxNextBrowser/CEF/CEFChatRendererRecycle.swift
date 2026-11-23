@@ -63,6 +63,9 @@ public struct CEFChatRendererRecycle {
     /// Whether `environment` turns recycling on.
     public static func isEnabled(_ environment: [String: String]) -> Bool { environment[environmentKey] == "1" }
 
+    /// Whether this process's environment turns recycling on.
+    public static var isEnabledHere: Bool { isEnabled(ProcessInfo.processInfo.environment) }
+
     /// The resident size at which a renderer is recycled: twice its baseline, and at least ``growthFloorBytes`` more.
     public static func bound(baseline: Int) -> Int {
         let baseline = max(baseline, 0)
