@@ -126,7 +126,7 @@ impl WebhookFilter {
                 value == "*"
                     || match found {
                         Value::String(s) => s == value,
-                        other => other.to_string() == *value,
+                        other => serde_json::from_str::<Value>(value).is_ok_and(|v| v == *other),
                     }
             }
         }
