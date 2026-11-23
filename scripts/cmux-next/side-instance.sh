@@ -23,7 +23,10 @@
 #                                   with an amber SIM band) so it is never taken for the real app in the Dock or
 #                                   the app switcher; --keep-icon keeps the original's icon (a look of the icon)
 #   side-instance.sh launch NAME [--front] [-- ARGS...]
-#                                   open it (behind the front app unless --front); records its pid
+#                                   open it (behind the front app unless --front); records its pid. Where
+#                                   `mac-budget` is on PATH (Leo's laptop), an agent's launch first waits for
+#                                   room in the Mac's memory budget (SIDE_INSTANCE_BUDGET_WAIT_S, default 1800)
+#                                   and is recorded with its owner and a deadline for the budget's reaper
 #   side-instance.sh stop NAME      quit it: the pid launch recorded, then what still runs from the copy
 #                                   (its terminal daemon and helpers outlive the app otherwise)
 #   side-instance.sh env NAME       the exports that point web-overlay.sh at it (eval "$(... env NAME)")
@@ -49,7 +52,8 @@
 #                   off (no feed, no key), no document types or login items, one URL scheme of its
 #                   own for sign-in callbacks (cmux links stay with the original), re-sealed ad hoc
 #                   with its unrestricted entitlements (no Keychain group)
-#   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment), and
+#   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment), its
+#                   customize/ folder (CMUX_CUSTOMIZE_DIR: local/customize, the folder its daemon watches), and
 #                   its debug-tunables.json (CMUX_NEXT_DEBUG_TUNABLES_FILE) with Live web reload on, so it
 #                   loads its web overlay. A copy of cmux NEXT DEV cannot: the app reads web-dev.json
 #                   only under DEV's own bundle id (WebDevOverride.isAvailable); a nightly's copy can.
@@ -232,6 +236,11 @@ case "$cmd" in
     rm -rf "$app/Contents/Library/LaunchAgents" "$app/Contents/Library/LaunchDaemons"
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
+    # Its own customize folder (local/customize: the folder its daemon watches, where `cmux customize`
+    # and `cmux ext` write): without it every copy on the Mac shares ~/.config/cmux/customize, so one
+    # copy's extension shows in another's sidebar and a save reloads both.
+    mkdir -p "$dir/config/customize"
+    plist_set "$plist" LSEnvironment:CMUX_CUSTOMIZE_DIR "$dir/config/customize"
     plist_set "$plist" LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME "$scheme"
     # A control socket at a path this script names (LaunchIdentity reads CMUX_NEXT_SOCKET_PATH), so a driver
     # (hot-verify.py, `cmux --app-socket`) finds the copy without reading its process's open files.
@@ -350,6 +359,16 @@ PY
     done
     app="$(app_of)"
     if running; then echo "$name already runs (pid $(pid_of))"; exit 0; fi
+    # On a Mac with a memory budget for agents' apps (leo-workspace tools/mac_budget.py, linked as mac-budget on
+    # Leo's laptop), an agent's copy waits its turn while agents already hold the budget or the Mac is short of
+    # memory, and is recorded with its owner and a deadline so the budget's reaper quits it once its owner ends.
+    # A Mac without it, and a person's own shell, launch at once. Leo, 2026-11-22, after three agent copies ran his
+    # laptop out of memory: "you guys simply need to be less stupid about [his laptop]".
+    budget="$(command -v mac-budget 2>/dev/null || true)"
+    if [[ -n "$budget" ]]; then
+      "$budget" admit --kind side --name "$name" --wait "${SIDE_INSTANCE_BUDGET_WAIT_S:-1800}" --holder-pid $$ \
+        || die "$name did not start: the Mac's memory budget for agent apps stayed full (mac-budget status names who holds it)"
+    fi
     # -n: a new process even when Launch Services still maps the id elsewhere; -g: behind the front app.
     open_args=(-n); [[ -z "$front" ]] && open_args+=(-g)
     open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}
@@ -365,6 +384,11 @@ PY
     done
     [[ -n "$launched" ]] || die "$name did not start"
     echo "$launched" >"$dir/pid"
+    if [[ -n "$budget" ]]; then
+      "$budget" record --name "$name" --kind side --app "$app" --pid "$launched" \
+        --stop-argv "[\"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")\", \"stop\", \"$name\"]" \
+        --stop-env "{\"CMUX_SIDE_ROOT\": \"$root\"}" || true
+    fi
     echo "$name: pid $launched"
     ;;
   stop)
@@ -384,12 +408,13 @@ PY
       for _ in $(seq 1 75); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
       if [[ -n "$(copy_pids)" ]]; then die "processes of $name still run: $(copy_pids | tr '\n' ' ')"; fi
     fi
+    if command -v mac-budget >/dev/null 2>&1; then mac-budget release --name "$name" || true; fi
     echo "$name stopped"
     ;;
   env)
     app_of >/dev/null
-    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q\n' \
-      "$dir/config/cmux-next.json" "$dir/web-overlay" "$dir/web-slot"
+    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_CUSTOMIZE_DIR=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q\n' \
+      "$dir/config/cmux-next.json" "$dir/config/customize" "$dir/web-overlay" "$dir/web-slot"
     ;;
   socket)
     app_of >/dev/null

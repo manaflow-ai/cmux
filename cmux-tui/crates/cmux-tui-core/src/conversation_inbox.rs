@@ -140,7 +140,7 @@ fn state(position: Option<i64>, unread: i64) -> InboxState {
     InboxState { pinned: pin_position.is_some(), pin_position, marked_unread: unread != 0 }
 }
 
-fn load(
+pub(super) fn load(
     connection: &Connection,
     participant: &str,
     conversation: &str,
