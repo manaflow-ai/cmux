@@ -316,13 +316,15 @@ nonisolated struct SignedHelperStaging: Sendable {
             guard let entries = try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { continue }
             for entry in entries where entry.pathExtension == "app" || entry.lastPathComponent.hasPrefix(".staging-") {
                 guard Self.isRealDirectory(entry.path), let info = fileSystem.inspect(entry), info.modified < cutoff else { continue }
-                let id = Self.bundleIdentifier(entry)
-                guard (try? FileManager.checked.removeItem(at: entry)) != nil else { continue }
-                logger.notice("helper copy: removed another build's copy \(entry.path, privacy: .public)")
-                if let id, id != folder.lastPathComponent, Self.isPerTagDevHelperBundleID(id), forgotten.insert(id).inserted {
+                // Reset first: tccutil resolves the id through Launch Services, which no longer
+                // knows it once its last bundle is gone ("No such bundle identifier").
+                if let id = Self.bundleIdentifier(entry), id != folder.lastPathComponent, Self.isPerTagDevHelperBundleID(id),
+                   forgotten.insert(id).inserted {
                     await operations.forget(id)
                     logger.notice("helper copy: reset the privacy rows of \(id, privacy: .public)")
                 }
+                guard (try? FileManager.checked.removeItem(at: entry)) != nil else { continue }
+                logger.notice("helper copy: removed another build's copy \(entry.path, privacy: .public)")
             }
             // rmdir fails, and so keeps, a folder that still holds anything (its lock, a note).
             for leftover in [".lock", ".verified"] {
