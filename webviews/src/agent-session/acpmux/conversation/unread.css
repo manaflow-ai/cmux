@@ -201,6 +201,41 @@
 .acpmux-row:has(.cv-since[data-look="worked"][data-shown]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider::after {
   background: var(--cmux-app-accent, var(--agent-text));
 }
+/* The line keeps "New"'s room at its end, so the two share the row and never overlap: the line's own
+   words give way first behind an ellipsis (the dim token count, then the label), and "New" keeps its
+   place. Only "New"'s room is kept: the count's words ("157 new messages") show only where the
+   line is roomy (above), and at ultra tightness, where "New" fades out, the room goes with it. */
+.acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) {
+  container: cv-since-line / inline-size;
+}
+.acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider {
+  padding-inline-end: calc(3ch + var(--grid-gap));
+}
+.acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider :is(.cv-worked__label, .cv-worked__count:has(> .cv-worked__tokens)) {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The count gives way whole before the label starts to: the label barely shrinks (its weight is
+   tiny) until the count is down to nothing. The count is a flex row ("·" and the tokens), so its
+   ellipsis is the tokens' own. The doubled class outranks the shared rule above, whose :is()
+   takes its :has() argument's weight. */
+.acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider .cv-worked__label.cv-worked__label {
+  flex-shrink: 0.001;
+}
+.acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider .cv-worked__tokens {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container cv-since-line (max-width: 150px) {
+  .cv-worked.has-divider {
+    padding-inline-end: 0;
+  }
+}
 /* C: a small New pill at the end of the gap, no rule. */
 .cv-since[data-look="pill"] .cv-since__tag {
   padding: 0 var(--ds-space-1);
