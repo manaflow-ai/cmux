@@ -512,10 +512,10 @@ acpmux unarchive NAME                          # bring an archived chat back
 
 Add `--json` before the command for ids and paths to act on. The rest of the
 surface, one line each in `acpmux --help`: `race` and `compare` (one task on
-several models), `continue` (move a chat to another harness), `briefs` and `task`
-(tracked work), `watch` (wake me when others finish), `inbox` and `deliver`
-(durable messages, reports), `forum`, `bridge`, `desktop` and `register`
-(desktop apps), `group` (sidebar groups), `harness`, `capabilities`,
+several models), `fork-run` (fork a Cloud machine N ways, keep one), `continue`
+(move a chat to another harness), `briefs` and `task` (tracked work), `watch`
+(wake me when others finish), `inbox` and `deliver` (durable messages, reports),
+`forum`, `bridge`, `desktop` and `register` (desktop apps), `group` (sidebar groups), `harness`, `capabilities`,
 `machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
 `stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
 
