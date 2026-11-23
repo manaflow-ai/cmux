@@ -1,0 +1,25 @@
+{
+  "family": "workspace_checklist",
+  "ops": {
+    "workspace_checklist.add": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2fded29b02f6b61b"
+    },
+    "workspace_checklist.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "21a3a5677931a386"
+    },
+    "workspace_checklist.remove": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "7d37eb3df79a462f"
+    },
+    "workspace_checklist.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "4e96b630aa26f3d5"
+    }
+  }
+}

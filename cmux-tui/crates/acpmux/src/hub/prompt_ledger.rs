@@ -258,7 +258,7 @@ impl Hub {
         let mut closed_window = false;
         let mut prompt_hash = None::<String>;
         let mut permissions = HashSet::<String>::new();
-        let scanned = self.store.scan_strict(&session.id, 0, &mut |rec| {
+        let scanned = self.scan_strict_off(&session.id, 0, &mut |rec| {
             let field = |key: &str| rec.msg.get(key).and_then(Value::as_str);
             let mux = rec.dir == "mux";
             // Only daemon-authored admission records bind a delivery. A human prompt
