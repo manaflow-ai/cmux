@@ -17,6 +17,7 @@ use tokio::runtime::Runtime;
 mod browser;
 mod classic_leftovers;
 mod follow_camera;
+mod harness_tuck;
 mod link_side;
 mod share_approval;
 mod terminal_chat;
