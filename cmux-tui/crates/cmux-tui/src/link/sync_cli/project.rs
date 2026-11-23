@@ -562,9 +562,9 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // fetches it from there instead of sending it over this Mac's uplink.
     let published: Published = Arc::new(Mutex::new(None));
     let mut revisions = Revisions { published: Arc::clone(&published), resent: 0 };
+    let pair = pair_of(&name);
     std::thread::scope(|scope| {
         if super::store::on() {
-            let pair = pair_of(&name);
             scope.spawn(|| match super::store::publish(&listed.manifest, &pair) {
                 Ok(done) => {
                     eprintln!(
@@ -691,6 +691,10 @@ fn serve_until_gone(
                     Some(done) => done,
                     None => {
                         revisions.resent += 1;
+                        eprintln!(
+                            "cmux link project: sending the whole listing ({} so far)",
+                            revisions.resent
+                        );
                         redial(socket, name, at, encoded, None).0
                     }
                 };
