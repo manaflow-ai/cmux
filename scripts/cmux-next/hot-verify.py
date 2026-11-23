@@ -1499,11 +1499,13 @@ RESTART_ACPMUX = ("--restart-acpmux",)
 
 
 def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
-               given: Path | None = None) -> dict:
+               given: Path | None = None, head_binary: Path | None = None) -> dict:
     """The change's daemon into the copy (hot-apply.py apply --branch --parts rust): the published build of the
     head's cmux-tui tree, else a local cargo build of a dir: source. A plan with daemon_from (the change applied
     onto the app's commit) takes that commit's published build, else GIVEN (look --rust-binary), never the
-    head's: the head's daemon is the skew the plan stepped around."""
+    head's: the head's daemon is the skew the plan stepped around. HEAD_BINARY (look --rust-binary-head) is a cmux-tui
+    the caller built from the head itself: it goes in only when the head's tree has no published build (a sha:
+    source of a lane head, whose tree CI never publishes), the published build otherwise."""
     onto = planned.get("daemon_from")
     if onto:
         argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", onto, "--branch",
@@ -1526,7 +1528,13 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
     if planned.get("ffi_baseline"):
         argv.append("--ffi-in")  # apply_ffi_baseline put the release in before the copy opened
     binary = None
-    if src_tree is not None and (src_tree / "cmux-tui/Cargo.toml").is_file() and shutil.which("cargo"):
+    if head_binary is not None:
+        # Hot-verify of a lane head (2026-11-23): CI publishes no cmux-tui tree for lane/** heads, so every rust
+        # look of one failed on hot-apply's fetch (8 of 63 looks done in a day). The worker builds the head's
+        # daemon with its warm Cargo home and passes it; a published build of the same tree still wins.
+        if not (planned.get("tree_key") and hot().published(planned["tree_key"])):
+            binary = head_binary
+    elif src_tree is not None and (src_tree / "cmux-tui/Cargo.toml").is_file() and shutil.which("cargo"):
         published = hot().published(planned["tree_key"]) if planned.get("tree_key") else False
         if not published:
             log(cargo_note(planned.get("tree_key"), src_tree))
@@ -1543,7 +1551,8 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
                         "build the app with it on the fleet, `cmux-ci build cmux --ref SHA`")
     if binary is not None:
         argv += ["--binary", str(binary)]
-    how = "local cargo build" if binary is not None else "published tree build"
+    how = ("given binary built from the head" if binary is not None and binary == head_binary
+           else "local cargo build" if binary is not None else "published tree build")
     return run_hot_apply_rust(argv, side, how)
 
 
@@ -1757,7 +1766,9 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
         with phases("apply"):
             if "rust" in planned["layers"]:
                 given = Path(args.rust_binary).resolve() if getattr(args, "rust_binary", None) else None
-                applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given)
+                head_binary = (Path(args.rust_binary_head).resolve() if getattr(args, "rust_binary_head", None)
+                               else None)
+                applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given, head_binary)
             if "web" in planned["layers"]:
                 applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
                 # The copy's pages reload on the new overlay: wait for the window to change from the before shot
@@ -2372,6 +2383,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-video", action="store_true")
     p.add_argument("--rust-binary", help="the cmux-tui built from the plan's daemon_from (the change applied onto "
                    "the app's commit), when no CI build of it is published")
+    p.add_argument("--rust-binary-head", help="the cmux-tui built from the head itself, for a plan with no "
+                   "daemon_from whose head tree CI has not published (a lane head): used only while it is unpublished")
     p.add_argument("--watch", action="store_true")
     p.add_argument("--pr", type=int, help="the pull request a sha: source is the head of: its published web layer")
     p.set_defaults(func=command_look)
