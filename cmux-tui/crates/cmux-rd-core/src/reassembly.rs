@@ -112,7 +112,7 @@ pub const MAX_KEYFRAME_WAIT_US: u64 = 4_000_000;
 /// trip grew to 250-800 ms, so a keyframe whose last shards had arrived expired 200 ms
 /// later with its NACKed shards still queued, every attempt, and no frame was shown in
 /// 15 s (hq#19915). Later frames cannot decode without it, so waiting longer costs nothing.
-pub const KEYFRAME_REPAIR_WAIT_US: u64 = 1_000_000;
+pub const KEYFRAME_REPAIR_WAIT_US: u64 = 3_000_000;
 
 impl Reassembler {
     /// `deadline_us`: how long a frame may wait for missing shards after its newest shard.
