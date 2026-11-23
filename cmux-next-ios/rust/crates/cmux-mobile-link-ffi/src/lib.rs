@@ -1660,7 +1660,8 @@ async fn dial(
         timeline: timeline.clone(),
         ..DialOptions::default()
     };
-    let attempt = dial_on(&socket, request, &options, reused).await;
+    let first = uuid::Uuid::new_v4().to_string();
+    let attempt = dial_on(&socket, request, &options, reused, &first).await;
     match attempt {
         Ok(connected) => Ok((connected, socket)),
         Err(Attempt::Stale) => {
@@ -1671,7 +1672,13 @@ async fn dial(
             let epoch = pool.epoch.load(Ordering::SeqCst);
             let socket = pool.open(&key, &request.token, timeline).await?;
             socket_epoch.store(epoch, Ordering::SeqCst);
-            match dial_on(&socket, request, &options, false).await {
+            // The first offer may have reached the Mac over the slow socket (a lossy
+            // path, not a dead one): end that session over this one too, or the Mac holds
+            // it, a tunnel waiting for this phone, until its own timeout.
+            cmux_mobile_link::dial::bye(&socket.client, &request.mac_device_id, &first, "signaling stale");
+            timeline.mark("signaling_stale_bye");
+            let retry = uuid::Uuid::new_v4().to_string();
+            match dial_on(&socket, request, &options, false, &retry).await {
                 Ok(connected) => Ok((connected, socket)),
                 Err(Attempt::Stale) => unreachable!("only a reused socket is probed"),
                 Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
@@ -1716,10 +1723,12 @@ async fn dial_on(
     request: &ConnectRequest,
     options: &DialOptions,
     probe: bool,
+    session_id: &str,
 ) -> Result<cmux_mobile_link::Connected, Attempt> {
-    let dial = cmux_mobile_link::dial::connect(
+    let dial = cmux_mobile_link::dial::connect_session(
         &socket.client,
         &request.mac_device_id,
+        session_id,
         request.transport.into(),
         options,
         if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },

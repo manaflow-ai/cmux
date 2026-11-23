@@ -492,6 +492,22 @@ pub async fn connect(
     options: &DialOptions,
     link_config: LinkConfig,
 ) -> Result<Connected, DialError> {
+    let session_id = uuid::Uuid::new_v4().to_string();
+    connect_session(signaling, mac, &session_id, kind, options, link_config).await
+}
+
+/// [`connect`] as session `session_id`, picked by the caller so it can end the session
+/// ([`bye`]) on another socket when it gives the dial up: the dial's offer may already have
+/// reached the Mac, which otherwise holds that session (a tunnel waiting for this phone) until
+/// its own timeout. A dial dropped before it ends says `bye` on `signaling` itself.
+pub async fn connect_session(
+    signaling: &SignalingClient,
+    mac: &str,
+    session_id: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+) -> Result<Connected, DialError> {
     if options.relay_only && kind == TransportKind::WebRtc && turn_url_count(&options.ice_servers) == 0 {
         return Err(DialError::Transport(
             "relay only needs a TURN server, and the service offered none".into(),
@@ -502,13 +518,15 @@ pub async fn connect(
     {
         return Err(DialError::Transport(reason.into()));
     }
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = session_id.to_owned();
     let events = SessionEvents::subscribe(signaling, &session_id);
     let dialer = kind.dialer();
     options.timeline.mark("dial_start");
+    let abandoned = Abandoned { signaling, mac, session_id: &session_id };
     let result =
         tokio::time::timeout(options.timeout, dialer.dial(signaling, mac, &session_id, events, options))
             .await;
+    std::mem::forget(abandoned);
     let dialed = match result {
         Ok(Ok(dialed)) => dialed,
         Ok(Err(error)) => {
@@ -532,6 +550,26 @@ pub async fn connect(
     }
     options.timeline.mark("link_ready");
     Ok(Connected { link, transport: kind, path: dialed.path, session_id, webrtc_media: dialed.webrtc_media })
+}
+
+/// End session `session_id` with `mac` on `signaling`: the Mac tears down what it set up for it.
+pub fn bye(signaling: &SignalingClient, mac: &str, session_id: &str, reason: &str) {
+    signaling.unsubscribe(session_id);
+    let _ = signaling.send_signal(mac, session_id, SignalPayload::Bye { reason: reason.to_owned() });
+}
+
+/// Armed while a phone dial awaits its answer: dropped there (the caller gave the dial up),
+/// it says [`bye`], so the Mac does not hold the session until its own timeout.
+struct Abandoned<'a> {
+    signaling: &'a SignalingClient,
+    mac: &'a str,
+    session_id: &'a str,
+}
+
+impl Drop for Abandoned<'_> {
+    fn drop(&mut self) {
+        bye(self.signaling, self.mac, self.session_id, "abandoned");
+    }
 }
 
 /// Mac side: answer `first` and run a link on the result.
