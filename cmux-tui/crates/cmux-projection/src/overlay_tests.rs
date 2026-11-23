@@ -235,6 +235,63 @@ fn a_file_made_read_only_is_still_written_through_its_create() {
     assert_eq!(overlay.getattr(made.ino).unwrap().mode, 0o444);
 }
 
+#[test]
+fn whiteouts_are_appended_and_a_torn_last_line_is_ignored() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let src = path_ino(&overlay, "src");
+    overlay.unlink(src, "a.rs").unwrap();
+    overlay.unlink(src, "b.rs").unwrap();
+    let file = state.path().join("whiteouts");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/a.rs\0src/b.rs\0");
+    // Making one again takes it out: the file is rewritten from what is left.
+    overlay.create(src, "a.rs", 0o644, me()).unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/b.rs\0");
+    drop(overlay);
+    // A crash inside an append left half an entry: it is not a whiteout (it would hide `src`).
+    fs::write(&file, "src/b.rs\0sr").unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs"]);
+    assert_eq!(names(&overlay, path_ino(&overlay, "src")), ["a.rs", "c.rs", "deep"]);
+    // The torn tail is cut at the open, so the next append starts an entry of its own.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/b.rs\0");
+    overlay.unlink(path_ino(&overlay, "src"), "c.rs").unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/b.rs\0src/c.rs\0");
+    drop(overlay);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs", "src/c.rs"]);
+    drop(overlay);
+    // An older file of newline-ended lines (a torn last one too) reads, and is written again in
+    // NUL-ended entries before anything is appended to it.
+    fs::write(&file, "src/b.rs\nsrc/c.rs\nsr").unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs", "src/c.rs"]);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/b.rs\0src/c.rs\0");
+}
+
+#[test]
+fn a_cached_big_file_reads_back_any_range_without_the_mac() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let big = path_ino(&overlay, "big.bin");
+    let expected = big_bytes();
+    let mut at = 0u64;
+    while at < BIG {
+        let bytes = overlay.read(big, at, 128 * 1024).unwrap();
+        assert_eq!(bytes, expected[at as usize..(at as usize + bytes.len())]);
+        at += bytes.len() as u64;
+    }
+    let calls = fake.calls.load(Ordering::Relaxed);
+    // Ranges inside one cached chunk and across a chunk boundary, all from the disk cache.
+    let edge = CHUNK - 10;
+    assert_eq!(overlay.read(big, edge, 20).unwrap(), expected[edge as usize..edge as usize + 20]);
+    assert_eq!(overlay.read(big, BIG - 5, 100).unwrap(), expected[(BIG - 5) as usize..]);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 2, 3).unwrap(), b"adm");
+    assert_eq!(overlay.read(readme, 2, 3).unwrap(), b"adm");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls + 1, "only README.md's first read asks");
+}
+
 // Conformance (RFD 0007, 2026-11-20): each test below failed on the base (pjdfstest or fsx found
 // the class) and passes with the fix.
 
@@ -443,4 +500,235 @@ fn reads_leave_access_times_alone_as_the_mount_says_noatime() {
     let root_atime = overlay.getattr(overlay.root()).unwrap().atime_ns;
     overlay.readdir(overlay.root()).unwrap();
     assert_eq!(overlay.getattr(overlay.root()).unwrap().atime_ns, root_atime);
+}
+
+#[test]
+fn a_torn_append_inside_a_multi_byte_name_keeps_the_other_whiteouts() {
+    let (state, manifest, fake) = setup(false);
+    let file = state.path().join("whiteouts");
+    // The crash cut `src/é.rs` between the two bytes of `é`: the file is not valid UTF-8.
+    fs::write(&file, b"src/b.rs\0src/c.rs\0src/\xc3").unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs", "src/c.rs"]);
+    assert_eq!(fs::read(&file).unwrap(), b"src/b.rs\0src/c.rs\0");
+    drop(overlay);
+    // A whole entry that is not UTF-8 is skipped alone, not the file with it.
+    fs::write(&file, b"src/b.rs\0src/\xff.rs\0src/c.rs\0").unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs", "src/c.rs"]);
+}
+
+#[test]
+fn a_whiteouts_file_that_cannot_be_read_fails_the_open() {
+    let (state, manifest, fake) = setup(false);
+    // Not there: no whiteouts. There and unreadable: no open, never an empty set.
+    fs::create_dir(state.path().join("whiteouts")).unwrap();
+    let opened = Overlay::open(manifest, state.path(), fake, (me().uid, me().gid));
+    assert!(opened.is_err());
+}
+
+#[test]
+fn a_failed_append_leaves_no_torn_entry() {
+    let state = tempfile::tempdir().unwrap();
+    let path = state.path().join("whiteouts");
+    fs::write(&path, b"src/a.rs\0").unwrap();
+    // A write that lands half its bytes, then fails (a full disk).
+    let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+    let half = |file: &mut fs::File, bytes: &[u8]| -> std::io::Result<()> {
+        file.write_all(&bytes[..bytes.len() / 2])?;
+        Err(std::io::Error::from_raw_os_error(libc::ENOSPC))
+    };
+    assert!(append_entry(&mut file, b"src/b.rs\0", half).is_err());
+    assert_eq!(fs::read(&path).unwrap(), b"src/a.rs\0");
+    append_entry(&mut file, b"src/c.rs\0", |file, bytes| file.write_all(bytes)).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"src/a.rs\0src/c.rs\0");
+}
+
+#[test]
+fn a_create_whose_whiteout_cannot_go_leaves_nothing_behind() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let src = path_ino(&overlay, "src");
+    overlay.unlink(src, "a.rs").unwrap();
+    // The whiteouts file can no longer be written again (a folder in its place).
+    let file = state.path().join("whiteouts");
+    fs::remove_file(&file).unwrap();
+    fs::create_dir(&file).unwrap();
+    assert!(overlay.create(src, "a.rs", 0o644, me()).is_err());
+    assert!(!overlay.upper_dir().join("src/a.rs").exists(), "the new upper file is gone");
+    // The lower file stays deleted, as the file on disk still says.
+    assert_eq!(overlay.lookup(src, "a.rs"), Err(ENOENT));
+    assert_eq!(overlay.whiteouts(), ["src/a.rs"]);
+}
+
+/// The bytes of the blobs in a projection's cache folder, on disk.
+fn cache_on_disk_bytes(state: &Path) -> u64 {
+    fs::read_dir(state.join("cache"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name() != CACHE_ID_FILE)
+        .map(|entry| entry.metadata().unwrap().len())
+        .sum()
+}
+
+/// RFD 0007: the lower byte cache is capped (512 MiB by default) and lets the least recently used
+/// blob go first; a read of an evicted file asks the Mac again and answers the same bytes.
+#[test]
+fn the_cache_stays_under_its_cap_least_recently_used_first() {
+    assert_eq!(DEFAULT_CACHE_MAX_BYTES, 512 * 1024 * 1024);
+    let (state, manifest, fake) = setup(false);
+    // Two 4 MiB chunks of big.bin and a little more.
+    let cap = 2 * 4 * 1024 * 1024 + 64;
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(cap);
+    let big = path_ino(&overlay, "big.bin");
+    let chunk = 4 * 1024 * 1024u64;
+    let bytes = big_bytes();
+    for at in [0, chunk, 2 * chunk] {
+        let read = overlay.read(big, at, 4096).unwrap();
+        assert_eq!(read, bytes[at as usize..at as usize + 4096]);
+        assert!(overlay.cache_bytes() <= cap, "cache at {} over cap {cap}", overlay.cache_bytes());
+        assert!(cache_on_disk_bytes(state.path()) <= cap, "cache on disk over its cap");
+    }
+    assert!(overlay.cache_evicted() > 0, "nothing was evicted past the cap");
+    // The first chunk was least recently used: it went, and reading it asks the Mac again.
+    let asked = overlay.stats().remote_reads;
+    assert_eq!(overlay.read(big, 0, 4096).unwrap(), bytes[..4096]);
+    assert!(overlay.stats().remote_reads > asked, "an evicted chunk was served without the Mac");
+    // The newest chunk stayed (it is read from the cache).
+    let asked = overlay.stats().remote_reads;
+    assert_eq!(overlay.read(big, 2 * chunk, 4096).unwrap(), bytes[2 * chunk as usize..][..4096]);
+    assert_eq!(overlay.stats().remote_reads, asked, "the most recent chunk was evicted");
+}
+
+/// A cache an earlier daemon left over the cap goes down to it when the overlay opens again.
+#[test]
+fn a_reopen_trims_a_cache_left_over_its_cap() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let big = path_ino(&overlay, "big.bin");
+    let chunk = 4 * 1024 * 1024u64;
+    for at in [0, chunk, 2 * chunk] {
+        overlay.read(big, at, 16).unwrap();
+    }
+    let before = cache_on_disk_bytes(state.path());
+    assert!(before > 2 * chunk, "the cache held {before} bytes");
+    drop(overlay);
+    let cap = chunk + 64;
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(cap);
+    assert!(overlay.cache_bytes() <= cap);
+    assert!(cache_on_disk_bytes(state.path()) <= cap, "a reopen kept the cache over its cap");
+    let bytes = big_bytes();
+    assert_eq!(overlay.read(big, chunk, 16).unwrap(), bytes[chunk as usize..][..16]);
+}
+
+// MARK: Pins (RFD 0007 gap 5)
+
+#[test]
+fn a_pinned_folder_reads_with_the_mac_away_and_survives_the_cap() {
+    let (state, manifest, fake) = setup(false);
+    // A cap smaller than one file: nothing unpinned stays.
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(4).with_pin_reserve(0);
+    let report = overlay.pin("src").unwrap();
+    assert_eq!(report.files, 4);
+    assert_eq!(report.bytes, 36);
+    assert_eq!(report.fetched_bytes, 36);
+    assert_eq!((report.failed, report.first_error), (0, None));
+    assert_eq!(overlay.pinned_bytes(), 36);
+    assert_eq!(overlay.cache_bytes(), 0, "pinned bytes are not the LRU's");
+    // Unpinned reads churn the LRU; the pin is never evicted.
+    overlay.read(path_ino(&overlay, "README.md"), 0, 64).unwrap();
+    overlay.read(path_ino(&overlay, "big.bin"), 0, 64).unwrap();
+    assert_eq!(overlay.pinned_bytes(), 36);
+    assert_eq!(overlay.pins(), vec!["src".to_owned()]);
+    drop(overlay);
+
+    // A new daemon with the Mac away reads every pinned file from disk, and the pin is on record.
+    let away = Arc::new(Fake { away: true, bytes: fake.bytes.clone(), ..Fake::default() });
+    let overlay = open(state.path(), &manifest, &away).with_cache_max(4);
+    assert_eq!(overlay.pins(), vec!["src".to_owned()]);
+    assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");
+    assert_eq!(overlay.read(path_ino(&overlay, "src/a.rs"), 0, 64).unwrap(), b"fn a() {}");
+    assert_eq!(away.calls.load(Ordering::Relaxed), 0, "a pinned read asked the Mac");
+    // An unpinned file still needs the Mac.
+    assert_eq!(overlay.read(path_ino(&overlay, "README.md"), 0, 64), Err(112));
+    let again = overlay.hydrate_pins();
+    assert_eq!((again.fetched_bytes, again.failed), (0, 0), "already whole on disk");
+}
+
+#[test]
+fn a_pinned_big_file_is_fetched_by_every_chunk() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(1).with_pin_reserve(0);
+    let report = overlay.pin("big.bin").unwrap();
+    assert_eq!(report.fetched_bytes, BIG);
+    assert_eq!(overlay.pinned_bytes(), BIG);
+    let calls = fake.calls.load(Ordering::Relaxed);
+    let ino = path_ino(&overlay, "big.bin");
+    let tail = overlay.read(ino, BIG - 10, 10).unwrap();
+    assert_eq!(tail, big_bytes()[(BIG - 10) as usize..]);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls, "a pinned chunk asked the Mac");
+}
+
+#[test]
+fn unpin_hands_the_bytes_to_the_lru_and_keeps_an_overlapping_pin() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(9).with_pin_reserve(0);
+    overlay.pin("src").unwrap();
+    overlay.pin("src/deep").unwrap();
+    assert_eq!(overlay.pinned_bytes(), 36);
+    overlay.unpin("src").unwrap();
+    // d.rs stays under src/deep; the other three go to the LRU and down to its 9-byte cap.
+    assert_eq!(overlay.pinned_bytes(), 9);
+    assert!(overlay.cache_bytes() <= 9);
+    assert_eq!(overlay.pins(), vec!["src/deep".to_owned()]);
+    assert_eq!(overlay.unpin("src"), Err(ENOENT));
+}
+
+#[test]
+fn a_pin_the_disk_cannot_hold_is_refused_before_any_fetch() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(u64::MAX / 2);
+    assert_eq!(overlay.pin(""), Err(libc::ENOSPC));
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0);
+    assert!(overlay.pins().is_empty(), "a refused pin is not recorded");
+    assert_eq!(overlay.pin("nope"), Err(ENOENT));
+    assert_eq!(overlay.pin("../etc"), Err(EINVAL));
+}
+
+#[test]
+fn a_pin_made_with_the_mac_away_holds_and_stops_at_the_first_absence() {
+    let (state, manifest, _) = setup(false);
+    let (_, _, away) = setup(true);
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    let report = overlay.pin("").unwrap();
+    assert_eq!(report.first_error, Some(112));
+    assert_eq!(report.failed, 1, "the walk stops at the first EHOSTDOWN");
+    assert_eq!(overlay.pins(), vec![String::new()]);
+    drop(overlay);
+    // Back online, a hydration finishes it; the root pin read back from its file.
+    let (_, _, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    assert_eq!(overlay.pins(), vec![String::new()]);
+    let report = overlay.hydrate_pins();
+    assert_eq!((report.files, report.failed), (6, 0));
+    assert_eq!(report.fetched_bytes, report.bytes);
+}
+
+#[test]
+fn hydration_after_a_restart_keeps_the_disk_reserve() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    let (_, _, away) = setup(true);
+    drop(overlay);
+    // Pinned with the Mac away: recorded, nothing fetched.
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    overlay.pin("src").unwrap();
+    drop(overlay);
+    // The disk filled since: the hydration stops with ENOSPC before asking for anything.
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(u64::MAX / 2);
+    let calls = fake.calls.load(Ordering::Relaxed);
+    let report = overlay.hydrate_pins();
+    assert_eq!(report.first_error, Some(libc::ENOSPC));
+    assert_eq!(report.fetched_bytes, 0);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls);
 }

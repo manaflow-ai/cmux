@@ -45,6 +45,7 @@ pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
 pub mod claude_auth;
@@ -80,6 +81,7 @@ pub mod cpu_class;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
+pub mod daemon_priority;
 pub mod daemon_skew;
 mod dead_temps;
 mod default_harness;
@@ -289,6 +291,7 @@ pub mod sidecar_census;
 pub mod sim_agent;
 pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
+pub mod perf_watch;
 #[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
@@ -309,6 +312,7 @@ pub mod subsession_settings;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
+pub mod surge_triage;
 pub mod tailnet;
 pub mod task_list;
 #[cfg(unix)]

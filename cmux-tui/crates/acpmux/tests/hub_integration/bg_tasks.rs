@@ -505,14 +505,18 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     let quiet = json!({"sessionId": id, "command": "echo quiet; exit 0", "notify": false});
     let quiet = r.c.request(method::MUX_BG_START, quiet).await.unwrap();
     let quiet = quiet["id"].as_str().unwrap().to_owned();
-    // The pause keeps it running past the start's answer, which reads its state (a bare `seq`
-    // can end first on a busy runner, and the answer then says it exited).
-    let loud = json!({"sessionId": id, "command": "seq 1 30; sleep 0.5; exit 3",
+    // The task holds its end until the test has read the start's answer: the answer reads the
+    // task's state when it is built, and a bare `seq 1 30` had often ended by then on a loaded
+    // runner, so the answer said "failed".
+    let go = acpmux::config::home().join("loud-may-end");
+    let command = format!("seq 1 30; until [ -e '{}' ]; do sleep 0.01; done; exit 3", go.display());
+    let loud = json!({"sessionId": id, "command": command,
         "description": "count to thirty", "notify": true});
     let task = r.c.request(method::MUX_BG_START, loud).await.unwrap();
     assert_eq!((task["status"].as_str(), task["notify"].as_bool()), (Some("running"), Some(true)));
     assert_eq!(task["summary"], "Background command running: count to thirty", "{task}");
     let loud = task["id"].as_str().unwrap().to_owned();
+    std::fs::write(&go, "").unwrap();
     r.until("the quiet task never ended", || state(&r, &id, &quiet) == "exited").await;
     r.until("the task's end never reached its chat", || ends(&r.hub, &id).len() == 1).await;
     let dir = acpmux::config::home().join("bg").join(&id);

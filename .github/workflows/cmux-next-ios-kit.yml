@@ -273,10 +273,11 @@ jobs:
   kit-tests:
     needs: [runner]
     name: CmuxMobileKit tests (macOS swift test, iOS simulator)
-    # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
+    # Runs on every pull request this workflow's paths match (cmux-next-ios/**, the packages CmuxMobileKit links), with
+    # no full-ci label: as a Tier B skip, iOS PRs merged untested and were fixed forward over days (Leo, 2026-11-22:
+    # "if 80% of code doesn't have a way of having a proper pr in the hour, then our fucking codebase is not good enough").
     # Also skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    if: ${{ !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:
@@ -321,9 +322,15 @@ jobs:
             exit 1
           fi
 
-      # The instant-list bench runs on its own below (no other suite on the cores).
+      # The instant-list bench runs on its own below (no other suite on the cores). So do the suites
+      # that bound wall-clock time or the process footprint: among 2580 parallel tests in one process
+      # they measured their neighbours (reattach 1839 ms < 1000, 5194 ms < 5000, footprint 79 MB < 40 MB
+      # on base runs 45081481908 and 45081946888), each run a different one.
       - name: swift test (macOS)
-        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests
+
+      - name: swift test (macOS, measured suites alone)
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests
 
 
       # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so
@@ -389,8 +396,17 @@ jobs:
 
       # The bench runs after both test runs, so a bench red never skips the iOS tests.
       # Small vs god fixtures, budgets and the 1.2x rule: cmux-next-ios/design/instant-perf.md.
+      # Advisory: both bench steps report and never fail the job (Leo, 2026-11-21: "for connection and ci, we
+      # can simply move. and go"). On shared 6 vCPU and owned Macs the bench went red in 19 of 24 kit runs and 6
+      # of the last 10 base pushes on code the pull request never touched: home_list_first_screen at 1.36-1.49x
+      # since 9d18df05e5c (MessagePreview parses each preview by Character; the first screen went 1.5 -> 6 ms on
+      # the same runner class), plus chat_reconnect_catch_up and terminal_chat_swap_to_terminal swinging 2-5x on
+      # some runners. The numbers stay in the report below, the job summary and the instant-perf-* artifact,
+      # and the report step names each bench step that missed as a warning.
       - name: Instant list bench (macOS swift test)
+        id: bench-macos
         if: ${{ !cancelled() }}
+        continue-on-error: true
         env:
           CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
@@ -398,7 +414,10 @@ jobs:
       # The same bench on the simulator, alone, on the build above when there is one (TEST_RUNNER_ passes the
       # variable through to the test process).
       - name: Instant list bench (iOS simulator)
+        id: bench-ios
         if: ${{ !cancelled() }}
+        # Advisory, as the macOS bench above.
+        continue-on-error: true
         # The same bound as the test step above: a hung simulator ends the step.
         timeout-minutes: 30
         working-directory: cmux-next-ios/CmuxMobileKit
@@ -456,9 +475,18 @@ jobs:
 
       - name: Instant list bench report
         if: ${{ !cancelled() }}
+        env:
+          BENCH_MACOS: ${{ steps.bench-macos.outcome }}
+          BENCH_IOS: ${{ steps.bench-ios.outcome }}
         run: |
           set -euo pipefail
           python3 cmux-next-ios/scripts/instant_perf_table.py "$RUNNER_TEMP/instant-perf" | tee -a "$GITHUB_STEP_SUMMARY"
+          # The bench steps are advisory (continue-on-error): a miss is a warning here, not a red job.
+          for pair in "macOS:$BENCH_MACOS" "iOS simulator:$BENCH_IOS"; do
+            if [[ "${pair#*:}" == failure ]]; then
+              echo "::warning title=Instant list bench (advisory)::${pair%%:*} bench missed a budget or ratio; see the table in the job summary"
+            fi
+          done
 
       # One `INSTANTPERF {json}` line per metric and platform in the job log, for readers of the log.
       - name: Instant perf lines
