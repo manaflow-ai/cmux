@@ -75,3 +75,14 @@ test("Linux home folders read ~ too", () => {
   const suffixes = projectSuffixes([p("/home/dev/cmux"), p("/home/dev/work/cmux")]);
   expect(Object.fromEntries(suffixes)).toEqual({ "/home/dev/cmux": "~", "/home/dev/work/cmux": "work" });
 });
+
+test("thousands of worktrees of one name each get their lane, in passes over the list", () => {
+  // Leo's chats at 10K sessions named 4,000 folders, most of them worktrees named "cmux" (Leo
+  // 2026-11-18, "typing in the composer still slow 😞 there must be a lot of open stuff?"). The
+  // suffixes are read on each change of any chat, so they must not compare every pair.
+  const lanes = Array.from({ length: 4000 }, (_, at) => `/Users/leoli/wt/lanes/lane-${at}/cmux`);
+  const suffixes = projectSuffixes([...lanes.map((cwd) => p(cwd)), p("/Users/leoli/cmux")]);
+  expect(suffixes.size).toBe(4001);
+  expect(suffixes.get("/Users/leoli/wt/lanes/lane-7/cmux")).toBe("lane-7");
+  expect(suffixes.get("/Users/leoli/cmux")).toBe("~");
+});
