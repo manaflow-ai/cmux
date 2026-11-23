@@ -230,9 +230,13 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
         // A saved group of this daemon, reopened into one of its panes: the
         // daemon starts each terminal member as the login shell in the
         // folder the record holds; the phone names no program, folder or env.
-        "reopen-saved-tab-group" => return Some(["saved", "pane", "transaction"].into_iter().collect()),
+        "reopen-saved-tab-group" => {
+            return Some(["saved", "pane", "transaction"].into_iter().collect());
+        }
         "delete-saved-tab-group" => return Some(["saved"].into_iter().collect()),
-        "notification-reply" => return Some(["notification", "text", "reply_id"].into_iter().collect()),
+        "notification-reply" => {
+            return Some(["notification", "text", "reply_id"].into_iter().collect());
+        }
         // The daemon's whole request: the tab, the session, its agent and the compare-and-swap.
         "bind-conversation-tab-session" => {
             return Some(["surface", "session", "expected_session", "harness"].into_iter().collect());
@@ -693,7 +697,9 @@ fn group_params(operation: &str, params: &Map<String, Value>) -> Result<(), Stri
             match params.get("group") {
                 Some(Value::Null) => {}
                 Some(group) if short_id(Some(group), 64) => {}
-                _ => return Err("workspace.place takes a group, or null to remove it from one".into()),
+                _ => {
+                    return Err("workspace.place takes a group, or null to remove it from one".into());
+                }
             }
         }
     }
@@ -942,6 +948,8 @@ mod tests {
             // Latest screen first (attach-replay-history-rows-v1): screen only, then a chunk more.
             br#"{"cmd":"attach-surface","cols":80,"id":"m2","replay_history_rows":0,"rows":24,"surface":7}"#,
             br#"{"cmd":"attach-surface","id":"m2","replay_history_rows":2000,"surface":7}"#,
+            // A window far up the history (attach-replay-history-window-v1).
+            br#"{"cmd":"attach-surface","id":"m2","replay_history_rows":4000,"replay_history_start":0,"surface":7}"#,
             br#"{"bytes":"bHMK","cmd":"send","id":"m3","surface":7}"#,
             br#"{"cmd":"resize-surface","cols":80,"id":"m4","rows":24,"surface":7}"#,
             br#"{"cmd":"release-surface-size","id":"m5","surface":7}"#,

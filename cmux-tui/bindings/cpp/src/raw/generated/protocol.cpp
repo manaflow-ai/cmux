@@ -17542,6 +17542,16 @@ Result<Json> Codec<AttachSurfaceRequest>::encode(const AttachSurfaceRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("replay_history_start", std::move(encoded).value());
     }
+    if (!value.resume_generation.is_absent()) {
+        auto encoded = encode_value(value.resume_generation);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("resume_generation", std::move(encoded).value());
+    }
+    if (!value.resume_offset.is_absent()) {
+        auto encoded = encode_value(value.resume_offset);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("resume_offset", std::move(encoded).value());
+    }
     if (!value.rows.is_absent()) {
         auto encoded = encode_value(value.rows);
         if (!encoded) return std::move(encoded).error();
@@ -17672,6 +17682,26 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             auto decoded = decode_value<std::uint64_t>(*field_replay_history_start);
             if (!decoded) return std::move(decoded).error();
             result.replay_history_start = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_resume_generation = value.find("resume_generation");
+    if (field_resume_generation) {
+        if (field_resume_generation->is_null()) {
+            result.resume_generation = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_resume_generation);
+            if (!decoded) return std::move(decoded).error();
+            result.resume_generation = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_resume_offset = value.find("resume_offset");
+    if (field_resume_offset) {
+        if (field_resume_offset->is_null()) {
+            result.resume_offset = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_resume_offset);
+            if (!decoded) return std::move(decoded).error();
+            result.resume_offset = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
     const Json* field_rows = value.find("rows");
@@ -47415,7 +47445,7 @@ Result<Event> Codec<Event>::decode(const Json& value) {
 }
 
 namespace {
-constexpr std::array<CommandFieldRequirement, 15> kCommand4FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 17> kCommand4FieldRequirements{{
     {"cols", 0U, "attach-initial-size"},
     {"expected_generation", 0U, "attach-identity-v1"},
     {"expected_terminal_id", 0U, "attach-identity-v1"},
@@ -47425,6 +47455,8 @@ constexpr std::array<CommandFieldRequirement, 15> kCommand4FieldRequirements{{
     {"output_coalesce_ms", 0U, "attach-output-coalesce-v1"},
     {"replay_history_rows", 0U, "attach-replay-history-rows-v1"},
     {"replay_history_start", 0U, "attach-replay-history-window-v1"},
+    {"resume_generation", 0U, "terminal-resume-v1"},
+    {"resume_offset", 0U, "terminal-resume-v1"},
     {"rows", 0U, "attach-initial-size"},
     {"snapshot", 0U, "terminal-snapshot-v1"},
     {"snapshot_images", 0U, "terminal-snapshot-images-v1"},
