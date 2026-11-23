@@ -91,6 +91,40 @@ await requireBrowserLane("composer-attachments-inside-cap.test.ts", async () => 
     return page;
   }
 
+  /// What the card is made of, logged when a case runs: the strip, the prompt and its cap.
+  const probe = (page: Page, label: string) =>
+    page
+      .evaluate(() => {
+        const read = (selector: string) => {
+          const node = document.querySelector(selector) as HTMLElement | null;
+          if (!node) return null;
+          const style = getComputedStyle(node);
+          return {
+            h: node.getBoundingClientRect().height,
+            maxH: style.maxHeight,
+            minH: style.minHeight,
+            band: style.getPropertyValue("--acpmux-attach-band"),
+            attachH: style.getPropertyValue("--acpmux-attach-height"),
+            pad: style.paddingTop,
+          };
+        };
+        const box = document.querySelector(".acpmux-composer-box")!;
+        return {
+          box: read(".acpmux-composer-box"),
+          strip: read(".acpmux-attachments"),
+          tiles: [...document.querySelectorAll(".acpmux-attachments > *")].map((tile) => [
+            tile.className,
+            Math.round(tile.getBoundingClientRect().height),
+          ]),
+          field: read(".acpmux-md-field"),
+          menu: read(".acpmux-composer-field-menu"),
+          kids: [...box.children].map((child) => [child.className, Math.round(child.getBoundingClientRect().height)]),
+          inline: document.querySelectorAll(".acpmux-md-inline").length,
+          text: (document.querySelector(".acpmux-md") as HTMLElement).innerText.length,
+        };
+      })
+      .then((value) => console.log(`probe ${label}`, JSON.stringify(value)));
+
   const box = (page: Page) =>
     page.evaluate((): Box => {
       const { height, top, bottom } = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
@@ -171,8 +205,10 @@ await requireBrowserLane("composer-attachments-inside-cap.test.ts", async () => 
       const page = await stage(arm);
       await capDraft(page);
       const rest = await box(page);
+      await probe(page, `${name} cap rest`);
       for (const count of [1, 2, 5]) {
         await attach(page, count);
+        await probe(page, `${name} cap +${count}`);
         const now = await box(page);
         expect(Math.abs(now.height - rest.height)).toBeLessThanOrEqual(0.5);
         expect(Math.abs(now.top - rest.top)).toBeLessThanOrEqual(0.5);
@@ -191,6 +227,7 @@ await requireBrowserLane("composer-attachments-inside-cap.test.ts", async () => 
     await page.keyboard.insertText("one line");
     await settle(page);
     const rest = await box(page);
+    await probe(page, "line rest");
     const grown: number[] = [];
     for (const count of [1, 2, 5]) {
       await attach(page, count);
@@ -199,6 +236,7 @@ await requireBrowserLane("composer-attachments-inside-cap.test.ts", async () => 
       // The bottom edge stays put: the card grows at its top.
       expect(Math.abs(now.bottom - rest.bottom)).toBeLessThanOrEqual(0.5);
       await clear(page);
+      await probe(page, `line cleared after ${count}`);
       expect(Math.abs((await box(page)).height - rest.height)).toBeLessThanOrEqual(0.5);
     }
     // A 64 px tile and its 8 px top inset, less the prompt's dropped top inset (15 to 6 px).
