@@ -15,7 +15,8 @@
 import { focusRoute } from "../../../ui/focusRoute";
 import { SNAPSHOT_SKELETON_ATTRIBUTE } from "./shared";
 
-/// The copy's prompt: the editor's editable as the page drew it, else its root (an editor not yet up).
+/// The copy's prompt: the editor's editable as the page drew it, else its root (an editor not yet up),
+/// else the prompt's box (`copyPrompt`).
 const COPY_PROMPT = [
   '.acpmux-composer-prompt [contenteditable="true"]',
   ".acpmux-composer-prompt .acpmux-md-root",
@@ -48,10 +49,18 @@ const COPIED = [
 export function copyPrompt(copy: ParentNode): HTMLElement | undefined {
   const box = copy.querySelector(".acpmux-composer-prompt");
   if (!box || box.classList.contains("is-hidden")) return undefined;
-  let prompt: HTMLElement | null = null;
-  for (const selector of COPY_PROMPT) {
-    prompt = copy.querySelector<HTMLElement>(selector);
-    if (prompt) break;
+  // The first of them with a size: an empty editable can lay out with no height (the copy writes no
+  // field's text, so its empty line may be gone), and then the prompt's own box stands in for it.
+  let prompt: HTMLElement | undefined;
+  const candidates = [...COPY_PROMPT.map((selector) => copy.querySelector<HTMLElement>(selector)), box as HTMLElement];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    prompt ??= candidate;
+    const rect = candidate.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      prompt = candidate;
+      break;
+    }
   }
   if (!prompt) return undefined;
   const draft = (box.querySelector(".acpmux-md-root")?.textContent ?? "").trim();
