@@ -275,6 +275,33 @@ describe("OIDC sign-in (workerd)", { timeout: 30_000 }, () => {
     expect((await op(pat, "user.ensure", {})).ok).toBe(true)
   })
 
+  it("a person an SSO-enforcing team binds cannot mint a sign-in hand-off, even from an SSO session (auth-handoff.ts)", async () => {
+    const s = await setup()
+    const handoff = (token: string) =>
+      worker.fetch("https://api.test/v1/auth/handoffs", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...ip() }, body: JSON.stringify({ device: "air-blue" }) })
+    const pat = await stackSession(`stack-hpat-${crypto.randomUUID().slice(0, 8)}`, `hpat@${DOMAIN}`)
+    expect((await op(pat, "user.ensure", {})).ok).toBe(true)
+    await ssoSignIn(s, "halice", "idp-halice")
+    const alice = await stackSession("stack_1", `halice@${DOMAIN}`, "rtid-stack_1")
+    expect((await op(alice, "user.ensure", {})).ok).toBe(true)
+    const outsider = await stackSession(`stack-hout-${crypto.randomUUID().slice(0, 8)}`, "holga@unrelated-sso.dev")
+    expect((await op(outsider, "user.ensure", {})).ok).toBe(true)
+    // Before enforcement the domain's users mint like anyone.
+    expect((await handoff(pat)).status).toBe(201)
+
+    const on = await op(s.admin, "team.policy.update", { changes: [{ key: "sso.enforce", value: { value: true, mode: "enforced" } }], expected_version: 0, reason: "test" })
+    expect(on.error).toBeUndefined()
+    clearSignInRules()
+    // The handed-off session would be a new one SSO never created: refused for every bound person.
+    for (const token of [pat, alice]) {
+      const res = await handoff(token)
+      expect(res.status).toBe(403)
+      expect(((await res.json()) as any).error.code).toBe("auth.sso_required")
+    }
+    // A person of another domain is not bound.
+    expect((await handoff(outsider)).status).toBe(201)
+  })
+
   it("a daemon paired by an SSO-bound user keeps the SSO team, and its requests pass under enforced SSO (CLOUD-LINK-FOLLOWUPS 4)", async () => {
     const s = await setup()
     await ssoSignIn(s, "dana", "idp-dana")

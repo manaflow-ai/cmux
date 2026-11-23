@@ -20,7 +20,8 @@ Phases (each prints PERF-RENDERERS lines):
   open     tabs open one after another, round-robin over the sites, each in the foreground (one
            action.run with focus over the socket); new_tab_ms is from that call to the app reporting
            the page's title (the document is parsed; its heap script may still run)
-  settled  --settle seconds after the last tab: renderers (all, and those that hold a tab: the
+  settled  once the renderer processes and their tabs hold still after the last tab (within
+           max(120, 2 x --settle) seconds): renderers (all, and those that hold a tab: the
            spare renderer and extension renderers hold none), tabs per renderer, footprint
 
 The run stops (exit 1) when the first tab or 3 tabs in a row show no title in time (the .test
@@ -47,6 +48,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (launch, App, sample, end_bundle, wait_gone)
 import bench_power as bp  # noqa: E402  (rpc, wipe_state)
+from state_wait import StateWaitTimeout, wait_stable  # noqa: E402
 
 PAGE = """<!doctype html><html><head><meta charset=utf-8><title>site {site} tab {tab}</title></head><body>
 <h1>Renderer sharing bench: site {site}, tab {tab}</h1>{article}
@@ -130,7 +132,7 @@ def main():
     parser.add_argument("--tabs", type=int, default=100)
     parser.add_argument("--sites", type=int, default=20)
     parser.add_argument("--heap-mb", type=int, default=20)
-    parser.add_argument("--settle", type=float, default=30)
+    parser.add_argument("--settle", type=float, default=30, help="the renderers settle (state, not a timer) within max(120, 2 x this) seconds")
     parser.add_argument("--load-timeout", type=float, default=30, help="seconds a new tab may take to show its title")
     parser.add_argument("--cef-switches", default="", help="more Chromium switches, colon-separated")
     parser.add_argument("--out")
@@ -193,7 +195,17 @@ def main():
                                  "(is this a DEBUG dev build, so the .test mapping applies?)")
             if index % 10 == 9:
                 print(f"PERF-RENDERERS-OPEN tabs={index + 1} last_new_tab_ms={report['new_tab_ms'][-1] if report['new_tab_ms'] else None}", flush=True)
-        time.sleep(args.settle)  # test script: let the pages and their renderers settle
+        # The pages and their renderers have settled once the renderer processes and which tabs each holds
+        # read the same for about 5 s.
+        def renderers_now():
+            owners = renderer_map(sock).get("owners") or {}
+            pids = sorted(p for p, (kind, _) in bm.owned(pid, bundle).items() if kind == "cef-renderer")
+            return pids, sorted((p, sorted(tabs)) for p, tabs in owners.items())
+        limit = max(120.0, 2 * args.settle)
+        try:
+            wait_stable(renderers_now, "the renderers after the last tab", timeout=limit, interval=1.0, reads=6)
+        except StateWaitTimeout as error:
+            print(f"   {error}; sampling anyway", file=sys.stderr)
         sample = bm.sample(pid, bundle, "settled", 1)
         mapping = renderer_map(sock)
         renderers = [row for row in sample["processes"] if row["kind"] == "cef-renderer"]

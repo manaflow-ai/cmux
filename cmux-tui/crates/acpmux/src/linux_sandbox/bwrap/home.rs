@@ -1,5 +1,6 @@
 //! HOME snapshots for the staged bubblewrap plan. Collection loops exhaust
-//! supplied paths or directory entries; descriptor collection refuses over 512.
+//! supplied paths or directory entries; descriptor collection refuses over 512
+//! per rebuild, and the plan caps all views together (`MAX_REBUILD_FDS`).
 use super::*;
 use crate::linux_sandbox::lookup;
 use std::collections::{BTreeMap, BTreeSet};

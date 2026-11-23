@@ -3,9 +3,12 @@
 //! CmuxNextCloud/Bootstrap/CloudMachineRepo.swift), progress read from
 //! `--progress`, and the failures a seed tells apart.
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// The Cloud agent's socket: `cmux github credential` mints a short
 /// repo-scoped token through it.
@@ -14,6 +17,46 @@ const AGENT_SOCKET: &str = "/run/cmux-vm-agent/agent.sock";
 const KEPT_LINES: usize = 40;
 /// Longest error text in a status answer.
 const MAX_ERROR_CHARS: usize = 400;
+
+thread_local! {
+    /// This thread's git runs and waits ([`count`]): a job runs on a thread of its own, and
+    /// reports them in its status `timings` once it ends ([`take_runs`]).
+    static RUNS: RefCell<BTreeMap<String, (Duration, u32)>> = const { RefCell::new(BTreeMap::new()) };
+}
+
+/// Counts `took` once under `name` for this thread's job.
+pub(super) fn count(name: &str, took: Duration) {
+    RUNS.with(|runs| {
+        let mut runs = runs.borrow_mut();
+        let entry = runs.entry(name.to_owned()).or_default();
+        entry.0 += took;
+        entry.1 += 1;
+    });
+}
+
+/// This thread's counts so far, `{name: {"ms", "n"}}`, cleared.
+pub(super) fn take_runs() -> serde_json::Value {
+    let runs = RUNS.with(|runs| std::mem::take(&mut *runs.borrow_mut()));
+    runs.into_iter()
+        .map(|(name, (took, n))| (name, serde_json::json!({ "ms": took.as_millis(), "n": n })))
+        .collect::<serde_json::Map<_, _>>()
+        .into()
+}
+
+/// git's subcommand in `args`: the first that is no option or option value.
+fn subcommand<'a>(args: &[&'a str]) -> &'a str {
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match *arg {
+            "-c" | "-C" | "--git-dir" | "--work-tree" => {
+                args.next();
+            }
+            option if option.starts_with('-') => {}
+            name => return name,
+        }
+    }
+    "?"
+}
 
 /// One GitHub path of the machine, in the order the `repo` step tries them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -315,6 +358,21 @@ impl Git {
         env: &[(&str, &std::ffi::OsStr)],
         on_line: &mut dyn FnMut(&str),
     ) -> Result<Vec<u8>, Failure> {
+        let started = Instant::now();
+        let ran = self.run_untimed(cwd, credential, args, env, on_line);
+        count(&format!("git {}", subcommand(args)), started.elapsed());
+        ran
+    }
+
+    /// [`Self::run_env`] without its [`count`].
+    fn run_untimed(
+        &self,
+        cwd: Option<&Path>,
+        credential: &Credential,
+        args: &[&str],
+        env: &[(&str, &std::ffi::OsStr)],
+        on_line: &mut dyn FnMut(&str),
+    ) -> Result<Vec<u8>, Failure> {
         let mut command = self.command(cwd, credential);
         command.args(args);
         for (name, value) in env {
@@ -394,44 +452,5 @@ fn keep(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn progress_lines_give_objects_and_bytes() {
-        let mut progress = Progress::default();
-        read_progress("Receiving objects:  45% (450/1000), 1.50 MiB | 2.00 MiB/s", &mut progress);
-        assert_eq!(progress.objects, 450);
-        assert_eq!(progress.total_objects, 1000);
-        assert_eq!(progress.received_bytes, 1024 * 1024 * 3 / 2);
-        read_progress("Resolving deltas:  10% (1/10)", &mut progress);
-        assert_eq!(progress.objects, 450, "other lines change nothing");
-        read_progress(
-            "Receiving objects: 100% (1000/1000), 12 bytes | 1 bytes/s, done.",
-            &mut progress,
-        );
-        assert_eq!(progress.objects, 1000);
-        assert_eq!(progress.received_bytes, 12);
-    }
-
-    #[test]
-    fn failures_are_told_apart() {
-        let auth = Failure {
-            lines: vec![
-                "cmux github credential: o/n: needs_github: install the cmux app at https://github.com/apps/cmux/installations/new.".into(),
-                "fatal: could not read Username for 'https://github.com': terminal prompts disabled".into(),
-            ],
-        };
-        assert!(auth.auth());
-        assert!(!auth.disk_full());
-        assert_eq!(
-            auth.install_url().as_deref(),
-            Some("https://github.com/apps/cmux/installations/new")
-        );
-        assert!(auth.message().starts_with("fatal: could not read Username"));
-        let full = Failure::of("fatal: write error: No space left on device");
-        assert!(full.disk_full());
-        assert!(!full.auth());
-        assert_eq!(full.install_url(), None);
-    }
-}
+#[path = "git_tests.rs"]
+mod tests;

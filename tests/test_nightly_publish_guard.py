@@ -240,8 +240,9 @@ class WorkflowTests(unittest.TestCase):
                          "beside build-nightly-app, never after it")
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
-        self.assertIn("fast_gate_webviews_checks.py", job["steps"][-1]["run"])
-        self.assertNotIn("--base", job["steps"][-1]["run"], "every red counts on the build commit")
+        checks = job["steps"][step_index(job, "Webview checks on the build commit")]
+        self.assertIn("fast_gate_webviews_checks.py", checks["run"])
+        self.assertNotIn("--base", checks["run"], "every red counts on the build commit")
         self.assertIn("needs.resolve-nightly-cmux-tui-client.outputs.build_sha", job["outputs"]["sha"])
 
     def test_publish_nightly_gates_on_it_before_any_upload(self):

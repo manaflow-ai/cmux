@@ -5,7 +5,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createLanes, type Lanes, type LanesEnv } from "../schedule";
 import { ChatRowsHost } from "./host";
-import { addChatRowsHost, receiveChatRows, resetChatRowsReceiver } from "./receiver";
+import { addChatRowsHost, chatRowsTakenRetry, receiveChatRows, resetChatRowsReceiver } from "./receiver";
 import type { ChatChange, ChatRow } from "./wire";
 
 function fakeEngine() {
@@ -115,10 +115,12 @@ function setup() {
 }
 
 let made: Lanes[] = [];
+const schedule = chatRowsTakenRetry.schedule;
 afterEach(() => {
   for (const lanes of made) lanes.dispose();
   made = [];
   resetChatRowsReceiver();
+  chatRowsTakenRetry.schedule = schedule;
 });
 
 test("taken is not answered in the receiving task, but at the frame's commit, after the subscribers were told", async () => {
@@ -233,4 +235,61 @@ test("a line that is not a change and a store that throws: the batch is still ta
   receiveChatRows({ batch: 2, changes: [rowChange(3)] }, lanes);
   await engine.frame();
   expect(taken()).toEqual([1, 2]);
+});
+
+test("a batch the host sends again after it was taken is not applied again, and is taken again", async () => {
+  const { engine, lanes, host, taken } = setup();
+  made.push(lanes);
+  receiveChatRows({ batch: 1, changes: [rowChange(1)] }, lanes);
+  await engine.frame();
+  expect(taken()).toEqual([1]);
+  // The host never read that taken: after its bounded wait it sends batch 1 again.
+  receiveChatRows({ batch: 1, changes: [rowChange(1)] }, lanes);
+  await engine.frame();
+  expect(taken()).toEqual([1, 1]);
+  expect(host.store.snapshot(SID)!.rows.length).toBe(2);
+  receiveChatRows({ batch: 2, changes: [rowChange(2)] }, lanes);
+  await engine.frame();
+  expect(taken()).toEqual([1, 1, 2]);
+  expect(host.store.snapshot(SID)!.rows.length).toBe(3);
+});
+
+test("a batch sent again while the first copy still waits for a frame is applied and taken once", async () => {
+  const { engine, lanes, host, taken } = setup();
+  made.push(lanes);
+  engine.setHidden(true);
+  receiveChatRows({ batch: 3, changes: [rowChange(1)] }, lanes);
+  receiveChatRows({ batch: 3, changes: [rowChange(1)] }, lanes);
+  await engine.frame();
+  expect(taken()).toEqual([]);
+  engine.setHidden(false);
+  await engine.frame();
+  expect(taken()).toEqual([3]);
+  expect(host.store.snapshot(SID)!.rows.length).toBe(2);
+});
+
+test("a taken whose post failed is posted again", async () => {
+  const engine = fakeEngine();
+  const lanes = createLanes(engine.env);
+  made.push(lanes);
+  const tries: number[] = [];
+  const post = async (method: string, params: Record<string, unknown>) => {
+    if (method !== "chat.rows.taken") return {};
+    tries.push(params.batch as number);
+    if (tries.length === 1) throw new Error("bridge dropped the call");
+    return {};
+  };
+  const host = new ChatRowsHost(post, undefined, () => SID);
+  addChatRowsHost(host, post);
+  host.store.open(SID);
+  const later: { run: () => void; ms: number }[] = [];
+  chatRowsTakenRetry.schedule = (run, ms) => later.push({ run, ms });
+  receiveChatRows({ batch: 5, changes: [rowChange(1)] }, lanes);
+  await engine.frame();
+  expect(tries).toEqual([5]);
+  expect(later.map((retry) => retry.ms)).toEqual([chatRowsTakenRetry.delays[0]!]);
+  later.shift()!.run();
+  await engine.tasks();
+  expect(tries).toEqual([5, 5]);
+  expect(later).toEqual([]);
 });

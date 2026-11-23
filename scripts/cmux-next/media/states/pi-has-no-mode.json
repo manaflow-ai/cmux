@@ -1,0 +1,283 @@
+{
+ "title": "Pi has no Mode (user 2026-11-19: \"pi should not have a \\\"mode\\\"\"). A New Agent Chat on Pi, whose ACP bridge mirrors its thinking levels as modes, draws the model chip with no Mode chip; a New Agent Chat on Claude Code keeps its Mode chip. A Pi chat that ran, and a fresh New Agent Chat on Pi after it, draw no Mode chip either. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/pi-has-no-mode.json --mac",
+ "launch_args": [
+  "--skip-onboarding"
+ ],
+ "harnessFixture": {
+  "harnesses": {
+   "pi": {
+    "argv": [
+     "python3",
+     "-I",
+     "-c",
+     "import json\nimport sys\nimport uuid\n\nLEVELS = [\"off\", \"minimal\", \"low\", \"medium\", \"high\", \"xhigh\"]\nMODELS = [\n    (\"openrouter/google/gemini-4-neon\", \"openrouter/Google: Gemini 4 Neon\"),\n    (\"anthropic/claude-opus-5-5\", \"anthropic/Claude Opus 5.5\"),\n    (\"openai-codex/gpt-6-luna\", \"openai-codex/GPT-6 Luna\"),\n]\n\n\ndef send(message):\n    sys.stdout.write(json.dumps(message) + \"\\n\")\n    sys.stdout.flush()\n\n\ndef session_new():\n    return {\n        \"sessionId\": str(uuid.uuid4()),\n        \"configOptions\": [\n            {\"type\": \"select\", \"id\": \"model\", \"category\": \"model\", \"name\": \"Model\",\n             \"description\": \"Select the model for this session\", \"currentValue\": MODELS[0][0],\n             \"options\": [{\"value\": v, \"name\": n, \"description\": None} for v, n in MODELS]},\n            {\"type\": \"select\", \"id\": \"thought_level\", \"category\": \"thought_level\", \"name\": \"Thinking\",\n             \"description\": \"Select the thinking level\", \"currentValue\": \"medium\",\n             \"options\": [{\"value\": v, \"name\": v, \"description\": None} for v in LEVELS]},\n        ],\n        \"models\": {\"currentModelId\": MODELS[0][0],\n                   \"availableModels\": [{\"modelId\": v, \"name\": n, \"description\": None} for v, n in MODELS]},\n        \"modes\": {\"currentModeId\": \"medium\",\n                  \"availableModes\": [{\"id\": v, \"name\": f\"Thinking: {v}\", \"description\": None} for v in LEVELS]},\n    }\n\n\nfor line in sys.stdin:\n    try:\n        msg = json.loads(line)\n    except ValueError:\n        continue\n    method, rid = msg.get(\"method\"), msg.get(\"id\")\n    if rid is None:\n        continue\n    if method == \"initialize\":\n        send({\"jsonrpc\": \"2.0\", \"id\": rid, \"result\": {\n            \"protocolVersion\": 1,\n            \"agentInfo\": {\"name\": \"pi-acp\", \"title\": \"pi ACP adapter\", \"version\": \"0.0.33\"},\n            \"agentCapabilities\": {\"loadSession\": True, \"promptCapabilities\": {\"image\": True}},\n        }})\n    elif method == \"session/new\":\n        send({\"jsonrpc\": \"2.0\", \"id\": rid, \"result\": session_new()})\n    elif method == \"session/prompt\":\n        sid = msg.get(\"params\", {}).get(\"sessionId\")\n        send({\"jsonrpc\": \"2.0\", \"method\": \"session/update\", \"params\": {\"sessionId\": sid, \"update\": {\n            \"sessionUpdate\": \"agent_message_chunk\", \"content\": {\"type\": \"text\", \"text\": \"Hi from Pi.\"}}}})\n        send({\"jsonrpc\": \"2.0\", \"id\": rid, \"result\": {\"stopReason\": \"end_turn\"}})\n    else:\n        send({\"jsonrpc\": \"2.0\", \"id\": rid, \"result\": {}})"
+    ],
+    "family": "pi",
+    "description": "Synthetic capture harness: a stand-in for Pi's ACP bridge (pi-acp 0.0.33) that answers session/new as it does, its thinking levels as the thought_level option and mirrored as modes; inline so the before commit runs it too"
+   },
+   "claude": {
+    "kind": "claude-stdio",
+    "argv": [
+     "claude"
+    ],
+    "family": "claude",
+    "description": "Synthetic capture harness",
+    "models": [
+     {
+      "id": "opus",
+      "name": "Opus 5.5"
+     }
+    ]
+   }
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A fixed window size, so every capture frames the composer the same",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      160,
+      85,
+      1100,
+      720
+     ]
+    }
+   },
+   "wait": 0.3,
+   "shot": false
+  },
+  {
+   "title": "A workspace for the Claude chat",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Claude"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Show Claude",
+   "cmux": [
+    "workspace",
+    "name:Claude",
+    "focus"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Open a New Agent Chat tab for Claude",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "A New Agent Chat on Claude, before any send",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "claude"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Wait for the Claude composer",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness",
+     "wait_animations": true
+    }
+   },
+   "record": "file",
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Claude: the composer's chips (Pi: model and thinking, no Mode; Claude Code: its Mode)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "record": "file",
+   "wait": 1.5
+  },
+  {
+   "title": "A workspace for the Pi chat",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Pi"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Show Pi",
+   "cmux": [
+    "workspace",
+    "name:Pi",
+    "focus"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Open a New Agent Chat tab for Pi",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "A New Agent Chat on Pi, before any send",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "pi"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Wait for the Pi composer",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness",
+     "wait_animations": true
+    }
+   },
+   "record": "file",
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Pi: the composer's chips (Pi: model and thinking, no Mode; Claude Code: its Mode)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "record": "file",
+   "wait": 1.5
+  },
+  {
+   "title": "Pi answers one prompt, as a person's earlier Pi chat did (its session reports options and copied modes)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "hi"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Trust /tmp for the chat (the folder question its first send asks)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-trust-ask-primary"
+    }
+   },
+   "wait": 5,
+   "shot": false
+  },
+  {
+   "title": "Pi's running chat: model and thinking, no Mode",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "record": "file",
+   "wait": 1
+  },
+  {
+   "title": "A second workspace for a fresh Pi New Agent Chat",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Pi2"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Show Pi2",
+   "cmux": [
+    "workspace",
+    "name:Pi2",
+    "focus"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Open a New Agent Chat tab for Pi again",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "A fresh New Agent Chat on Pi, before any send",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "pi"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Fresh Pi New Agent Chat: no held Mode chip",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "record": "file",
+   "wait": 1.5
+  }
+ ]
+}

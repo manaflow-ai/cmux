@@ -35,6 +35,8 @@ import type { CloudStore } from "./store";
 import { canArchive, canKeep } from "./retention";
 import { L } from "./strings";
 import type { FileTransfer } from "./transfers";
+import { DiskHealthSummary } from "./DiskHealth";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 export interface DetailProps {
   store: CloudStore;
@@ -162,16 +164,20 @@ export function MachineDetailView({
               )}
               {canKeep(machine) && (
                 // Kept shows at once on a toggle (a quick intent); the platform's record follows.
-                <button
-                  type="button"
-                  className={`cloud-button cloud-machine-keep${kept ? " on" : ""}`}
-                  aria-pressed={kept}
-                  title={t(L.keepHint)}
-                  disabled={busy}
-                  onClick={() => void store.keep(machine.id, !kept)}
-                >
-                  {t(kept ? L.kept : L.keep)}
-                </button>
+                <WithFacts facts={[{ value: t(L.keepHint) }]}>
+                  {(facts) => (
+                    <button
+                      {...facts}
+                      type="button"
+                      className={`cloud-button cloud-machine-keep${kept ? " on" : ""}`}
+                      aria-pressed={kept}
+                      disabled={busy}
+                      onClick={() => void store.keep(machine.id, !kept)}
+                    >
+                      {t(kept ? L.kept : L.keep)}
+                    </button>
+                  )}
+                </WithFacts>
               )}
               {canArchive(machine) && (
                 <button
@@ -223,6 +229,14 @@ export function MachineDetailView({
             </select>
           )}
         </dd>
+        {machine.disk_health && (
+          <>
+            <dt>{t(L.fieldDisk)}</dt>
+            <dd>
+              <DiskHealthSummary health={machine.disk_health} strings={strings} />
+            </dd>
+          </>
+        )}
         {cost && (
           <>
             <dt>{t(L.fieldCost)}</dt>

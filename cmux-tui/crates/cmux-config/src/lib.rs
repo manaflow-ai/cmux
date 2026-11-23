@@ -2,36 +2,47 @@
 //! (`~/.config/cmux/cmux-next.json`, "cmux.json" in the plans) inside the
 //! cmux daemon (plans/cmux-next/settings-react.md sections 1-3 and 6).
 //!
+//! - [`language`]: the `app.language` setting's shipped locales and their
+//!   fallbacks.
 //! - [`schema`]: the settings schema exported from Swift, embedded, with
 //!   write validation per kind.
 //! - [`keybindings`]: keybindings.json (R59): entries with per-entry
 //!   diagnostics and comment-preserving edits.
 //! - [`jsonc`]: a comment-preserving JSONC parser and in-place editor.
 //! - [`managed`], [`effective`]: MDM and team policy layers and the merge.
+//! - [`youtube`]: the `youtube:` background id and reading a pasted YouTube
+//!   address into it.
 //! - [`store`]: the pure reducer `apply(&State, Op)`; [`owner`]: the single
 //!   writer with IO (atomic publish, cold-start cache); [`watch`]: kernel
 //!   file events.
 
+pub mod backdrop_placement;
 pub mod cache;
 pub mod diagnostics;
 pub mod domains;
 pub mod effective;
+pub mod font_faces;
 pub mod fsio;
 pub mod guard;
 pub mod jsonc;
 pub mod keybindings;
 pub mod keypath;
+pub mod language;
 pub mod location;
 pub mod managed;
 pub mod owner;
 pub mod refusal;
 pub mod render;
 pub mod schema;
+pub mod session_worktrees;
+pub mod sidebar_look;
 pub mod store;
 pub mod text;
 pub mod theme_file;
+pub mod transcript_look;
 pub mod value;
 pub mod watch;
+pub mod youtube;
 
 pub use diagnostics::{Diagnostic, DiagnosticKind};
 pub use domains::Domains;

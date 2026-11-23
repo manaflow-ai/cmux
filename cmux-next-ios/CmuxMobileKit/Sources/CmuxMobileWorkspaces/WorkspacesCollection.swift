@@ -131,6 +131,12 @@ struct WorkspacesCollection: UIViewRepresentable {
         // A person's change (pin, group, filter) comes in an animated transaction.
         let animated = context.transaction.animation != nil && !context.transaction.disablesAnimations
         context.coordinator.update(model: model, actions: actions, animated: animated, membershipKey: membershipKey)
+        // Room under the last row for the New Task button that floats over the list's bottom.
+        let bottomRoom = context.environment.cmuxMobileFloatingBottomRoom
+        if view.contentInset.bottom != bottomRoom {
+            view.contentInset.bottom = bottomRoom
+            view.verticalScrollIndicatorInsets.bottom = bottomRoom
+        }
     }
 }
 

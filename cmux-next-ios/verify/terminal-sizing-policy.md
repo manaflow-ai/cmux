@@ -33,7 +33,7 @@ all three programs.
 
 - **Prefer the Active Device.** The driver expected each phone's keyboard-down grid after a
   tap, so it logged these cells as FAIL. The tap shows the software keyboard, and a phone
-  showing a full-screen app claims its keyboard-up rows (existing `TerminalTUISizing`). The
+  showing a full-screen app claimed its keyboard-up rows (`TerminalTUISizing`, removed since: the keyboard no longer resizes, `TerminalGridSizing`). The
   probe log checks the real rule: in all 4195 samples where a phone owned the grid, the grid
   equaled that phone's live claim, with 0 mismatches. The owner moved to the phone on its
   tap and back to the Mac on Mac typing every time. The "Connected Devices item not found"

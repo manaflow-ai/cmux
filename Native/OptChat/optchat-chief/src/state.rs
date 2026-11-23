@@ -91,6 +91,17 @@ pub struct HostState {
     /// outcome no Chief post has told the person yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub untold: Vec<Untold>,
+    /// The loop guard refuses the Chief's messages in its conversation
+    /// (`agent_budget`, brain/budget_hold.rs): set by a refusal, cleared by
+    /// the person's next message or a Chief message the owner takes. While
+    /// set, `stop`/`sleep` are not refused for untold work and the
+    /// `[untold]`/`[no text]` notes wait for the person's next turn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub budget_hold: bool,
+    /// Subagents a turn started with no words while the guard held: the
+    /// person's next turn names them (brain/budget_hold.rs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held_spawns: Vec<String>,
     /// E22: ids a posted reply named in `answers_pending`: the turn that
     /// ends their work answers them even when it says nothing (a done
     /// marker), so a waiting `cmux chief -p` ends.
@@ -164,6 +175,17 @@ pub struct HostState {
     /// first. At most [`WAKES_KEPT`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<Wake>,
+    /// The automations the person asked for (automations.rs), oldest
+    /// first. At most [`crate::automations::AUTOMATIONS_MAX`].
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "crate::automations::deserialize_kept"
+    )]
+    pub automations: Vec<crate::automations::Automation>,
+    /// The number of the next automation id (`au<N>`), unique for this home.
+    #[serde(default)]
+    pub next_automation: u64,
     /// Watches the Chief started with `watch` (brain/watches.rs), oldest
     /// first. At most `WATCHES_KEPT`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -224,6 +246,15 @@ pub struct Wake {
     /// first drops this wake.
     #[serde(default)]
     pub until_event: bool,
+    /// A `follow_up` (check_in.rs): its id (`fu_...`); None for a sleep wake.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// The loops/<task>.md the follow-up belongs to.
+    #[serde(default)]
+    pub loop_path: Option<String>,
+    /// The person asked for this exact time: quiet hours never move it.
+    #[serde(default)]
+    pub for_person: bool,
 }
 
 /// How many thread roots `HostState::message_roots` keeps.
@@ -309,6 +340,10 @@ pub struct SpawnRecord {
     /// The turn that spawned it (its reply key), for the trace.
     #[serde(default)]
     pub turn: Option<String>,
+    /// A turn an automation's note started made it: its subagents never
+    /// fire an `agent_done` automation (automations.rs).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_automation: bool,
     /// The originating conversation; reports must not follow the Chief into another chat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
@@ -324,14 +359,29 @@ impl SubRecord {
     pub fn at_work(&self) -> bool {
         matches!(self.status, SubStatus::Starting | SubStatus::Running) && !self.cancelled
     }
+
+    /// Its task goes on: it runs, or has a report that starts a turn, or it
+    /// waits on its own background work.
+    fn still_works(&self) -> bool {
+        self.waiting()
+            || (self.status != SubStatus::Reported
+                && !(self.status == SubStatus::Done && self.stopped))
+    }
+
+    /// Its last run ended only to wait on its own background work: its task
+    /// goes on (the Chief's "at work" line names it) and its quiet report is
+    /// no outcome. It holds no live slot while it waits.
+    pub fn waiting(&self) -> bool {
+        self.waiting_ms > 0
+            && matches!(self.status, SubStatus::Done | SubStatus::Reported)
+            && !self.cancelled
+    }
 }
 
 impl SpawnRecord {
     /// A subagent still works or has a report waiting that starts a turn.
     pub fn working(&self) -> bool {
-        self.subs
-            .iter()
-            .any(|s| s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped))
+        self.subs.iter().any(|s| s.still_works())
     }
 
     /// A subagent still works for user message `id`: its own `answers` (a
@@ -343,7 +393,7 @@ impl SpawnRecord {
             } else {
                 s.answers.iter().any(|a| a == id)
             };
-            for_it && s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped)
+            for_it && s.still_works()
         })
     }
 }
@@ -552,6 +602,31 @@ pub struct SubRecord {
     /// resumes it (`resume_closed`): a second close ends the run.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub closed_resumed: bool,
+    /// When its last run ended only to wait on its own background work (ms
+    /// since the epoch; 0: its last report was not a wait): that report went
+    /// to the Chief quietly, and the run the work's notice starts reports as
+    /// usual (brain/spawns.rs `finish_sub`, tests/subagent_waiting.rs).
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub waiting_ms: u64,
+    /// When the tick last read a held subagent's background work.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub waiting_checked_ms: u64,
+    /// Its background work still pending at its last run end: acpmux
+    /// process ids (`process_update` running) and daemon task ids
+    /// (`bg-…` from `bg_start`, until their notice).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub background: Vec<String>,
+    /// Its last report's first words, kept after the report is logged, for
+    /// `<open-items>`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub last_report: String,
+    /// When its last report came (ms since the epoch), for `<open-items>`.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub reported_ms: u64,
+    /// When a Chief post last named it (ms since the epoch): its last report
+    /// was told when this is not before `reported_ms`.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub told_ms: u64,
 }
 
 /// How many tell keys a subagent keeps for dedupe.

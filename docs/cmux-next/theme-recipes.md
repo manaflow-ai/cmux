@@ -30,6 +30,9 @@ Each one is in the Theme File list by name. Your own file with the same name win
 | `phosphor` | A green-screen terminal | `appearance.theme: "Green Phosphor CRT"`, `appearance.chromeStyle: "bare"`, `appearance.borders: "none"`, `appearance.statusIndicator.style: "braille"` |
 | `claude-desktop` | Warm paper and clay | `appearance.theme: "Claude Light"`, a clay `colors.accent`, a beige `appearance.surfaces.sidebar.color` |
 | `charcoal` | A quiet dark chat app | a charcoal `colors.background`, a near-black sidebar, `appearance.accent: "neutral"` |
+| `moss` | A forest floor: deep green blocks with no lines, a lichen accent | `appearance.chromeStyle: "blocks"`, `appearance.theme: "Everforest Dark Hard"`, a darker `appearance.surfaces.sidebar.color` |
+| `meadow` | Moss in daylight: sage and cream blocks, a fern-green accent | `appearance.chromeStyle: "blocks"`, `appearance.theme: "Everforest Light Med"`, a sage `appearance.surfaces.sidebar.color` |
+| `lily-pond` | See-through teal blocks over Monet's water lilies, a lily-pink accent | `appearance.chromeStyle: "blocks"`, `appearance.background: "monet-water-lilies"`, `appearance.backgroundBlur: "glass"`, `appearance.surfaces.*.opacity` |
 
 ## What a theme file can and can't change
 
@@ -89,15 +92,83 @@ on, or run the `cmux theme use NAME` it prints.
    [manaflow-ai/cmux-extensions](https://github.com/manaflow-ai/cmux-extensions); a merge there is
    the review.
 
+## Theme packs
+
+A theme pack is a folder with a `cmux-pack.json` and an `assets/` folder for its own pictures and
+videos. It sets a whole look at once, undoes and redoes as one step, and can be edited live with
+`cmux pack use DIR --watch`. It compiles to a theme file, so everything on this page still applies.
+See [theme-packs.md](theme-packs.md); `examples/theme-packs/sakura` is a finished one.
+
+## Ship fonts with a community theme
+
+A community theme repository (one with `cmux-theme.json`, installed with `cmux theme install`) can
+carry font files for the agent chat in a `fonts/` folder beside `themes/`, the way it carries
+`wallpapers/`. Declare the fonts' license in `cmux-theme.json` and include its text:
+
+```json
+{ "cmuxTheme": 1, "id": "you/pack", "name": "Pack", "version": "1.0.0",
+  "fontLicense": "OFL-1.1" }
+```
+
+```text
+cmux-theme.json
+themes/pack.json
+fonts/PackSans.woff2
+fonts/PackSerif-Italic.woff2
+fonts/OFL.txt            (or fonts/LICENSE*)
+```
+
+Then name the faces in the theme file. A `file:` path is relative to the themes folder, as a
+backdrop picture is:
+
+```json
+{ "agentPane.display.font.uiFamily": "Pack Sans, system-ui",
+  "agentPane.display.font.proseFamily": "Pack Serif",
+  "agentPane.display.font.faces": {
+    "Pack Sans": "file:../fonts/PackSans.woff2",
+    "Pack Serif:italic": "file:../fonts/PackSerif-Italic.woff2" } }
+```
+
+- Only openly licensed fonts: `"fontLicense"` is `OFL-1.1`, `Apache-2.0` or `MIT`, and the license
+  text ships as `fonts/OFL.txt` or `fonts/LICENSE*`. A theme with font files and no license is
+  refused.
+- At most 8 font files, each at most 2 MiB, `.woff2`, `.woff`, `.ttf` or `.otf`, and the extension
+  must match the file's bytes.
+- A face key is one family name, optionally suffixed `:italic`. Its value is one of the theme's own
+  files, `file:../fonts/NAME`.
+- `font.uiFamily` wins over `font.ui`, and `font.proseFamily` wins over `font.preset`. A theme
+  file may also set `agentPane.display.code.family` and `agentPane.display.code.scale`, to match
+  inline code to the pack.
+- Install copies the fonts and the license text to `~/.config/cmux/fonts/<entry>/` and points the
+  theme file there; `cmux theme remove` deletes them.
+- `cmux theme check DIR` on the repository folder reports a missing license, a bad font file and a
+  bad face before you publish.
+
 ## Keep it fast
 
 A theme file costs nothing per frame: it's read once on each save. Code you add to the app is a
 different matter. [modding-kit.md](modding-kit.md) lists the rules the dev server checks on save and
 the primitives that keep a mod fast.
 
+## The thinking look (settings a look sets)
+
+A look's setup can set how the running line and Jump to latest move while an agent works. All four
+are agent-settable settings (`cmux settings set`, the palette, MCP `settings_set`); each default
+draws what cmux draws without a look, and a change applies at once:
+
+| Key | Values | Default | What it does |
+| --- | --- | --- | --- |
+| `agentPane.display.thinking.shimmer` | `cadenced`, `continuous` | `cadenced` | `continuous`: the light band crosses the running line's words and running tool rows pass after pass, eased in and out, as Claude's desktop app draws it. `cadenced` is one one-second pass every four seconds |
+| `agentPane.display.thinking.shimmerPeriod` | 600 to 4000 ms | 1250 | One continuous pass |
+| `agentPane.display.thinking.shimmerBand` | 0 to 240 px | 0 | The band's lit width on any line; 0 keeps the band half the line wide |
+| `agentPane.display.thinking.jumpButton` | `arrow`, `dots` | `arrow` | `dots`: while the agent works, Jump to latest shows three dots in the theme accent that trade size between the middle and the ends; the arrow shows on hover and once the agent stops |
+
+Reduce Motion, static status indicators and animations off hold all of them still. The Claude look
+sets `continuous`, 1250, 80 and `dots`.
+
 ## Not in a theme file yet
 
 These parts of a look are still built into the app:
 
 - the thinking indicator's look in the agent pane (a Debug setting today, `StatusWorkingLook`)
-- the motion of the jump to latest button
+- the motion of the jump to latest button, beyond `agentPane.display.thinking.jumpButton` above

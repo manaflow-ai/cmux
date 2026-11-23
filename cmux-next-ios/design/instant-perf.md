@@ -72,6 +72,8 @@ Home reads windows (since the windowed Home read): the first screen asks cmux-mo
 one read parsed off the main actor, and an event reads only its conversation's row (`ids`, with
 its `index` and the list's `total`). The rows this phone last read show before any of it
 (`MacHomeRowsCache`: the first 200 rows per account and Mac, 2 MB in all, deleted at sign-out).
+A launch reads only their head file (the first 40 rows) in the same turn, so the first frame draws
+them; the whole kept list follows off the main thread.
 A host without windows refuses the params and the phone reads the whole list, as before.
 
 The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs
@@ -140,7 +142,11 @@ UI half: `scripts/ci/cmux-next-ios-sim.sh test ui=InstantListPerfUITests`.
 In CI, `.github/workflows/cmux-next-ios-kit.yml` skips the bench in the main
 `swift test` and `xcodebuild test` runs, then runs it alone on macOS and on the iOS
 simulator, prints the table to the job log and the job summary, and uploads the
-JSONL as the `instant-perf-*` artifact.
+JSONL as the `instant-perf-*` artifact. Both bench steps are advisory there
+(`continue-on-error`, since 2026-11-21): a miss is a warning on the report step, not a
+red job, because on shared runners the bench was red on most kit runs for code the pull
+request never touched. The rules above still hold when you run it yourself; a known-red
+or a fix is still how a red check is answered.
 
 ## Adding a metric
 
