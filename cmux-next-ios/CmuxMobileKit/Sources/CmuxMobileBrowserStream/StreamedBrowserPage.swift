@@ -306,7 +306,9 @@ struct StreamSurface: UIViewRepresentable {
 }
 
 /// Shows the decoder's layer and turns touches into rb input (CSS pixels).
-final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
+/// Every drag on it is the page's (`NavigationPopOwnsDrag`): a sideways pan
+/// scrolls the page, never pops the workspace (gesture matrix cell 12).
+final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate, NavigationPopOwnsDrag {
     let model: StreamedBrowserModel
     var reportScroll: (@MainActor (CGFloat) -> Void)?
     var keyboardChanged: ((Bool) -> Void)?

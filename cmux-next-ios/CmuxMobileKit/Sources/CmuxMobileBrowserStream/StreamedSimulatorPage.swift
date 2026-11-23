@@ -137,8 +137,9 @@ struct SimulatorSurface: UIViewRepresentable {
 
 /// Shows the decoder's layer (aspect fit) and sends each finger on the
 /// picture as a simulator touch. Raw touches, not gesture recognizers: the
-/// simulator itself tells a tap from a drag, a scroll or a long press.
-final class SimulatorStreamView: UIView, UIKeyInput {
+/// simulator itself tells a tap from a drag, a scroll or a long press. A
+/// sideways drag is the simulator's swipe, never the workspace's back swipe.
+final class SimulatorStreamView: UIView, UIKeyInput, NavigationPopOwnsDrag {
     let model: StreamedBrowserModel
     private let video: AVSampleBufferDisplayLayer
     /// The one finger being sent (the simulator takes one touch at a time from here).
