@@ -395,6 +395,7 @@ pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
 /// that signing in on this machine did not make (a join line, a pair code, a fleet or Cloud
 /// enrollment). Such a join is the person's consent for their other machines' workspace
 /// circuits (`session_service`), as it is for screen sharing.
+#[cfg(feature = "hub-carrier")]
 pub(crate) fn joined_from_another_device() -> bool {
     machine_credential().ok().flatten().is_some_and(|record| {
         !record.revoked && record.joined_by.as_deref() != Some(JOINED_BY_SIGN_IN)
