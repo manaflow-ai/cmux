@@ -947,7 +947,18 @@
         "cloud": "Cloud を開く",
         "team": "チームを作成",
         "banner": "{plan} をご利用中です。",
-        "bannerLink": "プランと請求"
+        "bannerLink": "プランと請求",
+        "introTitle": "$1 パスが有効になりました",
+        "introBody": "有効期間は {days} 日間です。毎週 {hours} 時間の Chief 時間と {minutes} マシン分が付与されます。",
+        "tasteTitle": "Chief の無料 1 週間が始まりました",
+        "tasteBody": "有効期間は {days} 日間です。Chief 1 台、稼働時間 {hours} 時間({minutes} マシン分)。カードの登録はなく、自動更新もありません。"
+      },
+      "passStatement": {
+        "label": "cmux Cloud パスの利用明細",
+        "notNowTitle": "「今はしない」を承りました",
+        "notNowBody": "料金は発生しません。パスが終了するとマシンは一時停止し、メッセージは保留されます。すべてのデータは {keepDays} 日間保持され、削除する前に必ずご連絡します。Plus または Pro はここからいつでもお選びいただけます。",
+        "turnedOff": "オフにしました。料金は発生せず、保存されたカードは削除されました。",
+        "tooLate": "Plus の請求はすでに行われました。Plus の管理や解約は、この「プランと請求」ページから行えます。"
       },
       "appStore": {
         "title": "App Store で請求されています",
@@ -2145,7 +2156,16 @@
     "priceMonthlyNote": "月払いは${amount}/月",
     "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
     "manageInAppStore": "App Store で管理",
-    "resumePlan": "{plan} を再開"
+    "resumePlan": "{plan} を再開",
+    "cloudIntro": {
+      "intro_sold_out_today": "本日分の $1 パスは終了しました。明日もう一度お試しください。",
+      "intro_sold_out": "初回分の $1 パスは終了しました。",
+      "intro_unavailable": "このアカウントでは $1 パスをご利用いただけません。"
+    },
+    "cloudTaste": {
+      "taste_sold_out_today": "本日分の Chief 無料 1 週間は終了しました。明日もう一度お試しください。",
+      "taste_unavailable": "このアカウントでは Chief の無料 1 週間をご利用いただけません。"
+    }
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
@@ -6971,6 +6991,32 @@
       "testflightLink": "TestFlight に登録する：{url}",
       "testflightLinkLabel": "TestFlight に登録する",
       "signoff": "ご参加いただき、ありがとうございます！\ncmux チーム"
+    },
+    "cloudPassStatement": {
+      "subject": "cmux Cloud パス: 残り {days} 日",
+      "subjectLastDay": "cmux Cloud パスの最終日: Plus、Pro、または今はしない",
+      "title": "cmux Cloud パス {days} 日中 {day} 日目",
+      "asOf": "{date}(UTC)までの利用状況です。",
+      "daysLeft": "残り {days} 日です。パスは {date} に終了します。",
+      "lastDay": "本日が最終日です。パスは {date} に終了します。",
+      "ended": "パスは {date} に終了しました。",
+      "chiefUsed": "Chief: 稼働時間 {included} 時間のうち {used} 時間を使用しました。",
+      "chiefNotMeasured": "Chief: 稼働時間 {included} 時間が含まれます。Chief 時間の単独での計測にはまだ対応していません。",
+      "machinesUsed": "マシン: {included} マシン分のうち {used} マシン分を使用しました。",
+      "machinesNotMeasured": "マシン: {included} マシン分が含まれます。この明細では利用状況を読み取れませんでした。",
+      "machinesStarted": "起動したマシン: {count} 台。",
+      "notCharged": "料金は発生しません。",
+      "renewSaved": "Plus で続けることを選択済みです。その選択は保存されており、請求する前に必ず確認します。",
+      "willCharge": "{date} に、Plus の月額料金 ${amount} がカードに請求されます。オフにする: {url}",
+      "turnOff": "オフにする",
+      "onPlus": "現在 Plus をご利用中です。保存したカードで月額 ${amount} です。",
+      "chargeFailed": "保存したカードへの Plus の請求は完了しませんでした。料金は発生しておらず、Plus は開始していません。",
+      "askTitle": "次はどうしますか?",
+      "choosePlus": "Plus、${amount}/月",
+      "choosePro": "Pro、${amount}/月",
+      "chooseNotNow": "今はしない",
+      "after": "「今はしない」を選ぶか、何も選ばなかった場合、パスの終了時にマシンは一時停止し、メッセージは保留されます。すべてのデータは {keepDays} 日間保持され、削除する前に必ずご連絡します。",
+      "signoff": "cmux チーム"
     }
   },
   "tui": {
@@ -7567,6 +7613,33 @@
           "a": "含まれるクレジットは毎月リセットされます。購入したクレジットは 12 か月有効です。"
         }
       ]
+    },
+    "intro": {
+      "name": "$1 パス",
+      "badge": "cmux Cloud を初めての方に",
+      "price": "{price}",
+      "period": "1 回のみ、{days} 日間",
+      "summary": "{price} で {days} 日間、クラウドで常時稼働するご自身のエージェントを、そのマシンとスマートフォンとあわせて使えます。自動で更新されることはありません。期間の終わりにおたずねし、「はい」とお答えいただかない限り追加料金はかかりません。",
+      "includedTitle": "含まれるもの",
+      "included": {
+        "chief": "Chief 1 台(常時稼働のエージェントマシン、{vcpu} vCPU / {gib} GiB)、稼働時間 {hours} 時間",
+        "minutes": "ほかのマシン用に {minutes} マシン分、最大 {vcpu} vCPU / {gib} GiB のマシンで利用可能",
+        "minuteMeaning": "1 マシン分は 1 vCPU を 1 分間稼働させた量です。{minutes} マシン分は {vcpu} vCPU のマシンで {hours} 時間分にあたります",
+        "concurrent": "同時に最大 {count} 台のマシン",
+        "login": "Claude または Codex はご自身のログインでお使いください",
+        "weekly": "毎週 {hours} 時間の Chief 時間と {minutes} マシン分を付与するので、パスは 1 か月もちます"
+      },
+      "renew": "{days} 日後も Plus で続ける",
+      "renewHint": "チェックしなければ、カードに再び請求されることはありません。",
+      "cta": "{price} パスを入手",
+      "afterTitle": "{days} 日が過ぎたら",
+      "after": "Plus、Pro、または今はしない、のどれにするかおたずねします。今はしない場合、マシンは一時停止し、メッセージは保留され、すべてのデータは {keepDays} 日間保持されます。削除する前には必ずお知らせします。",
+      "who": "有料の cmux Cloud を初めて使う個人の方が対象です。お一人様・カード 1 枚につき 1 回限り。1 日あたりの数に限りがあります。"
+    },
+    "taste": {
+      "line": "または、Chief を 1 週間無料でお試しください。カードは不要です。",
+      "detail": "最小のマシン({vcpu} vCPU)で Chief 1 台を {days} 日間、稼働時間 {hours} 時間({minutes} マシン分)。お一人様 1 回限り、1 日あたりの数に限りがあります。",
+      "cta": "無料の 1 週間を始める"
     }
   }
 }
