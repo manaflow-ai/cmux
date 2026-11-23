@@ -497,8 +497,15 @@ jobs:
       # macOS-on-Linux leg also passes its cross toolchain as MACHINE_CHANNEL_WARM_TOOLCHAIN, so a
       # new clang, lld, zig, SDK label or stub set empties the disk. With the disk mounted the
       # rust-cache steps are skipped (the script refuses an existing target dir); a failed mount
-      # is a cold build from rust-cache, as before. Other refs keep the rust-cache restore only.
-      # Keys are literal (tests/test_ci_testbox_broker_guard.py): one step per target.
+      # is a cold build from rust-cache, as before.
+      # Every other ref (pull request heads, lane branches, pins, dispatches) mounts a disk of its
+      # own per target (cmux-tui-fat-warm-v1-lanes-*), as the machine channel's thin legs do, so
+      # the shipped disk is written only by feat-cmux-next. They had no warm start at all: the
+      # Linux and macOS-on-Linux rust-cache entries are saved only by feat-cmux-next pushes, which
+      # skip those steps since the disk above, so no entry has existed since 2026-11-14 and every
+      # other ref's leg printed "No cache found." and compiled every crate cold (run 44174354245:
+      # 24-27 min per cargo group on 8 vCPU).
+      # Keys are literal (tests/test_ci_testbox_broker_guard.py): one step per target and ref kind.
       - name: Mount the warm shipped target (feat-cmux-next, fat, x86_64 musl)
         id: fat-warm-x86_64
         if: inputs.lto != 'thin' && matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && startsWith(runner.name, 'blacksmith') && matrix.target == 'x86_64-unknown-linux-musl' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
@@ -529,13 +536,43 @@ jobs:
           path: /home/runner/cmux-tui-fat-warm
           commit: on-change
 
+      - name: Mount the warm shipped target (other refs, fat, x86_64 musl)
+        id: fat-warm-lanes-x86_64
+        if: inputs.lto != 'thin' && matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && startsWith(runner.name, 'blacksmith') && matrix.target == 'x86_64-unknown-linux-musl' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-fat-warm-v1-lanes-x86_64-unknown-linux-musl
+          path: /home/runner/cmux-tui-fat-warm
+          commit: on-change
+
+      - name: Mount the warm shipped target (other refs, fat, aarch64 musl)
+        id: fat-warm-lanes-aarch64
+        if: inputs.lto != 'thin' && matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && startsWith(runner.name, 'blacksmith') && matrix.target == 'aarch64-unknown-linux-musl' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-fat-warm-v1-lanes-aarch64-unknown-linux-musl
+          path: /home/runner/cmux-tui-fat-warm
+          commit: on-change
+
+      - name: Mount the warm shipped target (other refs, fat, aarch64 macOS on Linux)
+        id: fat-warm-lanes-darwin-aarch64
+        if: inputs.lto != 'thin' && matrix.darwin_on_linux && runner.os == 'Linux' && startsWith(runner.name, 'blacksmith') && matrix.target == 'aarch64-apple-darwin' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-fat-warm-v1-lanes-aarch64-apple-darwin
+          path: /home/runner/cmux-tui-fat-warm
+          commit: on-change
+
       # Warm start for the Linux musl legs (.github/warm-sources.json: actions-cache):
       # dependency builds keyed by the toolchain and Cargo.lock, so a new commit
       # recompiles only the workspace crates (cmux-tui's group took 346 s cold,
       # run 42381345286). Only feat-cmux-next pushes write it, and only when the
       # key changes; a miss or a failed restore is a cold build, never a failure.
       - name: Restore the Linux cargo cache
-        if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && inputs.lto != 'thin' && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success'
+        if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && inputs.lto != 'thin' && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success' && steps.fat-warm-lanes-x86_64.outcome != 'success' && steps.fat-warm-lanes-aarch64.outcome != 'success'
         continue-on-error: true
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -637,10 +674,10 @@ jobs:
           # then write) when they are missing: each group gets its own copy.
           zb() { echo "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-$1 cargo zigbuild$profile --release --locked --target $t"; }
           # Start from the mounted warm target (thin: the machine channel's disk; fat: the shipped
-          # legs' disk, mounted on feat-cmux-next pushes only). "Record the warm target", after
-          # "Stage binary", prunes and records it, never this step: run on exit here, the prune
-          # removed target/<triple> before staging read it. Without a mounted disk restore does
-          # nothing.
+          # legs' disk: feat-cmux-next's on its pushes, the lanes' one on every other ref). "Record
+          # the warm target", after "Stage binary", prunes and records it, never this step: run on
+          # exit here, the prune removed target/<triple> before staging read it. Without a mounted
+          # disk restore does nothing.
           disk=/home/runner/cmux-tui-fat-warm
           [[ "$LTO" != thin ]] || disk=/home/runner/machine-channel-warm
           ../scripts/ci/machine-channel-warm-target.sh restore "$disk" "$t" \
@@ -788,7 +825,7 @@ jobs:
       # push-only save-if never wrote an entry and every leg, base and pull request, built cold
       # ("No cache found", cargo 18-22 min; jobs 136816451772, 137080163013, 2026-11-21/22).
       - name: Restore the macOS-on-Linux cargo cache
-        if: matrix.darwin_on_linux && steps.fat-warm-darwin-aarch64.outcome != 'success'
+        if: matrix.darwin_on_linux && steps.fat-warm-darwin-aarch64.outcome != 'success' && steps.fat-warm-lanes-darwin-aarch64.outcome != 'success'
         continue-on-error: true
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -821,9 +858,9 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
-          # Start from the shipped legs' warm target (mounted on feat-cmux-next pushes only);
-          # "Record the warm target", after "Stage binary", prunes and records it. Without a
-          # mounted disk restore does nothing.
+          # Start from the shipped legs' warm target (feat-cmux-next's disk on its pushes, the lanes'
+          # disk on every other ref); "Record the warm target", after "Stage binary", prunes and
+          # records it. Without a mounted disk restore does nothing.
           ./scripts/ci/machine-channel-warm-target.sh restore /home/runner/cmux-tui-fat-warm "$WARM_TARGET" \
             || echo "warning: warm target restore failed; building as is" >&2
           ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"

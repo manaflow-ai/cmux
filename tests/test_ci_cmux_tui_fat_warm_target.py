@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The shipped fat-LTO cmux-tui legs start from the last feat-cmux-next build's target dir.
+"""The shipped fat-LTO cmux-tui legs start from the last build's target dir, on every ref.
 
 .github/workflows/cmux-tui-build-package.yml builds the shipped binaries (lto=fat:
 x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, and aarch64-apple-darwin cross-built
@@ -7,10 +7,14 @@ on Linux) and the Cloud machine channel's binaries (lto=thin). The thin legs mou
 disk with the previous build's target dir and run scripts/ci/machine-channel-warm-target.sh
 restore/record around their build; the fat legs restored a dependency-only rust-cache entry and
 recompiled every workspace crate, 916-1008 s per build step (runs 43630816742, 43630990255).
+Every other ref kept that rust-cache restore, but only feat-cmux-next pushes save the entry and
+they skip the step once their disk mounts, so no entry existed and those legs built fully cold
+(run 44174354245): they get a disk of their own per target too.
 
 This pins the fat legs' wiring:
-- each shipped target mounts its own sticky disk on feat-cmux-next pushes, keyed apart from
-  every thin disk (fat and thin objects never mix) and from the other targets;
+- each shipped target mounts its own sticky disk on feat-cmux-next pushes, and another on every
+  other ref, keyed apart from every thin disk (fat and thin objects never mix), from the other
+  targets and from each other (only feat-cmux-next writes the disk its pushes build from);
 - no sticky disk step admits both LTO modes;
 - the rust-cache restore is skipped when the disk is mounted (restore refuses an existing target);
 - both build steps call the warm script's restore before the build, with the disk the mount
@@ -47,6 +51,8 @@ MACOS_CROSS = ROOT / "scripts" / "ci" / "macos-cross.sh"
 STICKY = "useblacksmith/stickydisk@"
 SHIPPED = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin")
 NEXT_PUSH = "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'"
+OTHER_REFS = f"!({NEXT_PUSH})"
+REF_KINDS = ("next", "lanes")
 
 
 def steps() -> list[dict]:
@@ -71,12 +77,15 @@ def is_thin(cond: str) -> bool:
     return "inputs.lto == 'thin'" in cond
 
 
-def fat_mount_for(target: str) -> dict:
-    """The fat sticky disk step a feat-cmux-next push of TARGET mounts, with its key resolved."""
+def fat_mount_for(target: str, kind: str = "next") -> dict:
+    """The fat sticky disk step TARGET mounts on a feat-cmux-next push (kind "next") or on any
+    other ref (kind "lanes"), with its key resolved."""
     found = []
     for s in sticky_steps():
         cond = str(s.get("if", ""))
         if not is_fat(cond):
+            continue
+        if (OTHER_REFS in cond) != (kind == "lanes"):
             continue
         guard = re.search(r"matrix\.target == '([^']+)'", cond)
         if guard and guard.group(1) != target:
@@ -86,7 +95,7 @@ def fat_mount_for(target: str) -> dict:
         if target.endswith("-linux-musl") and re.search(r"(?<!!)matrix\.darwin_on_linux\b", cond):
             continue
         found.append(s)
-    assert len(found) == 1, f"{target}: one fat sticky disk step, found {len(found)}"
+    assert len(found) == 1, f"{target} ({kind}): one fat sticky disk step, found {len(found)}"
     s = dict(found[0])
     s["key"] = str(s["with"]["key"]).replace("${{ matrix.target }}", target)
     return s
@@ -95,17 +104,20 @@ def fat_mount_for(target: str) -> dict:
 class FatWarmWiring(unittest.TestCase):
     def test_every_shipped_target_mounts_its_own_fat_disk_on_next_pushes(self) -> None:
         keys = {}
-        for target in SHIPPED:
-            mount = fat_mount_for(target)
+        for target, kind in [(t, k) for t in SHIPPED for k in REF_KINDS]:
+            mount = fat_mount_for(target, kind)
             cond = str(mount["if"])
-            self.assertIn(NEXT_PUSH, cond, f"{target}: only feat-cmux-next pushes write the disk")
+            self.assertIn(NEXT_PUSH, cond, f"{target}: the disk is chosen by feat-cmux-next push or not")
+            if kind == "next":
+                self.assertNotIn(OTHER_REFS, cond, f"{target}: only feat-cmux-next pushes write its disk")
             self.assertIn("startsWith(runner.name, 'blacksmith')", cond)
             self.assertIn("runner.os == 'Linux'", cond)
             self.assertTrue(mount.get("continue-on-error"), f"{target}: a failed mount is a cold build")
             self.assertEqual(mount["with"].get("commit"), "on-change")
             self.assertNotIn("${{", mount["key"], f"{target}: key resolves to a fixed name")
-            keys[target] = mount["key"]
-        self.assertEqual(len(set(keys.values())), len(SHIPPED), f"one disk per target: {keys}")
+            self.assertEqual(mount["with"]["path"], fat_mount_for(target)["with"]["path"], "one build path")
+            keys[(target, kind)] = mount["key"]
+        self.assertEqual(len(set(keys.values())), len(SHIPPED) * len(REF_KINDS), f"one disk per target and ref kind: {keys}")
 
     def test_fat_and_thin_never_share_a_disk(self) -> None:
         thin_keys = set()
@@ -114,7 +126,7 @@ class FatWarmWiring(unittest.TestCase):
             self.assertNotEqual(is_fat(cond), is_thin(cond), f"{s['name']}: gated on exactly one LTO mode")
             if is_thin(cond):
                 thin_keys.add(str(s["with"]["key"]))
-        fat_keys = {fat_mount_for(t)["key"] for t in SHIPPED}
+        fat_keys = {fat_mount_for(t, k)["key"] for t in SHIPPED for k in REF_KINDS}
         self.assertTrue(thin_keys, "the thin disks are still there")
         self.assertFalse(fat_keys & thin_keys, f"shared keys: {fat_keys & thin_keys}")
         for fat in fat_keys:
@@ -129,8 +141,8 @@ class FatWarmWiring(unittest.TestCase):
         }
         for name, targets in caches.items():
             cond = str(step(name).get("if", ""))
-            for t in targets:
-                mount = fat_mount_for(t)
+            for t, kind in [(t, k) for t in targets for k in REF_KINDS]:
+                mount = fat_mount_for(t, kind)
                 self.assertTrue(mount.get("id"), f"{t}: the fat mount step has an id")
                 self.assertIn(f"steps.{mount['id']}.outcome != 'success'", cond, name)
                 self.assertLess(order.index(mount["name"]), order.index(name), f"{t} mounts before {name}")
