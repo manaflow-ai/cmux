@@ -8077,6 +8077,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       harness: failedSwitch.harness,
       error: failedSwitch.error || translate("switch.unknownError"),
       ...(failedSwitch.code ? { code: failedSwitch.code } : {}),
+      // What actually failed, under Details, as the chat's start-failed card had it.
+      ...(failedSwitch.cause ? { cause: failedSwitch.cause } : {}),
       local: true,
     });
   }, [failedSwitch, snapshot.sessionId, newTab, harnessSwitch, returnToNewTab]);
