@@ -553,7 +553,8 @@ async fn a_persons_stop_while_compacting_keeps_their_queued_prompt() {
     let running = {
         let (hub, s) = (hub.clone(), s.clone());
         tokio::spawn(async move {
-            hub.prompt(&s, vec![json!({"type":"text","text":"deaf-to-cancel"})], "test", false).await
+            hub.prompt(&s, vec![json!({"type":"text","text":"deaf-to-cancel"})], "test", false)
+                .await
         })
     };
     tokio::time::timeout(WAIT, async {
