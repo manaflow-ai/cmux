@@ -97,10 +97,32 @@ if [ "${FANIN_CPUSPLIT:-0}" = 1 ]; then
   python3 "$ROOT/cmux-tui/crates/coord-sim/src/fanin/cpusplit.py" "$BIN" "$SIM" "${RAMPS##*,}" "$OUT/cpusplit.ndjson" $((WINDOW * 4 + 600)) \
     > "$OUT/cpusplit.txt" 2>&1 & SPLIT=$!
 fi
-"$SIM" fanin --hosts "$HOSTS" --sessions 2000 --ramps "$RAMPS" --rate 0.333 --window-s "$WINDOW" --fanout-rounds "$ROUNDS" \
+# FANIN_PIN=K: the controller gets CPUs 0..K-1 to itself and everything else (host daemons, agents,
+# driver) runs on the rest, so a fan-out round's tail is the controller's own and not a share of a
+# box the 10 host daemons saturate (cmux#51785 8-cpu split: host daemons took 480-650 of 800
+# centi-CPU in each round's busiest second). Each ramp's controller is re-pinned as it starts.
+PIN_PREFIX=()
+if [ -n "${FANIN_PIN:-}" ] && [ "$FANIN_PIN" -gt 0 ] 2>/dev/null && [ "$FANIN_PIN" -lt "$(nproc)" ]; then
+  PIN_PREFIX=(taskset -c "$FANIN_PIN-$(($(nproc) - 1))")
+  echo "FANIN pin: controller on CPUs 0-$((FANIN_PIN - 1)), the rest on $FANIN_PIN-$(($(nproc) - 1))"
+  (
+    pinned=" "
+    while :; do
+      for p in $(pgrep -f -- "$BIN daemon run" || true); do
+        case "$pinned" in *" $p "*) continue ;; esac
+        if tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -q '^ACPMUX_HOME=.*/n[0-9]*/controller'; then
+          taskset -a -cp "0-$((FANIN_PIN - 1))" "$p" >/dev/null 2>&1 && { pinned="$pinned$p "; echo "FANIN pin: controller pid $p on 0-$((FANIN_PIN - 1))"; }
+        fi
+      done
+      sleep 0.5
+    done
+  ) & PINNER=$!
+fi
+"${PIN_PREFIX[@]}" "$SIM" fanin --hosts "$HOSTS" --sessions 2000 --ramps "$RAMPS" --rate 0.333 --window-s "$WINDOW" --fanout-rounds "$ROUNDS" \
   --out "$RUN" --acpmux "$BIN" --wall-clock-cap 6000 2>&1 | tee "$OUT/fanin.log" | grep -v '^FANIN_SUMMARY'
 code=${PIPESTATUS[0]}
 [ -n "${PROF:-}" ] && wait "$PROF"
+[ -n "${PINNER:-}" ] && kill "$PINNER" 2>/dev/null
 [ -n "${SPLIT:-}" ] && { kill -INT "$SPLIT" 2>/dev/null; wait "$SPLIT"; cat "$OUT/cpusplit.txt"; }
 "$SIM" fanin teardown --out "$RUN" || true
 cp "$RUN/fanin-summary.json" "$OUT/" 2>/dev/null || true
