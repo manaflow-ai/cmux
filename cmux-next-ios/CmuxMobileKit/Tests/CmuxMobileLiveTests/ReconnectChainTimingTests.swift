@@ -887,7 +887,8 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
     /// How long a suspended phone's path lives without keepalives (assumed: a carrier UDP NAT
     /// mapping, commonly 30 s; RFC 4787 asks 2 min). The cliff the matrix names moves with it.
     static let pathDiesAfter = 30
-    static let runs = 20
+    /// 20 runs a cell ran past the 30 min limit on a simulator with no cell finished (2026-11-23); 8 is the next try.
+    static let runs = 8
     static let oneWayMillis = 40.0
 
     enum Away: CaseIterable {
@@ -998,9 +999,11 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         try await waitFor("the chat's first live record") { chat.turns.contains { $0.id == "l0" } }
 
         var report: [String] = []
+        // Each line is its own attachment at once: a run stopped by the time limit keeps the cells it finished.
         func emit(_ line: String) {
             print(line)
             report.append(line)
+            Attachment.record(line, named: "RESUME_MATRIX-\(report.count).txt")
         }
         func settled() -> Bool {
             session.pairingState == .paired && session.acpmux.isReady && session.workspaces.daemon != nil
@@ -1017,6 +1020,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 emit(#"RESUME_MATRIX {\#(cell),"not_modeled":"\#(why)"}"#)
                 continue
             }
+            let cellStart = ContinuousClock.now
             var paints: [Double] = []
             var keys: [Double] = []
             var bytes: [Double] = []
@@ -1113,7 +1117,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             }
             keyP95[away.name + "/" + reentry.name] = pct(keys, 0.95)
             reconnectsAt[away.name + "/" + reentry.name] = reconnects
-            emit(#"RESUME_MATRIX {\#(cell),"mode":"headless","duress":"mac streams a record every 10 ms through the switch; 80 ms RTT; chat log \#(mac.acpmux.logCount) records","n":\#(Self.runs),"first_paint_p50_ms":\#(fmt(pct(paints, 0.5))),"first_paint_p95_ms":\#(fmt(pct(paints, 0.95))),"first_key_p50_ms":\#(fmt(pct(keys, 0.5))),"first_key_p95_ms":\#(fmt(pct(keys, 0.95))),"reconnects":\#(reconnects),"keys_lost":\#(lost),"content_cleared_runs":\#(blanked),"bytes_down_p50":\#(Int(pct(bytes, 0.5))),"bytes_down_p95":\#(Int(pct(bytes, 0.95))),"stream_bytes_down_p50":\#(Int(pct(streamBytes, 0.5))),"path_dies_after_s":\#(Self.pathDiesAfter),"model":"\#(Self.model(away, reentry))"}"#)
+            emit(#"RESUME_MATRIX {\#(cell),"mode":"headless","duress":"mac streams a record every 10 ms through the switch; 80 ms RTT; chat log \#(mac.acpmux.logCount) records","n":\#(Self.runs),"first_paint_p50_ms":\#(fmt(pct(paints, 0.5))),"first_paint_p95_ms":\#(fmt(pct(paints, 0.95))),"first_key_p50_ms":\#(fmt(pct(keys, 0.5))),"first_key_p95_ms":\#(fmt(pct(keys, 0.95))),"reconnects":\#(reconnects),"keys_lost":\#(lost),"content_cleared_runs":\#(blanked),"bytes_down_p50":\#(Int(pct(bytes, 0.5))),"bytes_down_p95":\#(Int(pct(bytes, 0.95))),"stream_bytes_down_p50":\#(Int(pct(streamBytes, 0.5))),"path_dies_after_s":\#(Self.pathDiesAfter),"cell_wall_ms":\#(fmt(Self.millis(ContinuousClock.now - cellStart))),"model":"\#(Self.model(away, reentry))"}"#)
         } }
         // The cliff: the first away time (app switcher) whose reconnects go above 0, and its cost.
         let timed = Away.allCases.filter { $0.seconds != nil }
