@@ -33,8 +33,8 @@
 
 mod coordinator;
 mod event;
-mod machine;
 pub mod ffi;
+mod machine;
 mod model;
 mod phase;
 pub mod wire;
