@@ -1043,7 +1043,7 @@ fn mount(
         digest,
         at: at.to_path_buf(),
         mounted: Mutex::new(Some(mounted)),
-        overlay,
+        overlay: overlay.clone(),
         away,
     });
     table.insert(name.to_owned(), projected.clone());

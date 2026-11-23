@@ -481,6 +481,7 @@ fn pin_unpin_and_pins_answer_the_mounted_overlay_and_its_status() {
         at: home.path().join("at"),
         mounted: Mutex::new(None),
         overlay: Arc::new(overlay),
+        away: cmux_projection::away::Away::new(|_| {}),
     });
     projections().lock().unwrap().insert(name.into(), projected.clone());
 
