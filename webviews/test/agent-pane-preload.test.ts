@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
 
 const dir = path.resolve(
   import.meta.dir,
@@ -43,8 +44,9 @@ describe.skipIf(!built)("agent pane page", () => {
 
   test("pane.js imports no module, and a chunk imports no other than a chunk", () => {
     const entry = fs.readFileSync(path.join(dir, "pane.js"), "utf8");
-    // A static import or export-from at the top level makes it a module: a classic script is a syntax error.
-    expect(() => new Function(entry)).not.toThrow();
+    // A static import or export-from at the top level makes it a module: parsed as a classic script (compiled,
+    // never run), it is a syntax error.
+    expect(() => new vm.Script(entry, { filename: "pane.js" })).not.toThrow();
     expect(entry).not.toMatch(/import\.meta/);
     const chunks = fs.readdirSync(path.join(dir, "chunks")).filter((name) => name.endsWith(".js"));
     expect(chunks.length).toBeGreaterThan(0);
