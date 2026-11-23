@@ -50,6 +50,10 @@ struct MacScreenFrameTimingsTests {
     @Test func shownFramesGiveDecodeAndPresentStages() throws {
         var timings = MacScreenFrameTimings()
         let ms: UInt64 = 1_000_000
+        let now = ContinuousClock.now
+        for (frame, released, decoded) in [(UInt32(1), 100 * ms, 103 * ms), (2, 200 * ms, 202 * ms), (3, 0, 302 * ms), (4, 403 * ms, 402 * ms)] {
+            timings.presented(frame: frame, releasedAtNanos: released, decodedAtNanos: decoded, nowNanos: decoded, now: now)
+        }
         timings.shown(RemoteViewerFrameTimes(frame: 1, releasedAtNanos: 100 * ms, decodedAtNanos: 103 * ms, presentedAtNanos: 111 * ms))
         timings.shown(RemoteViewerFrameTimes(frame: 2, releasedAtNanos: 200 * ms, decodedAtNanos: 202 * ms, presentedAtNanos: 206 * ms))
         timings.shown(RemoteViewerFrameTimes(frame: 3, releasedAtNanos: 0, decodedAtNanos: 302 * ms, presentedAtNanos: 306 * ms))
@@ -57,6 +61,27 @@ struct MacScreenFrameTimingsTests {
         #expect(timings.decode.summary == MacScreenRollingSamples.Summary(count: 2, p50: 2, p95: 3, max: 3))
         #expect(timings.glass.summary == MacScreenRollingSamples.Summary(count: 2, p50: 4, p95: 8, max: 8))
         #expect(timings.decodePresent.summary == MacScreenRollingSamples.Summary(count: 2, p50: 6, p95: 11, max: 11))
+    }
+
+    /// A static screen sends one keyframe. Decode has its value at decode time, before any
+    /// presented handler runs; a presented time of 0 (macOS recorded none) takes the handler's
+    /// own time, a real one is used as is, so Present and Decode + Present get a value either way.
+    @Test func oneKeyframeGivesEveryStageWithOrWithoutAPresentedTime() throws {
+        let ms: UInt64 = 1_000_000
+        for presentedAtMicros: UInt64 in [0, 30_000] {
+            let counter = MacScreenFrameCounter()
+            _ = counter.tick(frame: 1, releasedAtNanos: 20 * ms, decodedAtNanos: 24 * ms)
+            #expect(counter.timings.decode.summary?.p50 == 4, "decode is known before the frame is shown")
+            #expect(counter.timings.glass.summary == nil)
+            let times = RemoteViewerFrameTimes.shown(frame: 1, releasedAtNanos: 20 * ms, decodedAtNanos: 24 * ms,
+                                                     presentedAtMicros: presentedAtMicros, nowNanos: 29 * ms)
+            #expect(times.presentedAtNanos == (presentedAtMicros > 0 ? 30 * ms : 29 * ms))
+            counter.shown(times)
+            let timings = counter.timings
+            #expect(timings.decode.count == 1)
+            #expect(timings.glass.summary?.p50 == (presentedAtMicros > 0 ? 6 : 5))
+            #expect(timings.decodePresent.summary?.p50 == (presentedAtMicros > 0 ? 10 : 9))
+        }
     }
 
     /// The counter the pane's decoder ticks keeps the same timings, at most a window of samples.
@@ -67,6 +92,21 @@ struct MacScreenFrameTimingsTests {
         let timings = counter.timings
         #expect(timings.total == 500 && timings.dropped == 0)
         #expect(timings.intervals.count == MacScreenFrameTimings.window)
+    }
+}
+
+struct MacScreenHelperNoAnswerTests {
+    /// A helper that would not start, one ended at its deadline, one that exited and one killed
+    /// by a signal each say so in their own words; none reads as a grant that is off.
+    @Test func eachWayTheHelperGivesNoGrantsHasItsOwnWords() {
+        let causes: [MacScreenHelper.NoAnswer] = [.didNotStart("spawn failed"), .timedOut, .exited(status: 3 << 8), .exited(status: 9)]
+        let words = causes.map(\.reason)
+        #expect(Set(words).count == causes.count)
+        #expect(words[0].contains("did not start: spawn failed"))
+        #expect(words[1].contains("within 10 seconds"))
+        #expect(words[2].contains("exited (status 3)"))
+        #expect(words[3].contains("signal 9"))
+        #expect(words.allSatisfy { !$0.contains("not granted") })
     }
 }
 
@@ -149,9 +189,9 @@ struct MacScreenStateControlTests {
         session.timings.sampleRtt(18)
         let counter = MacScreenFrameCounter()
         session.frameCounter = counter
-        _ = counter.tick(frame: 1)
-        _ = counter.tick(frame: 4)
         let ms: UInt64 = 1_000_000
+        _ = counter.tick(frame: 1)
+        _ = counter.tick(frame: 4, releasedAtNanos: 10 * ms, decodedAtNanos: 13 * ms)
         counter.shown(RemoteViewerFrameTimes(frame: 4, releasedAtNanos: 10 * ms, decodedAtNanos: 13 * ms, presentedAtNanos: 21 * ms))
         session.framesCounted(counter)
         // An old transport's late batch is not this session's.
