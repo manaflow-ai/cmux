@@ -25,7 +25,7 @@
 //!   permissions  read-only Screen Recording and Accessibility snapshot as JSON (macOS)
 //!   request-permission screen-recording|accessibility   macOS's prompt for that one grant,
 //!            then the snapshot (src/permissions.rs; the Screen Sharing helper's)
-//!   encode-selftest --codec videotoolbox|vaapi|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
+//!   encode-selftest --codec videotoolbox|vaapi|x264|openh264 --workload marker|text|type|motion [--width 1920 --height 1080 --frames 300]
 //!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
 //!            from Cisco into the per-user data directory (pinned SHA-256) and prints its path
 //! The host runs on Linux (X11; Wayland view-only through the ScreenCast portal with feature

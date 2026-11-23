@@ -628,8 +628,8 @@ fn videotoolbox_ultra_encode_time_at_1080p120() {
     }
 }
 
-/// Every IDR OpenH264 makes on its own says why (`idr_cause`): screen usage's scene-change IDR
-/// on full-screen motion, then the usage moves that rebuild the encoder both ways. A forced or
+/// Every IDR OpenH264 makes on its own says why (`idr_cause`): the usage moves that rebuild the
+/// encoder both ways, and screen usage's scene-change IDR on full-screen motion later on. A forced or
 /// delta frame has none.
 #[cfg(feature = "openh264-source")]
 #[test]
@@ -661,9 +661,23 @@ fn openh264_names_the_cause_of_every_idr_it_was_not_asked_for() {
         }
         code(&mut enc, &pic, i == 0, &mut causes);
     }
-    assert_eq!(causes.get(..2), Some(&["scene_change", "usage_switch"][..]), "{causes:?}");
+    // Motion from the start moves on the second picture: no scene-change IDR before the move.
+    assert_eq!(causes.first(), Some(&"usage_switch"), "{causes:?}");
+    assert!(!causes.contains(&"scene_change"), "a keyframe before the move: {causes:?}");
     for _ in 0..=CALM_FRAMES_TO_SCREEN {
         code(&mut enc, &pic, false, &mut causes);
     }
     assert_eq!(causes.last(), Some(&"usage_switch"), "the move back to screen: {causes:?}");
+    // Later in the share, screen usage makes its own IDR first, as before.
+    let n = causes.len();
+    for i in 0..3 {
+        for y in &mut pic.y {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *y = 16 + (seed >> 24) as u8 % 200;
+        }
+        code(&mut enc, &pic, false, &mut causes);
+        if i == 0 {
+            assert_eq!(causes.get(n..), Some(&["scene_change"][..]), "{causes:?}");
+        }
+    }
 }
