@@ -268,6 +268,38 @@ class NewReds(unittest.TestCase):
         self.assertIn("guard red step (unknown): cut step", done.stdout)
         self.assertNotIn("guard red step (new): cut step", done.stdout)
 
+    def test_a_file_the_cut_base_replay_never_reached_is_unknown_not_the_changes(self):
+        # react-apps-base-check's first base replay stops at the job's budget (CMUX_WEB_TEST_STOP_AT). Job
+        # 137225088381 replayed 152 files one at a time and was cancelled at the 55 minutes with no verdict; cut
+        # instead, the files it never reached have no base result, and their reds must not read as the change's.
+        reached, cut = "test/reached.test.ts", "test/cut.test.ts"
+        head = {f"{reached} > a": False, f"{cut} > b": False, cut: False}
+        with tempfile.TemporaryDirectory() as tmp:
+            files, base, head_path = Path(tmp) / "files", Path(tmp) / "base.json", Path(tmp) / "head.json"
+            files.write_text(f"{reached}\n{cut}\n")
+            base.write_text(json.dumps({f"{reached} > a": True}))
+            head_path.write_text(json.dumps(head))
+            marked = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                                     str(files), str(base)], capture_output=True, text=True)
+            self.assertEqual(marked.returncode, 0, marked.stdout + marked.stderr)
+            self.assertIn(f"  {cut}", marked.stdout)
+            self.assertEqual(json.loads(base.read_text())["_cmux_unreached"], [cut])
+            done = subprocess.run([sys.executable, str(SCRIPT), "--label", "Webview test", str(head_path), str(base)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn(f"webview test red step (new): {reached} > a", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut} > b", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut}", done.stdout)
+            self.assertNotIn(f"(new): {cut}", done.stdout)
+            listed = subprocess.run([sys.executable, str(SCRIPT), "--new-files", str(head_path), str(base)],
+                                    capture_output=True, text=True)
+            self.assertEqual(listed.stdout.splitlines(), [reached])
+            # A replay that reached every file is left as it was.
+            base.write_text(json.dumps({f"{reached} > a": True, cut: True}))
+            subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                            str(files), str(base)], check=True, capture_output=True)
+            self.assertNotIn("_cmux_unreached", json.loads(base.read_text()))
+
     def test_a_step_the_change_fixes_is_said(self):
         done = self.run_it({"lint": True}, {"lint": False})
         self.assertEqual(done.returncode, 0)

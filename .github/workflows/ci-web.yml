@@ -45,6 +45,10 @@ env:
   # 0 runs every react-apps-check shard again for a pull request whose only every-shard input is this file or a
   # selection script; 1 runs shard 1 and two shards sampled from the head commit (scripts/ci/webviews_pr_shards.py).
   CI_WEBVIEWS_CI_EDIT_SAMPLE: ${{ vars.CI_WEBVIEWS_CI_EDIT_SAMPLE || '1' }}
+  # 0 turns the push classes off (scripts/ci/webviews_pr_shards.py FULL, classify): the pick runs as it did before them.
+  # 1: a pull request push is fast (docs or comments only: shard 1's checks, no test file), sampled (shard 1, the
+  # touched tests, and two head-sampled shards where it would have run every shard) or full (every shard).
+  CI_WEBVIEWS_PUSH_CLASSES: ${{ vars.CI_WEBVIEWS_PUSH_CLASSES || '1' }}
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
@@ -70,6 +74,7 @@ jobs:
       production_build: ${{ steps.scope.outputs.production_build }}
       react_apps: ${{ steps.scope.outputs.react_apps }}
       react_shards: ${{ steps.react-shards.outputs.matrix }}
+      react_class: ${{ steps.react-shards.outputs.class }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
     steps:
@@ -160,6 +165,11 @@ jobs:
       # warm-up before its first test, so a full matrix at 12 cost about 9% more runner-minutes than at 8
       # (12 x 820 s against 8 x 1133 s) for about 5 min less wall time. A pull request's pick is shard 1 and one
       # touched-test shard either way, so the count moves only full-matrix runs (push, batch, full-ci, build input).
+      # Push classes (Leo, 2026-11-22: "there must surely be some changes which can get the fast track
+      # route. like a nexus card."): the summary names the push's class (fast, sampled, full), the rule that fired and
+      # how to get a full run; `class` hands it to the shards (a fast push's shard 1 runs its checks and no test file).
+      # On a fast or sampled push shard 1 runs its checks and only the touched tests in its share (--direct-out's
+      # entry "1"), not its share of the closure: that share was about 37 of its 48 minutes (11-22).
       - name: Pick the react-apps-check shards
         id: react-shards
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
@@ -172,13 +182,27 @@ jobs:
           CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"
         run: |
           picked=""
+          class_file="$RUNNER_TEMP/webviews-durations/pr-shard-class"
+          rm -f "$class_file"
           if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ]; then
             picked="$(timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS" \
-              --direct-out "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" --summary "$GITHUB_STEP_SUMMARY")" || { picked=""; rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json"; }
+              --direct-out "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" --summary "$GITHUB_STEP_SUMMARY" \
+              --class-out "$class_file")" || { picked=""; rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$class_file"; }
           fi
-          [ -n "$picked" ] || picked="$(python3 scripts/ci/webviews_pr_shards.py --all --count "$REACT_APPS_SHARDS")"
+          if [ -z "$picked" ]; then
+            case "$GITHUB_EVENT_NAME:$FULL_CI" in
+              pull_request:true) why="the full-ci label" ;;
+              pull_request:*) why="the pick failed or timed out" ;;
+              *) why="a $GITHUB_EVENT_NAME run on the base (a push or the base batch)" ;;
+            esac
+            summary=/dev/null
+            [ "$CI_WEBVIEWS_PUSH_CLASSES" = 0 ] || summary="$GITHUB_STEP_SUMMARY"
+            picked="$(python3 scripts/ci/webviews_pr_shards.py --all --count "$REACT_APPS_SHARDS" --class-out "$class_file" \
+              --full-why "$why" --summary "$summary")"
+          fi
           echo "react-apps-check shards: $picked"
           echo "matrix=$picked" >> "$GITHUB_OUTPUT"
+          echo "class=$(cat "$class_file" 2>/dev/null)" >> "$GITHUB_OUTPUT"
           # The files those shards run, for react-apps-base-early (RFD 0023 item 3): only when the pick ran fewer
           # than every shard; any failure leaves no list, and the early job keeps its whole affected list.
           rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-files"
@@ -228,7 +252,15 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
@@ -308,7 +340,15 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
@@ -355,7 +395,15 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
@@ -413,7 +461,15 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
@@ -497,7 +553,15 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
@@ -506,7 +570,15 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Cache Playwright browsers
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Cache Playwright browsers (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
@@ -659,15 +731,29 @@ jobs:
       # cache Bun's package blobs on this lane so a new source key
       # does not redownload the lockfile from scratch.
       - name: Cache Bun package cache
-        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        if: ${{ (steps.receipt.outputs.hit != 'true') && github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ (steps.receipt.outputs.hit != 'true') && github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
       - name: Cache Playwright browsers
-        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        if: ${{ (steps.receipt.outputs.hit != 'true') && github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Cache Playwright browsers (restore only off feat-cmux-next)
+        if: ${{ (steps.receipt.outputs.hit != 'true') && github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
@@ -876,6 +962,7 @@ jobs:
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           PASSED_BEFORE: ${{ runner.temp }}/webviews-passed-before
+          REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
           # Every failed or timed-out file gets its alone retry before it counts
           # as red; CMUX_WEB_TEST_RETRY_DEADLINE, not a budget, keeps the step in
           # its job. A fixed budget left contention reds unretried, and the base
@@ -938,17 +1025,30 @@ jobs:
           # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all.
           if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ]; then
             CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
-            # The one shard past 1 a pull request picks carries every touched test outside shard 1
-            # (webviews_pr_shards.py --direct-out): it runs just those, as one unsplit list, not its share of the
-            # closure above. No entry (an every-shard pick, a failed pick, no file) keeps the closure share.
-            own="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1])).get(sys.argv[2], [])))' \
-              "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$CMUX_WEB_TEST_SHARD" 2>/dev/null)" || own=""
-            if [ "$CMUX_WEB_TEST_SHARD" != 1 ] && [ -n "$own" ]; then
+            # Shard 1 and the one shard past 1 a pull request picks run only their touched tests
+            # (webviews_pr_shards.py --direct-out), as one unsplit list, not their share of the closure above: shard 1
+            # the touched tests in its own share (maybe none), the other every touched test outside shard 1. No entry
+            # (an every-shard pick, a failed pick, no file) keeps the closure share; "-" below marks no entry.
+            own="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\n".join(d[sys.argv[2]]) if sys.argv[2] in d else "-")' \
+              "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$CMUX_WEB_TEST_SHARD" 2>/dev/null)" || own="-"
+            if [ "$own" != - ] && [ -n "$own" ]; then
               CMUX_WEB_TEST_FILES="$own"
               export CMUX_WEB_TEST_SHARD=1 CMUX_WEB_TEST_SHARD_COUNT=1 CMUX_WEB_TEST_SHARD_HEAD_START=""
               echo "shard ${{ matrix.shard }} runs its $(printf '%s\n' "$own" | wc -l) touched tests"
             fi
             export CMUX_WEB_TEST_FILES
+            # A fast push (docs or comments only, webviews_pr_shards.py classify), or a pick that left shard 1 no
+            # touched test, runs no test file there: shard 1's checks above were its run. An empty head map is a run
+            # with no red, which react-apps-base-check passes.
+            if [ "${{ matrix.shard }}" = 1 ] && { [ "$REACT_APPS_CLASS" = fast ] || [ -z "$own" ]; }; then
+              printf '{}\n' > "$CMUX_WEB_TEST_RESULTS"
+              if [ "$REACT_APPS_CLASS" = fast ]; then
+                echo "fast push: no test file runs (the step summary of web-subarea-scope names the rule)"
+              else
+                echo "shard 1 holds no touched test: its checks above were its run (webviews_pr_shards.py --direct-out)"
+              fi
+              exit 0
+            fi
           fi
           # A pull request's passes, as they come, for its next head (Upload the files that passed): the merge commit
           # they passed at, then the files. The files that passed at the previous head and that the change since
@@ -1221,15 +1321,29 @@ jobs:
         run: scripts/cmux-next/private-bun.sh
 
       - name: Cache Bun package cache
-        if: ${{ steps.pick.outputs.files != '0' }}
+        if: ${{ (steps.pick.outputs.files != '0') && github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ (steps.pick.outputs.files != '0') && github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
       - name: Cache Playwright browsers
-        if: ${{ steps.pick.outputs.files != '0' }}
+        if: ${{ (steps.pick.outputs.files != '0') && github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Cache Playwright browsers (restore only off feat-cmux-next)
+        if: ${{ (steps.pick.outputs.files != '0') && github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.cache/ms-playwright
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
@@ -1405,7 +1519,16 @@ jobs:
             exit 0
           fi
           key="$(python3 scripts/ci/webviews_test_history.py inputs)"
-          python3 "$runner/webviews_test_history.py" known "$history" --inputs "$key" --names "$HEAD_RESULTS" \
+          # Other pull requests' base checks at this merge parent's inputs (and these tools) share their replays: known
+          # reads them as pushes at the key. Only same-repository runs; an unread one only leaves its files to replay.
+          # The tools key reads the head's ci-web.yml (the checkout is the merge parent now), so a pull request that
+          # changes how its replay runs shares under a name of its own.
+          name="$(git show "$GITHUB_SHA:.github/workflows/ci-web.yml" > "$RUNNER_TEMP/head-ci-web.yml" &&
+            python3 "$runner/webviews_test_history.py" shared-name --inputs "$key" --runner "$runner" --workflow "$RUNNER_TEMP/head-ci-web.yml")" &&
+            echo "shared=$name" >> "${GITHUB_OUTPUT:-/dev/null}" &&
+            python3 "$runner/webviews_test_history.py" fetch-shared "$history" "$history.shared" --repo "$GITHUB_REPOSITORY" \
+              --name "$name" --inputs "$key" --run-id "$GITHUB_RUN_ID" || cp "$history" "$history.shared"
+          python3 "$runner/webviews_test_history.py" known "$history.shared" --inputs "$key" --names "$HEAD_RESULTS" \
             --out "$RUNNER_TEMP/base-known.json" > "$RUNNER_TEMP/base-replay-files"
           # The files react-apps-base-early already ran on this merge parent take its verdicts (early-known leaves both
           # files as they were on any failure, so they replay).
@@ -1439,15 +1562,29 @@ jobs:
         run: scripts/cmux-next/private-bun.sh
 
       - name: Cache Bun package cache
-        if: ${{ steps.head.outputs.reds != '0' }}
+        if: ${{ (steps.head.outputs.reds != '0') && github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ (steps.head.outputs.reds != '0') && github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
       - name: Cache Playwright browsers
-        if: ${{ steps.head.outputs.reds != '0' }}
+        if: ${{ (steps.head.outputs.reds != '0') && github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Cache Playwright browsers (restore only off feat-cmux-next)
+        if: ${{ (steps.head.outputs.reds != '0') && github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.cache/ms-playwright
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
@@ -1513,10 +1650,27 @@ jobs:
             # incorrectly treating the head map as a base verdict.
             printf '{}\n' > "$BASE_RESULTS"
           else
+            # The first replay ends where the replays after it must (the job's timeout less REPLAY_RESERVE, counted
+            # from the job clock): it runs one file at a time, and a head with many reds ran it into the 55 minutes
+            # with no verdict (job 137225088381: 200 head reds, 152 files replayed, cancelled at file 120). A file it
+            # did not reach has no base result: mark-unreached makes those files' reds "base result unavailable"
+            # (deferred to the merge gate, the step fails), never the change's and never excused.
+            first_started="$(cat "$RUNNER_TEMP/job-started" 2>/dev/null || echo 0)"
+            [[ "$first_started" =~ ^[0-9]+$ ]] || first_started=0
+            if [ "$first_started" -gt 0 ]; then
+              stop_at=$(( first_started + ${JOB_TIMEOUT_MINUTES:-55} * 60 - ${REPLAY_RESERVE:-0} ))
+            else
+              stop_at=""
+            fi
             CMUX_WEB_TEST_FILES="$(cat "$files")" \
               CMUX_WEB_TEST_RESULTS="$BASE_RESULTS" \
+              CMUX_WEB_TEST_STOP_AT="$stop_at" \
               env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
               bash "$RUNNER_TEMP/head-results/runner/run-webviews-tests.sh" || true
+            # Shared before the unreached marks: only files this replay ran are evidence for the next pull request.
+            cp "$BASE_RESULTS" "$RUNNER_TEMP/base-replayed.json" || :
+            python3 "$RUNNER_TEMP/head-results/runner/webviews_test_results.py" --mark-unreached "$files" "$BASE_RESULTS" ||
+              echo "the first replay's unreached files were not marked"
           fi
           if [ -n "${KNOWN_REPLAY:-}" ]; then
             # The history's verdicts join the replay's (their files are disjoint).
@@ -1595,6 +1749,35 @@ jobs:
             --shards "$RUNNER_TEMP/head-results/shards.json" --cap 25 && echo true || echo false)" >> "${GITHUB_OUTPUT:-/dev/null}"
           exit "$status"
 
+      # This replay, as a one-run history at the merge parent's inputs key, for the next pull request at that key and
+      # these tools (the history step's fetch-shared). Its own replays only (the first and each base_again, red when
+      # any was): the verdicts it took from the history or the early run are not new evidence. Same-repository pull
+      # requests only; best effort, it never changes this check's verdict.
+      - name: Share this base replay
+        id: share
+        if: ${{ !cancelled() && steps.base.outcome != 'skipped' && steps.history.outputs.shared != '' && github.event.pull_request.head.repo.full_name == github.repository }}
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          found=("$RUNNER_TEMP/base-replayed.json")
+          [ -s "${found[0]}" ] || { echo "no replay ran here: nothing to share"; exit 0; }
+          for again in "$RUNNER_TEMP"/base-again-*.json; do [ -e "$again" ] && found+=("$again"); done
+          key="$(python3 scripts/ci/webviews_test_history.py inputs)"
+          mkdir -p "$RUNNER_TEMP/base-share"
+          python3 "$RUNNER_TEMP/head-results/runner/webviews_test_history.py" record /dev/null "$RUNNER_TEMP/base-share/history.json" \
+            --sha "$(git rev-parse HEAD)" --time "$(date +%s)" --inputs "$key" --attempt "$GITHUB_RUN_ATTEMPT" "${found[@]}"
+          echo "upload=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload this base replay
+        if: ${{ steps.share.outputs.upload == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.history.outputs.shared }}
+          path: ${{ runner.temp }}/base-share/history.json
+          retention-days: 1
+          if-no-files-found: ignore
+
       # A red the base replay passed is re-run once, alone, on the head before it is charged to the
       # change: the head shard retries a red file alone only while its retry budget lasts, so a late
       # red on a long shard was never retried. #27710 (run 41525196343) went red on three
@@ -1633,13 +1816,22 @@ jobs:
           HEAD_RESULTS: ${{ runner.temp }}/head-results/webviews-head-results.json
           BASE_RESULTS: ${{ runner.temp }}/base-results.json
           HEAD_RERUN: ${{ runner.temp }}/head-rerun-results.json
+          # This job's timeout-minutes (keep them equal), for the re-run's stop.
+          JOB_TIMEOUT_MINUTES: "55"
           CMUX_NEXT_STYLE_GUARDS: warn
           CMUX_WEB_TEST_JOBS: "1"
           CMUX_WEB_TEST_RETRIES: "0"
         run: |
           runner="$RUNNER_TEMP/head-results/runner"
           echo "re-running alone on the head:"; sed 's/^/  /' "$RUNNER_TEMP/head-rerun-files"
+          # No file runs past two minutes before the job's timeout (the verdict's margin): a file the re-run did not
+          # reach is missing from it, so its reds stay the change's, and the job still says so instead of being cut.
+          started="$(cat "$RUNNER_TEMP/job-started" 2>/dev/null || echo 0)"
+          [[ "$started" =~ ^[0-9]+$ ]] || started=0
+          stop_at=""
+          if [ "$started" -gt 0 ]; then stop_at=$(( started + JOB_TIMEOUT_MINUTES * 60 - 120 )); fi
           CMUX_WEB_TEST_FILES="$(cat "$RUNNER_TEMP/head-rerun-files")" \
+            CMUX_WEB_TEST_STOP_AT="$stop_at" \
             CMUX_WEB_TEST_RESULTS="$HEAD_RERUN" \
             env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
             bash "$runner/run-webviews-tests.sh" || true
@@ -1705,7 +1897,15 @@ jobs:
           bun-version: "1.4.4"
 
       - name: Cache Bun package cache
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
@@ -1968,7 +2168,15 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
@@ -2049,7 +2257,15 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
