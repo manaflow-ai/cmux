@@ -1183,8 +1183,9 @@ jobs:
             fi
             echo "feat-cmux-next moved (attempt $attempt); re-applying on the new tip."
           done
-          echo "::error::feat-cmux-next kept moving; the next run pins it."
-          exit 1
+          # No red: each of those pushes started a run, and the newest pins it.
+          echo "::warning title=GhosttyKit pin::feat-cmux-next kept moving; the next run pins it."
+          exit 0
 
       # A GITHUB_TOKEN push (no App token) started no workflow: start the bot head's cmux-tui
       # artifacts run (scripts/cmux-next/publish-bot-head-tree.sh: nothing when the head has a run;

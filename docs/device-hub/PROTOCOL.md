@@ -299,8 +299,9 @@ that held the answer is gone is back to `ask`.
    requests are ended the same way.
 8. Offline devices: when a device's last User DO socket closes, errors or
    goes silent (75 s with no frame) while it has open sessions, the server
-   waits 30 s from when it was last heard (so a silent device's sessions end
-   when it is found silent). If it has not reconnected by
+   waits 120 s from when it was last heard: a drop can start up to one ping
+   (30 s) after the last frame, and a screen share comes back by itself after
+   a 60 s drop with time to reconnect. If it has not reconnected by
    then, every session where it is viewer or host ends: audit `ended` with
    reason `peer_offline`, push `session.ended` (reason `peer_offline`) to both
    devices, and the Session DO closes its sockets. A socket replaced by a new
@@ -322,7 +323,7 @@ authoritative end does not replace its reason. The same string is pushed in `ses
 | `viewer_disconnected` | the viewer called `/end` without a reason | `session.revoked` |
 | any other string | the `reason` given to `/end` (≤100 chars) | `session.revoked` |
 | `expired` | a pending request was not decided within 5 min | `session.revoked` |
-| `peer_offline` | a device stayed disconnected for 30 s, or was silent for 75 s | `session.ended` |
+| `peer_offline` | a device went offline (socket closed, or silent for 75 s) and was not back 120 s after it was last heard | `session.ended` |
 | `bye` | a device sent `bye` and no authoritative reason followed within 3 s | `session.ended` |
 | `approve_failed` | the server could not set up the approved session | `session.revoked` |
 

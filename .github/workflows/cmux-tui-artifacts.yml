@@ -255,6 +255,40 @@ jobs:
           SHA: ${{ github.sha }}
         run: python3 scripts/ci/cmux_tui_branch_inputs.py --ref "$REF" --sha "$SHA"
 
+  # Latest wins on feat-cmux-next, for the runs tree-preflight's group cannot replace: those an
+  # older definition of this workflow started (each in a push-<sha> group of its own, about 240
+  # queued on 2026-11-19, the oldest from 11-11). Each feat-cmux-next push cancels every older
+  # feat-cmux-next push run of this workflow that no runner ever took (attempt 1, no job with a
+  # runner or a step; scripts/ci/cmux_tui_feat_supersede.py). A started run is never cancelled, nor
+  # a dispatch, a re-run or a nightly-next push. On the one-minute control pool, beside
+  # tree-preflight (nothing needs it), so a backed-up owned lane label does not hold it.
+  supersede-feat-runs:
+    name: cancel superseded queued feat-cmux-next runs
+    if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 }}
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          # BASH_ENV (above) sources scripts/ci/api_call_log/env.sh in every step.
+          sparse-checkout: |
+            scripts/ci/cmux_tui_feat_supersede.py
+            scripts/ci/deadline_http.py
+            scripts/ci/api_call_log/
+          sparse-checkout-cone-mode: false
+      - name: Cancel the older feat-cmux-next push runs no runner took
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: python3 scripts/ci/cmux_tui_feat_supersede.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID"
+
   # Keep the common path cheap: a tree-addressed publication is complete when
   # all runtime binaries and checksum markers exist, so there is no reason to spend a macOS build
   # or daemon-test slot on another commit with the same inputs.
@@ -265,6 +299,21 @@ jobs:
     needs: [push-gate, coalesce]
     if: ${{ !cancelled() && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && needs.push-gate.outputs.stale != 'true' && needs.push-gate.outputs.inputs_unchanged != 'true' && needs.coalesce.outputs.run != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Latest wins on feat-cmux-next (Leo: "if i wait for the nightly then i might as well just
+    # update to the thing"). Attempt 1 of every feat-cmux-next push preflight shares one group:
+    # GitHub keeps one admitted and one pending, and a newer push replaces the pending one, so a
+    # superseded push never takes a runner and the tip is preflighted next. The newest commit's
+    # mac-live.json lists the older commits in live_from, so nothing is lost. On 2026-11-19 the
+    # owned lane label handed runners out oldest first to about 240 queued push runs and
+    # channels/mac-live.json was 22 h behind the tip. Only the preflight is serialized (minutes;
+    # a whole run took 30 min to 16 h, so a run-level group would publish the tip hours late), and
+    # cancel-in-progress stays false. A dispatch (cmux-tui-tree-request.yml, request-nightly-next.sh's
+    # backfill), a nightly-next push, a lane push and a re-run each get a group of their own: a nightly
+    # still gets the tree of its exact commit. supersede-feat-runs below ends the older queued runs
+    # this group cannot reach; cmux-tui-artifacts-retry skips a run a newer push superseded.
+    concurrency:
+      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-tui-feat-push-preflight' || format('cmux-tui-preflight-{0}-{1}', github.run_id, github.run_attempt) }}
+      cancel-in-progress: false
     timeout-minutes: 10
     permissions:
       actions: read
@@ -332,11 +381,14 @@ jobs:
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
           RUN_ATTEMPT: ${{ github.run_attempt }}
+          # Set (a sha or 'unknown') only when this push is its coalescing window's one build.
+          COALESCE_BASE: ${{ needs.coalesce.outputs.base }}
         # --trunk-tip-only: a feat-cmux-next push that is no longer the tip skips its builds on its first attempt;
         # the newer push builds the tip, and cmux-tui-tree-request.yml's re-run builds this commit on demand.
+        # Not a coalescing window's one build (--coalesce-base): the window's later pushes build nothing.
         run: >-
           python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
-          --trunk-tip-only --attempt "$RUN_ATTEMPT"
+          --trunk-tip-only --attempt "$RUN_ATTEMPT" --coalesce-base "$COALESCE_BASE"
 
       # A lane-branch push publishes its tree without the cmux_next_ daemon
       # tests (source.json daemonTests "separate", no daemon-tests marker):
@@ -1797,9 +1849,12 @@ jobs:
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
+      # The ghostty-next git directory comes from the CI cache bucket (cmux-next-fast-tier-seed.yml seeds it
+      # on every feat-cmux-next push), then git fetches the difference. A Freestyle runner cloned it from
+      # github.com in 6.5 min (job 137551791655, 2026-11-23).
       - name: Init ghostty submodule
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
-        run: git submodule update --init --depth 1 ghostty-next
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install the build dependencies
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' && runner.os == 'Linux'
@@ -1814,6 +1869,14 @@ jobs:
         with:
           path: ${{ runner.temp }}/cmux-zig-tarballs
           key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
+
+      # The owned fleet keeps Zig installed, so it never saves the actions/cache entry above, and a fresh
+      # Freestyle runner downloaded Zig from third-party mirrors: job 137551791655 spent its whole 480 s
+      # budget there and failed. The bucket's copy (seeded by cmux-next-fast-tier-seed.yml) fills the miss;
+      # install-zig-ci.sh still checks it against scripts/ci/zig-tarballs.sha256.
+      - name: Restore the Zig tarball from the CI cache bucket
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
+        run: bash scripts/ci/zig-tarball-r2.sh restore "$RUNNER_TEMP/cmux-zig-tarballs"
 
       - name: Install zig
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
@@ -4123,6 +4186,17 @@ jobs:
           # under set -u as an unset variable. Keep the call argument-free when
           # this commit's manifest attests no acpmux companions.
           fetch_each "https://files.cmux.com/cmux-tui/$source_commit" ${acpmux[@]+"${acpmux[@]}"}
+          # The signed Linux release file's other names (the hook, the glibc-named copies, the screen
+          # detector: --list-release-companions), each one the source commit's manifest attests: the tree's
+          # release.json (point-machine-channel signs it) names every binary under tree/<key>/. No completion
+          # file lists them, so a tree published before them keeps its completion bytes.
+          release=()
+          for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-release-companions); do
+            if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) is not None else 1)' manifest.json "$asset"; then
+              release+=("$asset")
+            fi
+          done
+          fetch_each "https://files.cmux.com/cmux-tui/$source_commit" ${release[@]+"${release[@]}"}
           completion_args=()
           if fetch_optional "$base/completion.json" tree/existing-completion.json; then
             completion_args=(--existing-completion-file tree/existing-completion.json)
@@ -4685,6 +4759,28 @@ jobs:
         # no credentials) after listing this commit's window.
         run: scripts/cmux-next/tree-commit-marker.sh write --window 40 --tip-branch feat-cmux-next
 
+      # Commits that share a published tree and built nothing (their run adopted an earlier commit's tree)
+      # get a signed cmux-tui/<sha>/release.json: an alias of tree/<key>/release.json, which the run that
+      # published the tree signed (point-machine-channel). The only step given the signing key here; this
+      # job runs feat-cmux-next's own code in the artifacts environment, as point-machine-channel does.
+      # Each tree key is computed from the source, never read from the unsigned markers above. Delivery,
+      # not a gate: a failure is a warning (scripts/ci/cmux-linux-release-aliases.sh).
+      - name: Sign the Linux release files of commits that share a tree
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/linux-release-aliases"
+          rm -rf "$dir" && mkdir -p "$dir" && chmod 700 "$dir"
+          timeout 900 scripts/ci/cmux-linux-release-aliases.sh "$dir" --window 40 --channel feat-cmux-next \
+            || echo "::warning::Linux release aliases did not finish; the next push signs what is left"
+          rm -rf "$dir"
+
       # This commit's hot keys (scripts/cmux-next/hot-apply.py keys): hot-apply plans an app's commit against
       # a newer one by comparing these, with no checkout, diff or key computation of its own. A publication,
       # not a check: a failure here only makes hot-apply fall back to diffing, so it never reds the job.
@@ -4960,7 +5056,10 @@ jobs:
     concurrency:
       group: cmux-tui-point-machine-${{ github.ref }}
       cancel-in-progress: false
-    needs: [publish, verify-publish, adopt-commit-manifest]
+    # tree-preflight and publish-tree: the run that publishes tree/<key>/ signs its release.json here (the
+    # job that holds the signing key), so this follows the tree publication; a run that builds nothing
+    # skips publish-tree at once.
+    needs: [publish, verify-publish, adopt-commit-manifest, tree-preflight, publish-tree]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 85  # 15 for the Cloud machine channel, at most 15 more each for the Linux release file, the apt and yum archive and the Mac live update file, 20 for the Screen Sharing helper
@@ -4991,8 +5090,13 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          # The dedicated Linux release key (linux-signed-packages.md section 3): signs the Linux release
+          # files beside SIGNING_KEY once web-update-keys.json lists it; unset, they carry SIGNING_KEY's alone.
+          LINUX_RELEASE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_RELEASE_SIGNING_KEY }}
           GH_TOKEN: ${{ github.token }}  # gh run download, for the Linux release file
           VERIFY_PUBLISH: ${{ needs.verify-publish.result }}
+          PUBLISH_TREE: ${{ needs.publish-tree.result }}
+          TREE_KEY: ${{ needs.tree-preflight.outputs.key }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/machine-channel"
@@ -5013,13 +5117,19 @@ jobs:
           # --binaries-dir). Bytes another run uploaded first are not signed by this one. Delivery for the
           # installers, not a gate: a failure is a warning and never holds the Cloud machine channel above.
           # A run that built nothing (an adopted manifest) has no build artifacts to sign against.
+          # The run that published tree/<key>/ (publish-tree) signs the tree's release.json too: the payload
+          # names the tree's copies (--tree-key) and carries tree_key, and cmux-machine-channel-point.sh
+          # writes it once to tree/<key>/release.json, then to cmux-tui/<sha>/release.json, then the channel,
+          # which so names the tree. Its bytes must be this run's build as well: a tree another run published
+          # first (other bytes) is refused, and this run signs its own commit's files as before. The commits
+          # that share the tree and build nothing get their release.json from mark-tree-commits (an alias).
           if [[ "$VERIFY_PUBLISH" != success ]]; then
             echo "This run built nothing: the next built push signs its own Linux release file."
             exit 0
           fi
           lr="$dir/linux-release"
           mkdir -p "$lr" && chmod 700 "$lr"
-          export lr GITHUB_SHA GITHUB_RUN_ID GITHUB_REPOSITORY
+          export lr GITHUB_SHA GITHUB_RUN_ID GITHUB_REPOSITORY PUBLISH_TREE TREE_KEY
           if ! timeout 900 bash -euo pipefail -c '
                  gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
                    --pattern "cmux-tui-*-unknown-linux-musl" --dir "$lr/artifacts"
@@ -5031,9 +5141,19 @@ jobs:
                  current="$(python3 scripts/cmux-next/web-ota-pointer.py sequence --pointer "$lr/current.json" \
                    --keys Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json \
                    --channel feat-cmux-next)"
-                 python3 scripts/ci/cmux-machine-channel.py payload --purpose linux-release --channel feat-cmux-next \
-                   --binaries-dir "$lr/built" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
-                   --min-sequence "$((current + 1))" --download-dir "$lr/binaries" --out "$lr/payload.json"
+                 release=(python3 scripts/ci/cmux-machine-channel.py payload --purpose linux-release
+                   --channel feat-cmux-next --binaries-dir "$lr/built" --commit "$GITHUB_SHA"
+                   --committed-at "$(git show -s --format=%ct HEAD)" --min-sequence "$((current + 1))"
+                   --download-dir "$lr/binaries" --out "$lr/payload.json")
+                 tree=""
+                 if [[ "$PUBLISH_TREE" == success && "$TREE_KEY" =~ ^[0-9a-f]{40}$ ]]; then
+                   if "${release[@]}" --tree-key "$TREE_KEY"; then
+                     tree=1
+                   else
+                     echo "::warning::tree $TREE_KEY does not serve this run'"'"'s build; signing $GITHUB_SHA'"'"'s own files"
+                   fi
+                 fi
+                 [[ -n "$tree" ]] || "${release[@]}"
                  rm -rf "$lr/binaries"
                  scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr"'; then
             echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
@@ -5380,7 +5500,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, coalesce, tree-preflight, tree-owner-wait, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, coalesce, supersede-feat-runs, tree-preflight, tree-owner-wait, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
