@@ -854,8 +854,8 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   .nt-box {
     transition: box-shadow var(--agent-motion-out) var(--agent-ease-out);
   }
-  .acpmux-composer-box:is(:hover, :has(:focus-visible)),
-  .nt-box:is(:hover, :has(:focus-visible)) {
+  .acpmux-composer-box:is(:hover, [data-focused]),
+  .nt-box:is(:hover, [data-focused]) {
     transition-duration: var(--agent-motion-in);
   }
 }

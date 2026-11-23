@@ -24,14 +24,14 @@ type State = "rest" | "hover" | "focused";
 
 /// The pane focuses the prompt when it mounts, so the rest and hover stages blur it and wait until
 /// no field in the card holds focus; the focused stage focuses it from the keyboard's side and waits
-/// for `:has(:focus-visible)`. A stage that cannot reach its state times out instead of capturing
+/// for the card's `data-focused` (ComposerBox.tsx). A stage that cannot reach its state times out instead of capturing
 /// the wrong one.
 async function stage(ctx: PlayContext, state: State) {
   await ctx.waitFor(() => ctx.document.querySelector(PROMPT));
   const box = ctx.document.querySelector<HTMLElement>(BOX)!;
   if (state === "focused") {
     await ctx.focus({ selector: PROMPT });
-    await ctx.waitFor(() => box.matches(":has(:focus-visible)"));
+    await ctx.waitFor(() => box.hasAttribute("data-focused"));
     return;
   }
   await ctx.waitFor(() => {
