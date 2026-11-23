@@ -67,6 +67,7 @@ async fn watched(hub: &Arc<Hub>, config: &Path, sid: &str, pid: Option<u32>) -> 
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     hub.save_meta(&session);
