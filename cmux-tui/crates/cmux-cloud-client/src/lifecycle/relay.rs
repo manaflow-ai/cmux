@@ -67,6 +67,10 @@ impl Request {
     }
 
     /// Accepted and completed operations remain distinct observed states.
+    #[allow(
+        clippy::result_large_err,
+        reason = "the error hands the typed operation back for a retry"
+    )]
     pub fn complete(
         self,
         value: Value,
