@@ -11,14 +11,10 @@ extension CloudCreations {
                 "window_id": creation.windowID.map(JSONValue.string) ?? .null,
                 "stage": .string(creation.stage.name),
                 "stage_detail": creation.stage.failure.map(JSONValue.string) ?? .null,
-                "elapsed_ms": .number(Self.milliseconds(creation.elapsed())),
-                "ready_after_ms": creation.readyAfter.map { .number(Self.milliseconds($0)) } ?? .null,
+                "elapsed_ms": .number(BenchSpans.ms(creation.elapsed()).rounded()),
+                "ready_after_ms": creation.readyAfter.map { .number(BenchSpans.ms($0).rounded()) } ?? .null,
                 "workspace_id": creation.workspaceID.map(JSONValue.string) ?? .null,
             ])
         }
-    }
-
-    private static func milliseconds(_ duration: Duration) -> Double {
-        (Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15).rounded()
     }
 }
