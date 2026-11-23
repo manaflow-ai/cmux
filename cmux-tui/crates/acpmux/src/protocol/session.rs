@@ -210,6 +210,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub rolling_summary: Option<crate::store::RollingSummary>,
+    /// The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps
+    /// in sight while the agent builds it. Absent until one, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub approved_plan: Option<crate::store::ApprovedPlan>,
     pub queued: u64,
     /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
     /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
