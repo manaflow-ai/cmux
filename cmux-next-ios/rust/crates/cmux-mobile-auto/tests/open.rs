@@ -126,6 +126,23 @@ fn no_network_is_a_wait_and_not_an_error() {
 }
 
 #[test]
+fn a_chat_opened_with_no_network_waits_and_opens_when_it_is_back() {
+    let owner = store();
+    append(&owner, &mac(), 1, turn(1));
+    let session = ChatSession::new(owner.clone(), CHAT);
+
+    owner.set_offline(true);
+    let first = ready(session.next()).expect("no error");
+    assert_eq!((first.chat.is_none(), first.records.len(), first.retry_after_ms), (true, 0, Some(1_000)));
+    assert_eq!(ready(session.next()).expect("no error").retry_after_ms, Some(2_000));
+
+    owner.set_offline(false);
+    let opened = ready(session.next()).expect("opened");
+    assert_eq!((seqs(&opened.records), opened.retry_after_ms), (vec![1, 2, 3], None));
+    assert!(opened.chat.is_some());
+}
+
+#[test]
 fn a_chat_with_auto_switched_off_ends() {
     let owner = store();
     let session = ChatSession::new(owner.clone(), CHAT);

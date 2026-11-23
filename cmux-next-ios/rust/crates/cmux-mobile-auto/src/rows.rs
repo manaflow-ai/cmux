@@ -127,7 +127,7 @@ pub async fn list<C: AutoCloud>(cloud: &C) -> CloudResult<ChatList> {
 pub fn recent_repos(views: &[SessionView]) -> Vec<Repo> {
     let mut used: Vec<(u64, &Repo)> =
         views.iter().filter_map(|view| view.repo.as_ref().map(|repo| (view.updated_at, repo))).collect();
-    used.sort_by(|a, b| b.0.cmp(&a.0));
+    used.sort_by_key(|used| std::cmp::Reverse(used.0));
     let mut repos: Vec<Repo> = Vec::new();
     for (_, repo) in used {
         if repos.len() < RECENT_REPOS && !repos.contains(repo) {

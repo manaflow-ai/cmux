@@ -1,6 +1,7 @@
 //! One open Auto chat: its events page by page, the held wait that keeps it current, sending.
 //!
-//! The phone calls [`ChatSession::open`] once, then [`ChatSession::next`] again and again. Each
+//! The phone calls [`ChatSession::next`] again and again (the first call opens the chat, as
+//! [`ChatSession::open`] does). Each
 //! answers a [`Batch`]: the records to draw and where the chat is now. `next` reads a page when
 //! the store has more than the phone, and otherwise holds one `wait` request until the chat
 //! changes or the store's deadline passes. Nothing else waits.
@@ -8,6 +9,7 @@
 //! A send may run while a `next` is held, so the chat's state sits behind a lock that is never
 //! held across a request.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use cmux_auto_session::cloud::{AutoCloud, CloudResult};
@@ -82,11 +84,13 @@ pub struct ChatSession<C> {
     cloud: C,
     id: String,
     state: Mutex<Option<State>>,
+    /// Reads in a row that got no answer before the chat was read once.
+    unopened: AtomicU32,
 }
 
 impl<C: AutoCloud> ChatSession<C> {
     pub fn new(cloud: C, id: impl Into<String>) -> ChatSession<C> {
-        ChatSession { cloud, id: id.into(), state: Mutex::new(None) }
+        ChatSession { cloud, id: id.into(), state: Mutex::new(None), unopened: AtomicU32::new(0) }
     }
 
     pub fn id(&self) -> &str {
@@ -116,7 +120,22 @@ impl<C: AutoCloud> ChatSession<C> {
     pub async fn next(&self) -> CloudResult<Batch> {
         let answer = self.step().await;
         let mut guard = self.lock();
-        let Some(state) = guard.as_mut() else { return answer };
+        let Some(state) = guard.as_mut() else {
+            // The chat was never read: no network is a wait here too, with nothing to draw yet.
+            return match answer {
+                Err(error) if error.retryable() => {
+                    let failures = self.unopened.fetch_add(1, Ordering::SeqCst).saturating_add(1);
+                    Ok(Batch {
+                        chat: None,
+                        records: Vec::new(),
+                        caught_up: false,
+                        ended: false,
+                        retry_after_ms: Some(retry_after_ms(failures)),
+                    })
+                }
+                answer => answer,
+            };
+        };
         match answer {
             Ok(batch) => {
                 state.failures = 0;
