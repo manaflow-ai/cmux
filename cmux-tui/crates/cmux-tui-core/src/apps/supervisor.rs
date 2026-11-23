@@ -303,6 +303,8 @@ pub(super) struct Inner {
     pub pages: super::page_calls::Pages,
     /// The widget layout and its replayed edits (`widgets.rs`).
     pub widgets: super::widgets::WidgetState,
+    /// Extension signal sources' last values and floors (`signal_sources.rs`).
+    pub signal_sources: super::signal_sources::SignalSources,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -499,6 +501,7 @@ impl Supervisor {
                 ladders: HashMap::new(),
                 pages: Default::default(),
                 widgets: Default::default(),
+                signal_sources: Default::default(),
             }),
             config,
             router,
@@ -697,6 +700,7 @@ impl Supervisor {
                 if let Some(storage) = self.storage().as_ref() {
                     let _ = storage.clear(app);
                 }
+                inner.signal_sources.forget_app(app);
                 self.remove_server_dirs(app);
                 self.remove_server_credential(app);
                 vec![]
