@@ -223,8 +223,14 @@ pub(crate) const LS_MAX_ROWS: usize = 5000;
 /// or none: no relay, no `lsArgv`, or a listing that failed, which is said on stderr unless
 /// `quiet`.
 pub(crate) async fn relay_rows(quiet: bool) -> Vec<Value> {
+    relay_rows_with_deadline(quiet, None).await
+}
+
+/// [`relay_rows`] with the caller's absolute deadline, so a listing's relay fallback cannot
+/// outlive the listing that requested it.
+pub(crate) async fn relay_rows_with_deadline(quiet: bool, deadline: Option<Instant>) -> Vec<Value> {
     let Some(relay) = configured().filter(|r| r.ls_argv.is_some()) else { return Vec::new() };
-    match tokio::task::spawn_blocking(move || relay_ls(&relay, None)).await {
+    match tokio::task::spawn_blocking(move || relay_ls(&relay, deadline)).await {
         Ok(Ok(Some(rows))) => rows,
         Ok(Ok(None)) => Vec::new(),
         Ok(Err(e)) => {

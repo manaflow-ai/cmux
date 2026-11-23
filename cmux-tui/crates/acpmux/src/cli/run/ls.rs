@@ -6,11 +6,13 @@
 //! (`ls_pages.rs`), and `--cursor` reads one. A listing never starts a daemon
 //! (`daemon/running.rs`).
 
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use acpmux_book::index::Summary;
 use acpmux_client::wire::ListView;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
@@ -99,12 +101,117 @@ const V1_PAGES: &str = method::MUX_SESSIONS;
 /// `ls --cursor C`: one v1 page, a v1 read kept. It moves before the v1 list is deleted.
 const CURSOR_PAGE: &str = method::MUX_SESSIONS;
 
+/// A one-shot listing must leave a stalled joined route with an actionable error. The per-step
+/// bound catches a request that never gets a reply, while the total bound covers paging and the
+/// optional relay/SSH recovery reads together.
+const LS_STEP_DEADLINE: Duration = Duration::from_secs(4);
+pub(crate) const LS_TOTAL_DEADLINE: Duration = Duration::from_secs(15);
+
+/// How long before the total the reads of other machines' rows (the send relay's `lsArgv`, a
+/// down peer's ssh listing) give up. They cost a warning when slow, never this machine's list:
+/// one that ran to the total failed the whole `ls` as `read step stalled after 15s`, though
+/// the daemon had answered (gcp-codex-swarm-02/03, 2026-11-22, a broker still reading the
+/// fleet behind `lane-gh sessions`).
+const LS_EXTRAS_RESERVE: Duration = Duration::from_secs(2);
+
+#[derive(Clone)]
+struct ListBudget {
+    deadline: tokio::time::Instant,
+    machine: String,
+    route: &'static str,
+}
+
+impl ListBudget {
+    fn new(machine: Option<&str>) -> Self {
+        let machine = machine.filter(|name| !name.trim().is_empty()).unwrap_or("local");
+        let remote = !machine.eq_ignore_ascii_case("local")
+            && !crate::pairing::machine_name().eq_ignore_ascii_case(machine);
+        Self {
+            deadline: tokio::time::Instant::now() + LS_TOTAL_DEADLINE,
+            machine: machine.to_owned(),
+            route: if remote { "hub/carrier" } else { "local daemon" },
+        }
+    }
+
+    /// When the best-effort reads of other machines' rows end: [`LS_EXTRAS_RESERVE`] before
+    /// the total, so the rows already read are printed.
+    fn extras_deadline(&self) -> tokio::time::Instant {
+        self.deadline.checked_sub(LS_EXTRAS_RESERVE).unwrap_or(self.deadline)
+    }
+}
+
+async fn bounded_step<T>(
+    budget: &ListBudget,
+    step: &str,
+    future: impl Future<Output = T>,
+) -> Result<T> {
+    let remaining = budget
+        .deadline
+        .saturating_duration_since(tokio::time::Instant::now())
+        .min(LS_STEP_DEADLINE);
+    if remaining.is_zero() {
+        return Err(timeout_error(budget, step, LS_TOTAL_DEADLINE));
+    }
+    tokio::time::timeout(remaining, future)
+        .await
+        .map_err(|_| timeout_error(budget, step, remaining))
+}
+
+async fn bounded_total<T>(
+    budget: &ListBudget,
+    step: &str,
+    future: impl Future<Output = T>,
+) -> Result<T> {
+    let remaining = budget.deadline.saturating_duration_since(tokio::time::Instant::now());
+    if remaining.is_zero() {
+        return Err(timeout_error(budget, step, LS_TOTAL_DEADLINE));
+    }
+    tokio::time::timeout(remaining, future)
+        .await
+        .map_err(|_| timeout_error(budget, step, LS_TOTAL_DEADLINE))
+}
+
+fn timeout_error(budget: &ListBudget, step: &str, waited: Duration) -> anyhow::Error {
+    anyhow!(
+        "acpmux ls for machine {:?} via {}: {} step stalled after {:.0?}; retry after the machine reconnects",
+        budget.machine,
+        budget.route,
+        step,
+        waited
+    )
+}
+
+async fn request_bounded(
+    client: &Client,
+    method: &str,
+    params: Value,
+    budget: Option<&ListBudget>,
+) -> Result<Value> {
+    match budget {
+        Some(budget) => bounded_step(budget, "request", client.request(method, params)).await?,
+        None => client.request(method, params).await,
+    }
+}
+
 pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // A listing never starts a daemon (hq#4897 failure 4: an empty one on a dead socket read as
     // a host with no sessions).
-    let client = connect_running().await?;
+    let budget = ListBudget::new(args.host.as_deref());
+    let client = bounded_step(&budget, "connect", connect_running()).await??;
     let via = Via::daemon();
-    let (out, scope) = scoped_output(args, json_out, &client, via, crate::store::now_ms()).await?;
+    let (out, scope) = bounded_total(
+        &budget,
+        "read",
+        scoped_output_with_budget(
+            args,
+            json_out,
+            &client,
+            via,
+            crate::store::now_ms(),
+            Some(&budget),
+        ),
+    )
+    .await??;
     // The scope line goes to stderr, never stdout: a script reading the JSON reads the same
     // bytes with it or without it.
     if let Some(line) = scope {
@@ -129,12 +236,24 @@ pub(crate) async fn output(
 
 /// [`output`] (stdout), and the line `ls` writes to stderr when the rows it lists come from
 /// more than this machine ([`scope_line`]).
+#[cfg(test)]
 pub(crate) async fn scoped_output(
     args: LsArgs,
     json_out: bool,
     client: &Arc<Client>,
     via: Via,
     now: u64,
+) -> Result<(String, Option<String>)> {
+    scoped_output_with_budget(args, json_out, client, via, now, None).await
+}
+
+async fn scoped_output_with_budget(
+    args: LsArgs,
+    json_out: bool,
+    client: &Arc<Client>,
+    via: Via,
+    now: u64,
+    budget: Option<&ListBudget>,
 ) -> Result<(String, Option<String>)> {
     let LsArgs {
         mut patterns,
@@ -171,8 +290,11 @@ pub(crate) async fn scoped_output(
         || named
         || cursor.is_some()
         || archived;
+    // Other machines' rows (the send relay, down peers over ssh; below) end before the total,
+    // so a slow one costs only its rows.
+    let extras_deadline = budget.map(ListBudget::extras_deadline);
     // The text view says which peers are down; read alongside the list.
-    let mut peers = (!json_out && fields.is_none()).then(|| {
+    let mut peers = (budget.is_none() && !json_out && fields.is_none()).then(|| {
         let client = client.clone();
         tokio::spawn(async move { client.request(method::MUX_STATUS, json!({})).await })
     });
@@ -269,7 +391,8 @@ pub(crate) async fn scoped_output(
         status_read = Some(read.await.ok().and_then(Result::ok));
     }
     if walks_all && status_read.is_none() {
-        status_read = Some(client.request(method::MUX_STATUS, json!({})).await.ok());
+        status_read =
+            Some(request_bounded(client, method::MUX_STATUS, json!({}), budget).await.ok());
     }
     let closed_listed = status_read
         .as_ref()
@@ -283,7 +406,13 @@ pub(crate) async fn scoped_output(
     let remote_closed =
         walks_all && list_read::closed_remote_listed(status_read.as_ref().and_then(Option::as_ref));
     let source = if !one_page && !remote_closed && (!compact || closed_listed.is_some()) {
-        via.open_knowing(client, known_peers.as_deref()).await?
+        match budget {
+            Some(budget) => {
+                bounded_step(budget, "request", via.open_knowing(client, known_peers.as_deref()))
+                    .await??
+            }
+            None => via.open_knowing(client, known_peers.as_deref()).await?,
+        }
     } else {
         None
     };
@@ -329,8 +458,18 @@ pub(crate) async fn scoped_output(
                 with_tools,
                 usage,
             };
-            let fetched =
-                crate::cli::slow_notice::noted("the session list", source.read(form)).await?;
+            let fetched = match budget {
+                Some(budget) => {
+                    crate::cli::slow_notice::noted(
+                        "the session list",
+                        bounded_step(budget, "read", source.read(form)),
+                    )
+                    .await??
+                }
+                None => {
+                    crate::cli::slow_notice::noted("the session list", source.read(form)).await?
+                }
+            };
             let closed = if compact { closed_listed.unwrap_or(0) } else { 0 };
             (ls_pages::Pages { rows: fetched.rows, next: fetched.next }, closed)
         }
@@ -338,13 +477,29 @@ pub(crate) async fn scoped_output(
             let list = if one_page { CURSOR_PAGE } else { V1_PAGES };
             let fetch = |page: Value| {
                 let client = client.clone();
-                async move { client.request(list, page).await }
+                let budget = budget.cloned();
+                async move { request_bounded(&client, list, page, budget.as_ref()).await }
             };
-            let read = crate::cli::slow_notice::noted(
-                "the session list",
-                ls_pages::read(params, cursor, plan, step, fetch),
-            )
-            .await?;
+            let read = match budget {
+                Some(budget) => {
+                    crate::cli::slow_notice::noted(
+                        "the session list",
+                        bounded_step(
+                            budget,
+                            "read",
+                            ls_pages::read(params, cursor, plan, step, fetch),
+                        ),
+                    )
+                    .await??
+                }
+                None => {
+                    crate::cli::slow_notice::noted(
+                        "the session list",
+                        ls_pages::read(params, cursor, plan, step, fetch),
+                    )
+                    .await?
+                }
+            };
             (read, 0)
         }
     };
@@ -354,9 +509,10 @@ pub(crate) async fn scoped_output(
     if with_tools && (json_out || fields.is_some()) {
         let unread = super::ls_tools::fill(&mut sessions, |key| {
             let client = client.clone();
+            let budget = budget.cloned();
             async move {
                 let params = json!({"sessionId": key, "waitLogs": false});
-                client.request(method::MUX_INFO, params).await
+                request_bounded(&client, method::MUX_INFO, params, budget.as_ref()).await
             }
         })
         .await;
@@ -371,34 +527,40 @@ pub(crate) async fn scoped_output(
     // for one page (`--cursor`) or this machine alone.
     let mut merged = 0;
     if !one_page && !rows.local_only() {
-        let far: Vec<Value> = crate::cli::send_relay::relay_rows(false)
-            .await
-            .into_iter()
-            .filter(|s| {
-                keeps(s)
-                    && cutoff.is_none_or(|at| {
-                        s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
-                    })
-            })
-            .collect();
+        let far: Vec<Value> =
+            crate::cli::send_relay::relay_rows_with_deadline(false, extras_deadline)
+                .await
+                .into_iter()
+                .filter(|s| {
+                    keeps(s)
+                        && cutoff.is_none_or(|at| {
+                            s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
+                        })
+                })
+                .collect();
         merged = crate::cli::send_relay::merge_rows(&mut sessions, far);
         // A down `ssh://` peer's rows are the ones its link left: read again over ssh, at most
         // `ls_ssh::LS_DEADLINE`, and put in their place (`cli/ls_ssh.rs`).
         // Each peer's url and link state (`_acpmux/peers`, the read `machine ls` makes).
-        let known = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            client.request("_acpmux/peers", json!({})),
-        )
-        .await
-        .ok()
-        .and_then(Result::ok);
-        let peers = known
-            .as_ref()
-            .and_then(|s| s.get("peers"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let (hosts, far) = crate::cli::ls_ssh::rows(&peers, false).await;
+        let ssh = async {
+            let known = request_bounded(client, "_acpmux/peers", json!({}), budget).await.ok();
+            let peers = known
+                .as_ref()
+                .and_then(|s| s.get("peers"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            crate::cli::ls_ssh::rows(&peers, false, extras_deadline).await
+        };
+        let (hosts, far) = match extras_deadline {
+            Some(at) => tokio::time::timeout_at(at, ssh).await.unwrap_or_else(|_| {
+                eprintln!(
+                    "acpmux: down peers' sessions over ssh were not read before the listing's deadline"
+                );
+                (Vec::new(), Vec::new())
+            }),
+            None => ssh.await,
+        };
         if !hosts.is_empty() {
             let far: Vec<Value> = far
                 .into_iter()
@@ -553,6 +715,72 @@ mod outbox_line_tests {
             outbox_line(&json!({"outboxPending": 2})).as_deref(),
             Some("2 messages queued here, not delivered yet (acpmux send --status)")
         );
+    }
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_step_names_machine_route_and_step() {
+        let budget = ListBudget {
+            deadline: tokio::time::Instant::now() + LS_STEP_DEADLINE,
+            machine: "joined-vm".to_owned(),
+            route: "hub/carrier",
+        };
+        let pending = tokio::spawn(async move {
+            bounded_step(&budget, "handshake", std::future::pending::<()>()).await
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(LS_STEP_DEADLINE).await;
+        let error = pending.await.unwrap().unwrap_err().to_string();
+        assert!(error.contains("joined-vm"));
+        assert!(error.contains("hub/carrier"));
+        assert!(error.contains("handshake step stalled"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_listing_names_the_total_read_bound() {
+        let budget = ListBudget {
+            deadline: tokio::time::Instant::now() + LS_TOTAL_DEADLINE,
+            machine: "joined-vm".to_owned(),
+            route: "hub/carrier",
+        };
+        let pending = tokio::spawn(async move {
+            bounded_total(&budget, "read", std::future::pending::<()>()).await
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(LS_TOTAL_DEADLINE).await;
+        let error = pending.await.unwrap().unwrap_err().to_string();
+        assert!(error.contains("joined-vm"));
+        assert!(error.contains("hub/carrier"));
+        assert!(error.contains("read step stalled after 15s"));
+    }
+
+    /// A send relay listing that never answers ends at the extras deadline, so the total does
+    /// not fire and `ls` prints this machine's rows (gcp-codex-swarm-02/03, 2026-11-22).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_relay_listing_that_never_answers_gives_up_before_the_total() {
+        let budget = ListBudget {
+            deadline: tokio::time::Instant::now() + LS_EXTRAS_RESERVE + Duration::from_secs(1),
+            machine: "local".to_owned(),
+            route: "local daemon",
+        };
+        let relay = crate::cli::send_relay::SendRelay {
+            argv: vec!["true".into()],
+            ls_argv: Some(vec!["sh".into(), "-c".into(), "sleep 30".into()]),
+        };
+        let at = budget.extras_deadline();
+        let read = bounded_total(
+            &budget,
+            "read",
+            tokio::task::spawn_blocking(move || crate::cli::send_relay::relay_ls(&relay, Some(at))),
+        )
+        .await;
+        let relay = read.expect("the relay listing outlived the listing's total").unwrap();
+        assert!(relay.is_err(), "a relay that never answers is a warning, not rows");
     }
 }
 

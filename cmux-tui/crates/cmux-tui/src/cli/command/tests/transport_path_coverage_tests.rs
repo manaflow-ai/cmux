@@ -384,12 +384,16 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // The browser import is the app's: it reads
                         // another browser's files, by path.
                         | "browser_import.read"
+                        // The app's languages on first use: only the
+                        // verified app asks, with its bundle's manifest.
+                        | "language_packs.ensure"
                         // Cloud API calls carry the caller's access token;
                         // `cmux cloud` reaches them through its own stdin
                         // request, not a CLI verb per op.
                         | "cloud.machine.chat_access"
                         | "cloud.machine.io"
                         | "cloud.machine.share_chat"
+                        | "cloud.machine.chief_start"
                         | "cloud.owner.acpmux_keyed_start"
                         | "cloud.owner.acpmux_person_holds"
                         | "cloud.owner.fork_run"

@@ -236,6 +236,31 @@ impl Manifest {
         self.append_data("cmux.composer.command/1", "commands", entry)
     }
 
+    /// Shows an available composer action beside the + menu. Omitting the label uses the
+    /// action's localized title. The current composer's handler handles the click.
+    pub fn composer_toolbar_button(self, action: &str, label: Option<&str>) -> Self {
+        let mut entry = Map::new();
+        entry.insert("action".into(), json!(action));
+        if let Some(label) = label {
+            entry.insert("label".into(), json!(label));
+        }
+        self.append_data("cmux.composer.toolbar/1", "buttons", Value::Object(entry))
+    }
+
+    /// A context chip in the agent chat composer (`cmux.composer.chip/1`): a short `label` the
+    /// person clicks to add `insert` to the draft; `detail` is its tooltip. Data only: the daemon
+    /// lists it (`apps.composer.list`), and a save updates the chips without a restart.
+    pub fn composer_chip(self, id: &str, label: &str, insert: &str, detail: Option<&str>) -> Self {
+        let mut entry = Map::new();
+        entry.insert("id".into(), json!(id));
+        entry.insert("label".into(), json!(label));
+        if let Some(detail) = detail {
+            entry.insert("detail".into(), json!(detail));
+        }
+        entry.insert("insert".into(), json!(insert));
+        self.append_data("cmux.composer.chip/1", "chips", Value::Object(entry))
+    }
+
     /// An item the person names with `@prefix` in the composer (`cmux.composer.mention/1`); the
     /// daemon answers the completions. `insert` is what the mention writes (the label when None).
     pub fn mention(self, prefix: &str, id: &str, label: &str, insert: Option<&str>) -> Self {
