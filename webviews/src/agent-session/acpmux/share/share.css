@@ -142,9 +142,12 @@
   white-space: nowrap;
 }
 .share-dialog__hint {
-  overflow: hidden;
   color: var(--ui-fg-2);
   font-size: var(--text-detail);
+}
+/* A person's hint stays one line, so every row in the band keeps one height. */
+.share-dialog__person .share-dialog__hint {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -201,6 +204,15 @@
   .share-dialog__person-pick > .cv-face,
   .share-dialog__person--owner > .cv-face {
     display: none;
+  }
+  .share-dialog__person,
+  .share-dialog__person-pick {
+    gap: var(--ds-space-1);
+  }
+  .share-dialog__remove {
+    flex: none;
+    width: var(--ds-control-primary);
+    padding-inline: 0;
   }
   .share-dialog__remove-mark {
     display: inline-flex;
