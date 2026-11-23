@@ -42,9 +42,9 @@
 //!   for a Claude Code or Codex typed into a cmux terminal (cmux-tui
 //!   `agent_computer_use.rs`), so the two cannot drift: the name `cmux`, the
 //!   CLI, `mcp serve`, and the settings file the app runs on
-//!   (`CMUX_NEXT_CONFIG_FILE`). A session gets it once the person said yes to
-//!   cmux's tools in agents started in cmux (`agents.cmuxMcp` is `on`,
-//!   [`agents_get_cmux`]; Aziz, 2026-11-14), the same answer the terminal
+//!   (`CMUX_NEXT_CONFIG_FILE`). A session gets it unless the person turned
+//!   cmux's tools off for agents started in cmux (`agents.cmuxMcp` is `off`,
+//!   [`agents_get_cmux`]; on by default), the same setting the terminal
 //!   shims follow; a Chief turn (a preset with its own cmux tool list,
 //!   [`MCP_TOOLS_ENV`]) keeps it either way, being cmux's own orchestrator.
 //!   The settings file's `"mcp": {"enabled": false}` turns it off too (`cmux
@@ -252,15 +252,23 @@ pub const AGENTS_CMUX_MCP_KEY: &str = "agents.cmuxMcp";
 /// it starts (cmux-tui `cli/mcp.rs` `refusal`).
 pub const TOOLS_ANSWER_ENV: &str = "CMUX_AGENT_TOOLS_ANSWER";
 
-/// Whether agents cmux starts get the `cmux` server: the settings text says
-/// `agents.cmuxMcp` is `on` (nested or flat, JSONC). No file, no key, `ask`,
-/// `off`, another value or a file that does not parse: no. cmux-tui's
-/// `AgentsCmuxMcp` reads the same key for the terminal shims.
+/// Whether agents cmux starts get the `cmux` server: yes unless
+/// `agents.cmuxMcp` is `off`, in the settings text (nested or flat, JSONC; an
+/// `off` in either form wins) or as an administrator set it
+/// ([`cmux_config::managed::applied_to`]: a forced value wins over the file).
+/// No file, no key, `on`, another value or a file that does not parse: yes
+/// (on by default). cmux-tui's `AgentsCmuxMcp` reads the same key for the
+/// terminal shims.
 pub fn agents_get_cmux(settings: Option<&str>) -> bool {
-    settings
-        .and_then(crate::user_settings::document)
-        .and_then(|doc| crate::user_settings::value(&doc, AGENTS_CMUX_MCP_KEY))
-        .is_some_and(|value| value == Value::String("on".into()))
+    let off = Value::String("off".into());
+    let file = settings.and_then(crate::user_settings::document).and_then(|doc| {
+        let nested = doc.pointer("/agents/cmuxMcp").cloned();
+        match doc.get(AGENTS_CMUX_MCP_KEY).cloned() {
+            Some(flat) if flat != off && nested.as_ref() == Some(&off) => nested,
+            flat => flat.or(nested),
+        }
+    });
+    cmux_config::managed::applied_to(AGENTS_CMUX_MCP_KEY, file) != Some(off)
 }
 
 /// The per-agent switch under [`AGENTS_CMUX_MCP_KEY`] (cmux#49395): `agents.cmuxMcpClaude` for a
@@ -450,8 +458,8 @@ pub struct AgentTools {
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then leaves the
     /// Computer Use server out.
     pub displays: Option<PathBuf>,
-    /// The person said yes to cmux's tools in agents started in cmux
-    /// ([`agents_get_cmux`]): [`AgentTools::scoped`] keeps the `cmux` server.
+    /// cmux's tools are on for agents started in cmux (not turned off,
+    /// [`agents_get_cmux`]): [`AgentTools::scoped`] keeps the `cmux` server.
     pub cmux_for_agents: bool,
     /// Claude Code only: the project's own servers, wrapped for a start at a repository's head
     /// ([`project_mcp`]). A name of cmux's own servers keeps cmux's.
@@ -1307,7 +1315,7 @@ impl AgentTools {
     /// server (fail closed: the worker drives the machine's desktop, never
     /// the session's own display).
     pub fn scoped(mut self, session_env: &BTreeMap<String, String>) -> Self {
-        // No `cmux` server without the person's yes ([`agents_get_cmux`]),
+        // No `cmux` server once the person turned it off ([`agents_get_cmux`]),
         // except for a Chief turn (a preset that names its own cmux tools,
         // `MCP_TOOLS_ENV`; `config/chief_builtins.rs`). The Chief is cmux's own
         // orchestrator, not one of the person's agents: its turns work only

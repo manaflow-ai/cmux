@@ -89,8 +89,7 @@ public final class OnboardingWindowPresenter {
     }
 
     /// The first-run steps: Agents (it gets a person to a working agent), then `next` (the first launch
-    /// is finished) once no tool window shows. No launch shows the cmux Tools window (cmux#49395):
-    /// Settings > Agents keeps that answer.
+    /// is finished) once no tool window shows. The step keeps its own once flag.
     public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?,
                                   defaults: UserDefaults = .standard, then next: @MainActor () -> Void) async {
         await showAgentsAtFirstRun(isFirstRun: isFirstRun, source: source, defaults: defaults)
@@ -104,10 +103,9 @@ public final class OnboardingWindowPresenter {
         case none
         /// The default: the long first-run onboarding stays off (Lawrence 2026-11-09: no Agents window, card or
         /// history page); a new person gets only the one short Make cmux Yours screen (cmux#48416) and then their
-        /// first chat. No cmux Tools window pops up at launch (cmux#49395, which took back cmux#47749's): the
-        /// question is answered in Settings > Agents, or in the first-run steps with onboarding on.
+        /// first chat. cmux's tools come with the app (`agents.cmuxMcp` defaults to `on`), so nothing asks.
         case standard
-        /// `CMUX_NEXT_ONBOARDING=1` or `--onboarding`: the first-run steps, the cmux Tools question among them.
+        /// `CMUX_NEXT_ONBOARDING=1` or `--onboarding`: the first-run steps.
         case firstRun
 
         /// `showcase` is the DEBUG showcase profile, which never shows onboarding.
@@ -128,8 +126,7 @@ public final class OnboardingWindowPresenter {
     /// The launch's steps before the person's own work: none; on a first run Make cmux Yours
     /// (``showMakeItYoursAtFirstRun(isFirstRun:defaults:)``); or, with onboarding on, the first run,
     /// for which this returns true.
-    public func showLaunchSteps(_ steps: LaunchSteps, isFirstRun: Bool = false,
-                                defaults: UserDefaults = .standard) async -> Bool {
+    public func showLaunchSteps(_ steps: LaunchSteps, isFirstRun: Bool = false, defaults: UserDefaults = .standard) async -> Bool {
         switch steps {
         case .none: return false
         case .standard:

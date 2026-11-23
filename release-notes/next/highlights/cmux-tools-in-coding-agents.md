@@ -1,5 +1,6 @@
-title: Give your agents cmux’s tools in Settings
+title: cmux asks before giving agents in cmux its tools
 category: new
 docs: https://cmux.com/docs/next/mcp
+gallery: pages.onboarding/agent-tools-found
 
-Turn on Give Agents cmux’s Tools in Settings > Agents to let Claude Code and Codex in cmux use its tools, Computer Use included, and switch each agent on or off. cmux no longer asks in a window at launch.
+cmux now asks before Claude Code and Codex in its terminals and agent chats get its tools, Computer Use included. Change it in Settings > Agents > cmux Tools for Agents in cmux; your agents’ own settings stay as they are.
