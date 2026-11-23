@@ -292,14 +292,22 @@ def detach(mount: Path) -> None:
     log(f"warning: could not detach {mount}")
 
 
-def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
-    """No runner variable reaches the app (no token, no key, no CMUX_* routing): only these."""
+# The app's updater stays off in every copy a harness starts (ManagedUpdatePolicy.environmentKey, a forced
+# DisableAutoUpdate for that one process). A copy of an older build otherwise sees a newer one, downloads it, and
+# Sparkle's installer asks the unattended Mac for an administrator password (launch_tti_check's cold_install round,
+# 2026-11-22). A harness that measures a real Sparkle update passes updater=True.
+UPDATER_OFF_VARIABLE = "CMUX_DISABLE_AUTO_UPDATE"
+
+
+def fresh_env(root: Path, socket_path: Path, marks_fd: int, updater: bool = False) -> dict[str, str]:
+    """No runner variable reaches the app (no token, no key, no CMUX_* routing): only these. The app's updater is
+    off (UPDATER_OFF_VARIABLE) unless UPDATER."""
     home = root / "h"
     for sub in ("Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"):
         (home / sub).mkdir(parents=True, exist_ok=True)
     (root / "t").mkdir(exist_ok=True)
     user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
-    return {
+    env = {
         "HOME": str(home),
         "CFFIXED_USER_HOME": str(home),
         "TMPDIR": str(root / "t") + "/",
@@ -313,6 +321,9 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
         "CMUX_NEXT_NO_ACTIVATE": "1",
         "CMUX_NEXT_LAUNCH_MARKS_FD": str(marks_fd),
     }
+    if not updater:
+        env[UPDATER_OFF_VARIABLE] = "1"
+    return env
 
 
 def login_keychain(env: dict) -> None:
@@ -994,12 +1005,12 @@ def wait_for_marks(marks_fd: int | None, seconds: float) -> None:
     a fixed 0.25 s sleep put up to 250 ms of the harness's own wait into each launch's time to Home. With no
     pipe (None: it reached its end, or Home is already in) it is a plain wait."""
     if marks_fd is None:
-        time.sleep(seconds)
+        time.sleep(seconds)  # sleep-ok: the caller's poll tick when there is no mark pipe to wait on
         return
     try:
         select.select([marks_fd], [], [], seconds)
     except (OSError, ValueError):
-        time.sleep(seconds)
+        time.sleep(seconds)  # sleep-ok: the caller's poll tick when the pipe cannot be selected
 
 
 def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_path: Path,

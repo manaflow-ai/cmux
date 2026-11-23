@@ -309,6 +309,16 @@ elif verb == "import":
 '''
 
 
+def until(condition, seconds: float = 10) -> bool:
+    """Until condition() holds (a stopped process gone, say), SECONDS at most: whether it held."""
+    deadline = time.monotonic() + seconds
+    while not condition():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def write_executable(path: Path, text: str) -> None:
     path.write_text(text.replace("PYTHON", sys.executable, 1))
     path.chmod(0o755)
@@ -471,6 +481,18 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(plistlib.loads(aside.read_bytes()), {"stored": b"account defaults"})
         self.assert_cleaned_up(report)
 
+    def test_every_started_copy_has_its_updater_off_unless_asked(self):
+        """A copy of an older build must never update itself on an unattended Mac (Sparkle's installer then asks
+        for an administrator password): fresh_env sets CMUX_DISABLE_AUTO_UPDATE=1, the app's forced
+        DisableAutoUpdate (ManagedUpdatePolicy.environmentKey), unless a harness that measures a real update asks."""
+        root = Path(tempfile.mkdtemp(prefix="cmux-fresh-", dir="/tmp"))
+        try:
+            self.assertEqual(smoke.UPDATER_OFF_VARIABLE, "CMUX_DISABLE_AUTO_UPDATE")
+            self.assertEqual(smoke.fresh_env(root, root / "s.sock", 3)["CMUX_DISABLE_AUTO_UPDATE"], "1")
+            self.assertNotIn("CMUX_DISABLE_AUTO_UPDATE", smoke.fresh_env(root, root / "s.sock", 3, updater=True))
+        finally:
+            subprocess.run(["rm", "-rf", str(root)], check=False)
+
     def test_the_app_sees_an_empty_home_and_none_of_the_runner_environment(self):
         app = make_app(self.dir, "healthy")
         root = Path(tempfile.mkdtemp(prefix="cmux-fresh-", dir="/tmp"))
@@ -583,9 +605,9 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         calls = (self.defaults_dir / "calls.log").read_text().split("\n")
         self.assertEqual(calls.count(f"delete {BUNDLE}"), 4)
         self.assertEqual((self.defaults_dir / f"{BUNDLE}.plist").read_bytes(), b"account defaults")
-        time.sleep(0.2)
-        self.assertFalse(smoke.alive(arm["pid"]), "the seeded launch outlived the run")
-        self.assertFalse(smoke.alive(int(self.host_pid_path.read_text())), "the seeded launch's terminal host outlived the run")
+        self.assertTrue(until(lambda: not smoke.alive(arm["pid"])), "the seeded launch outlived the run")
+        host = int(self.host_pid_path.read_text())
+        self.assertTrue(until(lambda: not smoke.alive(host)), "the seeded launch's terminal host outlived the run")
         self.assert_cleaned_up(report)
 
     def test_the_report_keeps_the_hosts_load_for_each_arm_and_the_seeded_launchs_marks(self):
@@ -1762,7 +1784,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_the_detached_helper_is_stopped_by_the_runs_root(self):
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
-        time.sleep(0.2)
+        until(lambda: smoke.pids_under(Path(report["root"])) == [])
         self.assertEqual(smoke.pids_under(Path(report["root"])), [])
 
     def test_the_apps_terminal_host_is_stopped_by_its_record(self):
@@ -1771,8 +1793,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         host = int(self.host_pid_path.read_text())
-        time.sleep(0.2)
-        self.assertFalse(smoke.alive(host), "the app's terminal host outlived the run")
+        self.assertTrue(until(lambda: not smoke.alive(host)), "the app's terminal host outlived the run")
         self.assert_cleaned_up(report)
 
     def earlier_root(self, bundle_id: str, lock_path: str | None) -> tuple[Path, subprocess.Popen, subprocess.Popen]:
@@ -1874,7 +1895,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         written = []
 
         def write_mark_soon():
-            time.sleep(0.05)
+            time.sleep(0.05)  # sleep-ok: the mark arrives 50 ms into the watch's wait, the lag the test measures
             written.append(time.monotonic())
             os.write(marks_write, f"{smoke.RENDER_MARK} 812.0\n".encode())
 

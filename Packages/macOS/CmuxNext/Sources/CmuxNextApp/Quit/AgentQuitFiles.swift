@@ -28,8 +28,8 @@ import CmuxNextTabs
         await tabs.relaunchWakeStates().filter { !isIncognito(AgentTabKey(relaunchStorageKey: $0.key)) }
     }
 
-    /// The shown chats' page images but an incognito one's.
-    static func images(_ tabs: AgentTabStore, isIncognito: (AgentTabKey) -> Bool) async -> [String: NSImage] {
-        await tabs.shownPageImages().reduce(into: [:]) { if !isIncognito(AgentTabKey(machine: $1.machine, key: $1.key)) { $0[tabs.launchImages.slot($1.key, machine: $1.machine)] = $1.image } }
+    /// Saves the shown chats' page images but an incognito one's; one not painted yet keeps its last (`AgentLaunchPictures`).
+    static func saveImages(_ tabs: AgentTabStore, isIncognito: (AgentTabKey) -> Bool) async {
+        let shown = await tabs.shownPageImages(but: isIncognito); await tabs.launchImages.save(shown.compactMapValues { $0 }, keeping: Set(shown.keys))
     }
 }
