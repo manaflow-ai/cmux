@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use cmux_app_manifest::hidden;
+use cmux_config::migrations::{self, Notice};
 use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -40,6 +41,56 @@ pub struct Profile {
     /// Whole text files by logical path (`themes/night.json`).
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+}
+
+impl Profile {
+    /// This profile with every key an older cmux named differently under
+    /// its new name, and a removed key left out
+    /// (`cmux_config::migrations`), and what changed.
+    pub fn migrated(&self) -> (Profile, Vec<Notice>) {
+        let (settings, notices) = migrations::migrate_dotted(&self.settings);
+        (Profile { settings, ..self.clone() }, notices)
+    }
+}
+
+/// A setting a setup sets that this cmux leaves out at install.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Skipped {
+    pub key: String,
+    pub reason: String,
+}
+
+/// A profile as it installs here: migrated, and (for a setup) without the
+/// keys this cmux does not have.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Settled {
+    pub profile: Profile,
+    /// Keys it named by an older name, rewritten or left out.
+    pub notices: Vec<Notice>,
+    /// Keys this cmux has no setting for, left out.
+    pub skipped: Vec<Skipped>,
+}
+
+/// `profile` migrated, with every key this cmux's schema does not have taken
+/// out and listed. A setup is lenient at install (it may be written for a
+/// newer cmux, or use a key a later cmux removed and this one never had);
+/// a known key with a bad value, or one only the person may set, is still
+/// refused by [`Customize::check_profile`].
+pub(crate) fn settle_lenient(profile: &Profile) -> Settled {
+    let (mut profile, notices) = profile.migrated();
+    let schema = Schema::embedded();
+    let mut skipped = Vec::new();
+    profile.settings.retain(|key, _| {
+        let known = schema.row(key).is_some();
+        if !known {
+            skipped.push(Skipped {
+                key: key.clone(),
+                reason: "this cmux has no setting by that name (a newer cmux may)".to_owned(),
+            });
+        }
+        known
+    });
+    Settled { profile, notices, skipped }
 }
 
 /// What a save wrote.
@@ -260,13 +311,17 @@ impl Customize {
     /// Makes a profile live as a draft: nothing is recorded until the person
     /// applies it. The whole profile is checked first (every path is one a
     /// part owns, every setting is one an agent may set and a value its row
-    /// accepts, every file validates); one failure writes nothing.
+    /// accepts, every file validates); one failure writes nothing. A key an
+    /// older cmux named differently is taken under its new name first
+    /// ([`Profile::migrated`]); a key this cmux does not know is refused.
     pub fn preview_profile(
         &self,
         profile: &Profile,
         origin: &str,
         now_ms: u64,
     ) -> Result<Begun, Error> {
+        let (profile, _) = profile.migrated();
+        let profile = &profile;
         self.check_profile(profile)?;
         // One import at a time, from the first read to the last write: two
         // that merged into the same settings text would each write theirs
@@ -283,6 +338,8 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Begun, Error> {
+        let (profile, _) = profile.migrated();
+        let profile = &profile;
         self.check_profile(profile)?;
         let schema = Schema::embedded();
         let mut files: BTreeMap<String, Vec<u8>> = profile

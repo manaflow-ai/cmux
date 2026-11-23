@@ -111,6 +111,13 @@ PHASE_KEYS = ("main_start", "first_window_frame_committed", "home.first_page", "
 # The sample's span (start_sample): from the first window frame (about 2.2 s after spawn on a fleet Mac) through the
 # wait for the Chief owner that Home's first page needs (home.chief_owner_ready about 4.1 s).
 SAMPLE_AT, SAMPLE_SECONDS = 2.2, 2
+# Home's page in, by the app's marks (nightly_dogfood_journey.launch_ms, LaunchTimesRecord.homeFirstPageMs), or the
+# reveal deadline that showed Home with no page. The smoke's watch ends at Home's tab with a frame, which comes before
+# the page: with --seconds 0 (the nightly dogfood's update arm) the app was stopped about 1 s in, before any page
+# mark, and every update reading was unmeasured ("did not render Home with app marks"). A launch waits on to one of
+# these, at most PAGE_WAIT_S after the watch ends.
+PAGE_MARKS = ("home.saved_page_shown", "home.first_page", "reveal.home.by_deadline")
+PAGE_WAIT_S = 30.0
 
 
 def load_smoke():
@@ -195,7 +202,7 @@ def start_sample(pid: int, path: Path) -> threading.Thread:
     spawned = time.monotonic()
 
     def run() -> None:
-        time.sleep(max(0.0, SAMPLE_AT - (time.monotonic() - spawned)))
+        time.sleep(max(0.0, SAMPLE_AT - (time.monotonic() - spawned)))  # sleep-ok: the sample starts SAMPLE_AT s after the spawn on purpose
         try:
             subprocess.run(["sudo", "-n", "/usr/bin/sample", str(pid), str(SAMPLE_SECONDS), "1", "-mayDie", "-file", str(path)],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=SAMPLE_SECONDS + 25)
@@ -215,6 +222,33 @@ def main_thread_summary(path: Path, lines: int = 120) -> list[str]:
         return []
     start = next((i for i, line in enumerate(text) if "Thread_" in line and ("main-thread" in line or "DispatchQueue_1" in line)), None)
     return [] if start is None else [line.rstrip() for line in text[start:start + lines]]
+
+
+def page_shown(marks: dict) -> bool:
+    """Whether Home's page is in, or its reveal deadline passed without it (PAGE_MARKS) (pure)."""
+    return any(name in marks for name in PAGE_MARKS)
+
+
+def wait_for_page(smoke, process: subprocess.Popen, marks_fd: int, marks_path: Path, timeout: float = PAGE_WAIT_S) -> None:
+    """Keep reading the app's marks into MARKS_PATH until page_shown, the app exits, or TIMEOUT: each read waits on
+    the marks pipe itself (select), so it ends the moment the mark arrives."""
+    end = time.monotonic() + timeout
+    with open(marks_path, "ab") as marks:
+        while not page_shown(smoke.read_marks(marks_path)) and process.poll() is None:
+            left = end - time.monotonic()
+            if left <= 0:
+                return
+            ready, _, _ = select.select([marks_fd], [], [], min(left, 1.0))
+            if not ready:
+                continue
+            try:
+                chunk = os.read(marks_fd, 1 << 16)
+            except (BlockingIOError, OSError):
+                continue
+            if not chunk:
+                return
+            marks.write(chunk)
+            marks.flush()
 
 
 def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, seconds: float, name: str,
@@ -241,6 +275,8 @@ def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, secon
         sampler = start_sample(process.pid, home_root / f"sample-{name}.txt") if sample else None
         try:
             seen = smoke.watch(process, marks_read, marks_path, socket_path, seconds, max(seconds, 90.0))
+            if seen["rendered_at"] is not None and seen["exit"] is None:
+                wait_for_page(smoke, process, marks_read, marks_path)
         finally:
             if sampler is not None:
                 sampler.join(timeout=30)
@@ -317,9 +353,14 @@ class LogStream:
     """`log stream --style ndjson` of PREMAIN_LOG (and the app's own process, EXECUTABLE) into PATH, from before the
     launch until stop(). Best effort: no stream, no events."""
 
+    MARK = "cmux-nfl-stream-mark"
+
     def __init__(self, path: Path, executable: str):
         self.path = path
-        predicate = f'({PREMAIN_LOG}) OR process == "{executable}"'
+        self.token = f"{self.MARK}-{os.getpid()}-{time.monotonic_ns()}"
+        # Also this stream's own markers (logger lines with the token): one seen in the file means every event
+        # logged before it has reached the stream.
+        predicate = f'({PREMAIN_LOG}) OR process == "{executable}" OR eventMessage CONTAINS "{self.token}"'
         self.handle = open(path, "wb")
         try:
             self.process = subprocess.Popen(["/usr/bin/log", "stream", "--style", "ndjson", "--level", "debug",
@@ -327,15 +368,33 @@ class LogStream:
                                             stdin=subprocess.DEVNULL, start_new_session=True)
         except OSError:
             self.process = None
-        # The stream prints its "Filtering the log data" line once it is reading; the launch waits for it.
-        deadline = time.monotonic() + 5
-        while self.process is not None and time.monotonic() < deadline and path.stat().st_size == 0:
+        # The stream is live once a marker logged now shows up in it; the launch waits for that.
+        self.mark("ready")
+
+    def mark(self, what: str, seconds: float = 5.0) -> bool:
+        """Logs a marker line and waits until the stream has written it. Best effort: False after SECONDS."""
+        if self.process is None:
+            return False
+        line = f"{self.token}-{what}"
+        try:
+            subprocess.run(["/usr/bin/logger", line], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline and self.process.poll() is None:
+            try:
+                if line.encode() in self.path.read_bytes():
+                    return True
+            except OSError:
+                pass
             time.sleep(0.05)
-        time.sleep(0.3)
+        print(f"nightly-fresh-launch: log stream never showed its {what} marker in {seconds:g} s", file=sys.stderr)
+        return False
 
     def stop(self) -> None:
         if self.process is not None and self.process.poll() is None:
-            time.sleep(0.5)  # the last events of the launch reach the stream
+            self.mark("stop")  # the last events of the launch have reached the stream once this marker has
             self.process.terminate()
             try:
                 self.process.wait(timeout=10)
@@ -362,7 +421,7 @@ def premain_log(path: Path, spawned_at: float, main_start: float | None, pid: in
         except (ValueError, KeyError, TypeError):
             continue
         ms = round((at - spawned_at) * 1000, 1)
-        if ms < -300 or ms > end:
+        if ms < -300 or ms > end or LogStream.MARK in (event.get("eventMessage") or ""):
             continue
         who = "app" if event.get("processID") == pid else Path(event.get("processImagePath") or "?").name
         key = f"{who}/{event.get('subsystem') or '-'}/{event.get('category') or '-'}"

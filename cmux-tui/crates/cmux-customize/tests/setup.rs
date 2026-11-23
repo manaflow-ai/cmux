@@ -164,10 +164,69 @@ fn a_setup_that_sets_a_setting_only_the_person_may_set_is_refused_whole() {
     let home = Home::new();
     let repo = sample_repo(home.dir.path());
     let mut read = setup::read_dir(&repo).unwrap();
-    read.profile.settings.insert("not.a.setting".to_owned(), json!(1));
+    read.profile.settings.insert("updates.channel".to_owned(), json!("nightly"));
     assert!(home.customize().plan_setup(&read, "manaflow-ai", "0.0.0").is_err());
     assert!(home.customize().install_setup(&read, "setup", "cli", 10).is_err());
     assert!(!home.config("themes/sample-dusk.json").exists());
+}
+
+/// Leo (2026-11-18): "how will things go when this sort of stuff shifts and
+/// changes over time, like with the incoming updates". A setup written for
+/// another cmux: a renamed key installs under its new name, a removed key and
+/// a key this cmux does not have are left out and listed, and the rest
+/// installs (schemas/settings/retired-keys.json).
+#[test]
+fn a_setup_written_for_another_cmux_installs_what_this_one_has() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = sample_repo(home.dir.path());
+    let mut read = setup::read_dir(&repo).unwrap();
+    read.profile.settings.insert("sidebar.showCounts".to_owned(), json!(false));
+    read.profile.settings.insert("tabs.terminalFirst".to_owned(), json!(true));
+    read.profile.settings.insert("sidebar.fromANewerCmux".to_owned(), json!(3));
+    let customize = home.customize();
+    let plan = customize.plan_setup(&read, "manaflow-ai", "0.0.0").unwrap();
+    let keys: Vec<&str> = plan.settings.iter().map(|s| s.key.as_str()).collect();
+    assert_eq!(keys, ["appearance.themeFile", "sidebar.workspaceRow.tabCount"]);
+    assert_eq!(plan.renamed.len(), 1);
+    assert_eq!(plan.renamed[0].from, "sidebar.showCounts");
+    let skipped: Vec<&str> = plan.skipped.iter().map(|s| s.key.as_str()).collect();
+    assert_eq!(skipped, ["tabs.terminalFirst", "sidebar.fromANewerCmux"]);
+    assert!(plan.skipped[1].reason.contains("no setting by that name"), "{:?}", plan.skipped);
+    let card = serde_json::to_value(&plan).unwrap();
+    assert_eq!(card["skipped"][0]["key"], "tabs.terminalFirst");
+
+    customize.install_setup(&read, "setup", "cli", 10).unwrap();
+    let settings = home.settings();
+    assert_eq!(settings["sidebar"]["workspaceRow"]["tabCount"], json!(false));
+    assert_eq!(settings["sidebar"].get("showCounts"), None);
+    assert_eq!(settings["sidebar"].get("fromANewerCmux"), None);
+    assert_eq!(settings.get("tabs"), None);
+    assert_eq!(settings["appearance"]["themeFile"], json!("sample-dusk"));
+}
+
+/// Lenient about names, never about values: a known key with a value it does
+/// not accept still refuses the whole setup, and nothing is written.
+#[test]
+fn a_bad_value_for_a_known_or_renamed_key_still_refuses_the_whole_setup() {
+    for (key, value) in
+        [("appearance.density", json!("enormous")), ("sidebar.showCounts", json!("lots"))]
+    {
+        let home = Home::new();
+        home.write("cmux-next.json", MINE);
+        let repo = sample_repo(home.dir.path());
+        let mut read = setup::read_dir(&repo).unwrap();
+        read.profile.settings.insert("sidebar.fromANewerCmux".to_owned(), json!(3));
+        read.profile.settings.insert(key.to_owned(), value);
+        let customize = home.customize();
+        let Err(Error::Profile(why)) = customize.plan_setup(&read, "manaflow-ai", "0.0.0") else {
+            panic!("{key}")
+        };
+        assert!(why.contains("not one that setting accepts"), "{key}: {why}");
+        assert!(customize.install_setup(&read, "setup", "cli", 10).is_err());
+        assert_eq!(home.read("cmux-next.json").unwrap(), MINE, "{key}");
+        assert!(!home.config("themes/sample-dusk.json").exists(), "{key}");
+    }
 }
 
 #[test]
@@ -879,6 +938,26 @@ fn an_update_whose_id_changed_leaves_one_receipt_in_the_old_place() {
     customize.record_setup(receipt).unwrap();
     let ids: Vec<String> = customize.setups().unwrap().into_iter().map(|r| r.id).collect();
     assert_eq!(ids, ["leo/top", "leo/renamed", "leo/below"]);
+}
+
+/// A choice a row renamed (`aliases`, `updates.notify`: `card` is now
+/// `badge`): a setup that sets the old value installs the new one.
+#[test]
+fn a_setup_with_an_old_choice_value_installs_the_new_one() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = sample_repo(home.dir.path());
+    let mut read = setup::read_dir(&repo).unwrap();
+    read.profile.settings.insert("updates.notify".to_owned(), json!("card"));
+    let customize = home.customize();
+    let plan = customize.plan_setup(&read, "manaflow-ai", "0.0.0").unwrap();
+    let notify = plan.settings.iter().find(|s| s.key == "updates.notify").unwrap();
+    assert_eq!(notify.value, json!("badge"));
+    assert_eq!(plan.renamed.len(), 1);
+    assert_eq!(plan.renamed[0].old_value, Some(json!("card")));
+    assert!(plan.skipped.is_empty(), "{:?}", plan.skipped);
+    customize.install_setup(&read, "setup", "cli", 10).unwrap();
+    assert_eq!(home.settings()["updates"]["notify"], json!("badge"));
 }
 
 /// A setup (a look add-on) that picks the corner treatment installs it into

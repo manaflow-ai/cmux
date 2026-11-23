@@ -63,6 +63,9 @@ public final class ActionRegistry {
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
     /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
+    /// `experiments.menuStyleV2` (prototype; off is today's menus): `makeContextMenu` applies the v2
+    /// content rules (ActionRegistry+ContextMenuStyle). The NSMenu stays a real NSMenu.
+    @ObservationIgnored public var contextMenuStyleV2 = false
     /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
     /// person's own choice, not `DisabledFeatures`). Owners add theirs with `addSettingOffReason` (docks, hang reports too).
@@ -128,6 +131,9 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// A suggested argument's choices submenu items when the App lists them live (the installed editors of
+    /// Open In ▸) instead of the catalog's `pinned`; nil for a source it does not list, which keeps `pinned`.
+    @ObservationIgnored public var menuChoices: (@MainActor (String) -> [ActionEnumCase]?)?
     /// A suggested argument whose values are not read yet (a list the daemon has not answered):
     /// the load that answers them, which the palette's step awaits under its loading state instead
     /// of opening on an empty list. Nil, or a nil load, when ``argumentSuggestions`` already has them.
