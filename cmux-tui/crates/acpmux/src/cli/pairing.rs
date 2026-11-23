@@ -379,9 +379,14 @@ async fn redeem(ticket: &Ticket, params: Value) -> Result<Value> {
         crate::pairing::TICKET_HEADER,
         ticket.secret.parse().map_err(|_| anyhow!("the ticket's secret is damaged"))?,
     );
-    let (mut ws, _) = tokio_tungstenite::connect_async(req)
-        .await
-        .map_err(|e| anyhow!("could not reach {}: {e}", ticket.url))?;
+    // Bounded here: nothing else bounds the dial, and a ticket has no deadline of its own.
+    let (mut ws, _) = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        crate::happy_dial::connect_ws(req),
+    )
+    .await
+    .map_err(|_| anyhow!("could not reach {}: no answer in 30 s", ticket.url))?
+    .map_err(|e| anyhow!("could not reach {}: {e}", ticket.url))?;
     let request = Message::request(1, method::MUX_PAIR_REDEEM, params);
     ws.send(Frame::Text(request.to_value().to_string().into())).await?;
     while let Some(frame) = ws.next().await {

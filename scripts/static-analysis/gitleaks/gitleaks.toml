@@ -30,4 +30,6 @@ regexes = [
   '''^ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jSaZ3k$''',
   '''^ghs_(secret|minted)0123''',
   '''same-length-secret-001''',
+  # The made-up Stripe test key in cmux hub's parser tests (cmux-tui cli/hub_tests.rs): no account has it.
+  '''^rk_test_abc123$''',
 ]
