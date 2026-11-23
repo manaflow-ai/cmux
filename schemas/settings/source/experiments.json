@@ -194,6 +194,53 @@
           ]
         },
         {
+          "key": "experiments.menuStyleV2",
+          "note": "Menu Style v2: the restyled menus (webviews experiment menu-style-v2, arm v2; the native popup reads DesignSettings.shared.experiment(\"menuStyleV2\")). Off by default.",
+          "title": {
+            "key": "settings.experiments.menuStyleV2",
+            "text": "Menu Style v2"
+          },
+          "help": {
+            "key": "settings.experiments.menuStyleV2.help",
+            "text": "Restyled menus."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "menu",
+            "menus",
+            "style",
+            "look",
+            "labs"
+          ]
+        },
+        {
+          "key": "experiments.menuRowStates",
+          "note": "Menu Row States: a menu row that is unavailable says why, and a row that starts work shows its progress inline (webviews experiment menu-row-states, arm on; the native popup reads DesignSettings.shared.experiment(\"menuRowStates\")). Off by default.",
+          "title": {
+            "key": "settings.experiments.menuRowStates",
+            "text": "Menu Row States"
+          },
+          "help": {
+            "key": "settings.experiments.menuRowStates.help",
+            "text": "Menu rows that are unavailable say why, and rows that start work show their progress."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "menu",
+            "menus",
+            "unavailable",
+            "disabled",
+            "progress",
+            "labs"
+          ]
+        },
+        {
           "key": "experiments.toastsV2",
           "note": "Taste prototype: toasts v2. A working toast (a spinner) turns into its result in place; every person's tab close, a single workspace close and a sidebar chat archive show one line with an inline Undo; toasts draw quiet glass with a mark in the tone's color and an ink-filled action (CmuxToastCenter.v2, from experimentSwitches; the web toast arm from useExperimentSwitch(\"toastsV2\")). Off by default; off keeps today's toasts.",
           "title": {
