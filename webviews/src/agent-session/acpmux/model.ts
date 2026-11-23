@@ -1839,7 +1839,9 @@ const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: 
       prev.foldOpen !== true &&
       row.kind === "user" &&
       isStatusRow(row) &&
-      !isOwnTurnLine(prev, row));
+      !(prev.turnPhase === "running" && isOwnTurnLine(prev, row)));
+/// Under its own turn's ended, closed "Worked for" the line still opens the next turn: the head gap stays
+/// (test/received-sent-activity-gap.test.ts, ST-02); only the running header takes it in as a step.
 /// Whether `line` is the "Working for" / "Worked for" line of the turn `user` opened. O(1).
 const isOwnTurnLine = (line: AcpmuxRow | undefined, user: AcpmuxRow): boolean =>
   line !== undefined && isWorkedLine(line) && line.id === `${WORKED}-${user.id}`;
