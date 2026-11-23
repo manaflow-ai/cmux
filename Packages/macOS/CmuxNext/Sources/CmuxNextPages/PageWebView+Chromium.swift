@@ -459,13 +459,40 @@ extension PageWebView {
     /// the host saw (a drag still under way, left or cancelled), it reports nothing. A drop the host
     /// took (``fileDrop``, ``hostDropped()``) is not the page's and is not reported here.
     private func pageDropped() {
-        guard let dragged = chromiumDragged, let confirmed = chromiumDropConfirmed else { return }
+        guard let dragged = chromiumDragged else { return }
+        guard let confirmed = chromiumDropConfirmed else {
+            pageWindowDropped(dragged)
+            return
+        }
         chromiumDragged = nil
         chromiumDropConfirmed = nil
         guard chromiumDragFile == nil, now().timeIntervalSince(confirmed.at) < Self.chromiumDropConfirmation else { return }
         droppedEnteredAt = dragged.at
         droppedEvent = confirmed.event
         defer { (droppedEnteredAt, droppedEvent) = (nil, nil) }
+        onFilesDropped?(dragged.urls)
+    }
+
+    /// The page's own window took the drop (Chromium's drag target, not the pane's relay): Chromium
+    /// says a drag of files entered (`OnDragEnter`, ``PageChromiumEvent/filesDragged(_:)``) but CEF
+    /// says nothing of its drop, so the relay's native confirmation never comes. Before, such a drop
+    /// reported nothing, the chat never learned the files' paths, and the composer streamed every
+    /// byte of them through the page (a 188 MB Finder recording took 128 s; Leo, 2026-11-22: "IT
+    /// IS LITERALLY COMING FROM FUCKING DISK ... WHAT THE FUCK ARE WE LOADING IT TO!?"). It is
+    /// taken as that drag's drop when the drag is over natively (``chromiumDragFinished``: the
+    /// mouse is up and the drag pasteboard, which page script cannot write, still holds those
+    /// files) within ``chromiumDropWindow`` of its entry. It carries no event, so the host records
+    /// where the files are but never counts it as the person's gesture (``droppedOnPageWindow``).
+    private func pageWindowDropped(_ dragged: (urls: [URL], at: Date)) {
+        guard chromiumDragFile == nil, now().timeIntervalSince(dragged.at) < Self.chromiumDropWindow,
+              chromiumDragFinished(dragged.urls) else {
+            logger.info("page \(self.descriptor.id, privacy: .public) drop message with no native drop of its drag")
+            return
+        }
+        chromiumDragged = nil
+        droppedEnteredAt = dragged.at
+        droppedOnPageWindow = true
+        defer { (droppedEnteredAt, droppedOnPageWindow) = (nil, false) }
         onFilesDropped?(dragged.urls)
     }
 
