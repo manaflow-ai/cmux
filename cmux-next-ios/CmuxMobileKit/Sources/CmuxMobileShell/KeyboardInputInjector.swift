@@ -16,8 +16,16 @@ import UIKit
 ///   the composer field on a show, the content behind it on a hide (a 30 pt
 ///   drag). Leo, 2026-11-21: "the thing drops / the display isn't immediately
 ///   motherf***ing responsive."
-/// - `tti`: on the first frame the keyboard is drawn at the notified end, a
-///   key into the first responder on a show and the same drag on a hide.
+/// - `tti`: on a show, a key into the first responder right after willShow
+///   (`off=will`: does the field take input while the keyboard is still
+///   coming), then on every move a key (show) or the same drag (hide) on the
+///   first frame the keyboard is drawn at the notified end after it was drawn
+///   off it (`off=stop`). The keyboard's placeholder has no presentation layer
+///   until the move's animation is committed, so a frame between willShow and
+///   that commit reads the placeholder's model frame, already at the end: the
+///   first bench took that frame for the stop in 19 of 20 terminal and Chief
+///   moves (1 ms after willShow; the keyboard was drawn at its end 390 ms
+///   later on every surface).
 ///
 /// Each one writes `ev=inject` with when it was due (`due=`), how late the
 /// main thread ran it (`lag=` ms), what UIKit's hit-test picked at the drawn
@@ -61,7 +69,7 @@ final class KeyboardInputInjector {
     private var shows = 0
     private var hides = 0
     /// tti: the move whose keyboard end is awaited (direction, end top, since).
-    private var awaiting: (show: Bool, endY: CGFloat, since: CFTimeInterval)?
+    private var awaiting: (show: Bool, endY: CGFloat, since: CFTimeInterval, moved: Bool)?
     /// The injection the touch marker or the edit is awaited for.
     private var pending: Pending?
 
@@ -94,7 +102,13 @@ final class KeyboardInputInjector {
             }
             RunLoop.main.add(timer, forMode: .common)
         case .tti:
-            awaiting = (willShow, endY, t)
+            awaiting = (willShow, endY, t, false)
+            // After every willShow observer (the composers' docks) has run.
+            if willShow {
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated { self?.fire(move: move, show: true, due: t, offset: 0) }
+                }
+            }
         }
     }
 
@@ -103,7 +117,8 @@ final class KeyboardInputInjector {
         guard mode == .tti, let wait = awaiting else { return }
         let top = keyboardTop ?? windowBottom
         let end = wait.show ? wait.endY : max(wait.endY, windowBottom)
-        guard abs(top - end) <= 0.5 || (!wait.show && keyboardTop == nil) else {
+        guard wait.moved, abs(top - end) <= 0.5 || (!wait.show && keyboardTop == nil) else {
+            if abs(top - end) > 0.5 { awaiting?.moved = true }
             if now() - wait.since > 3 { awaiting = nil; write(String(format: "t=%.4f ev=inject mode=tti miss=noend", now())) }
             return
         }
@@ -143,7 +158,7 @@ final class KeyboardInputInjector {
         let t = now()
         let lag = (t - due) * 1000
         let dir = show ? "show" : "hide"
-        let off = offset < 0 ? "stop" : String(format: "%.0f", offset * 1000)
+        let off = offset < 0 ? "stop" : mode == .tti ? "will" : String(format: "%.0f", offset * 1000)
         if mode == .tti, show {
             // A key into whatever has the keyboard: the keyboard's own keys
             // never pass the app's hit-test, so the question is how soon the
@@ -170,17 +185,24 @@ final class KeyboardInputInjector {
             target = field
             let drawn = MobileKeyboardProbe().onScreen(field, in: window)
             point = CGPoint(x: drawn.midX, y: drawn.midY)
-        } else if let field, let content = KeyboardPinTrace.content(behind: field, in: window) {
-            target = content
-            let drawn = MobileKeyboardProbe().onScreen(content, in: window)
-            point = CGPoint(x: drawn.midX, y: drawn.minY + drawn.height * 0.4)
+        } else if !show {
+            // The content the user sees: what is drawn behind the field, else
+            // (the composer folded away) what the window shows there.
+            let content = field.flatMap { KeyboardPinTrace.content(behind: $0, in: window) }
+                ?? window.hitTest(point, with: nil).flatMap(Self.scroll(holding:))
+            if let content {
+                target = content
+                let drawn = MobileKeyboardProbe().onScreen(content, in: window)
+                point = CGPoint(x: drawn.midX, y: drawn.minY + drawn.height * 0.4)
+            }
         }
         let hit = window.hitTest(point, with: nil)
         let ok = hit.map { h in target.map { h.isDescendant(of: $0) } ?? false } ?? false
         let touch = SyntheticTouch(window: window, point: point, view: hit)
         write(String(format: "t=%.4f ev=inject id=%d mode=%@ dir=%@ off=%@ due=%.4f lag=%.2f x=%.1f y=%.1f hit=%@ tgt=%@ ok=%d sent=%d",
                      t, id, mode.rawValue, dir, off, due, lag, point.x, point.y,
-                     hit.map { Self.name($0) } ?? "-", target.map { Self.name($0) } ?? "-", ok ? 1 : 0, touch == nil ? 0 : 1))
+                     hit.map { Self.name($0) } ?? "-", target.map { Self.name($0) } ?? "-", ok ? 1 : 0, touch == nil ? 0 : 1)
+              + (touch == nil ? " missing=" + SyntheticTouch.Private.missing : ""))
         guard let touch else { return }
         pending = Pending(id: id, show: show, fired: CACurrentMediaTime() - start, target: target, key: false)
         touch.send(.began)
@@ -195,12 +217,38 @@ final class KeyboardInputInjector {
                 touch.send(.moved)
                 guard let self else { return }
                 let t = self.now()
+                // Taken: a scroll or a pan under the finger is dragging (the
+                // terminal's TUI pans with no scroll view).
+                let taken = (scroll?.isDragging ?? false) || hit.map(Self.dragging(under:)) ?? false
                 self.write(String(format: "t=%.4f ev=injectDone id=%d got=drag trk=%d ms=%.2f", t, id,
-                                  (scroll?.isTracking ?? false) ? 1 : 0, (t - (self.pending?.fired ?? t)) * 1000))
+                                  taken ? 1 : 0, (t - (self.pending?.fired ?? t)) * 1000))
                 if self.pending?.id == id { self.pending = nil }
             } }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { MainActor.assumeIsolated { touch.send(.ended) } }
         }
+    }
+
+    /// The nearest scroll view (not a text view) holding `view`.
+    static func scroll(holding view: UIView) -> UIScrollView? {
+        var current: UIView? = view
+        while let v = current {
+            if let s = v as? UIScrollView, !(s is UITextView) { return s }
+            current = v.superview
+        }
+        return nil
+    }
+
+    /// A scroll view dragging or a pan recognizer began, from `view` up.
+    static func dragging(under view: UIView) -> Bool {
+        var current: UIView? = view
+        while let v = current {
+            if let s = v as? UIScrollView, s.isDragging { return true }
+            if v.gestureRecognizers?.contains(where: { $0 is UIPanGestureRecognizer && ($0.state == .began || $0.state == .changed) }) == true {
+                return true
+            }
+            current = v.superview
+        }
+        return false
     }
 
     static func name(_ object: AnyObject) -> String {
@@ -242,6 +290,7 @@ final class SyntheticTouch {
         Private.callPoint(touch, "_setLocationInWindow:resetPrevious:", point, true)
         if let view { Private.callObject(touch, "setView:", view) }
         Private.callInt(touch, "setPhase:", UITouch.Phase.began.rawValue)
+        // Optional (KIF calls each only when UITouch has it): a missing one is a no-op.
         Private.callBool(touch, "_setIsFirstTouchForView:", true)
         Private.callBool(touch, "setIsTap:", true)
         if let view { Private.callObject(touch, "setGestureView:", view) }
@@ -256,7 +305,7 @@ final class SyntheticTouch {
         Private.callInt(touch, "setPhase:", phase.rawValue)
         Private.callDouble(touch, "setTimestamp:", ProcessInfo.processInfo.systemUptime)
         guard let hid = Private.hidEvent(point: point, phase: phase) else { return }
-        Private.callObject(touch, "_setHidEvent:", hid)
+        Private.callObject(touch, Private.touchHIDSetter, hid)
         let app = UIApplication.shared
         guard let event = Private.callReturningObject(app, "_touchesEvent") as? UIEvent else { return }
         Private.callVoid(event, "_clearTouches")
@@ -269,6 +318,12 @@ final class SyntheticTouch {
     @MainActor
     enum Private {
         static let rtldDefault = UnsafeMutableRawPointer(bitPattern: -2)
+        /// IOKit is not always loaded in an app that never links it: dlsym
+        /// from the default handle then finds no IOHIDEvent symbol.
+        static let iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW)
+        static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
+            dlsym(rtldDefault, name) ?? iokit.flatMap { dlsym($0, name) }
+        }
 
         typealias CreateHand = @convention(c) (CFAllocator?, UInt64, UInt32, UInt32, UInt32, UInt32, UInt32,
                                                Double, Double, Double, Double, Double, UInt8, UInt8, UInt32) -> UnsafeMutableRawPointer?
@@ -277,22 +332,35 @@ final class SyntheticTouch {
         typealias SetInteger = @convention(c) (UnsafeMutableRawPointer, UInt32, CFIndex) -> Void
         typealias Append = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UInt32) -> Void
 
-        static let createHand = dlsym(rtldDefault, "IOHIDEventCreateDigitizerEvent").map { unsafeBitCast($0, to: CreateHand.self) }
-        static let createFinger = dlsym(rtldDefault, "IOHIDEventCreateDigitizerFingerEventWithQuality").map { unsafeBitCast($0, to: CreateFinger.self) }
-        static let setInteger = dlsym(rtldDefault, "IOHIDEventSetIntegerValue").map { unsafeBitCast($0, to: SetInteger.self) }
-        static let append = dlsym(rtldDefault, "IOHIDEventAppendEvent").map { unsafeBitCast($0, to: Append.self) }
+        static let createHand = symbol("IOHIDEventCreateDigitizerEvent").map { unsafeBitCast($0, to: CreateHand.self) }
+        static let createFinger = symbol("IOHIDEventCreateDigitizerFingerEventWithQuality").map { unsafeBitCast($0, to: CreateFinger.self) }
+        static let setInteger = symbol("IOHIDEventSetIntegerValue").map { unsafeBitCast($0, to: SetInteger.self) }
+        static let append = symbol("IOHIDEventAppendEvent").map { unsafeBitCast($0, to: Append.self) }
 
         static let touchSelectors = ["setWindow:", "setTapCount:", "_setLocationInWindow:resetPrevious:", "setView:", "setPhase:",
-                                     "_setIsFirstTouchForView:", "setIsTap:", "setTimestamp:", "_setHidEvent:"]
+                                     "setTimestamp:"]
         static let eventSelectors = ["_clearTouches", "_setHIDEvent:", "_addTouch:forDelayedDelivery:"]
+        /// UITouch's HID event setter, by either spelling.
+        static let touchHIDSetter = ["_setHidEvent:", "_setHIDEvent:"]
+            .first { UITouch.instancesRespond(to: NSSelectorFromString($0)) } ?? "_setHidEvent:"
 
-        static let ready: Bool = {
-            guard createHand != nil, createFinger != nil, setInteger != nil, append != nil else { return false }
-            guard touchSelectors.allSatisfy({ UITouch.instancesRespond(to: NSSelectorFromString($0)) }) else { return false }
-            guard UIApplication.shared.responds(to: NSSelectorFromString("_touchesEvent")),
-                  let event = callReturningObject(UIApplication.shared, "_touchesEvent") as? NSObject else { return false }
-            return eventSelectors.allSatisfy { event.responds(to: NSSelectorFromString($0)) }
+        /// What a send needs and this OS lacks, comma-separated ("" when ready).
+        static let missing: String = {
+            var gone: [String] = []
+            if createHand == nil { gone.append("IOHIDEventCreateDigitizerEvent") }
+            if createFinger == nil { gone.append("IOHIDEventCreateDigitizerFingerEventWithQuality") }
+            if setInteger == nil { gone.append("IOHIDEventSetIntegerValue") }
+            if append == nil { gone.append("IOHIDEventAppendEvent") }
+            gone += (touchSelectors + [touchHIDSetter]).filter { !UITouch.instancesRespond(to: NSSelectorFromString($0)) }.map { "UITouch." + $0 }
+            if let event = callReturningObject(UIApplication.shared, "_touchesEvent") as? NSObject {
+                gone += eventSelectors.filter { !event.responds(to: NSSelectorFromString($0)) }.map { "UITouchesEvent." + $0 }
+            } else {
+                gone.append("UIApplication._touchesEvent")
+            }
+            return gone.joined(separator: ",")
         }()
+
+        static let ready: Bool = missing.isEmpty
 
         // IOHIDEventField: (kIOHIDEventTypeDigitizer 11 << 16) | 25.
         static let fieldDisplayIntegrated: UInt32 = (11 << 16) | 25
