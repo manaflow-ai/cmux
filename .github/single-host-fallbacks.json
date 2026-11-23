@@ -215,6 +215,10 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "read only by fork pull requests (scripts/ci/one_linux_label.py); unset or empty, GitHub-hosted ubuntu-24.04, never an owned host. An operator sets it only to a GitHub-hosted or vendor runner label",
+      "after_minutes": 5
+    },
     "LINUX_ARM64_RUNNER": {
       "fallback": "unset or empty, fromJSON(vars.RUNNER_POOLS).linux_arm64, the declared Blacksmith arm64 Linux pool; cmux-browser-host-release.yml's aarch64 build leg reads it through matrix.runs_on",
       "after_minutes": 5
