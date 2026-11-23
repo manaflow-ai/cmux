@@ -74,7 +74,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The type check reports its red and keeps going, so the tests and builds after it still run on a
+      # tree with a type error; the last step fails the job on it (Leo, 2026-11-19: "the CI doesn't
+      # necessarily have to fail and like give up").
       - name: Typecheck
+        id: typecheck
+        continue-on-error: true
         run: npx tsc --noEmit
 
       - name: Tests (vitest on workerd)
@@ -84,6 +89,12 @@ jobs:
         run: |
           npx wrangler deploy --dry-run --env="" --outdir "$RUNNER_TEMP/dist-prod"
           npx wrangler deploy --dry-run --env dev --outdir "$RUNNER_TEMP/dist-dev"
+
+      - name: Fail on the type check
+        if: ${{ !cancelled() && steps.typecheck.outcome == 'failure' }}
+        run: |
+          echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
+          exit 1
 
   deploy-dev:
     needs: test

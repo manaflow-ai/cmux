@@ -535,6 +535,45 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("share-host on", &[("Turn sharing this Mac's screen on", "acpmux share-host on")]),
     ("share-host off", &[("Turn sharing this Mac's screen off", "acpmux share-host off")]),
+    (
+        "share-host screens",
+        &[
+            ("List the live shares this machine hosts or views", "acpmux share-host screens"),
+            ("Read them as JSON", "acpmux share-host screens --json"),
+        ],
+    ),
+    (
+        "share-host start",
+        &[
+            ("Share this machine's screen to your iPhone", "acpmux share-host start --to iphone"),
+            (
+                "Share it view-only to another device, by id prefix",
+                "acpmux share-host start --to 3f2a --view-only",
+            ),
+        ],
+    ),
+    ("share-host stop", &[("End a share by its session id prefix", "acpmux share-host stop 7c1e")]),
+    (
+        "share-host move",
+        &[
+            ("Hand a live share to another viewer", "acpmux share-host move 7c1e --to macbook"),
+            (
+                "Show the viewer another host's screen",
+                "acpmux share-host move 7c1e --host mac-mini",
+            ),
+        ],
+    ),
+    (
+        "share-host link",
+        &[
+            ("Print the view-only link to this Mac's screen", "acpmux share-host link"),
+            (
+                "Link a run's virtual display, labeled with the run's name",
+                "acpmux share-host link --display 5 --name ui-check",
+            ),
+            ("Ask for full control instead of view-only", "acpmux share-host link --control"),
+        ],
+    ),
     ("router", &[("Start the local CodeRouter", "acpmux router serve")]),
     ("router serve", &[("Start the local router listeners", "acpmux router serve")]),
 ];
