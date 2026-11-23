@@ -39,10 +39,15 @@ public final class InTreePages {
     /// The switch's Debug Settings key, readable off the main actor (the launch reads the file before the store).
     public nonisolated static let key = "browser.inTreePages"
 
-    public static let tunable = Tunable<Bool>.toggle(
-        key, section, "Pages in the window's view tree",
-        help: "Chromium pages draw as views inside their pane, with overlays and dividers as plain views: no page, overlay or divider windows. Applies at the next launch. Needs fork API 36; an older engine keeps child-window pages.",
-        default: false, code: "InTreePages.tunable")
+    /// The switch's default is this build's own decision without a file override (the environment, then the build tag),
+    /// so the row shows the mode the build runs in: a build tagged `in-tree-pages…` shows On, and a file override still
+    /// differs from it (the row's dot, Reset).
+    public static let tunable = Tunable<Bool>(
+        descriptor: TunableDescriptor(
+            key: key, section: section, label: "Pages in the window's view tree",
+            help: "Chromium pages draw as views inside their pane, with overlays and dividers as plain views: no page, overlay or divider windows. Applies at the next launch. Needs fork API 36; an older engine keeps child-window pages. The default is this build's own (the CMUX_IN_TREE_PAGES environment variable, else On for a build tagged in-tree-pages).",
+            kind: .bool, defaultSource: .derived { .bool(InTreePages.shared.buildDefault) }, codeName: "InTreePages.tunable"),
+        defaultValue: false)
 
     public static var all: [TunableDescriptor] { [tunable.descriptor] }
 
@@ -53,6 +58,8 @@ public final class InTreePages {
 
     /// The latched switch; nil until ``latch(fileOverride:tag:environment:)`` (or the first read) ran.
     private var latched: Bool?
+    /// What this build decides with no file override (the environment, then the tag): the switch row's default.
+    public private(set) var buildDefault = false
     /// Where the latched value came from: `environment`, `file`, `tag` or `default`.
     public private(set) var source = "default"
     /// The engine's support, once Chromium loaded.
@@ -70,6 +77,7 @@ public final class InTreePages {
     public func latch(fileOverride: Bool?, tag: String?,
                              environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard latched == nil else { return }
+        buildDefault = Self.decide(fileOverride: nil, tag: tag, environment: environment).0
         let (value, from) = Self.decide(fileOverride: fileOverride, tag: tag, environment: environment)
         latched = value
         source = from
@@ -125,6 +133,7 @@ public final class InTreePages {
     /// Tests set the mode directly (the latch keeps the first value otherwise).
     public func setForTesting(requested: Bool?, engine: Engine = .unknown) {
         latched = requested
+        buildDefault = false
         source = "test"
         self.engine = engine
     }
