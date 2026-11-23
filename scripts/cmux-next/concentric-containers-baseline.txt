@@ -78,7 +78,6 @@ webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minim
 webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minimap__prompt[data-pending] { border-radius: var(--ds-radius-sm) }
 webviews/src/agent-session/acpmux/uiPointer/uiPointer.css: .cmux-ui-pointer-kbd { border-radius: 4px }
 webviews/src/agent-session/acpmux/uiPointer/uiPointer.css: .cmux-ui-pointer-label, .cmux-ui-pointer-hint { border-radius: 6px }
-webviews/src/browser-chrome/cookie-import/cookieImport.css: .ci-card { border-radius: var(--transient-surface-radius) }
 webviews/src/icon-picker/styles.css: .icon-keycap { border-radius: 5px }
 webviews/src/optchat-inspector/styles.css: .card { border-radius: 8px }
 webviews/src/optchat-inspector/styles.css: .term .tip { border-radius: 6px }
