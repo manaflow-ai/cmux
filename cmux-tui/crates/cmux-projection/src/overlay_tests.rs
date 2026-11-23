@@ -220,8 +220,8 @@ fn a_read_while_the_mac_is_away_fails_with_ehostdown() {
     let (state, manifest, fake) = setup(true);
     let overlay = open(state.path(), &manifest, &fake);
     let readme = path_ino(&overlay, "README.md");
-    assert_eq!(overlay.read(readme, 0, 10), Err(112));
-    assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
+    assert_eq!(overlay.read(readme, 0, 10), Err(libc::EHOSTDOWN));
+    assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(libc::EHOSTDOWN));
 }
 
 #[test]
@@ -335,8 +335,12 @@ fn fifos_sockets_and_hard_links_are_made() {
     let overlay = open(state.path(), &manifest, &fake);
     let fifo = overlay.mknod(overlay.root(), "p", fmt::S_IFIFO | 0o640, 0, me()).unwrap();
     assert_eq!((fifo.kind, fifo.mode), (Type::Fifo, 0o640));
-    let sock = overlay.mknod(overlay.root(), "s", fmt::S_IFSOCK | 0o600, 0, me()).unwrap();
-    assert_eq!(sock.kind, Type::Socket);
+    // macOS lets only root mknod a socket (EPERM); the Mac mount serves NFS, which makes none.
+    #[cfg(target_os = "linux")]
+    {
+        let sock = overlay.mknod(overlay.root(), "s", fmt::S_IFSOCK | 0o600, 0, me()).unwrap();
+        assert_eq!(sock.kind, Type::Socket);
+    }
     let plain = overlay.mknod(overlay.root(), "r", fmt::S_IFREG | 0o600, 0, me()).unwrap();
     assert_eq!(plain.kind, Type::File);
     // A hard link of a lower file copies it up once; both names are one file, one number.
@@ -477,10 +481,16 @@ fn an_open_folder_keeps_its_attributes_after_it_is_renamed_over() {
     let handle = overlay.open_handle(to.ino, libc::O_RDONLY | libc::O_DIRECTORY).unwrap();
     overlay.rename(root, "from", root, "to", 0).unwrap();
     let gone = overlay.getattr(to.ino).unwrap();
-    assert_eq!((gone.kind, gone.nlink), (Type::Dir, 0));
+    assert_eq!(gone.kind, Type::Dir);
+    // APFS still counts a removed folder's two links; Linux says 0.
+    #[cfg(target_os = "linux")]
+    assert_eq!(gone.nlink, 0);
     overlay.release(handle);
 }
 
+// Linux only: macOS has no O_NOATIME, so a read moves the upper file's atime (the Mac mount's NFS
+// client caches attributes, and nothing in a checkout reads atime).
+#[cfg(target_os = "linux")]
 #[test]
 fn reads_leave_access_times_alone_as_the_mount_says_noatime() {
     // xfstests generic/120: the base's reads moved atime on the disk under it (its relatime).
