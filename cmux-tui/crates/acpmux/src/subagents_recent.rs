@@ -12,8 +12,7 @@ pub const RECENT_SUBAGENTS: usize = 8;
 
 /// One listed subagent as the tree keeps it: its parent subagent and its last state.
 /// Saved with the tree in a host checkpoint (#47558), so a resumed host keeps the list.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(from = "RecentEntryWire")]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub(super) struct RecentEntry {
     id: String,
     parent: Option<String>,
@@ -26,6 +25,13 @@ struct RecentEntryWire {
     id: String,
     parent: Option<String>,
     state: String,
+}
+
+// By hand, not derived: serde reads a `&'static str` field as borrowed and would ask `'de: 'static`.
+impl<'de> Deserialize<'de> for RecentEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        RecentEntryWire::deserialize(deserializer).map(Self::from)
+    }
 }
 
 impl From<RecentEntryWire> for RecentEntry {
