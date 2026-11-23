@@ -93,6 +93,39 @@ fn a_listing_leaves_secrets_out_and_keeps_links_as_text() {
 }
 
 #[test]
+fn a_link_out_of_the_root_is_never_followed_on_the_serving_side() {
+    let (home, policy) = home();
+    // Fake secrets outside the shared root, and links to them (absolute and relative).
+    std::fs::create_dir_all(home.path().join("outside/fake-gh")).unwrap();
+    std::fs::write(home.path().join("outside/fake-gh/hosts.yml"), b"FAKE").unwrap();
+    symlink(home.path().join("outside/fake-gh"), home.path().join("share/out-abs")).unwrap();
+    symlink("../outside/fake-gh", home.path().join("share/out-rel")).unwrap();
+    symlink("../outside/note", home.path().join("share/out-file")).unwrap();
+    let shared = list(&policy, "~/share").unwrap();
+    let manifest = &shared.manifest;
+    for link in ["out-abs", "out-rel", "out-file"] {
+        let index = manifest.resolve(link).unwrap();
+        assert_eq!(manifest.entry(index).unwrap().kind, Kind::Link, "{link} is listed as a link");
+        // A link entry has no bytes on the serving side: its target is never opened.
+        assert_eq!(shared.whole(index).status, wire::REFUSED, "{link}");
+        assert_eq!(shared.read(index, 0, 64).status, wire::REFUSED, "{link}");
+    }
+    // Nothing below a link is listed, so nothing out there has an entry to ask for.
+    for below in ["out-abs/hosts.yml", "out-rel/hosts.yml"] {
+        assert!(manifest.resolve(below).is_none(), "{below}");
+    }
+    // Every entry served is a regular file inside the root.
+    let root = std::fs::canonicalize(home.path().join("share")).unwrap();
+    for (index, entry) in (0u32..).zip(shared.files.iter()) {
+        if let Some(served) = entry {
+            assert!(served.path.starts_with(&root), "{index}: {}", served.path.display());
+        }
+    }
+    // A folder asked for through a link that leaves the root is refused by its resolved path.
+    assert!(policy.check("~/share/out-abs").unwrap_err().contains("outside the readable roots"));
+}
+
+#[test]
 fn a_read_answers_the_listed_file_and_refuses_one_swapped_for_a_secret() {
     let (home, policy) = home();
     let shared = list(&policy, "~/share").unwrap();
