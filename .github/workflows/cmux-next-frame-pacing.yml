@@ -75,7 +75,7 @@ jobs:
       name: ci-routing-agent
       deployment: false
     needs: resolve-ref
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       run: ${{ steps.decide.outputs.run }}
@@ -243,9 +243,25 @@ jobs:
             scripts/ci/xcode-pins.txt
             scripts/ci/frame-pacing
             scripts/cmux-next/instant-new-surfaces-bench.py
+            scripts/cmux-next/state_wait.py
             scripts/cmux-next/cmd-n-paint-e2e.py
             scripts/cmux-next/bench-startup.py
             scripts/cmux-next/bench_memory.py
+            scripts/cmux-next/bench_arms.py
+            scripts/cmux-next/bench_cli_storm.py
+            scripts/cmux-next/bench_launch.py
+            scripts/cmux-next/bench_page_engine.py
+            scripts/cmux-next/daemon_teardown.py
+            scripts/cmux-next/diff_tab_cells.py
+            scripts/cmux-next/launch_time_profile.py
+            scripts/cmux-next/new_surface_frames.py
+            scripts/cmux-next/new_surface_look.py
+            scripts/cmux-next/new_surface_screen.py
+            scripts/cmux-next/run_end_record.py
+            scripts/cmux-next/safe_log.py
+            scripts/cmux-next/state_wait.py
+            scripts/cmux-next/tag_teardown.py
+            scripts/cmux-next/window_look.py
             scripts/lib/stop-cmux-tui-owners.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -403,7 +419,7 @@ jobs:
   skipped-receipt:
     needs: [resolve-ref, gate, bench]
     if: ${{ !cancelled() && needs.gate.outputs.run != 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     env:
       CMUX_PERF_SOURCE_SHA: ${{ needs.resolve-ref.outputs.sha || github.sha }}

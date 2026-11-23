@@ -228,6 +228,8 @@ PLATFORM_MSGS = frozenset({
     "mesh.device.intent_pending",
     "mesh.device.mesh_unknown",
     "mesh.device.unavailable",
+    # A team hub call that threw before answering 503 mesh.unavailable: its kind and error type (cmux-platform#1660).
+    "mesh.hub.unavailable",
     "mesh.node.detached",
     "native network target",
     "outbox dead letters replayed",

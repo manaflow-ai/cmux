@@ -149,6 +149,9 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         // stream moving while that measurement is still unknown.
         frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
+        rtt_tail_probe: opts.flag("rtt-tail-probe"),
+        resolution_ladder: opts.flag("resolution-ladder"),
+        max_qp: ladder_max_qp(opts)?,
         max_width: opts
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
@@ -162,6 +165,16 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .transpose()?
             .unwrap_or_default(),
     })
+}
+
+/// The resolution ladder's QP ceiling (`--max-qp N`, an H.264 QP: 0 to 51), else
+/// `cmux_rd_core::resolution::DEFAULT_MAX_QP`. `host` and `serve` both read it.
+pub(crate) fn ladder_max_qp(opts: &Opts) -> Res<u8> {
+    let qp = opts.num_or("max-qp", cmux_rd_core::resolution::DEFAULT_MAX_QP)?;
+    if qp > 51 {
+        return Err(format!("--max-qp {qp}: an H.264 QP, 0 to 51").into());
+    }
+    Ok(qp)
 }
 
 /// The host's owner is the only principal admitted without a grant.
@@ -515,6 +528,15 @@ fn serve_viewer<S: ViewerStream>(
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
+    }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(caps::FEC_BLOCKS);
+    if crate::desktop::scales_pictures() {
+        host_caps.push(caps::VIDEO_SCALED);
+    }
+    // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
+    if crate::stream::offers_h264_baseline(&cfg.codec) {
+        host_caps.push(caps::H264_BASELINE);
     }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([caps::CLOCK, caps::LEDGER]);

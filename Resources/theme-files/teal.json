@@ -21,7 +21,7 @@
 
   // The sidebar: a deeper teal glass with a hairline edge, sections as cards.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#082022",
+  "appearance.surfaces.sidebar.color": "#061e20",
   "appearance.surfaces.sidebar.opacity": 0.78,
   "sidebar.border": true,
   "sidebar.sectionLook": "card",

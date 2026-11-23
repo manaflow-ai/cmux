@@ -9,7 +9,7 @@ these shortcuts then stop matching until a terminal has focus again.
 ## Install or preview
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/panes@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/panes@feat-cmux-next
 ```
 
 To remove the installed layer, run `cmux setup remove manaflow-ai/rex-panes`.
