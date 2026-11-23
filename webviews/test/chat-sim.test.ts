@@ -24,7 +24,8 @@ const broken = (result: SimResult, prefix: string) =>
 // before its turn ends, and another agent's line among tool rows sits on their pitch.
 describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends, (d) received lines on the tool rows' pitch", () => {
   for (const [name, make] of Object.entries(SCENARIOS)) {
-    for (const rule of ["a-", "b-", "d-"]) {
+    // (d) here is the received-gap rule; the burst rules d-blank, d-shift and the rest hold in the burst replay below.
+    for (const rule of ["a-", "b-", "d-received"]) {
       test(`${name}: rule ${rule.slice(0, 1)}`, () => {
         expect(broken(runSimulation(make()), rule)).toEqual([]);
       });
