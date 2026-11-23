@@ -935,10 +935,9 @@ struct BarCutout: View {
         .compositingGroup()
     }
 }
-#endif
-
 /// The grid's width and column count, which change together when a foldable folds or unfolds.
 private struct GridShape: Equatable {
     var width: CGFloat
     var columns: Int
 }
+#endif
