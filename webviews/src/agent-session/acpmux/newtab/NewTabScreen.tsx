@@ -130,6 +130,8 @@ import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
+import { focusRoute } from "../../../ui/focusRoute";
+import { HelpSheet } from "../HelpSheet";
 import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
@@ -618,11 +620,14 @@ export function NewTabScreen(props: Props) {
   const holdForAttachments = useSendWhenAttached(unsettled);
   /// Where the chat would start, as picked now (set below, once every pick is read).
   const elsewhere = useRef(false);
+  /// `/help`'s sheet, drawn where the `/` list draws (HelpSheet.tsx), as in the chat composer.
+  const [helpOpen, setHelpOpen] = useState(false);
   const command = useNewTabCommand(
     text,
     setText,
     {
       ...props,
+      onHelp: () => setHelpOpen(true),
       importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed",
       startsElsewhere: () => elsewhere.current,
     },
@@ -2400,6 +2405,26 @@ export function NewTabScreen(props: Props) {
                   empty={t("composer.noMatchingCommands")}
                   onHover={setCommandActive}
                   onPick={pickCommand}
+                />
+              </ComposerListLayer>
+            </ComposerListAnchor>
+          )}
+          {helpOpen && !commandsOpen && (
+            <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
+              <ComposerListLayer>
+                <HelpSheet
+                  commands={snapshot.commands}
+                  onInsert={(picked) => {
+                    setHelpOpen(false);
+                    setText(applyCommand("", 0, picked).text);
+                    requestAnimationFrame(() =>
+                      focusRoute(field.current, "person", "/help picked a command: the field"),
+                    );
+                  }}
+                  onClose={() => {
+                    setHelpOpen(false);
+                    focusRoute(field.current, "person", "/help closed: the field");
+                  }}
                 />
               </ComposerListLayer>
             </ComposerListAnchor>
