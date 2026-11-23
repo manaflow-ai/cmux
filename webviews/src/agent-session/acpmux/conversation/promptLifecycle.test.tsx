@@ -3,7 +3,7 @@
 // hq docs/design/user-message-lifecycle.md).
 //
 // Leo, 2026-11-22: "ok, so is this supposed to be cancellable or what? why am i seeing the edit
-// option available after you've already read it? well, the fucking cross vs edit vs anything, we
+// option available after you've already read it? well, the cross vs edit vs anything, we
 // need to be able to map out the lifecycle and what should reasonably be possible, when."
 //
 // The chat below is one of each: an answered first prompt, an answered prompt with a steer read in
