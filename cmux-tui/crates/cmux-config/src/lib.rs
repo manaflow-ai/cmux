@@ -10,6 +10,8 @@
 //!   diagnostics and comment-preserving edits.
 //! - [`jsonc`]: a comment-preserving JSONC parser and in-place editor.
 //! - [`managed`], [`effective`]: MDM and team policy layers and the merge.
+//! - [`project_actions`]: a repository's `.cmux/actions.json`, found from a
+//!   working directory and merged with the global `actions`.
 //! - [`youtube`]: the `youtube:` background id and reading a pasted YouTube
 //!   address into it.
 //! - [`store`]: the pure reducer `apply(&State, Op)`; [`owner`]: the single
@@ -31,6 +33,7 @@ pub mod language;
 pub mod location;
 pub mod managed;
 pub mod owner;
+pub mod project_actions;
 pub mod refusal;
 pub mod render;
 pub mod schema;

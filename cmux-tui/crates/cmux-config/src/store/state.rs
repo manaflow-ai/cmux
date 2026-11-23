@@ -108,6 +108,10 @@ impl State {
     pub fn source(&self) -> &str {
         &self.source
     }
+    /// The last document of the file that parsed (it applies while the file is broken).
+    pub fn file_root(&self) -> &Value {
+        &self.file_root
+    }
     pub fn effective(&self) -> &EffectiveSettings {
         &self.effective
     }
