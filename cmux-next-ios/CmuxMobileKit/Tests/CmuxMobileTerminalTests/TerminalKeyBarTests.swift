@@ -232,6 +232,30 @@ import Testing
         #expect(!dock.showsKeyRow)
     }
 
+    /// Leo, 2026-11-23: "auto-tucking swathes of the coding harness tui and the weird little
+    /// action buttons above the composer". While the composer is in use the key row and the
+    /// harness's status rows tuck, unless the harness asks a question.
+    @Test func theComposerInUseTucksTheKeyRowAndTheHarnessRows() {
+        var dock = TerminalDockVisibility()
+        dock.keyboardWillShow(visibleHeight: 336)
+        #expect(dock.showsKeyRow && !dock.tucksHarnessRows)
+        dock.composerInUse = true
+        #expect(!dock.showsKeyRow && dock.tucksHarnessRows)
+        // A permission question or a menu: the keys and the rows come back.
+        dock.harnessPrompt = true
+        #expect(dock.showsKeyRow && !dock.tucksHarnessRows)
+        dock.harnessPrompt = false
+        // Each variant tucks what it names.
+        dock.tuck = .keys
+        #expect(!dock.showsKeyRow && !dock.tucksHarnessRows)
+        dock.tuck = .chrome
+        #expect(dock.showsKeyRow && dock.tucksHarnessRows)
+        // Hide Toolbar or a closed composer: no composer to tuck under.
+        dock.tuck = .both
+        dock.composerPresented = false
+        #expect(!dock.tucksHarnessRows)
+    }
+
     @Test func hideToolbarFoldsBothAndKeepsTheComposerOpen() {
         var dock = TerminalDockVisibility()
         dock.chromeHidden = true
