@@ -185,28 +185,52 @@ final class EventInspectorUITests: XCTestCase {
         XCTAssertTrue(oldest.isHittable, "the oldest record is reached\n\(app.debugDescription)")
     }
 
-    /// EVT-14: the reader at the oldest records when 60 more arrive over the 500 cap. The rows
-    /// under the reader drop, the list ends at their neighbour (seq 61), the header says so.
+    /// The "N new events" pill (EVT-14 amended, cmux#13742): its count, then a tap that lands
+    /// the held records and shows the newest at the top.
+    @MainActor
+    private func pill(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons["chat.inspector.newEvents"].firstMatch
+    }
+
+    @MainActor
+    private func tapPillToTheNewest(_ app: XCUIApplication, newest seq: Int) {
+        pill(app).tap()
+        XCTAssertTrue(row(app, seq: seq).waitForExistence(timeout: 10) && pill(app).waitForNonExistence(timeout: 10),
+                      "the pill lands the held records and shows the newest (seq \(seq))\n\(app.debugDescription)")
+    }
+
+    /// EVT-14 (amended, pending Aziz): the reader at the oldest records when 60 more arrive over
+    /// the 500 cap. Away from the top the list holds still: the rows under the reader stay (their
+    /// records dropped, their rows kept) and a pill counts the new ones. The pill lands them: the
+    /// list then ends at the dropped rows' neighbour (seq 61), and the header says so.
     @MainActor
     func testRecordsDroppedUnderTheReader() {
         let app = launch(count: 500, edge: "drop", after: 150)
         defer { app.terminate() }
         expectHeader(app, "500 events", "a full journal")
         scrollToOldest(app)
-        XCTAssertEqual(header(app).exists ? header(app).label : "500 events", "500 events", "the drop waits for the reader")
         attach(app, "1-reader-at-oldest")
-        let neighbour = row(app, seq: 61)
-        XCTAssertTrue(neighbour.waitForExistence(timeout: 170) && row(app, seq: 1).waitForNonExistence(timeout: 30),
-                      "the dropped rows go and their neighbour shows\n\(app.debugDescription)")
-        XCTAssertTrue(neighbour.isHittable, "the neighbour is where the reader was")
-        XCTAssertFalse(row(app, seq: 60).exists, "seq 60 dropped")
-        attach(app, "2-after-drop")
-        for _ in 0..<60 where !header(app).isHittable { app.swipeDown(velocity: .fast) }
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 170), "the new records wait behind the pill\n\(app.debugDescription)")
+        XCTAssertTrue(pill(app).label.contains("60"), "the pill counts the 60 new records: '\(pill(app).label)'")
+        XCTAssertTrue(row(app, seq: 1).isHittable, "the row under the reader stays while they read")
+        attach(app, "2-held-pill")
+        tapPillToTheNewest(app, newest: 560)
+        for _ in 0..<3 where !header(app).exists { app.swipeDown() }
         expectHeader(app, "500 events · 60 older dropped", "the header counts the dropped")
-        attach(app, "3-header")
+        attach(app, "3-newest-after-pill")
+        let neighbour = row(app, seq: 61)
+        for _ in 0..<40 where !(neighbour.exists && neighbour.isHittable) {
+            for _ in 0..<4 { app.swipeUp(velocity: .fast) }
+        }
+        for _ in 0..<6 where !neighbour.isHittable { app.swipeUp() }
+        XCTAssertTrue(neighbour.isHittable, "the list ends at the dropped rows' neighbour\n\(app.debugDescription)")
+        XCTAssertFalse(row(app, seq: 60).exists, "seq 60 dropped")
+        XCTAssertFalse(row(app, seq: 1).exists, "seq 1 dropped")
+        attach(app, "4-end-after-drop")
     }
 
-    /// EVT-14: a record's detail stays open, showing it, when the record drops from the journal.
+    /// EVT-14: a record's detail stays open, showing it, when the record drops from the journal;
+    /// back on the held list its row is still there, and opened again it says it was dropped.
     @MainActor
     func testDetailOfADroppedRecordKeepsShowingIt() {
         let app = launch(count: 500, edge: "drop", after: 150)
@@ -225,7 +249,17 @@ final class EventInspectorUITests: XCTestCase {
                       "the title is still the dropped record's")
         attach(app, "2-detail-after-drop")
         back.tap()
-        XCTAssertTrue(row(app, seq: 61).waitForExistence(timeout: 10), "back on the list, which ends at seq 61\n\(app.debugDescription)")
-        attach(app, "3-list-after-drop")
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 10), "back on the held list, the pill counts the new records\n\(app.debugDescription)")
+        XCTAssertTrue(row(app, seq: 1).exists, "the dropped record's row is still where the reader left it")
+        attach(app, "3-held-list")
+        row(app, seq: 1).tap()
+        XCTAssertTrue(json.waitForExistence(timeout: 10), "its detail opens\n\(app.debugDescription)")
+        let note = NSPredicate(format: "value CONTAINS %@ OR label CONTAINS %@", "dropped from the newest 500", "dropped from the newest 500")
+        XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: note, object: json)], timeout: 10), .completed,
+                       "opened after the drop, the detail says the record was dropped\n\(app.debugDescription)")
+        attach(app, "4-dropped-detail")
+        back.tap()
+        tapPillToTheNewest(app, newest: 560)
+        attach(app, "5-newest-after-pill")
     }
 }

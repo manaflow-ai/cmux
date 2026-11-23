@@ -494,6 +494,66 @@ import Testing
         #expect(journal.events.count == 1 && event.seq == 8 && event.line.contains("only its kind and seq"))
     }
 
+    // MARK: Held while the reader is away from the top (cmux#13742)
+
+    /// Away from the top the rows hold still: new records are counted, not shown, and rows the
+    /// journal drops stay as stubs (their bodies let go at once). The hold's end lands them: the
+    /// rows are the journal's again, pruned to it.
+    @Test(arguments: ["", "tool_call"])
+    func aHeldListHoldsStillAndLandsTheNewRecordsTogether(_ query: String) {
+        let journal = journal()
+        let rows = EventInspectorRows(offMainAbove: .max)
+        let big = String(repeating: "body ", count: 200)
+        for n in 0..<AgentEventJournal.limit { journal.record(Self.record(n, body: big)) }
+        rows.setQuery(query, journal: journal)
+        let shown = rows.rows(journal).map(\.id)
+        rows.setHolding(true, journal: journal)
+        for n in AgentEventJournal.limit..<(AgentEventJournal.limit + 60) { journal.record(Self.record(n)) }
+        let held = rows.rows(journal)
+        #expect(held.map(\.id) == shown, "the rows hold still while held")
+        let newMatches = (AgentEventJournal.limit..<(AgentEventJournal.limit + 60)).filter { n in
+            query.isEmpty || AgentInspectorEvent(id: n, record: Self.record(n)).matches(query)
+        }.count
+        #expect(rows.heldCount == newMatches, "the pill counts the new matching records")
+        // The 60 dropped rows' bodies are let go: what the rows keep is the journal's plus small stubs.
+        let dropped = held.filter { $0.id < journal.firstID }
+        #expect(!dropped.isEmpty && dropped.allSatisfy(\.isStub), "dropped rows are kept as stubs")
+        #expect(dropped.allSatisfy { $0.line.utf8.count < 400 }, "a stub keeps no body")
+        #expect(rows.stubbed == dropped.count)
+        let keptBytes = held.reduce(0) { $0 + $1.line.utf8.count }
+        #expect(keptBytes <= journal.keptBytes + dropped.count * 400, "held rows keep \(keptBytes) bytes, the journal \(journal.keptBytes)")
+        // A stub's row reads as its record did.
+        let original = AgentInspectorEvent(id: dropped[0].id, record: Self.record(dropped[0].id, body: big))
+        #expect(dropped[0].title == original.title && dropped[0].dir == original.dir && dropped[0].kind == original.kind)
+        #expect(dropped[0].json.text.contains(AgentInspectorEvent.droppedNote), "its detail says it was dropped")
+        rows.setHolding(false, journal: journal)
+        #expect(rows.rows(journal).map(\.id) == brute(journal, query), "the hold's end lands the new records, pruned to the journal")
+        #expect(rows.heldCount == 0)
+        #expect(!rows.rows(journal).contains(where: \.isStub))
+    }
+
+    /// A new query or Clear while held: the rows are the journal's (nothing held stays behind).
+    @Test func aQueryOrClearWhileHeldShowsTheJournal() {
+        let journal = journal()
+        let rows = EventInspectorRows(offMainAbove: .max)
+        for n in 0..<100 { journal.record(Self.record(n)) }
+        _ = rows.rows(journal)
+        rows.setHolding(true, journal: journal)
+        for n in 100..<120 { journal.record(Self.record(n)) }
+        _ = rows.rows(journal)
+        #expect(rows.heldCount == 20)
+        rows.setQuery("tool_call", journal: journal)
+        #expect(rows.rows(journal).map(\.id) == brute(journal, "tool_call") && rows.heldCount == 0)
+        for n in 120..<130 { journal.record(Self.record(n)) }
+        _ = rows.rows(journal)
+        journal.clear()
+        #expect(rows.rows(journal).isEmpty && rows.heldCount == 0)
+        for n in 130..<135 { journal.record(Self.record(n)) }
+        _ = rows.rows(journal)
+        rows.setHolding(false, journal: journal)
+        #expect(rows.rows(journal).map(\.id) == brute(journal, "tool_call"))
+    }
+
     @Test func theByteBudgetHoldsWithTheMemo() {
         let journal = journal()
         let rows = EventInspectorRows(offMainAbove: .max)

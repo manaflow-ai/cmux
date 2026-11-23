@@ -108,6 +108,42 @@ final class EventInspectorEdgeUITests: XCTestCase {
         edgeShot(app, "evt14-offline")
     }
 
+    /// EVT-7/EVT-12 (cmux#13742): a reader scrolled into the list when 2000 records arrive in
+    /// a burst (about 40 a frame). The list holds still under them: the row being read moves at
+    /// most 0.5 pt in every sample, through the burst and after it, though every record it shows
+    /// drops from the journal. A pill counts the new records; tapped, it shows the newest.
+    @MainActor
+    func testABurstHoldsStillUnderAScrolledReader() throws {
+        let (app, window) = launch(count: 500, edge: "burst")
+        defer { app.terminate() }
+        for _ in 0..<3 { app.swipeUp() }
+        let before = RowFrames.settled(window, key: RowFrames.inspectorSeq)
+        let reader = try XCTUnwrap(RowFrames.reader(before, in: window), "a row being read")
+        var lines = ["reader \(reader) at \(before[reader]!)"]
+        edgeShot(app, "burst-1-reader")
+        let pill = app.buttons["chat.inspector.newEvents"].firstMatch
+        XCTAssertTrue(pill.waitForExistence(timeout: 20), "the burst's records wait behind the pill\n\(app.debugDescription)")
+        // Through the burst (about a second) and after it.
+        var worst: CGFloat = 0
+        for sample in 0..<12 {
+            let frames = RowFrames.read(window, key: RowFrames.inspectorSeq)
+            let now = try XCTUnwrap(frames[reader], "the row being read stays on screen (sample \(sample))")
+            worst = max(worst, abs(now.minY - before[reader]!.minY))
+            lines.append("sample \(sample): \(now.minY - before[reader]!.minY) pt, pill '\(pill.exists ? pill.label : "")'")
+            _ = XCTWaiter().wait(for: [XCTestExpectation(description: "the burst goes on")], timeout: 0.25)
+        }
+        edgeShot(app, "burst-2-held")
+        edgeNote(lines.joined(separator: "\n"), "burst-frames")
+        XCTAssertLessThanOrEqual(worst, RowFrames.shiftBar, "the row being read moved \(worst) pt during the burst")
+        XCTAssertTrue(pill.label.contains("2,000") || pill.label.contains("2000"),
+                      "the pill counts the 2000 new records: '\(pill.label)'")
+        pill.tap()
+        let newest = seqRow(app, 2500)
+        XCTAssertTrue(newest.waitForExistence(timeout: 10) && pill.waitForNonExistence(timeout: 10),
+                      "the pill lands the burst and shows the newest record\n\(app.debugDescription)")
+        edgeShot(app, "burst-3-newest")
+    }
+
     /// EVT-15, landscape.
     @MainActor
     func testRotationKeepsTheRowBeingRead() throws {

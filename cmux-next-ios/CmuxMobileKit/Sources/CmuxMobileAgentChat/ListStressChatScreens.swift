@@ -94,6 +94,19 @@ enum ListStressChatScreens {
                         try? await Task.sleep(for: .seconds(settings.edgeAfter))
                         for n in settings.count..<(settings.count + 60) { journal.record(record(n)) }
                     }
+                } else if settings.edge == "burst" {
+                    // 2000 records over about 50 frames (the `events-burst` burst), at a set time.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(settings.edgeAfter))
+                        var seq = settings.count
+                        for _ in 0..<50 {
+                            for _ in 0..<40 {
+                                journal.record(record(seq))
+                                seq += 1
+                            }
+                            try? await Task.sleep(for: .milliseconds(20))
+                        }
+                    }
                 } else if settings.edge == "offline" {
                     // The Mac goes away mid-scroll: no more records arrive.
                     Task { @MainActor in
