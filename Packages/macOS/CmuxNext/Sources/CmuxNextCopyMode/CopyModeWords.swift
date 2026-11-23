@@ -28,7 +28,8 @@ public enum CopyModeWordMove: String, Equatable, Sendable, CaseIterable {
 /// and wrap rows, and a word motion always lands on a non-blank cell, so a
 /// motion is the signed number of text cells between the cursor and its
 /// target. A row end separates words.
-public enum CopyModeWords {
+public struct CopyModeWords {
+    public init() {}
     /// Signed `adjust_selection` steps (positive: right) that move the
     /// cursor at `row`, `column` by `move`, `count` times. `rows` is the
     /// viewport's text, one string per row, as Ghostty reads it (a wide
