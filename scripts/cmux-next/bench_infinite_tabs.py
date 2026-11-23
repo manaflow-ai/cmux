@@ -108,6 +108,29 @@ def settled(pid: int, bundle: str, sock: str, label: str, limit_s: float, want=N
         print(f"   {error}; measuring anyway", file=sys.stderr)
 
 
+def wait_collector_quiet(app: bm.App, quiet_s: float = 80, bound_s: float = 300) -> dict:
+    """Waits until the cmux page collector saw no page close for `quiet_s`, so "full" is the steady state.
+
+    Hidden chats are still released through the settle, and the collector's quiet check runs 60 s after the
+    newest close (`CEFPageRendererGC.quietDelay`): a window that starts as soon as counts hold still measured the
+    chat renderer before that check (hq#21221: `quiet_checks 1` only after the window, 113 MB of garbage in the
+    number). An app without the readout (`page_gc` in `debug.cef_pages`) waits nothing."""
+    started = time.monotonic()
+    closes, since, stats = None, started, None
+    while time.monotonic() - started < bound_s:
+        stats = (app.call("debug.cef_pages", timeout=30) or {}).get("page_gc")
+        if not isinstance(stats, dict):
+            break
+        if stats.get("closes") != closes:
+            closes, since = stats.get("closes"), time.monotonic()
+        elif time.monotonic() - since >= quiet_s:
+            break
+        time.sleep(10)  # test script: the collector's own timers run, nothing to wake on
+    found = {"waited_s": round(time.monotonic() - started), "page_gc": stats}
+    print(f"INFTABS-QUIET {json.dumps(found)}", flush=True)
+    return found
+
+
 def new_workspace(app: bm.App) -> str | None:
     made = app.run("workspace.newAtBottom")
     workspace = next((str(i) for i in made.get("created", []) if str(i).startswith("ws_")), None)
@@ -343,6 +366,8 @@ def run(argv: list[str]) -> int:
             done = set(sleep.get("hibernated") or []) | set((sleep.get("exemptions") or {}).keys())
             return tabs <= done and (bw.surfaces(sock).get("hibernated_workspaces") or 0) >= want_workspaces
         settled(pid, bundle, sock, "the full sample", max(120.0, 2 * args.settle), want=all_asleep)
+        # The cmux page collector's quiet check has run, so the chat renderer is read at its steady state.
+        report["collector_quiet"] = wait_collector_quiet(app)
         # Who runs in the idle window (the app's wakeup ledger, its threads' CPU, Chromium's pump counters, live
         # pages, a stack sample after it), and where the biggest kinds keep their memory: the numbers a fix starts from.
         attribution = bm.Attribution(app, pid, bundle, kinds=("app", "cef-gpu"))
