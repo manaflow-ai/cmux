@@ -18,9 +18,9 @@
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
    The row follows the content line height, with one content-size unit above and below. Nothing cuts
    the draft. */
-.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--nt-input-pad-block)),60vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
-.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;--acpmux-field-grows:down;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--nt-input-pad-block)),60vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 .nt-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
 .nt-field.acpmux-md-field .acpmux-md-placeholder{inset-inline-start:var(--nt-field-pad-inline-start);right:0;top:calc(var(--nt-input-pad-block) + var(--acpmux-text-drop, 0px))}
 .nt-field.acpmux-md-field .acpmux-md{min-height:var(--text-content--line-height);font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
@@ -402,12 +402,12 @@
 /* Under Increase Contrast the box's edge is already the text color: focus takes the shared ring,
    following the box's rounded corners (the field draws none, cx-ncc.57). */
 @media (prefers-contrast: more) {
-  .nt-box:is(:focus-visible, :has(:focus-visible)),
-  body:has(.nt-box:focus-visible, .nt-box :focus-visible) .nt-popover {
+  .nt-box:is(:focus-visible, [data-focused]),
+  body .nt-popover.nt-popover-focused.nt-popover-focused {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
-/* The split controls stay on the first line as the prompt grows. */
+/* The row's controls stand on the box's bottom edge as the prompt grows (below). */
 .nt-input > .acpmux-chrome-area > .nt-pickers {
   flex: none;
   align-self: flex-end;
@@ -422,7 +422,8 @@
   display: flex;
   align-items: center;
   height: var(--text-content--line-height);
-  margin-top: var(--nt-input-pad-block);
+  align-self: end;
+  margin-bottom: var(--nt-input-pad-block);
 }
 /* The split row's controls, as the chat composer's (composerLocation.css; leo-workspace
    design/composer.md, Controls; Leo 2026-10-31: "why is our shit not vertically centered like
@@ -601,10 +602,25 @@
   gap: var(--acpmux-composer-lead-gap);
   padding: 0 var(--acpmux-composer-inset);
 }
+/* +, the mic and Send stand on the box's bottom edge at every height, each centered on the one-line
+   row's line (the same offset the first line had, so a one-line box draws them where it did): as the
+   draft wraps and grows they stay on its last line, the line being typed, and never sit on the first
+   line of a tall draft, as the chat composer's (composerLocation.css; Leo 2026-11-22: "the
+   buttons for send attach all that doesnt follow/simply stick with teh bottom of the
+   composer"). test/composer-wrap-layout.browser.test.ts. */
 .nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
-  align-self: start;
+  align-self: end;
   min-height: var(--acpmux-composer-control);
-  margin: max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2)) 0 0;
+  margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
+}
+/* The field's always-reserved scrollbar lane (scrollers.ts, 8 px) stands in the gap before the mic
+   instead of after it: the text ends one lead gap before the mic as it starts one lead gap after +,
+   not a lane and a gap (16 px against 8), and a line holds that much more of the draft (Leo
+   2026-11-22: "we probably ought to be able to type at least one more character or two ... IT'S NOT
+   EVEN LIKE IT'S EVENLY SPACED RIGHT NOW"). The thumb, shown only while the draft scrolls, runs in
+   that gap beside the controls, never over them. */
+.nt-input[data-split] > .nt-field-slot {
+  margin-inline-end: calc(-1 * min(var(--cmux-scroller-size, 8px), var(--acpmux-composer-lead-gap)));
 }
 /* Fixed top padding keeps the first line, placeholder and shell glyph still when text wraps. */
 .nt-input[data-split] .nt-field {

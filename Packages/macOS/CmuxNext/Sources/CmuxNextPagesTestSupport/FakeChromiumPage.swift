@@ -73,10 +73,32 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// Makes a page with no calls yet.
     public init() {}
 
+    /// How many DevTools calls were sent before the first of their answers was awaited; nil before any
+    /// call. A ``devTools(_:params:)`` call is sent and awaited at once; ``startDevTools(_:params:)``
+    /// calls are awaited when their caller awaits them (a pipelined setup sends them all first).
+    public private(set) var sentBeforeFirstAwait: Int?
+
     /// Records the call and answers it: ``answer`` first, then the sender check, then an empty result.
     public func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         calls.append((method, params))
+        if sentBeforeFirstAwait == nil { sentBeforeFirstAwait = calls.count }
         defer { onCall?() }
+        return reply(method, params)
+    }
+
+    /// Records the call now, answers it as ``devTools(_:params:)`` does, and hands the answer over
+    /// when it is awaited.
+    public func startDevTools(_ method: String, params: [String: any Sendable]) -> @MainActor () async throws -> String {
+        calls.append((method, params))
+        let answer = reply(method, params)
+        onCall?()
+        return { [weak self] in
+            if let self, self.sentBeforeFirstAwait == nil { self.sentBeforeFirstAwait = self.calls.count }
+            return answer
+        }
+    }
+
+    private func reply(_ method: String, _ params: [String: any Sendable]) -> String {
         if let answered = answer?(method, params) { return answered }
         if method == "Page.addScriptToEvaluateOnNewDocument" { return #"{"identifier":"test-script"}"# }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {

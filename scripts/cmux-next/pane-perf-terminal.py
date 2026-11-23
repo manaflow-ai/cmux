@@ -106,6 +106,7 @@ CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
 import bench_background  # noqa: E402  background daemon CPU per round (a reader drops a round over its limit)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 
 def load_stress():
@@ -195,14 +196,15 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_fence_joined", "tracker", "fence_joined"), ("trk_fence_ms", "tracker", "fence_join_ms"),
               # A page that drew ahead for a commit with no fence (CEFCommitPageWait): how its wait ended.
               ("trk_commit_answered", "tracker", "commit_answered"), ("trk_commit_bound", "tracker", "commit_at_bound"),
-              ("trk_commit_left", "tracker", "commit_left")]
+              ("trk_commit_left", "tracker", "commit_left"), ("trk_answer_late", "tracker", "commit_answer_late"),
+              ("trk_answer_failed", "tracker", "commit_answer_failed"), ("trk_answer_ms", "tracker", "commit_answer_ms")]
 # --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
 # window reorders); None on builds without them.
 LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
 BROWSER_KEYS = ([key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
                 + ["gap_frames", "gap_delay_frames", "gap_layout_lag"])
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
-                 "fencej", "fencems", "answ", "bound", "left", "rAF", "catch", "reord", "post/f", "gap", "delay", "lag"]
+                 "fencej", "fencems", "answ", "bound", "left", "late", "fail", "ansms", "rAF", "catch", "reord", "post/f", "gap", "delay", "lag"]
 # --browser: the layout actions whose page gap is measured (`page_gap`): a split, a close, a zoom or unzoom of the panes.
 GAP_ACTIONS = ("split", "close", "split-down", "close-down", "column", "column-close", "zoom", "unzoom")
 
@@ -288,8 +290,26 @@ def rpc(method, params=None, timeout=30):
 def action(name, args=None, settle=0.0, timeout=60, focus=True):
     reply = rpc("action.run", {"action": name, "args": args or {}, "focus": focus, "origin": "script"}, timeout=timeout)
     if settle:
-        time.sleep(settle)  # test harness: the layout settles before the next step
+        layout_still(f"the layout after {name}", timeout=max(10.0, settle * 10))
     return reply
+
+
+GEOMETRY = ("id", "pane", "kind", "focused", "selected_tab", "shown_tab", "cell", "grid", "border", "frame", "toolbar")
+
+
+def layout_signature():
+    """The panes' geometry and focus (debug.surfaces, no text: a streaming terminal never holds still) and the
+    window's divider areas (debug.layers)."""
+    panes = [{k: p.get(k) for k in GEOMETRY} for w in ((rpc("debug.surfaces") or {}).get("windows") or [])
+             for p in w.get("panes", [])]
+    layers = rpc("debug.layers")
+    window = ((layers or {}).get("windows") or [{}])[0] if isinstance(layers, dict) else {}
+    return json.dumps([panes, window.get("frame"), window.get("divider_areas_in_window")], sort_keys=True, default=str)
+
+
+def layout_still(what, timeout=10.0):
+    """Until the panes, focus and dividers hold still (the action's layout landed)."""
+    wait_stable(layout_signature, what, timeout=timeout, interval=0.05, reads=4, raise_on_timeout=False)
 
 
 def wait(check, seconds, step=0.1):
@@ -353,7 +373,11 @@ def open_page():
         cef = cef if isinstance(cef, dict) else {}
         return (f"the probe page never ran in a {opts.browser_engine} tab within 60 s ({verb} {json.dumps(opened)[:160]}; "
                 f"debug.cef state {cef.get('state')} unavailable {json.dumps(cef.get('unavailable'))[:160]})")
-    time.sleep(1.0)  # test harness: the page's first paints settle
+    # Until the page painted a few more frames and the layout holds still.
+    first = page_eval("window.__frames") or 0
+    wait_until(lambda: (page_eval("window.__frames") or 0) >= first + 5, "the probe page's next frames", timeout=10,
+               interval=0.05, raise_on_timeout=False)
+    layout_still("the layout with the probe page")
     return None
 
 
@@ -361,7 +385,11 @@ def focus_page():
     """Focuses the probe page's tab, so the next action acts on its (the Chromium) pane."""
     if PROBE.get("tab"):
         rpc("action.run", {"action": "tab.focus", "target": f"tab:{PROBE['tab']}", "focus": True, "origin": "script"})
-        time.sleep(0.3)  # test harness: focus lands before the timed action
+        # Until the focused pane shows the probe page's tab.
+        focused = lambda: any(p.get("focused") and p.get("selected_tab") == PROBE["tab"]  # noqa: E731
+                              for w in ((rpc("debug.surfaces") or {}).get("windows") or []) for p in w.get("panes", []))
+        if not wait_until(focused, "the probe page's tab to take focus", timeout=10, interval=0.05, raise_on_timeout=False):
+            print("  (the probe page's tab never read focused in 10 s)", flush=True)
 
 
 def layout(columns, rows):
@@ -405,7 +433,18 @@ def layout(columns, rows):
     for _ in range(columns):
         action("focusLeft", settle=0.15)
     focus_page()
-    time.sleep(1.5 if opts.scrollback else 0.5)  # test harness: seq fills the scrollback
+    if opts.scrollback:
+        # Until every terminal printed seq's last line (or, the streaming one, its stream).
+        last = str(opts.scrollback)
+
+        def filled():
+            panes = [p for w in ((rpc("debug.surfaces", {"text": True}) or {}).get("windows") or []) for p in w.get("panes", [])
+                     if p.get("kind") == "terminal"]
+            return bool(panes) and all(any(line.strip() == last for line in (p.get("text") or "").splitlines())
+                                       or "streaming output line" in (p.get("text") or "") for p in panes)
+        if not wait_until(filled, "seq to fill every terminal's scrollback", timeout=30, interval=0.1, raise_on_timeout=False):
+            print(f"  (not every terminal showed seq's last line {last} in 30 s)", flush=True)
+    layout_still("the layout")
     return None
 
 
@@ -483,7 +522,7 @@ def perform(name):
     if name == "keys":
         return key_resize()
     if name == "idle":
-        time.sleep(1.0)  # test harness: nothing happens but the page's own animation
+        time.sleep(1.0)  # sleep-ok: the idle action is 1 s of nothing but the page's own animation, measured
         return None
     if name == "scroll":
         if not PROBE.get("tab"):
@@ -568,6 +607,12 @@ def first_window(report):
     return windows[0] if windows else {}
 
 
+def traced_at_rest(what):
+    """Until the running debug.motion trace holds a few frames (the geometry at rest before the input)."""
+    wait_until(lambda: len((rpc("debug.motion", {"action": "trace_read"}) or {}).get("samples") or []) >= 3,
+               f"traced frames of {what}", timeout=5, interval=0.01, raise_on_timeout=False)
+
+
 def measure(label, name):
     global WINDOW_RESTORE
     window_geometry = first_window(rpc("debug.layers")) if name in WINDOW_ACTIONS else {}
@@ -577,11 +622,11 @@ def measure(label, name):
     gap_traced = opts.browser and name in GAP_ACTIONS and PROBE.get("tab")
     if name in WINDOW_ACTIONS:
         rpc("debug.motion", {"action": "trace_start", "targets": ["window"]})
-        time.sleep(0.05)  # test harness: record the resting geometry before the input
+        traced_at_rest("the window's resting geometry")
     elif gap_traced:
         page_eval("window.__rz.length = 0, true")
         rpc("debug.motion", {"action": "trace_start", "targets": ["page"]})
-        time.sleep(0.05)  # test harness: record the page at rest before the input
+        traced_at_rest("the page at rest")
     cef_before = rpc("debug.cef") if opts.browser else None  # outside the timed window, like the reads after it
     layers_before = first_window(rpc("debug.layers")) if opts.browser else None
     page_before = page_eval("window.__frames") if opts.browser else None
@@ -592,7 +637,9 @@ def measure(label, name):
     rpc("debug.window_transition", {"action": "start"})
     started_ms = time.time() * 1000
     error = perform(name)
-    time.sleep(1.2)  # test harness: the springs land (rest is under 0.5 s) and the PTY owner answers
+    # sleep-ok: the measured window; every row counts frames, commits and grid reports over the same 1.2 s, past
+    # the springs' landing (rest is under 0.5 s) and the PTY owner's answer.
+    time.sleep(1.2)
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
@@ -705,7 +752,8 @@ def measure(label, name):
                  f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
                  f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}  "
                  f"gap {result['gap_frames']} frames (delay {result['gap_delay_frames']}, lag {result['gap_layout_lag']})  "
-                 f"commit wait answered {result['trk_commit_answered']} at bound {result['trk_commit_bound']} left {result['trk_commit_left']}")
+                 f"commit wait answered {result['trk_commit_answered']} at bound {result['trk_commit_bound']} left {result['trk_commit_left']}"
+                 f" (answers late {result['trk_answer_late']} failed {result['trk_answer_failed']} {result['trk_answer_ms']} ms)")
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
@@ -743,9 +791,11 @@ def film(name, label):
         return
     if not wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("capturing"), 5):
         print(f"  (no film of {label}: the capture never ran)", flush=True)
-    time.sleep(0.4)  # test harness: the film has the window at rest before the act
+    time.sleep(0.4)  # sleep-ok: the take's lead-in, 0.4 s of the window at rest filmed before the act
     perform(name)
-    time.sleep(1.6)  # test harness: the act and the page's layout land
+    # sleep-ok: the take's length after the act: the movie holds the act and its landing as composited (the
+    # geometry reads land before the composited frames do, so they cannot end the take).
+    time.sleep(1.6)
     rpc("debug.motion", {"action": "record_stop"})
     # The app writes the files at the stop, not after ScreenCaptureKit's own stop (which can take its 10 s limit):
     # 30 s is far past any write. Every take is a row, so a film that is missing or incomplete fails the run.
@@ -760,9 +810,12 @@ def record(name, label):
     reply = rpc("debug.window_record", {"dir": folder, "seconds": 2.0})
     if isinstance(reply, dict) and reply.get("error"):
         print(f"  (no recording of {label}: {reply['error']})", flush=True)
-    time.sleep(0.2)  # test harness: the recorder takes its first frame at rest
+    time.sleep(0.2)  # sleep-ok: the recording keeps a few frames at rest before the act
     perform(name)
-    time.sleep(2.2)  # test harness: the recording stops by itself
+    # frames.json lands when the 2 s recording finishes by itself.
+    if not (isinstance(reply, dict) and reply.get("error")) and not wait_until(lambda: os.path.exists(os.path.join(folder, "frames.json")), f"{label}'s recording to finish",
+                      timeout=20, interval=0.1, raise_on_timeout=False):
+        print(f"  (the recording of {label} wrote no frames.json in 20 s)", flush=True)
 
 
 def profile(name, label):
@@ -776,8 +829,17 @@ def profile(name, label):
     path = os.path.join(opts.out, f"sample-{label}.txt")
     seconds = max(3, int(opts.sample_repeats * len(pair) * 1.0) + 1)
     sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", path],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(0.5)  # test harness: the sampler attaches
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # Until the sampler attached: it prints "Sampling process ..." once it samples.
+    import select
+    deadline = time.monotonic() + 10
+    attached = False
+    while not attached and time.monotonic() < deadline and sampler.poll() is None:
+        ready, _, _ = select.select([sampler.stdout], [], [], max(0.0, deadline - time.monotonic()))
+        line = sampler.stdout.readline() if ready else ""
+        attached = line.startswith("Sampling process")
+    if not attached:
+        print(f"  (sample never reported attaching to {app.pid} in 10 s)", flush=True)
     for _ in range(opts.sample_repeats):
         for step in pair:
             perform(step)
@@ -903,7 +965,7 @@ def main():
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
-    time.sleep(5)  # test harness: launch work settles
+    layout_still("the launch's first layout", timeout=30)
     placed, window_problem = STRESS_MODULE.place_window(rpc)
     row("the window is placed on the main screen", f"{list(WINDOW)} pt on its screen", window_problem or str(placed.get("frame") if isinstance(placed, dict) else placed),
         window_problem is None)
