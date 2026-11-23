@@ -28,6 +28,7 @@ pub mod dlink;
 #[cfg(feature = "net")]
 pub mod net;
 pub mod turn;
+pub mod wake;
 
 use control::{ControlReceiver, ControlSender};
 use replay::ReplayWindow;

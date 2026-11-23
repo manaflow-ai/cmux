@@ -195,11 +195,19 @@ import UIKit
         try #require(open > closed + 40, "the group opened: \(closed) -> \(open)")
 
         // Scrolled up until it is off screen, then opened along with a group on screen.
+        // Off screen: no visible cell (UIKit may keep a hidden one parked for reuse). Scrolled in
+        // steps until it is: on a loaded kit host one 2.5-screen jump and 20 frames left it on
+        // screen (the rows above were still being measured as they came in).
         chat.surface.following = false
         chat.scroll.contentOffset.y -= chat.scroll.bounds.height * 2.5
         await chat.frames(20)
-        // Off screen: no visible cell (UIKit may keep a hidden one parked for reuse).
-        let parked = chat.list.cell(for: x)
+        var parked = chat.list.cell(for: x)
+        for _ in 0 ..< 40 where chat.scroll.visibleCells.contains(where: { $0 === parked }) {
+            chat.scroll.contentOffset.y = max(-chat.scroll.adjustedContentInset.top,
+                                              chat.scroll.contentOffset.y - chat.scroll.bounds.height / 2)
+            await chat.frames(5)
+            parked = chat.list.cell(for: x)
+        }
         try #require(!chat.scroll.visibleCells.contains { $0 === parked }, "the first group is off screen")
         let y = try lowest(chat, "group")
         let keyY = try #require(chat.key(y))

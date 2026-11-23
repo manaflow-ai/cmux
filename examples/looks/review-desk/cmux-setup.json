@@ -1,0 +1,43 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/review-desk",
+  "name": "review-desk",
+  "tagline": "A review layout: the chat in the middle, the diff and files beside it, a terminal for the branch.",
+  "description": "Review what an agent did without leaving the chat. The chat stays the main pane and every diff, file and link it opens lands in a column on its right; new terminals split instead of stacking as tabs; the edited-files card stays open; the tab bar gets Split Right, Split Down, Open Diff Viewer and Zoom buttons. Shift-Command-D opens the diff; in the diff, ] F and [ F step files, N and Shift-N step hunks, G G goes to the top. Two palette actions show the branch against main and start Claude to review it.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "layout.mainPane": "agent-chats",
+    "layout.linkPlacement": "split-right",
+    "layout.newPanePlacement": "split",
+    "layout.splitSizing": "halve",
+    "layout.paneSeparation": "borders",
+    "tabs.toolbarButtons": [
+      "splitRight",
+      "splitDown",
+      "openDiffViewer",
+      "toggleSplitZoom"
+    ],
+    "tabs.plusButton": "always",
+    "agentPane.editedFiles.show": "always",
+    "agentPane.editedFiles.scope": "session",
+    "agentPane.display.sessionInfo.placement": "push"
+  },
+  "actions": {
+    "review-branch": {
+      "type": "command",
+      "title": "Review: Branch Against Main",
+      "tooltip": "What this branch changes, file by file, in a new tab",
+      "command": "base=$(git symbolic-ref -q --short refs/remotes/origin/HEAD || echo origin/main); git log --oneline \"$base\"..HEAD; git diff --stat \"$base\"...HEAD",
+      "target": "newTabInCurrentPane"
+    },
+    "review-claude": {
+      "type": "agent",
+      "agent": "claude",
+      "title": "Review: Start Claude Here",
+      "tooltip": "Start Claude in a new tab in this folder, to review the branch with you",
+      "target": "newTabInCurrentPane"
+    }
+  }
+}

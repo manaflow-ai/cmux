@@ -33,6 +33,17 @@
       "status": "build"
     },
     {
+      "id": "chief-vm-source",
+      "generator": "backend/apps/api/scripts/gen-chief-vm-source.ts",
+      "outputs": [
+        "backend/apps/api/src/chief-brain-cc/chief-vm-source.ts"
+      ],
+      "inputs": [
+        "backend/chief-cc/image/chief-vm.mjs"
+      ],
+      "status": "build"
+    },
+    {
       "id": "extension-sdk-customize-types",
       "generator": "cmux-tui/crates/cmux-extension-sdk/build.rs",
       "outputs": ["cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/**"],
