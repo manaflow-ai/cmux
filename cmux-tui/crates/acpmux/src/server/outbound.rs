@@ -21,6 +21,18 @@
 //! room the channel has again are the ones still there, oldest first. One slot is kept free for
 //! the last line, which no other sender can take.
 //!
+//! A connection that reads the session list (not a peer daemon's link) does not end at its bound
+//! while its queue holds list notices ([`LIST_NOTICE_PREFIX`]): each carries a chat's whole row,
+//! which a newer notice or a read of the list replaces. They are left out of the bulk lane, and
+//! one `_acpmux/lagged` (`watch: true`, reason `reader.too_slow`) goes after what is left, so the
+//! client reads the list again from its cursor (webviews `resyncAfterLag`, cmux-tui-core
+//! `agent_chat_notices.rs`, `AgentTurnStateFeed`). Every other line keeps its order. Only a
+//! pass that frees at least a quarter of the bound counts, so each pass is paid for by the bytes
+//! queued since the last, and a queue that still does not fit ends as before. On cosmic-gray,
+//! 2026-11-22, the app's watchers (`cmux-tui-agent-chat-notices`, `cmux-next-turn-states`) reached
+//! 64 MiB of rows of up to 82 KB each and were cut ten times in six minutes around Leo's chat
+//! pane showing "reconnecting".
+//!
 //! Two lanes (cmuxterm-hq `docs/design/remote-cloud-durability.md` 4.6, F18): the answer to a
 //! cheap read ([`is_cheap_read`]: identify, the session list, host health, status, the peer list
 //! the agent pane probes the daemon's liveness with) goes in the
@@ -137,6 +149,24 @@ pub(super) const READER_STALL: Duration = Duration::from_secs(10);
 /// The bytes every live queue holds now (the sum of their [`State::held`]).
 pub(crate) static TOTAL_HELD: AtomicUsize = AtomicUsize::new(0);
 
+/// The start of a list notice's line ([`crate::rpc::Message::to_line`] writes its keys sorted):
+/// what a lagging reader that reads the list may be spared ([module docs](self)).
+pub(super) const LIST_NOTICE_PREFIX: &str =
+    r#"{"jsonrpc":"2.0","method":"_acpmux/session_changed","params":"#;
+
+/// Times a lagging reader was spared its list notices instead of disconnected, since the daemon
+/// started (`gauges.queues.listSheds`).
+pub(crate) static LIST_SHEDS: AtomicU64 = AtomicU64::new(0);
+
+/// The `_acpmux/lagged` a reader gets after `dropped` list notices were left out.
+fn lag_marker(dropped: u64) -> String {
+    Message::notification(
+        "_acpmux/lagged",
+        json!({"dropped": dropped, "watch": true, "reason": "reader.too_slow"}),
+    )
+    .to_line()
+}
+
 /// Connections ended because their reader fell [`OUTBOUND_BYTE_BOUND`] behind, since the daemon
 /// started (`daemon status`, `gauges.queues.overruns`).
 pub(crate) static OVERRUNS: AtomicU64 = AtomicU64::new(0);
@@ -212,6 +242,10 @@ struct State {
     /// The pump ended (its transport closed, the journal's writer ended, the daemon is stopping,
     /// or it overran): nothing queued now would ever be sent.
     ended: bool,
+    /// Its list notices may be left out past the bound ([module docs](self)).
+    sheds: bool,
+    /// Who reads it, for the log: origin, client name, connection id.
+    who: String,
 }
 
 impl Drop for State {
@@ -383,11 +417,16 @@ impl Shared {
         if state.held + size > self.bound || over_total(state) {
             state.settle();
         }
-        let own = state.held + size > self.bound || over_rows;
+        let mut own = state.held + size > self.bound;
+        if own && state.sheds {
+            own = !self.shed_list_notices(state, size);
+        }
+        let own = own || over_rows;
         if own || over_total(state) {
             let limit = if over_rows { self.row_bound } else { self.bound };
             let overrun = Overrun { held: state.held, limit };
             tracing::warn!(
+                who = %state.who,
                 held = state.held,
                 line = size,
                 bound = limit,
@@ -414,19 +453,66 @@ impl Shared {
         }
         let held = state.held + size;
         state.set_held(held);
+        Self::queue_line(state, line, lane);
+        self.wake.notify_one();
+        true
+    }
+
+    fn queue_line(state: &mut State, mut line: Line, lane: Lane) {
         match lane {
             Lane::Read => state.reads.push_back(line),
             Lane::Bulk => {
                 line.serial = state.next_serial;
                 state.next_serial += 1;
-                if let Row::Latest(key) = row {
-                    state.rows.insert(key, line.serial);
-                    state.row_bytes += size;
+                if let Row::Latest(key) = &line.row {
+                    state.rows.insert(key.clone(), line.serial);
+                    state.row_bytes += line.text.len();
                 }
                 state.queue.push_back(line);
             }
         }
-        self.wake.notify_one();
+    }
+
+    /// Leaves the bulk lane's list notices out, and a lag marker from an earlier pass the reader
+    /// has not taken yet, and queues one marker for all of them: true when that frees a quarter
+    /// of the bound and the marker and a line of `size` then fit. Else changes nothing.
+    fn shed_list_notices(&self, state: &mut State, size: usize) -> bool {
+        let shed = |line: &Line| line.lag_marker > 0 || line.text.starts_with(LIST_NOTICE_PREFIX);
+        let (mut freed, mut dropped) = (0usize, 0u64);
+        for line in state.queue.iter().filter(|l| shed(l)) {
+            freed += line.text.len();
+            // A marker from an earlier pass stands for the notices it counted.
+            dropped += line.lag_marker.max(1);
+        }
+        let marker = lag_marker(dropped);
+        if freed < self.bound / 4 || state.held - freed + marker.len() + size > self.bound {
+            return false;
+        }
+        // A shed row is no longer queued ([`State::unrow`]); the rest keep their order.
+        for line in std::mem::take(&mut state.queue) {
+            if shed(&line) {
+                state.unrow(&line);
+            } else {
+                state.queue.push_back(line);
+            }
+        }
+        LIST_SHEDS.fetch_add(1, Ordering::Relaxed);
+        tracing::warn!(
+            who = %state.who,
+            held = state.held,
+            freed,
+            dropped,
+            bound = self.bound,
+            "a connection's reader fell past its byte bound: its list notices are left out and it reads the list again"
+        );
+        let held = state.held - freed + marker.len();
+        state.set_held(held);
+        let needs = Needs {
+            durable: self.raised.durable.load(Ordering::SeqCst),
+            written: self.raised.written.load(Ordering::SeqCst),
+        };
+        let marker = Line { text: marker, needs, lag_marker: dropped, ..Line::default() };
+        Self::queue_line(state, marker, Lane::Bulk);
         true
     }
 }
@@ -474,6 +560,9 @@ pub(super) struct Line {
     pub(super) ticket: Option<super::controls::Ticket>,
     /// What the journal must have reached before it goes out: set when it is queued.
     pub(super) needs: Needs,
+    /// A lag marker's count of the list notices it stands for ([`Shared::shed_list_notices`]);
+    /// 0 for every other line.
+    pub(super) lag_marker: u64,
     /// A chat's row, or a line that must follow it ([`Row`]).
     pub(super) row: Row,
     /// Its place in the bulk lane: set when it is queued there.
@@ -505,6 +594,15 @@ impl Outbound {
 
     pub(super) fn settle(&self) {
         self.shared.lock().settle();
+    }
+
+    /// Who reads this queue, for the log, and whether its list notices may be left out past its
+    /// bound ([module docs](self)): never a peer daemon's link, whose mirror of this daemon's list
+    /// reads it again only when it links again.
+    pub(super) fn describe(&self, who: String, sheds: bool) {
+        let mut state = self.shared.lock();
+        state.who = who;
+        state.sheds = sheds;
     }
 
     /// Queues `line` in the bulk lane; false when the connection overran or its reader is gone.
@@ -773,6 +871,8 @@ fn start_with(
             pool,
             overrun: None,
             ended: false,
+            sheds: false,
+            who: String::new(),
         }),
         wake: Notify::new(),
         closed,
