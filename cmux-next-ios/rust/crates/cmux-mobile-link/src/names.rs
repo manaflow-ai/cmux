@@ -51,6 +51,23 @@ pub const CONVERSATION_TABS: &str = "conversation-tabs-v1";
 pub const PAGE_TABS: &str = "page-tabs-v1";
 pub const AGENT_SESSION_TABS: &str = "agent-session-tabs-v1";
 pub const SEND_EXPECT_AGENT: &str = "send-expect-agent-v1";
+pub const AGENT_CLI_HYBRID: &str = "agent-cli-hybrid-v1";
+pub const AGENT_CLI_HYBRID_LEAN: &str = "agent-cli-hybrid-v2";
+pub const TERMINAL_SHELL_LINES: &str = "terminal-shell-lines-v1";
+pub const ATTACH_OUTPUT_COALESCE: &str = "attach-output-coalesce-v1";
+pub const TERMINAL_FULL_SCREEN_FRAMES: &str = "terminal-full-screen-frames-v1";
+
+/// What the phone's terminal session declares in `set-client-info` for the lean stream
+/// (Settings, Transport, Agent CLI Screen Changes): agent CLIs and shells as lean cell deltas,
+/// a full-screen program too (its modes as bytes), and coalesced PTY bytes for the rest.
+/// `CmuxMobileLive` `DaemonTerminalSession.capabilities` declares this list.
+pub const TERMINAL_LEAN_STREAM: &[&str] = &[
+    AGENT_CLI_HYBRID,
+    AGENT_CLI_HYBRID_LEAN,
+    TERMINAL_SHELL_LINES,
+    ATTACH_OUTPUT_COALESCE,
+    TERMINAL_FULL_SCREEN_FRAMES,
+];
 
 const fn host(name: &'static str, meaning: &'static str) -> Capability {
     Capability { name, side: Side::Host, meaning }
@@ -131,6 +148,23 @@ pub const ALL: &[Capability] = &[
         SEND_EXPECT_AGENT,
         "In `identify`: a notification reply to an agent types text and Return only while that agent waits at its prompt (#24205).",
     ),
+    daemon(
+        AGENT_CLI_HYBRID,
+        "Declared by the phone's terminal in `set-client-info` (the lean stream): an agent CLI's terminal as `agent-cli-frame` cell deltas.",
+    ),
+    daemon(AGENT_CLI_HYBRID_LEAN, "With `agent-cli-hybrid-v1`: the same deltas packed as `agent-cli-lean`."),
+    daemon(
+        TERMINAL_SHELL_LINES,
+        "With the hybrid pair: a plain shell's terminal as lean frames too, PTY bytes while it runs a full-screen program.",
+    ),
+    daemon(
+        ATTACH_OUTPUT_COALESCE,
+        "`output` at most once per display frame for a terminal that stays on PTY bytes (#43373).",
+    ),
+    daemon(
+        TERMINAL_FULL_SCREEN_FRAMES,
+        "With `terminal-shell-lines-v1`: a full-screen program as lean frames as well (its modes as bytes), one display frame apart, instead of its PTY repaints (#51565).",
+    ),
 ];
 
 /// The capabilities table as PROTOCOL.md shows it between its markers.
@@ -181,6 +215,20 @@ mod tests {
             "{} capability table is stale: rerun `CMUX_UPDATE_LINK_NAMES=1 cargo test -p cmux-mobile-link names` and commit it",
             path.display()
         );
+    }
+
+    /// The lean stream declares full-screen frames with the shell lines it needs, and every
+    /// name it declares is in [`ALL`].
+    #[test]
+    fn the_lean_stream_declares_full_screen_frames_with_the_shell_lines() {
+        for name in TERMINAL_LEAN_STREAM {
+            assert!(ALL.iter().any(|capability| capability.name == *name), "{name} is not in ALL");
+        }
+        for name in
+            [AGENT_CLI_HYBRID, AGENT_CLI_HYBRID_LEAN, TERMINAL_SHELL_LINES, TERMINAL_FULL_SCREEN_FRAMES]
+        {
+            assert!(TERMINAL_LEAN_STREAM.contains(&name), "{name}");
+        }
     }
 
     #[test]
