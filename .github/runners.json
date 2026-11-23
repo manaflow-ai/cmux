@@ -62,25 +62,29 @@
       "holds each pool's live member; a job reads fromJSON(vars.RUNNER_POOLS).<pool> and names no",
       "label itself (tests/test_ci_runner_set.py). runner_pools.py moves a pool to its next member",
       "when the queue janitor or the overflow probe sees the current one start nothing.",
-      "Members are Blacksmith labels, led at most by one owned Linux label (runner_pools.owned_lead()); owned Macs come",
-      "first through a picker's output, never a pool. An ephemeral_only pool never leads with the owned GCP label.",
+      "Members are Blacksmith labels, led at most by one owned Linux label (runner_pools.owned_lead()), or by the owned",
+      "GCP label then the Freestyle label (runner_pools.owned_freestyle()): a full GCP pool overflows to Freestyle, then",
+      "Blacksmith. Freestyle VMs have 8 vCPU, so only the linux, linux_2 and linux_8 pools list it. Owned Macs come",
+      "first through a picker's output, never a pool. An ephemeral_only pool never names the GCP or Freestyle label.",
       "Only a pool marked hosted may name a GitHub-hosted label, and it says why."
     ],
     "linux": {
-      "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\"), smallest first. Blacksmith now caps us on vCPUs at once, so a 32 vCPU job holds the room of eight 4 vCPU jobs, and on 2026-10-31 the live member was 32 vCPU: 106,443 jobs and 193,021 billed minutes (about $12.4k of $19.3k) ran there, most of them checks under a minute (pr-perf-section-check 2,940 runs at 0.1 min). A stalled 4 vCPU moves the pool to 16 vCPU; 8 vCPU is not a member because the bounded selectors (vars.LINUX_RUNNER in 4/16/32, else 4) would send its readers back to 4 (Leo, 2026-11-01: \"we clearly are not able to use them. so we should have resized a long-ass time ago.\"). A job that needs more cores names its size, not this pool Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there the stall cutoff the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
+      "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\"), smallest first. Blacksmith now caps us on vCPUs at once, so a 32 vCPU job holds the room of eight 4 vCPU jobs, and on 2026-10-31 the live member was 32 vCPU: 106,443 jobs and 193,021 billed minutes (about $12.4k of $19.3k) ran there, most of them checks under a minute (pr-perf-section-check 2,940 runs at 0.1 min). A stalled 4 vCPU moves the pool to 16 vCPU; 8 vCPU is not a member because the bounded selectors (vars.LINUX_RUNNER in 4/16/32, else 4) would send its readers back to 4 (Leo, 2026-11-01: \"we clearly are not able to use them. so we should have resized a long-ass time ago.\"). A job that needs more cores names its size, not this pool. Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there past the stall cutoff, the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
       "members": [
-          "cmux-fleet-linux-x64",
-          "blacksmith-4vcpu-ubuntu-2404",
-          "blacksmith-16vcpu-ubuntu-2404"
-        ]
+        "cmux-fleet-linux-x64",
+        "cmux-freestyle-linux-x64",
+        "blacksmith-4vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404"
+      ]
     },
     "linux_2": {
-      "why": "One-minute control and comment jobs measured at 2 vCPU. A job that used to end in a literal 2 vCPU label reads this pool, so a stalled 2 vCPU size moves it to 4 vCPU by declaration, not by a YAML edit (Leo, 2026-10-28: \"Where the f***ing are the generalized solution to all these problems that these incessant pins?\") Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there the stall cutoff the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
+      "why": "One-minute control and comment jobs measured at 2 vCPU. A job that used to end in a literal 2 vCPU label reads this pool, so a stalled 2 vCPU size moves it to 4 vCPU by declaration, not by a YAML edit (Leo, 2026-10-28: \"Where the f***ing are the generalized solution to all these problems that these incessant pins?\"). Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there past the stall cutoff, the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
       "members": [
-          "cmux-fleet-linux-x64",
-          "blacksmith-2vcpu-ubuntu-2404",
-          "blacksmith-4vcpu-ubuntu-2404"
-        ]
+        "cmux-fleet-linux-x64",
+        "cmux-freestyle-linux-x64",
+        "blacksmith-2vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404"
+      ]
     },
     "linux_owned_small": {
       "why": "Small arch-agnostic Linux jobs (stdlib Python, git, bun; no Docker service, no secret, no App key) on the owned Mac fleet's Linux VMs first: arm64 Ubuntu 24.04, one just-in-time runner per fresh VM clone, one job each (runner_pools.py OWNED_EPHEMERAL_LINUX). Leo, 2026-11-19: \"dont we have linux vms set up on everybody yet? we shuold\" ... \"on the fleet\". The fleet is small (one clone per mini at first), so once a job there waits the stall cutoff the pool overflows to Blacksmith 2 then 4 vCPU until that queue drains. Never a job that needs x64 (an amd64 download, X64 Java); jobs read it only on push, schedule and workflow_dispatch while the runner group admits only main and feat-cmux-next",
@@ -99,33 +103,34 @@
       ]
     },
     "linux_8": {
-      "why": "Jobs measured at 8 vCPU (tooling tests, mid-size compiles). A stalled 8 vCPU size moves them down to 4 vCPU first (Blacksmith caps the org on vCPUs at once, so a bigger size is the one that starves; runner_pools.py grows_before_shrinking()), else to 16, then 32 vCPU. 32 vCPU is last: on 2026-11-20 11:31Z 8 vCPU ran 0 of 101 queued jobs, 4 vCPU 12 of 161 and 16 vCPU 0 of 79, while 32 vCPU had no job waiting, so the writer kept linux_8 on a size that started nothing for 4 h and the required cmux-tui clippy check never ran Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there the stall cutoff the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
+      "why": "Jobs measured at 8 vCPU (tooling tests, mid-size compiles). A stalled 8 vCPU size moves them down to 4 vCPU first (Blacksmith caps the org on vCPUs at once, so a bigger size is the one that starves; runner_pools.py grows_before_shrinking()), else to 16, then 32 vCPU. 32 vCPU is last: on 2026-11-20 11:31Z 8 vCPU ran 0 of 101 queued jobs, 4 vCPU 12 of 161 and 16 vCPU 0 of 79, while 32 vCPU had no job waiting, so the writer kept linux_8 on a size that started nothing for 4 h and the required cmux-tui clippy check never ran. Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there past the stall cutoff, the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
       "members": [
-          "cmux-fleet-linux-x64",
-          "blacksmith-8vcpu-ubuntu-2404",
-          "blacksmith-4vcpu-ubuntu-2404",
-          "blacksmith-16vcpu-ubuntu-2404",
-          "blacksmith-32vcpu-ubuntu-2404"
-        ]
+        "cmux-fleet-linux-x64",
+        "cmux-freestyle-linux-x64",
+        "blacksmith-8vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404",
+        "blacksmith-32vcpu-ubuntu-2404"
+      ]
     },
     "linux_16": {
-      "why": "CPU-bound jobs measured at 16 vCPU (compiles, linters, large suites). A stalled 16 vCPU size moves them down to 8 vCPU first (Blacksmith caps the org on vCPUs at once: on 2026-11-18 32 vCPU started 1 of 282 jobs, 00:00-00:48Z; runner_pools.py grows_before_shrinking()), else to 32 vCPU Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there the stall cutoff the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
+      "why": "CPU-bound jobs measured at 16 vCPU (compiles, linters, large suites). A stalled 16 vCPU size moves them down to 8 vCPU first (Blacksmith caps the org on vCPUs at once: on 2026-11-18 32 vCPU started 1 of 282 jobs, 00:00-00:48Z; runner_pools.py grows_before_shrinking()), else to 32 vCPU. Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there past the stall cutoff, the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
       "min_vcpu": 8,
       "members": [
-          "cmux-fleet-linux-x64",
-          "blacksmith-16vcpu-ubuntu-2404",
-          "blacksmith-8vcpu-ubuntu-2404",
-          "blacksmith-32vcpu-ubuntu-2404"
-        ]
+        "cmux-fleet-linux-x64",
+        "blacksmith-16vcpu-ubuntu-2404",
+        "blacksmith-8vcpu-ubuntu-2404",
+        "blacksmith-32vcpu-ubuntu-2404"
+      ]
     },
     "linux_32": {
-      "why": "The largest parallel builds and test shards, measured at 32 vCPU (linux_sizes). A stalled 32 vCPU size moves them to 16 vCPU Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there the stall cutoff the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
+      "why": "The largest parallel builds and test shards, measured at 32 vCPU (linux_sizes). A stalled 32 vCPU size moves them to 16 vCPU. Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there past the stall cutoff, the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
       "min_vcpu": 8,
       "members": [
-          "cmux-fleet-linux-x64",
-          "blacksmith-32vcpu-ubuntu-2404",
-          "blacksmith-16vcpu-ubuntu-2404"
-        ]
+        "cmux-fleet-linux-x64",
+        "blacksmith-32vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404"
+      ]
     },
     "linux_arm64": {
       "why": "Native ARM64 Linux package checks",

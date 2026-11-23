@@ -40,11 +40,15 @@ concurrency:
   group: cmux-next-defaults-guard-${{ github.event.pull_request.number }}-${{ github.event.action == 'closed' && 'merged' || 'open' }}
   cancel-in-progress: ${{ github.event.action != 'closed' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   defaults:
     name: defaults guard
     if: ${{ github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action != 'closed' || github.event.pull_request.merged) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 5
     permissions:
       contents: read
@@ -91,11 +95,20 @@ jobs:
         # git, not the API: the compare call failed when the installation ran
         # out of quota (#23427). A treeless fetch of both tips (commits only,
         # about 3 s and 33 MiB) gives git merge-base the history it needs; the
-        # API stays as the fallback.
+        # API stays as the fallback. The fetch carries the job token (an
+        # extraheader in the environment, never written to the repo's config or
+        # argv): anonymous, it took about 90 s and failed on fsr-* runners, whose
+        # defaults guard success p50 was 101 s (32 runs) against 13 s on the
+        # cloud pool, and 9 runs cancelled at the 5-minute timeout (2026-11-22,
+        # 11-15:30Z).
+        # timeout 120 bounds a stall so the API fallback still runs in time.
         run: |
           history="$RUNNER_TEMP/merge-base.git"
           git init -q --bare "$history"
-          if git -C "$history" fetch -q --filter=tree:0 --no-tags "https://github.com/$REPO" "$BASE_SHA" "$HEAD_SHA" \
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="$auth" \
+            timeout 120 git -C "$history" fetch -q --filter=tree:0 --no-tags "https://github.com/$REPO" "$BASE_SHA" "$HEAD_SHA" \
             && merge_base="$(git -C "$history" merge-base "$BASE_SHA" "$HEAD_SHA")"; then
             :
           else
@@ -109,18 +122,23 @@ jobs:
       # four feat-cmux-next heads change none (42 of 166 merges, 13-19Z on 2026-11-21, touched them),
       # and the two data checkouts and the judge took about 110 of each run's 122 s. The names come from
       # the two commits' trees alone (a depth-1 blobless fetch, a few MiB), not the API, so no file-count
-      # cap applies. Any failure here runs the judge, as before.
+      # cap applies. Any failure here runs the judge, as before. The fetch carries the job token as the
+      # merge-base step's does, for the same reason (anonymous fetches stalled on fsr-* runners).
       - name: Does the head change what the guard reads
         id: inputs
         env:
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           MERGE_BASE: ${{ steps.base.outputs.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           trees="$RUNNER_TEMP/inputs.git"
           git init -q --bare "$trees"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
           if [ -n "$MERGE_BASE" ] \
-            && timeout 120 git -C "$trees" fetch -q --depth=1 --filter=blob:none --no-tags "https://github.com/$REPO" "$MERGE_BASE" "$HEAD_SHA" \
+            && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="$auth" \
+            timeout 120 git -C "$trees" fetch -q --depth=1 --filter=blob:none --no-tags "https://github.com/$REPO" "$MERGE_BASE" "$HEAD_SHA" \
             && GIT_NO_LAZY_FETCH=1 git -C "$trees" diff-tree -r -z --no-renames --name-only "$MERGE_BASE" "$HEAD_SHA" > "$RUNNER_TEMP/changed.txt"; then
             touched="$(python3 -c 'import os, sys
           inputs = [line.strip() for line in os.environ["DEFAULTS_DATA"].splitlines() if line.strip()]
@@ -159,6 +177,25 @@ jobs:
           persist-credentials: false
           sparse-checkout: ${{ env.DEFAULTS_DATA }}
           sparse-checkout-cone-mode: false
+
+      # A skipped judge would leave an earlier head's sticky comment naming an approver for a change
+      # this head no longer has (a reverted default). The base's own guard rewrites that section to
+      # "No defaults change at <head>", and writes nothing on a pull request that never had one.
+      - name: Clear an earlier head's default changes
+        if: ${{ steps.inputs.outputs.touched == 'false' && github.event.action != 'closed' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 -c 'import os, sys
+          sys.path.insert(0, "scripts/ci")
+          try:
+              import defaults_guard as guard
+              guard.post_comment(os.environ["REPO"], int(os.environ["PR"]), {}, guard.comment_body([], None, os.environ["HEAD_SHA"]), [])
+          except Exception as error:  # a comment that cannot be written never fails the guard
+              print(f"::warning title=Defaults comment not cleared::{error}")'
 
       - name: Judge the default changes
         if: ${{ steps.inputs.outputs.touched != 'false' }}
