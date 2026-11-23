@@ -1,7 +1,8 @@
 // Plain keys (react-pages.md 1.2, Q3): Up/Down between rows, Space toggles a row's switch,
 // Return reveals a search result (or enters a row's control). The page handles no other Cmd or Ctrl
-// chord than its `app.keyStyle` keys on a row (Emacs' Ctrl-N/P...); the app's key dispatcher owns
-// them and sends page commands (`cmux.page.command`: find, back, forward, reset), which
+// chord than its `app.keyStyle` keys on a row (Emacs' Ctrl-N/P...) and, on the appearance pages, Cmd-Z and
+// Shift-Cmd-Z outside a text field (the appearance Undo and Redo, AppearanceBar); the app's key dispatcher owns
+// the rest and sends page commands (`cmux.page.command`: find, back, forward, reset), which
 // `runPageCommand` performs.
 import { focusSearchField } from "../shared/searchField";
 import {
