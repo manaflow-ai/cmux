@@ -6,7 +6,9 @@
 
 --ref downloads published profiles into a unique temporary folder on the capture
 Mac. --root instead uses files already staged there. Neither capture runner copies
-the caller's checkout. --only records a subset; --video adds a short display clip.
+the caller's checkout. --only records a subset; --video adds a short display clip. A clip's `recording`
+step needs a whole capture Mac, which a lane VM cannot lease; --frames N takes N stills
+per look instead (any route), which `ffmpeg` joins into a clip (VIDEO.md).
 The copy ends on its own setup after `cmux customize discard`.
 """
 import argparse
@@ -60,11 +62,15 @@ def main() -> int:
     parser.add_argument("--only", action="append", help="profile path from demo.sh --list; repeatable")
     parser.add_argument("--hold", type=float, default=3.0)
     parser.add_argument("--video", action="store_true", help="record a clip; requires a fleet display lease")
+    parser.add_argument("--frames", type=int, default=1,
+                        help="stills per look, spread over --hold (1 to 12): frames for a clip on any route")
     parser.add_argument("--output-dir", type=Path,
                         help="write one capture state per look (one named video each with --video)")
     args = parser.parse_args()
     if not math.isfinite(args.hold) or not 0 <= args.hold <= 30:
         parser.error("--hold must be from 0 to 30 seconds")
+    if not 1 <= args.frames <= 12:
+        parser.error("--frames must be from 1 to 12")
     if args.ref and not re.fullmatch(r"[0-9a-f]{40}", args.ref):
         parser.error("--ref must be a full lowercase commit SHA")
     if args.root and not Path(args.root).is_absolute():
@@ -109,14 +115,23 @@ def capture_steps(args, ordered: list[str], clip: str) -> list[dict]:
         steps += stage_profiles(args.ref, root, ordered)
     if args.video:
         steps.append({"recording": "start", "clip": clip})
+    if args.frames > 1:
+        steps.append({"shot": "00-before"})
     for index, file in enumerate(ordered, start=1):
         if index > 1:
             steps.append({"cmux": ["customize", "discard"], "record": True})
         name = clip_name(file)
         steps += [
             {"cmux": ["customize", "use", f"{root}/{file}"], "record": True},
-            {"action": "newTab.default", "name": f"New Tab: {file}"},
-            {"wait": args.hold},
+            # newTab.page: a capture's action.run is a script, which newTab.default gives a tab of the selected
+            # tab's kind (the setup terminal), never the New Tab page that shows the look's own page.
+            {"action": "newTab.page", "name": f"New Tab: {file}"},
+        ]
+        for frame in range(1, args.frames):
+            steps += [{"wait": round(args.hold / args.frames, 2)},
+                      {"shot": f"{index:02d}-{frame:02d}-{name}"[:48]}]
+        steps += [
+            {"wait": round(args.hold / args.frames, 2) if args.frames > 1 else args.hold},
             {"shot": f"{index:02d}-{name}"[:48]},
         ]
     if args.video:
@@ -124,7 +139,7 @@ def capture_steps(args, ordered: list[str], clip: str) -> list[dict]:
     steps += [
         {"cmux": ["customize", "discard"], "record": True},
         {"cmux": ["customize", "library", "status"], "record": True},
-        {"action": "newTab.default", "name": "Restored New Tab"},
+        {"action": "newTab.page", "name": "Restored New Tab"},
         {"wait": 2},
         {"shot": "99-after-reset"},
     ]

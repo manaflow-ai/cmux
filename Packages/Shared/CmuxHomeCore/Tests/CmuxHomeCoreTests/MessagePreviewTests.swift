@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import Foundation
 import Testing
 
 /// ``MessagePreview``: a message's Markdown as the words a preview shows (Lawrence, 2026-11-20: a reply quote of the
@@ -70,6 +71,34 @@ import Testing
 
     @Test func whiteSpaceFoldsToSingleSpaces() {
         #expect(Self.line("  two  spaces\tand a\nnewline\r\nmore  ") == "two spaces and a newline more")
+    }
+
+    /// One case of `MessagePreviewCases.json`, the file the Rust port (`cmux-message-preview`) reads too.
+    struct Case: Decodable, Sendable, CustomTestStringConvertible {
+        var markdown: String
+        var text: String
+        var images: [String]?
+        var testDescription: String { markdown.debugDescription }
+    }
+
+    static let cases: [Case] = {
+        struct File: Decodable { var cases: [Case] }
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("MessagePreviewCases.json")
+        guard let data = try? Data(contentsOf: url), let file = try? JSONDecoder().decode(File.self, from: data) else { return [] }
+        return file.cases
+    }()
+
+    @Test func theSharedCaseFileIsRead() {
+        #expect(Self.cases.count >= 20)
+    }
+
+    /// The cases both implementations must give: the Mac and iPhone previews here, the daemon's Home rows and the
+    /// Chief's push in Rust.
+    @Test(arguments: cases)
+    func sharedCase(_ c: Case) {
+        let preview = MessagePreview(markdown: c.markdown)
+        #expect(preview.text(Self.words) == c.text)
+        #expect(preview.images.map(\.source) == (c.images ?? []))
     }
 
     @Test func aLongTextIsReadInOnePassWithoutStackGrowth() {

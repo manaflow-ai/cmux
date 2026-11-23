@@ -20069,6 +20069,137 @@
           }
         }
       }
+    },
+    "handlers.misc.failed.sessionTabRevealFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحادثة مفتوحة في علامة التبويب %@، لكن cmux لم يتمكن من عرضها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor je otvoren u kartici %@, ali cmux ga nije mogao prikazati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten er åben i fanen %@, men cmux kunne ikke vise den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat ist im Tab %@ geöffnet, aber cmux konnte ihn nicht anzeigen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat is open in tab %@, but cmux could not show it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat está abierto en la pestaña %@, pero cmux no pudo mostrarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conversation est ouverte dans l’onglet %@, mais cmux n’a pas pu l’afficher."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat è aperta nella scheda %@, ma cmux non è riuscito a mostrarla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットはタブ %@ で開いていますが、cmux で表示できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកបានបើកនៅក្នុងផ្ទាំង %@ ប៉ុន្តែ cmux មិនអាចបង្ហាញវាបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅이 탭 %@에 열려 있지만 cmux가 표시하지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten er åpen i fanen %@, men cmux kunne ikke vise den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat jest otwarty na karcie %@, ale cmux nie mógł go pokazać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat está aberto na aba %@, mas o cmux não conseguiu mostrá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат открыт во вкладке %@, но cmux не удалось его показать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตเปิดอยู่ในแท็บ %@ แต่ cmux แสดงไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet %@ sekmesinde açık, ancak cmux onu gösteremedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат відкрито у вкладці %@, але cmux не вдалося його показати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đang mở trong thẻ %@, nhưng cmux không thể hiển thị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天已在标签页 %@ 中打开，但 cmux 无法显示它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天已在分頁 %@ 中開啟，但 cmux 無法顯示它。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -127,4 +127,35 @@ describe("the Set Up cmux page", () => {
       [SETUP_OPS.run, { action: { kind: "installAgent", id: "codex" } }],
     ]);
   });
+  test("Text Size and Density: the person's pick is one host call, sized over the density's own text", async () => {
+    const look = { textSize: null, density: "cozy", body: 14 };
+    const card = await mounted({ ...fresh, look });
+    expect(card.root.textContent).toContain("Text size and density");
+    const radio = (selector: string) => {
+      const found = card.root.querySelector(selector);
+      if (!found) throw new Error(`no ${selector}`);
+      return found as unknown as HTMLInputElement;
+    };
+    expect(radio('input[data-text-size="default"]').checked).toBe(true);
+    await act(async () => radio('input[data-text-size="larger"]').click());
+    await act(async () => radio('input[data-density-choice="comfortable"]').click());
+    expect(card.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
+      [SETUP_OPS.run, { action: { kind: "setTextSize", points: 16 } }],
+      [SETUP_OPS.run, { action: { kind: "setDensity", id: "comfortable" } }],
+    ]);
+    // A size already set (16 pt): Default removes it.
+    const larger = await mounted({ ...fresh, look: { ...look, textSize: 16 } });
+    const checked = larger.root.querySelector('input[data-text-size="larger"]') as unknown as HTMLInputElement;
+    expect(checked.checked).toBe(true);
+    const reset = larger.root.querySelector('input[data-text-size="default"]') as unknown as HTMLInputElement;
+    await act(async () => reset.click());
+    expect(larger.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
+      [SETUP_OPS.run, { action: { kind: "setTextSize", points: null } }],
+    ]);
+  });
+
+  test("no look from the host (an older app): no Text Size row", async () => {
+    const card = await mounted(fresh);
+    expect(card.root.querySelector('[data-step="look"]')).toBeNull();
+  });
 });

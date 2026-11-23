@@ -20,28 +20,13 @@ func debugCEFPagesReport(_ services: AppServices) -> JSONValue {
     })])
 }
 
-/// `debug.cef_page_devtools {browser, method, params}`: a DevTools method on one of cmux's own
-/// Chromium pages by browser id (`debug.cef_pages`), its JSON reply. The idle bench reads each
-/// shown page's metrics and CPU profile with it. Browser tabs are refused: this reads only cmux's pages.
+/// `debug.cef_page_devtools {browser, method, params}`: a DevTools method on one of cmux's own Chromium pages by browser
+/// id (`debug.cef_pages`), its JSON reply (``CEFEngine/cmuxPageDevTools(browser:method:params:)``).
 @MainActor
 func debugCEFPageDevTools(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
-    guard let id = params["browser"]?.intValue, let browser = Int32(exactly: id), let method = params["method"]?.stringValue else {
-        return .object(["error": .string("browser (a browser id) and method are required")])
-    }
-    guard let page = services.cache.cef.rendererPages.first(where: { $0.browserID == browser }) else {
-        return .object(["error": .string("no live page \(browser)")])
-    }
-    guard page.origin.hasPrefix("cmux-page://") else { return .object(["error": .string("only cmux's own pages")]) }
-    var arguments: [String: any Sendable] = [:]
-    for (key, value) in params["params"]?.objectValue ?? [:] { arguments[key] = debugDevToolsValue(value) }
-    do {
-        guard let reply = try await services.cache.cef.devTools(browserID: browser, method: method, params: arguments) else {
-            return .object(["error": .string("no live page \(browser)")])
-        }
-        return .object(["result": .string(reply)])
-    } catch {
-        return .object(["error": .string(String(describing: error))])
-    }
+    let answer = await services.cache.cef.cmuxPageDevTools(browser: params["browser"]?.intValue, method: params["method"]?.stringValue,
+                                                           params: (params["params"]?.objectValue ?? [:]).mapValues(debugDevToolsValue))
+    return .object([answer.error == nil ? "result" : "error": .string(answer.error ?? answer.result ?? "")])
 }
 
 /// A JSON parameter as the Foundation value a DevTools call takes.
