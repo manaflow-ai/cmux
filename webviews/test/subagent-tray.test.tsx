@@ -2015,7 +2015,7 @@ describe("the tally header", () => {
   test("a lone running subagent is counted too: no step words swap in", async () => {
     pinFoldHead("tally");
     const one = trayItems(
-      [agent("Solo", { startedAt: Date.now() - 5000, latest: "Running a command" })],
+      [agent("Solo", { startedAt: Date.now() - 5000, action: "Running a command" })],
       [],
       NONE,
       true,

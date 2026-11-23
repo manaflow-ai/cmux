@@ -10,6 +10,7 @@
 // experiment. Each play crosses the row icon by icon and reads every tooltip in turn, then checks that
 // a subagent finishing and one joining move nothing in the header.
 import { agentPaneEntry } from "../../../gallery/format";
+import { pinKindsHead } from "../../../gallery/fixtures/kindsHead";
 import { chat, row, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
@@ -118,28 +119,30 @@ function variant(count: number, note: string) {
   };
 }
 
-export default agentPaneEntry({
-  id: "agent-pane.composer-hat-faces",
-  title: "Composer hat: one icon per subagent, named on hover",
-  area: "Agent pane",
-  height: 260,
-  widths: { narrow: 360, normal: 480, wide: 720 },
-  anchors: [{ selector: ".acpmux-composer" }],
-  covers: ["agent-session/acpmux/subagents/HatFaces.tsx", "agent-session/acpmux/subagents/SubagentTray.tsx"],
-  experiment: {
-    definition: hatFacesLook,
-    script: [{ name: "cross the icons", run: (ctx) => scrub(ctx) }],
-  },
-  variants: {
-    one: variant(1, "One subagent: the hat heads it as before, its mark and its task by name (no row of one)."),
-    three: variant(3, "Three: side by side, each named in turn as the pointer crosses them."),
-    "leo-seven": variant(
-      7,
-      'Leo\'s header (2026-11-22): "7 subagents · 4 done · 1 stopped". Seven icons, the ended ones dimmed; crossing them reads all seven names.',
-    ),
-    twenty: variant(
-      20,
-      "Twenty: they overlap evenly within the cap, each still a strip the pointer finds; on a quarter split the first eleven then +9.",
-    ),
-  },
-});
+export default pinKindsHead(
+  agentPaneEntry({
+    id: "agent-pane.composer-hat-faces",
+    title: "Composer hat: one icon per subagent, named on hover",
+    area: "Agent pane",
+    height: 260,
+    widths: { narrow: 360, normal: 480, wide: 720 },
+    anchors: [{ selector: ".acpmux-composer" }],
+    covers: ["agent-session/acpmux/subagents/HatFaces.tsx", "agent-session/acpmux/subagents/SubagentTray.tsx"],
+    experiment: {
+      definition: hatFacesLook,
+      script: [{ name: "cross the icons", run: (ctx) => scrub(ctx) }],
+    },
+    variants: {
+      one: variant(1, "One subagent: the hat heads it as before, its mark and its task by name (no row of one)."),
+      three: variant(3, "Three: side by side, each named in turn as the pointer crosses them."),
+      "leo-seven": variant(
+        7,
+        'Leo\'s header (2026-11-22): "7 subagents · 4 done · 1 stopped". Seven icons, the ended ones dimmed; crossing them reads all seven names.',
+      ),
+      twenty: variant(
+        20,
+        "Twenty: they overlap evenly within the cap, each still a strip the pointer finds; on a quarter split the first eleven then +9.",
+      ),
+    },
+  }),
+);

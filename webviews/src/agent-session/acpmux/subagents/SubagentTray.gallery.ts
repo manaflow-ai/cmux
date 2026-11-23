@@ -27,6 +27,7 @@ import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
 import { trayPanelLook } from "./trayPanel.experiment";
 import { RUNNING_TRAY_LINE } from "./subagentSelectors";
+import { pinKindsHead } from "../../../gallery/fixtures/kindsHead";
 
 const prompt = "Find out how the daemon updates itself, and check the docs agree";
 
@@ -508,7 +509,7 @@ const runningStopChat = chat(
 /** A chat whose hat holds `agents`, for the row variants. */
 const rowsChat = (agents: Subagent[]) => chat([user("Fan the review out", 7), group(agents, 6.2)], { isWorking: true });
 
-export default agentPaneEntry({
+export default pinKindsHead(agentPaneEntry({
   id: "agent-pane.subagent-tray",
   title: "Running subagents tray",
   area: "Agent pane",
@@ -1390,4 +1391,4 @@ export default agentPaneEntry({
       ]),
     },
   },
-});
+}));
