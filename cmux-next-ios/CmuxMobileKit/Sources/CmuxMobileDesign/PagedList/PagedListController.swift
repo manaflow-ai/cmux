@@ -620,18 +620,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         updating = true
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
-        let pendingBefore = ledger.pending
         dataSource.apply(snapshot, animatingDifferences: false)
         collectionView.layoutIfNeeded()
         arriving = false
         // Rows that came or went: put the reader back now, also mid-fling (an `.up` list's older page
-        // lands above a reader who is still scrolling into it). A row above the reader that sized
-        // itself in this pass already owes its own offset correction, which UIKit pays in the pass
-        // that lays the row out at its new height: correcting it here too moved the offset a frame
-        // ahead of that pass, and the rows drew that far off for one frame (Home's Chiefs that stop
-        // typing during a fling, #47121 step 6d8bcee4). The anchor leaves that part to UIKit.
-        let owed = ledger.pending - pendingBefore
-        let used = anchor.flatMap { restore($0, owed: owed) }
+        // lands above a reader who is still scrolling into it).
+        let used = anchor.flatMap { restore($0) }
         keepReader()
         if !loaded, direction == .up { scrollToNewest() }
         updating = false
@@ -742,7 +736,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// move, when the rows ride it). A row that left (removed, filtered out) or moved (to the newest
     /// end, re-sorted) is skipped: following it would carry the reader away. Returns the row used.
     @discardableResult
-    private func restore(_ anchor: Anchor, shiftedBy shift: CGFloat = 0, deliberate: Bool = false, owed: CGFloat = 0) -> Anchor.Row? {
+    private func restore(_ anchor: Anchor, shiftedBy shift: CGFloat = 0, deliberate: Bool = false) -> Anchor.Row? {
         let survivors = anchor.rows.dropFirst(anchor.straddles ? 1 : 0).compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
         guard !survivors.isEmpty else { return nil }
         func stable(_ i: Int) -> Bool {
@@ -754,10 +748,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         }
         guard let pick = survivors.indices.first(where: stable).map({ survivors[$0].0 }),
               let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
-        var delta = now - (pick.windowY + shift)
+        let delta = now - (pick.windowY + shift)
         note(pick.id == anchor.rows.first?.id ? "r" : "r'", delta)
-        // What a row above still owes is paid with its new height, in the same pass: not here.
-        if owed != 0, delta * owed > 0 { delta -= abs(owed) <= abs(delta) ? owed : delta }
         guard abs(delta) > 0.25 else { return pick }
         if deliberate { moveOffset(to: collectionView.contentOffset.y + delta) } else { correctOffset(by: delta) }
         return pick
