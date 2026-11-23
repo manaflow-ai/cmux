@@ -26,6 +26,11 @@ name: cmux-next PR autofix
 # skipped, failed or not done yet, a pack of another commit or tree), as before. It looks once and does not wait:
 # the producer takes 20-39 minutes and starts with this run, so from 2026-11-20 21:30Z to 2026-11-21 19:40Z a
 # 10-minute wait hit 1 of 224 lookups for 1634 runner-minutes of sleep (the wait was 2 hours before that).
+# While that job is still coming (queued, running, or not listed yet), generated-exports ends at once with
+# coming=true and action-exports does not run: that job regenerates the same exports on its own Mac build of this
+# merge commit and uploads them (cmux-next-generated-patch), and push never runs for a pull_request event, so the
+# Mac job's only product was a second copy in pr-autofix-patch. Until 2026-11-21 it ran on nearly every lookup
+# (74 of 74 in 14:30-20:31Z missed), ~20 min of an owned Mac each, 124-174 runner-h/day.
 #
 # Two jobs hold the token boundary, so the pull request's own code never runs next to a write token:
 #   repair: runs the repairs the pull request's changed paths need
@@ -120,7 +125,7 @@ jobs:
   action-areas:
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     name: action export areas
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # The checkout below fetches every branch's commit graph and trees (no blobs): 4-5 minutes on the 2 vCPU pool on
     # 2026-11-03, so a 5-minute limit cancelled 27 of the last 40 runs inside actions/checkout.
     timeout-minutes: 15
@@ -226,7 +231,7 @@ jobs:
           # cargo clippy --fix runs exactly when the clippy check (cmux-tui-spec.yml) does: its skip clause,
           # verbatim (affected-jobs.json pull_request_skip.follows; affected_jobs.py check holds them equal).
           # A feat-cmux-next pull request without full-ci skips both; its push runs the check and the base autofix.
-          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         run: |
           set -euo pipefail
           # The base's copy, or the pull request's while the base has no actions area yet.
@@ -323,7 +328,7 @@ jobs:
     name: exports from cmux-next generated files
     needs: action-areas
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -331,6 +336,10 @@ jobs:
       # A hit counts only once its changed exports are uploaded: a failed upload is a miss.
       hit: ${{ steps.lookup.outputs.hit == 'true' && (steps.lookup.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.lookup.outputs.hit == 'true' && steps.upload.outcome == 'success' && 'true' || 'false' }}
+      # This head's cmux-next generated-files job is still coming: it regenerates the same exports on its own
+      # Mac build of this merge commit (and uploads them as cmux-next-generated-patch), so action-exports
+      # does not build them again. vars.CMUX_NEXT_PR_EXPORTS_DEFER=0 turns that off.
+      coming: ${{ steps.lookup.outputs.coming == 'true' && 'true' || 'false' }}
       # The lookup waited: action-areas' idle gui runner pick is old by now, so the Mac job leaves it.
       # Also after a lookup that did not finish (killed at its limit, or a crash).
       stale_pick: ${{ steps.lookup.outputs.stale_pick == 'true' || steps.lookup.outcome == 'failure' || steps.lookup.outcome == 'cancelled' }}
@@ -386,14 +395,19 @@ jobs:
           ACTIONS: ${{ needs.action-areas.outputs.actions }}
           SETTINGS: ${{ needs.action-areas.outputs.settings }}
           SKIP_REASON: ${{ format('{0}', vars.CMUX_NEXT_PR_EXPORTS_REUSE) == '0' && 'vars.CMUX_NEXT_PR_EXPORTS_REUSE is 0' || '' }}
+          DEFER: ${{ format('{0}', vars.CMUX_NEXT_PR_EXPORTS_DEFER) != '0' && 'true' || 'false' }}
         run: |
           set -euo pipefail
           started="$(date +%s)"
           # The base's copy, or the pull request's before the base has one.
           lookup=base/scripts/cmux-next/base_autofix_pushed_exports.py
           grep -q 'pr-lookup' "$lookup" 2>/dev/null || lookup=scripts/cmux-next/base_autofix_pushed_exports.py
+          # A base whose lookup predates --defer-to-producer waits as before.
+          defer=()
+          if [[ "$DEFER" == true ]] && grep -q -- '--defer-to-producer' "$lookup"; then defer=(--defer-to-producer); fi
           python3 -I "$lookup" pr-lookup --out "$RUNNER_TEMP/action-exports" --head-sha "$HEAD_SHA" --pr "$PR" \
-            --actions "${ACTIONS:-false}" --settings "${SETTINGS:-false}" --wait 0 --skip "$SKIP_REASON" | tee -a "$GITHUB_OUTPUT"
+            --actions "${ACTIONS:-false}" --settings "${SETTINGS:-false}" --wait 0 --skip "$SKIP_REASON" \
+            ${defer[@]+"${defer[@]}"} | tee -a "$GITHUB_OUTPUT"
           if (( $(date +%s) - started >= 120 )); then echo "stale_pick=true" >> "$GITHUB_OUTPUT"; fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -416,8 +430,9 @@ jobs:
   action-exports:
     name: action exports (Mac)
     needs: [action-areas, generated-exports]
-    # Only when generated-exports took no pack (it is skipped for a fork, so a fork regenerates here).
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.action-areas.result == 'success' && (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.generated-exports.outputs.hit != 'true') }}
+    # Only when generated-exports took no pack and no generated-files job of this head is coming to regenerate
+    # them (it is skipped for a fork, so a fork regenerates here).
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.action-areas.result == 'success' && (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true') }}
     # The exports need a logged-in session: an owned gui runner, or Blacksmith macOS (where
     # cmux-next.yml's generated files make the same exports). They take the owned gui label only
     # when action-areas saw a gui runner idle (mac_runner, cmux_next_media_runner.py --idle-now
@@ -669,7 +684,7 @@ jobs:
     # checkout cost 1-3 minutes each time. Regenerated exports still run it (it commits them), and an empty repairs
     # (a failed action-areas, an old base) runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # clippy compiles the changed crates (cached below).
     timeout-minutes: 40
     permissions:
@@ -736,7 +751,7 @@ jobs:
           # cargo clippy --fix runs exactly when the clippy check (cmux-tui-spec.yml) does: its skip clause,
           # verbatim (affected-jobs.json pull_request_skip.follows; affected_jobs.py check holds them equal).
           # A feat-cmux-next pull request without full-ci skips both; its push runs the check and the base autofix.
-          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         run: |
           set -euo pipefail
           if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q '^Autofix-Run: '; then
@@ -847,12 +862,6 @@ jobs:
             node_modules/.bin/vp lint --fix "${lint_files[@]}" || echo "vp lint --fix: findings left for the author"
           fi
           node_modules/.bin/vp fmt
-          # The acpmux protocol types, generated from the committed spec (as the base autofix does), only when this PR
-          # changes the spec: then the regenerated types go with their input, which generated_files_guard.py requires.
-          # Drift the PR inherits from its base is the base autofix's to repair.
-          if grep -q '^cmux-tui/crates/acpmux/spec/' "$RUNNER_TEMP/changed.txt"; then
-            bun scripts/acpmux-protocol-codegen.ts
-          fi
           git diff --binary -- . > "$RUNNER_TEMP/webviews-fmt.patch"
           git checkout --quiet -- .
 
@@ -1003,7 +1012,7 @@ jobs:
   generated-drift:
     name: generated drift
     needs: [action-areas]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok')) }}
     permissions:

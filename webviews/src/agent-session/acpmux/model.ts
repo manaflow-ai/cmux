@@ -1550,6 +1550,9 @@ export type AcpmuxSnapshot = {
     unavailable?: string;
     /** `unavailable` is only a failed model probe (a timeout, a rate limit): the harness may run. */
     probeFailed?: boolean;
+    /** acpmux's `_acpmux/harnesses` named no default harness (default_harness.rs): New Tab starts
+     * on no agent until one is picked. */
+    noDefault?: true;
     pickable?: boolean;
     /** The declared launcher or route kind; routers cannot represent a harness family. */
     kind?: string;
@@ -2270,8 +2273,26 @@ export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColum
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
-export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endReserve = 0) =>
-  Math.max(120, transcriptColumn(paneWidth, column, endReserve).width);
+/// Where a row starts in from the column's left edge (`--cv-lead` in conversation/conversation.css): the
+/// composer's + glyph's center less half a row's icon box, the + at the composer's density, less the
+/// composer card's 8px narrow outset under 298px of column.
+const NARROW_COMPOSER_COLUMN = 297.5;
+const NARROW_COMPOSER_OUTSET = 8;
+export function transcriptLead(columnWidth: number): number {
+  const scale = gridScale();
+  const density = Math.max(0.8, composerDensityScale() ?? scale);
+  const lead = gridLength("composer-lead-center") * density - (gridLength("transcript-icon-box") * scale) / 2;
+  return lead - (columnWidth < NARROW_COMPOSER_COLUMN ? NARROW_COMPOSER_OUTSET : 0);
+}
+function composerDensityScale(): number | undefined {
+  if (typeof document === "undefined") return undefined;
+  const raw = parseFloat(document.documentElement?.style?.getPropertyValue?.("--cmux-density-scale") ?? "");
+  return Number.isFinite(raw) && raw > 0 ? raw : undefined;
+}
+export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endReserve = 0) => {
+  const { width } = transcriptColumn(paneWidth, column, endReserve);
+  return Math.max(120, width - transcriptLead(width));
+};
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
 export function markdownBlocks(source: string): Token[] {

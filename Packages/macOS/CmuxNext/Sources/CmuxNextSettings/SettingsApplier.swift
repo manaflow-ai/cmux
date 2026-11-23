@@ -62,6 +62,7 @@ public final class SettingsApplier {
         if design.homeChiefPetEnabled != snapshot.homeChiefPetEnabled { design.homeChiefPetEnabled = snapshot.homeChiefPetEnabled }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.tabOverflow != snapshot.tabOverflow { design.tabOverflow = snapshot.tabOverflow }
+        if design.tabShellIconTheme != snapshot.tabShellIconTheme { design.tabShellIconTheme = snapshot.tabShellIconTheme }
         if design.verticalTabs != snapshot.verticalTabs { design.verticalTabs = snapshot.verticalTabs }
         if design.verticalTabsExpandOnHover != snapshot.verticalTabsExpandOnHover { design.verticalTabsExpandOnHover = snapshot.verticalTabsExpandOnHover }
         if design.hideLoneChatTab != snapshot.hideLoneChatTab { design.hideLoneChatTab = snapshot.hideLoneChatTab }
@@ -112,6 +113,7 @@ public final class SettingsApplier {
         if design.plusButton != snapshot.plusButton { design.plusButton = snapshot.plusButton }
         Self.applyPlacement(snapshot, to: design)
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
+        if design.liquidGlass != snapshot.liquidGlass { design.liquidGlass = snapshot.liquidGlass }
         if design.fontSmoothing != snapshot.fontSmoothing { design.fontSmoothing = snapshot.fontSmoothing }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }
