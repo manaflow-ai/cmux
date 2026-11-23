@@ -199,6 +199,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.machine.io", CLOUD_API_REASON),
     ("cloud.machine.share_chat", CLOUD_API_REASON),
     ("cloud.machine.chief_start", CLOUD_API_REASON),
+    ("cloud.machine.chief_resize", CLOUD_API_REASON),
     ("cloud.owner.acpmux_keyed_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
     ("cloud.owner.fork_run", CLOUD_API_REASON),
@@ -310,7 +311,7 @@ const CHAT_REASON: &str = "The person's chats as their Priority view ranks them,
 const PALETTE_RANK_REASON: &str = "Ranks palette rows a page sends for its own palette \
      (the Channels page); an agent has no palette to rank, and its tools already search.";
 const THEME_SCHEME_REASON: &str = "Scheme conversion for pages and extensions; an agent runs \
-     `cmux theme import|export|from-image`, which reads and writes files the tools cannot pass.";
+     `cmux theme import|export|from-image|new`, which reads and writes files the tools cannot pass.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
