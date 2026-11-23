@@ -64,6 +64,29 @@
   margin: 12px 0;
 }
 
+.stats-payoff {
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--cmux-accent, var(--page-text)) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 8%, transparent);
+}
+
+.stats-payoff-value {
+  margin-top: 2px;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-title--letter-spacing);
+  color: var(--cmux-accent, var(--page-text));
+}
+
+.stats-payoff-detail {
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
 .stats-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
