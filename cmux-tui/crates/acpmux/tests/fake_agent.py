@@ -3,7 +3,8 @@
 
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
-  "plan-ask: <plan>" -> a plan approval as Claude Code's ExitPlanMode asks it, then as "ask:"
+  "plan-ask: <plan>" -> a plan approval as Claude Code's ExitPlanMode asks it, then as "ask:";
+                 an allow carrying an edited plan (`updatedInput.plan`) says "building: <plan>"
   "plan-ask-on: <plan>" -> the same; a rejected plan plans on until session/cancel
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
@@ -1180,7 +1181,10 @@ def handle_prompt(rid, params):
             },
         )
         chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
-        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        # The plan it builds, as Claude Code takes an allow's `updatedInput`: the person's edit.
+        built = ((res or {}).get("outcome", {}).get("_meta") or {}).get("updatedInput", {}).get("plan")
+        said = f"chose {chosen}" + (f" building: {built}" if built else "")
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": said}})
         if plan_on and chosen == "no":
             for _ in range(100):
                 if sid in cancelled:

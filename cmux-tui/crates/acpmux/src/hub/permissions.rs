@@ -1579,6 +1579,14 @@ impl Hub {
                 input.set("annotations", notes);
             }
             outcome.set("_meta", json!({"updatedInput": input}));
+        } else if let Some(input) = super::plan_build::edited_input(&pending.request)
+            && option_id.as_deref().is_some_and(|o| {
+                let options = pending.request["options"].as_array().map_or(&[][..], Vec::as_slice);
+                matches!(option_kind(options, o), Some("allow_once" | "allow_always"))
+            })
+        {
+            // A plan the person edited before approving: the agent gets the edit as its input.
+            outcome.set("_meta", json!({"updatedInput": input}));
         }
         if let Some(by) = answered_by {
             outcome[ANSWERED_BY_SLOT] = by;
