@@ -23,6 +23,17 @@ terminal beside a Chromium page and checks:
              reaches the app (debug.cef file_dialogs.received grows), Escape delivers 'cancel' to the page, and a
              second chooser does the same (other-Mac run on 6e420b7b: every later chooser of that app cancelled at once)
 
+  reveal     the window leaves the screen for --reveal-hidden seconds and comes back, without activating the app
+             (debug.page_reveal): `hide` hides the app (as a switch to another app with the window covered, the user's
+             recording on 34f21f2f), `cover` orders an opaque window of the app over it; then again with a docked
+             DevTools open. reveal.<mode>.layers fails when the page's compositor layers (CALayerHost context ids)
+             are replaced after the window shows again: the page's compositor went away while hidden, so its view
+             showed only the page's background until the new compositor's first frame (`replaced_ms`).
+             reveal.<mode>.pixels samples the window's real pixels (CuaDriver window captures, the daemon's Screen
+             Recording grant) from before the show to 2.5 s after: the page has a yellow block on its blue
+             background, and a frame after the show with the blue background but no yellow is a background-only
+             (blank) frame and fails the row. INFO when the host gives no captures.
+
 Every row prints `PASS|FAIL|INFO | name | detail`; --json writes the rows and the raw readouts. Exits 0 when no row
 fails. The app is quit at the end. Fleet GUI host only (debug.key needs no event-posting grant).
 """
@@ -35,7 +46,9 @@ parser.add_argument("--out", default=tempfile.mkdtemp(prefix="in-tree-live-"))
 parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
-parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,two_pages")
+parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,two_pages,reveal")
+parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
+                    help="reveal: seconds the window stays off the screen")
 parser.add_argument("--close-popup", dest="close_popup", choices=["script", "window"], default="script",
                     help="file_after_popup: the popup closes itself (window.close() from its opener) or its window closes")
 opts = parser.parse_args()
@@ -391,6 +404,173 @@ def file_after_popup(tab):
         time.sleep(0.5)  # test harness: the sheet closes
 
 
+def png_rgb(path):
+    """(width, height, rows of RGB bytes) of an 8-bit non-interlaced PNG (RGB or RGBA), without PIL."""
+    import struct, zlib
+    data = open(path, "rb").read()
+    pos, idat, width = 8, b"", 0
+    while pos < len(data):
+        length, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + length]
+        if kind == b"IHDR":
+            width, height, depth, color = struct.unpack(">IIBB", body[:10])
+            if depth != 8 or color not in (2, 6):
+                raise ValueError(f"png depth {depth} color {color}")
+            channels = 3 if color == 2 else 4
+        elif kind == b"IDAT":
+            idat += body
+        pos += 12 + length
+    raw, stride, rows, prev = zlib.decompress(idat), width * channels, [], bytearray(width * channels)
+    for y in range(height):
+        start = y * (stride + 1)
+        kind, line = raw[start], bytearray(raw[start + 1:start + 1 + stride])
+        for i in range(stride):
+            a = line[i - channels] if i >= channels else 0
+            b = prev[i]
+            c = prev[i - channels] if i >= channels else 0
+            if kind == 1:
+                line[i] = (line[i] + a) & 255
+            elif kind == 2:
+                line[i] = (line[i] + b) & 255
+            elif kind == 3:
+                line[i] = (line[i] + ((a + b) >> 1)) & 255
+            elif kind == 4:
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append(bytes(line if channels == 3 else bytes(v for j, v in enumerate(line) if j % 4 != 3)))
+        prev = line
+    return width, height, rows
+
+
+def probe_colors(path):
+    """Counts of the reveal probe's colours in a window capture: the yellow block and the page's blue (#246)."""
+    width, height, rows = png_rgb(path)
+    yellow = blue = 0
+    for row_bytes in rows[::2]:
+        for i in range(0, len(row_bytes), 6):
+            r, g, b = row_bytes[i], row_bytes[i + 1], row_bytes[i + 2]
+            if r > 200 and g > 200 and b < 90:
+                yellow += 1
+            elif abs(r - 0x22) < 14 and abs(g - 0x44) < 14 and abs(b - 0x66) < 14:
+                blue += 1
+    return {"yellow": yellow, "blue": blue, "w": width, "h": height}
+
+
+def main_window_id(pid):
+    listed = cua("list_windows", {})
+    wins = [w for w in (listed.get("windows") or []) if w.get("pid") == pid and w.get("bounds")]
+    wins.sort(key=lambda w: -w["bounds"]["width"] * w["bounds"]["height"])
+    return wins[0]["window_id"] if wins else None
+
+
+class PixelSampler:
+    """Window captures in a loop on two threads (each CuaDriver call is a process), timestamped, until stop()."""
+
+    def __init__(self, folder, pid):
+        self.folder, self.pid, self.frames, self.errors = folder, pid, [], []
+        os.makedirs(folder, exist_ok=True)
+        self.window = main_window_id(pid) if CUA_DRIVER else None
+        self.running, self.threads, self.count = False, [], 0
+        self.lock = threading.Lock()
+
+    def start(self):
+        if not self.window:
+            return False
+        self.running = True
+        for _ in range(2):
+            thread = threading.Thread(target=self.loop, daemon=True)
+            thread.start()
+            self.threads.append(thread)
+        return True
+
+    def loop(self):
+        while self.running:
+            with self.lock:
+                self.count += 1
+                path = os.path.join(self.folder, f"cap-{self.count:04d}.png")
+            started = time.time()
+            reply = cua("get_window_state", {"pid": self.pid, "window_id": self.window, "include_accessibility_tree": False,
+                                              "screenshot_out_file": path, "max_image_dimension": 640})
+            ended = time.time()
+            if os.path.exists(path):
+                self.frames.append({"path": path, "t": (started + ended) / 2, "spread": ended - started})
+            else:
+                self.errors.append(str(reply)[:200])
+                time.sleep(0.05)  # test harness: a capture of a window off the screen fails at once
+
+    def stop(self):
+        self.running = False
+        for thread in self.threads:
+            thread.join(timeout=10)
+
+
+def reveal(tab, mode, label):
+    """reveal.<label>: the window leaves the screen (`hide` or `cover`) and comes back; the page must show its last frame
+    at once, never only its background (in-tree 34f21f2f: about 200 ms of the page's background colour)."""
+    page_eval("(() => { document.body.style.background = '#246'; let b = document.getElementById('revealprobe'); if (!b) { b = document.createElement('div');"
+              " b.id = 'revealprobe'; b.style.cssText = 'position:fixed;left:40px;top:120px;width:360px;height:260px;"
+              "background:#ff0;z-index:9'; document.body.appendChild(b); } return true; })()", tab)
+    time.sleep(1.0)  # test harness: the block draws
+    pid = RAW.get("pid")
+    sampler = PixelSampler(os.path.join(opts.out, f"reveal-{label}"), pid)
+    baseline = None
+    if sampler.window:
+        shot = os.path.join(sampler.folder, "baseline.png")
+        cua("get_window_state", {"pid": pid, "window_id": sampler.window, "include_accessibility_tree": False,
+                                 "screenshot_out_file": shot, "max_image_dimension": 640})
+        if os.path.exists(shot):
+            try:
+                baseline = probe_colors(shot)
+            except Exception as error:
+                baseline = {"error": repr(error)}
+    off, on = ("hide", "show") if mode == "hide" else ("cover", "uncover")
+    left = rpc("debug.page_reveal", {"action": off})
+    time.sleep(1.5)  # test harness: the window's occlusion reaches Chromium
+    visibility = page_eval("document.visibilityState", tab).get("value")
+    time.sleep(max(0.0, opts.reveal_hidden - 2.0))  # the person is in another app
+    sampling = sampler.start()
+    time.sleep(0.5)  # test harness: captures of the hidden window run before the show
+    shown_at = time.time()
+    back = rpc("debug.page_reveal", {"action": on})
+    time.sleep(2.5)  # test harness: the page's next frames
+    sampler.stop()
+    samples = (rpc("debug.page_reveal", {"action": "samples"}) or {}).get("samples") or {}
+    layers = samples.get("reveal") or {}
+    RAW[f"reveal_{label}"] = {"left": left, "back": back, "visibility_while_hidden": visibility, "samples": samples}
+    replaced = layers.get("replaced_ms")
+    detail = {"mode": mode, "visibility_while_hidden": visibility, "replaced_ms": replaced,
+              "ids_before": layers.get("ids_before"), "ids_visible": layers.get("ids_visible"),
+              "ids_last": layers.get("ids_last"), "visible_ms_after_show": layers.get("visible_ms_after_show")}
+    if not layers.get("ids_before"):
+        row("INFO", f"reveal.{label}.layers", dict(detail, note="no remote page layer in the main window"))
+    else:
+        row(replaced is None, f"reveal.{label}.layers", detail)
+    if not sampling or baseline is None or not isinstance(baseline, dict) or not baseline.get("yellow"):
+        row("INFO", f"reveal.{label}.pixels", {"captures": "none" if not sampling else len(sampler.frames),
+                                               "baseline": baseline, "errors": sampler.errors[:3]})
+        return
+    frames = []
+    for frame in sorted(sampler.frames, key=lambda f: f["t"]):
+        try:
+            colors = probe_colors(frame["path"])
+        except Exception as error:
+            colors = {"error": repr(error)}
+        frames.append(dict(colors, ms=round((frame["t"] - shown_at) * 1000), spread_ms=round(frame["spread"] * 1000),
+                           file=os.path.basename(frame["path"])))
+    after = [f for f in frames if f["ms"] > 0 and "error" not in f]
+    # Background only: the page's blue shows (the window is back) and its yellow block does not.
+    blank = [f for f in after if f["blue"] > 0.3 * max(1, baseline["blue"]) and f["yellow"] < 0.2 * baseline["yellow"]]
+    drawn = [f for f in after if f["yellow"] >= 0.6 * baseline["yellow"]]
+    RAW[f"reveal_{label}"]["pixels"] = {"baseline": baseline, "frames": frames}
+    pixel_detail = {"baseline": baseline, "captures_after_show": len(after), "drawn": len(drawn),
+                    "background_only": [(f["ms"], f["file"]) for f in blank][:12],
+                    "first_drawn_ms": drawn[0]["ms"] if drawn else None}
+    if not after:
+        row("INFO", f"reveal.{label}.pixels", pixel_detail)
+    else:
+        row(not blank and bool(drawn), f"reveal.{label}.pixels", pixel_detail)
+
+
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 config = os.path.join(opts.out, "cmux.json")
@@ -619,6 +799,16 @@ try:
                 typed[label] = {"click": click, "value": page_eval("document.getElementById('field').value", tab).get("value")}
             row(typed["A"]["value"] == "left" and typed["B"]["value"] == "right", "two_pages.input", typed)
             rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "two-pages-typed.png")})
+    if "reveal" in CHECKS:
+        record("reveal")
+        action("tab.focus", target=f"tab:{page_tab}")
+        reveal(page_tab, "hide", "hide")
+        reveal(page_tab, "cover", "cover")
+        # As in the person's recording: a docked DevTools open in the page's pane.
+        action("tab.focus", target=f"tab:{page_tab}")
+        RAW["reveal_devtools_open"] = action("devtools.openDocked")
+        time.sleep(3.0)  # test harness: the DevTools frontend loads and draws
+        reveal(page_tab, "hide", "hide_devtools")
     RAW["snapshot"] = rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "window.png")})
 except SystemExit:
     pass
