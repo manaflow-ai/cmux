@@ -1181,8 +1181,10 @@ def handle_prompt(rid, params):
             },
         )
         chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
-        # The plan it builds, as Claude Code takes an allow's `updatedInput`: the person's edit.
-        built = ((res or {}).get("outcome", {}).get("_meta") or {}).get("updatedInput", {}).get("plan")
+        # The plan it builds, as Claude Code takes an allow's `updatedInput`: the person's edit. The
+        # hub lifts the outcome's `_meta` to the response's top level (hub permissions.rs), as the
+        # question answers above read it.
+        built = ((res or {}).get("_meta") or {}).get("updatedInput", {}).get("plan")
         said = f"chose {chosen}" + (f" building: {built}" if built else "")
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": said}})
         if plan_on and chosen == "no":
