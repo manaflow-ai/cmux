@@ -28,7 +28,10 @@ jobs:
   changes:
     if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # The pool runner's job-start script alone took 3m47s on main runs 45142100636 and
+    # 45151665841, so 5 minutes ran out mid-checkout and Web validation went red unrun.
+    # The job reads only the routing script, its test and the workflows.
+    timeout-minutes: 15
     outputs:
       required: ${{ steps.route.outputs.required }}
     steps:
@@ -36,6 +39,10 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
+          sparse-checkout: |
+            .github/workflows
+            scripts/ci
+            tests
       - name: Test routing and result enforcement
         run: python3 tests/test_web_validation.py
       - name: Select web validation
