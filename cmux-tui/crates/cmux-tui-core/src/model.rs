@@ -746,7 +746,11 @@ impl State {
     pub(crate) fn move_workspace(&mut self, old_index: usize, new_index: usize) {
         let workspace = self.workspaces.remove(old_index);
         self.workspaces.insert(new_index, workspace);
-        self.rebuild_workspace_indexes();
+        // Only the workspaces between the two positions changed place; the keys did not change.
+        let (low, high) = (old_index.min(new_index), old_index.max(new_index));
+        for index in low..=high.min(self.workspaces.len().saturating_sub(1)) {
+            self.workspace_index_by_id.insert(self.workspaces[index].id, index);
+        }
     }
 
     pub(crate) fn rebuild_workspace_indexes(&mut self) {
