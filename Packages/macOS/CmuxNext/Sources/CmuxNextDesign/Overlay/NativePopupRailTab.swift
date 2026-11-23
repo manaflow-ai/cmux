@@ -45,8 +45,9 @@ final class NativePopupRailTab: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: PopupStyle.standard.rowHeight, height: PopupStyle.standard.rowHeight))
         for view in [markView, nameLabel].compactMap(\.self) { addSubview(view) }
         // The name is the tab's title on hover and its accessible name (never dropped, even when
-        // the symbols row shows only the mark).
-        themedToolTip = row.description.map { "\(row.label) · \($0)" } ?? row.label
+        // the symbols row shows only the mark); its description is VoiceOver's (a tooltip is a name).
+        themedToolTip = row.label
+        setAccessibilityHelp(row.description)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(row.label)

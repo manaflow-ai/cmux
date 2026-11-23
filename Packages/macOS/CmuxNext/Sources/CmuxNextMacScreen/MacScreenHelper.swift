@@ -2,26 +2,30 @@ import CmuxNextCompat
 import CmuxNextComputerUse
 import CmuxNextWakeups
 import Darwin
-import Foundation
+public import Foundation
 import os
 
 /// The Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md): the signed app
-/// `<app> Screen Sharing.app` in `Contents/Library`, whose executable is the cmux.rd/1 host
+/// `<app> Helper.app` in `Contents/Library` (`<app> Screen Sharing.app` in builds before
+/// 2026-11-22; bundle id `<app id>.screen-sharing` in both), whose executable is the cmux.rd/1 host
 /// (`cmux-rd`, cmux-tui/crates/cmux-rd-host). It holds this Mac's Screen Recording and
 /// Accessibility grants for screen sharing, so macOS prompts for, lists and restarts the
 /// helper, never cmux: a grant never relaunches this app. Each use is a fresh helper process
 /// (the permission probe, a request, one session's `serve`), started from its verified copy
 /// outside the app with responsibility disclaimed (``SignedHelperLaunch``); closing its stdin,
 /// or this app ending, ends it.
-nonisolated final class MacScreenHelper: Sendable {
+public nonisolated final class MacScreenHelper: Sendable {
     /// The helper's executable inside its bundle.
     static let executableName = "cmux-screen-sharing"
-    /// Every channel's helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
-    static let bundleSuffix = " Screen Sharing.app"
+    /// Every channel's helper bundle ends with one of these, preferred first: `cmux NIGHTLY
+    /// Helper.app` (the name macOS permission alerts show), or `cmux NIGHTLY Screen Sharing.app`
+    /// in an app built before the rename. Another bundle may end in " Helper.app": the helper is
+    /// the one carrying ``executableName``.
+    static let bundleSuffixes = [" Helper.app", " Screen Sharing.app"]
 
     /// The bundled helper app (`CMUX_NEXT_SCREEN_HELPER_APP` in development), its name without
     /// `.app` (what System Settings lists), and the launch that stages and starts it.
-    let app: URL
+    public let app: URL
     let name: String
     private let launch: SignedHelperLaunch
     /// The staged executable, once staged (a later stage reuses a matching copy anyway).
@@ -31,26 +35,34 @@ nonisolated final class MacScreenHelper: Sendable {
     /// How long a short command (a probe, a request) may take before it is ended.
     private let clock: any Clock<Duration>
 
-    init(app: URL, launch: SignedHelperLaunch = .screenSharing(), clock: any Clock<Duration> = ContinuousClock()) {
+    /// `launch` defaults to the copy named by the helper's own bundle id (one per channel: a
+    /// NIGHTLY side build carries NIGHTLY's helper, every DEV build the one DEV helper).
+    init(app: URL, launch: SignedHelperLaunch? = nil, clock: any Clock<Duration> = ContinuousClock()) {
         self.app = app
         name = String(app.deletingPathExtension().lastPathComponent)
-        self.launch = launch
+        self.launch = launch ?? .screenSharing(helperBundleID: SignedHelperLaunch.bundleIdentifier(of: app))
         self.clock = clock
     }
 
     /// This build's helper, or nil when it carries none (a build without the helper serves and
     /// checks permissions in the app, as before the helper). A disk lookup: call it off the main
     /// actor; ``MacScreenShareHost`` keeps the one it found.
-    static func bundled(_ bundle: Bundle = .main) -> MacScreenHelper? {
+    public static func bundled(_ bundle: Bundle = .main) -> MacScreenHelper? {
         if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_SCREEN_HELPER_APP"], !path.isEmpty {
             return MacScreenHelper(app: URL(fileURLWithPath: path))
         }
         let library = bundle.bundleURL.appending(path: "Contents/Library", directoryHint: .isDirectory)
-        guard let names = try? FileManager.checked.contentsOfDirectory(atPath: library.path),
-              let found = names.sorted().first(where: { $0.hasSuffix(bundleSuffix) }) else { return nil }
-        let app = library.appending(path: found, directoryHint: .isDirectory)
-        guard FileManager.checked.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/\(executableName)").path) else { return nil }
-        return MacScreenHelper(app: app)
+        guard let names = try? FileManager.checked.contentsOfDirectory(atPath: library.path) else { return nil }
+        let sorted = names.sorted()
+        for suffix in bundleSuffixes {
+            for found in sorted where found.hasSuffix(suffix) {
+                let app = library.appending(path: found, directoryHint: .isDirectory)
+                if FileManager.checked.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/\(executableName)").path) {
+                    return MacScreenHelper(app: app)
+                }
+            }
+        }
+        return nil
     }
 
     /// The helper did not start because its verified copy could not be made: the copy out of
@@ -91,9 +103,9 @@ nonisolated final class MacScreenHelper: Sendable {
     }
 
     /// The helper's own grants, or nil when the helper did not answer.
-    struct Permissions: Decodable, Equatable, Sendable {
-        var screenRecording: Bool
-        var accessibility: Bool
+    package struct Permissions: Decodable, Equatable, Sendable {
+        package var screenRecording: Bool
+        package var accessibility: Bool
 
         enum CodingKeys: String, CodingKey {
             case screenRecording = "screen_recording"
@@ -102,7 +114,7 @@ nonisolated final class MacScreenHelper: Sendable {
     }
 
     /// `permissions`: a fresh helper reads its own grants and exits (no prompt).
-    @concurrent func permissions() async -> Permissions? {
+    @concurrent package func permissions() async -> Permissions? {
         await answer(["permissions"])
     }
 
@@ -110,6 +122,10 @@ nonisolated final class MacScreenHelper: Sendable {
     /// the helper's grants (still off until the person answers macOS).
     @concurrent func request(screenRecording: Bool) async -> Permissions? {
         await answer(["request-permission", screenRecording ? "screen-recording" : "accessibility"])
+    }
+
+    @concurrent static func requestBundledGrant(_ permission: String) async {
+        _ = await bundled()?.request(screenRecording: permission == "screen-recording")
     }
 
     /// Runs one short helper command and decodes its one JSON line. Bounded: a helper that does

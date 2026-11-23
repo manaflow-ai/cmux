@@ -14,7 +14,9 @@ on the head (the retry) and on the merge parent (the base), then asks this scrip
     cargo_test_verdict.py failed HEAD.log
         prints the head's failing test names, one per line, for the retry and the base replay.
     cargo_test_verdict.py judge --head HEAD.log [--retry RETRY.log] [--base BASE.log] [--job NAME]
-        prints GitHub annotations and exits 0 when no red is the change's own, 1 when one is.
+                                [--recent-base PUSH.log --recent-base-label LABEL]
+        prints GitHub annotations and exits 0 when no red is the change's own, 1 when one is. PUSH.log is the base
+        branch's own last whole run of the job: a test red there is the base's, as one red on the merge parent is.
 
 The verdict:
 - A test that failed on the head and passed when run again alone is a flake: it warns.
@@ -451,8 +453,11 @@ def without_failures(log: str, names: set[str]) -> str:
     return "\n".join(kept)
 
 
-def judge(head: str | None, retry: str | None, base: str | None, job: str) -> tuple[bool, list[str]]:
-    """(own, annotations): own is True when a red is the change's own."""
+def judge(head: str | None, retry: str | None, base: str | None, job: str, recent: str | None = None,
+          recent_label: str = "the base branch's last run") -> tuple[bool, list[str]]:
+    """(own, annotations): own is True when a red is the change's own. RECENT: the base branch's own last run of the
+    job (a feat-cmux-next push's whole log); a test red there is the base's as one red on the merge parent is
+    (test_reds.classify_any), so the job need not rebuild the merge parent to replay it."""
     if head is None or not head.strip():
         return True, [f"::error title={job}::the head's test log is missing or empty, so no test can be judged"]
     found = test_reds.read(head)
@@ -461,13 +466,16 @@ def judge(head: str | None, retry: str | None, base: str | None, job: str) -> tu
     if not found.failed and not found.crashes and not found.truncated:
         return True, notes + [f"::error title={job}::cargo test failed and named no failing test (a compile error?); "
                               "see the step's log"]
-    verdict = test_reds.classify(without_failures(head, flaky), base, job, "the merge base")
+    bases = [(label, log) for label, log in (("the merge base", base), (recent_label, recent)) if log is not None]
+    verdict = (test_reds.classify_any(without_failures(head, flaky), bases, job) if len(bases) > 1 or recent
+               else test_reds.classify(without_failures(head, flaky), base, job, "the merge base"))
     if verdict is None:
         # Every failing test was a flake.
         return False, notes
     if verdict.own:
         return True, notes + [f"::error title={job}::{reason}" for reason in verdict.reasons]
-    return False, notes + [f"::warning title={job} (base red)::{name} fails on the merge base too"
+    where = "the merge base" if not recent else "the base"
+    return False, notes + [f"::warning title={job} (base red)::{name} fails on {where} too"
                            for name in verdict.shared]
 
 
@@ -484,6 +492,8 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--retry", type=Path)
     one.add_argument("--base", type=Path)
     one.add_argument("--job", default="cargo test")
+    one.add_argument("--recent-base", type=Path, help="the base branch's own last whole log of the job")
+    one.add_argument("--recent-base-label", default="the base branch's last run")
     args = parser.parse_args(argv)
     if args.command == "touches":
         hits = touches(args.repo, args.crate, [line.strip() for line in sys.stdin if line.strip()])
@@ -495,7 +505,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "failed":
         print("\n".join(failed_names(args.log.read_text(errors="replace"))))
         return 0
-    own, notes = judge(read_text(args.head), read_text(args.retry), read_text(args.base), args.job)
+    own, notes = judge(read_text(args.head), read_text(args.retry), read_text(args.base), args.job,
+                       read_text(args.recent_base), args.recent_base_label)
     for note in notes:
         print(note)
     print(f"{args.job}: " + ("a red is the change's own" if own else "no red is the change's own"))

@@ -74,6 +74,8 @@ public struct RootView: View {
     /// The app's keyboard notifications, for every keyboard-pinned composer.
     @State private var keyboard = MobileKeyboardFrameTracker()
     @State private var launchFinished = false
+    /// The startup spring: the shell's arrival from the launch mark.
+    private static let startupSpring = Animation.spring(response: 0.55, dampingFraction: 0.86)
     @State private var previewSweepStarted = false
     /// Live data from sign-in on (setup included); nil in mock mode.
     @State private var live: LiveCoordinator?
@@ -164,7 +166,17 @@ public struct RootView: View {
                 // after sign-in included.
                 .transition(welcomeCut && destination == .welcome
                     ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
-                    : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                    : destination == .shell
+                        // Startup (Leo, 2026-11-22: "claude code has such a nice animation on
+                        // startup"): as the launch chevron shrinks away, the shell settles in from
+                        // just past full size on a soft spring, so the app arrives rather than
+                        // swaps. Render only: the shell is laid out and takes touches from its
+                        // first frame. A new chat it opens on then plays its own entrance. The
+                        // same arrival follows sign-in and setup.
+                        ? .asymmetric(insertion: .opacity.combined(with: .scale(scale: 1.04))
+                                        .animation(Self.startupSpring.unlessReduceMotion),
+                                      removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                        : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
             } else {
                 // Welcome redraws this mark on its first frame and animates it
                 // from there, so on that path the swap is a true cut: an

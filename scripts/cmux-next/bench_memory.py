@@ -279,11 +279,26 @@ def process_table():
 def in_bundle(cmd: str, bundle: str) -> str | None:
     """`cmd` relative to the bundle, or None. The app runs from the real
     path (/private/tmp/...) while its daemons keep the path it handed them
-    (/tmp/...), so both spellings count."""
-    for root in (bundle, bundle.removeprefix("/private")):
+    (/tmp/...), so every spelling counts, whichever one the caller passed."""
+    for root in bundle_roots(bundle):
         if cmd.startswith(root + "/"):
             return cmd[len(root):]
     return None
+
+
+def bundle_roots(bundle: str) -> tuple[str, ...]:
+    """Every spelling of `bundle` a process command line can carry: as given, its realpath, and
+    each without /private (xbench --app /tmp/X.app ran from /private/tmp/X.app and end_bundle
+    missed it)."""
+    given = bundle.rstrip("/")
+    real = os.path.realpath(given)
+    return tuple(dict.fromkeys((given, real, given.removeprefix("/private"), real.removeprefix("/private"))))
+
+
+def is_app_process(cmd: str, bundle: str) -> bool:
+    """Whether `cmd` is the bundle's own app (its Contents/MacOS binary), not its clone cleanup helper."""
+    rel = in_bundle(cmd, bundle)
+    return rel is not None and rel.startswith("/Contents/MacOS/") and not is_clone_cleanup(cmd)
 
 
 def kind_of(cmd: str, bundle: str) -> str:
@@ -426,7 +441,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
                 if child_ns is not None:
                     child_start[pid] = child_ns(pid)
         if SAMPLE_GPU:
-            gpu = GpuSampler()
+            gpu = GpuSampler(GPU_INTERVAL_S)
             gpu.start()
         time.sleep(measure)  # test script: the measured idle window
     rows = []
@@ -486,6 +501,9 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
 IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")
 # --gpu: each measured window also samples the GPU's own counters (GpuSampler).
 SAMPLE_GPU = False
+# ioreg's Device Utilization % is a whole number; sampled each second, a 30 s window's mean steps by 1/30 %, fine
+# enough to judge goal idle-gpu-disk's 0.5 % (a 5 s interval stepped by 1/6 %).
+GPU_INTERVAL_S = 1.0
 
 
 class _ThreadInfo(ctypes.Structure):
@@ -1268,8 +1286,7 @@ def end_bundle(bundle: str):
     bundle ran before the launch (`launch`), so every one is this run's.
     Chromium's clone cleanup helper is ended last, and only when it is still
     there after CLONE_CLEANUP_WAIT_S."""
-    binary_dir = os.path.join(bundle, "Contents/MacOS")
-    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/") and not is_clone_cleanup(cmd)}
+    apps = {pid for pid, _, cmd in process_table() if is_app_process(cmd, bundle)}
     bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
     end_processes(apps)
     cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
@@ -1343,6 +1360,90 @@ def exception_records(bundle: str, since: float) -> str:
         return f"\n--- {path}\n{handle.read()[:4000]}"
 
 
+def _tag_slug(raw: str) -> str | None:
+    """BuildIdentity.tagSlug: lowercase, runs outside [a-z0-9] become one `-`, no edge `-`."""
+    slug = ""
+    for ch in raw.lower():
+        if "a" <= ch <= "z" or "0" <= ch <= "9":
+            slug += ch
+        elif not slug.endswith("-"):
+            slug += "-"
+    return slug.strip("-") or None
+
+
+def _path_component(raw: str) -> str | None:
+    """BuildIdentity.component: ASCII letters, digits, `.` and `_` kept, other runs one `-`."""
+    out = ""
+    for ch in raw:
+        if ch.isascii() and (ch.isalnum() or ch in "._"):
+            out += ch
+        elif not out.endswith("-"):
+            out += "-"
+    return out.strip("-.") or None
+
+
+def _fnv1a32(data: bytes) -> str:
+    value = 0x811C9DC5
+    for byte in data:
+        value = ((value ^ byte) * 0x01000193) & 0xFFFFFFFF
+    return f"{value:08x}"
+
+
+def saved_state_dir(bundle: str) -> str | None:
+    """The cmux-tui daemon state folder of a DEV (`com.cmuxterm.app.debug[.<tag>]`) bundle, which holds
+    its saved workspaces: `<Application Support>/cmux-next/tags/<tag>/tui` for a kept tag, else
+    `.../builds/<key>/tui` (BuildIdentity.daemonStateDirectory, BuildIdentity+AppNames.swift). It is
+    under the account's real home, which the app reads (`homeDirectoryForCurrentUser`), not the scratch
+    HOME. None for any other bundle (release, NIGHTLY, RC, staging): their state is a person's."""
+    import pwd
+    try:
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+            info = plistlib.load(handle)
+    except OSError:
+        return None
+    bundle_id = (info.get("CFBundleIdentifier") or "").strip()
+    dev = "com.cmuxterm.app.debug"
+    if bundle_id != dev and not bundle_id.startswith(dev + "."):
+        return None
+    shipped = _tag_slug((info.get("LSEnvironment") or {}).get("CMUX_TAG") or "")
+    if shipped is None:
+        name = os.path.basename(os.path.normpath(bundle)).removesuffix(".app")
+        shipped = _tag_slug(name[len("cmux DEV "):]) if name.startswith("cmux DEV ") else None
+    suffix = bundle_id[len(dev) + 1:] if bundle_id != dev else None
+    suffix_tag = _tag_slug(suffix) if suffix else None
+    owned = {"nightly", "rc", "staging", "cmux-next"}
+    kept = None
+    if suffix is None:
+        kept = shipped if shipped and shipped not in owned else None
+    elif (not shipped or shipped == suffix_tag) and suffix_tag and suffix_tag not in owned and \
+            all(seg and re.fullmatch(r"[a-z0-9]+", seg) for seg in suffix.split(".")):
+        kept = suffix_tag
+    support = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "Library", "Application Support", "cmux-next")
+    if kept:
+        return os.path.join(support, "tags", kept, "tui")
+    component = _path_component(bundle_id)
+    key = component if component == bundle_id else f"{component or 'unbundled'}--{_fnv1a32(bundle_id.encode())}"
+    if shipped and shipped != suffix_tag:
+        key += "--" + shipped
+    return os.path.join(support, "builds", key, "tui")
+
+
+def clear_saved_state(bundle: str):
+    """A fresh launch starts from no saved workspaces. The daemon state of a DEV bundle outlives the
+    scratch (saved_state_dir), so without this every launch of one bundle id on a host restores the
+    workspaces earlier runs left: perf-idle-ab's relaunch rounds restored one more terminal workspace
+    each round (terminal hosts 3, 5, 7, 9, 11 after the quit, in both arms), and an "empty" launch is
+    only empty on a host's first run. Called only with none of the bundle's processes running
+    (launch). CMUX_BENCH_KEEP_STATE=1 keeps it (a bench of a restored session)."""
+    path = saved_state_dir(bundle)
+    if not path or os.environ.get("CMUX_BENCH_KEEP_STATE") == "1" or not os.path.isdir(path):
+        return
+    entries = len(os.listdir(path))
+    shutil.rmtree(path, ignore_errors=True)
+    print(f"   bench-memory: cleared the bundle's saved daemon state {path} ({entries} entries) for a fresh launch",
+          file=sys.stderr, flush=True)
+
+
 def downloads_dir(scratch: str) -> str:
     """The folder `launch` gives the app for its downloads (CMUX_NEXT_DOWNLOADS_DIR), in its scratch."""
     return os.path.join(scratch, "downloads")
@@ -1376,6 +1477,8 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     running = bundle_pids(bundle)
     if running and not relaunch:
         raise SystemExit(f"bench-memory: processes from {bundle} are running ({sorted(running)}); end them first")
+    if not relaunch:
+        clear_saved_state(bundle)
     scratch = scratch or tempfile.mkdtemp(prefix="bench-memory-")
     home = os.path.join(scratch, "home")
     os.makedirs(os.path.join(home, "Library"), exist_ok=True)
@@ -1777,8 +1880,7 @@ def relaunch_restored(bundle: str, config: dict, extra: dict, socket_path: str, 
     if not before["ok"]:
         raise SystemExit(f"bench-memory --relaunch-restored: the opened terminal workspace {workspace} is not shown "
                          f"before the quit: {json.dumps(before)}")
-    binary_dir = os.path.join(bundle, "Contents/MacOS")
-    apps = {p for p, _, cmd in process_table() if cmd.startswith(binary_dir + "/") and not is_clone_cleanup(cmd)}
+    apps = {p for p, _, cmd in process_table() if is_app_process(cmd, bundle)}
     quit_reply = app.action("quitKeepSessions", wait=False)
     left = still_running(apps, 20)
     info["quit"] = {"reply": quit_reply, "sigterm": sorted(left)}
@@ -1925,6 +2027,10 @@ def main():
         parser.error("--diff-tab takes one --workspaces count, --measure seconds and no --tabs")
     if args.diff_scroll and not args.diff_tab:
         parser.error("--diff-scroll needs --diff-tab")
+    if args.release_hidden_chats > 0 and args.socket:
+        # It turns agents.hiddenChats.discard on through settings.set, which writes the app's cmux.json: an attached
+        # app is the person's own, and it would keep discarding their hidden chats after the run.
+        parser.error("--release-hidden-chats needs an app that this run launches (no --socket)")
     if args.diff_tab and args.socket:
         # An attached app would keep the tab open on a repository that this run removes.
         parser.error("--diff-tab needs an app that this run launches (no --socket)")
@@ -1943,6 +2049,15 @@ def main():
         child_check = cells.child_time_check()
         print(f"== child time check: {json.dumps(child_check)}", flush=True)
         child_ns = cells.read_child_ns if child_check.get("ok") else None
+    gpu_no_app = None
+    if SAMPLE_GPU and args.measure > 0 and not args.socket:
+        # The Mac's GPU with no app of this run open, over one window as long as the measured ones: ioreg's counters
+        # are whole-Mac, so the app's own share is a window's reading minus this one (memory-agents-cron.py).
+        sampler = GpuSampler(GPU_INTERVAL_S)
+        sampler.start()
+        time.sleep(args.measure)  # test script: the no-app GPU window, before the launch
+        gpu_no_app = sampler.finish()
+        print(f"== GPU with no app (whole Mac, ioreg, {args.measure:g} s): {json.dumps(gpu_no_app)}", flush=True)
     launched = scratch = None
     if args.socket:
         if not args.app_pid:
@@ -1980,6 +2095,8 @@ def main():
         report["env"] = args.env
     if args.relaunch_restored:
         report["relaunch"] = relaunch
+    if gpu_no_app is not None:
+        report["gpu_no_app"] = gpu_no_app
 
     def settle_and_sample(label, diff_tab=None):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle

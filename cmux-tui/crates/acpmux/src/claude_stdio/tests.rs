@@ -643,6 +643,10 @@ async fn modes_are_claude_codes_own_labels_descriptions_and_order() {
 async fn versioned_family_names_reach_claude_code_as_full_ids() {
     assert_eq!(model_id("opus-5-5"), "claude-opus-5-5");
     assert_eq!(model_id("sonnet-5-5[1m]"), "claude-sonnet-5-5[1m]");
+    // Leo, 2026-11-22: Claude Code refused `fable-5.2` (`unrecognized_model`).
+    assert_eq!(model_id("fable-5.2"), "claude-fable-5-2");
+    assert_eq!(model_id("Fable 5.2"), "claude-fable-5-2");
+    assert_eq!(model_id("opus-5.5[1m]"), "claude-opus-5-5[1m]");
     for unchanged in ["opus", "opusplan", "opus[1m]", "claude-opus-5-5", "default", "gpt-6.1-sol"] {
         assert_eq!(model_id(unchanged), unchanged);
     }

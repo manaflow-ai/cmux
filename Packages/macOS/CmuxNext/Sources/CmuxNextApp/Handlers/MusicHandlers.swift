@@ -71,22 +71,22 @@ enum MusicHandlers {
 enum MusicStrings {
     static var preview: String {
         String(localized: "music.refusal.preview", defaultValue: "The music player is a preview feature: turn on labs.previewFeatures in cmux.json.",
-               table: "Music", bundle: .module)
+               table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var noSongs: String {
-        String(localized: "music.refusal.noSongs", defaultValue: "No songs there to play.", table: "Music", bundle: .module)
+        String(localized: "music.refusal.noSongs", defaultValue: "No songs there to play.", table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var nothingPlaying: String {
-        String(localized: "music.refusal.nothingPlaying", defaultValue: "No music is playing.", table: "Music", bundle: .module)
+        String(localized: "music.refusal.nothingPlaying", defaultValue: "No music is playing.", table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var chooseMessage: String {
-        String(localized: "music.choose.message", defaultValue: "Choose songs or folders to play.", table: "Music", bundle: .module)
+        String(localized: "music.choose.message", defaultValue: "Choose songs or folders to play.", table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var choosePrompt: String {
-        String(localized: "music.choose.prompt", defaultValue: "Play", table: "Music", bundle: .module)
+        String(localized: "music.choose.prompt", defaultValue: "Play", table: "Music", bundle: .module.inAppLanguage)
     }
 }

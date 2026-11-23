@@ -24,11 +24,11 @@ use cmux_rd_ffi::{Carrier, InputChannel, Session};
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent, TurnServer};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use cmux_rd_proto::control::Control;
-use cmux_rd_proto::{InputEvent, flags};
+use cmux_rd_proto::{flags, InputEvent};
 use serde_json::Value;
 
-use crate::CmuxMobileError;
 use crate::browser::{BrowserFrame, BrowserStats};
+use crate::CmuxMobileError;
 
 /// How long a frame may wait for missing shards, and when to NACK one.
 const FRAME_DEADLINE_US: u64 = 500_000;
@@ -559,7 +559,7 @@ impl Run {
             for event in net.events() {
                 match event {
                     NetEvent::Candidate(c) => self.observer.on_candidate(c.to_wire()),
-                    NetEvent::CandidatesDone | NetEvent::RelayFailed { .. } => {}
+                    NetEvent::CandidatesDone | NetEvent::RelayFailed { .. } | NetEvent::Phase { .. } => {}
                     NetEvent::Failed(reason) => return ("link_failed".into(), reason),
                     NetEvent::Endpoint(EndpointEvent::PathChanged { kind, rtt_us, .. }) => {
                         self.observer.on_path(kind.map(|k| k.wire_name().to_owned()), rtt_us);
@@ -680,11 +680,19 @@ fn rb_input_events(json: &str, size: Option<(u32, u32)>) -> Vec<InputEvent> {
         Some("wheel") => {
             let hundredths = |v: Option<f64>| (v.unwrap_or(0.0) * 100.0).clamp(-1e9, 1e9) as i32;
             let (dx, dy) = (hundredths(number("dx")), hundredths(number("dy")));
-            if dx == 0 && dy == 0 { Vec::new() } else { vec![InputEvent::Scroll { dx, dy, precise: true }] }
+            if dx == 0 && dy == 0 {
+                Vec::new()
+            } else {
+                vec![InputEvent::Scroll { dx, dy, precise: true }]
+            }
         }
         Some("ime_commit") => {
             let typed = text(&event, "text");
-            if typed.is_empty() { Vec::new() } else { vec![InputEvent::Text(typed)] }
+            if typed.is_empty() {
+                Vec::new()
+            } else {
+                vec![InputEvent::Text(typed)]
+            }
         }
         Some("key") => {
             let down = event.get("down").and_then(Value::as_bool).unwrap_or(false);
@@ -692,7 +700,11 @@ fn rb_input_events(json: &str, size: Option<(u32, u32)>) -> Vec<InputEvent> {
                 Some(usage) => vec![InputEvent::Key { usage, down }],
                 None => {
                     let typed = text(&event, "text");
-                    if down && !typed.is_empty() { vec![InputEvent::Text(typed)] } else { Vec::new() }
+                    if down && !typed.is_empty() {
+                        vec![InputEvent::Text(typed)]
+                    } else {
+                        Vec::new()
+                    }
                 }
             }
         }

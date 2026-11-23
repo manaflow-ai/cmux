@@ -5,8 +5,12 @@
 //! existing thing, or just have a sort of golden copy of your thing, and then the code comes in, and then I know
 //! afterwards I can just get the code out, or I can delete that copy."
 //!
-//! The golden copy is the installed NIGHTLY (or `--from APP`). Each `cmux app try .` makes a fresh APFS clone
-//! of it beside everything else (its own bundle id, data, socket, daemon and settings: the person's cmux is
+//! The golden copy is the installed NIGHTLY when the tree goes into it with no build. When it does not (the nightly
+//! lags feat-cmux-next, and the commits since it move the app FFI pin or Swift the tree's daemon needs), the
+//! engine takes the nearest published build that does: a newer NIGHTLY, a tip DEV build, or a finished fleet build
+//! at the tree's merge base, downloaded once and cached (`hot-verify.py run --pick`, `golden` for the dry run), and
+//! says which and why. `--from APP` names the golden copy itself and nothing is picked. Each `cmux app try .` makes a
+//! fresh APFS clone of it beside everything else (its own bundle id, data, socket, daemon and settings: the person's cmux is
 //! never touched), puts the checkout's web (a dev server, so later saves show live) and Rust (published tree
 //! build, else a local cargo build) in, and leaves it running. `--extract` keeps the code that went in (a
 //! branch and a patch), `--stop` quits and deletes the clone.
@@ -82,13 +86,16 @@ pub(super) fn side_name(tree: &Path) -> String {
     format!("try-{slug}-{:06x}", hash & 0xff_ffff)
 }
 
-/// hot-verify.py's arguments for `action` (dry run: its plan of the tree against the golden copy).
+/// hot-verify.py's arguments for `action` (dry run: its plan of the tree against the golden copy). `pick`: no
+/// `--from` was given, so when `from` (the installed NIGHTLY) needs a build for the tree, the engine picks the
+/// nearest published build that does not (`golden` is that pick, planned only).
 pub(super) fn engine_args(
     action: Action,
     tree: &Path,
     from: &Path,
     side: &str,
     dry_run: bool,
+    pick: bool,
 ) -> Vec<OsString> {
     let source = || {
         let mut source = OsString::from("dir:");
@@ -97,7 +104,7 @@ pub(super) fn engine_args(
     };
     let words: Vec<OsString> = match (action, dry_run) {
         (Action::Run, true) => vec![
-            "plan".into(),
+            if pick { "golden" } else { "plan" }.into(),
             "--source".into(),
             source(),
             "--app".into(),
@@ -117,7 +124,10 @@ pub(super) fn engine_args(
             side.into(),
             "--label".into(),
             format!("cmux {side}").into(),
-        ],
+        ]
+        .into_iter()
+        .chain(pick.then(|| "--pick".into()))
+        .collect(),
         (Action::Extract, _) => vec!["extract".into(), "--side".into(), side.into()],
         (Action::Stop, _) => vec!["stop".into(), "--side".into(), side.into(), "--remove".into()],
     };
@@ -145,6 +155,7 @@ pub(super) fn run(
     if !cfg!(target_os = "macos") {
         return elsewhere(global, &tree);
     }
+    let pick = from.is_none();
     let from = from.map_or_else(|| PathBuf::from(DEFAULT_FROM), Path::to_path_buf);
     if action == Action::Run && !from.join("Contents/Info.plist").is_file() {
         let text = messages.copy_no_app.replace("{app}", &from.to_string_lossy());
@@ -152,7 +163,7 @@ pub(super) fn run(
     }
     let side = side_name(&tree);
     let mut process = Process::new("python3");
-    process.args(engine_args(action, &tree, &from, &side, dry_run)).current_dir(&tree);
+    process.args(engine_args(action, &tree, &from, &side, dry_run, pick)).current_dir(&tree);
     if let Some(path) =
         super::super::live::tool_path(std::env::var_os("PATH"), std::env::var_os("HOME"))
     {
@@ -201,6 +212,8 @@ pub(super) fn run(
         }
         Action::Run if code == NEEDS_BUILD => needs_build(global, &tree, &side, &result),
         Action::Run if code == 0 && !result.is_null() => {
+            // The golden copy the engine took (`from` in its result), which `--pick` may have moved off the NIGHTLY.
+            let from = result.get_str("from").map_or_else(|| from.clone(), PathBuf::from);
             let text = running(&result, &from, &tree_arg);
             report(global, &result, &text)
         }
@@ -266,19 +279,33 @@ pub(super) fn running(result: &Value, from: &Path, tree_arg: &str) -> String {
     let layers =
         if layers.is_empty() { messages.copy_no_layers.to_owned() } else { layers.join(", ") };
     let socket = result.get_str("socket").unwrap_or_default();
+    let golden = golden_line(result);
     let seconds = result
         .get("edit_to_live_s")
         .and_then(Value::as_f64)
         .map(|s| format!("{s:.1}"))
         .unwrap_or_else(|| "0".to_owned());
-    messages
+    let text = messages
         .copy_running
         .replace("{from}", &from.to_string_lossy())
         .replace("{copy}", result.get_str("copy").unwrap_or_default())
         .replace("{socket}", &shell_word(socket))
         .replace("{layers}", &layers)
         .replace("{seconds}", &seconds)
-        .replace("{tree}", tree_arg)
+        .replace("{tree}", tree_arg);
+    match golden {
+        Some(line) => format!("{line}\n{text}"),
+        None => text,
+    }
+}
+
+/// Which golden copy the engine took and why, when it took another build than the installed NIGHTLY.
+pub(super) fn golden_line(result: &Value) -> Option<String> {
+    let golden = result.get("golden")?;
+    if golden.get_str("kind").is_none_or(|kind| kind == "installed") {
+        return None;
+    }
+    Some(messages().copy_golden.replace("{why}", golden.get_str("why").unwrap_or_default()))
 }
 
 /// A change a copy of the NIGHTLY cannot take: why, and the build that can, which never runs on this Mac.
@@ -296,6 +323,12 @@ fn needs_build(global: &GlobalArgs, tree: &Path, side: &str, result: &Value) -> 
 pub(super) fn needs_build_text(result: &Value, head: &str, side: &str, tree: &str) -> String {
     let messages = messages();
     let mut text = messages.copy_needs_build.replace("{tree}", tree);
+    let tried =
+        result.get("golden").map(|golden| golden.get_array("tried").len()).unwrap_or_default();
+    if tried > 1 {
+        text.push(' ');
+        text.push_str(&messages.copy_golden_none.replace("{count}", &(tried - 1).to_string()));
+    }
     let build = result.get("plan").and_then(|plan| plan.get("build")).and_then(Value::as_object);
     let mut swift = false;
     for (why, paths) in build.into_iter().flatten() {

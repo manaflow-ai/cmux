@@ -110,14 +110,12 @@ final class BrowserDesignModeController {
     }
     #endif
 
-    /// The Home draft attachments each card added, by card id, so an edit or a removal takes them back.
-    private var homeAttachments: [String: [String]] = [:]
+    /// The Home draft attachments each card added: an edit or a removal takes them back; a sent or removed chip frees its pick.
+    private var homePicks = BrowserDesignModeHomePicks()
 
     /// Takes card `id` out of the Home composer (its attachments) or the agent chat composer (its chips).
     private func takeOut(_ id: String, home: HomeNativeTranscriptView?, chat: AgentPaneView?) {
-        if let hashes = homeAttachments.removeValue(forKey: id) {
-            home?.removeDraftAttachments(hashes)
-        } else if let chat {
+        if let hashes = homePicks.take(id) { home?.removeDraftAttachments(hashes) } else if let chat {
             AgentPaneDesignSelection.remove(id, from: chat)
         }
     }
@@ -130,12 +128,13 @@ final class BrowserDesignModeController {
     /// Gives the Home composer `card` as files, through its own intake (as a drop), replacing what an
     /// earlier version of the card added, then removes the files once the draft holds Home's copies.
     private func attach(_ card: BrowserDesignModeCard, to home: HomeNativeTranscriptView) async {
-        if let old = homeAttachments.removeValue(forKey: card.id) { home.removeDraftAttachments(old) }
+        if let old = homePicks.take(card.id) { home.removeDraftAttachments(old) }
+        home.onDraftAttachmentsChange = { [weak self] hashes in if let self { release(homePicks.released(keeping: hashes)) } }
         let temp = Self.tempFiles, folder = temp.newFolder()
         defer { temp.remove(folder) }
         guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: nil),
               let added = await home.addDraftFiles(files.map(\.path)) else { return }
-        homeAttachments[card.id] = added
+        homePicks.record(card.id, added: added)
     }
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.

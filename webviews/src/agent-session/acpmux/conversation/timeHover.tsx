@@ -20,6 +20,7 @@ export function TimeHover({ token }: { token: TimeToken }): ReactNode {
   const locale = usePaneLanguage();
   const label = timestampHoverLabel(token.at, now, locale, messageAt, wording, date);
   return (
+    // tooltip-allow: the shown time is relative ("2m"); the tooltip is the one place the message's date shows.
     <Tooltip label={label} side="top">
       <time
         className="cv-time-hover"

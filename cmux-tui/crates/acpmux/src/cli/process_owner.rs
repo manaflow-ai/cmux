@@ -237,7 +237,7 @@ pub fn is_acpmux_own(argv: &[String]) -> bool {
 }
 
 /// Whether `argv` runs `daemon run` (the acpmux daemon).
-fn is_daemon_run(argv: &[String]) -> bool {
+pub(crate) fn is_daemon_run(argv: &[String]) -> bool {
     argv.windows(2).any(|w| matches!(w, [a, b] if a == "daemon" && b == "run"))
 }
 
@@ -274,7 +274,7 @@ fn same_home(home: Option<&str>) -> bool {
 }
 
 /// The pid `<acpmux home>/daemon.pid` names.
-fn daemon_pid() -> Option<u32> {
+pub(crate) fn daemon_pid() -> Option<u32> {
     std::fs::read_to_string(crate::config::home().join("daemon.pid")).ok()?.trim().parse().ok()
 }
 
@@ -287,11 +287,11 @@ pub struct Owned {
     pub argv: Option<Vec<String>>,
 }
 
-fn caller_session() -> Option<String> {
+pub(crate) fn caller_session() -> Option<String> {
     std::env::var(SESSION_ID).ok().filter(|v| !v.is_empty())
 }
 
-fn own(proc: &tree::Started, table: &[tree::Started], caller: Option<&str>) -> Owned {
+pub(crate) fn own(proc: &tree::Started, table: &[tree::Started], caller: Option<&str>) -> Owned {
     let argv = tree::argv(proc.pid);
     let marks = tree::environ(proc.pid).map(|env| Marks::from_env(&env));
     // acpmux's own processes first: a daemon a chat's shell started carries that chat's marks
@@ -354,7 +354,7 @@ pub fn left_behind() -> Vec<Owned> {
 }
 
 /// Session name, status and the next step for a verdict, from the daemon when it answers.
-async fn session_status(client: Option<&Client>, id: &str) -> Option<String> {
+pub(crate) async fn session_status(client: Option<&Client>, id: &str) -> Option<String> {
     let client = client?;
     match client.request(method::MUX_INFO, json!({"sessionId": id})).await {
         Ok(v) => v.get("status").and_then(Value::as_str).map(str::to_owned),
@@ -380,7 +380,7 @@ fn row(o: &Owned, status: Option<&str>) -> Value {
     })
 }
 
-fn next_step(o: &Owned) -> String {
+pub(crate) fn next_step(o: &Owned) -> String {
     let name =
         o.marks.as_ref().and_then(|m| m.session_name.clone().or_else(|| m.session_id.clone()));
     let name = name.unwrap_or_else(|| "-".to_owned());
@@ -404,7 +404,7 @@ fn next_step(o: &Owned) -> String {
     }
 }
 
-fn one_line_argv(o: &Owned) -> String {
+pub(crate) fn one_line_argv(o: &Owned) -> String {
     let s = o.argv.as_ref().map(|a| a.join(" ")).unwrap_or_else(|| "?".to_owned());
     if s.chars().count() > 120 {
         format!("{}…", s.chars().take(120).collect::<String>())
@@ -471,6 +471,35 @@ pub async fn kill_pid(pid: u32, json_out: bool) -> Result<()> {
     if !o.verdict.may_end() {
         return Err(anyhow!("refused: pid {pid} is {}: {}", o.verdict.word(), next_step(&o)));
     }
+    let entry = end_owned(&o, &spared, caller_session(), None).await;
+    if json_out {
+        print_json(&entry);
+    } else {
+        let killed = entry.get("sigkill").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+        let under = entry.get("processes").and_then(Value::as_array).map_or(1, Vec::len) - 1;
+        let how = if killed { "SIGTERM, then SIGKILL" } else { "SIGTERM" };
+        println!(
+            "ended {pid} ({}) and {under} under it with {how}; logged in {}",
+            o.verdict.word(),
+            kills_log().display()
+        );
+    }
+    Ok(())
+}
+
+/// End `o` (already judged `may_end`) and what runs under it that is the same session's and
+/// may end too, SIGTERM then SIGKILL after `bg_run::GRACE`, and log it in
+/// `process-kills.jsonl` as done `by` (a session id, or `acpmux gc`). The one kill path for
+/// `process kill --pid` and `acpmux gc --apply`.
+/// Ends `o` and what runs under it in the same session, then logs the entry, with `reason` when
+/// the caller has one (gc's), in `process-kills.jsonl`.
+pub(crate) async fn end_owned(
+    o: &Owned,
+    spared: &[u32],
+    by: Option<String>,
+    reason: Option<String>,
+) -> Value {
+    let pid = o.proc.pid;
     // What runs under it goes too, each only when its own answer allows it and it is the same
     // session's: never acpmux's own processes or another session's that happen to sit below.
     let table = tree::all();
@@ -503,9 +532,9 @@ pub async fn kill_pid(pid: u32, json_out: bool) -> Result<()> {
     if killed {
         tree::kill_still_running(&left);
     }
-    let entry = json!({
+    let mut entry = json!({
         "at": crate::store::now_ms(),
-        "by": caller_session(),
+        "by": by,
         "pid": pid,
         "started": o.proc.start(),
         "owner": o.verdict.word(),
@@ -514,28 +543,25 @@ pub async fn kill_pid(pid: u32, json_out: bool) -> Result<()> {
         "processes": procs.iter().map(|p| p.pid).collect::<Vec<_>>(),
         "sigkill": left.iter().map(|p| p.pid).collect::<Vec<_>>(),
     });
-    log_kill(&entry);
-    if json_out {
-        print_json(&entry);
-    } else {
-        let how = if killed { "SIGTERM, then SIGKILL" } else { "SIGTERM" };
-        println!(
-            "ended {pid} ({}) and {} under it with {how}; logged in {}",
-            o.verdict.word(),
-            procs.len() - 1,
-            kills_log().display()
-        );
+    if let Some(reason) = reason
+        && let Some(fields) = entry.as_object_mut()
+    {
+        fields.insert("reason".into(), json!(reason));
     }
-    Ok(())
+    log_kill(&entry);
+    entry
 }
 
 pub fn kills_log() -> PathBuf {
     crate::config::home().join("process-kills.jsonl")
 }
 
-fn log_kill(entry: &Value) {
+/// Appends one line to `process-kills.jsonl`, through the held home (`home_fs`), owner-only.
+pub(crate) fn log_kill(entry: &Value) {
     use std::io::Write as _;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(kills_log()) {
+    if let Ok(mut f) =
+        crate::home_fs::OpenOptions::new().create(true).append(true).mode(0o600).open(kills_log())
+    {
         let _ = writeln!(f, "{entry}");
     }
 }

@@ -8,6 +8,7 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
 import CmuxMobileNotifications
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -601,6 +602,9 @@ extension LiveCoordinator {
             return DaemonClient(channel: channel, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity)
         })
         terminal.macName = owner.name
+        terminal.scrollFramesSink = { [weak self] pan in await self?.sendScrollFrames(pan, macID: macID) }
+        // Its channel died or went silent: the link is checked at once too.
+        terminal.onLinkSuspect = { [weak self] in self?.sessions[macID]?.link.suspect() }
         owner.terminals.removeAll { $0.session == nil }
         owner.terminals.append(MacSession.WeakTerminal(session: terminal))
         // The tab dials its Mac now (a closed link opens, a cached "offline" is tried),
@@ -608,6 +612,29 @@ extension LiveCoordinator {
         openSurface(macID: macID)
         terminal.setMacOffline(sessions[macID]?.terminalsOffline ?? false)
         return terminal
+    }
+
+    /// One terminal pan's frame times (``TerminalPanFrames``) to the Mac's `phone-frames`
+    /// service, which logs them where an agent on the Mac reads them. Only a Mac that lists
+    /// `phone-frames-v1`; nothing waits past 10 s, and a line that cannot go is dropped.
+    /// It adds the link's last round trip, the pan's network load.
+    func sendScrollFrames(_ pan: TerminalPanFrames, macID: String) async {
+        guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
+              let owner = session(macID: macID), let link = owner.servedLink else { return }
+        var pan = pan
+        if case .connected(_, _, let rtt) = owner.link.phase { pan.rttMs = rtt.map(Int.init) }
+        guard let line = pan.line() else { return }
+        guard let channel = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
+            onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
+        ) else { return }
+        _ = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await channel.send(line) },
+            onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }
+        )
+        await channel.close(code: "eof", reason: "")
     }
 
     /// Whether the phone holds (or is opening) a link to the Mac.
@@ -879,6 +906,14 @@ extension LiveCoordinator {
 
     // MARK: Trees and the Feed
 
+    /// Whether a chat store built on session `built` is stale for the tree's `listed` session. Only
+    /// a session the tree names and that differs: a tab missing from one publish (a reconnect's
+    /// partial resync) lists none, and dropping the store then resets the transcript's scroll place.
+    nonisolated static func chatSessionChanged(built: String?, listed: String?) -> Bool {
+        guard let listed else { return false }
+        return listed != built
+    }
+
     private func apply(_ tree: DaemonTree, session: MacSession) {
         let macID = session.macID
         guard sessions[macID] === session else { return }
@@ -887,7 +922,7 @@ extension LiveCoordinator {
         // started later, or a tab shown from the list before the tree came)
         // was built unbound and cached; rebuild it on the bound session.
         for (key, used) in sourcedSessions where (used.macID == macID || used.macID.isEmpty)
-            && (tree.agentTabs[used.tabID]?.session != used.session || used.provisional) {
+            && (Self.chatSessionChanged(built: used.session, listed: tree.agentTabs[used.tabID]?.session) || used.provisional) {
             // A store built without its Mac (macID empty) is rebuilt when any Mac's tab changes.
             if used.macID.isEmpty, tree.agentTabs[used.tabID] == nil { continue }
             sourcedSessions[key] = nil
@@ -1194,6 +1229,7 @@ final class MultiMacFeedActions: FeedActions {
     }
 
     func respond(_ item: FeedItem, request: ACPPermissionRequest, option: ACPPermissionOption) async throws {
+        if item.opensTerminal { return try await terminalOwner(item).respond(item, request: request, option: option) }
         try await owner(item).respond(item, request: request, option: option)
     }
 
