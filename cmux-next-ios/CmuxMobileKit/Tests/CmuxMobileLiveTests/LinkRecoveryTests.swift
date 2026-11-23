@@ -44,12 +44,21 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
     let first: RecoveryLink
     private let lock = NSLock()
     private var count = 0
+    private var redialSaw: Bool?
     var dials: Int { lock.withLock { count } }
+    /// Read on the main actor as the second dial begins (the controller's state at the redial).
+    var atRedial: (@MainActor @Sendable () -> Bool)?
+    /// What ``atRedial`` returned when the second dial began.
+    var sawAtRedial: Bool? { lock.withLock { redialSaw } }
     init(immediatelyConnected: Bool = true) {
         first = RecoveryLink(immediatelyConnected: immediatelyConnected)
     }
     func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let number = lock.withLock { count += 1; return count }
+        if number == 2, let atRedial {
+            let saw = await atRedial()
+            lock.withLock { redialSaw = saw }
+        }
         return number == 1 ? first : RecoveryLink(immediatelyConnected: true)
     }
 }
@@ -124,17 +133,28 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         let clock = LinkTestClock()
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        let driver = LinkClockDriver(clock: clock, controller: controller, probeAnswers: { _ in false })
+        // Probes answer until the link goes silent, a millisecond in.
+        let silentFrom = clock.now.advanced(by: .milliseconds(1))
+        let driver = LinkClockDriver(clock: clock, controller: controller, probeAnswers: { $0 < silentFrom })
+        dialer.atRedial = { [weak controller] in controller?.standbyLink != nil }
         try await eventually { dialer.first.probeCount == 1 }
+        try await driver.settle()
         controller.send(.background)
+        try await driver.settle()
         dialer.first.dropSilently()
+        try await driver.advance(by: .milliseconds(1))
         controller.send(.resumed(after: .seconds(1)))
         #expect(controller.lastProbeTimeout == LinkController.presenceProbeTimeout)
         #expect(dialer.dials == 1)
+        // The probe's bound goes on the clock when its task runs: settle first, or the advance
+        // lands before that sleep starts and its deadline moves past the advance.
+        try await driver.settle()
         try await driver.advance(by: LinkController.presenceProbeTimeout + LinkController.probeGrace + .milliseconds(100),
                                  until: { dialer.dials == 2 })
         try await eventually { dialer.dials == 2 }
-        #expect(controller.standbyLink != nil, "The silent link stays beside the redial")
+        // The redial connects at once here, which then closes the kept link: what holds is that the
+        // silent link is kept as the standby when the redial begins, not that it stays afterwards.
+        #expect(dialer.sawAtRedial == true, "The silent link stays beside the redial")
     }
 
     @Test func backgroundBacksOffHeartbeatAndCloseStopsIt() async throws {
