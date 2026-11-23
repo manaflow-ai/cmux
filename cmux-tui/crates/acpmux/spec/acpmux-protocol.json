@@ -223,6 +223,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/callers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true
@@ -2047,6 +2053,60 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/account/sign_in",
+      "params": {
+        "$ref": "#/types/AccountSignInParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/sign_in.finish",
+      "params": {
+        "$ref": "#/types/AccountSignInFinishParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/sign_in.cancel",
+      "params": {
+        "$ref": "#/types/AccountSignInCancelParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/switch",
+      "params": {
+        "$ref": "#/types/AccountIdParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/remove",
+      "params": {
+        "$ref": "#/types/AccountIdParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/sign_out",
+      "params": {
+        "$ref": "#/types/AccountIdParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/readiness",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections",
       "params": true,
       "result": true
@@ -2285,6 +2345,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/owner_phone_changed",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_consent_set",
       "params": true,
       "result": true
@@ -2322,6 +2388,18 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_join_ssh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_candidates",
       "params": true,
       "result": true
     },
@@ -2499,12 +2577,60 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/machine_join_progress",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true
     }
   ],
   "types": {
+    "AccountIdParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "account": true
+      },
+      "type": "object"
+    },
+    "AccountSignInCancelParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "loginId": true
+      },
+      "type": "object"
+    },
+    "AccountSignInFinishParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "code": true,
+        "loginId": true
+      },
+      "type": "object"
+    },
+    "AccountSignInParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "account": true,
+        "family": true,
+        "name": true
+      },
+      "type": "object"
+    },
     "AcpmuxRequestMeta": {
       "additionalProperties": false,
       "properties": {
@@ -2541,6 +2667,7 @@
         "harness": true,
         "harnessFrom": true,
         "host": true,
+        "ifNameTaken": true,
         "inlineParts": true,
         "interrupt": true,
         "localAppToken": true,
