@@ -12,6 +12,8 @@ import os
 /// mark made before that is kept with its time until then.
 /// The relaunch-reconnect bench reads them (scripts/cmux-next/bench_relaunch_reconnect.py).
 public nonisolated final class AgentPaneLaunchTimings: Sendable {
+    // lint:allow singleton: one process-wide launch-mark recorder; marks come from any thread before the App
+    // can hand an instance around (the host actor's acpmux lookup, the first page), 17 call sites.
     public static let shared = AgentPaneLaunchTimings()
     private struct State {
         var sink: (@Sendable (String, Date) -> Void)?
@@ -21,6 +23,8 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
         var inputEchoed = false
     }
 
+    // Lock carve-out: a synchronous swap of the receiver, early marks and once-flags from any marking thread,
+    // no I/O under it.
     private let state = Mutex(State())
     private let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
 
