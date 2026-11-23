@@ -5,10 +5,12 @@
  * request line on stdin, so no credential is in argv).
  *
  *   1. sign in (the staging agent test account) and sweep this check's machines older than 3 h;
- *   2. the call with `until: "machine"`: the machine `cmux-test-<run>`, running, idle_seconds 0 and keep;
+ *   2. the call with `until: "machine"`: the machine `cmux-test-<run>`, running, not yet kept (keep and the idle
+ *      policy come only once the host runs, so a start that fails before then leaves no kept machine);
  *   3. this run's optchat-chief into the work user's ~/.local/bin when the machine's image has no Chief host yet;
  *   4. the call again with the same key: pairing (the machine's own `optchat-chief cloud pair`, approved by the
- *      call), the Chief placed on that install, cmux-chief.service enabled and started;
+ *      call), the Chief placed on that install, cmux-chief.service enabled and started, and only then the machine
+ *      kept with idle_seconds 180 (RFD 0037: it pauses when idle and wakes on a message);
  *   5. a third call with the same key: the same machine and Chief (resume never makes a second one);
  *   6. the host: cmux-chief.service active with one main pid and no restart 20 s on, and the Chief listed as
  *      placed on the machine's install, and `GET /v1/chief/chiefs` listing it with location kind "machine";
@@ -128,13 +130,13 @@ async function main(): Promise<number> {
       return { value: null, detail: `${old.length} older than 3 h deleted` };
     });
     const t0 = Date.now();
-    await J.step("chief_start until machine (create, idle 0, keep)", async () => {
+    await J.step("chief_start until machine (create, not kept yet)", async () => {
       const a = await start("machine");
       machine = String(a.machine);
       if (a.stage !== "machine" || !machine.startsWith("vm_")) throw new Error(`unexpected answer ${JSON.stringify(a)}`);
       const m = await api.read("cloud.machine.get", { machine });
       const row = m?.machine ?? m;
-      if (row?.keep !== true) throw new Error(`keep is ${JSON.stringify(row?.keep)}`);
+      if (row?.keep === true) throw new Error("kept before its host runs");
       return { value: null, detail: `${machineName} ${machine}, idle_policy ${JSON.stringify(row?.idle_policy ?? null)}, keep ${row?.keep}` };
     });
     const exec = directExec(api, machine, J);
@@ -145,11 +147,15 @@ async function main(): Promise<number> {
       await upload(api, machine, exec, readFileSync(binaryPath), "/home/cmux/.local/bin/optchat-chief");
       return { value: null, detail: "absent from the image: this run's build in ~/.local/bin" };
     });
-    const done = await J.step("chief_start again, same key (pair, place, start the host)", async () => {
+    const done = await J.step("chief_start again, same key (pair, place, start the host, keep, idle 180)", async () => {
       const a = await start();
       if (a.stage !== "done" || a.machine !== machine || !a.chief || !a.install) throw new Error(`unexpected answer ${JSON.stringify(a)}`);
       install = a.install;
       chief = a.chief;
+      const m = await api.read("cloud.machine.get", { machine });
+      const row = m?.machine ?? m;
+      if (row?.keep !== true) throw new Error(`keep is ${JSON.stringify(row?.keep)}`);
+      if (row?.idle_policy?.idle_seconds !== 180) throw new Error(`idle_policy is ${JSON.stringify(row?.idle_policy ?? null)}, not idle_seconds 180`);
       return { value: a, detail: `chief ${a.chief}, conversation ${a.conversation}, install ${a.install}, unit ${a.host_unit}` };
     });
     const startSeconds = Math.round((Date.now() - t0) / 1000);
