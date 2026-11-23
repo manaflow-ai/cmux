@@ -443,6 +443,12 @@ impl Reassembler {
                 if keyframe {
                     // An IDR flushes every reference before it.
                     self.released_recent.clear();
+                    // The frames behind it waited on it, not on their own repairs: their
+                    // deadline starts now. Expiring them at once forced another keyframe
+                    // right after a repaired one on a slow lossy path (hq#19915).
+                    for p in self.pending.values_mut() {
+                        p.last_seen_us = p.last_seen_us.max(now_us);
+                    }
                 }
                 if self.released_recent.len() >= RECOVERY_WINDOW {
                     self.released_recent.pop_front();
