@@ -214,3 +214,16 @@ test("another machine with no sign-in for the agent says where to sign in, and r
     "Sign it in on this machine, then Retry.",
   );
 });
+
+test("an agent not signed in on this Mac whose daemon runs its login leads with the card, not a terminal", async () => {
+  // Logins done right (Leo, 2026-11-22: "this is simply logins, done righr."): localAgentLogin.
+  const container = installDom();
+  const ran: string[] = [];
+  await renderSignIn(container, ran, { elsewhere: false, runsLogin: true, card: true });
+  expect(sentence(container)).toBe("Cursor isn't signed in on this machine.");
+  expect(buttons(container)).toEqual(["Sign in to Cursor", "Retry", "Copy error"]);
+  await press(container, "Sign in to Cursor");
+  // The card's own Sign in: no terminal login (`onAction("signIn")`) ran.
+  expect(ran).not.toContain("signIn");
+  expect(container.querySelector(".acpmux-start-recovery")).toBeNull();
+});
