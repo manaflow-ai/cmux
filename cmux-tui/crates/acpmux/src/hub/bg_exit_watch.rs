@@ -247,7 +247,8 @@ fn wait(queue: &std::os::fd::OwnedFd) -> std::io::Result<Vec<u64>> {
     if n < 0 {
         return Err(std::io::Error::last_os_error());
     }
-    Ok(events[..n as usize].iter().map(|e| e.udata as usize as u64).collect())
+    let n = usize::try_from(n).unwrap_or(0);
+    Ok(events.iter().take(n).map(|e| e.udata as usize as u64).collect())
 }
 
 #[cfg(target_os = "linux")]
@@ -297,7 +298,8 @@ fn wait(queue: &std::os::fd::OwnedFd) -> std::io::Result<Vec<u64>> {
     if n < 0 {
         return Err(std::io::Error::last_os_error());
     }
-    Ok(events[..n as usize].iter().map(|e| e.u64).collect())
+    let n = usize::try_from(n).unwrap_or(0);
+    Ok(events.iter().take(n).map(|e| e.u64).collect())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
