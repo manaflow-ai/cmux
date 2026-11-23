@@ -6,6 +6,7 @@ import { AttachmentStrip } from "./composer/attachmentIntake";
 import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
+import { ComposerStatusLine } from "./ComposerStatusLine";
 import { useComposerSettings } from "./composerSettings";
 import { lookRowInBox } from "./composerLook";
 import { useComposerLookWithV2, useComposerV2 } from "./composerV2";
@@ -100,6 +101,9 @@ export type ComposerBoxProps = {
   chips?: React.ReactNode;
   /// What ends the quiet row (the context ring).
   ring?: React.ReactNode;
+  /// The person's own status line (ComposerStatusLine.tsx), under the box and its quiet row; unset
+  /// or empty draws nothing.
+  statusLine?: string;
   /// The one send control (Send or Stop) before the mic, which keeps the right edge (the plain
   /// footer, in both looks); without the plain footer it is last (`trailing`).
   actionsLead?: React.ReactNode;
@@ -147,6 +151,7 @@ export function ComposerBox({
   leading,
   chips,
   ring,
+  statusLine,
   actionsLead,
   accessory,
   trailing,
@@ -452,6 +457,7 @@ export function ComposerBox({
         {rowInBox && quietRow}
       </div>
       {!rowInBox && quietRow}
+      {statusLine && <ComposerStatusLine line={statusLine} />}
     </>
   );
 }
