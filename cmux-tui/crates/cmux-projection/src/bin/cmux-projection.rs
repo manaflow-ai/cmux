@@ -335,9 +335,13 @@ mod linux {
 
         let phase = Instant::now();
         let mut items = git::ls_tree_cached(&git_dir, &commit, &listing)?;
+        let mut skipped = Vec::new();
         if let Some(sparse) = &args.sparse {
             let rules = sparse_rules(&std::fs::read_to_string(sparse)?);
-            items.retain(|item| sparse_keeps(&item.path, &rules));
+            let (kept, left): (Vec<_>, Vec<_>) =
+                items.into_iter().partition(|item| sparse_keeps(&item.path, &rules));
+            items = kept;
+            skipped = left;
         }
         let links = git::link_texts(&git_dir, &items)?;
         let ls_tree_ms = ms(phase);
@@ -359,7 +363,7 @@ mod linux {
         let phase = Instant::now();
         // SAFETY: getuid and getgid cannot fail.
         let owner = unsafe { (libc::getuid(), libc::getgid()) };
-        let index = git::index_bytes(&projection.index, owner.0, owner.1)?;
+        let index = git::index_bytes_sparse(&projection.index, &skipped, owner.0, owner.1)?;
         if let Some(parent) = index_file.parent() {
             std::fs::create_dir_all(parent)?;
         }

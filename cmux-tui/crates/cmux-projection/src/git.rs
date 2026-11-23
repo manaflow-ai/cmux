@@ -491,17 +491,47 @@ impl Projection {
 /// ctime from the manifest, inode number entry + 1, owner `uid`/`gid`. git then finds every file
 /// unchanged by stat alone.
 pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result<Vec<u8>> {
-    let mut out = Vec::with_capacity(entries.len() * 100 + 32);
+    index_bytes_sparse(entries, &[], uid, gid)
+}
+
+/// [`index_bytes`], plus `skipped`: the commit's paths a sparse checkout leaves out, as git
+/// records them (skip-worktree, no stat), so the index still holds the whole commit and git sees
+/// nothing deleted. Index version 3 when there are any (its extended flags carry the bit).
+pub fn index_bytes_sparse(
+    entries: &[IndexEntry],
+    skipped: &[TreeItem],
+    uid: u32,
+    gid: u32,
+) -> anyhow::Result<Vec<u8>> {
+    let skip = skipped.iter().map(|item| IndexEntry {
+        path: item.path.clone(),
+        mode: item.mode,
+        oid: item.oid.clone(),
+        size: 0,
+        mtime_ns: 0,
+        entry: u32::MAX,
+    });
+    let mut all: Vec<(IndexEntry, bool)> = entries
+        .iter()
+        .cloned()
+        .map(|entry| (entry, false))
+        .chain(skip.map(|e| (e, true)))
+        .collect();
+    if !skipped.is_empty() {
+        all.sort_by(|a, b| a.0.path.as_bytes().cmp(b.0.path.as_bytes()));
+    }
+    let version: u32 = if skipped.is_empty() { 2 } else { 3 };
+    let mut out = Vec::with_capacity(all.len() * 100 + 32);
     out.extend_from_slice(b"DIRC");
-    out.extend_from_slice(&2u32.to_be_bytes());
-    out.extend_from_slice(&u32::try_from(entries.len())?.to_be_bytes());
-    for entry in entries {
-        let (seconds, nanos) = if entry.mode == GITLINK {
+    out.extend_from_slice(&version.to_be_bytes());
+    out.extend_from_slice(&u32::try_from(all.len())?.to_be_bytes());
+    for (entry, skip_worktree) in &all {
+        let (seconds, nanos) = if entry.mode == GITLINK || *skip_worktree {
             (0, 0)
         } else {
             (entry.mtime_ns.div_euclid(1_000_000_000), entry.mtime_ns.rem_euclid(1_000_000_000))
         };
-        let (ino, uid, gid, size) = if entry.mode == GITLINK {
+        let (ino, uid, gid, size) = if entry.mode == GITLINK || *skip_worktree {
             (0, 0, 0, 0)
         } else {
             (u64::from(entry.entry) + 1, uid, gid, entry.size)
@@ -527,7 +557,13 @@ pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result
         out.extend_from_slice(&hex(&entry.oid)?);
         let name = entry.path.as_bytes();
         let flags = u16::try_from(name.len().min(0xfff))?;
-        out.extend_from_slice(&flags.to_be_bytes());
+        if *skip_worktree {
+            // The extended bit, then the extended flags with skip-worktree.
+            out.extend_from_slice(&(flags | 0x4000).to_be_bytes());
+            out.extend_from_slice(&0x4000u16.to_be_bytes());
+        } else {
+            out.extend_from_slice(&flags.to_be_bytes());
+        }
         out.extend_from_slice(name);
         let len = out.len() - start;
         let padded = (len + 8) & !7;

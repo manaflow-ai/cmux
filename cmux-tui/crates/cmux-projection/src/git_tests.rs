@@ -232,3 +232,33 @@ fn a_new_commits_listing_takes_its_sizes_from_a_kept_one_and_matches_git() {
     let listed = ls_tree_cached(&git_dir, &two, &trees.join(&two)).unwrap();
     assert_eq!(listed, ls_tree(&git_dir, &two).unwrap());
 }
+
+#[test]
+fn a_sparse_index_holds_the_left_out_paths_as_skip_worktree() {
+    let (dir, git_dir, commit) = repo();
+    let projection = project(&git_dir, &commit, &mut Book::default(), 2_000_000_000);
+    let kept: Vec<IndexEntry> =
+        projection.index.iter().filter(|e| !e.path.starts_with("crate/")).cloned().collect();
+    let skipped: Vec<TreeItem> = ls_tree(&git_dir, &commit)
+        .unwrap()
+        .into_iter()
+        .filter(|item| item.path.starts_with("crate/"))
+        .collect();
+    let index = dir.path().join("sparse-index");
+    std::fs::write(&index, index_bytes_sparse(&kept, &skipped, 0, 0).unwrap()).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("--git-dir")
+            .arg(&git_dir)
+            .args(args)
+            .env("GIT_INDEX_FILE", &index)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let listed = git(&["ls-files", "-v"]);
+    assert!(listed.contains("S crate/src/main.rs"), "{listed}");
+    assert!(listed.contains("H README.md"), "{listed}");
+    assert_eq!(git(&["diff-index", "--cached", "--name-only", &commit]), "", "nothing staged");
+}
