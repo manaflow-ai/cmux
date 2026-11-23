@@ -25,7 +25,12 @@ final class AnimationFrameBenchUITests: XCTestCase {
 
         app.typeText("one")
         let oneLine = field.frame.height
-        window("composer-grow") { app.typeText("\n") }
+        // A software Return inserts a newline; the composer's hardware Return sends.
+        let returnKey = keyboard.descendants(matching: .any).matching(NSPredicate(
+            format: "label ==[c] 'return' OR identifier ==[c] 'return'"
+        )).firstMatch
+        let insertLine = center(returnKey, in: app)
+        window("composer-grow") { insertLine.tap() }
         XCTAssertGreaterThan(field.frame.height, oneLine + 1, "inserting a newline grew the composer")
 
         // The short drag from ComposerGrowKeepsTranscriptUITests leaves the
@@ -174,7 +179,7 @@ final class AnimationFrameBenchUITests: XCTestCase {
         let name = "dev.cmux.mobile.animationframe.\(phase).\(label)"
         let ack = XCTestExpectation(description: "\(phase) \(label) acknowledged by the app")
         var token: Int32 = 0
-        let registered = notify_register_dispatch(name + ".ack", &token, .global(qos: .userInitiated)) { _ in ack.fulfill() }
+        let registered = notify_register_dispatch(name + ".ack", &token, .global(qos: .userInitiated)) { @Sendable _ in ack.fulfill() }
         XCTAssertEqual(registered, 0, "register \(name).ack")
         defer { notify_cancel(token) }
         XCTAssertEqual(notify_post(name), 0, "post \(name)")
