@@ -372,6 +372,41 @@ class Evidence(unittest.TestCase):
         self.assertEqual(again["linux_owned_small"], "glaeda-linux-arm64")
         self.assertNotIn("glaeda-linux-arm64", again[runner_pools.DEAD_KEY])
 
+    def test_an_owned_linux_vm_label_no_runner_ever_served_is_passed_over(self) -> None:
+        # Coordinator FIRE, 2026-11-22 07:42Z: "RUNNER_POOLS key `linux_owned_small` was set to
+        # `glaeda-linux-arm64` at about 07:26Z ... No runner registered for manaflow-ai/cmux carries that label, so
+        # every job routed through it sits queued." Nothing queued there, so no stall ever marked it dead.
+        pools = runner_pools.load_pools()
+        label = "glaeda-linux-arm64"
+        self.assertTrue(runner_pools.unproven(label, {}))
+        for snapshot in (None, copy.deepcopy(RECORDED)):
+            current = {"linux_owned_small": label, runner_pools.DEAD_KEY: {}}
+            value, lines = runner_pools.reconcile(
+                current, pools, dead_now=set(), served_now=set(), now=NOW,
+                covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+            self.assertEqual(value["linux_owned_small"], "blacksmith-2vcpu-ubuntu-2404")
+            self.assertNotIn(runner_pools.SERVED_KEY, value)
+            self.assertIn(f"pools.linux_owned_small: no runner has ever taken a job on {label}; passed over", lines)
+        # The owned GCP label stands registered and is judged by the stall rule, not by this.
+        self.assertFalse(runner_pools.unproven("cmux-fleet-linux-x64", {}))
+        self.assertEqual(value["linux_2"], "cmux-fleet-linux-x64")
+        # A start proves it: the pool leads with it again, and the proof survives a pass that sees no start.
+        started = self.owned_linux_snapshot(queued=0, running=1, oldest=0, started_ago=dt.timedelta(minutes=1))
+        dead, served, _ = runner_pools.label_evidence(None, started, now=NOW)
+        proven, lines = runner_pools.reconcile(value, pools, dead_now=dead, served_now=served, now=NOW,
+                                               covered=runner_pools.evidence_covers(None, started, pools, now=NOW))
+        self.assertEqual(proven["linux_owned_small"], label)
+        self.assertEqual(proven[runner_pools.SERVED_KEY], {label: runner_pools.iso(NOW)})
+        later = NOW + dt.timedelta(hours=2)
+        kept, _ = runner_pools.reconcile(runner_pools.parse_value(runner_pools.render(proven), pools)[0], pools,
+                                         dead_now=set(), served_now=set(), now=later)
+        self.assertEqual(kept["linux_owned_small"], label)
+        # A malformed record is dropped, never crashed on.
+        clean, dropped = runner_pools.parse_value(
+            '{"_served": {"glaeda-linux-arm64": "soon", "blacksmith-2vcpu-ubuntu-2404": "2026-11-22T07:00:00Z"}}', pools)
+        self.assertNotIn(runner_pools.SERVED_KEY, clean)
+        self.assertTrue(any(runner_pools.SERVED_KEY in line for line in dropped))
+
     def test_a_full_owned_gcp_pool_overflows_to_blacksmith_and_comes_back(self) -> None:
         # Leo, 2026-11-21: "i just am like fundamentally opposed to paying for ci when i exist". The x64 pools lead
         # with the persistent GCP pool; Blacksmith takes their jobs only while its oldest queued job has waited
@@ -627,7 +662,8 @@ class Evidence(unittest.TestCase):
 
     def test_no_evidence_retires_nothing(self) -> None:
         # Fail closed: with CI_CLOUD_LABEL_HEALTH absent (cmux#27121 not deployed) and no snapshot,
-        # nothing is marked dead, and the pools stay on their first members.
+        # nothing is marked dead, and the pools stay on their first members (passing over an owned Linux VM label
+        # no runner has served yet, runner_pools.unproven()).
         dead, started, _ = runner_pools.label_evidence(None, None, now=NOW)
         self.assertEqual((dead, started), (set(), set()))
         switch = Main.Switch()
@@ -635,7 +671,7 @@ class Evidence(unittest.TestCase):
         value = json.loads(switch.writes[0][1])
         self.assertEqual(value["_dead"], {})
         for name, spec in runner_pools.load_pools().items():
-            self.assertEqual(value[name], spec["members"][0])
+            self.assertEqual(value[name], next(m for m in spec["members"] if not runner_pools.unproven(m, {})))
 
     def test_an_undated_stale_or_future_snapshot_decides_nothing(self) -> None:
         stalled = copy.deepcopy(RECORDED)
@@ -987,7 +1023,8 @@ class Main(BlacksmithFailover, unittest.TestCase):
         pools = runner_pools.load_pools()
         first, second = runner_pools.members(pools["linux"])[:2]
         # Every pool on its first member that is not the dead one (linux_4 lists the same 4 vCPU size first).
-        held = {name: next(m for m in runner_pools.members(spec) if m != first) for name, spec in pools.items()}
+        held = {name: next(m for m in runner_pools.members(spec) if m != first and not runner_pools.unproven(m, {}))
+                for name, spec in pools.items()}
         held["linux"] = second
         held["_dead"] = {first: marked}
         held["_updated"] = marked

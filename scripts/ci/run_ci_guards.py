@@ -447,6 +447,42 @@ def write_stamp(head_sha: str, groups: list[str], skipped: list[str], seconds: f
     return stamp
 
 
+# Each step's last time on this machine. The pool sorts its tasks longest first by it, so a
+# long step starts with the first workers instead of whenever its place in ci-guards.yml comes
+# up and runs past every other one. A step with no time yet counts as UNTIMED_SECONDS.
+TIMES = Path(os.environ.get("CMUX_GUARDS_TIMES")
+             or Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cmux-guards/step-seconds.json")
+UNTIMED_SECONDS = 10.0
+# Times of the long steps, checked in, for a machine with no times of its own: every pool runner
+# is a fresh VM, so without these CI would run the steps in ci-guards.yml order. A step not
+# listed counts as UNTIMED_SECONDS. Refresh it from a run's own file (CMUX_GUARDS_TIMES).
+SEED_TIMES = ROOT / "scripts/ci/guard-step-seconds.json"
+
+
+def _read_seconds(path: Path) -> dict[str, float]:
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {k: float(v) for k, v in body.items() if isinstance(v, (int, float))} if isinstance(body, dict) else {}
+
+
+def read_times() -> dict[str, float]:
+    return {**_read_seconds(SEED_TIMES), **_read_seconds(TIMES)}
+
+
+def write_times(results: list[StepResult]) -> None:
+    times = _read_seconds(TIMES)
+    times.update({f"{r.unit.label}: {r.step.name}": round(r.seconds, 1) for r in results if r.ok is not None})
+    try:
+        TIMES.parent.mkdir(parents=True, exist_ok=True)
+        scratch = TIMES.with_name(f"{TIMES.name}.{os.getpid()}")
+        scratch.write_text(json.dumps(times, indent=0, sort_keys=True) + "\n")
+        os.replace(scratch, TIMES)
+    except OSError as error:  # a read-only home only loses the ordering
+        print(f"run_ci_guards.py: could not write step times to {TIMES}: {error}", file=sys.stderr)
+
+
 def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
                   results: list[StepResult], seconds: float) -> None:
     body = {
@@ -574,7 +610,13 @@ def main(argv: list[str]) -> int:
             tasks.append((unit, unit.steps))
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
-    tasks.sort(key=lambda task: -len(task[1]))
+    times = read_times()
+
+    def expected(task: tuple[Unit, list[Step]]) -> float:
+        unit, steps = task
+        return sum(times.get(f"{unit.label}: {step.name}", UNTIMED_SECONDS) for step in steps)
+
+    tasks.sort(key=lambda task: (-expected(task), -len(task[1])))
     # A step that requires a clean checkout runs after the pool drains: a
     # sibling step's scratch file in the checkout would fail it (run
     # 45122790288: "checkout has non-ignored source changes" at 23 s).
@@ -626,11 +668,18 @@ def main(argv: list[str]) -> int:
     finally:
         signal.signal(signal.SIGTERM, previous_term)
     seconds = time.monotonic() - started
+    write_times(results)
     slowest = sorted((r for r in results if r.ok is not None), key=lambda r: -r.seconds)[:SLOWEST_SHOWN]
     if slowest:
         print(f"slowest {len(slowest)} steps:")
         for result in slowest:
             print(f"  {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}")
+    # CPU the steps used against what the machine had: near 1.0 the job needs fewer steps or more
+    # cores; well below it, the steps wait (sleeps, subprocess round trips) and more workers help.
+    cpu = sum(os.times()[:4])
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    print(f"cmux guards: cpu {cpu:.0f}s over {seconds:.0f}s wall on {cores} cores "
+          f"({cpu / max(seconds * cores, 1e-9):.0%} busy), {args.jobs} workers", flush=True)
     failed = [r for r in results if r.ok is False]
     skipped = sorted({r.step.name for r in results if r.ok is None})
     passed = sum(1 for r in results if r.ok)
