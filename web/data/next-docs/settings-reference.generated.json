@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 674,
+  "count": 677,
   "sections": [
     {
       "id": "general",
@@ -2022,6 +2022,22 @@
             "afterCurrent",
             "bottom"
           ]
+        },
+        {
+          "key": "worktrees.autoCleanup",
+          "title": "Clean Up Agent Worktrees",
+          "help": "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Storage"
+        },
+        {
+          "key": "worktrees.cleanBuildCaches",
+          "title": "Clean Up Build Caches",
+          "help": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Storage"
         }
       ]
     },
@@ -3077,6 +3093,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.liquidGlass",
+          "title": "Liquid Glass",
+          "help": "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Density and Motion"
         },
         {
           "key": "appearance.metrics.chromeFontSize",
