@@ -270,6 +270,11 @@ pub struct SessionMeta {
     /// Codex keeps the goal in its thread, so it is set once.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stop_condition_sent: bool,
+    /// Read-only work in a folder the person chose not to trust (`_meta.acpmux.restricted`,
+    /// `hub/restricted.rs`): every start of its Claude Code skips the folder's settings and MCP
+    /// servers, and it keeps the review policy.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restricted: bool,
     #[serde(default)]
     pub agent_session_id: Option<String>,
     /// Claude Code can replace its native session id when a chat is forked. Keep ids this

@@ -476,7 +476,8 @@ describe("auto-roll workflows", () => {
       expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
     }
     const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
-    expect(bake.jobs["bake"]!["runs-on"]).toContain("vars.LINUX_RUNNER");
+    // The bake takes the one Linux label (scripts/ci/one_linux_label.py), never a size.
+    expect(bake.jobs["bake"]!["runs-on"]).toMatch(/\|\| 'cmux-linux' }}$/);
   });
 
   test("platform mode mints its scoped token, checks out main and passes the split checkout", () => {
