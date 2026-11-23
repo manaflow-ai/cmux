@@ -141,6 +141,8 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod hosts;
+mod hosts_check;
 #[cfg(unix)]
 mod inference_gateway;
 #[cfg(unix)]
@@ -1000,6 +1002,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| hosts::run_if_requested(args))
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
