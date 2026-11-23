@@ -1,0 +1,40 @@
+{
+  "family": "project",
+  "ops": {
+    "project.add": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "5e310508523b2c12"
+    },
+    "project.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "f2ee3a8e7f3969ef"
+    },
+    "project.observe": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "98f044266badcdc0"
+    },
+    "project.remove": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "1f3169dd2330b782"
+    },
+    "project.source.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "d20b9684329af203"
+    },
+    "project.sync": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "99ffc6777a4df429"
+    },
+    "project.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "fe145cf0e57d6de7"
+    }
+  }
+}
