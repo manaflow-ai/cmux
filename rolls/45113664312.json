@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45113664312",
+  "recorded_at": "2026-11-23T04:58:26Z",
+  "reason": "image inputs changed in 17068bd3383f9fe4882128043efbd1b8ce05a2c7..23a92c10d7b19c566c6f9a17e4c490c57f8e2c87",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "23a92c10d7b19c566c6f9a17e4c490c57f8e2c87",
+      "mergedAt": "2026-11-23T04:44:41Z",
+      "subject": "cmux-vm probe: accept Computer Use's record tool when it refuses for want of an H.264 encoder (#51303)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-23T04:58:26Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
