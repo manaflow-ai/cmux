@@ -1163,6 +1163,12 @@ fieldset.acpmux-question[hidden]{display:none}
    any shortcut, with the verb before it in the description's quiet voice. It takes no room from other rows. */
 .acpmux-palette-return{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:var(--ds-space-1,4px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-palette-return .acpmux-keycap{margin-right:0}
+/* The composer's + (Picker `returnHint`): the same verb and keycap, at the end of the highlighted row only. Every row
+   carries it hidden, so the highlight moving re-renders nothing; a hidden one takes no room. */
+.acpmux-menu-return{display:none;flex:none;margin-left:auto;align-items:center;gap:var(--ds-space-1,4px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-menu-item[data-highlighted] .acpmux-menu-return{display:inline-flex}
+.acpmux-menu-return .acpmux-keycap{margin-right:0}
+.acpmux-menu-hint+.acpmux-menu-return{margin-left:var(--ds-space-2,8px)}
 /* The `footer` look: the outcome with its target in one quiet line under the list, no rule above it (space and
    fill, not lines). */
 .acpmux-palette-outcome{flex:none;display:flex;align-items:center;gap:var(--ds-space-1,4px);min-width:0;padding:var(--ds-space-1,4px) var(--cmux-menu-icon-x) var(--ui-popup-padding);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
