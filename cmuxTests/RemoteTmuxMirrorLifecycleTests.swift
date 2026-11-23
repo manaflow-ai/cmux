@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxRemoteSession
 import CmuxTerminal
 import Foundation
 import Testing
@@ -200,13 +201,14 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(appDelegate.remoteTmuxController.sessionMirror(host: host, sessionName: "dev") == nil)
     }
 
-    @Test func processExitDrainsFinalPipeBytesBeforeFinishingStream() async throws {
+    @Test(.timeLimit(.minutes(1))) func processExitDrainsFinalPipeBytesBeforeFinishingStream() async throws {
         let pipe = Pipe()
+        let (pauseStream, pauseContinuation) = AsyncStream<Void>.makeStream()
         let reader = RemoteTmuxProcessOutputReader(
             label: "remote-tmux-process-output-reader-test",
             maxPendingChunks: 8,
             maxPendingBytes: 4096,
-            onOverflow: { Issue.record("process output reader overflowed") }
+            onPause: { pauseContinuation.yield() }
         )
         reader.attach(to: pipe.fileHandleForReading)
         let capture = Task {
@@ -231,6 +233,9 @@ struct RemoteTmuxMirrorLifecycleTests {
         reader.processDidExit()
 
         #expect(await capture.value == terminalError)
+        pauseContinuation.finish()
+        var pauses = pauseStream.makeAsyncIterator()
+        #expect(await pauses.next() == nil, "a 55-byte drain paused against 8 chunks and 4096 bytes")
     }
 
     @Test func backgroundDisplayPaneCreationPreservesSelectedSurface() throws {

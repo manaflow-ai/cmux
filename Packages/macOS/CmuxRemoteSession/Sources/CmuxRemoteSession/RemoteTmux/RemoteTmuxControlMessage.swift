@@ -1,11 +1,11 @@
-import Foundation
+public import Foundation
 
 /// A single parsed message from a remote tmux control-mode (`tmux -CC`) stream.
 ///
 /// Produced by ``RemoteTmuxControlStreamParser``. Command responses (the output
 /// between a `%begin`/`%end` pair) are coalesced into a single ``commandResult``
 /// carrying the lines in between; everything else is an out-of-band notification.
-enum RemoteTmuxControlMessage: Sendable, Equatable {
+public enum RemoteTmuxControlMessage: Sendable, Equatable {
     /// The `ESC P 1000 p` handshake that opens control mode.
     case enter
 

@@ -28,7 +28,7 @@ public struct RemoteTmuxScreenTitleFilter {
         // Hot path: routeOutput calls this for every %output chunk. When we're not
         // mid-sequence and the chunk has no ESC, there is nothing to strip — return it
         // unchanged and skip the per-byte copy + allocation.
-        if state == .text, !data.contains(0x1b) { return data }
+        if state == .text, !data.containsEscapeByte { return data }
         // Build into a `[UInt8]` buffer (cheaper than per-byte `Data.append`) and wrap
         // it once at the end.
         var out = [UInt8]()

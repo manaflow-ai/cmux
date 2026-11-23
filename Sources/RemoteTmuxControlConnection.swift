@@ -135,6 +135,11 @@ final class RemoteTmuxControlConnection {
     /// Stable pane queue for reconnect snapshots. Only a small fixed number are
     /// captured concurrently so retained history is bounded independently of pane count.
     var pendingReconnectPaneIDs: [Int] = []
+    /// The catch-up after the reader fell a bound behind: whether one is asked for, and the seeds
+    /// and queued panes it waits on. See ``requestCatchUpAfterFallingBehind()``.
+    var catchUp = RemoteTmuxCatchUpCoordinator()
+    /// The stdout reader paused and has not resumed: the parser is still a bound behind.
+    var stdoutReaderIsBehind = false
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
@@ -200,9 +205,13 @@ final class RemoteTmuxControlConnection {
     /// Cleanup belongs to the ended spawn, and must finish even if a replacement
     /// stream starts or the last mirror releases this connection in the meantime.
     private var processTerminationTasks: [UUID: Task<Void, Never>] = [:]
-    var stdinWriter: RemoteTmuxControlPipeWriter?
+    var stdinWriter: RemoteTmuxControlPipeWriter? {
+        didSet {
+            stdinWriter?.onRoomFreed = { [weak self] in self?.sendQueuedCatchUpCaptures() }
+        }
+    }
     private var stdoutReader: FileHandle?
-    private var stdoutPipeReader: RemoteTmuxProcessOutputReader?
+    private(set) var stdoutPipeReader: RemoteTmuxProcessOutputReader?
     private var stderrPipeReader: RemoteTmuxProcessOutputReader?
     /// Consumes the current spawn's stderr into `stderrBuffer`. Awaited before a
     /// failed reconnect attempt is classified, so the decision sees the complete
@@ -214,14 +223,14 @@ final class RemoteTmuxControlConnection {
     /// outlived its process — a liveness probe answered after a respawn, say — can tell that its
     /// answer describes a stream that no longer exists. Writable only here.
     private(set) var processGeneration: UInt64 = 0
-    var pendingCommands: [CommandKind] = []
+    var pendingCommands = RemoteTmuxFIFO<CommandKind>()
     /// How many replies this stream has taken off ``pendingCommands``, which is also the
     /// position of its first entry counted from the start of the stream.
     var dequeuedCommandCount = 0
     /// The positions, by that count, of each queued line still waiting on replies. tmux stops
     /// a queued line at its first failing command, so the commands after it are never
     /// answered and their slots have to go when the failure arrives.
-    var pendingCommandQueues: [Range<Int>] = []
+    var pendingCommandQueues = RemoteTmuxFIFO<Range<Int>>()
     /// A `detach-client` cmux sent is still waiting for tmux's `%exit`. That exit is cmux's own
     /// doing, so it must not reach the exit observers as a session that ended remotely.
     private var awaitingDeliberateDetach = false
@@ -529,12 +538,13 @@ final class RemoteTmuxControlConnection {
     /// Cap queued stdin bytes while the dedicated writer is backpressured. Above
     /// this, mutations are rejected and the connection reconnects instead of
     /// accepting unbounded user input that may never reach tmux.
-    private static let maxPendingStdinBytes = 256 * 1024
-    /// Cap pending stdout between SSH's pipe callback and the main-actor parser.
-    /// Initial attach can legitimately burst one `capture-pane -S 5000` block per
-    /// mirrored pane, so the chunk cap absorbs pipe delivery jitter while the byte
-    /// cap keeps worst-case memory bounded if parsing falls behind or the remote
-    /// floods output. Parser byte budgets remain the control-stream corruption guard.
+    nonisolated static let maxPendingStdinBytes = 256 * 1024
+    /// Cap pending stdout between the transport's pipe and the main-actor parser.
+    /// At either cap the reader stops reading the pipe until the parser catches
+    /// up, so a burst (initial attach sends one `capture-pane -S 5000` block per
+    /// mirrored pane; a transport that resumes after a network drop replays what
+    /// it held) slows the remote down instead of costing the connection. Parser
+    /// byte budgets remain the control-stream corruption guard.
     private static let maxPendingStdoutBytes = 32 * 1024 * 1024
     private static let maxPendingStdoutChunks = 4096
     private static let maxPendingStderrBytes = 1024 * 1024
@@ -785,12 +795,25 @@ final class RemoteTmuxControlConnection {
             }
         )
 
+        // A pause means the parser fell a read bound behind: catch up instead of drawing the
+        // backlog. The signal comes from the reader's queue, so it does not wait behind that
+        // backlog in the stream. The spawn that succeeds below takes this generation.
+        let pauseGeneration = processGeneration &+ 1
         let stdoutPipeReader = RemoteTmuxProcessOutputReader(
             label: "com.cmux.remote-tmux.stdout.\(UUID().uuidString)",
             maxPendingChunks: Self.maxPendingStdoutChunks,
             maxPendingBytes: Self.maxPendingStdoutBytes,
-            onOverflow: { [weak self] in
-                self?.handleStdoutBackpressureOverflow()
+            onPause: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.processGeneration == pauseGeneration else { return }
+                    self.requestCatchUpAfterFallingBehind()
+                }
+            },
+            onResume: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.processGeneration == pauseGeneration else { return }
+                    self.stdoutReaderCaughtUp()
+                }
             }
         )
         let reader = outPipe.fileHandleForReading
@@ -798,10 +821,7 @@ final class RemoteTmuxControlConnection {
         let stderrPipeReader = RemoteTmuxProcessOutputReader(
             label: "com.cmux.remote-tmux.stderr.\(UUID().uuidString)",
             maxPendingChunks: Self.maxPendingStderrChunks,
-            maxPendingBytes: Self.maxPendingStderrBytes,
-            onOverflow: { [weak self] in
-                self?.handleStderrBackpressureOverflow()
-            }
+            maxPendingBytes: Self.maxPendingStderrBytes
         )
         stderrPipeReader.attach(to: errPipe.fileHandleForReading)
         // Process termination and pipe EOF are distinct events. Each reader drains
@@ -1083,6 +1103,7 @@ final class RemoteTmuxControlConnection {
     /// (reconnect) from a clean slate.
     private func teardownProcessHandles() {
         processGeneration &+= 1
+        stdoutReaderIsBehind = false
         ingestTask?.cancel()
         ingestTask = nil
         stderrTask?.cancel()
@@ -1205,10 +1226,9 @@ final class RemoteTmuxControlConnection {
         // Record before the writer can emit bytes, so a fast `%begin`/`%end`
         // reply never outruns its local FIFO slot. If the bounded writer rejects
         // the payload, remove the whole batch immediately and reconnect.
-        let pendingStart = pendingCommands.count
         pendingCommands.append(contentsOf: kinds)
         guard stdinWriter.enqueue(data) else {
-            pendingCommands.removeSubrange(pendingStart...)
+            pendingCommands.removeLast(kinds.count)
             record("stdin-write-backpressure")
             beginReconnecting()
             return false
@@ -1229,7 +1249,7 @@ final class RemoteTmuxControlConnection {
         let pendingStart = pendingCommands.count
         pendingCommands.append(contentsOf: kinds)
         guard stdinWriter.enqueue(data) else {
-            pendingCommands.removeSubrange(pendingStart...)
+            pendingCommands.removeLast(kinds.count)
             record("stdin-write-backpressure")
             beginReconnecting()
             return false
@@ -1248,34 +1268,6 @@ final class RemoteTmuxControlConnection {
         // pending command correlation cannot consume replies from a dead client.
         record("stdin-write-failed")
         beginReconnecting()
-    }
-
-    private func handleStdoutBackpressureOverflow() {
-        guard connectionState == .connected || connectionState == .connecting else { return }
-        // The parser fell far enough behind the SSH pipe that preserving every
-        // control-mode byte would exceed the bridge budget. Reconnect instead of
-        // dropping bytes and desynchronizing command/result parsing.
-        record("stdout-backpressure")
-        beginReconnecting()
-    }
-
-    private func handleStderrBackpressureOverflow() {
-        switch connectionState {
-        case .connecting, .connected:
-            record("stderr-backpressure")
-            beginReconnecting()
-        case .reconnecting:
-            // This attempt's diagnostic stream is incomplete, so it cannot
-            // safely decide whether the session is gone. Abort the attempt and
-            // retry with a fresh bounded stream instead of attaching with lost
-            // stderr or waiting indefinitely for stdout to end.
-            guard process != nil else { return }
-            record("reconnect-stderr-backpressure")
-            teardownProcessHandles()
-            scheduleReconnectAttempt()
-        case .ended:
-            return
-        }
     }
 
     /// Feeds stream bytes through this connection's own parser.

@@ -1,9 +1,5 @@
+import CmuxRemoteSession
 import Foundation
-
-enum RemoteTmuxPaneSeedKind: Equatable {
-    case fullHistory
-    case visibleRepaint
-}
 
 /// One authoritative pane snapshot and the live-stream bytes around its tmux
 /// command-result boundary.
@@ -20,6 +16,10 @@ struct RemoteTmuxPaneSeed: Equatable {
     let snapshot: Data
     let catchUpOutput: [Data]
     let state: Data
+    /// The live output before the capture was dropped rather than carried in
+    /// `discardedOutput`, so live escape filters cannot continue from it and
+    /// start over at this boundary.
+    var restartsLiveStream = false
 
     /// Compatibility projection for observers that have not registered a typed
     /// seed callback. Pre-snapshot live bytes are intentionally omitted.

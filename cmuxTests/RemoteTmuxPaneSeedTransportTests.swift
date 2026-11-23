@@ -1827,7 +1827,7 @@ import Testing
         )
     }
 
-    private static func occurrences(of needle: String, in data: Data) -> Int {
+    static func occurrences(of needle: String, in data: Data) -> Int {
         String(decoding: data, as: UTF8.self).components(separatedBy: needle).count - 1
     }
 
@@ -1877,7 +1877,7 @@ import Testing
         )
     }
 
-    private func attachedConnection(
+    func attachedConnection(
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
     ) -> Fixture {
         let connection = RemoteTmuxControlConnection(
@@ -1904,14 +1904,14 @@ import Testing
         return Fixture(connection: connection, writer: writer, pipe: pipe)
     }
 
-    private func finishPendingCommands(
+    func finishPendingCommands(
         on connection: RemoteTmuxControlConnection,
         captureRows: [String],
         paneHeight: Int,
-        startingAt firstCommandNumber: Int
+        startingAt firstCommandNumber: Int, until stop: () -> Bool = { false }
     ) {
         var commandNumber = firstCommandNumber
-        while let kind = connection.pendingCommandKindsForTesting.first {
+        while !stop(), let kind = connection.pendingCommandKindsForTesting.first {
             let lines: [String]
             switch kind {
             case .paneReflow:
@@ -2133,7 +2133,7 @@ import Testing
         let window: NSWindow
     }
 
-    private struct Fixture {
+    struct Fixture {
         let connection: RemoteTmuxControlConnection
         let writer: RemoteTmuxControlPipeWriter
         let pipe: Pipe

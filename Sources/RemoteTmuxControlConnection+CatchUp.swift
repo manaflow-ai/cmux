@@ -1,0 +1,132 @@
+import CmuxRemoteSession
+import Foundation
+
+@MainActor
+extension RemoteTmuxControlConnection {
+    /// Starts a catch-up for a reader that fell a bound behind, or keeps the request until the
+    /// catch-up in progress finishes. Before control mode is entered there is nothing to catch up:
+    /// the attach seeds capture every pane anyway.
+    func requestCatchUpAfterFallingBehind() {
+        guard enterReceived else { return }
+        stdoutReaderIsBehind = true
+        catchUp.request()
+        catchUpAfterFallingBehind()
+    }
+
+    /// The stdout reader resumed: the parser has worked through half of what it held.
+    func stdoutReaderCaughtUp() {
+        stdoutReaderIsBehind = false
+    }
+
+    /// Starts a catch-up that was requested while another one waited on tmux, once none does.
+    /// Every way a seed leaves ``pendingPaneSeeds`` (finished, cancelled, its pane gone, or its
+    /// window dropped from the topology) ends here, so the request cannot outlive the catch-up.
+    ///
+    /// The pause behind the request may have come from the catch-up's own capture replies, which
+    /// can fill the read bound with no live output behind them. Starting another catch-up then
+    /// would send more captures and repeat the cycle. So the request starts one only while the
+    /// reader is still behind: whatever it holds now arrived after every capture. Otherwise the
+    /// request is withdrawn, and a later pause asks again.
+    func startRequestedCatchUp() {
+        guard catchUp.shouldStart else { return }
+        guard stdoutReaderIsBehind else {
+            catchUp.withdrawRequest()
+            return
+        }
+        catchUpAfterFallingBehind()
+    }
+
+    /// Repaints every pane from tmux once the stream has fallen a full read bound behind.
+    ///
+    /// Output that arrives faster than it can be parsed and drawn is stale by the time it
+    /// is drawn. A transport that held output through a network drop and then released it
+    /// at once is the common case: hundreds of megabytes of it would otherwise be fed to
+    /// every terminal before the user saw the current screen. A reconnect got there fast by
+    /// throwing the backlog away with the connection and seeding each pane again; this does
+    /// the same without leaving the connection. Every pane starts a full-history seed, as a
+    /// reconnect does, and its live output up to the capture is dropped, because the capture
+    /// already shows its result. A seed in progress whose capture has not arrived joins the
+    /// catch-up and stops retaining its output too. A pane whose last seed is such a
+    /// full-history seed needs nothing more. Any other pane gets a full-history seed behind the
+    /// ones it has: a visible-only capture would leave out the lines the backlog pushed into
+    /// history, so a visible seed that joins drops output until it finishes, and the new seed
+    /// drops it up to its own capture.
+    ///
+    /// Idle panes are repainted too: the backlog is still unparsed in the transport, so nothing
+    /// says which panes it belongs to. Each full-history capture replaces the pane's scrollback
+    /// with tmux's own history, as a reconnect does, so a pane keeps every line tmux kept.
+    ///
+    /// A pane still queued for its reconnect seed keeps its place in that queue, which bounds
+    /// how much history is retained at once. Its output is dropped until the seed starts, and
+    /// the seed drops output up to its capture, as a catch-up seed does.
+    ///
+    /// Every other pane's capture is queued, and ``sendQueuedCatchUpCaptures()`` sends as many as
+    /// the command writer has room for. A queued pane's output is dropped until its seed starts,
+    /// so a capture that waits its turn draws none of the backlog.
+    ///
+    /// The capture replies queue behind the backlog in the stream, so the parser still reads
+    /// through it, but nothing else is done with the dropped bytes. Only one catch-up runs
+    /// at a time; ``catchUp`` keeps a pause during one, and ``startRequestedCatchUp()`` starts
+    /// it when the last catch-up seed is gone and no queued pane is still waiting for one.
+    func catchUpAfterFallingBehind() {
+        guard connectionState == .connected, enterReceived, !catchUp.isRunning else { return }
+        catchUp.begin()
+        var joined = 0
+        var coveredPaneIDs: Set<Int> = []
+        for paneId in Array(pendingPaneSeeds.keys) {
+            for index in pendingPaneSeeds[paneId]!.indices
+            where pendingPaneSeeds[paneId]![index].canJoinCatchUp {
+                releasePendingPaneSeedBytes(pendingPaneSeeds[paneId]![index].joinCatchUp())
+                catchUp.track(seedID: pendingPaneSeeds[paneId]![index].id)
+                joined += 1
+            }
+            if pendingPaneSeeds[paneId]?.last?.coversCatchUp == true { coveredPaneIDs.insert(paneId) }
+        }
+        var capturing = 0
+        var queued = 0
+        // A pane whose seeds all have their captures gets a new one too: the output still to
+        // come is newer than those captures.
+        var seenPaneIDs = coveredPaneIDs
+        let queuedForReconnect = Set(pendingReconnectPaneIDs)
+        for window in windowsByID.values {
+            for paneId in window.paneIDsInOrder where seenPaneIDs.insert(paneId).inserted {
+                if queuedForReconnect.contains(paneId) {
+                    catchUp.awaitSeed(forPane: paneId)
+                    queued += 1
+                } else {
+                    catchUp.queueCapture(forPane: paneId)
+                    capturing += 1
+                }
+            }
+        }
+        record("output-catch-up capturing=\(capturing) joined=\(joined) queued=\(queued)")
+        sendQueuedCatchUpCaptures()
+    }
+
+    /// Sends queued catch-up captures while the command writer has room for them. The writer
+    /// calls this again each time a write finishes, so the rest go out as it drains.
+    ///
+    /// Each capture is about 700 bytes of commands, so a few hundred panes ask for more than the
+    /// writer may hold. The writer gives room back only on the main actor, after a write
+    /// finishes, so every capture sent in one turn counts against it at once, and a write it
+    /// rejects reconnects, which is what a catch-up is there to avoid.
+    func sendQueuedCatchUpCaptures() {
+        while connectionState == .connected,
+              stdinWriter?.hasRoomForDeferrableWrite == true,
+              let paneId = catchUp.nextQueuedCapture()
+        {
+            guard let seedID = capturePane(paneId: paneId, clearScrollback: true) else {
+                // The seed budget had no room, so the catch-up stops waiting on this pane. A
+                // request kept during the catch-up starts if nothing else is left.
+                startRequestedCatchUp()
+                continue
+            }
+            // A seed for a waiting pane joins the catch-up by itself. Another seed may have
+            // started while the pane waited and taken that place, so this one is marked too.
+            if let index = pendingPaneSeeds[paneId]?.firstIndex(where: { $0.id == seedID }) {
+                pendingPaneSeeds[paneId]![index].dropsPreCaptureOutput = true
+                catchUp.track(seedID: seedID)
+            }
+        }
+    }
+}
