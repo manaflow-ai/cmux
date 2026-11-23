@@ -20,9 +20,15 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     private let body = NSStackView()
     private let row = NSStackView()
     private(set) var surface: CmuxDialogCardSurface?
+    /// A prompt floating over every app (``CmuxFloatingDialogPanel``): the ``SurfaceRole/prompt`` glass, its inks fit
+    /// over any app's pixels, and a header that names who asks (the icon small beside the title, the question under
+    /// it, a quieter note last; Leo 2026-11-22: "it didn't seem very intentionally designed").
+    public let overApps: Bool
 
-    public init(dialog: CmuxDialogPresentation) {
+    /// `overApps`: the card floats over every app (``CmuxFloatingDialogPanel``), not over a cmux window.
+    public init(dialog: CmuxDialogPresentation, overApps: Bool = false) {
         self.dialog = dialog
+        self.overApps = overApps
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         build()
@@ -157,7 +163,9 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     }
 
     private func build() {
-        let icon = Self.icon(for: spec)
+        // A floating prompt names who asks in its header: the icon small beside the title, the text the card's width.
+        let headerIcon = overApps ? Self.icon(for: spec) : nil
+        let icon = overApps ? nil : Self.icon(for: spec)
         let padding = CmuxDialogMetrics.cardPadding
         let cardWidth = icon == nil ? CmuxDialogMetrics.width : CmuxDialogMetrics.widthWithIcon
         let contentWidth = cardWidth - padding * 2 - (icon == nil ? 0 : CmuxDialogMetrics.iconSize + CmuxDialogMetrics.iconGap)
@@ -185,7 +193,13 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         body.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
 
         let titleFont = Typography.dialogTitle
-        let title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
+        let title: NSView
+        if let headerIcon {
+            title = Self.header(headerIcon, label(spec.title, font: titleFont, role: .primary,
+                                                  width: contentWidth - CmuxDialogMetrics.headerIconSize - CmuxDialogMetrics.headerIconGap))
+        } else {
+            title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
+        }
         body.addArrangedSubview(title)
         if let origin = spec.origin {
             body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.cardBody, role: .secondary, width: contentWidth))
@@ -193,7 +207,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         if !spec.lines.isEmpty {
             let lines = linesView(width: contentWidth)
             // The first line reads as the title's subtitle, close under it.
-            if spec.origin == nil { body.setCustomSpacing(CmuxDialogMetrics.subtitleGap, after: title) }
+            if spec.origin == nil { body.setCustomSpacing(overApps ? CmuxDialogMetrics.spacing : CmuxDialogMetrics.subtitleGap, after: title) }
             body.addArrangedSubview(lines)
         }
         // A safe-default dialog puts its check boxes under the buttons, as NSAlert puts its suppression button.
@@ -256,7 +270,8 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         let content = NSView()
         content.addSubview(outer)
         // The card keeps the key-window glass while it fades out (debug.dialog_strip).
-        let surface = CmuxDialogCardSurface(content: content, activeLook: dialog.activeLook, usesTransientMaterial: spec.usesTransientMaterial)
+        let surface = CmuxDialogCardSurface(content: content, activeLook: dialog.activeLook,
+                                            usesTransientMaterial: spec.usesTransientMaterial, overApps: overApps)
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
         self.surface = surface
@@ -276,7 +291,12 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     /// The lines; a long message (an import preview) scrolls in a box of bounded height, so the buttons stay on screen.
     private func linesView(width: CGFloat) -> NSView {
-        let lines = NSStackView(views: spec.lines.map { label($0, font: Typography.cardMessage, role: .secondary, width: width) })
+        // A floating prompt's later lines (a note under the question) are quieter: caption, tertiary.
+        let lines = NSStackView(views: spec.lines.enumerated().map { index, line in
+            overApps && index > 0
+                ? label(line, font: Typography.cardCaption, role: .tertiary, width: width)
+                : label(line, font: Typography.cardMessage, role: .secondary, width: width)
+        })
         lines.orientation = .vertical
         lines.alignment = .leading
         lines.spacing = Metrics.space2
@@ -367,7 +387,23 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         }
     }
 
-    enum TextRole { case primary, secondary, danger }
+    enum TextRole { case primary, secondary, tertiary, danger }
+
+    /// A floating prompt's header: the icon small, centered on the title beside it.
+    private static func header(_ icon: NSImage, _ title: NSView) -> NSStackView {
+        let view = NSImageView(image: icon)
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.setAccessibilityElement(false)
+        view.widthAnchor.constraint(equalToConstant: CmuxDialogMetrics.headerIconSize).isActive = true
+        view.heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.headerIconSize).isActive = true
+        let row = NSStackView(views: [view, title])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = CmuxDialogMetrics.headerIconGap
+        row.translatesAutoresizingMaskIntoConstraints = false
+        return row
+    }
 
     /// A themed label: it re-reads its ink in the scope it draws in (on joining a window and on every theme
     /// change), never the scope it was built in.
@@ -378,11 +414,15 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         label.isSelectable = true
         label.focusRingType = .none
         // Fitted to the dialog's glass card, as its buttons are (GlassTextEveryThemeTests).
+        // A floating prompt's inks are fit over any app under it (``SurfaceRole/prompt``).
+        let text: (ThemeInk) -> NSColor = overApps ? Palette.promptText : Palette.sheetText
+        let overApps = self.overApps
         switch role {
-        case .primary: label.themeColor = { Palette.sheetText(.primary) }
-        case .secondary: label.themeColor = { Palette.sheetText(.secondary) }
+        case .primary: label.themeColor = { text(.primary) }
+        case .secondary: label.themeColor = { text(.secondary) }
+        case .tertiary: label.themeColor = { text(.tertiary) }
         // The quiet destructive button's ink: the danger color fit to 4.5:1 on the card.
-        case .danger: label.themeColor = { Self.dangerInk() }
+        case .danger: label.themeColor = { Self.dangerInk(overApps: overApps) }
         }
         label.widthAnchor.constraint(equalToConstant: width).isActive = true
         return label
@@ -430,10 +470,11 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     }
 
     /// The danger ink as the quiet destructive button draws it: fit to 4.5:1 on the card. Call in the theme scope.
-    static func dangerInk() -> NSColor {
+    static func dangerInk(overApps: Bool = false) -> NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        return CmuxDialogButtonLook(role: .destructive, tokens: tokens, quiet: true,
-                                    card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value)).title.nsColor
+        let lift = ChromeTunables.opaqueOverlayLift.value
+        let card = overApps ? CmuxDialogButtonLook.promptCardSurfaces(tokens, lift: lift) : CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
+        return CmuxDialogButtonLook(role: .destructive, tokens: tokens, quiet: true, card: card).title.nsColor
     }
 
     private func register(_ control: NSControl, id: String) {

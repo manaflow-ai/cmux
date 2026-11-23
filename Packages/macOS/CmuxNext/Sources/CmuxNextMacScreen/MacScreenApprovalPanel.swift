@@ -216,6 +216,9 @@ final class MacScreenApprovalPanel: CmuxFloatingDialogPanel {
     init(prompt: MacScreenApprovalPrompt) {
         self.prompt = prompt
         super.init(identifier: "macScreen.approval.panel")
+        // SECURITY: left out of every capture cmux makes and refused by Computer Use, as the join consent is: a shared
+        // screen or an agent's capture never shows the Allow it could aim a posted click at.
+        sharingType = .none
         personClick.isPersonEvent = prompt.isPersonEvent
         personClick.eventInHand = prompt.eventInHand
     }

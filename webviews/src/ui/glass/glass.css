@@ -652,6 +652,10 @@
   --surface-sheet-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 62%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 48%, transparent));
   --surface-sheet-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 28%, transparent));
   --surface-sheet-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 5%, transparent));
+  --surface-prompt-radius: 14px; /* prompts that float over every app (a device asking to see or control this Mac, the join consent, Computer use acting as me): the theme's tint at a denser veil, since any app's pixels show through */
+  --surface-prompt-veil: light-dark(color-mix(in srgb, var(--glass-surface) 80%, transparent), color-mix(in srgb, var(--glass-surface) 74%, transparent));
+  --surface-prompt-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 30%, transparent));
+  --surface-prompt-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 6%, transparent));
 }
 /* surface-roles:end */
 

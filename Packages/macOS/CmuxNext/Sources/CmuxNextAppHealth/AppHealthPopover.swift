@@ -136,7 +136,7 @@ enum AppHealthCard {
         if let worst, worst["canRepair"]?.boolValue == true, let id = worst["id"]?.stringValue {
             buttons.append(CmuxDialogButton(id: repairPrefix + id, title: AppHealthStrings.repairNow, role: .default))
         }
-        return CmuxDialogSpec(title: title, lines: lines, buttons: buttons, identifier: "cmux.appHealth.card")
+        return CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: lines, buttons: buttons, identifier: "cmux.appHealth.card")
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
