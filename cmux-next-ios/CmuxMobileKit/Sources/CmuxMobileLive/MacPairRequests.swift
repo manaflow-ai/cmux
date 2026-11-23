@@ -28,8 +28,8 @@ public final class MacPairRequests {
         public let request: PairRequestCard
         /// An answer is on its way.
         public var answering = false
-        /// The Mac refused the last answer (its reason, shown on the card).
-        public var error: String?
+        /// The Mac did not take the last answer (the card says so, localized, and offers it again).
+        public var failed = false
 
         public var id: String { "\(macID)/\(request.deviceId)/\(request.fingerprint)" }
     }
@@ -45,17 +45,37 @@ public final class MacPairRequests {
         var capabilities: @MainActor () -> Set<String>?
     }
 
+    /// A running poll or answer, with the token that tells it apart from its replacement.
+    private struct Owned {
+        let token: UUID
+        let task: Task<Void, Never>
+    }
+
+    /// How long one channel open or reply may take before it is given up (a Mac that leaves a
+    /// channel open without replying would otherwise hold a poll or an answer forever).
+    static let replyDeadline: Duration = .seconds(10)
+
     @ObservationIgnored private var sources: [String: Source] = [:]
-    @ObservationIgnored private var polls: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var polls: [String: Owned] = [:]
+    /// Answers in flight, by card id; cancelled with their Mac's link.
+    @ObservationIgnored private var answers: [String: Owned] = [:]
     /// The last link open, foreground or shown card of each Mac: the slow poll runs for a while after it.
     @ObservationIgnored private var lastActive: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var backgrounded = false
 
     public init() {}
 
-    /// `macID`'s link is served (its pairing passed): list it now and keep listing.
+    /// `macID`'s link is served (its pairing passed): list it now and keep listing. A poll still
+    /// running for the link this replaces is cancelled, so the new link is always listed.
     func linkServed(macID: String, source: Source) {
         sources[macID] = source
+        stop(macID)
+        kick(macID)
+    }
+
+    /// `macID`'s hostd said what it serves (its `version` reply): the signal a poll that found
+    /// no capabilities yet waits for.
+    func capabilitiesKnown(macID: String) {
         kick(macID)
     }
 
@@ -68,53 +88,67 @@ public final class MacPairRequests {
     /// The app went to the back: no more listing until the next foreground.
     public func background() {
         backgrounded = true
-        for task in polls.values { task.cancel() }
+        for poll in polls.values { poll.task.cancel() }
         polls.removeAll()
     }
 
     /// Allow or Don't Allow `card` on its Mac.
     public func answer(_ card: Card, allow: Bool) {
         guard let index = cards.firstIndex(where: { $0.id == card.id }), !cards[index].answering,
-              let link = sources[card.macID]?.link() else { return }
+              answers[card.id] == nil, let link = sources[card.macID]?.link() else { return }
         cards[index].answering = true
-        cards[index].error = nil
+        cards[index].failed = false
         let args = pairRequestsAnswerArgs(card: card.request, allow: allow)
-        // task-owner: self; one answer per tap (the card is `answering` until it ends).
-        Task { [weak self] in
-            let failure = await Self.answer(on: link, args: args)
-            guard let self else { return }
-            if let failure, let index = self.cards.firstIndex(where: { $0.id == card.id }) {
-                log.info("pair-requests answer refused: \(failure, privacy: .public)")
-                self.cards[index].answering = false
-                self.cards[index].error = failure
-            } else if failure == nil {
+        let token = UUID()
+        // task-owner: answers[card.id]; ends with its reply, its deadline, or its Mac's link (stop/drop).
+        let task = Task { [weak self] in
+            let took = await Self.answer(on: link, args: args)
+            guard let self, !Task.isCancelled else { return }
+            if self.answers[card.id]?.token == token { self.answers[card.id] = nil }
+            // A link replaced while the answer was out: the new link's poll shows what the Mac has now.
+            guard let current = self.sources[card.macID]?.link(), current === link else { return }
+            if took {
                 self.cards.removeAll { $0.id == card.id }
+            } else if let index = self.cards.firstIndex(where: { $0.id == card.id }) {
+                self.cards[index].answering = false
+                self.cards[index].failed = true
             }
             self.kick(card.macID)
         }
+        answers[card.id] = Owned(token: token, task: task)
     }
 
     /// Starts `macID`'s poll if it is not running, and counts now as activity.
     private func kick(_ macID: String) {
         lastActive[macID] = .now
         guard !backgrounded, polls[macID] == nil, sources[macID] != nil else { return }
-        // task-owner: polls[macID]; ends on its own (Rust stop rule, link gone, unsupported) or on background().
-        polls[macID] = Task { [weak self] in
+        let token = UUID()
+        // task-owner: polls[macID]; ends on its own (Rust stop rule, link gone, unsupported) or on stop/background.
+        let task = Task { [weak self] in
             await self?.poll(macID)
-            self?.polls[macID] = nil
+            // Only this poll's own entry: a replacement started after a cancel keeps its handle.
+            if self?.polls[macID]?.token == token { self?.polls[macID] = nil }
+        }
+        polls[macID] = Owned(token: token, task: task)
+    }
+
+    /// Cancels `macID`'s poll and its answers in flight (its link went or was replaced).
+    private func stop(_ macID: String) {
+        polls.removeValue(forKey: macID)?.task.cancel()
+        for (id, owned) in answers where id.hasPrefix("\(macID)/") {
+            owned.task.cancel()
+            answers[id] = nil
+        }
+        if cards.contains(where: { $0.macID == macID && $0.answering }) {
+            for index in cards.indices where cards[index].macID == macID { cards[index].answering = false }
         }
     }
 
     private func poll(_ macID: String) async {
         guard let source = sources[macID], let link = source.link() else { return drop(macID) }
-        // The `version` reply that lists capabilities may land a moment after the link is served.
-        var capabilities = source.capabilities()
-        for _ in 0..<40 where capabilities == nil {
-            try? await Task.sleep(for: .milliseconds(500))
-            if Task.isCancelled { return }
-            capabilities = source.capabilities()
-        }
-        guard let capabilities, pairRequestsSupported(capabilities: Array(capabilities)) else { return drop(macID) }
+        // Not known yet: `capabilitiesKnown` starts the poll again when the `version` reply lands.
+        guard let capabilities = source.capabilities() else { return }
+        guard pairRequestsSupported(capabilities: Array(capabilities)) else { return drop(macID) }
         while !Task.isCancelled {
             guard let current = source.link(), current === link else { return drop(macID) }
             guard let listed = await Self.list(on: link) else { return drop(macID) }
@@ -124,18 +158,19 @@ public final class MacPairRequests {
             let quiet = ContinuousClock.now - (lastActive[macID] ?? .now)
             let quietMs = UInt64(max(0, quiet.components.seconds)) * 1000
             guard let delay = pairRequestsPollDelayMs(shown: UInt32(listed.count), quietMs: quietMs) else { return }
+            // The poll interval itself (Rust's rule), not a readiness wait; cancellation ends it.
             try? await Task.sleep(for: .milliseconds(Int(delay)))
         }
     }
 
-    /// `macID`'s cards are now `listed`; a card answering or showing an error keeps that state.
+    /// `macID`'s cards are now `listed`; a card answering or showing a failure keeps that state.
     private func show(_ listed: [PairRequestCard], macID: String, macName: String) {
         let old = Dictionary(cards.filter { $0.macID == macID }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let next = listed.map { request -> Card in
             var card = Card(macID: macID, macName: macName, request: request)
             if let previous = old[card.id] {
                 card.answering = previous.answering
-                card.error = previous.error
+                card.failed = previous.failed
             }
             return card
         }
@@ -145,18 +180,42 @@ public final class MacPairRequests {
     }
 
     private func drop(_ macID: String) {
+        for (id, owned) in answers where id.hasPrefix("\(macID)/") {
+            owned.task.cancel()
+            answers[id] = nil
+        }
         if cards.contains(where: { $0.macID == macID }) { cards.removeAll { $0.macID == macID } }
+    }
+
+    /// Opens one `pair-requests` channel and reads its one reply, each within `replyDeadline`;
+    /// a reply that never comes closes the channel. nil reply: the Mac refused (see `closedBy`).
+    static func exchange(on link: any MacLink, args: [String: String]) async throws -> (Data?, LinkError?) {
+        let channel = try await LinkDeadline.run(
+            timeout: replyDeadline,
+            operation: { try await link.openChannel(service: pairRequestsService(), args: args) },
+            onDiscard: { await $0.close(code: "eof", reason: "pair-requests expired") }
+        )
+        let reply: Data?
+        do {
+            reply = try await LinkDeadline.run(
+                timeout: replyDeadline,
+                operation: { try await channel.receive() },
+                onCancel: { await channel.close(code: "eof", reason: "pair-requests expired") }
+            )
+        } catch {
+            await channel.close(code: "eof", reason: "pair-requests expired")
+            throw error
+        }
+        if reply != nil { await channel.close(code: "eof", reason: "") }
+        return (reply, channel.closedBy)
     }
 
     /// The waiting requests on `link`; nil when the Mac does not serve them (an older hostd).
     static func list(on link: any MacLink) async -> [PairRequestCard]? {
         do {
-            let channel = try await link.openChannel(service: pairRequestsService(), args: pairRequestsListArgs())
-            guard let reply = try await channel.receive() else {
-                // Refused: an older hostd has no such service; any other refusal lists nothing now.
-                return channel.closedBy?.code == "unknown_service" ? nil : []
-            }
-            await channel.close(code: "eof", reason: "")
+            let (reply, closedBy) = try await exchange(on: link, args: pairRequestsListArgs())
+            // Refused: an older hostd has no such service; any other refusal lists nothing now.
+            guard let reply else { return closedBy?.code == "unknown_service" ? nil : [] }
             return pairRequestsParse(reply: String(decoding: reply, as: UTF8.self))
         } catch {
             log.info("pair-requests list: \(String(describing: error), privacy: .public)")
@@ -164,21 +223,19 @@ public final class MacPairRequests {
         }
     }
 
-    /// Sends one answer; nil when the Mac took it, else why not.
-    static func answer(on link: any MacLink, args: [String: String]) async -> String? {
+    /// Sends one answer; true when the Mac took it.
+    static func answer(on link: any MacLink, args: [String: String]) async -> Bool {
         do {
-            let channel = try await link.openChannel(service: pairRequestsService(), args: args)
-            guard let reply = try await channel.receive() else {
-                return channel.closedBy.map { $0.message.isEmpty ? $0.code : $0.message } ?? "no answer"
+            let (reply, closedBy) = try await exchange(on: link, args: args)
+            guard let reply else {
+                log.info("pair-requests answer refused: \(closedBy?.code ?? "closed", privacy: .public)")
+                return false
             }
-            await channel.close(code: "eof", reason: "")
-            if let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
-               object["ok"] as? Bool == true {
-                return nil
-            }
-            return "no answer"
+            let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any]
+            return object?["ok"] as? Bool == true
         } catch {
-            return String(describing: error)
+            log.info("pair-requests answer: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 }
