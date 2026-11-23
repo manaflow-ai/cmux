@@ -534,13 +534,12 @@ fn shared_shim_of_a_gone_build_starts_claude_through_the_terminals_own_cmux() {
         session_start.contains(&exe_a.display().to_string()),
         "the older terminal's claude ran no hooks of this build: {session_start}"
     );
-    // The rewritten shims never name the daemon that wrote them, so no last
-    // writer decides; the older shim's own target stays only as a checked
-    // fallback.
+    // The rewritten shims never name the daemon that wrote them, nor the
+    // build the older shim named, so no other build's cmux can start.
     for name in ["claude", "codex"] {
         let script = fs::read_to_string(shared.join(name)).unwrap();
         assert!(!script.contains(&exe_a.display().to_string()), "{name}: {script}");
-        assert!(script.contains(&format!("if [ -x '{}' ]", gone.display())), "{name}: {script}");
+        assert!(!script.contains(&gone.display().to_string()), "{name}: {script}");
     }
     drop(a);
     let _ = fs::remove_dir_all(&root);
@@ -550,7 +549,9 @@ fn shared_shim_of_a_gone_build_starts_claude_through_the_terminals_own_cmux() {
 /// `CMUX_TUI_CLI`, else the app's bundled CLI when it is a cmux-next bundle
 /// (its `cmux-tui` is the same file as its `cmux`; a classic app ships two
 /// different binaries), else the agent itself with the shared folder left
-/// out of its PATH.
+/// out of its PATH and no cmux server: never the build the older shim named
+/// (whichever build wrote the folder last), which is another build than the
+/// terminal's, even while it is still installed.
 #[test]
 fn shared_shims_follow_the_terminals_own_cmux() {
     let root = unique_root();
@@ -619,15 +620,18 @@ fn shared_shims_follow_the_terminals_own_cmux() {
         [("CMUX_TUI_CLI", gone.as_path()), ("CMUX_BUNDLED_CLI_PATH", bundle_cli.as_path())];
     assert_eq!(run("claude", &bundled), "bundle|agent claude-wrapper hi\n");
     assert_eq!(run("codex", &bundled), "bundle|agent codex-wrapper hi\n");
-    // A classic bundled CLI is never run; the older shim's own writer is,
-    // while it exists, else the agent itself.
+    // A classic bundled CLI is never run, and with no cmux of the terminal's
+    // own the agent runs by itself.
     let classic = [("CMUX_BUNDLED_CLI_PATH", classic_cli.as_path())];
     assert_eq!(run("claude", &classic), format!("real hi|{}\n", real.display()));
     assert_eq!(run("codex", &[]), format!("real hi|{}\n", real.display()));
+    // The older shims' writer, another build still installed, is never run:
+    // its `cmux mcp serve` would act on this terminal's socket with that
+    // build's code and Computer Use permissions.
     fs::create_dir_all(writer.parent().unwrap()).unwrap();
     write_executable(&writer, &echo("writer"));
-    assert_eq!(run("claude", &classic), "writer|agent claude-wrapper hi\n");
-    assert_eq!(run("codex", &[]), "writer|agent codex-wrapper hi\n");
+    assert_eq!(run("claude", &classic), format!("real hi|{}\n", real.display()));
+    assert_eq!(run("codex", &[]), format!("real hi|{}\n", real.display()));
     assert_eq!(run("claude", &both), "tui|agent claude-wrapper hi\n");
     let _ = fs::remove_dir_all(&root);
 }
