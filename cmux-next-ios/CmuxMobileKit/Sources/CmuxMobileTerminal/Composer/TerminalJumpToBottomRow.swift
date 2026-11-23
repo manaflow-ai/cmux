@@ -48,6 +48,12 @@ struct TerminalJumpToBottomRow: View {
                 .sensoryFeedback(.impact(weight: .light), trigger: taps)
                 .accessibilityLabel("Scroll to bottom")
                 .accessibilityIdentifier("terminal.jumpToBottom")
+                // The target's frame in the row: a touch in the row outside
+                // it reaches the terminal, never a dead zone (Leo, 2026-11-23).
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.rowSpace)) }) { frame in
+                    model.controller?.jumpTargetChanged(frame)
+                }
+                .onDisappear { model.controller?.jumpTargetChanged(.null) }
                 .frame(maxWidth: .infinity, alignment: .center)
                 // It rises out of the key row: up 14 pt from 92 % and
                 // transparent, on a light spring. Its removal is at once
@@ -56,6 +62,8 @@ struct TerminalJumpToBottomRow: View {
                                         removal: .identity))
             }
         }
+        .frame(maxWidth: .infinity)
+        .coordinateSpace(.named(Self.rowSpace))
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             model.controller?.jumpRowHeightChanged(height)
         }
@@ -67,6 +75,8 @@ struct TerminalJumpToBottomRow: View {
         .animation(showsJumpToBottom ? Animation.cmuxMobileSnappy.unlessReduceMotion : nil, value: showsJumpToBottom)
     }
 
+    /// The row's coordinate space: the host view's own bounds.
+    nonisolated static let rowSpace = "terminal.jumpRow"
     /// The pill as drawn.
     static let pillHeight: CGFloat = 28
     /// The tap target's height, the key-row gap included.
