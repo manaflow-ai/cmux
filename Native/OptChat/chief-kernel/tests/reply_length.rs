@@ -113,6 +113,26 @@ fn a_split_keeps_list_items_together() {
     assert!(parts[0].lines().all(|line| !line.trim().is_empty()));
 }
 
+#[test]
+fn a_long_list_groups_items_without_crossing_the_message_limit() {
+    let text = (0..6)
+        .map(|n| format!("- task {n} is complete with its checks and review evidence."))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let parts = split_reply(&text, REPLY_MAX_WORDS);
+    assert!(
+        parts.len() > 1,
+        "the list should use several messages: {parts:?}"
+    );
+    assert!(
+        parts
+            .iter()
+            .all(|part| reply_words(part) <= REPLY_MAX_WORDS)
+    );
+    let joined = parts.join("\n");
+    assert_eq!(joined, text, "list markers and item order stay intact");
+}
+
 // Nov 12-19 on Lawrence's Chief: 112 sends refused, most of them a status
 // list (one short line per task, as the person asked) or a Before/After
 // table of pictures, which the gate counted as prose. The person reads a
