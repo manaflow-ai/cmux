@@ -159,6 +159,75 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
     assert!(draft["draft"].is_null(), "the source keeps no draft: {draft}");
 }
 
+/// A running turn moves with its chat (Leo, 2026-11-21: "you're supposed to be able to move shit
+/// while it's running"): `atToolBoundary` refuses while a tool call runs, so its work is never
+/// cut, and once the call's result is in the chat it stops the turn and the turn goes on there.
+#[tokio::test]
+async fn a_running_turn_moves_between_its_tool_calls_and_goes_on_there() {
+    let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let dir = tempfile::tempdir().unwrap();
+    let gate = dir.path().join("gate");
+    assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let turn = format!("tool-then-cancel: {}", gate.display());
+    src.send(method::SESSION_PROMPT, prompt(&id, "p-turn", &turn)).await;
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["toolCallId"] == "tc-1").await;
+
+    // The build runs: the move waits for it, and the chat stays as it was.
+    let live = json!({"sessionId": id, "atToolBoundary": true});
+    let wait = src.request("_acpmux/transfer_begin", live.clone()).await;
+    assert!(wait.as_ref().is_err_and(|e| e.contains("transfer.tool_in_flight")), "{wait:?}");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "{info}");
+    assert!(info["turn"]["turnId"].is_string(), "the turn still runs: {info}");
+
+    // Its result comes in; the model goes on, and the move takes the turn along.
+    let open = gate.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(open, "go").unwrap()).await.unwrap();
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    let begin = src.request("_acpmux/transfer_begin", live).await.unwrap();
+    assert_eq!(begin["continues"], "p-turn~resume-1", "{begin}");
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
+    src.request(
+        "_acpmux/transfer_commit",
+        json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
+
+    // There: the tool call's result is in its history, and the turn goes on, once.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while texts(&mut dst, &id, "user_message").await.len() < 2 {
+        assert!(tokio::time::Instant::now() < deadline, "the turn never went on there");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let ran = texts(&mut dst, &id, "user_message").await;
+    assert_eq!(ran.len(), 2, "{ran:?}");
+    assert_eq!(ran[0], turn, "{ran:?}");
+    assert!(ran[1].starts_with("This chat moved to another machine"), "{ran:?}");
+    let done = records(&mut dst, &id, "tool_call_update").await;
+    assert!(
+        done.iter().any(|u| u.pointer("/params/update/toolCallId") == Some(&json!("tc-1"))
+            && u.pointer("/params/update/status") == Some(&json!("completed"))),
+        "the tool call's result moved with the chat: {done:?}"
+    );
+    let scheduled = records(&mut dst, &id, "auto_resume_scheduled").await;
+    assert_eq!(scheduled.len(), 1, "{scheduled:?}");
+    assert_eq!(scheduled[0]["reason"], "moved", "{scheduled:?}");
+}
+
 #[tokio::test]
 async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() {
     let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
