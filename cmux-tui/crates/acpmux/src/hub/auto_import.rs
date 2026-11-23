@@ -36,7 +36,7 @@ impl Hub {
             self.kill(&old, true).await?;
         }
         // Not `live`: its queue stays empty, so nothing runs when the import publishes it.
-        let session = self.import_into(bundle, None, false, None, false, false).await?;
+        let session = self.import_into(bundle, None, false, None, false, false, None).await?;
         // Held as a chat still arriving while its open turn is settled and its queue comes
         // back, so no new prompt runs ahead of the continuation.
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =

@@ -7,6 +7,17 @@ Builds on cloud work mode (`backend/apps/api/src/handoffs`, Leo 2026-10-27): the
 Cloud machine by hand. Auto mode makes the same move happen by itself when the laptop goes away, and back when
 it returns.
 
+Beside Auto chat placement (Leo 2026-11-18, open as https://github.com/manaflow-ai/cmux/pull/45820,
+https://github.com/manaflow-ai/cmux/pull/45834 and https://github.com/manaflow-ai/cmux/pull/45838): that work
+is the decision of where a new chat starts (This Mac, a joined machine or Cloud) and when a running chat should
+move, and it moves a chat while the Mac is still there to carry the move out (it hears `willSleep`). This work
+is what holds when the Mac is not there to do anything: the Cloud keeps a lease and a copy, so a chat goes on
+after a closed lid, a dead battery or a lost network, and the phone reaches it with no Mac. Neither needs the
+other to land, and nothing here reads `placement` tags or calls `_acpmux/place_chat`. Both use the word Auto in
+the UI for now (`agentPane.newChatsIn: "auto"` there, `cloud.autoMode` and the chat menu's Auto row here): one
+name for both is an open product decision, and the natural end state is that a chat placed on Auto is also kept
+running by this store.
+
 ## What the person sees
 
 One setting, **Auto** (Settings > Cloud; per chat in the chat's menu). With Auto on:
@@ -269,6 +280,39 @@ Wire:
   capped at 512 MiB apart.
 - The view: `standby` lists live standbys only; `leaseExpiresAt` is 0 for a parked chat and for a machine before
   its first ack; times are milliseconds.
+
+## The daemons and the core crate as built (2026-11-23)
+
+Where the code differs from the sections above, the code is right and this section says how.
+
+Core crate (`cmux-auto-session`):
+
+- There is no `Release` effect and no `HandingBack` or `Releasing` state. A machine that finished its work
+  renews idle (`needsRun: false`) once the newest copy is stored; the store hands the chat back at that renewal
+  and answers the machine `lost`.
+- A machine's order after an assignment: import the copy, drain the inbox, ack the assignment, then renew at
+  work. The daemon sends `Changed` to the state machine after `DrainInbox`.
+- A laptop sends `needsRun: true` only once the store holds a snapshot and the chat is not too large, so the
+  store never gives a machine a chat it cannot import.
+- A clock that went back by more than one second (`CLOCK_SLACK_MS`) is treated as a wake.
+- Turning Auto off is `Effect::Close` and the chat stays Auto until `Event::Closed`.
+- `ImportReason` and the `SessionImporter` trait (its `import` returns a boxed future) live in the core crate;
+  a streamed turn is copied every 5 s (`STREAM_COPY_MS`).
+- Refusals carry the store's `session`, `lastSeq` and `missing` as typed fields.
+
+Inbox (laptop and machine, `acpmux/src/auto_session/runtime/inbox.rs`):
+
+- A message is made durable before the store is told it was taken: it is written into the chat's own log as an
+  `auto_inbox` record and flushed, then the store is acked, then it is delivered as a prompt whose id is the
+  message's id (a repeat is the same prompt, not a second one). A daemon that restarts after the ack
+  redelivers what its log still owes (`Hub::auto_inbox_owed`).
+
+In-memory store (`cmux-auto-session` feature `test-support`, `fake/`):
+
+- `fake/rules.rs` is `lease.ts` function for function. Not mirrored: machine start lifetimes and backoff, team
+  access (403), the rate limit on create (429), 405s, `auto.unavailable`, `owner.unreachable`, a revoked
+  machine install (401), the owner index's lag, the list cursor's encoding, small-body size limits and alarm
+  timing. `fixtures/conformance.json` is replayed against both stores.
 
 ## Slices
 
