@@ -288,6 +288,8 @@ struct EventInspectorList: View {
         #if DEBUG
         let _ = Self.bodies += 1
         #endif
+        // MUTANT (do not merge): the list reads what changes on the keystroke itself.
+        let _ = memo.isFiltering
         // Kept as records arrive (one redraw per frame; a record costs one match, a
         // drop costs itself), not filtered and reversed over every record per redraw.
         let rows = memo.rows(journal)
