@@ -41,7 +41,7 @@ take a Mac: `cmux-ci compile-check --ref SHA --package NAME` for compiling, and 
 
 ## Which packages run
 
-From `survey` on gcp-codex-lane-5 (8 vCPU, toolchain 6.3.3), 2026-11-23, with a fresh device each side:
+From `survey` on a lane VM (8 vCPU, toolchain 6.3.3), 2026-11-23, with a fresh device each side:
 
 | Package | Shims off | Shims on | Blocked by |
 | --- | --- | --- | --- |
