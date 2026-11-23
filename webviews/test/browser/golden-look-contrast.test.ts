@@ -9,8 +9,7 @@
 // drawn line of text and icon: WCAG AA, 4.5:1 for text, 3:1 for large text and icons. A failure names
 // the look, scheme, element, text, foreground, background, ratio and minimum.
 //
-// The default chat's own known pairs (support/contrastKnown.ts, held by look-contrast.test.ts) are
-// reported and pass; any other pair fails. Captures go to $FAST_CHECKS_OUT/golden-look-contrast.
+// The known pairs (support/contrastKnown.ts) are reported and pass; any other pair fails. Captures go to $FAST_CHECKS_OUT/golden-look-contrast.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";

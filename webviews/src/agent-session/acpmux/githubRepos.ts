@@ -30,12 +30,15 @@ export type GitHubStatus = {
   reposScope: "all" | "selected" | null;
   /// Only while `unavailable`.
   reason?: GitHubUnavailableReason;
+  /// Only while `not_connected`, when Connect needs more than its title: the host's words for why (a suspended or
+  /// uninstalled App, a link in progress, a connection in error, a link the API refused), the Connect row's second line.
+  message?: string;
 };
 export type GitHubRepo = { fullName: string; private: boolean; defaultBranch: string | null };
 
 /// What the folder menu draws. `status` undefined: not read yet (nothing shows); `not_connected`, or
 /// `unavailable` because signed out: one Connect to GitHub row whose click connects (the host opens the
-/// install page, or sign-in), its failure on that row. Any other `unavailable` shows no row.
+/// install page, or sign-in), its failure on that row, else the status's own `message` (why Connect is needed again). Any other `unavailable` shows no row.
 export type GitHubPickerState = {
   status?: GitHubStatus;
   /// The repositories read for `query` (undefined: none read yet).
@@ -80,9 +83,12 @@ export function githubFolderRepo(folder: string | undefined): string | undefined
 }
 
 export function githubStatusFromReply(reply: unknown): GitHubStatus {
-  const raw = (reply ?? {}) as { state?: unknown; repos_scope?: unknown; reason?: unknown };
+  const raw = (reply ?? {}) as { state?: unknown; repos_scope?: unknown; reason?: unknown; message?: unknown };
   const state: GitHubConnection = raw.state === "ready" || raw.state === "not_connected" ? raw.state : "unavailable";
   const reposScope = raw.repos_scope === "all" || raw.repos_scope === "selected" ? raw.repos_scope : null;
+  if (state === "not_connected" && typeof raw.message === "string" && raw.message.trim() !== "") {
+    return { state, reposScope, message: raw.message.trim() };
+  }
   if (state !== "unavailable") return { state, reposScope };
   const reason: GitHubUnavailableReason =
     raw.reason === "signed_out" || raw.reason === "not_configured" ? raw.reason : "unreachable";
@@ -131,8 +137,13 @@ const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: fal
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
 /// The host's word that GitHub changed under this page (the app finished an install GitHub handed back to it, #46018):
-/// `cmux-github-changed` on the window. Returns the unwatch.
-export function watchGitHubChanged(run: () => void, view: Window = window): () => void {
+/// `cmux-github-changed` on the window. Returns the unwatch. With no window (a store a module builds when it loads, read
+/// by bun with no DOM: the gallery's manifest and a server render) there is no host to hear, and nothing to watch.
+export function watchGitHubChanged(
+  run: () => void,
+  view: Window | undefined = typeof window === "undefined" ? undefined : window,
+): () => void {
+  if (!view) return () => undefined;
   view.addEventListener("cmux-github-changed", run);
   return () => view.removeEventListener("cmux-github-changed", run);
 }

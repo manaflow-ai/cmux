@@ -1,5 +1,4 @@
-// The pairs cmux's default chat draws under the WCAG minimum today, each with its cause: shared by
-// look-contrast.test.ts (which fails once one stops failing, so the list only shrinks) and
+// The pairs cmux's chat draws under the WCAG minimum today, each with its cause, held by
 // golden-look-contrast.test.ts (the golden screen under every look). A failing line no entry matches
 // is a new light-on-light or dark-on-dark pair.
 import type { ContrastLine } from "./contrastWalk";
@@ -60,8 +59,7 @@ export function knownFor(line: ContrastLine): Known | undefined {
 }
 
 /**
- * Pairs the golden screen draws under the minimum today that the default chat fixture
- * (look-contrast.test.ts) does not show, so KNOWN (which must keep failing there) cannot hold them.
+ * Pairs only the golden screen draws under the minimum today (the chat's own parts are in KNOWN).
  * An entry without `looks` fails under the stock cmux look too: the chat's own colors, not a look's.
  * An entry with `looks` fails only under those looks: that look's own ink, held to those looks so the
  * same element under any other look still fails. Found by the first golden run on 2026-11-19 (worst

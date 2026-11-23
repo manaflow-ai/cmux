@@ -40,8 +40,6 @@ export interface FirstRunPanelProps {
   starterLook?: StarterLook;
   /** The rows' shortcuts as the live binding table has them; absent hides one. */
   shortcuts?: { terminal?: string; agent?: string };
-  /** "Bring your memory from Claude Code": the row shows only while the host offers it. */
-  memoryOffer?: string;
   petShown?: boolean;
   agents?: readonly AgentGlance[];
   /** Absent (or no lines): no Switching card. */
@@ -62,23 +60,13 @@ const STATUS_GLYPH: Record<AgentGlanceStatus, "waiting" | "error" | "done" | "id
 };
 
 export function FirstRunPanel(props: FirstRunPanelProps) {
-  const {
-    strings,
-    intro,
-    starters = [],
-    starterLook = "wrapped",
-    shortcuts = {},
-    memoryOffer,
-    petShown,
-    onAction,
-  } = props;
+  const { strings, intro, starters = [], starterLook = "wrapped", shortcuts = {}, petShown, onAction } = props;
   const { t } = strings;
   const agents = agentShortlist(props.agents ?? []);
   const lines = props.switchKeys ? switchKeyLines(props.switchKeys, strings) : [];
   const actions: { id: FirstRunAction; title: string; icon: string; shortcut?: string }[] = [
     { id: "startAgent", title: t("home.firstRun.startAgent"), icon: "agent.chat", shortcut: shortcuts.agent },
     { id: "openTerminal", title: t("home.firstRun.openTerminal"), icon: "terminal.new", shortcut: shortcuts.terminal },
-    ...(memoryOffer ? [{ id: "importMemories" as const, title: memoryOffer, icon: "action.download" }] : []),
     { id: "togglePet", title: t(petShown ? "home.firstRun.hidePet" : "home.firstRun.showPet"), icon: "agent.chief" },
   ];
   const fit = useFit(actions.length, agents.length, intro !== undefined, starters.length > 0, lines.length > 0);

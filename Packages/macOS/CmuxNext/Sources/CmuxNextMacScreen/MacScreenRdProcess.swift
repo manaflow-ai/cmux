@@ -88,7 +88,7 @@ nonisolated final class MacScreenRdProcess: Sendable {
     @concurrent func startServe() async throws {
         guard let helper = MacScreenHelper.bundled() else { return try start(.serve) }
         // Never the bundled cmux once the helper is bundled: macOS would then check this app.
-        guard let executable = await helper.executable() else { throw CocoaError(.fileReadNoPermission) }
+        guard let executable = await helper.executable() else { throw MacScreenHelper.NotStaged(helper: helper.name) }
         let pid = try startSpawned { stdin, stdout, stderr in
             try MacScreenHelper.spawn(executable, [Role.serve.rawValue], stdin: stdin, stdout: stdout, stderr: stderr)
         }

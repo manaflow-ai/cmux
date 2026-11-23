@@ -119,8 +119,13 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["agent", "chat", "new", "cloud", "vm", "remote", "machine", "sleep"],
         category: "agents",
         symbol: "cloud",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        // File and the New Tab button's menu, right under New Agent Chat (a rank 2 tie sorts by
+        // catalog order). Leo, 2026-11-20: "I really want to make it like ergonomic and whatnot for
+        // Austin or Lawrence to be able to just start up the new chat, the new cloud or whatever."
+        surfaces: PALETTE | MENU | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("newTab", "create", 2)], ..SurfacePlan::DEFAULT },
         cli_name: "action palette-new-cloud-chat",
+        main_menu: Some("file"),
         ..Action::DEFAULT
     },
     Action {
@@ -263,7 +268,15 @@ pub static ACTIONS: &[Action] = &[
         category: "agents",
         symbol: "scope",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[
+            Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…")),
+            // Native UI too (ask-5077a4ec48): the picker starts on the right-clicked tab, pane or sidebar row and
+            // costs nothing until then (UIInspectorController: no monitor, observer or hit-test outside a pick).
+            Placement::at("tab", "inspect", 510).label(Text::raw("Point at Element…")),
+            Placement::at("pane", "inspect", 511).label(Text::raw("Point at Element…")),
+            Placement::at("workspaceRow", "inspect", 410).label(Text::raw("Point at Element…")),
+            Placement::at("sidebarItem", "view", 130).label(Text::raw("Point at Element…")),
+        ], ..SurfacePlan::DEFAULT },
         cli_name: "agent toggle-ui-pointer",
         ..Action::DEFAULT
     },
@@ -398,6 +411,115 @@ pub static ACTIONS: &[Action] = &[
         requires: &["agentPaneFocused"],
         targets: &["pane"],
         cli_name: "action agent-pane-switch-model",
+        ..Action::DEFAULT
+    },
+    // The composer bar's controls, each from the keyboard (Lawrence 2026-11-19: "hovering on each of
+    // the things should show keyboard shortcuts like cmd ctrl m, give all of them keyboard shortcuts").
+    // The focused chat's page takes the keyboard and opens the control as a click does; the chip's
+    // tooltip shows the key. Ctrl-Opt-Cmd: Ctrl-Cmd letters are mostly taken or macOS's own.
+    Action {
+        id: "agentPane.composer.addMenu",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.composer.addMenu", "Show Add Menu"),
+        keywords: &["agent", "chat", "composer", "add", "plus", "attach", "file", "screenshot", "mention", "commands"],
+        default_shortcut: Some(Shortcut { key: "a", modifiers: CTRL | OPT | CMD }),
+        category: "agents",
+        symbol: "plus",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-add-menu",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agentPane.composer.chooseFolder",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.composer.chooseFolder", "Choose Folder…"),
+        keywords: &["agent", "chat", "composer", "folder", "project", "workspace", "location", "directory", "cwd"],
+        default_shortcut: Some(Shortcut { key: "o", modifiers: CTRL | OPT | CMD }),
+        category: "agents",
+        symbol: "folder",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-choose-folder",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agentPane.composer.chooseComputer",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.composer.chooseComputer", "Choose Computer…"),
+        keywords: &["agent", "chat", "composer", "computer", "machine", "environment", "cloud", "remote", "where", "run"],
+        default_shortcut: Some(Shortcut { key: "k", modifiers: CTRL | OPT | CMD }),
+        category: "agents",
+        symbol: "desktopcomputer",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-choose-computer",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agentPane.composer.switchMode",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.composer.switchMode", "Switch Mode…"),
+        keywords: &["agent", "chat", "composer", "mode", "permission", "access", "approval", "full access", "read-only"],
+        default_shortcut: Some(Shortcut { key: "m", modifiers: CTRL | OPT | CMD }),
+        category: "agents",
+        symbol: "lock.shield",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-switch-mode",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agentPane.composer.togglePlan",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.composer.togglePlan", "Toggle Plan Mode"),
+        keywords: &["agent", "chat", "composer", "plan", "build", "mode", "toggle"],
+        default_shortcut: Some(Shortcut { key: "p", modifiers: CTRL | OPT | CMD }),
+        category: "agents",
+        symbol: "list.bullet.clipboard",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-toggle-plan",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agentPane.composer.agentOptions",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.composer.agentOptions", "Agent Options…"),
+        keywords: &["agent", "chat", "composer", "options", "settings", "config", "harness"],
+        default_shortcut: Some(Shortcut { key: "g", modifiers: CTRL | OPT | CMD }),
+        category: "agents",
+        symbol: "slider.horizontal.3",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-agent-options",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agentPane.composer.showContextUsage",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.composer.showContextUsage", "Show Context Usage"),
+        keywords: &["agent", "chat", "composer", "context", "usage", "tokens", "window", "limits", "ring"],
+        default_shortcut: Some(Shortcut { key: "u", modifiers: CTRL | OPT | CMD }),
+        category: "agents",
+        symbol: "chart.pie",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-show-context-usage",
         ..Action::DEFAULT
     },
     Action {
@@ -951,30 +1073,6 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CONFIRM.optional()],
         cli_name: "action chief-move-rollback",
         is_destructive: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "chief.importMemories",
-        group: GROUP,
-        title: t("Localizable", "action.chief.importMemories", "Bring Your History"),
-        keywords: &["chief", "memory", "memories", "import", "claude", "claude code", "codex", "chatgpt", "openai", "bring", "migrate", "onboard"],
-        category: "agents",
-        symbol: "square.and.arrow.down",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::CHIEF_3.optional(), args::SOURCE.optional()],
-        cli_name: "action chief-import-memories",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "chief.importMemories.undo",
-        group: GROUP,
-        title: t("Localizable", "action.chief.importMemories.undo", "Undo Last Memory Import"),
-        keywords: &["chief", "memory", "memories", "import", "undo", "take back", "restore"],
-        category: "agents",
-        symbol: "arrow.uturn.backward",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::CHIEF_3.optional()],
-        cli_name: "action chief-import-memories-undo",
         ..Action::DEFAULT
     },
     Action {

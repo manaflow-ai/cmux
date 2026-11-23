@@ -219,6 +219,24 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!(device_list::listing(&request.this, &request.devices))
         }
+        // What Your Devices says while it lists nothing (`device_list::discovery`): "none" only after
+        // a device-list read succeeded, else finding or the reason it failed.
+        b"cloud_identity_device_discovery" => {
+            let request: cmux_cloud_config::device_list::DiscoveryInput = read(request)?;
+            json!(cmux_cloud_config::device_list::discovery(&request))
+        }
+        // Screen Sharing's machine picker (`screen_picker`): `[{id, name, symbol, state, opens, fix}]`
+        // from the machines the hub lists, so the menu says why a machine cannot be viewed.
+        b"cloud_identity_screen_picker" => {
+            use cmux_cloud_config::screen_picker;
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                machines: Vec<screen_picker::Machine>,
+            }
+            let request: Request = read(request)?;
+            json!(screen_picker::rows(&request.machines))
+        }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]
             struct Request {

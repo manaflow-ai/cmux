@@ -166,7 +166,9 @@ public final class LiveFeed: FeedActions {
         let harness = session?.harness ?? "agent"
         var item = FeedItem(
             id: id, kind: kind, workspaceID: place?.workspaceID ?? "", tabID: place?.tabID ?? sessionID,
-            agentName: session?.name.isEmpty == false ? session!.name : DaemonTree.agentName(harness), harness: harness,
+            // The agent ("Claude", "Codex"), as for a terminal agent's card: a session's name is an id
+            // acpmux or the Chief made ("claude-2", "optchat-sub-…-a12"), not who answered.
+            agentName: DaemonTree.agentName(harness), harness: harness,
             workspaceTitle: place?.workspaceTitle ?? (session?.cwd).map { ($0 as NSString).lastPathComponent } ?? "",
             markdown: markdown, quote: quote, createdAt: now()
         )

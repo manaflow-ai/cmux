@@ -31,17 +31,18 @@ pub const TEXT: f64 = 4.5;
 pub const UI: f64 = 3.0;
 
 /// The chat's fixed fills and inks, as a share of the text over the page (webviews
-/// `agent-session/shared/styles.css` and `conversation/conversation.css`; `tests.rs` reads both
-/// files and fails when one of these no longer matches).
+/// `agent-session/shared/styles.css`, `conversation/conversation.css` and the content surface levels
+/// of `pages/shared/desktop.css`; `contrast_tests.rs` reads them and fails when one of these no
+/// longer matches).
 pub(crate) mod chat {
     /// `--cv-bubble`: the prompt bubble, the text at 5% over the page.
     pub const BUBBLE: f64 = 0.05;
-    /// `--cv-codeblock-bg`: a code card, the text at 7.5%.
-    pub const CODE_CARD: f64 = 0.075;
+    /// `--cv-codeblock-bg`: a code card (`--ds-surface-card`), the text at 4%.
+    pub const CODE_CARD: f64 = 0.04;
     /// `--cv-codeblock-text`: a code card's text, the text at 90%.
     pub const CODE_TEXT: f64 = 0.90;
-    /// `--cv-code-bg`: inline code, the text at 11%.
-    pub const INLINE_CODE: f64 = 0.11;
+    /// `--cv-code-bg`: inline code (`--ds-surface-inset`), the text at 8%.
+    pub const INLINE_CODE: f64 = 0.08;
     /// `--agent-link-base`: links are blue in every theme, light or dark.
     pub const LINK_LIGHT: u32 = 0x0b63d6;
     pub const LINK_DARK: u32 = 0x5aa2ff;
@@ -346,12 +347,9 @@ impl ThemeFile {
         let applied = self.applied(root, &Default::default());
         let terminal = theme_names(&applied, "appearance.theme").unwrap_or_default();
         let app = theme_names(&applied, "appearance.appTheme");
-        let light = (terminal.0, app.as_ref().map(|a| a.0.clone()));
+        let light = (terminal.0.clone(), app.as_ref().map(|a| a.0.clone()));
         let dark = (terminal.1, app.as_ref().map(|a| a.1.clone()));
-        let mut looks = vec![light];
-        if !looks.contains(&dark) {
-            looks.push(dark);
-        }
+        let looks = if dark == light { vec![light] } else { vec![light, dark] };
         looks
             .into_iter()
             .flat_map(|(name, app)| {

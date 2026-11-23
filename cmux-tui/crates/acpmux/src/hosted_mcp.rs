@@ -282,6 +282,7 @@ impl Bridge {
     pub fn new(cmux: std::ffi::OsString, origin: Option<String>) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(CALL_TIMEOUT)

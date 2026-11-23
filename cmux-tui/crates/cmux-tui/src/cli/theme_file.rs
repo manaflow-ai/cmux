@@ -490,7 +490,10 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
                     Err(code) => return code,
                 },
             };
-            let file = read(&paths, &name, text.as_deref());
+            let mut file = read(&paths, &name, text.as_deref());
+            // The font pack's face files: the check stats them, the read does not.
+            let faces = file.face_diagnostics();
+            file.diagnostics.extend(faces);
             let contrast = file.contrast(&paths.settings_root(), &installed_theme);
             let mut problems: Vec<String> = file.diagnostics.iter().map(|d| d.display()).collect();
             problems.extend(

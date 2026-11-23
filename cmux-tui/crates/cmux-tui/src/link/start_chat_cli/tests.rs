@@ -30,7 +30,7 @@ fn a_lost_create_answer_keeps_its_name_team_and_pending_create_before_a_workspac
         json!({"ok": true})
     );
     assert_eq!(
-        super::create_sent(&path, &key, ACCOUNT, "billed-team", &Keys::of(&key).create),
+        super::create_sent(&path, &key, ACCOUNT, "billed-team", &Keys::of(&key).create, None),
         json!({"ok": true})
     );
     assert_eq!(
@@ -63,7 +63,10 @@ fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick
         super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &Keys::of(&key).create)["ok"],
         true
     );
-    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], true);
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create, None)["ok"],
+        true
+    );
     assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], true);
     let request = json!({"key": key, "account": ACCOUNT, "loaded": true, "user": ME,
         "machines": [{"id": "other", "title": "cloud-chats", "created_by": TEAMMATE, "status": "running"}]}).to_string();
@@ -78,9 +81,12 @@ fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick
         super::create_begin(&path, &key, ACCOUNT, "stale-name", &original.create)["ok"],
         false
     );
-    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], false);
-    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", new_key)["ok"], true);
-    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-b", new_key)["ok"], false);
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create, None)["ok"],
+        false
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", new_key, None)["ok"], true);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-b", new_key, None)["ok"], false);
     assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], false);
     assert_eq!(plan(&path, &request)["create_key"], new_key);
     assert_eq!(plan(&path, &request)["create_sent"], true);
@@ -90,6 +96,80 @@ fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick
     let request = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
         "user": ME, "machines": [{"id": "other", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
     assert_eq!(plan(&path, &request)["machine"], Value::Null);
+}
+
+/// The server keeps a create's key per caller: the person's session (direct) and the Mac's
+/// install (relay) are two. A retry of a sent create on the other route would be a second
+/// machine, so the ledger keeps the first send's route, the plan names it, and the other is refused.
+#[test]
+fn a_sent_create_keeps_its_route_and_a_retry_on_the_other_route_is_refused() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    let create = Keys::of(&key).create;
+    let request =
+        json!({"key": key, "account": ACCOUNT, "loaded": true, "user": ME, "machines": []})
+            .to_string();
+    let fresh = plan(&path, &request);
+    assert_eq!(fresh["create_routes"], true, "{fresh}");
+    assert_eq!(fresh["create_route"], Value::Null);
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &create)["ok"], true);
+    assert_eq!(plan(&path, &request)["create_route"], Value::Null, "nothing went out yet");
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &create, Some("direct"))["ok"],
+        true
+    );
+    let retry = plan(&path, &request);
+    assert_eq!(retry["create_key"], create.as_str());
+    assert_eq!(retry["create_sent"], true);
+    assert_eq!(retry["create_route"], "direct");
+    assert_eq!(retry["create_routes"], true);
+    // The retry's own send: the same route passes, the relay (named or not) is refused.
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &create, Some("direct"))["ok"],
+        true
+    );
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &create, Some("relay"))["ok"],
+        false
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &create, None)["ok"], false);
+    assert_eq!(plan(&path, &request)["create_route"], "direct");
+    // A refusal that made no machine gives a new key, which may take either route.
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, &create)["ok"], true);
+    let rotated = plan(&path, &request);
+    let new_key = rotated["create_key"].as_str().expect("rotated key").to_string();
+    assert_ne!(new_key, create);
+    assert_eq!(rotated["create_route"], Value::Null);
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &new_key)["ok"], true);
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &new_key, Some("relay"))["ok"],
+        true
+    );
+    assert_eq!(plan(&path, &request)["create_route"], "relay");
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &new_key, Some("direct"))["ok"],
+        false
+    );
+}
+
+/// A create sent before routes were kept went on the relay, the only route then.
+#[test]
+fn a_create_sent_with_no_route_is_the_relays() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    let create = Keys::of(&key).create;
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &create)["ok"], true);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &create, None)["ok"], true);
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &create, Some("relay"))["ok"],
+        true
+    );
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &create, Some("direct"))["ok"],
+        false
+    );
 }
 
 #[test]
@@ -110,8 +190,9 @@ fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
 }
 
 /// Codex review F1 on #40957: a start that can't go on deletes the machine made for it only when
-/// it is still that start's alone. A second chat from the same workspace that planned onto the
-/// machine first keeps it; one that plans after the strand never finds it.
+/// it is still that start's alone. Since #40159 every new start plans a machine of its own, so a
+/// second chat shares one only when it is pinned there (the person picked it); that chat keeps
+/// it, and one that plans after the strand never finds it.
 #[test]
 fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
     let scratch = scratch();
@@ -121,19 +202,24 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
             "machines": [{"id": "vm-new", "title": "cloud-chats", "created_by": ME, "status": "running"}]})
         .to_string()
     };
-    // The first start made vm-new and pinned it; a second chat of ws-1 planned onto it while the first copied.
+    // The first start made vm-new and pinned it; a second chat of ws-1 was pinned to it while the first copied.
     let (first, second) = (key(), key());
     assert_eq!(pin(&path, &first, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(
+        plan(&path, &on(&key()))["machine"],
+        Value::Null,
+        "a new start makes its own machine"
+    );
+    assert_eq!(pin(&path, &second, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
     assert_eq!(plan(&path, &on(&second))["machine"], "vm-new");
     // The first start fails for good: the machine is the second chat's too, so it is released, not deleted.
     assert_eq!(
         super::strand(&path, &first, ACCOUNT, "vm-new"),
         json!({"ok": true, "delete": false})
     );
-    assert_eq!(plan(&path, &on(&key()))["machine"], "vm-new", "the workspace keeps its machine");
-    // The second fails for good too, after the third planned onto it: still shared.
+    // The second fails for good too, after a third was pinned to it: still shared.
     let third = key();
-    assert_eq!(plan(&path, &on(&third))["machine"], "vm-new");
+    assert_eq!(pin(&path, &third, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
     assert_eq!(super::strand(&path, &second, ACCOUNT, "vm-new")["delete"], false);
 
     // Alone on its machine: the strand deletes it, and the workspace's next send never finds it.

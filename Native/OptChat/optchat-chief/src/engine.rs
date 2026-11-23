@@ -68,6 +68,11 @@ pub struct EngineChoice {
     /// (cmux#37392). The user's setting caps it ([`permission_mode`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
+    /// The model gateway an open-source brain (Hermes, OpenClaw: brain_home.rs) sends its model
+    /// calls to, an OpenAI-compatible base URL; None: the team subrouter. Applies at the next
+    /// host start, which writes the brains' homes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brain_base_url: Option<String>,
 }
 
 /// The permission modes a Chief turn takes, widest first: Claude Code's
@@ -438,6 +443,7 @@ pub fn apply_flags(
         ("classifier-model", &mut choice.classifier_model),
         ("classifier-prompt", &mut choice.classifier_prompt),
         ("subagent-harness", &mut choice.subagent_harness),
+        ("brain-base-url", &mut choice.brain_base_url),
     ] {
         if let Some(value) = flags.value(key) {
             changed = true;
@@ -516,7 +522,7 @@ pub fn parse_turn_routing(value: &str) -> Result<Option<String>, String> {
 
 pub const USAGE: &str = "chief engine show
 chief engine set --preset opus|hybrid|codex   (opus: Opus 5.5 medium everywhere; hybrid: Opus 5.5 medium turns, every subagent on codex; codex: codex everywhere, fast; other flags adjust it)
-chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--turn-routing auto|off|default] [--subagent-routing auto|off] [--subagent-harness H] [--mode bypassPermissions|auto|default|unset]   (value `default` clears, except for --mode, where `default` is Claude Code's Manual mode and `unset` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto; --mode is the permission mode the Chief's own Claude turns run in, bypassPermissions unless set, never wider than Settings > Chief > Permission Mode)";
+chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--turn-routing auto|off|default] [--subagent-routing auto|off] [--subagent-harness H] [--mode bypassPermissions|auto|default|unset] [--brain-base-url URL]   (value `default` clears, except for --mode, where `default` is Claude Code's Manual mode and `unset` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto; --mode is the permission mode the Chief's own Claude turns run in, bypassPermissions unless set, never wider than Settings > Chief > Permission Mode; --brain-base-url is the model gateway of the open-source brains, hermes and openclaw, from the next host start; `chief brains` lists them)";
 
 /// `engine show`'s permission mode line: the mode, what chose it, and when
 /// it applies.
