@@ -27,6 +27,7 @@
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project back --socket S --at REMOTE FOLDER
+//!     cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
 //!     cmux link project enable | disable | status
 
 use std::collections::BTreeMap;
@@ -104,9 +105,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
         },
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
+        Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | back --socket S --at REMOTE FOLDER | enable | disable | status | moves on|off"
+             REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
+             archived|deleted] | enable | disable | status | moves on|off"
         )),
     };
     match outcome {

@@ -23,10 +23,12 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root/cmux-tui"
 loops="${LOAD_LOOPS:-16}"
 [[ "$loops" =~ ^[0-9]+$ ]] || { echo "LOAD_LOOPS must be a number, got $loops" >&2; exit 2; }
-# The fast-checks Rust setup has cargo but not nextest (as scripts/ci/affected_tests_measure.sh).
+# The fast-checks Rust setup carries the pinned cargo-nextest; an older snapshot's does not, and a
+# fleet host may not either, so install the same pinned build (never get.nexte.st/latest, which gave
+# this check a different nextest than the gates run).
 if ! command -v cargo-nextest >/dev/null; then
-  mkdir -p "${CARGO_HOME:-$HOME/.cargo}/bin"
-  curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+  PATH="$(bash "$root/scripts/ci/install-nextest.sh"):$PATH"
+  export PATH
 fi
 
 # Build first, unloaded, so the load lands on the tests and not on the compiler.

@@ -44,6 +44,10 @@ APP_TOKEN_EXEMPT = {
     "promote-nightly-next-acked": (
         "the acked twin of promote-nightly-next: same own App token, same APP_TOKEN hand-off"
     ),
+    "sign-live-code-variant": (
+        "signs and notarizes the live code variant and uploads it to R2 with the nightly-next R2 keys; "
+        "it writes nothing to a release and sends no github.token"
+    ),
 }
 RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
 # nightly-next-one builds before it publishes: its build steps' gh calls already wait through a rate limit
@@ -193,10 +197,18 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}", name)
             for script in ("scripts/ci/publish-release-assets.py", "scripts/ci/gh_app_token.sh"):
                 self.assertIn(script, tooling["with"]["sparse-checkout"], name)
-            uploads = [s for s in steps if "publish-release-assets.py" in str(s.get("run", ""))]
+            # The republish run block lives in scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh, run from
+            # .publish-tooling (it is in the sparse list) so it is the workflow commit's copy too.
+            def text(step):
+                run = str(step.get("run", ""))
+                if ".publish-tooling/scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh" in run:
+                    self.assertIn("scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh", tooling["with"]["sparse-checkout"], name)
+                    return (ROOT / "scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh").read_text(encoding="utf-8")
+                return run
+            uploads = [s for s in steps if "publish-release-assets.py" in text(s)]
             self.assertTrue(uploads, name)
             for step in uploads:
-                run = str(step["run"])
+                run = text(step)
                 self.assertIn(".publish-tooling/scripts/ci/publish-release-assets.py", run, (name, step.get("name")))
                 self.assertNotIn("python3 scripts/ci/publish-release-assets.py", run, (name, step.get("name")))
 
