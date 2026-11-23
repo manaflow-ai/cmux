@@ -76,6 +76,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = HomeKeepLocationSetting.fallback, homeChannelsEnabled = HomeChannelsSetting.fallback
     public var homeChiefPetEnabled = HomeChiefPetSetting.fallback, homeChiefPetMascot = HomeChiefPetSetting.mascotDefault
+    /// `home.clipboardHistory`: the Chief composer's + menu lists recent copies; on when unset.
+    public var homeClipboardHistory = HomeClipboardHistorySetting.fallback
     /// `home.feedInChief`: the main Chief's conversation shows the Feed's notices; on when unset.
     public var homeFeedInChief = HomeFeedRowsSetting.fallback
     /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``), `left` when unset; `home.chiefDock.sidePanel`: every window keeps it docked there (Chief in Side Panel), off when unset.
@@ -103,6 +105,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
     /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
     public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
+    /// `labs.hostsSidebar`: the Rex-style Hosts section projects the Machines catalog into the sidebar; off when unset.
+    public var hostsSidebar = CmuxConfigSnapshot.hostsSidebarDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -113,6 +117,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalLinkOpener: TerminalLinkOpener = .fallback
     /// `files.textEditor`: the app for a path's Open in Text Editor; empty for the system's.
     public var textEditor = TextEditorSetting()
+    /// `editor.default`: the editor Open in Editor uses; nil for the first installed one.
+    public var editorDefault = EditorDefaultSetting()
     /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
     public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
@@ -195,6 +201,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var inactiveWindowDim = 0.0
     /// `appearance.wallpaperTint`: on unless set to false.
     public var wallpaperTint = WallpaperTintSetting.fallback
+    /// `appearance.backgroundPlacement`: where each picture lies; empty (every picture centered and
+    /// filled) unless set.
+    public var backgroundPlacements: [String: BackdropPlacement] = [:]
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
@@ -401,12 +410,14 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: pauseAgentMachinesPath, fallback: pauseAgentMachinesDefault), \.pauseAgentMachines)
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
         snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
+        snapshot.take(Self.parseLabsToggle(root, path: hostsSidebarPath, fallback: hostsSidebarDefault), \.hostsSidebar)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
         snapshot.take(TerminalLinkOpener.parse(root), \.terminalLinkOpener)
         snapshot.take(TerminalTermSetting.parse(root), \.terminalTerm)
         snapshot.take(TextEditorSetting.parse(root), \.textEditor)
+        snapshot.take(EditorDefaultSetting.parse(root), \.editorDefault)
         snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)
         snapshot.paneChrome = paneChrome.overrides
@@ -441,6 +452,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.inactiveWindowDim = WindowBackgroundSetting.parseInactiveDim(root, diagnostics: &snapshot.diagnostics)
         snapshot.wallpaperTint = WallpaperTintSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.backgroundPlacements = BackdropPlacementSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds.twoTone = TwoToneSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
