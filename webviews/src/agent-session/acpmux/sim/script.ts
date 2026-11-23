@@ -160,6 +160,50 @@ export class SimBuilder {
     return this.started(300);
   }
 
+  /** Another agent's message steered into the running turn (acpmux `steer`): no turn of its own. */
+  steerIncoming(value: string, options: IncomingOptions = {}, after = 600): this {
+    const fromName = options.fromName ?? "other-lane";
+    const provenance = {
+      kind: options.kind ?? "agent_message",
+      from: `sim-host/${fromName}`,
+      fromName,
+      fromSessionId: "sim-0000-0000-0000-0000000000aa",
+      to: this.sessionId,
+    };
+    this.steers += 1;
+    return this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId: `steer-${this.turns}-${this.steers}`,
+        turnId: this.turnId,
+        steer: true,
+        client: "acpmux-cli#1",
+        _meta: { provenance },
+      },
+      after,
+      `steer ${provenance.kind}: ${value.slice(0, 40)}`,
+    );
+  }
+  private steers = 0;
+
+  /** A background task's notice the harness hands the running turn (Claude Code's `<task-notification>`),
+   *  under the background turn it starts (test/agent-pane-worked-group-pitch-browser.test.ts). */
+  taskNotice(summary: string, id = "bgturn-notice", after = 600): this {
+    this.record("mux", "background_turn", { id, state: "started", trigger: "task_notification" }, after);
+    return this.record(
+      "mux",
+      "user_message",
+      {
+        text: `<task-notification>\n<task-id>${id}</task-id>\n<status>completed</status>\n<summary>${summary}</summary>\n</task-notification>`,
+        client: "adopt",
+      },
+      50,
+      `task notice: ${summary.slice(0, 40)}`,
+    );
+  }
+
   /** A thought, streamed in `chunks` deltas `chunkMs` apart. */
   think(value: string, { chunks = 3, chunkMs = 120, after = 400 } = {}): this {
     chunked(value, chunks).forEach((part, index) =>

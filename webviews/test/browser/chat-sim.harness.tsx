@@ -78,10 +78,19 @@ async function measure(rows: readonly AcpmuxRow[], working: boolean, sends: numb
   return rows.map((row) => boxes.get(row.id));
 }
 
+const FIXTURES = import.meta.glob<string>("../fixtures/chat-sim/*.ndjson", { query: "?raw", import: "default" });
+
 async function scenarioNamed(name: string): Promise<SimScenario> {
   if (name === "replay") {
     const text = (await import("../fixtures/chat-sim/replay-lane-session.ndjson?raw")).default as string;
     return replayScenario("replay-lane-session", parseRecords(text));
+  }
+  // `fixture/NAME` replays test/fixtures/chat-sim/NAME.ndjson (a sanitized chat, `--sanitize`).
+  const fixture = /^fixture\/([\w.-]+)$/.exec(name);
+  if (fixture) {
+    const load = FIXTURES[`../fixtures/chat-sim/${fixture[1]}.ndjson`];
+    if (!load) throw new Error(`no fixture ${fixture[1]}`);
+    return replayScenario(fixture[1]!, parseRecords(await load()));
   }
   const long = /^long:(\d+)$/.exec(name);
   if (long) return longRun(Number(long[1]));

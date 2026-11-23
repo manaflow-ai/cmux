@@ -31,6 +31,8 @@ export type RowProbe = {
   opens?: boolean;
   /** The opening row is another agent's line (a notice or message), not the person's prompt. */
   received?: boolean;
+  /** Another agent's line this row draws (its `incoming` kind, or `offer` for a received offer's result), wherever it falls. */
+  incoming?: string;
   /** The row is the turn's header ("Working for" / "Worked for"), or, before it has one, its first row under the prompt. */
   head?: boolean;
   text?: string;
@@ -57,7 +59,7 @@ export type FoldEvent = {
 };
 
 export type Violation = {
-  rule: "a-turn-gap" | "a-head-gap" | "b-mid-turn-fold" | "b-mid-turn-shrink" | "c-rerender";
+  rule: "a-turn-gap" | "a-head-gap" | "d-received-gap" | "b-mid-turn-fold" | "b-mid-turn-shrink" | "c-rerender";
   step: number;
   at: number;
   label: string;
@@ -115,6 +117,11 @@ export type SimResult = {
   traces: StepTrace[];
 };
 
+/** The most room another agent's line may have against a tool row beside it (rule d): the step pitch's 0,
+ *  with the 8 a row stands under a status line to spare. */
+const RECEIVED_STEP_GAP = 8;
+/** Rows drawn on the tool rows' line (model.ts isStepRow, the one-line kinds). */
+const STEP_KINDS = new Set(["activity", "subagent", "messageRun", "laneNoticeBatch", "pendingMessages"]);
 const LIVE_KINDS = new Set(["typing", "working", "thinking", "activityLine"]);
 const isLive = (row: AcpmuxRow) => row.below === true || row.kind === "typing" || row.id.endsWith("-live");
 const foldOf = (row: AcpmuxRow): string => {
@@ -261,6 +268,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       if (isLive(row)) probe.live = true;
       if (opensTurn(row)) probe.opens = true;
       if (opensTurn(row) && (row.incoming || row.received)) probe.received = true;
+      if (row.incoming || row.received) probe.incoming = row.incoming?.kind ?? "offer";
       // The turn's head: its header line, or the first row under its opening row.
       if (!headAt.has(own) && ((prevDrawn?.opens && prevDrawn.turn === own) || isHeader(row))) {
         probe.head = true;
@@ -320,6 +328,28 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
           "a-head-gap",
           probe.id,
           `${probe.kind} heads turn ${probe.turn} ${gap}px under its opening ${above.kind} (want >= ${headWant})`,
+        );
+    }
+
+    // (d) another agent's line among tool rows sits on their pitch, as a tool row does, never with a
+    // message's room over or under it (Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i
+    // think it's the message recieving not properly getting treated like the tool call ish thing it
+    // should be and instead as if it were a message?").
+    for (let at = stable; at < rows.length; at += 1) {
+      const probe = probeAt[at] as (RowProbe & { above?: RowProbe }) | undefined;
+      const above = probe?.above;
+      if (!probe || !above) continue;
+      const gap = probe.drawnGap ?? probe.gap;
+      const lineAbove = above.incoming !== undefined && above.incoming !== "offer";
+      const lineHere = probe.incoming !== undefined && probe.incoming !== "offer";
+      if (!(lineAbove || lineHere) || gap <= RECEIVED_STEP_GAP + 0.5) continue;
+      const step = (row: RowProbe) =>
+        STEP_KINDS.has(row.kind) || (row.incoming !== undefined && row.incoming !== "offer");
+      if ((lineHere && step(above)) || (lineAbove && step(probe) && !probe.live))
+        flag(
+          "d-received-gap",
+          probe.id,
+          `${probe.kind}${lineHere ? ` (${probe.incoming})` : ""} ${gap}px under ${above.kind}${lineAbove ? ` (${above.incoming})` : ""} among tool rows (want <= ${RECEIVED_STEP_GAP})`,
         );
     }
 
