@@ -362,7 +362,12 @@ final class TabCell {
             let multi = isMultiSelected && !isSelected
             let selection = isWindowMain || isLifted ? Palette.selectionFill
                 : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
-            let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
+            // On Subtle Tone's ink frame every state is one theme step over the frame (`Metrics.frameStateFills`,
+            // `FrameTone`), the same ink and the same transparency as the frame, the goo and the folder.
+            let onFrame = Metrics.frameStateFills(themeScope.tokens)
+            let hover = onFrame?.hover ?? Palette.hoverFill
+            let fill: NSColor? = fillsSelection ? selection : multi ? (onFrame?.hover ?? Palette.secondarySelectionFill)
+                : (isHovered && DesignSettings.shared.showsHoverFills ? hover : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             // The flush corner: the content's own glass (`Palette.folderTabFill`: what the content paints, with the
             // chrome's shade cut away under the tab), so the tab and the card read as one shape and the same
@@ -374,7 +379,9 @@ final class TabCell {
                 // The floating-card token (`Palette.elevatedBackground`, the window a step toward the text) keeps the
                 // tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
                 // glass-opaque-allow: `dragLiftFill` keeps it translucent over glass; solid only in an opaque window.
-                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(Palette.elevatedBackground).cgColor
+                // On Subtle Tone's frame, the card's own surface (`Metrics.frameLiftSurface`): the folder picked up.
+                let lift = Metrics.frameLiftSurface(themeScope.tokens) ?? Palette.elevatedBackground
+                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor
             }
             // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary

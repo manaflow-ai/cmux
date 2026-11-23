@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+public import CmuxTheme
 
 /// The flush corner (`appearance.cornerFlush`, overridden by the Debug Settings tunable `chrome.cornerFlush`;
 /// Thunderdome round 2, direction A).
@@ -156,6 +157,8 @@ public final class CornerFlushChrome: NSView {
     /// What the wedges were last drawn for (``apply``), so a strip's report redraws them alone.
     /// `card` is the content's whole frame; the card below the tab row is its top less a strip.
     private var drawn: (card: CGRect, radius: CGFloat, alpha: CGFloat)?
+    /// The wedges' color: the shade's (`Metrics.chromeFrameInk`), so the corners are the same frame as the shade.
+    private var ink: NSColor = .black
     /// The shade under the content, whose hole goes square with the leading wedge.
     private weak var shade: MainPaneChromeShadeView?
     /// The content the card holds, whose top corners round again while no strip shows.
@@ -217,9 +220,10 @@ public final class CornerFlushChrome: NSView {
     /// corner around its part below the top tab row, whose top corners the wedges drawn here round, with
     /// only the content's bottom corners clipped; else around the content's frame, with no wedges. Joins
     /// `root` above `content` either way, so the strips find it (``stripDidChange(_:)``).
-    public func apply(content: NSView, radius: CGFloat, isDark: Bool, page: Bool,
+    public func apply(content: NSView, radius: CGFloat, isDark: Bool, tokens: ThemeTokens? = nil, page: Bool,
                       shade: MainPaneChromeShadeView, in root: NSView) {
-        let alpha = Metrics.mainPaneChromeShade(isDark: isDark)
+        let alpha = Metrics.mainPaneChromeShade(isDark: isDark, tokens: tokens)
+        ink = Metrics.chromeFrameInk(tokens)
         let card = content.frame
         let on = CornerFlush.current.isOn && !page && DesignSettings.shared.tabBarPosition != .bottom
         Self.roundBottomOnly(content, on)
@@ -279,7 +283,7 @@ public final class CornerFlushChrome: NSView {
         let square = leadingTabSelected(card: card, in: root)
         markTopRow(card: card, radius: drawn.radius, squareLeading: square, in: root)
         wedges.path = Self.wedgePath(card: card, radius: drawn.radius, squareLeading: square)
-        wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
+        wedges.fillColor = ink.withAlphaComponent(drawn.alpha).cgColor
         // Each wedge shades its corner once, including over transparent content.
         let edge = tabRowEdge(card: card, in: root)
         shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopCorners: true,

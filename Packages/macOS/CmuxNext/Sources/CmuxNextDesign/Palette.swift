@@ -118,7 +118,7 @@ public struct Palette {
     /// contrast near 0). The tab keeps ``selectionFill`` there, so a selected tab always reads as selected.
     public static var folderTabFill: NSColor? {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        guard Metrics.mainPaneChromeShade(isDark: tokens.isDark) >= Metrics.folderTabMinimumShade else { return nil }
+        guard Metrics.mainPaneChromeShade(isDark: tokens.isDark, tokens: tokens) >= Metrics.folderTabMinimumShade else { return nil }
         return paneFill
     }
     /// Multi-selected rows that are not the active one.

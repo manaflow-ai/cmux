@@ -2,6 +2,7 @@ public import CoreGraphics
 public import AppKit
 public import Foundation
 public import CmuxNextDesignTokens
+public import CmuxTheme
 
 /// The curved main pane (cx-rkgu, Leo 2026-10-10): the workspace content
 /// sits inset in the window chrome as one rounded card, as in Edge. A
@@ -168,7 +169,11 @@ extension Metrics {
     /// around the content card): ``mainPaneChromeShadeBase(isDark:)`` scaled by ``titleAreaShadeScale``. Leo,
     /// 2026-11-11, on the title area: "the contrast, I guess it's fine, but I feel like it may be too intense for
     /// some people, so it needs to be adjustable." At most 1.
-    public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
+    /// Under Subtle Tone on the flush corner the frame is the theme's ink at its least separating share
+    /// (``inkFrameShade(isDark:tokens:)``, ``FrameTone``), drawn in ``chromeFrameInk(_:)``; `tokens` picks the theme
+    /// (the active scope's when nil).
+    public static func mainPaneChromeShade(isDark: Bool, tokens: ThemeTokens? = nil) -> CGFloat {
+        if let frame = inkFrameShade(isDark: isDark, tokens: tokens) { return frame }
         let base = mainPaneChromeShadeBase(isDark: isDark)
         let scale = titleAreaShadeScale
         return scale == 1 ? base : min(1, max(0, base * scale))

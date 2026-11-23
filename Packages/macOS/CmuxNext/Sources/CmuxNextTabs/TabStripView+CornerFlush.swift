@@ -63,8 +63,9 @@ extension TabStripView: TabStripCorner {
         }
         let folder = selectedFolderPath(in: tone.shade)
         let tokens = themeScope.tokens
-        let alpha = Metrics.mainPaneChromeShade(isDark: tokens.isDark), strength = Metrics.tabRowDividerStrength
+        let alpha = Metrics.mainPaneChromeShade(isDark: tokens.isDark, tokens: tokens), strength = Metrics.tabRowDividerStrength
         let ink = themeScope.perform { Palette.chromeDivider }
+        let frame = Metrics.chromeFrameInk(tokens)
         // Every strip redraws on each chrome redraw (`markTopRow`), one per strip's report: an unchanged strip
         // stops here, so a resize under Subtle Tone stays O(strips), not O(strips²) path operations.
         // The divider's weight and place as the top row's: a hairline just inside the strip's bottom (flipped: maxY).
@@ -73,7 +74,7 @@ extension TabStripView: TabStripCorner {
         // No divider over a toolbar that meets the tabs (``meetsToolbar``): the tabs and the omnibar are one surface.
         let lined = strength > 0 && !meetsToolbar
         let key = InCardToneKey(bounds: bounds, folder: folder?.boundingBoxOfPath, alpha: alpha, strength: strength,
-                                ink: ink, weight: weight, lined: lined)
+                                ink: ink, frame: frame, weight: weight, lined: lined)
         guard key != inCardToneDrawn else { return }
         inCardToneDrawn = key
         CATransaction.begin()
@@ -88,7 +89,7 @@ extension TabStripView: TabStripCorner {
             line = line.subtracting(folder)
         }
         tone.shade.path = shade
-        tone.shade.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor
+        tone.shade.fillColor = frame.withAlphaComponent(alpha).cgColor
         tone.divider.path = lined ? line : nil
         tone.divider.fillColor = ink.withAlphaComponent(ink.alphaComponent * strength).cgColor
     }
@@ -148,6 +149,8 @@ struct InCardToneKey: Equatable {
     var alpha: CGFloat
     var strength: CGFloat
     var ink: NSColor
+    /// The frame's wash color (`Metrics.chromeFrameInk`): a theme change under Subtle Tone repaints the row.
+    var frame: NSColor
     var weight: CGFloat
     var lined: Bool
 }
