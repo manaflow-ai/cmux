@@ -162,6 +162,8 @@ extension SettingsSchema {
         "agentPane.newChatsIn", "agentPane.sessionWorktrees",
         // The composer's look and where an empty chat's composer sits: layout choices a profile or the person's agent may set, like the chat's other looks.
         "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
+        // What Return does with a message sent mid-turn (steer or queue): a chat preference a profile or the person's agent may set, like the composer's other choices.
+        "agentPane.followUpMode",
         // The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.
         "chat.on",
         "updates.notify", "updates.showWhatsNew",

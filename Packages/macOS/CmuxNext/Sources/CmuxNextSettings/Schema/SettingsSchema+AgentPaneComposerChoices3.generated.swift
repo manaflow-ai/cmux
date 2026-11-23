@@ -8,3 +8,11 @@ public nonisolated enum AgentPaneEmptyChatComposerPosition: String, Sendable, Ha
     /// In the middle of the pane until the first message.
     case center
 }
+
+/// What Return (and Send) does with a message sent while the agent is mid-turn, for an agent that steers (Composer.tsx, followUpMode.ts): steer (as always) takes it into the running turn and Command-Return queues it; queue holds it until the turn ends and Command-Return steers. An agent that cannot steer queues either way; queueing off (a queued row's menu) steers on every key either way.
+public nonisolated enum AgentPaneFollowUpMode: String, Sendable, Hashable, CaseIterable {
+    /// Into the running turn: the agent reads it when its current step ends (as before).
+    case steer
+    /// Waits until the turn ends, then runs as its own turn.
+    case queue
+}
