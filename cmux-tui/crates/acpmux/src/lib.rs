@@ -69,6 +69,8 @@ pub mod cmux_tui_service;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+/// The opt-in bundled Codex app-server (Labs, off by default).
+pub mod codex_bundle;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
@@ -125,6 +127,7 @@ pub mod github_mcp {
 pub mod github_status;
 pub mod goal;
 pub mod hand;
+pub mod happy_dial;
 pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_fixture;
@@ -276,6 +279,7 @@ pub mod sent_by;
 pub mod server;
 pub mod session_env;
 mod session_handle;
+pub mod session_icon;
 pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;

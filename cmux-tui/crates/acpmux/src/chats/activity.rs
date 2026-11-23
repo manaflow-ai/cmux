@@ -83,15 +83,18 @@ impl ChatActivity {
         self.fields(key).is_some_and(|fields| !fields.get("parent").is_none_or(Value::is_null))
     }
 
-    /// Adds `attention`, `preview` and `parent` to a chat value (`chat_value`); a chat
-    /// no session continues gets nulls, so a client clears what it had.
+    /// Adds `attention`, `preview`, `parent`, `displayName` and `icon` to a chat value
+    /// (`chat_value`); a chat no session continues gets nulls, so a client clears what it had.
     pub fn decorate(&self, chat: &mut Value) {
         let fields = chat
             .get("key")
             .and_then(Value::as_str)
             .and_then(|key| self.fields(key))
             .cloned()
-            .unwrap_or_else(|| json!({"attention": null, "preview": null, "parent": null}));
+            .unwrap_or_else(|| {
+                json!({"attention": null, "preview": null, "parent": null, "displayName": null,
+                       "icon": null})
+            });
         if let (Some(chat), Value::Object(fields)) = (chat.as_object_mut(), fields) {
             chat.extend(fields);
         }

@@ -71,15 +71,24 @@ pub fn attention(session: &Session) -> Option<&'static str> {
     }
 }
 
-/// The `attention` and `preview` fields of a session's chat.
+/// The `attention` and `preview` fields of a session's chat, and the name and icon it was given
+/// (`displayName`, `icon`; null without one), so a chat list names the chat as the session list
+/// does. An image icon stays off, as on the session row (`list_tee/summary.rs`): clients fetch it.
 pub fn activity_fields(session: &Session) -> Value {
-    let preview = session.read_meta(|meta| {
-        meta.preview.as_deref().filter(|p| !p.trim().is_empty()).map(|p| {
+    let (preview, given, icon) = session.read_meta(|meta| {
+        let preview = meta.preview.as_deref().filter(|p| !p.trim().is_empty()).map(|p| {
             let line = p.split_whitespace().collect::<Vec<_>>().join(" ");
             line.chars().take(PREVIEW_CHARS).collect::<String>()
-        })
+        });
+        let given = meta.handle.clone().filter(|h| crate::session_handle::valid(h));
+        let icon = meta
+            .icon
+            .as_ref()
+            .and_then(|icon| serde_json::to_value(icon).ok())
+            .filter(|icon| icon.get("kind").and_then(Value::as_str) != Some("image"));
+        (preview, given, icon)
     });
-    json!({"attention": attention(session), "preview": preview})
+    json!({"attention": attention(session), "preview": preview, "displayName": given, "icon": icon})
 }
 
 /// The `_acpmux/chat_changed` params of a session's chat activity, when the
