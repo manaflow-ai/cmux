@@ -20,6 +20,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.chatWidgets`: Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch("chatWidgets")). Off by default; off makes no route call and draws no card, so the chat is unchanged.
     public nonisolated static let chatWidgetsPath = ["experiments", "chatWidgets"]
     public nonisolated static let chatWidgetsDefault = false
+    /// `experiments.introWalk`: Make cmux Yours as the intro walk's four screens (hq RFD 0057): look bundles with light and dark faces and a Tidy switch, how you work, trust and noise (agents' permission, banners and sound), then tune (density, background). The onboarding page reads it from its state (MakeItYoursStepModel.introWalk; webviews onboarding walk.ts). Off by default; off keeps today's one Make cmux Yours screen.
+    public nonisolated static let introWalkPath = ["experiments", "introWalk"]
+    public nonisolated static let introWalkDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -87,6 +90,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.chatWidgetsDefault),
                 keywords: ["experiments", "experimental", "prototype", "extension", "extensions", "chat", "widget", "tool", "card"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.introWalkPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.introWalk", "Intro Walk"),
+                help: SettingsText.keyed("settings.experiments.introWalk.help", "Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.introWalkDefault),
+                keywords: ["experiments", "experimental", "prototype", "onboarding", "intro", "first run", "walk", "look", "bundle", "trust", "permission", "notifications"]
             ),
         ]
     }

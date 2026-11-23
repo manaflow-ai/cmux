@@ -20,6 +20,7 @@ import { MockOnboardingProvider } from "./mockProvider";
 import { OnboardingPage } from "./Onboarding";
 import { OnboardingContext } from "./parts";
 import { OnboardingStore } from "./store";
+import type { MakeItYoursScreen } from "./walk";
 import { WalkArmScreen, type WalkArm } from "./walkArms";
 
 export type OnboardingGalleryProps = {
@@ -34,6 +35,9 @@ export type OnboardingGalleryProps = {
   /** An intro-walk arm (walkArms.tsx): a gallery-only screen in the same window, over the Make cmux
    * Yours fixture. Absent: the shipped page. */
   walk?: WalkArm;
+  /** experiments.introWalk on: Make cmux Yours as the walk's four screens, opened on `makeScreen`. */
+  introWalk?: boolean;
+  makeScreen?: MakeItYoursScreen;
 };
 
 export function OnboardingGallery({
@@ -46,6 +50,8 @@ export function OnboardingGallery({
   makeItYours,
   makeLook,
   walk,
+  introWalk,
+  makeScreen,
 }: OnboardingGalleryProps) {
   const [store] = useState(() => {
     const state =
@@ -56,7 +62,7 @@ export function OnboardingGallery({
           : step === "agentTools"
             ? agentToolsState(agentTools)
             : step === "makeItYours"
-              ? makeItYoursState(makeItYours)
+              ? makeItYoursState(makeItYours, { introWalk })
               : agentsState(agents);
     return new OnboardingStore(new MockOnboardingProvider(step), state);
   });
@@ -67,5 +73,13 @@ export function OnboardingGallery({
         <WalkArmScreen arm={walk} />
       </OnboardingContext.Provider>
     );
-  return <OnboardingPage store={store} strings={strings} agentsLook={look} makeItYoursLook={makeLook} />;
+  return (
+    <OnboardingPage
+      store={store}
+      strings={strings}
+      agentsLook={look}
+      makeItYoursLook={makeLook}
+      makeItYoursScreen={makeScreen}
+    />
+  );
 }

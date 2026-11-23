@@ -110,6 +110,8 @@ public protocol FirstRunChoicesSource: AnyObject {
     func applyWalk(_ writes: [FirstRunWalkWrite]) -> Bool
     /// Waits until every queued write has landed.
     func settled() async
+    /// `experiments.introWalk`: the step shows the intro walk's four screens (off: today's one screen).
+    func introWalk() -> Bool
 }
 
 public extension FirstRunChoicesSource {
@@ -120,6 +122,7 @@ public extension FirstRunChoicesSource {
     func walkValues() -> [String: JSONValue] { [:] }
     func applyWalk(_ writes: [FirstRunWalkWrite]) -> Bool { false }
     func settled() async {}
+    func introWalk() -> Bool { false }
 }
 
 /// The first run's one setup screen (cmux#48416): how the person wants to work, the density, and a
@@ -142,6 +145,8 @@ public final class MakeItYoursStepModel {
     public private(set) var writeFailure: String?
     /// The intro walk's other settings, keyed by dotted path (`FirstRunChoicesSource.walkValues`).
     public private(set) var walk: [String: JSONValue] = [:]
+    /// `experiments.introWalk`, read once when the step opens so the walk does not change shape under the person.
+    public private(set) var introWalk = false
 
     @ObservationIgnored public let source: (any FirstRunChoicesSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
@@ -161,6 +166,7 @@ public final class MakeItYoursStepModel {
         if opened == nil {
             choices = source.currentChoices()
             opened = choices
+            introWalk = source.introWalk()
             source.markOpened()
             source.observeWriteFailures { [weak self] reason in
                 guard let self, let source = self.source else { return }

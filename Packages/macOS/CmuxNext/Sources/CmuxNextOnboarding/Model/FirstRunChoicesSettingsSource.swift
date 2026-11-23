@@ -148,6 +148,10 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         enqueue(writes)
     }
 
+    public func introWalk() -> Bool {
+        settings()?.snapshot.root.value(at: CmuxConfigSnapshot.introWalkPath)?.boolValue ?? CmuxConfigSnapshot.introWalkDefault
+    }
+
     public func walkValues() -> [String: JSONValue] {
         guard let root = settings()?.snapshot.root else { return [:] }
         var values: [String: JSONValue] = [:]

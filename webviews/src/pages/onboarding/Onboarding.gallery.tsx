@@ -18,6 +18,8 @@ export default componentEntry<OnboardingGalleryProps>({
     "pages/onboarding/MakeItYoursStep.tsx",
     "pages/onboarding/galleryFixture.tsx",
     "pages/onboarding/walkArms.tsx",
+    "pages/onboarding/walk.ts",
+    "pages/onboarding/walkLook.tsx",
   ],
   load: async () => (await import("./galleryFixture")).OnboardingGallery,
   styles: async () => {
@@ -40,6 +42,23 @@ export default componentEntry<OnboardingGalleryProps>({
     "make-it-yours-picked": { props: { step: "makeItYours", makeItYours: "picked" } },
     "make-it-yours-terminal": { props: { step: "makeItYours", makeItYours: "terminal" } },
     "make-it-yours-loading": { props: { step: "makeItYours", makeItYours: "loading" } },
+    // experiments.introWalk on (off by default): Make cmux Yours as the intro walk's four screens (hq RFD 0057).
+    "intro-walk-look": {
+      note: "Screen 1 of 4: five whole looks, each with its light and dark face; House (what you have) checked. Tidy off.",
+      props: { step: "makeItYours", makeItYours: "fresh", introWalk: true, makeScreen: "look" },
+    },
+    "intro-walk-work": {
+      note: "Screen 2 of 4: how you work, Agents First checked.",
+      props: { step: "makeItYours", makeItYours: "fresh", introWalk: true, makeScreen: "work" },
+    },
+    "intro-walk-trust": {
+      note: "Screen 3 of 4: what agents may do, each mode explained, Full Access (as shipped) checked; banners and sound.",
+      props: { step: "makeItYours", makeItYours: "fresh", introWalk: true, makeScreen: "trust" },
+    },
+    "intro-walk-tune": {
+      note: "Screen 4 of 4: density, asked only here, and the background rows; a person's own picks checked.",
+      props: { step: "makeItYours", makeItYours: "picked", introWalk: true, makeScreen: "tune" },
+    },
     // The intro walk (Make cmux Yours, round 2): every contested screen as arms to pick between, all
     // [taste]. Gallery only: the shipped first-run screen is `make-it-yours-cards` above, unchanged.
     "walk-look-a-grid": {
