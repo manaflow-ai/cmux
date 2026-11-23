@@ -542,7 +542,7 @@ jobs:
 
       # cmux-next ships three helpers beside the app, like nightly-next: the OptChat Chief
       # (bin/optchat-chief), the iPhone host (bin/cmux-mobile-host) and the Screen Sharing helper
-      # (Contents/Library/<app> Screen Sharing.app). They build in the background beside the
+      # (Contents/Library/<app> Helper.app). They build in the background beside the
       # Release build with nightly-next's scripts; "Bundle the OptChat Chief, the iPhone host and
       # the Screen Sharing helper" joins them, and sign-cmux-bundle.sh signs and stamps them.
       - name: Start the OptChat Chief, iPhone host and Screen Sharing helper builds
@@ -557,7 +557,7 @@ jobs:
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+          CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -skipPackagePluginValidation -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
@@ -685,7 +685,7 @@ jobs:
             echo "bin/$helper architectures: $helper_archs"
             [[ "$helper_archs" == *arm64* && "$helper_archs" == *x86_64* ]]
           done
-          screen_helpers=(build-universal/Build/Products/Release/cmux.app/Contents/Library/*" Screen Sharing.app/Contents/MacOS/cmux-screen-sharing")
+          screen_helpers=(build-universal/Build/Products/Release/cmux.app/Contents/Library/*" Helper.app/Contents/MacOS/cmux-screen-sharing")
           [[ -x "${screen_helpers[0]}" ]] || { echo "no Screen Sharing helper in the app" >&2; exit 1; }
           screen_archs="$(lipo -archs "${screen_helpers[0]}")"
           echo "Screen Sharing helper architectures: $screen_archs"
