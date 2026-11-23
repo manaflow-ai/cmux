@@ -54,6 +54,8 @@ use std::process::Command as StdCommand;
 
 #[path = "session_move_preflight.rs"]
 mod preflight;
+#[path = "session_move_snapshot.rs"]
+pub(crate) mod snapshot;
 
 /// `--timeout`'s default: the longest an `--after-turn` move waits for the running turn.
 pub(crate) const DEFAULT_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -250,6 +252,9 @@ pub(crate) struct MoveArgs {
     /// to reach the other: a Mac mini and a cloud VM that only this laptop reaches still trade
     /// chats, and `--machine local` brings one back here.
     pub from: Option<String>,
+    /// `--from-snapshot`: the chats start on the target from this machine's copy of them
+    /// (`session_move_snapshot.rs`), for a machine that does not answer.
+    pub from_snapshot: bool,
 }
 
 /// Where the chats being moved live: this machine, or (`--from`) a peer this machine reaches
@@ -313,6 +318,9 @@ impl Outcome {
 }
 
 pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
+    if args.from_snapshot {
+        return snapshot::run(args, json_out).await;
+    }
     let local = connect(true).await?;
     let peers = local.request("_acpmux/peers", json!({})).await?;
     let here = crate::pairing::machine_name();
@@ -438,6 +446,13 @@ pub(crate) struct MovedOff {
 /// same steps and pick as `session move ID --host auto`. `Err`: it did not move, and why (no peer
 /// has room, a refusal, a failed step given back); the chat is here as it was.
 pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<MovedOff> {
+    move_auto(src, id, true).await
+}
+
+/// The idle chat `id` moved off this machine as `session move ID --host auto` moves it, with no
+/// one asking: the daemon's automatic evacuation (`hub/auto_evacuate.rs`) calls this with
+/// `resume_there` false. `Err`: it did not move, and why; the chat is here as it was.
+pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Result<MovedOff> {
     let args = MoveArgs {
         sessions: vec![id.to_owned()],
         host: "auto".into(),
@@ -449,8 +464,9 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         carry_changes: false,
         cwd: None,
         dry_run: false,
-        resume_there: true,
+        resume_there,
         from: None,
+        from_snapshot: false,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
