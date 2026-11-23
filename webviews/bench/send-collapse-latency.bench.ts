@@ -113,7 +113,7 @@ try {
           addEventListener(
             "keydown",
             (event) => {
-              if (event.key !== "Enter") return;
+              if ((event as KeyboardEvent).key !== "Enter") return;
               state.keyAt = event.timeStamp;
               // The first frame whose layout has the prompt empty and the composer back at its resting height; the
               // next frame's start is after that frame painted.
