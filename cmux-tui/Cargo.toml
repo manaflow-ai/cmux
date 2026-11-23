@@ -685,3 +685,4 @@ opt-level = 0
 # Rex parity bench (tests/rex_parity_bench.rs) measure it optimized.
 [profile.dev.package.cmux-api-compat]
 opt-level = 3
+// probe
