@@ -257,7 +257,12 @@ import { SubagentTray } from "./subagents/SubagentTray";
 import { tuckTray } from "./subagents/trayPullTabModel";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
-import { isBackgroundPane, openBackgroundPane } from "./backgroundTasks/backgroundPane";
+import {
+  type BackgroundPanel,
+  backgroundPanelFor,
+  isBackgroundPane,
+  openBackgroundPane,
+} from "./backgroundTasks/backgroundPane";
 import { OpenBackgroundTasks, requestBackgroundFocus, useBackgroundFocus } from "./backgroundTasks/openBackgroundTasks";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { settleTrayExit } from "./subagents/trayMotionModel";
@@ -598,6 +603,7 @@ import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { copyShowsRunningTurn, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
+import { snapshotDraft } from "./chatSnapshot/restoredDraft";
 import { watchLaunchSettle } from "./launchSettle";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -1271,17 +1277,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // menu: the chat's right column, docked under the side panel when that is open. It is the open
   // chat's, as the side panel is; another chat closes it. `dismissed` holds the ended groups Clear
   // finished cleared. Closed, it reads nothing: its groups are derived only while it is open.
-  const [backgroundPanel, setBackgroundPanel] = useState<{
-    sessionId?: string;
-    expanded: boolean;
-    dismissed: ReadonlySet<string>;
-  }>();
-  if (backgroundPanel && snapshot.sessionId !== backgroundPanel.sessionId) setBackgroundPanel(undefined);
+  const [backgroundPanel, setBackgroundPanel] = useState<BackgroundPanel>();
   /// This page is the chat's Background tasks tab in the right column (a `subagent:` reveal of the
   /// reserved pane id, backgroundTasks/backgroundPane.ts): it shows the panel alone, filling the tab.
   const [ownBackgroundPane, setOwnBackgroundPane] = useState(false);
-  if (ownBackgroundPane && !backgroundPanel && snapshot.sessionId)
-    setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set<string>() });
+  // One idempotent step, not two guarded sets that undo each other (a during-render pair made the
+  // pane fail to draw once Background tasks opened in its split; Leo, 2026-11-22).
+  const reconciledBackgroundPanel = backgroundPanelFor(backgroundPanel, snapshot.sessionId, ownBackgroundPane);
+  if (reconciledBackgroundPanel !== backgroundPanel) setBackgroundPanel(reconciledBackgroundPanel);
   const backgroundOpen = backgroundPanel !== undefined;
   const backgroundCache = useRef<TaskCache>(new WeakMap());
   const artifactSession = snapshot.sessionId;
@@ -6468,7 +6471,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // relaunch's attach no longer meets (Leo, 2026-11-08: "what you saw when you clicked the
       // restart button ... here's literally what you just had").
       directClient.current?.handOverCurrentTail();
-      return callNative("chat.snapshot.put", params);
+      // The prompt the markup shows, as text: the next launch's composer holds it from its first
+      // frame (chatSnapshot/restoredDraft.ts), so the copy's composer and the live one are one size.
+      // A miss (a copy too large to keep) carries it too; a forget carries nothing.
+      const draft =
+        "html" in params || "miss" in params ? snapshotDraft(composerHandle.current?.draft().text) : undefined;
+      return callNative("chat.snapshot.put", draft ? { ...params, draft } : params);
     });
   }, [snapshotSession]);
   const summary = snapshot.summary;
