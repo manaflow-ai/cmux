@@ -4937,3 +4937,9 @@ lan_cache_fetch.py's own bound is 5,420 s, longer than the 60-minute jobs that r
 ("LAN cache host unavailable (...: stalled)"), and the direct download then took 9 more: restores of
 1,289-1,600 s, in jobs cancelled at the 60-minute limit while still building CmuxNext. A healthy host
 serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the bucket (wait 304 s).
+
+## note-553
+
+Above `down) ...` in the `case "$word"` of app-compile-fleet, swift-canary-fleet and release-compile-fast in `.github/workflows/cmux-next.yml`.
+
+`down` from scripts/ci/fleet_compile_result.py: the build controller, which serves the tip check's results, was reached and gave no answer for 60 s (the CDN's 524 or the read's own timeout). A compile submits to that same process, so the job gives no verdict at once instead of submitting. 2026-11-23 from 09:30Z the controller answered a plain read in 78 s: 48 of 52 app compile jobs from 10:00 to 10:50Z spent 6.4-7.5 min reading and 5-8.5 min more in `cmux-ci compile-check` (exit 69 or 75), with no verdict at the end.

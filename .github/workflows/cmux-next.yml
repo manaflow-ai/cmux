@@ -2710,6 +2710,8 @@ jobs:
           case "$word" in
             pass) echo "::notice title=Build fleet compile check::the tip check compiled this head (SwiftPM Release -Onone); not compiled again" ;;
             fail) status=1 ;;
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-553
+            down) status=69 ;;
             *) "$client" compile-check --ref "$REF" --app \
                  --timeout 1200 --queue-timeout 300 2>"$RUNNER_TEMP/compile-check.stderr" || status=$? ;;
           esac
@@ -2847,6 +2849,8 @@ jobs:
           case "$word" in
             pass) how="the tip check's SwiftPM Release (-Onone) compile of this head; not compiled again here" ;;
             fail) status=1 ;;
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-553
+            down) no_verdict "the build controller did not answer its results read; nothing was submitted to it" ;;
             *) "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$? ;;
           esac
           case "$status" in
@@ -5527,6 +5531,8 @@ jobs:
           case "$word" in
             pass) echo "The tip check compiled and linked the app at $REF in Release (-Onone); not compiled again." ;;
             fail) status=1 ;;
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-553
+            down) status=69 ;;
             *) "$client" compile-check --ref "$REF" --app --release \
                  --timeout 1200 --queue-timeout 300 || status=$? ;;
           esac
