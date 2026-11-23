@@ -611,6 +611,7 @@ requestAnimationFrame(() => {
           const seen: boolean[] = [];
           const look = () => {
             seen.push(!!document.querySelector("cmux-chat-snapshot"));
+            // raf-read: reads the DOM the frame will paint (the copy's element), no pixels, as the swap's own frame callback sets it.
             if (seen.length < 10) requestAnimationFrame(look);
             else resolve(seen);
           };
@@ -636,6 +637,7 @@ requestAnimationFrame(() => {
               opacity: root.style.opacity,
               band: Math.max(0, top - scroller.getBoundingClientRect().top),
             });
+            // raf-read: reads the DOM and boxes the frame will paint, no pixels, after the swap's own frame callback.
             if (seen.length < 6) requestAnimationFrame(look);
             else resolve(seen);
           };
