@@ -772,14 +772,14 @@ fn a_place_of_another_state_root_is_no_place() {
     assert_eq!(counts_of(&answer), Some((3, 2)), "{answer}");
 }
 
-/// The name that the daemon's reset gives the folder of the session `name`
+/// The name that the reset command gives the folder of the session `name`
 /// before it deletes it: `.reset-NAME-KIND-UUID.deleting`, in the same state
 /// root.
 fn reset_name(name: &str) -> String {
     format!(".reset-{name}-session-6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f.deleting")
 }
 
-/// The daemon's reset renames a session folder to a name that starts with a
+/// The reset command renames a session folder to a name that starts with a
 /// dot, which sorts before the place, and deletes it later. The rename
 /// changes no time of a store file. Here the reset renames a session that no
 /// call read yet, between 2 calls, and no file changed after the first call

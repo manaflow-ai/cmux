@@ -234,7 +234,7 @@ fn written_since(path: &Path, limit_ms: u64, only_with_bytes: bool) -> bool {
 /// bytes in the folder, which changes the folder's time; a read writes no
 /// byte to a `-wal` file and none to a store file. So this does not see a
 /// folder that a rename moves to a name at or before the place, when
-/// nothing wrote its stores since. The daemon's reset makes such a rename:
+/// nothing wrote its stores since. The reset command makes such a rename:
 /// [`in_reset`] is for it.
 fn changed_since(session: &Path, since_ms: u64) -> bool {
     let limit_ms = since_ms.saturating_sub(FILE_TIME_MARGIN_MS);
@@ -247,10 +247,10 @@ fn changed_since(session: &Path, since_ms: u64) -> bool {
 }
 
 /// True when the name of the session folder `session` has the form that the
-/// daemon's reset gives a session folder before it deletes it. That rename
+/// reset command gives a session folder before it deletes it. That rename
 /// can put a session that no call read yet at or before the place, and it
-/// changes no time of a store file. So each pass reads each folder of this
-/// form, with no look at a time.
+/// changes no time of a store file. So each pass that starts at the first
+/// folder reads each folder of this form, with no look at a time.
 fn in_reset(session: &Path) -> bool {
     use crate::workspace_registry::{RESET_DIR_HEAD, RESET_DIR_TAIL};
     session
@@ -340,18 +340,19 @@ const LOOKS_FOR_EACH_CLOCK_READ: usize = 64;
 /// call that read each session after the place makes a pass over the
 /// folders at or before it: it looks at the file times of each
 /// ([`changed_since`], against `place.since_ms`) and reads again each one
-/// that was written since. It reads each folder that the daemon's reset
-/// renamed ([`in_reset`]) with no look at a time, in each pass. The call
-/// gives the numbers only after a pass that ran from its first folder to
-/// its last in this one call. A store that is read again keeps the larger
-/// of its 2 numbers.
+/// that was written since. Each pass that starts at the first folder reads
+/// each folder that the reset command renamed ([`in_reset`]), with no look
+/// at a time. The call gives the numbers only after such a pass that ran
+/// from its first folder to its last in this one call. A store that is read
+/// again keeps the larger of its 2 numbers.
 ///
 /// A pass that stops keeps its place: `place.pass` names the last folder
 /// that it looked at, and the next call goes on after that folder. A pass
 /// that comes to its end in a later call than the call it started in is not
 /// the last pass. The same call then starts a new pass at the first folder,
-/// and that pass compares the file times with the start of the pass before
-/// it: it reads again only what was written while that pass ran.
+/// and that pass compares the file times with the start of the call in
+/// which the pass before it started: it reads again what was written since
+/// that start, and each folder that the reset command renamed.
 ///
 /// In a pass the check reads the clock before each read of a store after
 /// the first read of this call, and after each
