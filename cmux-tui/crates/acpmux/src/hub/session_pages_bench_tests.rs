@@ -298,7 +298,11 @@ fn old_whole_paged_read(hub: &Arc<Hub>) -> (usize, usize, f64) {
             None => break,
         }
     }
-    (pages, hub.summaries_built.load(SeqCst) - before, start.elapsed().as_secs_f64() * 1000.0)
+    (
+        pages,
+        (hub.summaries_built.load(SeqCst) - before) as usize,
+        start.elapsed().as_secs_f64() * 1000.0,
+    )
 }
 
 /// docs/findings/2026-11-23-acpmux-cli-startup-tax.md (cmuxterm-hq): a lane VM's whole local
@@ -332,7 +336,7 @@ async fn a_whole_paged_read_builds_each_row_once_not_per_page() {
                 None => break,
             }
         }
-        let built = hub.summaries_built.load(SeqCst) - before;
+        let built = (hub.summaries_built.load(SeqCst) - before) as usize;
         println!(
             "PERF whole-paged-read chats={n} live={idle} pages={} built={built} ms={ms:.1}",
             pages
