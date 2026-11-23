@@ -1,0 +1,26 @@
+{
+  "family": "skills_app",
+  "ops": {
+    "skills_app.cycle_variant": {
+      "source": "app",
+      "owner": "app:cmux/skills",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "b1d73878c131961c"
+    },
+    "skills_app.open": {
+      "source": "app",
+      "owner": "app:cmux/skills",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "72f9dd49ffca0d55"
+    },
+    "skills_app.reload": {
+      "source": "app",
+      "owner": "app:cmux/skills",
+      "class": "read",
+      "risk": "read",
+      "digest": "8a5b6e1d4b6b1bc8"
+    }
+  }
+}

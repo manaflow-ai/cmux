@@ -267,9 +267,10 @@ def keyed(group: str, key: re.Pattern) -> bool:
 
 # Groups shared across heads on purpose, each with why no fallback compile waits in it.
 SHARED_GROUP_ALLOWED = {
-    # Branch-tip only (push to feat-cmux-next, or a dispatch): each run compiles the change since
-    # the last verified commit, so a newer tip that evicts a pending one covers its commits too.
-    ("cmux-next-tip-test-compile.yml", "cmux-next-tip-test-compile"),
+    # Branch-tip only (a dispatch, or a post-merge batch call keyed by its commit and job): each run compiles the
+    # change since the last verified commit, so a newer tip that evicts a pending one covers its commits too.
+    ("cmux-next-tip-test-compile.yml",
+     "cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}"),
 }
 
 

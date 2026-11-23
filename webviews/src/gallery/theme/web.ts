@@ -129,6 +129,8 @@ export function webThemePayload(
       // no sidebar color.
       "--cmux-sidebar-surface": shade > 0 ? css(withAlpha(BLACK, shade)) : "transparent",
       "--cmux-hover": css(tokens.hoverFill),
+      // A pressed row's fill, as WebTheme.swift sends it (Palette.pressedFill).
+      "--cmux-pressed": css(tokens.pressedFill),
       "--cmux-selection": css(tokens.selectionFill),
       // The gallery has no Ghostty cursor color: the text color. Selected text is the app's one
       // highlight (WebTheme.swift), the same token native text fields use.
@@ -154,6 +156,9 @@ export function webThemePayload(
     statusIndicators: options.reducedMotion ? "static" : "animated",
     workingLook: "spinner",
     motion: options.reducedMotion ? "reduced" : "full",
+    // The gallery keeps glass by default, though the app sends "off" until Settings > Appearance >
+    // Liquid Glass is on: its states show each glass surface, and the off look has its own states
+    // (agent-pane.composer-look/composer-material-liquid-glass-off).
     glass: options.glass ?? "plain",
   };
 }

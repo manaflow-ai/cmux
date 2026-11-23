@@ -9,11 +9,7 @@
 // docs/handbook/perf-regresses-on-degenerate-sessions.md, "Chat open cost at the god-chat shape").
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import {
-  PROCESS_LIST_RECENT,
-  recentProcesses,
-  type SessionInfoProcess,
-} from "../src/agent-session/acpmux/session-info/processes";
+import { PROCESS_LIST_RECENT, type SessionInfoProcess } from "../src/agent-session/acpmux/session-info/processes";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000e6";
 const START = Date.UTC(2026, 10, 16, 1, 0, 0);
@@ -157,7 +153,7 @@ async function openChat(records: number, processes: number) {
   );
   for (let n = 0; n < 20; n += 1) await tick();
   const reply = await client.listProcesses(CHAT, PROCESS_LIST_RECENT);
-  const kept = recentProcesses((reply.processes ?? []) as SessionInfoProcess[]);
+  const kept = (reply.processes ?? []) as SessionInfoProcess[];
   for (let n = 0; n < 5; n += 1) await tick();
   client.dispose();
   return { bytes: fake.stats.received, kept: kept.length };
