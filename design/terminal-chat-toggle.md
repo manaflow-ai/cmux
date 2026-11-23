@@ -79,3 +79,28 @@ The control shows at rest (`alwaysVisible`): it never fades with the bar's other
 `design/transcript-overlays.md`: stable zones hold what never moves when something arrives, and the identity of a
 view is never news. Which face of a session you are on is identity, so the control lives in the pane's stable
 top-right row, at one x on both faces, and nothing arriving in the chat or the terminal moves it.
+
+## Composer row (Write to a Chat a Terminal Runs)
+
+With `agents.chats.terminalChatWritable` on (off by default; Leo, 2026-11-15: "these are opt-in settings"), the
+chat face of a pair keeps its composer: Send, Stop and attachments go into the terminal's harness. Off, it is the
+View Only watch above, unchanged. Its model, effort and mode chips cannot apply there (the terminal's Claude Code or
+Codex runs its own and takes no change from outside its terminal), so the row says where they are set.
+
+References: `claude/live/composer-bottom-controls` and `codex/live/composer-codex-bar-access-and-model` (the model
+and mode read as quiet text in the composer's own row, never a banner); `cmux/live/sidebar-transcript-gui-layout`.
+
+Gallery: `agent-pane.terminal-chat-composer` (`webviews/src/agent-session/acpmux/TerminalPickersNote.gallery.tsx`):
+
+| Look | Verdict |
+| --- | --- |
+| `sentence`: "Model and mode are set in the terminal running this chat" where the chips stood | Before. Crowds the row and is the first thing a narrow pane cuts. |
+| `badge`: terminal glyph and "Set in terminal", a chip's height and inset, the sentence as its tooltip | **Picked.** One chip's room on the chips' line; the trailing side stays Stop, mic and Send, so nothing there moves between a chat and a terminal-driven chat. |
+| `trailing`: the badge at the row's end, where the references keep the model | Crowds Stop and Send, and moves them when the chat changes kind. |
+
+The badge is not a control: no hover wash, the default pointer, nothing to press.
+
+Recovery: turning the setting off at any time, mid-turn too, makes every such chat a View Only watch at once
+(acpmux `hub/release_to_watch.rs` `set_terminal_chat_writable`). The terminal's turn is never cut; a prompt the
+harness already holds runs and shows; one acpmux still held to type into a terminal with no inbox is dropped, its
+sender told why (Not sent, with Retry) and every client given a notice. Take Over is back at once.
