@@ -25,7 +25,7 @@ The same look is also the `lamina-slate` and `lamina-slate-light` recipes in `cm
 
 | File | What it does |
 | --- | --- |
-| `cmux-setup.json` | Picks the theme file; panes as borders, 2 point padding with a `#34363b` stroke; the sidebar grouped by folder with timestamps and no tip cards; a 860 px chat column, no minimap, changed files collapsed under each turn |
+| `cmux-setup.json` | Picks the theme file; panes as borders, 2 point padding with a `#34363b` stroke; the sidebar grouped by folder with timestamps and no tip cards; a 860 px chat column, no minimap, changed files collapsed under each turn; a flat toast (`notifications.toast.style: "flat"`), not a glass pill |
 | `themes/lamina-slate.json` | Default, Dark. Layer `#1e1f22`, ink `#e6e7ea`, selection `#2f4560`, accent `#7aa2d6`; no glass: solid, opaque layers; the `lines` section look; ultra compact density; the chat in the system face at 13 point; a dot in the accent |
 | `themes/lamina-slate-light.json` | Light. Layer `#ffffff`, ink `#1d1e21`, selection `#d3e1f2`, accent `#3d6fa5`, otherwise as Dark |
 | `agent-pane/theme.css` | `cmux.agentPane.style/1` tokens: 4 point controls and 8 point cards, popups and code blocks; your prompt an 8 point card tinted by the accent; the composer an 8 point card with a 1 px stroke and an accent edge on focus; a squarer toast; every color mixed from the theme's own |

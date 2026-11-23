@@ -25,7 +25,7 @@ The same look is also the `lamina-tide` and `lamina-tide-light` recipes in `cmux
 
 | File | What it does |
 | --- | --- |
-| `cmux-setup.json` | Picks the theme file; panes as cards, 4 point padding with a `#2b4240` stroke; the sidebar grouped by folder with timestamps and no tip cards; a 900 px chat column, no minimap, changed files collapsed under each turn |
+| `cmux-setup.json` | Picks the theme file; panes as cards, 4 point padding with a `#2b4240` stroke; the sidebar grouped by folder with timestamps and no tip cards; a 900 px chat column, no minimap, changed files collapsed under each turn; a flat toast (`notifications.toast.style: "flat"`), not a glass pill |
 | `themes/lamina-tide.json` | Default, Dark. Layer `#141f1f`, ink `#eef6f5`, selection `#1f4a47`, accent `#2dd4bf`; frosted glass, the layers up to 0.9 opaque; the `card` section look; compact density; the chat in the system face at 14 point; a thicker ring in the accent |
 | `themes/lamina-tide-light.json` | Light. Layer `#f1f6f5`, ink `#14201f`, selection `#c4e6e1`, accent `#0f766e`, otherwise as Dark |
 | `agent-pane/theme.css` | `cmux.agentPane.style/1` tokens: 4 point controls and 8 point cards, popups and code blocks; your prompt an 8 point card tinted by the accent; the composer an 8 point card with a 1 px stroke and an accent edge on focus; a squarer toast; every color mixed from the theme's own |

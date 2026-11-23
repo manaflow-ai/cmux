@@ -25,7 +25,7 @@ The same look is also the `lamina-mist` and `lamina-mist-light` recipes in `cmux
 
 | File | What it does |
 | --- | --- |
-| `cmux-setup.json` | Picks the theme file; panes as cards, 6 point padding with a `#33414f` stroke; the sidebar grouped by folder with timestamps and no tip cards; a 900 px chat column, no minimap, changed files collapsed under each turn |
+| `cmux-setup.json` | Picks the theme file; panes as cards, 6 point padding with a `#33414f` stroke; the sidebar grouped by folder with timestamps and no tip cards; a 900 px chat column, no minimap, changed files collapsed under each turn; a flat toast (`notifications.toast.style: "flat"`), not a glass pill |
 | `themes/lamina-mist.json` | Default, Dark. Layer `#18202a`, ink `#eef3f9`, selection `#2a4a63`, accent `#4cc2ff`; clear glass, the most translucent of the four; the `card` section look; cozy density; the chat in the system face at 14 point; a thin ring in the accent |
 | `themes/lamina-mist-light.json` | Light. Layer `#eef3f8`, ink `#17202b`, selection `#cfe4f6`, accent `#005fb8`, otherwise as Dark |
 | `agent-pane/theme.css` | `cmux.agentPane.style/1` tokens: 4 point controls and 8 point cards, popups and code blocks; your prompt an 8 point card tinted by the accent; the composer an 8 point card with a 1 px stroke and an accent edge on focus; a squarer toast; every color mixed from the theme's own |
