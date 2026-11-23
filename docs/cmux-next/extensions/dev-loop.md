@@ -83,6 +83,27 @@ picture of the window (2880x1800): /tmp/shot.png; the extension is in the sideba
   The window comes out as an agent sees it, with browser pages and chats masked in gray. The
   extension's own view is not masked.
 
+- **Design warnings** follow the reload line when the first scene breaks a design rule: a font
+  size off the type roles, a `font` name that is no type role (`largeTitle` is drawn as 34 pt
+  regular; the role at that size is `numeral`), more than
+  two accent colors, a gap or padding off the spacing scale (0 2 4 6 8 12 16 20 24 32 48), a raw or
+  unknown color, text below the contrast minimum, and in a widget more than four type roles or text
+  with no line limit. Each names its fix (`use Caption(...) (12 pt)`, `use 8`). They warn; the load still counts.
+  `--json` carries them as `design`: `{check, message, fix, node, count}`. `cmux ext design FILE...
+  [--widget] [--system cmux-design.json]` runs the same check on recorded scenes (a gallery fixture,
+  a store preview). How to build a view with none, and every check's fix:
+  [extension-design.md](../../../skills/cmux-customization/references/extension-design.md).
+- **Recording scenes for review.** `cmux ext shot --record` writes the scene it rendered into
+  `preview/scenes.json`, keyed by interface and size (`cmux.widget/1 small`), and keeps scenes
+  recorded before. Record each size the extension offers, and add `"preview/"` to the manifest's
+  `files` so the package ships it. `--json` adds `recorded`: the file's path, or `{"error"}`.
+- **Your own design system.** A `cmux-design.json` (`"design": "cmux.design/1"`) in the folder sets
+  your type roles, spacing scale, color names (each a cmux color role) and per-view limits on top of
+  cmux's; `defineDesign` in the SDK reads it, and `DesignSystemView` draws it. `ext dev` then checks
+  against your system and names your roles and steps in each fix. A file that does not read is one
+  `system` warning, and the check uses cmux's system. `examples/extensions/design-system` is a pane
+  that shows yours next to cmux's.
+
 `--json` adds `shot` to the `ext dev --once` fields: `{"path", "width", "height"}`, or
 `{"error"}` when there is no picture.
 
@@ -246,11 +267,18 @@ apps folder says `local/`; the folder keeps its own id).
 `cmux ext publish [DIR] [--repo OWNER/REPO] [--write-badge] [--json]` writes nothing to the
 network. It checks the manifest validates, the id starts with the owner, the `repository` field,
 the README badge (`--write-badge` adds it or fills the placeholder), and an image `icon` or
-`screenshots`; then prints the steps: push to GitHub; a release whose tag is the manifest's
+`screenshots`, and the `design` step: registry review's design check on `preview/scenes.json`,
+which refuses on any warning (each with its fix), on a missing file, or when the package does not
+ship `preview/`; an extension that draws nothing passes. Then it prints the steps: push to GitHub; a release whose tag is the manifest's
 `version`, with the assets `cmux ext pack` writes (the exact `gh release create` line); and a pull
 request to manaflow-ai/cmux-extensions adding the printed entry to `extensions.json`, the list of
 record. Exit 0 when ready, 1 when something is left (each `todo` line says what), 2 for a bad
 `--repo` or folder. Commit `dist/main.js` too, so the source tree loads as it is.
+
+`cmux ext design --listing DIR [--json]` runs that design step alone, as registry review runs it
+on an unpacked release: exit 0 with no warning, 1 when it refuses, 4 with no manifest. `--json`
+prints `{ok, missing, warnings, scenes: [{scene, design}]}`. `ext dev` and `ext shot` only warn;
+review is the one that refuses.
 
 `cmux ext pack [DIR] [--out DIR] [--json]` validates the folder as `ext dev` does and writes
 `release/cmux-extension.tar.gz` (the manifest and the files it names, sorted, with no times or

@@ -59,6 +59,23 @@ Screen pane of cmux NEXT showing the shared Mac's marker): pass its --presented-
 observe.rs: CGEventPostToPid to the ScreenCaptureKit display timestamp of the frame whose marker
 changed). The bench viewer has no window on macOS, so without them Total ends at decode.
 
+`--app-viewer APP` finds that pane itself, with no pointer move and no Computer Use: on the
+viewing Mac it launches the cmux NEXT app bundle APP (`open -n`, foreground unless
+--app-viewer-background, its control socket in automation mode, --encode-profile written to a
+CMUX_NEXT_CONFIG_FILE because remote.screenSharingProfile is user-only), and over that socket
+(the `cmux` CLI's) opens a full-control Mac Screen pane to the host (`debug.device_hub connect`),
+waits for its first frame (`debug.mac_screen state`: window_pid, window_id, transport), finds the
+marker in it (`screencapture -D 1` + screen-eval-marker-locate from --tools), runs observe, reads
+the app's own stage ledger from its log (`stage ledger:`), and ends the session and the app it
+launched. The app's session goes through the hub to the host's sharing cmux NEXT app, not to the
+bench's `cmux-rd serve`: --app-host-app APP (host) approves it and names the device, else pass
+--app-host-device ID. The budget's `presented_source` says which pane Total ended at
+(`app-viewer` or `presented-flags`), the Total cell's `via` the same, `app_ledger` the app's
+stages, and `app_timings` the pane's own decode, glass and decode_present ms (`mac_screen.state`,
+every build's read, the last 120 frames; decode_present is the viewer's Decode+Present, released
+to on glass). The pane is driven through DEV-only methods, so --app-viewer needs a DEV build; a
+Release app (NIGHTLY) fails at launch and says so. A NIGHTLY's own timings: `cmux app mac-screens`.
+
 The Apple leg is a headless RFB client (the cua-vnc client, imported from --cua-vnc) on port 5900
 asking only for the marker's strip. It never opens Screen Sharing.app or any window on either Mac.
 The marker window is not key when the rig starts it, so before timing keys the leg clicks the
@@ -130,10 +147,12 @@ the user from VNC_USERNAME and the password from VNC_PASSWORD_FILE (a 0600 file 
 Mac) and never from argv. Without them it is skipped and the table says so.
 """
 import argparse
+import contextlib
 import ipaddress
 import json
 import os
 import queue
+import re
 import select
 import shlex
 import signal
@@ -149,6 +168,25 @@ MONO = time.CLOCK_MONOTONIC  # the clock cmux-rd's now_ns() reads (clock.rs)
 KEYSYM_A = 0x61
 CELLS = 20
 GUARD = (True, False, True, False)
+
+
+def marker_click_at(line):
+    """mac-marker's `marker-origin X,Y click-at X,Y` line -> [x, y] of its gray pad, where a click or
+    scroll counts and touches no read cell (None: the line names none)."""
+    words = line.split()
+    if len(words) >= 4 and words[0] == "marker-origin" and words[2] == "click-at":
+        x, y = words[3].split(",")
+        return [int(x), int(y)]
+    return None
+
+
+def bench_input(kind, samples, at):
+    """`cmux-rd bench`'s input flags. A click or scroll aims at AT (the marker's pad): the bench's
+    own --at default, 960,600, misses the marker, which then counts nothing (every trial lost)."""
+    flags = f"--input {kind} --samples {samples}"
+    if kind in ("click", "scroll") and at:
+        flags += f" --at {at[0]},{at[1]}"
+    return flags
 
 
 def motion_link(series):
@@ -168,6 +206,17 @@ def motion_link(series):
         "target_kbps_last": kbps[-1] if kbps else None,
         "target_kbps_series": kbps,
     }
+
+
+def fine_rate(rows):
+    """The viewer bench's `series_100ms` rows ([ms, bytes, kbps]) as [ms, Mbit/s, kbps]: the
+    received rate over each 100 ms bucket beside the host's newest target."""
+    out, prev = [], 0
+    for ms, nbytes, kbps in rows:
+        span = max(ms - prev, 1)
+        out.append([ms, round(nbytes * 8 / span / 1e3, 2), kbps])
+        prev = ms
+    return out
 
 
 def host_frames(lines, cap_fps):
@@ -262,8 +311,8 @@ WHY_LEDGER = "needs the per-frame stage ledger (cmux.rd-stage-ledger/1), not in 
 WHY_CMUX = {
     "Reassembly": "not split today: the bench stamps a frame complete and releases it in one step, "
                   "so Network holds it; " + WHY_LEDGER,
-    "Present": "the bench viewer has no window on macOS (it ends at decode); pass --presented-* for "
-               "a visible viewer pane, or " + WHY_LEDGER,
+    "Present": "the bench viewer has no window on macOS (it ends at decode); pass --app-viewer (the "
+               "cmux NEXT app's Mac Screen pane) or --presented-* for a visible viewer pane, or " + WHY_LEDGER,
 }
 WHY_SYNTHETIC_PRESENT = ("--source synthetic: the bench viewer has no window on macOS (it ends at "
                          "decode) and a viewer pane needs the marker app; " + WHY_LEDGER)
@@ -305,22 +354,81 @@ def ledger_stages(ledger):
     return out
 
 
+def summary_stages(summary):
+    """A bench's run stage ledger summary (`stage_ledger`, schema cmux.rd-stage-ledger/1) as
+    {row: {"p50", "p95", "n"}} for the stages it measured; {} for anything else."""
+    if not isinstance(summary, dict) or summary.get("schema") != LEDGER_SCHEMA:
+        return {}
+    out = {}
+    for st in summary.get("stages") or []:
+        if not isinstance(st, dict) or not isinstance(st.get("n"), int) or st["n"] <= 0:
+            continue
+        if st.get("p50_ms") is None or st.get("p95_ms") is None:
+            continue
+        out[st.get("stage")] = {"p50": round(st["p50_ms"], 2), "p95": round(st["p95_ms"], 2),
+                                "n": st["n"]}
+    return out
+
+
+def from_summaries(row, summaries):
+    """ROW from the trials' run summaries: the trial with the most frames for it (percentiles of
+    separate trials do not pool), or None. Never Total: the summary's runs display time ->
+    presented, not key press -> frame."""
+    if row == "Total":
+        return None
+    cells = [s[row] for s in (summary_stages(x) for x in summaries or []) if row in s]
+    if not cells:
+        return None
+    best = max(cells, key=lambda c: c["n"])
+    return dict(best, source="ledger", of="run summary: the trial with the most frames",
+                trials=len(cells))
+
+
 def null(why):
     return {"null": why}
 
 
-def cmux_cells(rows, ledgers, presented, synthetic=False):
+PRESENTED_KINDS = {
+    "app-viewer": "the cmux NEXT app's Mac Screen pane (--app-viewer), opened through its control socket",
+    "presented-flags": "a viewer pane named by --presented-pid/--presented-window",
+}
+
+
+# The Mac Screen pane's own frame timings (`mac_screen.state`, MacScreenStateControl), each
+# {count, p50, p95, max} over its last APP_TIMING_WINDOW frames.
+APP_TIMING_FIELDS = ("decode_ms", "glass_ms", "decode_present_ms", "present_ms", "frame_interval_ms")
+APP_TIMING_WINDOW = 120
+# The pane-timings read every build registers (Release too: `cmux app mac-screens`,
+# MacScreenStateControl.releaseMethods); debug.mac_screen is DEV only.
+APP_STATE_METHOD = "mac_screen.state"
+
+
+def presented_source(kind, **fields):
+    """Which pane the presented leg read (budget `presented_source`): KIND (PRESENTED_KINDS) and
+    the pid, CGWindow id and marker coordinates it used."""
+    if kind not in PRESENTED_KINDS:
+        raise ValueError(f"unknown presented source {kind!r}")
+    return {"kind": kind, "what": PRESENTED_KINDS[kind], **fields}
+
+
+def cmux_cells(rows, ledgers, presented, synthetic=False, summaries=None, presented_via=None):
     """The cmux column: {row: cell}. ROWS are the key-to-frame breakdown rows, LEDGERS per-sample
-    ledger stage dicts (ledger_stages), PRESENTED cmux-rd observe's latencies in ms or None."""
+    ledger stage dicts (ledger_stages), PRESENTED cmux-rd observe's latencies in ms or None,
+    SUMMARIES the trials' run stage ledgers (the bench's `stage_ledger`), read for a row no
+    per-sample ledger fills. PRESENTED_VIA (a presented_source kind) labels the Total it ends."""
     cells = {}
     decoded_total = stat(sample_sums(rows, ("total",)))
     pres = stat(presented or [])
     for row, _, _, keys in BUDGET_ROWS:
         from_ledger = stat([s.get(row) for s in ledgers])
+        from_summary = None if from_ledger else from_summaries(row, summaries)
         if from_ledger:
             cells[row] = dict(from_ledger, source="ledger")
+        elif from_summary:
+            cells[row] = from_summary
         elif row == "Total" and pres:
-            cells[row] = dict(pres, source="cmux-rd observe", to="presented")
+            cells[row] = dict(pres, source="cmux-rd observe", to="presented",
+                              **({"via": presented_via} if presented_via else {}))
         elif row == "Total" and decoded_total:
             cells[row] = dict(decoded_total, source="total", to="decoded")
         elif row == "Present" and pres and decoded_total:
@@ -378,10 +486,30 @@ def quality_summary(scores, why_none):
     }
 
 
-def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None):
+def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None,
+                 cmux_input="key", host=None, viewer=None, host_args=None, viewer_args=None):
     """The budget record. CMUX: {"rows", "ledgers", "presented", "motion_rows", "scores",
     "quality_null"} or {"skipped": why}; APPLE: {"g2g"} or {"skipped": why}."""
     cmux = cmux or {"skipped": "not run (--stacks)"}
+    p_source = cmux.get("presented_source")
+    if cmux.get("skipped"):
+        p_source = null(cmux["skipped"])
+    elif not p_source:
+        p_source = null("no --app-viewer or --presented-* flags")
+    elif cmux.get("presented") is None and "null" not in p_source:
+        p_source = dict(p_source, null=p_source.get("error") or "cmux-rd observe gave no complete run")
+    app_ledger = cmux.get("app_ledger")
+    if app_ledger and app_ledger.get("ledger"):
+        app_ledger = {"stages": summary_stages(app_ledger["ledger"]), "lines": app_ledger.get("lines"),
+                      "of": "the app viewer's own stage ledger (log `stage ledger:`), the session so far"}
+    elif not app_ledger:
+        app_ledger = null(cmux.get("skipped") or "no --app-viewer run")
+    app_timings = cmux.get("app_timings")
+    if not app_timings:
+        app_timings = null(cmux.get("skipped") or "no --app-viewer run")
+    elif "null" not in app_timings:
+        app_timings = dict(app_timings, of="the app pane's own timings (mac_screen.state), last "
+                           f"{APP_TIMING_WINDOW} frames: decode_present = released to on glass")
     apple = apple or {"skipped": "not run (--stacks)"}
     if cmux.get("skipped"):
         c_cells = {row: null(cmux["skipped"]) for row, _, _, _ in BUDGET_ROWS}
@@ -389,7 +517,8 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
         c_quality = {"frame_score": null(cmux["skipped"]), "text_cer": null(cmux["skipped"])}
     else:
         c_cells = cmux_cells(cmux.get("rows") or [], cmux.get("ledgers") or [], cmux.get("presented"),
-                             synthetic=source == "synthetic")
+                             synthetic=source == "synthetic", summaries=cmux.get("summaries"),
+                             presented_via=p_source.get("kind") if "null" not in p_source else None)
         c_mbps = motion_mbps(cmux.get("motion_rows") or []) or null("no motion trial finished")
         c_quality = quality_summary(cmux.get("scores") or [],
                                     cmux.get("quality_null") or "no motion trial finished")
@@ -401,6 +530,11 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
     return {
         "schema": BUDGET_SCHEMA, "label": label, "rev": rev, "link": link, "rtt": rtt,
         "source": source or "screen", "rows": rows,
+        # What the cmux leg timed (key, click or scroll) and on which two Macs: a pair of one
+        # Mac's names is loopback, whatever the link label says.
+        "input": cmux_input, "host": host, "viewer": viewer,
+        "host_args": list(host_args or []), "viewer_args": list(viewer_args or []),
+        "presented_source": p_source, "app_ledger": app_ledger, "app_timings": app_timings,
         "mbps": {"cmux": c_mbps, "apple": null(why_apple or WHY_APPLE["mbps"])},
         "quality": {"cmux": c_quality,
                     "apple": {"frame_score": null(why_apple or WHY_APPLE["quality"]),
@@ -423,6 +557,12 @@ def cell_text(cell, keys=("p50", "p95")):
     return text
 
 
+def args_text(b):
+    """The run's extra cmux-rd flags (`run --host-arg`, `--viewer-arg`), for a table header."""
+    return (f"host args: {' '.join(b.get('host_args') or []) or '(none)'}; "
+            f"viewer args: {' '.join(b.get('viewer_args') or []) or '(none)'}")
+
+
 def format_budget(b):
     """The table as text lines; every null cell is footnoted with its reason."""
     notes = {}
@@ -440,7 +580,10 @@ def format_budget(b):
         title += f": {b.get('label') or ''} {('@ ' + b['rev'][:12]) if b.get('rev') else ''}".rstrip()
     if b.get("source") == "synthetic":
         title += " (--source synthetic)"
-    lines = [title, f"  {'row':<11} {'budget':>6}  {'cmux':<26} {'Apple Screen Sharing':<26} from, to"]
+    lines = [title]
+    if b.get("host_args") or b.get("viewer_args"):
+        lines.append("  " + args_text(b))
+    lines.append(f"  {'row':<11} {'budget':>6}  {'cmux':<26} {'Apple Screen Sharing':<26} from, to")
     for r in b["rows"]:
         lines.append(f"  {r['row']:<11} {r['budget_ms']:>6}  {show(r['cmux']):<26} "
                      f"{show(r['apple']):<26} {r['span']}")
@@ -457,6 +600,20 @@ def format_budget(b):
                if r["cmux"] and "null" not in r["cmux"] and r["cmux"].get("source")]
     if sources:
         lines.append("  cmux sources: " + ", ".join(sources))
+    ps = b.get("presented_source") or {}
+    if ps.get("kind"):
+        where = ", ".join(f"{k} {ps[k]}" for k in ("pid", "window", "transport", "path") if ps.get(k))
+        lines.append(f"  presented via {ps['kind']}: {ps['what']}" + (f" ({where})" if where else "")
+                     + (f"; no Total from it: {ps['null']}" if ps.get("null") else ""))
+    al = b.get("app_ledger") or {}
+    if al.get("stages"):
+        lines.append("  app viewer ledger: " + ", ".join(
+            f"{row} {c['p50']:g}/{c['p95']:g} (n {c['n']})" for row, c in al["stages"].items()))
+    at = b.get("app_timings") or {}
+    if at.get("decode_present_ms"):
+        lines.append("  app viewer timings p50/p95: " + ", ".join(
+            f"{k[:-3]} {c.get('p50', 0):g}/{c.get('p95', 0):g} (n {c.get('count')})"
+            for k, c in at.items() if k in APP_TIMING_FIELDS))
     for why, n in notes.items():
         lines.append(f"  [{n}] null: {why}")
     return lines
@@ -506,6 +663,8 @@ def format_compare(before, after):
     lines = [f"budget table, {name(before, 'before')} -> {name(after, 'after')} (ms, p50 / p95)",
              f"  {'row':<11} {'budget':>6}  {'cmux before':<22} {'cmux after':<22} {'p50 change':>10}  "
              f"{'Apple (after run)':<20}"]
+    if any(x.get("host_args") or x.get("viewer_args") for x in (before, after)):
+        lines[1:1] = [f"  before {args_text(before)}", f"  after  {args_text(after)}"]
     rows_before = {r["row"]: r for r in before["rows"]}
     for r in after["rows"]:
         b = rows_before.get(r["row"], {})
@@ -764,6 +923,40 @@ def cmd_clock_probe(args):
 
 SERVE_FLAGS = {"--profile": ("high", "baseline"), "--codec": ("videotoolbox", "openh264")}
 MARKER_FLAGS = ("--motion", "--tick", "--verbose")
+# `run --host-arg` / `--viewer-arg`: the only extra flags a run passes to `cmux-rd serve` and to
+# `cmux-rd bench`, checked here and again by the rig (the rig command runs on a fleet Mac). Each
+# maps to the pattern of its value, or None for a switch, which is sent as `--flag 1` (cmux-rd's
+# options all take a value; `--flag=0` turns a switch off).
+NUMBER = r"[0-9]{1,9}"
+HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER,
+             "--stats-every-ms": NUMBER}
+VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
+
+
+def checked_args(items, allowed, what):
+    """The argv for ITEMS (`--flag`, `--flag=VALUE` or `--flag VALUE`), each flag in ALLOWED
+    with a value matching its pattern; anything else raises ValueError naming WHAT."""
+    argv, seen = [], set()
+    for item in items or []:
+        if not isinstance(item, str):
+            raise ValueError(f"--{what}-arg {item!r}: not a string")
+        flag, sep, value = item.strip().replace(" ", "=", 1).partition("=")
+        if flag not in allowed:
+            raise ValueError(f"--{what}-arg {item!r}: {flag} is not allowed "
+                             f"(allowed: {', '.join(sorted(allowed))})")
+        if flag in seen:
+            raise ValueError(f"--{what}-arg {item!r}: {flag} given twice")
+        seen.add(flag)
+        pattern = allowed[flag]
+        if pattern is None:
+            if sep and value not in ("0", "1"):
+                raise ValueError(f"--{what}-arg {item!r}: {flag} is a switch (no value, or =0/=1)")
+            argv += [flag, value if sep else "1"]
+        elif not sep or not re.fullmatch(pattern, value):
+            raise ValueError(f"--{what}-arg {item!r}: {flag} needs a value matching {pattern}")
+        else:
+            argv += [flag, value]
+    return argv
 
 
 def rig_paths(root):
@@ -840,6 +1033,9 @@ def cmd_rig(args):
                     if line.startswith("marker-origin "):
                         x, y = line.split()[1].split(",")
                         reply["origin"] = [int(x), int(y)]
+                        at = marker_click_at(line)
+                        if at:
+                            reply["at"] = at
                     if "stream width" in line:
                         reply["geometry"] = line
                 if "origin" not in reply:
@@ -850,6 +1046,7 @@ def cmd_rig(args):
                 for k, v in (req.get("flags") or {}).items():
                     if k in SERVE_FLAGS and v in SERVE_FLAGS[k]:
                         argv += [k, v]
+                argv += checked_args(req.get("args"), HOST_ARGS, "host")  # refused, not dropped
                 bind = req.get("link_bind")
                 if bind:
                     socket.inet_aton(bind)  # an IPv4 literal, or this request fails
@@ -954,6 +1151,190 @@ def cmd_rig_call(args):
                 if not data:
                     return
                 os.write(1, data)
+
+
+# --- the cmux NEXT app as the viewer (viewing Mac; `run --app-viewer`) ---------------------
+
+APP_CHANNELS = (("com.cmuxterm.app.nightly", "nightly"), ("com.cmuxterm.app.rc", "rc"),
+                ("com.cmuxterm.app.staging", "staging"))
+APP_DEBUG_BUNDLE = "com.cmuxterm.app.debug"
+APP_ENV = re.compile(r"CMUX_[A-Z0-9_]+=[^\n]*")
+LEDGER_LINE = "stage ledger: "
+APP_PROFILE = {"standard": "balanced", "ultra": "ultra"}  # --encode-profile -> the app's setting
+APP_LOG_SUBSYSTEM = "com.cmuxterm.app.next"  # RemoteRdStreamTransport's Logger
+APP_LOG_CATEGORY = "remote-view-rd"
+
+
+def app_slug(raw):
+    """ControlSocketPath.sanitize: lowercase, [^a-z0-9]+ -> '-', trimmed; None when empty."""
+    slug = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")
+    return slug or None
+
+
+def app_socket_paths(bundle_id, home):
+    """The control socket of the app with BUNDLE_ID (ControlSocketPath.swift), most likely first:
+    the state-folder path and its /tmp name (the app keeps a symlink there). Release: one path."""
+    bundle = (bundle_id or "").strip()
+    old = None
+    for channel_id, channel in APP_CHANNELS:
+        if bundle == channel_id:
+            old = f"/tmp/cmux-{channel}.sock"
+        elif bundle.startswith(channel_id + ".") and app_slug(bundle[len(channel_id) + 1:]):
+            old = f"/tmp/cmux-{channel}-{app_slug(bundle[len(channel_id) + 1:])}.sock"
+    if old is None and bundle.startswith(APP_DEBUG_BUNDLE + ".") and app_slug(bundle[len(APP_DEBUG_BUNDLE) + 1:]):
+        old = f"/tmp/cmux-debug-{app_slug(bundle[len(APP_DEBUG_BUNDLE) + 1:])}.sock"
+    if old is None and bundle == APP_DEBUG_BUNDLE:
+        old = "/tmp/cmux-debug.sock"
+    if old is None:
+        return [os.path.join(home, ".local/state/cmux/cmux.sock")]
+    moved = os.path.join(home, ".local/state/cmux", old[len("/tmp/"):])
+    return [moved, old] if len(moved.encode()) <= 103 else [old]
+
+
+def app_bundle_id(app):
+    import plistlib
+    with open(os.path.join(app, "Contents", "Info.plist"), "rb") as f:
+        return plistlib.load(f).get("CFBundleIdentifier")
+
+
+def app_call(paths, method, params=None, timeout=60):
+    """One request on the app's control socket (the socket the `cmux` CLI uses): its result, or
+    {"error"}. Needs an automation-mode socket (CMUX_NEXT_SOCKET_MODE=automation)."""
+    last = "no socket"
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            conn.settimeout(timeout)
+            conn.connect(path)
+            conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = conn.recv(1 << 22)
+                if not chunk:
+                    break
+                buf += chunk
+            conn.close()
+            reply = json.loads(buf)
+            return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+        except (OSError, ValueError) as e:
+            last = f"{path}: {e}"
+    return {"error": last}
+
+
+def parse_locate(text):
+    """screen-eval-marker-locate's `origin X,Y cell C at X,Y` as (origin, cell, at), or None."""
+    m = re.search(r"origin (\d+,\d+) cell (\d+) at (\d+,\d+)", text or "")
+    return (m.group(1), int(m.group(2)), m.group(3)) if m else None
+
+
+def app_ledger_from_log(ndjson):
+    """The newest `stage ledger:` line (RemoteRdStreamTransport, every 5 s: the session so far)
+    in `log show --style ndjson` output, as the ledger dict, and how many there were."""
+    found, last = 0, None
+    for line in (ndjson or "").splitlines():
+        try:
+            msg = json.loads(line).get("eventMessage") or ""
+        except (ValueError, AttributeError):
+            continue
+        if not msg.startswith(LEDGER_LINE):
+            continue
+        try:
+            ledger = json.loads(msg[len(LEDGER_LINE):])
+        except ValueError:
+            continue
+        found += 1
+        last = ledger
+    return last, found
+
+
+def cmd_app(args):
+    """On the viewing Mac: launch the app (`open -n`), call its control socket, locate the marker
+    on the main display, or read its stage ledger log. Prints one JSON line."""
+    app = os.path.expanduser(args.app)
+    paths = app_socket_paths(app_bundle_id(app), os.path.expanduser("~"))
+    out = {}
+    if args.action == "rpc":
+        out = app_call(paths, args.method, json.loads(args.params or "{}"))
+    elif args.action == "launch":
+        alive = "error" not in app_call(paths, "system.ping", timeout=10)
+        out = {"socket": paths[0], "reused": alive}
+        if alive:
+            # An app that already runs keeps its own settings: the profile is whatever it has.
+            out["encode_profile_applied"] = False
+        else:
+            state = os.path.expanduser(args.state)
+            os.makedirs(state, mode=0o700, exist_ok=True)
+            env = dict(e.split("=", 1) for e in args.env or [])
+            env.setdefault("CMUX_NEXT_SOCKET_MODE", "automation")
+            if args.frame:
+                env.setdefault("CMUX_NEXT_TEST_WINDOW_FRAME", args.frame)
+            if args.background:
+                env.setdefault("CMUX_NEXT_NO_ACTIVATE", "1")
+            if args.encode_profile and "CMUX_NEXT_CONFIG_FILE" not in env:
+                # remote.screenSharingProfile is a user-only setting: no agent `settings.set`
+                # reaches it, a config file does.
+                config = os.path.join(state, "app-viewer-cmux.json")
+                with open(config, "w") as f:
+                    json.dump({"remote": {"screenSharingProfile": args.encode_profile}}, f)
+                env["CMUX_NEXT_CONFIG_FILE"] = config
+            out["encode_profile_applied"] = bool(args.encode_profile) and \
+                env.get("CMUX_NEXT_CONFIG_FILE") == os.path.join(state, "app-viewer-cmux.json")
+            log = os.path.join(state, "app-viewer.log")
+            argv = ["open", "-n"] + (["-g"] if args.background else []) + ["--stdout", log, "--stderr", log]
+            for k, v in sorted(env.items()):
+                argv += ["--env", f"{k}={v}"]
+            subprocess.run(argv + [app], check=True, timeout=60)
+            deadline = time.time() + args.wait
+            while time.time() < deadline:
+                if "error" not in app_call(paths, "system.ping", timeout=10):
+                    break
+                time.sleep(0.5)  # bounded wait (--wait) for the launched app's socket
+            else:
+                out["error"] = f"the app's socket did not answer in {args.wait:g} s ({paths[0]})"
+            out["env"] = sorted(env)
+        if not out.get("error"):
+            # --app-viewer drives the pane through debug.device_hub and debug.mac_screen, which
+            # only DEV builds register: a Release app (NIGHTLY) answers method_not_found.
+            probe = app_call(paths, "debug.mac_screen", {"action": "state"}, timeout=10)
+            if "method_not_found" in str(probe.get("error") or ""):
+                out["error"] = (f"{app} is a Release build: debug.mac_screen and debug.device_hub, which "
+                                "--app-viewer drives, exist only in DEV builds. Pass a DEV build at or after "
+                                "cmux#47235; a Release app's own pane timings are `cmux app mac-screens` "
+                                f"({APP_STATE_METHOD})")
+    elif args.action == "locate":
+        png = os.path.join(os.path.expanduser(args.state), "app-viewer-locate.png")
+        why = "no capture"
+        deadline = time.time() + args.wait
+        while True:
+            cap = subprocess.run(["screencapture", "-x", "-D", "1", png], capture_output=True, text=True)
+            if cap.returncode == 0:
+                loc = subprocess.run([args.locate, png], capture_output=True, text=True)
+                found = parse_locate(loc.stdout)
+                if found:
+                    out = {"origin": found[0], "cell": found[1], "at": found[2]}
+                    break
+                why = (loc.stderr or loc.stdout).strip()[-300:]
+            else:
+                why = f"screencapture: {cap.stderr.strip()[-300:]}"
+            if time.time() >= deadline:
+                out = {"error": f"no marker visible through the app's pane ({why})"}
+                break
+            time.sleep(0.5)  # bounded wait (--wait) for the marker to show in the pane
+        with contextlib.suppress(OSError):
+            os.unlink(png)
+    elif args.action == "ledger":
+        start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(args.since))
+        pred = (f'subsystem == "{APP_LOG_SUBSYSTEM}" AND category == "{APP_LOG_CATEGORY}" '
+                f'AND processIdentifier == {int(args.pid)}')
+        p = subprocess.run(["log", "show", "--style", "ndjson", "--info", "--start", start,
+                            "--predicate", pred], capture_output=True, text=True, timeout=120)
+        ledger, n = app_ledger_from_log(p.stdout)
+        out = {"ledger": ledger, "lines": n}
+        if p.returncode != 0:
+            out["error"] = f"log show: exit {p.returncode}: {p.stderr.strip()[-300:]}"
+    print(json.dumps(out))
 
 
 # --- the macOS Screen Sharing leg (viewing Mac) ------------------------------------------
@@ -1128,6 +1509,10 @@ class Remote:
     def argv(self, cmd):
         if self.via == "ssh":
             return ["ssh", "-o", "BatchMode=yes", self.name, cmd]
+        if self.via == "local":
+            # The orchestrator runs on the Mac itself: a lane VM's reach relay carries no stdin,
+            # and the session's signaling goes over the host's and viewer's stdin.
+            return ["/bin/bash", "-c", cmd]
         return ["reach", self.name, cmd]
 
     def run(self, cmd, timeout=120, stdin=None):
@@ -1164,9 +1549,209 @@ class Remote:
             raise RuntimeError(f"{self.name}: put {remote_path}: {p.stderr.decode()[-300:]}")
 
 
+# The remote half of SpoolRemote.popen: runs CMD in its own process group with stdin fed from
+# DIR/in as it grows (until DIR/in.closed), stdout and stderr to DIR/out and DIR/err, and its exit
+# status to DIR/rc. DIR/kill ends the group.
+SPOOL_RUNNER = r'''
+import os, signal, subprocess, sys, time
+d, cmd = sys.argv[1], sys.argv[2]
+out, err = open(d + "/out", "wb"), open(d + "/err", "wb")
+p = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, stdout=out, stderr=err,
+                     start_new_session=True)
+open(d + "/pid", "w").write(str(p.pid))
+f, fed = open(d + "/in", "rb"), True
+while p.poll() is None:
+    if os.path.exists(d + "/kill"):
+        os.killpg(p.pid, signal.SIGTERM)
+        try:
+            p.wait(3)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+        break
+    chunk = f.read()
+    if chunk and fed:
+        try:
+            p.stdin.write(chunk)
+            p.stdin.flush()
+        except BrokenPipeError:
+            fed = False
+    elif fed and os.path.exists(d + "/in.closed"):
+        if not f.read():
+            p.stdin.close()
+            fed = False
+    time.sleep(0.02)
+open(d + "/rc.tmp", "w").write(str(p.wait()))
+os.rename(d + "/rc.tmp", d + "/rc")
+'''
+
+
+class SpoolRemote(Remote):
+    """A Remote for `reach` routes with no stdin (a lane VM's broker relay): a file's bytes
+    travel as base64 in the command, and a long-running process reads its stdin from a file on
+    the Mac that each write appends to, while a thread here polls its stdout file. Only the
+    control lines pay the relay's round trip (about 3 s); every timed sample runs on the Macs."""
+
+    CHUNK = 15_000  # the broker relay takes commands of at most 16384 bytes
+
+    def __init__(self, name):
+        super().__init__(name, "reach")
+        self.runner = None
+        self.lock = threading.Lock()
+
+    def argv(self, cmd):
+        return ["reach", "--timeout", "480", self.name, cmd]
+
+    def run(self, cmd, timeout=120, stdin=None):
+        if stdin is not None:
+            raise RuntimeError("spool: run with stdin is not supported")
+        # The relay itself fails now and then (its lease read times out, the call is dropped):
+        # retried, since the command never ran ("nothing was run") or is idempotent here.
+        for attempt in range(4):
+            try:
+                return super().run(cmd, timeout=timeout)
+            except (RuntimeError, subprocess.TimeoutExpired) as e:
+                transient = isinstance(e, subprocess.TimeoutExpired) or "nothing was run" in str(e)
+                if not transient or attempt == 3:
+                    raise
+                time.sleep(2 * (attempt + 1))
+
+    def put(self, local, remote_path, mode="0755"):
+        import base64
+        import gzip
+        with open(local, "rb") as f:
+            data = base64.b64encode(gzip.compress(f.read())).decode()
+        tmp = shlex.quote(remote_path + ".b64")
+        self.run(f"mkdir -p {shlex.quote(os.path.dirname(remote_path))} && : > {tmp}")
+        for i in range(0, len(data), self.CHUNK):
+            self.run(f"printf %s {data[i:i + self.CHUNK]} >> {tmp}", timeout=300)
+        q = shlex.quote(remote_path)
+        self.run(f"base64 -d < {tmp} | gunzip > {q}.tmp && rm {tmp} && chmod {mode} {q}.tmp "
+                 f"&& mv {q}.tmp {q}", timeout=300)
+
+    def popen(self, cmd):
+        with self.lock:
+            if not self.runner:
+                path = f"/tmp/ssvs-spool-{os.getpid()}-runner.py"
+                import tempfile
+                with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+                    f.write(SPOOL_RUNNER)
+                try:
+                    self.put(f.name, path, "0644")
+                finally:
+                    os.unlink(f.name)
+                self.runner = path
+        d = f"/tmp/ssvs-spool-{os.urandom(6).hex()}"
+        # A new session: the relay ends the command's whole process group when the call returns.
+        start = ("import subprocess, sys; subprocess.Popen(['/usr/bin/python3'] + sys.argv[1:], "
+                 "start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
+                 "stderr=subprocess.DEVNULL)")
+        self.run(f"mkdir -m 700 {d} && : > {d}/in && /usr/bin/python3 -c {shlex.quote(start)} "
+                 f"{self.runner} {d} {shlex.quote(cmd)}")
+        return SpoolProc(self, d)
+
+
+class SpoolProc:
+    """The Popen-like handle SpoolRemote.popen returns: .lines, .stdin, .stderr, poll, wait,
+    terminate, kill."""
+
+    lag_s = 30  # readline's extra wait: a stdout poll is one relay round trip (about 3 s, more under load)
+
+    def __init__(self, remote, d):
+        self.remote, self.d = remote, d
+        self.lines = queue.Queue()
+        self.returncode = None
+        self.done = threading.Event()
+        self.stdin = self._Stdin(self)
+        self.stderr = self._Stderr(self)
+        threading.Thread(target=self._pump, daemon=True).start()
+
+    class _Stdin:
+        def __init__(self, proc):
+            self.proc, self.buf = proc, ""
+
+        def write(self, s):
+            self.buf += s.decode() if isinstance(s, bytes) else s
+
+        def flush(self):
+            import base64
+            if not self.buf:
+                return
+            data, self.buf = base64.b64encode(self.buf.encode()).decode(), ""
+            self.proc.remote.run(f"printf %s {data} | base64 -d >> {self.proc.d}/in")
+
+        def close(self):
+            self.flush()
+            self.proc.remote.run(f": > {self.proc.d}/in.closed")
+
+    class _Stderr:
+        def __init__(self, proc):
+            self.proc = proc
+
+        def read(self):
+            try:
+                return self.proc.remote.run(f"cat {self.proc.d}/err")
+            except Exception as e:  # noqa: BLE001
+                return repr(e)
+
+    def _pump(self):
+        off, part = 0, b""
+        mark = "@@SPOOL-RC "
+        while True:
+            try:
+                out = self.remote.run(f"tail -c +{off + 1} {self.d}/out 2>/dev/null; "
+                                      f"printf '\\n{mark}%s' \"$(cat {self.d}/rc 2>/dev/null)\"")
+            except Exception:  # noqa: BLE001 - a lost poll is retried
+                time.sleep(1)
+                continue
+            body, _, rc = out.rpartition("\n" + mark)
+            chunk = body.encode()
+            off += len(chunk)
+            part += chunk
+            *whole, part = part.split(b"\n")
+            for line in whole:
+                self.lines.put(line.decode(errors="replace") + "\n")
+            if rc.strip():
+                if part:
+                    self.lines.put(part.decode(errors="replace"))
+                self.returncode = int(rc.strip())
+                self.lines.put(None)
+                self.done.set()
+                return
+            time.sleep(0.3)
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        if not self.done.wait(timeout):
+            raise subprocess.TimeoutExpired(self.d, timeout)
+        return self.returncode
+
+    def terminate(self):
+        try:
+            self.remote.run(f": > {self.d}/kill")
+        except Exception:  # noqa: BLE001
+            pass
+
+    kill = terminate
+
+
+TAILNET_UDP = ("UDP over the tailnet got no answer between the wired fleet pair (2026-11-19, cmux20 to cmux17: "
+               "\"no clock replies\" while ping answered); pass the shared Mac's LAN address as --host-ip.")
+
+
+def tailnet(addr):
+    """Whether ADDR is a tailnet (CGNAT 100.64.0.0/10) address."""
+    try:
+        return ipaddress.ip_address(addr) in ipaddress.ip_network("100.64.0.0/10")
+    except ValueError:
+        return False
+
+
 def readline(proc, deadline):
-    """The next stdout line of a Remote.popen process, or None at EOF or the deadline."""
-    left = deadline - time.time()
+    """The next stdout line of a Remote.popen process, or None at EOF or the deadline. A spool
+    process's lines arrive by polling through the relay, so its deadline gets the relay's lag."""
+    left = deadline - time.time() + getattr(proc, "lag_s", 0)
     if left <= 0:
         return None
     try:
@@ -1180,8 +1765,9 @@ class Orchestrator:
         self.a = args
         self.ff_rows = []
         self.motion_rows = []  # cmux fps trials: received Mbps and loss under motion
-        self.host = Remote(args.host, args.via)
-        self.viewer = Remote(args.viewer, args.via)
+        make = (lambda name: SpoolRemote(name)) if args.via == "spool" else (lambda name: Remote(name, args.via))
+        self.host = make(args.host)
+        self.viewer = make(args.viewer)
         self.root = args.root
         self.py = args.python
         self.me = f"{self.root}/screen-share-vs.py"
@@ -1189,13 +1775,25 @@ class Orchestrator:
         self.synthetic = args.source == "synthetic"
         self.scores = []  # frame-score results of the motion trials' last decoded frames
         self.ledgers = []  # per-sample stage ledger rows (ledger_stages), when the build has them
+        self.summaries = []  # each counted trial's run stage ledger (the bench's stage_ledger)
         self.presented = None  # cmux-rd observe's latencies (ms) through a visible viewer pane
+        self.presented_source = None  # where that pane came from (presented_source())
+        self.app_ledger = None  # the app viewer's own stage ledger (--app-viewer), or {"null"}
+        self.app_timings = None  # the pane's own frame timings (mac_screen.state), or {"null"}
         self.geometry = None  # the marker's motion-geometry, read from the shared Mac
         self.quality_null = None
         self.apple_g2g = None
         self.apple_skipped = None
-        self.marker_bin = self.ocr_bin = None
+        self.marker_bin = self.ocr_bin = self.locate_bin = None
         self.rev = getattr(args, "rev", None)
+        # Extra `cmux-rd serve` / `cmux-rd bench` flags (HOST_ARGS, VIEWER_ARGS), as given.
+        self.host_args = list(getattr(args, "host_arg", None) or [])
+        self.viewer_args = list(getattr(args, "viewer_arg", None) or [])
+        try:
+            self.host_argv = checked_args(self.host_args, HOST_ARGS, "host")
+            self.viewer_argv = checked_args(self.viewer_args, VIEWER_ARGS, "viewer")
+        except ValueError as e:
+            raise SystemExit(str(e))
         if getattr(args, "tools", None):
             tools = os.path.expanduser(args.tools)
             if not os.path.isdir(tools):
@@ -1206,12 +1804,20 @@ class Orchestrator:
                 self.marker_bin = os.path.join(tools, "cmux-rd-marker")
             if os.path.exists(os.path.join(tools, "screen-eval-ocr")):
                 self.ocr_bin = os.path.join(tools, "screen-eval-ocr")
+            if os.path.exists(os.path.join(tools, "screen-eval-marker-locate")):
+                self.locate_bin = os.path.join(tools, "screen-eval-marker-locate")
+        if getattr(args, "app_viewer", None):
+            if not self.locate_bin:
+                raise SystemExit("--app-viewer needs screen-eval-marker-locate (pass --tools with "
+                                 "the unpacked tools.tar.gz) to find the marker in the app's pane")
+            if args.presented_pid or args.presented_window:
+                raise SystemExit("--app-viewer finds the pane itself: drop --presented-pid/--presented-window")
             if not self.rev and os.path.exists(os.path.join(tools, "rev")):
                 with open(os.path.join(tools, "rev")) as f:
                     self.rev = f.read().strip() or None
 
     def log(self, rec):
-        line = json.dumps(rec)
+        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args})
         print(line, flush=True)
         if self.out:
             self.out.write(line + "\n")
@@ -1237,7 +1843,8 @@ class Orchestrator:
             r.put(here, self.me)
         if self.a.bin:
             self.viewer.put(self.a.bin, f"{self.root}/bin/cmux-rd")
-            self.host.put(self.a.bin, f"{self.root}/bin/cmux-rd")
+        if self.a.bin or self.a.host_bin:
+            self.host.put(self.a.host_bin or self.a.bin, f"{self.root}/bin/cmux-rd")
         if self.a.marker_src:
             self.host.put(self.a.marker_src, f"{self.root}/bin/marker-main.swift", "0644")
             self.host.run(f"cd {self.root}/bin && swiftc -O -o cmux-rd-marker marker-main.swift",
@@ -1246,6 +1853,8 @@ class Orchestrator:
             self.host.put(self.marker_bin, f"{self.root}/bin/cmux-rd-marker")
         if self.ocr_bin:
             self.viewer.put(self.ocr_bin, f"{self.root}/bin/screen-eval-ocr")
+        if self.locate_bin and getattr(self.a, "app_viewer", None):
+            self.viewer.put(self.locate_bin, f"{self.root}/bin/screen-eval-marker-locate")
         if self.a.cua_vnc:
             self.viewer.put(self.a.cua_vnc, f"{self.root}/bin/cua-vnc")
         self.viewer.run(f"mkdir -p {shlex.quote(self.root)}/state && chmod 700 {shlex.quote(self.root)}/state")
@@ -1273,17 +1882,37 @@ class Orchestrator:
             else:
                 raise SystemExit("the rig did not start in cmux NEXT")
 
+    CLOCK_TRIES = 3
+
     def clock(self):
+        """The clock probe, tried up to CLOCK_TRIES times. Its control path (a reach call to each Mac)
+        can stall for tens of seconds when the fanout is busy, while the pair link itself is fine; one
+        slow start or timed-out probe ended a whole run before any trial."""
+        errors = []
+        for _ in range(self.CLOCK_TRIES):
+            try:
+                return self.clock_once()
+            except Exception as e:  # a slow start, a timed-out probe, no replies
+                errors.append(f"{type(e).__name__}: {e}")
+                print(f"clock probe try {len(errors)} of {self.CLOCK_TRIES} failed: {errors[-1]}", file=sys.stderr, flush=True)
+        raise RuntimeError(f"clock probe failed {len(errors)} times: " + " | ".join(errors))
+
+    def clock_once(self):
         # Port 0: a clock server still draining from the last probe never collides.
         srv = self.host.popen(f"{self.py} {self.me} clock-serve --bind {self.a.host_ip} "
-                              f"--port 0 --seconds 120")
-        line = readline(srv, time.time() + 15)
+                              f"--port 0 --seconds 180")
+        line = readline(srv, time.time() + 45)
         try:
             port = json.loads(line or "{}").get("listening")
             if not port:
                 raise RuntimeError(f"clock-serve on {self.a.host} did not start: {line!r}")
-            out = self.viewer.run(f"{self.py} {self.me} clock-probe --addr {self.a.host_ip}:{port} "
-                                  f"--count {self.a.clock_count}", timeout=60)
+            try:
+                out = self.viewer.run(f"{self.py} {self.me} clock-probe --addr {self.a.host_ip}:{port} "
+                                      f"--count {self.a.clock_count}", timeout=120)
+            except RuntimeError as e:
+                if tailnet(self.a.host_ip):
+                    raise RuntimeError(f"{e}\n{TAILNET_UDP}") from None
+                raise
         finally:
             srv.terminate()
         return json.loads(out.strip().splitlines()[-1])
@@ -1295,13 +1924,16 @@ class Orchestrator:
         session = "vs-" + os.urandom(8).hex()
         bench = (f"{self.root}/bin/cmux-rd bench --link 1 --marker-origin {origin[0]},{origin[1]} ")
         if mode == "key":
-            bench += f"--input key --samples {self.a.samples}"
+            bench += bench_input(getattr(self.a, "cmux_input", "key"), self.a.samples,
+                                 getattr(self, "marker_at", None))
         else:
             bench += f"--input none --duration-s {self.a.fps_seconds}"
             if getattr(self.a, "marker_log", False):
                 bench += " --marker-log 1"
             if snapshot:
                 bench += f" --snapshot {snapshot}"
+        if self.viewer_argv:
+            bench += " " + " ".join(shlex.quote(a) for a in self.viewer_argv)
         viewer = self.viewer.popen(bench)
         host = None
         try:
@@ -1313,6 +1945,7 @@ class Orchestrator:
                 host = self.host.popen(f"{self.py} {self.me} rig-call --root {self.root} "
                                        + shlex.quote(json.dumps({"cmd": "serve", "timing": mode == "key",
                                                                  "flags": {"--profile": "high"},
+                                                                 "args": self.host_args,
                                                                  "link_bind": self.a.link_bind})))
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
@@ -1367,6 +2000,8 @@ class Orchestrator:
             rep = rec.pop("report", None)
             if rep:
                 rec["ok"] = True
+                if isinstance(rep.get("stage_ledger"), dict):
+                    rec["stage_ledger"] = rep["stage_ledger"]
                 rec["first_frame_ms"] = rep.get("first_frame_ms")
                 if mode == "key":
                     rec["g2g_ms"] = rep.get("g2g_ms")
@@ -1379,6 +2014,10 @@ class Orchestrator:
                     rec["fps"] = rep.get("fps")
                     rec["mbit_per_s"] = rep.get("bytes", 0) * 8 / max(rep.get("seconds", 1), 1e-3) / 1e6
                     rec.update(motion_link(rep.get("series") or []))
+                    if rep.get("series_100ms"):
+                        # [ms into the window, Mbit/s received, host target kbps] every 100 ms
+                        # (the target is fresh only with the host on --stats-every-ms 100).
+                        rec["rate_100ms"] = fine_rate(rep["series_100ms"])
                     if rep.get("marker_log") is not None:
                         rec["marker_log"] = rep["marker_log"]
                         # Each second's end (viewer wall ms) and the host's newest stats then.
@@ -1501,6 +2140,7 @@ class Orchestrator:
         if self.a.link_bind:
             ipaddress.IPv4Address(self.a.link_bind)  # an IPv4 literal, or this attempt fails
             argv += ["--link-bind", f"{self.a.link_bind}:0"]
+        argv += self.host_argv
         # Both modes log timing: key trials for the breakdown, fps trials for `host_frames`.
         timing = self.synthetic_timing_path()
         env = f": > {timing} && CMUX_RD_TIMING_LOG={timing} "
@@ -1511,7 +2151,11 @@ class Orchestrator:
         """The marker's origin for the next attempt: the marker app's (the rig), or 0,0."""
         if self.synthetic:
             return [0, 0]
-        origin = self.rig({"cmd": "marker", "flags": flags})["origin"]
+        reply = self.rig({"cmd": "marker", "flags": flags})
+        origin = reply["origin"]
+        # click and scroll must land on the marker or it never counts them (the bench's own --at
+        # default, 960,600, misses it): the marker's click-at, else its pad from the origin.
+        self.marker_at = reply.get("at") or [origin[0] + 32 * (CELLS + 2), origin[1] + 16]
         time.sleep(0.5)
         return origin
 
@@ -1542,6 +2186,8 @@ class Orchestrator:
                 # A build with the stage ledger hands one per sample; every row then reads it.
                 self.ledgers += [ledger_stages(s["ledger"]) for s in rec.get("sample_times") or []
                                  if s.get("ledger")]
+                if rec.get("stage_ledger"):
+                    self.summaries.append(rec["stage_ledger"])
                 rec["breakdown"] = self.breakdown(rec, timing, clock["offset_ns"])
                 rows += rec["breakdown"]
                 ff = self.first_frame_breakdown(rec, timing, clock["offset_ns"])
@@ -1565,6 +2211,9 @@ class Orchestrator:
                                                for x in lines if x.get("release_us") is not None]
             if rec["ok"]:
                 fps.append(rec["marker_fps"])
+                # Motion trials release every frame, so their ledger holds the most frames.
+                if rec.get("stage_ledger"):
+                    self.summaries.append(rec["stage_ledger"])
                 self.motion_rows.append(rec)
                 if geo:
                     rec["quality"] = self.frame_score(snap, geo, origin)
@@ -1600,38 +2249,224 @@ class Orchestrator:
         except Exception as e:  # noqa: BLE001
             return {"frame_null": f"frame-score failed: {repr(e)[-200:]}"}
 
+    def app(self, remote, app, action, *extra, timeout=None):
+        """`screen-share-vs.py app ACTION` on REMOTE for the app bundle APP: its JSON reply."""
+        # The rpc positionals (method, params) come before --app: argparse takes no optional
+        # positional after an option.
+        cmd = (f"{self.py} {self.me} app {action} "
+               + "".join(shlex.quote(str(x)) + " " for x in extra) + f"--app {shlex.quote(app)}")
+        return json.loads(remote.run(cmd, timeout=timeout or self.a.timeout).strip().splitlines()[-1])
+
+    def app_rpc(self, remote, app, method, params, timeout=None):
+        return self.app(remote, app, "rpc", method, json.dumps(params), timeout=timeout)
+
+    def until(self, seconds, fn, step=1.0):
+        """FN's first truthy value within SECONDS (a bounded poll of another Mac's socket)."""
+        deadline = time.time() + seconds
+        while True:
+            value = fn()
+            if value or time.time() >= deadline:
+                return value
+            time.sleep(step)  # bounded by SECONDS
+
+    def host_device(self):
+        """The hub device id of the shared Mac: --app-host-device, the host app's own id
+        (--app-host-app), or the viewer's online shared device named like the host Mac."""
+        a = self.a
+        if a.app_host_device:
+            return a.app_host_device, "--app-host-device"
+        if a.app_host_app:
+            st = self.app_rpc(self.host, a.app_host_app, "debug.device_hub", {"action": "state"})
+            if st.get("this_device"):
+                return st["this_device"], "--app-host-app this_device"
+            raise RuntimeError(f"the host app has no hub device id: {st}")
+        name = self.host.run("scutil --get ComputerName").strip()
+        st = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub", {"action": "state"})
+        hits = [d for d in st.get("devices") or []
+                if d.get("name") == name and d.get("online") and d.get("shared") and not d.get("this")]
+        if len(hits) != 1:
+            raise RuntimeError(f"no single online shared hub device named {name!r} "
+                               f"(pass --app-host-device): {st.get('devices')}")
+        return hits[0]["id"], f"hub device named {name!r}"
+
+    def open_app_pane(self, rec):
+        """Launch the app viewer, open a full-control Mac Screen pane to the host through the
+        app's control socket (debug.device_hub connect), and wait for its first frame. Fills
+        REC; returns the pane's state row (window_pid, window_id, transport, ...)."""
+        a = self.a
+        env = []
+        for e in a.app_viewer_env or []:
+            env += ["--env", e]
+        launch = self.app(self.viewer, a.app_viewer, "launch", "--state", f"{self.root}/state",
+                          "--frame", a.app_viewer_frame, "--wait", "120",
+                          *(["--encode-profile", APP_PROFILE[a.encode_profile]] if a.encode_profile else []),
+                          *(["--background"] if a.app_viewer_background else []), *env,
+                          timeout=a.timeout + 180)
+        rec["launch"] = launch
+        if launch.get("error"):
+            raise RuntimeError(launch["error"])
+        self.app_launched = not launch.get("reused")
+        hub = self.until(120, lambda: (lambda st: st if st.get("signed_in") else None)(
+            self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub", {"action": "state"})), 2)
+        if not hub:
+            raise RuntimeError("the app viewer is not signed in to the hub "
+                               "(pass --app-viewer-env CMUX_AUTH_CREDENTIALS_FILE=...)")
+        device, rec["host_device_via"] = self.host_device()
+        rec["host_device"] = device
+
+        def tabs():
+            st = self.app_rpc(self.viewer, a.app_viewer, "debug.mac_screen", {"action": "state"})
+            return {t["tab"] for t in st.get("tabs") or []}
+
+        before = tabs()
+        # One connect: it opens a Mac Screen tab even when it answers "no pane", so a retry
+        # would open a second tab that replaces the first session. The new tab is followed.
+        rec["connect"] = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub",
+                                      {"action": "connect", "device": device, "scope": "full"})
+        new = self.until(15, lambda: tabs() - before) or set()
+        if len(new) != 1:
+            raise RuntimeError(f"connect opened {len(new)} Mac Screen tabs: {rec['connect']}")
+        tab = next(iter(new))
+
+        def ready():
+            if a.app_host_app:
+                st = self.app_rpc(self.host, a.app_host_app, "debug.device_hub", {"action": "state"})
+                for req in st.get("pending_requests") or []:
+                    self.app_rpc(self.host, a.app_host_app, "debug.device_hub",
+                                 {"action": "decide", "session": req["id"], "choice": "always_full"})
+            rows = self.app_rpc(self.viewer, a.app_viewer, "debug.mac_screen",
+                                {"action": "state", "tab": tab}).get("tabs") or [{}]
+            row = rows[0]
+            ok = row.get("phase") == "connected" and row.get("has_frame") and row.get("window_id")
+            return row if ok else None
+
+        row = self.until(a.timeout, ready, 2)
+        if not row:
+            raise RuntimeError("the app's Mac Screen pane showed no frame of the host in "
+                               f"{a.timeout:g} s (approve it on the host, or pass --app-host-app)")
+        if row.get("session_scope") != "full":
+            raise RuntimeError(f"the pane's session is {row.get('session_scope')!r}, not full control")
+        if row.get("window_on_primary_display") is False:
+            raise RuntimeError("the app's window is not on the main display (marker-locate reads -D 1)")
+        rec["tab"] = tab
+        return row
+
+    def read_app_timings(self, tab):
+        """The pane's own frame timings from `mac_screen.state` (every build; APP_TIMING_FIELDS, each a
+        {count, p50, p95, max} of the last frames): decode, glass (decoded to on glass, the
+        drawable's presentedHandler) and decode_present (released to on glass). Waits up to 30 s
+        for a full window of APP_TIMING_WINDOW frames; a short window is kept and says so."""
+        a = self.a
+        last = {}
+
+        def full():
+            rows = self.app_rpc(self.viewer, a.app_viewer, APP_STATE_METHOD,
+                                {"tab": tab}).get("tabs") or [{}]
+            last.update(rows[0])
+            dp = rows[0].get("decode_present_ms") or {}
+            return rows[0] if (dp.get("count") or 0) >= APP_TIMING_WINDOW else None
+
+        self.until(30, full, 1)
+        timings = {k: last[k] for k in APP_TIMING_FIELDS if isinstance(last.get(k), dict)}
+        if not timings.get("decode_present_ms"):
+            return {"null": "the pane reported no decode_present_ms (an app before cmux#47235?)"}
+        n = timings["decode_present_ms"].get("count") or 0
+        if n < APP_TIMING_WINDOW:
+            timings["short_window"] = n
+        return timings
+
+    def close_app_pane(self, rec):
+        a = self.a
+        row = rec.get("pane") or {}
+        try:
+            if row.get("hub_session"):
+                rec["end"] = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub",
+                                          {"action": "end", "session": row["hub_session"]})
+            if getattr(self, "app_launched", False):
+                # Only the app this run launched; a reused one keeps running.
+                rec["quit"] = self.app_rpc(self.viewer, a.app_viewer, "action.run",
+                                           {"id": "quitEndSessions"}, timeout=60)
+        except Exception as e:  # noqa: BLE001
+            rec["close_error"] = repr(e)[-300:]
+
     def run_presented(self):
         """Key press to the presented frame through a visible viewer pane on the viewing Mac
-        (cmux-rd observe), when --presented-* name one; the latencies in ms, or None."""
+        (cmux-rd observe): the pane --presented-* name, or the cmux NEXT app's own Mac Screen
+        pane that --app-viewer opens. The latencies in ms, or None."""
         a = self.a
-        if not (a.presented_pid and a.presented_window and a.presented_origin and a.presented_at):
+        app_mode = bool(getattr(a, "app_viewer", None))
+        if not app_mode and not (a.presented_pid and a.presented_window and a.presented_origin
+                                 and a.presented_at):
+            self.presented_source = {"null": "no --app-viewer or --presented-* flags"}
             return None
         if self.synthetic:
             # The pane would show the real display's marker app, which a synthetic run has not.
+            self.presented_source = {"null": "--source synthetic runs no marker app"}
             self.log({"skipped": "presented", "why": "--source synthetic runs no marker app"})
             return None
-        cmd = (f"{self.root}/bin/cmux-rd observe --pid {int(a.presented_pid)} "
-               f"--window {int(a.presented_window)} --input key --samples {int(a.samples)} "
-               f"--cell-size {int(a.presented_cell)} "
-               f"--marker-origin {shlex.quote(a.presented_origin)} --at {shlex.quote(a.presented_at)}")
         rec = {"stack": "cmux", "mode": "presented"}
+        started = time.time()
         try:
-            # A rig error costs this leg only, never the tables after it.
+            # A rig or app error costs this leg only, never the tables after it.
+            if app_mode:
+                rec["source"] = "app-viewer"
+                row = rec["pane"] = self.open_app_pane(rec)
             self.rig({"cmd": "marker", "flags": []})
             time.sleep(0.5)
+            if app_mode:
+                loc = self.app(self.viewer, a.app_viewer, "locate", "--state", f"{self.root}/state",
+                               "--locate", f"{self.root}/bin/screen-eval-marker-locate", "--wait", "10")
+                if loc.get("error"):
+                    raise RuntimeError(loc["error"])
+                pid, window = row["window_pid"], row["window_id"]
+                origin, cell, at = loc["origin"], loc["cell"], loc["at"]
+            else:
+                pid, window = a.presented_pid, a.presented_window
+                origin, cell, at = a.presented_origin, a.presented_cell, a.presented_at
+            self.presented_source = presented_source(
+                "app-viewer" if app_mode else "presented-flags", pid=pid, window=window,
+                origin=origin, cell=cell, at=at, input=a.presented_input,
+                **({"app": a.app_viewer, "tab": rec.get("tab"), "host_device": rec.get("host_device"),
+                    "transport": row.get("transport"), "path": row.get("path"),
+                    "encode_profile": a.encode_profile,
+                    "encode_profile_applied": (rec.get("launch") or {}).get("encode_profile_applied")}
+                   if app_mode else {}))
+            rec["presented_source"] = self.presented_source
+            cmd = (f"{self.root}/bin/cmux-rd observe --pid {int(pid)} "
+                   f"--window {int(window)} --input {a.presented_input} --samples {int(a.samples)} "
+                   f"--cell-size {int(cell)} "
+                   f"--marker-origin {shlex.quote(origin)} --at {shlex.quote(at)}")
+            rec["observe"] = cmd
             rep = json.loads(self.viewer.run(cmd, timeout=self.a.timeout).strip().splitlines()[-1])
             rec["ok"] = rep.get("complete") is True
             rec["presented_ms"] = [x / 1000.0 for x in rep.get("samples_us") or []]
             rec.update({k: rep.get(k) for k in ("p50_ms", "p95_ms", "n", "method", "error")
                         if rep.get(k) is not None})
+            if app_mode:
+                self.app_timings = self.read_app_timings(rec.get("tab"))
+                rec["app_timings"] = self.app_timings
+                # The app's own stage ledger for this session (logged every 5 s, cumulative).
+                time.sleep(5.5)
+                led = self.app(self.viewer, a.app_viewer, "ledger", "--pid", int(pid),
+                               "--since", f"{started:.0f}")
+                self.app_ledger = ({"ledger": led["ledger"], "lines": led.get("lines")}
+                                   if led.get("ledger") else
+                                   {"null": led.get("error") or "the app logged no stage ledger"})
+                rec["app_ledger_lines"] = led.get("lines")
         except Exception as e:  # noqa: BLE001
             rec.update({"ok": False, "error": repr(e)[-400:]})
+            if self.presented_source is None:
+                self.presented_source = {"null": f"{rec.get('source', 'presented-flags')}: {repr(e)[-200:]}"}
         finally:
             try:
                 self.rig({"cmd": "stop"})  # the marker this leg started
             except Exception as e:  # noqa: BLE001
                 rec["stop_error"] = repr(e)[-200:]
+            if app_mode:
+                self.close_app_pane(rec)
         self.log(rec)
+        if not rec.get("ok") and self.presented_source and "null" not in self.presented_source:
+            self.presented_source = {**self.presented_source, "error": rec.get("error") or "observe incomplete"}
         return rec["presented_ms"] if rec.get("ok") else None
 
     # macOS Screen Sharing -----------------------------------------------------------------
@@ -1678,6 +2513,9 @@ class Orchestrator:
         return firsts, g2g, fps
 
     def main(self):
+        if tailnet(self.a.host_ip):
+            print(f"warning: --host-ip {self.a.host_ip} is a tailnet address. {TAILNET_UDP}",
+                  file=sys.stderr, flush=True)
         self.setup()
         clock0 = self.clock()
         self.log({"clock": clock0, "host": self.a.host, "viewer": self.a.viewer,
@@ -1709,13 +2547,18 @@ class Orchestrator:
         """The design's budget table, printed and written as one {"budget"} line."""
         cmux = apple = None
         if "cmux" in stacks:
-            cmux = {"rows": rows, "ledgers": self.ledgers, "presented": self.presented,
+            cmux = {"rows": rows, "ledgers": self.ledgers, "summaries": self.summaries,
+                    "presented": self.presented, "presented_source": self.presented_source,
+                    "app_ledger": self.app_ledger, "app_timings": self.app_timings,
                     "motion_rows": self.motion_rows, "scores": self.scores,
                     "quality_null": self.quality_null}
         if "apple" in stacks:
             apple = {"skipped": self.apple_skipped} if self.apple_skipped else {"g2g": self.apple_g2g}
         b = build_budget(cmux, apple, label=self.a.label, rev=self.rev, link=self.a.link,
-                         rtt=clock.get("rtt_min_ms"), source=self.a.source)
+                         rtt=clock.get("rtt_min_ms"), source=self.a.source,
+                         cmux_input=getattr(self.a, "cmux_input", "key"), host=self.a.host,
+                         viewer=self.a.viewer, host_args=self.host_args,
+                         viewer_args=self.viewer_args)
         print()
         print("\n".join(format_budget(b)))
         self.log({"budget": b})
@@ -1725,6 +2568,8 @@ class Orchestrator:
         print()
         print(f"link {self.a.link} {self.a.host} -> {self.a.viewer} ({self.a.host_ip}): "
               f"udp rtt min {clock['rtt_min_ms']:.2f} ms, p50 {rtt.get('p50')} ms, p95 {rtt.get('p95')} ms")
+        if self.host_args or self.viewer_args:
+            print(args_text({"host_args": self.host_args, "viewer_args": self.viewer_args}))
         print(f"{'stack':<22} {'first_frame_ms p50/p95':>24} {'key_to_frame_ms p50/p95':>25} "
               f"{'fps (motion) p50':>17} {'n':>10}")
         summ = {}
@@ -1782,7 +2627,14 @@ def cmd_run(args):
     Orchestrator(args).main()
 
 
-def main():
+def app_env(text):
+    """--app-viewer-env KEY=VALUE: only the app's own CMUX_* variables."""
+    if not APP_ENV.fullmatch(text):
+        raise argparse.ArgumentTypeError(f"{text!r}: want CMUX_NAME=value")
+    return text
+
+
+def build_parser():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
@@ -1792,10 +2644,14 @@ def main():
     r.add_argument("--link", default="wired", help="a label for the table")
     r.add_argument("--link-bind", help="bind the shared Mac's link socket to this address (its "
                    "Wi-Fi address when Ethernet shares the subnet), so both directions use it")
-    r.add_argument("--via", choices=["reach", "ssh"], default="reach")
+    r.add_argument("--via", choices=["reach", "ssh", "spool", "local"], default="reach",
+                   help="spool: reach with no stdin (a lane VM's broker relay; SpoolRemote); "
+                   "local: both Macs are this one (run the orchestrator on the shared Mac)")
     r.add_argument("--root", default="cmux-rd-test", help="relative to the remote home")
     r.add_argument("--python", default="/usr/bin/python3")
     r.add_argument("--bin", help="local cmux-rd (macOS arm64, features bench,link) to install")
+    r.add_argument("--host-bin", help="install this on the shared Mac instead of --bin (for example a "
+                   "script that execs a shipped app's `cmux rd`, so its serve is what is measured)")
     r.add_argument("--marker-src", help="local mac-marker/main.swift to build on the shared Mac")
     r.add_argument("--cua-vnc", help="local cua-vnc/bin/cua-vnc to install on the viewing Mac")
     r.add_argument("--rig-launch", choices=["cmux-next"], help="start the rig in cmux NEXT")
@@ -1811,6 +2667,13 @@ def main():
     r.add_argument("--synthetic-scene", choices=["bars", "text", "noise", "churn"],
                    help="what the synthetic picture shows under the marker (default bars; text "
                    "and noise translate; churn is new content every frame)")
+    r.add_argument("--host-arg", action="append", metavar="ARG",
+                   help="an extra `cmux-rd serve` flag, repeatable, in the = form since it starts "
+                        "with - (--host-arg=--resolution-ladder --host-arg=--max-qp=40); only "
+                        + ", ".join(sorted(HOST_ARGS)) + " (a switch is sent as `--flag 1`)")
+    r.add_argument("--viewer-arg", action="append", metavar="ARG",
+                   help="an extra `cmux-rd bench` flag for the viewer, repeatable, in the = form "
+                        "(--viewer-arg=--caps=video.scaled); only " + ", ".join(sorted(VIEWER_ARGS)))
     r.add_argument("--trials", type=int, default=10)
     r.add_argument("--warmup", type=int, default=1, help="uncounted key attempts first")
     r.add_argument("--fps-trials", type=int, default=3)
@@ -1831,13 +2694,49 @@ def main():
                    "tools-only=1: cmux-rd, cmux-rd-marker, screen-eval-ocr")
     r.add_argument("--apple-input", choices=["key", "click"], default="key",
                    help="the Apple leg's timed input (key: after one focus click on the pad)")
+    r.add_argument("--cmux-input", choices=["key", "click", "scroll"], default="key",
+                   help="the cmux leg's timed input: each kind goes through the host's injector and "
+                   "bumps the marker (keyDown, mouseDown, scrollWheel)")
     r.add_argument("--presented-pid", type=int, help="a visible viewer pane's process on the "
                    "viewing Mac: Total then ends at the presented frame (cmux-rd observe)")
     r.add_argument("--presented-window", type=int, help="that pane's CGWindow id")
     r.add_argument("--presented-origin", help="X,Y: the marker in the viewing Mac's capture pixels")
     r.add_argument("--presented-cell", type=int, default=32, help="the marker cell in those pixels")
     r.add_argument("--presented-at", help="X,Y: the marker's gray pad in those pixels")
+    r.add_argument("--presented-input", choices=("key", "click"), default="key",
+                   help="the presented leg's timed input, posted to the pane's process (no pointer move)")
+    r.add_argument("--app-viewer", metavar="APP", help="a cmux NEXT app bundle on the viewing Mac (DEV "
+                   "or channel build): launch it (`open -n`), open its Mac Screen pane to the host "
+                   "through its control socket, and end Total at the frame it presents")
+    r.add_argument("--app-viewer-env", action="append", type=app_env, metavar="CMUX_KEY=VALUE",
+                   help="extra launch environment for --app-viewer (repeatable), e.g. "
+                   "CMUX_AUTH_CREDENTIALS_FILE=... to sign it in")
+    r.add_argument("--app-viewer-frame", default="0,0,1500,950",
+                   help="X,Y,W,H of the app's window (CMUX_NEXT_TEST_WINDOW_FRAME)")
+    r.add_argument("--app-viewer-background", action="store_true",
+                   help="launch it with `open -g` and CMUX_NEXT_NO_ACTIVATE=1 (its window then "
+                   "opens behind others, and observe refuses an obscured pane)")
+    r.add_argument("--app-host-device", help="the host's hub device id (default: --app-host-app's, "
+                   "else the viewer's online shared device named like the host Mac)")
+    r.add_argument("--app-host-app", metavar="APP", help="the sharing cmux NEXT app on the host: "
+                   "its device id, and it approves the viewer's request (always full)")
     r.set_defaults(fn=cmd_run)
+    ap_ = sub.add_parser("app", help="on the viewing Mac: drive a cmux NEXT app (--app-viewer)")
+    ap_.add_argument("action", choices=("rpc", "launch", "locate", "ledger"))
+    ap_.add_argument("method", nargs="?", help="rpc: the control socket method")
+    ap_.add_argument("params", nargs="?", help="rpc: its params as JSON")
+    ap_.add_argument("--app", required=True, help="the app bundle")
+    ap_.add_argument("--state", default="~/.cache/cmux-rd-vs/state", help="launch/locate: scratch folder")
+    ap_.add_argument("--env", action="append", type=app_env, help="launch: CMUX_KEY=VALUE")
+    ap_.add_argument("--frame", help="launch: CMUX_NEXT_TEST_WINDOW_FRAME")
+    ap_.add_argument("--background", action="store_true", help="launch: open -g, CMUX_NEXT_NO_ACTIVATE=1")
+    ap_.add_argument("--encode-profile", choices=("balanced", "ultra"),
+                     help="launch: remote.screenSharingProfile, through a CMUX_NEXT_CONFIG_FILE")
+    ap_.add_argument("--wait", type=float, default=120, help="launch/locate: seconds")
+    ap_.add_argument("--locate", help="locate: the screen-eval-marker-locate binary")
+    ap_.add_argument("--pid", type=int, help="ledger: the app's process")
+    ap_.add_argument("--since", type=float, help="ledger: epoch seconds")
+    ap_.set_defaults(fn=cmd_app)
     m = sub.add_parser("compare", help="two result files side by side")
     m.add_argument("before")
     m.add_argument("after")
@@ -1880,7 +2779,11 @@ def main():
     b.add_argument("--samples", type=int, default=30)
     b.add_argument("--duration-s", type=float, default=10)
     b.set_defaults(fn=cmd_rfb_bench)
-    args = ap.parse_args()
+    return ap
+
+
+def main():
+    args = build_parser().parse_args()
     args.fn(args)
 
 
