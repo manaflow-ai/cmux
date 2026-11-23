@@ -36,6 +36,8 @@ nonisolated struct RustActionCatalog: Sendable {
     let contextMenus: [ActionMenuContext: (entries: [ContextMenuEntry], selection: [ContextMenuEntry]?)]
     /// The choices rows that end with one more action (`context_menu_choice_trailers`).
     let choiceTrailers: [ActionID: ActionID]
+    /// Each action's default key routing tier other than navigation (`key_tiers`).
+    let keyTiers: [ActionID: ActionKeyTier]
 
     /// In the language the app's own strings resolve to: the main bundle negotiates the person's
     /// whole preference list against the 21 localizations the app declares (Swedish, Japanese,
@@ -132,6 +134,9 @@ nonisolated struct RustActionCatalog: Sendable {
         }
         self.contextMenus = contextMenus
         choiceTrailers = Self.idMap(root["context_menu_choice_trailers"])
+        var keyTiers: [ActionID: ActionKeyTier] = [:]
+        for (id, tier) in root["key_tiers"] as? [String: String] ?? [:] { keyTiers[ActionID(rawValue: id)] = ActionKeyTier(configValue: tier) }
+        self.keyTiers = keyTiers
     }
 
     /// A `context_menu_trees` entry list: `"-"`, `{action}`, `{choices}`, `{submenu, children}`,
