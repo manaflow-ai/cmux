@@ -163,10 +163,13 @@ struct Held {
     ready: bool,
 }
 
-/// Mints a token for one ask. The default asks the Cloud agent over its socket.
+/// Mints a token for one ask. The default asks the Cloud agent over its socket, or a joined
+/// machine's hub when there is no agent (`cmux_host::github_cli_joined`).
 pub type Mint = Arc<dyn Fn(&TokenAsk) -> Result<String, Refused> + Send + Sync>;
 
 pub fn agent_mint(socket: std::path::PathBuf) -> Mint {
+    // With no agent at `socket`, a machine joined to a hub asks the hub.
+    crate::install_github_source();
     Arc::new(move |ask: &TokenAsk| github_cli::ask_retrying(&socket, ask).map(|m| m.token))
 }
 

@@ -29,6 +29,8 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa: E402
+from real_git import real_git  # noqa: E402
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -200,7 +202,7 @@ class WebLintPrePushTests(unittest.TestCase):
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
-                              text=True, capture_output=True, check=check)
+                              text=True, capture_output=True, check=check, timeout=120)
 
     def write(self, relative, text):
         path = self.repo / relative
@@ -1568,7 +1570,9 @@ class WebLintPrePushTests(unittest.TestCase):
                 peak["seen"] = peak.get("seen", 0) + 1
                 if not weighty(words) and heavy_now:
                     overlapped.append(name)
-            time.sleep(0.3)  # long enough for the pool to start whatever it would run beside this one
+            # sleep-ok: a simulated command run time, the window the pool's overlap is measured in:
+            # long enough for the pool to start whatever it would run beside this one.
+            time.sleep(0.3)
             with lock:
                 running.discard(name)
             return subprocess.CompletedProcess(command, 0, "", "")
@@ -1880,7 +1884,7 @@ class TuiBindingsTests(unittest.TestCase):
         for name, text in (("npm", FAKE_NPM), ("bun", FAKE_BUN)) if npm else (("bun", FAKE_BUN),):
             (tools / name).write_text(text)
             (tools / name).chmod(0o755)
-        for name, target in (("python3", sys.executable), ("git", shutil.which("git"))):
+        for name, target in (("python3", sys.executable), ("git", real_git())):
             (tools / name).symlink_to(target)
         # No real npm, node or bun: only the stand-ins, so the order of the calls is the test.
         self.env.update(PATH=f"{tools}{os.pathsep}/usr/bin{os.pathsep}/bin", TOOL_LOG=str(self.tool_log))
@@ -1946,6 +1950,47 @@ class TuiBindingsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("web lint passed", result.stderr)
         self.assertIn("check web", self.tool_log.read_text())
+
+    def snapshot_clone(self, *, remote_gone: bool) -> Path:
+        """As cmux-ci's fast-checks leaves it: a depth-2 checkout of a snapshot commit over the tested commit, which
+        sits a few commits over feat-cmux-next; detached, no remote-tracking ref, origin optionally unreachable."""
+        self.add_tui_packages()
+        self.git("push", "--quiet", "--no-verify", "origin", "HEAD:feat-cmux-next")
+        self.write("cmux-tui/frontends/web/src/branch.ts", "export const branch = 1;\n")
+        self.commit("branch 1")
+        for n in (2, 3):
+            self.write(f"branch-{n}.txt", f"{n}\n")
+            self.commit(f"branch {n}")
+        self.git("push", "--quiet", "--no-verify", "origin", "HEAD:refs/heads/snapshot")
+        shallow = self.root / "shallow"
+        subprocess.run(["git", "clone", "--quiet", "--depth", "2", "--branch", "snapshot",
+                        f"file://{self.origin}", str(shallow)], env=self.env, check=True, capture_output=True)
+        steps = [["checkout", "--quiet", "--detach"], ["update-ref", "-d", "refs/remotes/origin/snapshot"]]
+        if remote_gone:
+            steps.append(["remote", "set-url", "origin", str(self.root / "gone.git")])
+        for argv in steps:
+            subprocess.run(["git", *argv], cwd=shallow, env=self.env, check=True)
+        return shallow
+
+    def test_a_run_in_a_shallow_snapshot_clone_deepens_to_the_base_and_lints(self):
+        # cmux-ci test of #51464 (run 45105207823): `web-lint.sh` in fast-checks' depth-2 snapshot checkout refused in
+        # 0.08 s, "fetch ... and push again ... nothing was linted", though nobody pushes that snapshot.
+        shallow = self.snapshot_clone(remote_gone=False)
+        self.tool_log.write_text("")
+        result = subprocess.run(["scripts/web-lint.sh"], cwd=shallow, env=self.env, text=True, capture_output=True)
+        self.assertNotIn("nothing was linted", result.stderr)
+        self.assertNotIn("push again", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(": 3 own commit(s)", result.stderr)
+        self.assertIn("check web", self.tool_log.read_text())
+
+    def test_a_shallow_snapshot_clone_that_cannot_fetch_lints_what_it_has_and_says_so(self):
+        shallow = self.snapshot_clone(remote_gone=True)
+        self.tool_log.write_text("")
+        result = subprocess.run(["scripts/web-lint.sh"], cwd=shallow, env=self.env, text=True, capture_output=True)
+        self.assertNotIn("nothing was linted", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("linting every file changed over HEAD~1", result.stderr)
 
     def test_an_all_run_builds_the_bindings_before_the_frontend_check_and_is_clean(self):
         self.add_tui_packages()
