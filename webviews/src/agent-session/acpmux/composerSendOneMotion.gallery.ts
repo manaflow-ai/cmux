@@ -29,7 +29,7 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /// Every frame from just before the send to SAMPLE_MS after it, read after the frame's
 /// ResizeObserver callbacks ran (a task posted from requestAnimationFrame): what the frame drew.
-function sample(doc: Document, draft: string): { done: Promise<Sample[]> } {
+export function sample(doc: Document, draft: string): { done: Promise<Sample[]> } {
   const win = doc.defaultView!;
   const frames: Sample[] = [];
   const top = (node: Element | null | undefined) =>
@@ -81,7 +81,7 @@ export function sendWindow(frames: readonly Sample[]): Sample[] {
   return end < 0 ? [...frames] : frames.slice(0, end);
 }
 
-async function settle(ctx: PlayContext) {
+export async function settle(ctx: PlayContext) {
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"), { capMs: 30_000 });
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-thread")?.hasAttribute("data-turn-end-folding"));
 }
