@@ -161,11 +161,30 @@ import Testing
         return try await window.screenshotImage { _ in false }
     }
 
+    /// Where the captures go: `CMUX_GLASS_UNFOCUSED_OUT`, else on a display worker (`CMUX_CI_DISPLAY_ROUTED`)
+    /// the checkout's `artifacts/glass-unfocused`, where `cmux-ci run --artifact
+    /// artifacts/glass-unfocused/shots.tar.gz` returns them; else nowhere.
+    static var outputDirectory: URL? {
+        let environment = ProcessInfo.processInfo.environment
+        if let dir = environment["CMUX_GLASS_UNFOCUSED_OUT"], !dir.isEmpty { return URL(fileURLWithPath: dir, isDirectory: true) }
+        guard environment["CMUX_CI_DISPLAY_ROUTED"] == "1" else { return nil }
+        // This file sits in Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/, five folders below the checkout.
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        return root.appendingPathComponent("artifacts/glass-unfocused", isDirectory: true)
+    }
+
+    /// Writes `image` as NAME.png and packs the folder's PNGs again (`shots.tar.gz`, one artifact).
     static func save(_ image: CGImage, _ name: String) async {
-        guard let dir = ProcessInfo.processInfo.environment["CMUX_GLASS_UNFOCUSED_OUT"], !dir.isEmpty else { return }
-        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        guard let url = outputDirectory else { return }
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         try? await NSWindow.encodeSnapshotPNG(image, to: url.appendingPathComponent("\(name).png"))
+        let pngs = ((try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []).filter { $0.hasSuffix(".png") }.sorted()
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.arguments = ["-czf", url.appendingPathComponent("shots.tar.gz").path, "-C", url.path] + pngs
+        try? tar.run()
+        tar.waitUntilExit()
     }
 
     /// The captures of one fixture: key, another app window key, and (when macOS lets this process
