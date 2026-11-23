@@ -6,7 +6,7 @@
   "description": "Graphite chrome, a hairline sidebar edge, a rose accent, small radii, compact density.",
 
   "appearance.theme": "Builtin Dark",
-  "colors": { "background": "#111113", "foreground": "#e6e6e9", "selection": "#2a2a30", "cursor": "#e6e6e9", "accent": "#e0679a" },
+  "colors": { "background": "#111113", "foreground": "#e6e6e9", "selection": "#74747a", "cursor": "#e6e6e9", "accent": "#e0679a" },
   "appearance.accent": "theme",
 
   "appearance.background": "none",
