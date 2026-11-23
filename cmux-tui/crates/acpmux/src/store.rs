@@ -10,7 +10,7 @@ use crate::no_panic::LockExt;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -26,6 +26,7 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_heads;
 mod kind_index;
+mod sealed_segments;
 mod segment_starts;
 mod segment_table;
 pub use kind_heads::KindHead;
@@ -64,6 +65,25 @@ pub struct RollingSummary {
     /// The chat's turn count it covers.
     pub turn: u64,
     /// When it was written, Unix ms.
+    pub at: u64,
+}
+
+/// The plan the person last approved in a chat (`hub/plan_build.rs` `approved_plan`): Claude
+/// Code's ExitPlanMode, or a Grok, Cursor or Gemini plan approval, answered with an allow. The
+/// pane keeps it in sight while the agent builds it (Leo's feature map, 2026-11-23: "plan pane
+/// that stays during the build"); a newer approval replaces it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovedPlan {
+    /// The plan as approved, Markdown: the person's edit when they made one.
+    pub markdown: String,
+    /// The person edited the plan before approving it.
+    pub edited: bool,
+    /// The plan approval it answered.
+    pub permission_id: String,
+    /// The chat's turn count when it was approved.
+    pub turn: u64,
+    /// When it was approved, Unix ms.
     pub at: u64,
 }
 
@@ -134,7 +154,7 @@ impl std::fmt::Display for SessionStatus {
 }
 
 /// What a watched chat follows (`hub/watch.rs`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Watching {
     /// `claude` or `codex`.
@@ -151,6 +171,47 @@ pub struct Watching {
     /// comes, or Take Over settles it. Kept so a daemon restart goes on with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open: Option<WatchedTurn>,
+    /// The terminal the chat handed its conversation to (`acpmux resume-here`,
+    /// `hub/release_to_watch.rs`): the chat's prompts go into that terminal's harness
+    /// (`hub/bridge.rs`) while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<TerminalDriver>,
+    /// Prompts the terminal took while a turn ran (Claude Code's `queue-operation` enqueue), shown
+    /// at once, oldest first, so the line that runs each later does not show it again (`watch.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued: Vec<String>,
+    /// Prompts the terminal took while a turn ran that did not show at once (past the cap, or
+    /// text a delivery may have): one shows as typed when the turn takes it in (`watch.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unshown: Vec<String>,
+}
+
+/// The process a chat handed its conversation to (`Watching::terminal`): `acpmux resume-here`,
+/// which becomes the harness (`exec`, same pid).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalDriver {
+    pub pid: u32,
+    /// When `pid` started (ms since the epoch), so a later process under a reused pid is not it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started: Option<u64>,
+    /// The harness's store the conversation is in (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
+    pub store: PathBuf,
+    /// The cmux terminal that process runs in, as the environment its exec was given names it
+    /// (read from the kernel, `hub/terminal_input.rs` `of_process`): the chat's Stop,
+    /// and its prompts while the harness has no inbox, reach the harness as keys typed there
+    /// (`hub/terminal_input.rs`). None outside a cmux terminal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<TerminalInput>,
+}
+
+/// A cmux terminal's input (`TerminalDriver::input`): its session daemon's socket
+/// (`CMUX_TUI_SOCKET`) and the terminal's id there (`CMUX_TUI_TERMINAL_ID`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalInput {
+    pub socket: PathBuf,
+    pub terminal_id: String,
 }
 
 /// A watched chat's open turn (`Watching::open`).
@@ -479,6 +540,9 @@ pub struct SessionMeta {
     /// first turn that makes one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rolling_summary: Option<RollingSummary>,
+    /// The plan the person last approved (`hub/plan_build.rs` `approved_plan`); None until one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_plan: Option<ApprovedPlan>,
     /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
     /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
     /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
@@ -513,6 +577,12 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// The key its creator sent with its `session/new` (`_meta.acpmux.createKey`,
+    /// `hub/create_key.rs`): a create sent again with that key, after a daemon restart closed
+    /// the connection before the reply, answers with this session instead of making another.
+    /// Kept on disk, so the next daemon finds it too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_key: Option<String>,
     /// The journal seq the agent's own session ends at, when the journal went past it without
     /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
     /// to a fresh machine from an older disk). The agent resumes its own older session, so its
@@ -1650,6 +1720,19 @@ pub trait Store: Send + Sync {
     fn is_cold(&self, _id: &str) -> bool {
         false
     }
+    /// Moves a cold-archived chat's archive to the person's cloud history store (opt-in,
+    /// `cmux-session-cloud`), leaving a stub; its next read fetches it back. The bytes freed, or
+    /// None when the chat is not archived here, cloud history is off, or the archive changed.
+    fn offload_cold(&self, _id: &str) -> Result<Option<u64>> {
+        Ok(None)
+    }
+    /// Registers this machine's cloud history GC root: one tree naming the blob of every chat
+    /// offloaded here, so the store keeps them (roots expire unless registered again within 90
+    /// days). Call it after a batch of offloads, not per chat. The blobs named, or None when cloud
+    /// history is off.
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        Ok(None)
+    }
     /// Called with a chat's id each time its log comes back from its cold archive, on any path
     /// (a read, an append, a fork's history): the hub drops the chat's preview
     /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
@@ -1923,13 +2006,23 @@ impl LocalStore {
     /// The log's segments, in order, as the folder lists them, and whether a cut's intent
     /// (`store/compact.rs` `CUT`) is beside them: read in the same listing, so it costs nothing.
     /// A cold archive's log is rehydrated first (`store/cold.rs`).
+    /// Segments zstd'd in place by a tool outside acpmux are decoded back first
+    /// (`store/sealed_segments.rs`): the same listing says whether there are any.
     fn list_segments(&self, id: &str) -> Result<(SegmentList, bool)> {
-        let listed = self.listed_files(id)?;
-        if listed.0.is_empty() {
-            self.rehydrate(id)?;
-            return self.listed_files(id);
+        let (mut segments, mut cut_pending, sealed) = self.listed_files(id)?;
+        if sealed {
+            match self.thaw_sealed(id) {
+                Ok(0) => {}
+                Ok(_) => (segments, cut_pending, _) = self.listed_files(id)?,
+                Err(e) => tracing::warn!(session = %id, "sealed segments stay sealed: {e:#}"),
+            }
         }
-        Ok(listed)
+        if segments.is_empty() {
+            self.rehydrate(id)?;
+            let (segments, cut_pending, _) = self.listed_files(id)?;
+            return Ok((segments, cut_pending));
+        }
+        Ok((segments, cut_pending))
     }
 
     /// The segments on the disk now, never rehydrated.
@@ -1937,8 +2030,9 @@ impl LocalStore {
         Ok(self.listed_files(id)?.0)
     }
 
-    /// [`Self::segment_files`], and whether a cut's intent is beside them.
-    fn listed_files(&self, id: &str) -> Result<(SegmentList, bool)> {
+    /// [`Self::segment_files`], whether a cut's intent is beside them, and whether a segment
+    /// zstd'd in place with no plain one of its name is (`store/sealed_segments.rs`).
+    fn listed_files(&self, id: &str) -> Result<(SegmentList, bool, bool)> {
         self.segment_table.list(id, &self.dir(id).join("events"))
     }
 
@@ -2025,16 +2119,23 @@ impl LocalStore {
     /// chat's log however little of it stays. Every session the hub creates logs `created`
     /// right after its first save, so a record without a log is a purged session's that a
     /// late save wrote back.
-    /// A cold archive (`store/cold.rs`) is a log too, and is not opened.
+    /// A cold archive (`store/cold.rs`) is a log too, and is not opened; so is its cloud stub
+    /// (an archive offloaded to cloud history), and a segment zstd'd in place
+    /// (`store/sealed_segments.rs`), which its first read decodes back.
     fn has_records(&self, id: &str) -> Result<bool> {
         // A home that is no longer the held one is an error, never "no record" (#41721
         // review F1): a closed chat with no record reads as purged.
         if crate::home_fs::try_exists_nofollow(self.marker(id))?
             || crate::home_fs::try_exists_nofollow(self.cold_path(id))?
+            || crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id))?
         {
             return Ok(true);
         }
-        for (_, path) in self.segment_files(id)? {
+        let (segments, _, sealed) = self.listed_files(id)?;
+        if sealed {
+            return Ok(true);
+        }
+        for (_, path) in segments {
             // An unreadable segment counts as a log: the session is listed as before.
             match crate::home_fs::symlink_metadata(&path) {
                 Ok(meta) if meta.len() == 0 => {}
@@ -2761,6 +2862,15 @@ impl Store for LocalStore {
 
     fn is_cold(&self, id: &str) -> bool {
         LocalStore::is_cold(self, id)
+    }
+
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        let _open = self.writable()?;
+        LocalStore::offload_cold(self, id)
+    }
+
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        LocalStore::register_cloud_root(self)
     }
 
     fn on_rehydrate(&self, hook: RehydrateHook) {
