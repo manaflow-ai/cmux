@@ -36,6 +36,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_apt_ensure.py yourself after changing the workflow steps it reads."
 
 [[test]]
+path = "tests/test_ci_base_red_skip.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_billing_lane.py"
 lane = "linux-guard"
 
@@ -291,10 +295,6 @@ path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_lint_ios_conventions_scope.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_job_inputs.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, AGENTS.md:214). Checks that every pull-request job declares its inputs (a router map or scripts/ci/job-inputs-always.json) via scripts/ci/job_inputs.py; run python3 tests/test_ci_job_inputs.py yourself after changing job_inputs.py, job-inputs-always.json or a router map (seconds, no build)."
@@ -527,11 +527,6 @@ path = "tests/test_ci_pool_snapshot_job_cache.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_routed_jobs_check_needs.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_routed_jobs_check_needs.py"
-
-[[test]]
 path = "tests/test_ci_post_merge_checks.py"
 lane = "linux-guard"
 
@@ -708,6 +703,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_route_refusal_detail.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_routed_jobs_check_needs.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_routed_jobs_check_needs.py"
 
 [[test]]
 path = "tests/test_ci_run_guards.py"
@@ -991,4 +991,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_lint_ios_conventions_scope.py"
 lane = "linux-guard"
