@@ -60,6 +60,7 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type Standup,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -1075,6 +1076,13 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Customize's Standup: every library entry as one line (`cmux customize library
+   * standup`); null when the host cannot run it (an older build, no CLI). */
+  async customizeStandup(): Promise<Standup | null> {
+    const reply = await this.request("cmux.settings.customize.library", { verb: "standup" });
+    return reply.ok ? (reply.value?.standup ?? null) : null;
   }
 
   /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,

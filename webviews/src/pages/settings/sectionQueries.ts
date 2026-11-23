@@ -97,6 +97,19 @@ export function libraryQuery(store: SettingsStore) {
   });
 }
 
+export const STANDUP_KEY = [...settingsKeys.all, "customize-standup"] as const;
+
+/** Settings > Customize's PRs in My Build and Standup: one line per library entry, worded by the
+ * CLI (null: the host cannot run it). Each library change answers it again. */
+export function standupQuery(store: SettingsStore) {
+  return queryOptions({
+    queryKey: STANDUP_KEY,
+    queryFn: () => store.customizeStandup(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The library as read, and the CLI's refusal of the read in its own words. */
 export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
 
