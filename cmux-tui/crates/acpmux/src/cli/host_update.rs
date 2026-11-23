@@ -904,8 +904,12 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     // The LaunchAgent runs the cmux app's acpmux: the daemon updates with the app, so it is
     // not restarted (that would start the app's build again and fail the pushed-build check,
     // then roll back). The pushed binary stays as the job's fallback. `current`, so the app's
-    // peer update and fleet tooling read it as kept, not failed.
-    if let Some(held) = &probe.app_held {
+    // peer update and fleet tooling read it as kept, not failed. Only while a daemon answers: a
+    // job booted out (its plist and the app still there) takes the restart below, which reports
+    // what it finds instead of a kept daemon that is not running.
+    if let Some(held) = &probe.app_held
+        && probe.build.is_some()
+    {
         let why =
             format!("this Mac's daemon runs the cmux app's acpmux {held}; it updates with the app");
         return up.end(Outcome::Current, APP_HELD_REASON, why);

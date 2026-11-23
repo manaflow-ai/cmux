@@ -1215,6 +1215,19 @@ fn a_mac_whose_launch_agent_runs_the_apps_acpmux_is_reported_not_restarted() {
     assert!(peer.take_launchd_calls().is_empty(), "launchd was not asked to restart anything");
     assert_eq!(up.to_json("p", "fake")["ok"], true);
 
+    // The job was booted out (plist and app still there, no daemon answers): not reported as a
+    // kept daemon; the update goes on to the restart and says what it found.
+    let down = FakePeer::new("app-held-down");
+    down.under_launchd();
+    down.exe(app, &fake_acpmux(OLD, Some(OLD)));
+    let plist = crate::cli::daemon_service::plist_for(&down.home, &down.home.join(app));
+    down.write("Library/LaunchAgents/com.acpmux.daemon.plist", &plist);
+    let _ = std::fs::remove_file(down.home.join("daemon"));
+    let _ = std::fs::remove_file(down.home.join("loaded"));
+    down.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = down.update_with(false, false);
+    assert_ne!(up.reason.as_deref(), Some("appHeld"), "{up:?}");
+
     // The app is gone: the job runs ~/.local/bin/acpmux, so the update restarts it as any.
     let gone = FakePeer::new("app-gone");
     gone.under_launchd();
