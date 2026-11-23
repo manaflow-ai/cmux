@@ -296,7 +296,7 @@ impl Reassembler {
     /// [`MAX_FRAME_WAIT_US`] ([`MAX_KEYFRAME_WAIT_US`] for a keyframe; or the deadline, if
     /// longer) after its first.
     ///
-    /// A frame behind an incomplete keyframe waits at least as long as that keyframe: it
+    /// A frame behind a pending keyframe waits at least as long as that keyframe: it
     /// cannot be shown before it, and its expiry would sweep the keyframe away mid-repair.
     fn expires_after_us(&self, frame: u32, p: &Pending) -> u64 {
         let own = self.own_expiry_us(p);
@@ -306,7 +306,10 @@ impl Reassembler {
         self.pending
             .range(..frame)
             .rev()
-            .find(|(_, k)| k.flags & flags::KEYFRAME != 0 && !Self::decodable(k))
+            // A keyframe completed by this very shard still counts: the expiry pass
+            // runs before it is released, and dropping the frame behind it then swept
+            // the repaired keyframe away with it.
+            .find(|(_, k)| k.flags & flags::KEYFRAME != 0)
             .map_or(own, |(_, k)| own.max(self.own_expiry_us(k)))
     }
 
