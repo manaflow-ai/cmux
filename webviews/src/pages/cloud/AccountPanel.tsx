@@ -12,6 +12,7 @@ import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retenti
 import { usd } from "./spendCap";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
+import { intl } from "../../ui/intl";
 
 /** "12.5 h" or "12.5 h / 40 h", with the unit from the string table. */
 function amount(
@@ -21,7 +22,7 @@ function amount(
   t: (key: string) => string,
   language: string,
 ) {
-  const number = new Intl.NumberFormat(language, { maximumFractionDigits: 1 });
+  const number = intl.NumberFormat(language, { maximumFractionDigits: 1 });
   const text = (n: number) => format(t(unit), { value: number.format(n) });
   return limit === undefined || limit === null ? text(value) : `${text(value)} / ${text(limit)}`;
 }

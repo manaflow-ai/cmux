@@ -31,6 +31,10 @@ concurrency:
   group: cmux-next-generated-catch-up
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   # At most one catch-up per 30-minute window (base-coalesce.yml, 2026-11-21): the first feat-cmux-next push of each
   # window catches every conflicting PR up to that tip; the other pushes' runs skip (no runner). Before, every move
@@ -184,8 +188,6 @@ jobs:
           set -euo pipefail
           git config user.name "cmux CI catch-up"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config merge.cmux-generated-v1.name "keep this branch's generated file"
-          git config merge.cmux-generated-v1.driver true
           # The key-wise drivers (.gitattributes; scripts/install-git-hooks.sh registers the
           # same per clone), from the base's copy: GitHub ignores them, so a catalog or a
           # baseline both sides added entries to conflicts on every PR. Each one still
@@ -198,11 +200,16 @@ jobs:
           printf -v baseline '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-baseline.py"
           printf -v capabilities '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-daemon-capabilities.py"
           printf -v insertions '%q -I %q %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-insertions.py"
+          # Generated files merge three-way when clean, else keep this branch's copy for the
+          # rebuild below; the Mac-only exports merge three-way or stay a conflict (never one side).
+          printf -v generated '%q -I %q --generated %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-insertions.py"
           git config merge.xcstrings-v2.driver "$xcstrings"
           git config merge.pbxproj-v1.driver "$pbxproj"
           git config merge.cmux-baseline-v1.driver "$baseline"
           git config merge.cmux-capabilities-v1.driver "$capabilities"
           git config merge.cmux-insertions-v1.driver "$insertions"
+          git config merge.cmux-export-v1.driver "$insertions"
+          git config merge.cmux-generated-v1.driver "$generated"
           # Git reads merge attributes from the checked-out PR, so a head older than a
           # driver's .gitattributes line would line-merge that path. The trusted base's
           # attributes go in info/attributes, which wins over the tree's.
@@ -268,7 +275,8 @@ jobs:
       # The PR's own code builds here, before any write token exists. The web
       # bundles always, then every other generated family the merge kept a copy
       # of or both sides changed (scripts/cmux-next/generated_merge.py; the
-      # Swift exports only a Mac writes are left to the base autofix).
+      # exports only a Mac writes merged three-way above, or their conflict
+      # left the PR to its author).
       - name: Rebuild the generated files
         if: steps.merge.outputs.skip != 'true'
         working-directory: pr

@@ -7,6 +7,7 @@ import { useEffect, useId, useRef } from "react";
 import { Icon } from "../icons";
 import type { BriefSpot, ReviewBrief } from "./model";
 import { isEmptyBrief } from "./model";
+import { WithFacts } from "../agent-session/acpmux/chips/FactsHoverCard";
 
 export type ReviewBriefLabels = {
   title: string;
@@ -182,10 +183,14 @@ export function ReviewBriefStrip({ state, labels, open, onOpenChange, onOpenSpot
         <span className="review-brief-title">{labels.title}</span>
         <span className="review-brief-summary">{text}</span>
         {unsure > 0 ? (
-          <span className="review-brief-count" title={labels.unsure}>
-            <span className="review-brief-count-dot" aria-hidden="true" />
-            {unsure}
-          </span>
+          <WithFacts facts={[{ value: labels.unsure }]}>
+            {(facts) => (
+              <span {...facts} className="review-brief-count">
+                <span className="review-brief-count-dot" aria-hidden="true" />
+                {unsure}
+              </span>
+            )}
+          </WithFacts>
         ) : null}
         <span className="review-brief-chevron" aria-hidden="true">
           <Icon name="chevronDown" />

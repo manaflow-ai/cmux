@@ -103,6 +103,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
     }
+    // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
+    if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
+        return crate::codex_repo_gate::main();
+    }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
         return crate::linux_sandbox::keeper::canary_unix(args.get(1..).unwrap_or_default())
@@ -181,6 +185,12 @@ pub const WORKER_STACK_BYTES: usize = 8 << 20;
 fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.thread_stack_size(WORKER_STACK_BYTES);
+    // The daemon outranks the work it supervises (`daemon_priority.rs`): its nice before any
+    // runtime thread starts (they inherit it), and each runtime thread's QoS on macOS.
+    if crate::daemon_priority::is_daemon_run(args) {
+        crate::daemon_priority::raise();
+        builder.on_thread_start(crate::daemon_priority::thread_start);
+    }
     if let Some(workers) = runtime_workers(args) {
         builder.worker_threads(workers);
     }
@@ -343,6 +353,8 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
             // the default tier, and only its background threads yield.
             crate::qos::enter_daemon();
+            // Which priority knobs took, for the duress bench (`daemon_priority.rs`).
+            tracing::info!("{}", crate::daemon_priority::report().line());
             // Agents before the daemon for the OOM killer and earlyoom (`oom_rank.rs`).
             if let Some(p) = crate::oom_rank::protect_daemon() {
                 tracing::info!("{}", crate::oom_rank::describe(p));

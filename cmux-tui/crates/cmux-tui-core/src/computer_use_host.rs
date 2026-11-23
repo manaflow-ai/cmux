@@ -1,9 +1,13 @@
-//! The Computer Use worker on Linux and Windows: the daemon starts the
-//! same `cmux-tui` binary in its hidden `__computer-use-worker` mode, keeps
-//! it running while Computer Use is on, and hands agents (acpmux's bridge)
-//! its endpoint through the `computer-use-endpoint` command
-//! (`server/computer_use_command.rs`). On macOS the signed cmux Remote host
-//! runs the worker instead (`remote_host.rs`); this supervisor is idle there.
+//! The Computer Use worker: on Linux and Windows the daemon starts the
+//! same `cmux-tui` binary in its hidden `__computer-use-worker` mode; on
+//! macOS, in a build that embeds no cmux Remote (Release and NIGHTLY), the
+//! Screen Sharing helper `cmux-screen-sharing __computer-use-worker`, which
+//! holds the grants (`computer_use_host/macos.rs`). It keeps the worker
+//! running while Computer Use is on, and hands agents (acpmux's bridge) its
+//! endpoint through the `computer-use-endpoint` command
+//! (`server/computer_use_command.rs`). A macOS build that embeds cmux Remote
+//! (a DEV build) runs the worker in cmux Remote (`remote_host.rs`) instead,
+//! and this supervisor stays unconfigured there.
 //!
 //! - Start: on the first endpoint request (never at daemon start, so a
 //!   machine nobody automates runs no worker). The worker gets a fresh 32-byte
@@ -22,8 +26,6 @@
 //! - Questions (`ask`) go to the cmux app when one is attached (a
 //!   notification, answered through `computer-use-approvals` `answer`);
 //!   otherwise they are answered `unavailable` at once.
-
-#![cfg_attr(target_os = "macos", allow(dead_code))]
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -44,6 +46,9 @@ pub(crate) mod config;
 mod platform;
 #[cfg(windows)]
 #[path = "computer_use_host/windows.rs"]
+pub(crate) mod platform;
+#[cfg(target_os = "macos")]
+#[path = "computer_use_host/macos.rs"]
 pub(crate) mod platform;
 
 /// Advertised by `identify` once the `computer-use-*` commands exist.
@@ -607,15 +612,21 @@ fn current_policy(mux: &Arc<crate::mux::Mux>) -> (PolicyConfig, config::Source, 
 }
 
 impl crate::mux::Mux {
-    /// Lets this daemon (Linux, Windows) run the Computer Use worker for the
-    /// daemon on `daemon_socket`, with durable state beside the daemon's own.
-    #[cfg(any(target_os = "linux", windows))]
+    /// Lets this daemon (Linux, Windows, and macOS without cmux Remote) run
+    /// the Computer Use worker for the daemon on `daemon_socket`, with durable
+    /// state beside the daemon's own.
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     pub(crate) fn configure_computer_use(self: &Arc<Self>, daemon_socket: &Path) {
         let Some(state_root) = crate::platform::workspace_state_dir()
             .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
         else {
             return;
         };
+        // macOS: the file itself, never a link it was started by, so the app
+        // bundle that carries the Screen Sharing helper is found.
+        #[cfg(target_os = "macos")]
+        let Ok(exe) = cmux_link::app_caller::own_executable() else { return };
+        #[cfg(not(target_os = "macos"))]
         let Ok(exe) = std::env::current_exe() else { return };
         let launcher: Arc<dyn Launcher> = Arc::new(platform::NativeLauncher::new(exe));
         self.configure_computer_use_with(paths_for(daemon_socket, &state_root), launcher);

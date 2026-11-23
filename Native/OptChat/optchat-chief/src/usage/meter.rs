@@ -291,7 +291,7 @@ mod tests {
             ("platform", "cmux-router")
         );
         assert_eq!(
-            payer_provider("native", Some(optchat_host::DEFAULT_BASE_URL)),
+            payer_provider("native", Some(crate::harness_gate::TEAM_SUBROUTER_URLS[0])),
             ("platform", "cmux-router")
         );
         assert_eq!(

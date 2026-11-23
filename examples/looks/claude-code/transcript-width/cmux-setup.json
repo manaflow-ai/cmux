@@ -1,0 +1,14 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-transcript-width",
+  "name": "Claude Code transcript width",
+  "description": "A narrow transcript and composer with thoughts and tool output folded by default.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "agentPane.display.width": 640,
+    "agentPane.display.fullWidth": false,
+    "agentPane.display.transcriptView": "normal"
+  }
+}

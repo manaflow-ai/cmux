@@ -259,9 +259,14 @@ export function chooserRows<T extends { cwd: string; label: string; repo?: Proje
 /// The projects in the order they were last used: those a chat used, newest chat first, then the
 /// rest in the order given.
 export function byRecentUse<T extends { cwd: string }>(projects: readonly T[], recent: readonly string[]): T[] {
-  const rank = new Map(recent.map((cwd, index) => [trim(cwd), index]));
-  const order = (project: T) => rank.get(trim(project.cwd)) ?? recent.length;
-  return [...projects].sort((a, b) => order(a) - order(b));
+  const rank = new Map<string, number>();
+  recent.forEach((cwd, index) => rank.set(trim(cwd), index));
+  // Each project's rank read once, not in every comparison: thousands of folders at Leo's scale,
+  // sorted again whenever another folder's chat becomes the newest (bench/session-scale-typing.bench.ts).
+  return projects
+    .map((project, index) => ({ project, index, order: rank.get(trim(project.cwd)) ?? recent.length }))
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map((ranked) => ranked.project);
 }
 
 /// What a worktree row is called: its branch, else its folder's name. A folder inside a checkout
