@@ -86,7 +86,8 @@ struct SignInPageOpensBesideTests {
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == first && content.focusedPane === codePane },
                                             report: { "the sign-in page is not selected with the keyboard in the code's pane: " + Self.describe(content) })
             #expect(Set(content.panes.keys) == layout, "no room, yet the layout changed: \(Self.describe(content))")
-            try #require(back)()
+            let end = try #require(back)
+            end()
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == codeTab },
                                             report: { "the sign-in's end did not show the code's tab again: " + Self.describe(content) })
 
@@ -94,7 +95,8 @@ struct SignInPageOpensBesideTests {
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == second }, report: { "a second sign-in page is not selected: " + Self.describe(content) })
             codePane.select(StripTabID(other.id))
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == other.id })
-            try #require(back)()
+            let end2 = try #require(back)
+            end2()
             #expect(codePane.stripModel.selectedID?.rawValue == other.id, "the sign-in's end took the person off the tab they picked: \(Self.describe(content))")
         }
     }
