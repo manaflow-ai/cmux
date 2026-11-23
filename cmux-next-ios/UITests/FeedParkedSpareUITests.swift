@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// The Feed parks one spare row cell off screen before its first scroll (FeedListController
@@ -16,6 +17,7 @@ final class FeedParkedSpareUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_FEED_STRESS"] = "60"
+        app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_LIVE"] = "0"
         app.launchEnvironment["CMUX_MOBILE_LIST_SCREEN"] = "feed"
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
         app.launchEnvironment["CMUX_MOBILE_LIST_SETTLE"] = "0"
@@ -63,15 +65,19 @@ final class FeedParkedSpareUITests: XCTestCase {
             return ["the spare was taken before the first screenshot"]
         }
         var found: [String] = []
-        // What a person sees: the screen with the spare parked against the screen once the walk
-        // has taken it into a row (between the navigation bar and the tab bar).
-        if let diff = AgentCLIHybridPixelDiffUITests.diff(shotParked.image, walked.image) {
-            let share = Double(diff.differing) / Double(max(diff.compared, 1))
-            let image = XCTAttachment(image: diff.image)
-            image.name = "feed-spare-\(mutant ? "mutant" : "normal")-diff"
-            image.lifetime = .keepAlways
-            add(image)
-            if share > 0.02 { found.append("the screen changed by \(Int(share * 1000) / 10)% when the spare left its park (it was drawn)") }
+        // What a person sees, where a parked spare would draw: the mutant's holder sits at
+        // y 200 pt over the rows (FeedCollection `buildSpare`), so only that band is compared,
+        // 200-560 pt, inside the card it draws. The rest of the screen (navigation bar, tab bar,
+        // any row a spinner or a relative time could change) is left out, and the fixture runs
+        // with no live stream, so a normal run reads near 0%.
+        let width = app.windows.firstMatch.frame.width
+        if width > 0, let share = Self.share(shotParked.image, walked.image, band: 200...560, widthPoints: width) {
+            let reading = XCTAttachment(string: String(format: "band 200-560 pt differs by %.3f%%", share * 100))
+            reading.name = "feed-spare-\(mutant ? "mutant" : "normal")-share"
+            reading.lifetime = .keepAlways
+            add(reading)
+            shares.append(share)
+            if share > 0.02 { found.append(String(format: "the band changed by %.1f%% when the spare left its park (it was drawn)", share * 100)) }
         } else {
             found.append("the screenshots could not be compared")
         }
@@ -107,10 +113,42 @@ final class FeedParkedSpareUITests: XCTestCase {
         return found
     }
 
+    /// The band's readings, one per launch (each attached as `feed-spare-*-share`).
+    private var shares: [Double] = []
+
+    /// The share of pixels in `band` (points from the top) that differ between `a` and `b`.
+    @MainActor
+    static func share(_ a: UIImage, _ b: UIImage, band: ClosedRange<CGFloat>, widthPoints: CGFloat) -> Double? {
+        guard let first = AgentCLIHybridPixelDiffUITests.pixels(a), let second = AgentCLIHybridPixelDiffUITests.pixels(b),
+              first.width == second.width, first.height == second.height else { return nil }
+        let scale = CGFloat(first.width) / widthPoints
+        let top = max(0, Int(band.lowerBound * scale)), bottom = min(first.height, Int(band.upperBound * scale))
+        guard bottom > top else { return nil }
+        var differing = 0
+        for y in top..<bottom {
+            for x in 0..<first.width {
+                let i = (y * first.width + x) * 4
+                let delta = max(abs(Int(first.bytes[i]) - Int(second.bytes[i])),
+                                abs(Int(first.bytes[i + 1]) - Int(second.bytes[i + 1])),
+                                abs(Int(first.bytes[i + 2]) - Int(second.bytes[i + 2])))
+                if delta > AgentCLIHybridPixelDiffUITests.channelTolerance { differing += 1 }
+            }
+        }
+        return Double(differing) / Double(first.width * (bottom - top))
+    }
+
+    /// Three launches, each under 2% in the band: one quiet reading could be luck.
     @MainActor
     func testTheParkedSpareIsNotACellOrAnAccessibilityElement() {
-        let found = problems(mutant: false)
-        XCTAssertTrue(found.isEmpty, found.joined(separator: "\n"))
+        for run in 1...3 {
+            let found = problems(mutant: false)
+            XCTAssertTrue(found.isEmpty, "run \(run): " + found.joined(separator: "\n"))
+        }
+        XCTAssertEqual(shares.count, 3, "a run gave no reading")
+        let all = XCTAttachment(string: shares.map { String(format: "%.3f%%", $0 * 100) }.joined(separator: ", "))
+        all.name = "feed-spare-normal-shares"
+        all.lifetime = .keepAlways
+        add(all)
     }
 
     /// The red for the test above: a spare parked on screen over the rows, readable (DEBUG
