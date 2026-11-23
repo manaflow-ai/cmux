@@ -313,6 +313,13 @@ fn catalog_with(locale: usize, row: impl Fn(&Action) -> Value) -> Value {
         "legacy_aliases": legacy,
         "categories": categories,
         "menu_folders": folders,
+        // The right-click menus built from the placements (crate::context_menus), and the choices
+        // rows that end with one more action (Move to Group > New Group).
+        "context_menu_trees": crate::context_menus::trees_json(),
+        "context_menu_choice_trailers": crate::context_menus::CHOICE_TRAILERS
+            .iter()
+            .map(|(id, trailer)| ((*id).to_owned(), json!(trailer)))
+            .collect::<Map<String, Value>>(),
         "key_binding_defaults": {
             "tab_cycle_aliases": binding_list(bindings::TAB_CYCLE_ALIASES),
             "workspaces_as_tabs": binding_list(bindings::WORKSPACES_AS_TABS),
