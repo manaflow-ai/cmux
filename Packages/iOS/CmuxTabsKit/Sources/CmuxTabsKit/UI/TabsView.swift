@@ -270,14 +270,40 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .transition(.opacity.animation(theme.motion.resolve(.easeInOut(duration: 0.1).delay(0.03))))
             }
 
-            if let tab = activeTab, zoomState.phase == .page, !chrome.swiping, !chrome.editing {
-                // Above the toolbar, riding the keyboard while it is up.
+            if let tab = activeTab, !chrome.swiping, !chrome.editing {
+                // Above the toolbar, riding the keyboard while it is up. Part
+                // of the zoom: it stays laid out in every phase and is drawn
+                // through the page's own rect, fading over the first half
+                // (`AccessoryZoom`), so the tabs button no longer removes it
+                // in one frame and shifts the page before the zoom starts.
+                // The path reads the grid's scroll: only while the zoom moves,
+                // so a settled grid's scroll frame does not re-run this screen.
+                let moving = zoomState.phase == .animating || zoomState.phase == .interactive
+                let z = AccessoryZoom.presentation(zoomState, path: moving ? zoomPath() : ZoomRectPath(full: fullRect, card: fullRect))
+                #if DEBUG
+                let _ = AccessoryProbe.note(z, moving: moving,
+                                            bottom: size.height - (keyboard > 0 ? keyboard : size.height - layout.capsule.minY + 8))
+                #endif
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    source.accessory(for: tab, context: contentContext)
+                    // Held still while the zoom moves and on the grid: the
+                    // zoom re-runs this screen every frame, and a fresh
+                    // context re-ran the composer's body on each of them.
+                    DormantGate(dormant: zoomState.phase != .page) {
+                        source.accessory(for: tab, context: contentContext)
+                    }
+                    .equatable()
+                    // Another tab (a card tapped on the grid) is another row,
+                    // never the held one.
+                    .id(tab.id)
                 }
                 .padding(.bottom, keyboard > 0 ? keyboard : size.height - layout.capsule.minY + 8)
                 .frame(width: size.width, height: size.height)
+                .scaleEffect(z.scale, anchor: .topLeading)
+                .offset(x: z.origin.x, y: z.origin.y)
+                .opacity(z.opacity)
+                .allowsHitTesting(z.interactive)
+                .accessibilityHidden(!z.accessible)
             }
 
             // Out of the hierarchy on the settled grid (invisible there, and
@@ -421,7 +447,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
         ZStack(alignment: .topLeading) {
             theme.colors.pageBackground
             if let tab = activeTab {
-                source.content(for: tab, context: contentContext)
+                // Held still while the zoom moves (`DormantGate`): it gets
+                // the zoom's first context (not interactive) once, instead
+                // of re-running its body on every frame of the zoom.
+                DormantGate(dormant: phase == .animating || phase == .interactive) {
+                    source.content(for: tab, context: contentContext)
+                }
+                .equatable()
                     .offset(y: -contentOffset)
                     .id(tab.id)
                 // Until the content is ready, and while a new tab grows from
@@ -611,6 +643,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// Prepares the grid when it is about to appear from the page.
     private func prepareOverview(revealing index: Int, count: Int) {
         source.overviewWillAppear()
+        // The accessory row stays mounted through the zoom (it used to be
+        // removed here, which also ended its text field's editing): the
+        // keyboard goes down with the page, never stays up over the grid.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen.
         let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: count, pinned: pinnedCount, columns: overviewColumns)
