@@ -195,8 +195,8 @@ impl Hub {
             Some((id, through)) => self.held_fold_through(id, through),
             None => Ok(HeldFold::default()),
         };
-        let fold = fold
-            .map_err(|e| RpcError::internal(format!("transfer: read approval snapshot: {e}")))?;
+        let fold =
+            fold.map_err(|e| RpcError::internal(format!("transfer: read approval snapshot: {e}")))?;
         self.held_prompts_from(fold, bundle)
     }
 

@@ -174,6 +174,9 @@ struct Freeze {
     finish_ms: u128,
     commit_ms: u128,
     export_ms: u128,
+    /// The prepare's pack of the history, on its blocking thread, and the export's own work.
+    pack_ms: Value,
+    export_answer_ms: Value,
 }
 
 impl Freeze {
@@ -231,10 +234,25 @@ async fn timed_freeze(prompts: usize) -> Freeze {
     let (export, _) = stage_history(&mut src, &mut dst, &id, &through).await;
     let export_ms = at.elapsed().as_millis();
     let log_bytes = export["packed"]["rawBytes"].as_u64().unwrap();
+    let pack_ms = export["packed"]["prepackMs"].clone();
+    let export_answer_ms = export["packed"]["ms"].clone();
+    // The export bundled the prepare's pack: it did not pack the log again.
+    assert!(pack_ms.is_u64(), "the export packed again: {export}");
     for dir in dirs {
         let _ = std::fs::remove_dir_all(dir);
     }
-    Freeze { prompts, log_bytes, prepare_ms, begin_ms, receive_ms, finish_ms, commit_ms, export_ms }
+    Freeze {
+        prompts,
+        log_bytes,
+        prepare_ms,
+        begin_ms,
+        receive_ms,
+        finish_ms,
+        commit_ms,
+        export_ms,
+        pack_ms,
+        export_answer_ms,
+    }
 }
 
 /// The freeze (begin to commit) of a history-later move does not grow with the log: a log 20
@@ -246,7 +264,8 @@ async fn the_freeze_of_a_history_later_move_does_not_grow_with_the_log() {
     for f in [&small, &large] {
         eprintln!(
             "freeze of a {:.1} MB log ({} prompts): begin {} ms, receive {} ms, finish {} ms, \
-             commit {} ms, total {} ms; prepare {} ms, history export through its follow {} ms",
+             commit {} ms, total {} ms; prepare {} ms (its background pack {} ms); after the \
+             commit, history export {} ms, export through its stage {} ms",
             f.log_bytes as f64 / 1048576.0,
             f.prompts,
             f.begin_ms,
@@ -255,6 +274,8 @@ async fn the_freeze_of_a_history_later_move_does_not_grow_with_the_log() {
             f.commit_ms,
             f.total(),
             f.prepare_ms,
+            f.pack_ms,
+            f.export_answer_ms,
             f.export_ms,
         );
     }

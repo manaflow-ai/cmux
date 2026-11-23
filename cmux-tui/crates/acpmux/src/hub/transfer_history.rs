@@ -51,9 +51,8 @@ use cmux_session_pack as pack;
 pub(in crate::hub) const HISTORY_FILE: &str = "events/history.cspb";
 /// Each chat's newest history-later prepare's pack ([`Hub::prepack_history`]): the seq it packs
 /// through, and its result once done.
-static PREPACKS: std::sync::LazyLock<
-    std::sync::Mutex<HashMap<String, (u64, Arc<Prepack>)>>,
-> = std::sync::LazyLock::new(Default::default);
+static PREPACKS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, (u64, Arc<Prepack>)>>> =
+    std::sync::LazyLock::new(Default::default);
 
 /// A prepare's pack of a chat's history: `None` while it runs, then `Some` of what it made
 /// (`None` inside when it failed).
@@ -65,7 +64,6 @@ struct Prepack {
 
 #[derive(Clone)]
 struct Prepacked {
-    through: u64,
     stamp: u64,
     digest: String,
     manifest: pack::Manifest,
@@ -440,7 +438,7 @@ impl Hub {
                 let stamp = hub.store.log_stamp(&session.id)?;
                 let (manifest, stats, digest) =
                     hub.pack_through(&session, through, &store, &work)?;
-                Ok(Prepacked { through, stamp, digest, manifest, stats, ms: 0 })
+                Ok(Prepacked { stamp, digest, manifest, stats, ms: 0 })
             });
             let _ = crate::home_fs::remove_dir_all(&work);
             match packed {
@@ -462,14 +460,12 @@ impl Hub {
     /// The prepare's pack of chat `session`'s log through `through`, waited for, when it is
     /// still what `store` holds of the chat and the log through `through` is as it was packed:
     /// the same log stamp (not rewritten) and the same record at `through`.
-    fn prepacked(
-        &self,
-        session: &Session,
-        through: u64,
-        store: &pack::Store,
-    ) -> Option<Prepacked> {
-        let slot = PREPACKS.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id).cloned();
-        let (at, slot) = slot.filter(|(at, _)| *at == through)?;
+    fn prepacked(&self, session: &Session, through: u64, store: &pack::Store) -> Option<Prepacked> {
+        // Taken: one export uses it, and a later one packs again (keeping its sealed segments).
+        let mut all = PREPACKS.lock().unwrap_or_else(|e| e.into_inner());
+        let slot = all.remove(&session.id).filter(|(at, _)| *at == through);
+        drop(all);
+        let (at, slot) = slot?;
         let mut packed = slot.packed.lock().unwrap_or_else(|e| e.into_inner());
         while packed.is_none() {
             packed = slot.ready.wait(packed).unwrap_or_else(|e| e.into_inner());
