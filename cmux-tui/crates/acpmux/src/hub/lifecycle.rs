@@ -5,7 +5,7 @@ use super::policy_mode::refusal_record;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
-use super::new_request::{claude_resume_refusal, unique_name_among};
+use super::new_request::{claude_resume_refusal, suffixed_name_among, unique_name_among};
 // `turns.rs` names it here.
 pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
@@ -93,6 +93,7 @@ impl Hub {
             harness,
             preset,
             name,
+            suffix_taken_name,
             cwd,
             policy,
             model,
@@ -405,11 +406,18 @@ impl Hub {
             }
             meta.name = match name {
                 Some(n) => {
-                    if sessions.values().any(|s| s.read_meta(|m| m.name == n)) {
+                    let taken = sessions.values().any(|s| s.read_meta(|m| m.name == n));
+                    // A placed or forwarded start keeps its name, suffixed (`NAME-2`), never the
+                    // agent's; any other start is refused, so `new --reuse` finds the one running.
+                    let n = if taken && suffix_taken_name {
+                        suffixed_name_among(&sessions, &n)
+                    } else if taken {
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
                         )));
-                    }
+                    } else {
+                        n
+                    };
                     // The name is a handle (a lane's): the chat is still titled (`titles.rs`).
                     meta.title_source = Some(super::titles::LAUNCHED.to_owned());
                     meta.name_given = true;
@@ -1958,6 +1966,10 @@ mod stop_fence_tests;
 #[cfg(test)]
 #[path = "probe_off_tests.rs"]
 mod probe_off_tests;
+
+#[cfg(test)]
+#[path = "taken_name_tests.rs"]
+mod taken_name_tests;
 
 /// The agent messages of a `session/load` (or a Claude fork's prime) never reach the session's
 /// preview, so its `lastMessage` stays the chat's own newest reply, as `wait --print` reads it

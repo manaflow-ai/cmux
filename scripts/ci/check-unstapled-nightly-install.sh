@@ -53,7 +53,7 @@ else
     echo "FAIL launch: no process within 20 s"; fail=$((fail+1))
     log show --last 2m --style compact --predicate 'process == "syspolicyd" OR subsystem == "com.apple.syspolicy"' 2>/dev/null | tail -20
   else
-    sleep 20
+    sleep 20  # sleep-ok: the check is that the app stays up 20 s after launch
     if kill -0 "$pid" 2>/dev/null; then echo "PASS launch: pid $pid up 20 s"; pass=$((pass+1)); else echo "FAIL launch: pid $pid exited"; fail=$((fail+1)); fi
     kill "$pid" 2>/dev/null; for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
     kill -9 "$pid" 2>/dev/null || true

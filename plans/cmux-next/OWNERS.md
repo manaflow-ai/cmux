@@ -14,6 +14,15 @@ Owners are agent names (a590), workstreams (PL-*, plans/cmux-next/perf-lead.md s
 people. When a workstream ends, its row goes back to the Performance Lead. Change a row in the
 same commit that changes ownership, and name who decided it.
 
+A row's holder is whoever is live now, not the name written here: at push time the hook
+(`scripts/cmux-next/owner_live.py`) resolves the cell to a live acpmux session, in order: one tagged
+`owns=` the row's workstream (take one with `acpmux session tag SESSION owns=PL-acpmux`; a comma
+list holds several), the session the cell names, that session's successor (`succeeds=`,
+`failover=`), the Performance Lead (`owns=PL-lead`), then the coordinator. The owner line names that
+session and the hook sends it the push (a stand-in lead or coordinator hears once a day per area and
+is asked to give it a holder). Before 2026-11-22 a push into the acpmux crate named "PL-acpmux
+(session cmux-4f)" for a month after cmux-4f had ended, and reached no one (cmux#50549).
+
 | Area | Paths | Owner | Read first |
 |---|---|---|---|
 | Sidebar (rows, groups, rail, hover card, drag, density) | `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/` | a590 (sidebar-owner agent) | [sidebar-owner.md](sidebar-owner.md) |
