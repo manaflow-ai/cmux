@@ -1291,6 +1291,8 @@ jobs:
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-24
           FLEET_CLIENT_JOBS: fast-tier
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-553
+          CI_FAST_TIER_FLEET_SPILL: ${{ vars.CI_FAST_TIER_FLEET_SPILL }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-122
           GATEWAY_JOBS: >-
             ${{ format('{0} {1}',

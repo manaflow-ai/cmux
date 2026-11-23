@@ -1766,6 +1766,19 @@ class FastTierHandback(unittest.TestCase):
         self.assertEqual(self.place(None)[0], self.SMALL)
         self.assertEqual(self.place(busy, read=False)[0], self.SMALL)
 
+    def test_the_hand_back_keeps_the_owned_route_while_blacksmith_is_off(self):
+        # With vars.CI_BLACKSMITH_MACOS off no runner serves 6 vCPU, so a fast tier the fleet handed back
+        # (verdict `queued`) waits on the owned route there, never on a Blacksmith label with no runner.
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        for switch in ("", "off", "pr-rescue"):
+            with self.subTest(switch=switch):
+                label, why = self.place(busy, CI_BLACKSMITH_MACOS=switch)
+                self.assertEqual(label, SIDE, why)
+                self.assertIn("off", why)
+        self.assertEqual(self.place(busy, CI_BLACKSMITH_MACOS="on")[0], self.SMALL)
+        # An idle owned Mac still wins.
+        self.assertEqual(self.place([runner("mini-a-glaeda-1")], CI_BLACKSMITH_MACOS="")[0], SIDE)
+
     def test_an_excluded_blacksmith_keeps_the_owned_route(self):
         busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
         label, why = self.place(busy, outage=True)
