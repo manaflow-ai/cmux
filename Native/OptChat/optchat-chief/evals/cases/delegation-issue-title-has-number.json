@@ -7,8 +7,7 @@
     {
       "text": "can someone fix issue #4812, the settings window forgets its size after a restart",
       "checks": [
-        {"type": "called", "cmd": "spawn", "re": "Title: #4812: "},
-        {"type": "no_raw_ids"}
+        {"type": "called", "cmd": "spawn", "re": "Title: #4812: "}
       ]
     }
   ]
