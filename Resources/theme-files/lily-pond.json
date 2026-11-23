@@ -7,7 +7,7 @@
 
   // Kanagawa Wave, with a deep pond-teal pane and a lily-pink accent.
   "appearance.theme": "Kanagawa Wave",
-  "colors": { "background": "#15262a", "foreground": "#dcd7ba", "selection": "#2b4a4c", "accent": "#e898b0" },
+  "colors": { "background": "#15262a", "foreground": "#dcd7ba", "selection": "#6d8d90", "accent": "#e898b0" },
   "appearance.accent": "theme",
 
   // The bundled painting behind the window, seen through blurred glass.
