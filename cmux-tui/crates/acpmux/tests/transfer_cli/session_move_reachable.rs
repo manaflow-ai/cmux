@@ -2,10 +2,150 @@
 //! 2026-11-23: "if it can "move to cloud" in the BACKEND but i still am able to interact with
 //! it with no percievable lag or whatever here ... that's gold."
 //!
-//! Both daemons are real; the source's ssh peer `target` is the stand-in `ssh` of
-//! `session_move.rs`. A move keeps the chat's id, so the source holds two rows with it after
-//! the commit: the closed one it keeps (`movedTo`) and the target's mirrored one, `target/ID`.
+//! Both daemons are real, and so is the peer link between them: the target listens on a
+//! loopback port and the source's ssh peer `target` reaches it through a stand-in `ssh` that
+//! carries the tunnel, reads the peer token and does the three operations of a move. A move
+//! keeps the chat's id, so the source holds two rows with it after the commit: the closed one
+//! it keeps (`movedTo`) and the target's mirrored one, `target/ID`.
 use super::*;
+use std::io::BufRead;
+use std::os::unix::fs::PermissionsExt;
+
+/// A daemon that also listens on a loopback port, and that port.
+fn listening(tag: &str) -> (Daemon, String) {
+    let home = PathBuf::from("/tmp").join(format!("amx-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).expect("home");
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
+    std::fs::write(home.join("config.json"), config.to_string()).expect("config");
+    let socket = home.join("s.sock");
+    let mut child = daemon_env::command(&home, daemon_env::Agents::StandIn, &[])
+        .args(["daemon", "run", "--ready-fd", "1", "--listen", "127.0.0.1:0", "--log", "warn"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_AGENT_HOSTS", "0")
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn daemon");
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+            if line.starts_with('{') {
+                let _ = tx.send(line);
+            }
+        }
+    });
+    let daemon = Daemon { home, socket, child };
+    let ready = rx.recv_timeout(Duration::from_secs(20)).expect("daemon ready");
+    let ready: Value = serde_json::from_str(&ready).unwrap();
+    let port = ready["listen"].as_str().expect("listen").rsplit(':').next().unwrap().to_owned();
+    (daemon, port)
+}
+
+/// `ssh` for the source: the peer link's tunnel and token read, and a move's forward, status
+/// and folder. No host SSH, credentials or network beyond loopback.
+fn peer_ssh(home: &Path, target: &Daemon) -> String {
+    let bin = home.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let script = format!(
+        r#"#!/usr/bin/env python3
+import json, os, pathlib, signal, socket as net, sys, threading
+home = {home}
+socket = {socket}
+args = sys.argv[1:]
+if '-W' in args:
+    host, port = args[args.index('-W') + 1].rsplit(':', 1)
+    s = net.create_connection((host, int(port)))
+    def up():
+        while True:
+            b = os.read(0, 65536)
+            if not b:
+                break
+            s.sendall(b)
+        s.shutdown(net.SHUT_WR)
+    threading.Thread(target=up, daemon=True).start()
+    while True:
+        b = s.recv(65536)
+        if not b:
+            break
+        os.write(1, b)
+    sys.exit(0)
+if '-L' in args:
+    local, remote = args[args.index('-L') + 1].split(':', 1)
+    assert remote == socket
+    os.symlink(socket, local)
+    signal.pause()
+    sys.exit(0)
+command = args[-1]
+if 'acpmux daemon status --json' in command:
+    print(home)
+    print(json.dumps({{'socket': socket}}))
+    print(500000000)
+elif 'mkdir -p' in command and 'read -r d' in command:
+    folder = pathlib.Path(sys.stdin.readline().strip())
+    assert str(folder).startswith(home + '/')
+    folder.mkdir(parents=True, exist_ok=True)
+    print(folder.resolve())
+elif 'peer.token' in command:
+    out = open(os.path.join(home, 'config.json'), 'rb').read() + b'\0'
+    os.write(1, out + open(os.path.join(home, 'run', 'peer.token'), 'rb').read())
+else:
+    sys.exit(1)
+"#,
+        home = serde_json::to_string(&target.home.to_string_lossy()).unwrap(),
+        socket = serde_json::to_string(&target.socket.to_string_lossy()).unwrap(),
+    );
+    let ssh = bin.join("ssh");
+    std::fs::write(&ssh, script).unwrap();
+    std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+    format!("{}:{}", bin.display(), daemon_env::bare_path(&[]))
+}
+
+/// The target, and a source whose peer `target` is linked to it and connected.
+async fn linked(tag: &str) -> (Daemon, Daemon, Rpc) {
+    let (target, port) = listening(&format!("{tag}t"));
+    let home = PathBuf::from("/tmp").join(format!("amx-{tag}s-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).expect("home");
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all",
+        "peers": {"target": {"url": format!("ssh://target:{port}")}}});
+    std::fs::write(home.join("config.json"), config.to_string()).expect("config");
+    let socket = home.join("s.sock");
+    let child = daemon_env::command(&home, daemon_env::Agents::StandIn, &[])
+        .env("PATH", peer_ssh(&home, &target))
+        .args(["daemon", "run", "--log", "warn"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_AGENT_HOSTS", "0")
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn daemon");
+    let source = Daemon { home, socket, child };
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while tokio::net::UnixStream::connect(&source.socket).await.is_err() {
+        assert!(tokio::time::Instant::now() < deadline, "daemon {tag} never listened");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let mut src = Rpc::connect(&source.socket).await;
+    loop {
+        let peers = src.call("_acpmux/peers", json!({})).await;
+        if peers["peers"][0]["state"] == "connected" {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the peer link never came up: {peers}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    (target, source, src)
+}
 
 fn text_prompt(session: &str, prompt_id: &str, text: &str) -> Value {
     json!({"sessionId": session, "prompt": [{"type": "text", "text": text}],
@@ -71,9 +211,7 @@ async fn user_messages(rpc: &mut Rpc, id: &str) -> Vec<String> {
 /// move then waited out the whole 20 s bound and warned "not listed here yet".
 #[tokio::test]
 async fn a_move_ends_as_soon_as_the_source_lists_the_chat_on_the_target() {
-    let target = Daemon::start("mr-t1").await;
-    let source = Daemon::with_peer("mr-s1", Some(&target)).await;
-    let mut src = Rpc::connect(&source.socket).await;
+    let (target, source, mut src) = linked("mr1").await;
     let (id, to) = chat(&source, &target, &mut src).await;
 
     let started = std::time::Instant::now();
@@ -119,9 +257,7 @@ async fn a_move_ends_as_soon_as_the_source_lists_the_chat_on_the_target() {
 /// by the peer's row key over the daemon's link, and by the CLI, with no "queued here" detour.
 #[tokio::test]
 async fn a_prompt_sent_through_the_source_at_the_commit_runs_on_the_target_at_once() {
-    let target = Daemon::start("mr-t2").await;
-    let source = Daemon::with_peer("mr-s2", Some(&target)).await;
-    let mut src = Rpc::connect(&source.socket).await;
+    let (target, source, mut src) = linked("mr2").await;
     let (id, to) = chat(&source, &target, &mut src).await;
     let key = format!("target/{id}");
 
