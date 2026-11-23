@@ -20,15 +20,15 @@ extension NotificationCenterService {
         let target: TabInteractionTarget?
         /// Where it went down (screen coordinates; a torn-off tab's mouse-up comes in another window).
         let screenLocation: NSPoint
-        let enter: (@MainActor () -> Bool)? // goes into the pressed pane: a click's ring blinks out on its mouse-up (cmux#46908)
+        let pane: LayoutPaneID?; weak var content: WorkspaceContentController? // the pressed pane, gone into by a click: its ring blinks out (cmux#46908)
         /// The pointer went past the tab drag distance at some point: a drag, even if it came back.
         var dragged = false
     }
 
     /// A strip press began on `tab` at `screenLocation`. A press whose mouse-up a tracking loop took before this ran (the titlebar
     /// row's window drag, `WindowTitlebar`) is already over: it resolves now, from where the pointer is. The app's own input has no hardware button to ask.
-    func beginStripPress(tab: String, target: TabInteractionTarget?, at screenLocation: NSPoint, synthetic: Bool, enter: (@MainActor () -> Bool)? = nil) {
-        stripPress = StripPress(tab: tab, target: target, screenLocation: screenLocation, enter: enter)
+    func beginStripPress(tab: String, target: TabInteractionTarget?, at screenLocation: NSPoint, synthetic: Bool, pane: LayoutPaneID? = nil, in content: WorkspaceContentController? = nil) {
+        stripPress = StripPress(tab: tab, target: target, screenLocation: screenLocation, pane: pane, content: content)
         viewHolds.insert(tab)
         if !synthetic, !leftButtonIsDown() { noteMouseUp(in: nil, at: pointerLocation()) }
     }
@@ -53,7 +53,7 @@ extension NotificationCenterService {
         if press.dragged || Self.beyondDragDistance(up, press.screenLocation) { return }
         // A click: the hold ends here, also for a tab the click closed (no tab left to read); it goes into the pressed pane, whose ring blinks out.
         viewHolds.remove(press.tab)
-        if press.enter?() != true, let target = press.target { interacted(.click, target: target) }
+        if let pane = press.pane, press.content?.layoutModel.enterAttention(pane, click: true) == true {} else if let target = press.target { interacted(.click, target: target) }
     }
 
     /// The person's next input after a move (a key-down; a press calls it too): every hold ends,
