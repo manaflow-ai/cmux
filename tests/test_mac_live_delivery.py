@@ -59,6 +59,12 @@ class MacLiveDelivery(unittest.TestCase):
                     self.assertEqual(Context(values)(_Parser(condition).parse()), {True})
                     values["github.ref"] = "refs/heads/lane/untrusted"
                     self.assertEqual(Context(values)(_Parser(condition).parse()), {False})
+                    # A PR head's push publishes its own per-commit file; a manual run there does not.
+                    values["github.ref"] = "refs/heads/some-pr-head"
+                    self.assertEqual(Context(values)(_Parser(condition).parse()),
+                                     {event == "push"})
+                    values["github.ref"] = "refs/heads/main"
+                    self.assertEqual(Context(values)(_Parser(condition).parse()), {False})
 
     def run_step(self, failure):
         with tempfile.TemporaryDirectory() as tmp:

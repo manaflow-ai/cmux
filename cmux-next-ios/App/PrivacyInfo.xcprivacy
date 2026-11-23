@@ -104,6 +104,8 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>CA92.1</string>
+				<!-- 1C8F.1: the push preferences in the App Group defaults, shared with the notification extensions. -->
+				<string>1C8F.1</string>
 			</array>
 		</dict>
 		<dict>

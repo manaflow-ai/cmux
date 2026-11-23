@@ -58,6 +58,8 @@ asks_of() {
   sleep 0.3
   python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("writes_up", 0))' "$1" 2>/dev/null || echo 0
 }
+# With ASK_LOG set (a file the mounts append their timed asks to), mark the cold builds' windows.
+mark() { [ -z "${ASK_LOG:-}" ] || echo "{\"mark\":\"$1\",\"t\":$(now)}" >>"$ASK_LOG"; }
 json_or_null() { if [ -n "$1" ]; then echo "$1"; else echo null; fi; }
 
 cleanup() {
@@ -143,7 +145,7 @@ start_mount() {
   local at=$1 state=$2 out=$3 start
   rm -rf "$state"; mkdir -p "$state" "$at"
   start=$(now)
-  "$BIN" mount "127.0.0.1:$P2" "$at" "$state" >"$out" 2>"$out.err" &
+  env ${ASK_LOG:+SLICE_ASK_LOG="$ASK_LOG"} "$BIN" mount "127.0.0.1:$P2" "$at" "$state" >"$out" 2>"$out.err" &
   MOUNT_PID=$!
   PIDS+=("$MOUNT_PID")
   MOUNTS+=("$at")
@@ -185,7 +187,9 @@ run_projected() {
   r20=$(read20_ms "$at")
   log "projected $run: cargo cold"
   asks_c0=$(asks_of "$ROOT/link-proj.json")
+  mark "cold-$run-begin"
   cold=$(build "$at" "$LOGS/cargo-proj-cold-$run.log")
+  mark "cold-$run-end"
   asks_c1=$(asks_of "$ROOT/link-proj.json")
   echo >>"$at/cmux-tui/$WIRE"
   log "projected $run: cargo warm"
@@ -201,7 +205,9 @@ run_projected() {
   start_mount "$at" "$ROOT/state-proj2" "$LOGS/mount2-$run.out"
   local cold_local
   asks_l0=$(asks_of "$ROOT/link-proj.json")
+  mark "local-$run-begin"
   cold_local=$(CARGO_TARGET_DIR=$ROOT/target-proj build "$at" "$LOGS/cargo-proj-localtarget-$run.log")
+  mark "local-$run-end"
   asks_l1=$(asks_of "$ROOT/link-proj.json")
   stop_mount "$at" "$MOUNT_PID"
   local stats2; stats2=$(sed -n 3p "$LOGS/mount2-$run.out")

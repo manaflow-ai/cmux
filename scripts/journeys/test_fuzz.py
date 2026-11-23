@@ -340,7 +340,7 @@ class Verdicts(unittest.TestCase):
         (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": "soon"}))
         opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19", whole_host=None)
         def later():
-            time.sleep(6)
+            time.sleep(6)  # sleep-ok: a simulated late GO writer; wait_go must still be polling 6 s on
             (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": time.time() + 300}))
         threading.Thread(target=later, daemon=True).start()
         t = time.time()
@@ -375,7 +375,7 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(json.loads((tmp / "fz.done").read_text())["go"], "2026-10-31T12:53:32Z")
         def later():
             (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": until, "go": "2026-10-31T12:53:32Z"}))
-            time.sleep(6)
+            time.sleep(6)  # sleep-ok: a simulated late GO writer; wait_go must still be polling 6 s on
             (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": until, "go": "2026-10-31T12:59:00Z"}))
         threading.Thread(target=later, daemon=True).start()
         t = time.time()
@@ -398,9 +398,9 @@ class Verdicts(unittest.TestCase):
         opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19", whole_host=None)
         import threading
         def later():
-            time.sleep(6)
+            time.sleep(6)  # sleep-ok: a simulated late GO writer; wait_go must still be polling 6 s on
             (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": time.time() - 10}))
-            time.sleep(6)
+            time.sleep(6)  # sleep-ok: a simulated late GO writer; wait_go must still be polling 6 s on
             (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": time.time() + 300}))
         threading.Thread(target=later, daemon=True).start()
         self.assertEqual(fuzz.wait_go(opts, "round 1 test")[0], "cmux19")
