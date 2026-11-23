@@ -161,15 +161,16 @@ pub(in crate::hub) fn configured_attempts(delays: Option<&Vec<u64>>) -> usize {
 pub const CAPACITY_MAX_WAIT_MS: u64 = 300_000;
 
 /// The wait before capacity attempt `index` (from 0): the configured wait, at most
-/// [`CAPACITY_MAX_WAIT_MS`]; past the configured waits the last one doubling per attempt, at
-/// most the same. Jittered per chat and attempt so chats an outage cut together spread out.
+/// [`CAPACITY_MAX_WAIT_MS`] (a longer configured wait would hold a chat past capacity's return);
+/// past the configured waits the last one doubling per attempt, at most the same. Jittered per
+/// chat and attempt so chats an outage cut together spread out.
 pub(super) fn capacity_wait(index: usize, delays: &[u64], session_id: &str) -> u64 {
     let last = delays.last().copied().unwrap_or(MIN_DELAY_MS).max(1);
     let wait = delays.get(index).copied().unwrap_or_else(|| {
         let past = u32::try_from(index + 1 - delays.len()).unwrap_or(u32::MAX).min(20);
         last.saturating_mul(1u64 << past)
     });
-    let wait = wait.min(CAPACITY_MAX_WAIT_MS.max(last));
+    let wait = wait.min(CAPACITY_MAX_WAIT_MS);
     staggered(wait, &format!("{session_id}#{index}"))
 }
 
