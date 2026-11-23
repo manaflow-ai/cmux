@@ -43,7 +43,6 @@ github
 group-editor
 history
 home-channels
-home-messages
 icon-picker
 keybindings
 machines
@@ -71,6 +70,8 @@ SPLIT_STRINGS="settings home-channels"
 # Pages that also carry a subset of the agent pane's table (generated/pane-strings.json, for the
 # pane rows they reuse): it ships the same way, as pane-locales/<locale>.js into __cmuxPaneStrings.
 SPLIT_PANE_STRINGS="home-channels"
+# Pages kept unpacked (pack-pages.mjs --keep): the first window's, and onboarding (a first launch's).
+UNPACKED_PAGES="home-channels,sidebar-chats,setup-card,onboarding"
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"
 
@@ -121,14 +122,25 @@ $pane_loader" ;;
     printf 'import "./app.js";\n'
     printf '\n</script>\n</body>\n</html>\n'
   } | perl -pe 's/[ \t]+$//' > "$WORK/$page/index.html"
-
+done
+# The pages the first window never shows are stored raw-deflated and inflated in memory when a page
+# asks for them (scripts/pages/pack-pages.mjs, CmuxNextPages PagePackedFile.swift; CMUX-570). Home,
+# what the first window shows with it (its messages, the sidebar's chats, the setup card) and the
+# first-run onboarding stay as they are, with every chunk they can load.
+bun scripts/pages/pack-pages.mjs "$WORK" "$WORK/metafile.json" --keep "$UNPACKED_PAGES" $PAGES
+for page in $PAGES; do
   out="$OUT_ROOT/$page/index.html"
   if [ "$MODE" = "--check" ]; then
     :
   else
     mkdir -p "$OUT_ROOT/$page"
     cp "$WORK/$page/index.html" "$out"
-    cp "$WORK/$page/app.js" "$OUT_ROOT/$page/app.js"
+    # A packed page's entry is __shared/page-<page>.js; a rebuild must not leave an older app.js.
+    if [ -f "$WORK/$page/app.js" ]; then
+      cp "$WORK/$page/app.js" "$OUT_ROOT/$page/app.js"
+    else
+      rm -f "$OUT_ROOT/$page/app.js"
+    fi
     for dir in locales pane-locales; do
       if [ -d "$WORK/$page/$dir" ]; then
         rm -rf "${OUT_ROOT:?}/$page/$dir"

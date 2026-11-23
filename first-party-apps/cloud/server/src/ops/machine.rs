@@ -36,6 +36,7 @@ struct MachinePage {
 
 pub(super) fn run<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
+    lifecycle: &mut super::machine_lifecycle::Ledger,
     name: &str,
     raw: &Value,
 ) -> Result<Value, CloudError> {
@@ -87,10 +88,16 @@ pub(super) fn run<C: ControlPlane>(
             args::name(map, "name")?.ok_or_else(|| CloudError::invalid("name is required"))?;
             machine_mutation(ctx, name, trimmed(map, &["machine", "name"]))
         }
-        "cloud.machine.start" | "cloud.machine.pause" => {
+        "cloud.machine.start" | "cloud.machine.pause" | "cloud.machine.delete" => {
             let map = args::object(raw, &["machine"])?;
-            args::id(map, "machine")?;
-            machine_mutation(ctx, name, args::params(map, &["machine"]))
+            let id = args::id(map, "machine")?;
+            lifecycle.run(ctx, name, id).map_err(|error| {
+                if super::delete_retry::indeterminate(&error) || error.code == codes::BAD_RESPONSE {
+                    super::delete_retry::retry_with_same_key(name, error)
+                } else {
+                    error
+                }
+            })
         }
         "cloud.machine.resize" => {
             let map = args::object(raw, &["machine", "size"])?;
@@ -119,20 +126,6 @@ pub(super) fn run<C: ControlPlane>(
             let map = args::object(raw, &["machine"])?;
             args::id(map, "machine")?;
             machine_mutation(ctx, name, args::params(map, &["machine"]))
-        }
-        "cloud.machine.delete" => {
-            let map = args::object(raw, &["machine"])?;
-            let id = args::id(map, "machine")?;
-            let answer = ctx.wire(name, args::params(map, &["machine"]));
-            let result = gone_if_not_found(ctx, id, answer)?;
-            deleted(&result.value)?;
-            // The answer's revision is the removal's: an older upsert of
-            // this machine never brings it back.
-            match result.revision.and_then(|r| Revision::try_from(r).ok()) {
-                Some(revision) => ctx.projection.remove_at(id, revision),
-                None => ctx.projection.remove(id),
-            }
-            Ok(json!({ "deleted": true }))
         }
         "cloud.machine.connect_info" => {
             // Exactly one of `machine` and `host` (contract 1.7).
