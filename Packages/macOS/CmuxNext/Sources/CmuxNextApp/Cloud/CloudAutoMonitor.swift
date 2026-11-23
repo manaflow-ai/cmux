@@ -21,49 +21,69 @@ final class CloudAutoMonitor {
     private var power: CFRunLoopSource?
     /// The next re-read while an Auto chat exists; none is scheduled when no chat is on Auto.
     private let tick = DemandTimer(owner: "CloudAutoMonitor.tick")
+    /// What the system callbacks report, delivered in order to the one loop that owns them (``loop``).
+    private enum Event: Sendable { case sleep(Bool), memory(String), power, turnEnded(String) }
+    nonisolated private let events: AsyncStream<Event>.Continuation
+    private let stream: AsyncStream<Event>
+    private var loop: Task<Void, Never>?
     /// When each session's last turn ended (for the rule's idle time).
     private var turnEnded: [String: UInt64] = [:]
 
     /// How often Auto reads again with no change to wake it.
     static let interval: TimeInterval = 30
 
-    init(services: AppServices) { self.services = services }
+    init(services: AppServices) {
+        self.services = services
+        (stream, events) = AsyncStream<Event>.makeStream(bufferingPolicy: .bufferingNewest(64))
+    }
+
+    deinit { events.finish(); loop?.cancel() }
+
+    private func handle(_ event: Event) {
+        switch event {
+        case .sleep(let asleep): sleeping = asleep
+        case .memory(let level): memory = level
+        case .power: break
+        case .turnEnded(let session): turnEnded[session] = services.cloud.place.nowMs; return
+        }
+        evaluate()
+    }
 
     /// Starts watching: every change of a signal asks Rust about each Auto chat, and while one is on Auto a 30 second
     /// deadline asks again (idle time and long turns change with no event).
     func start() {
         guard !started else { return }
         started = true
+        let stream = stream
+        loop = Task { [weak self] in
+            for await event in stream { self?.handle(event) }
+        }
+        let events = events
         let center = NSWorkspace.shared.notificationCenter
-        observers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.sleeping = true; self?.evaluate() }
+        observers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
+            events.yield(.sleep(true))
         })
-        observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.sleeping = false; self?.evaluate() }
+        observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            events.yield(.sleep(false))
         })
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: .main)
-        source.setEventHandler { [weak self, weak source] in
+        source.setEventHandler { [weak source] in
             guard let event = source?.data else { return }
-            let level = event.contains(.critical) ? "critical" : event.contains(.warning) ? "warn" : "normal"
-            Task { @MainActor in
-                guard let self else { return }
-                self.memory = level
-                self.evaluate()
-            }
+            events.yield(.memory(event.contains(.critical) ? "critical" : event.contains(.warning) ? "warn" : "normal"))
         }
         source.resume()
         pressure = source
         let context = Unmanaged.passUnretained(self).toOpaque()
-        if let loop = IOPSNotificationCreateRunLoopSource({ context in
+        if let source = IOPSNotificationCreateRunLoopSource({ context in
             guard let context else { return }
             let monitor = Unmanaged<CloudAutoMonitor>.fromOpaque(context).takeUnretainedValue()
-            Task { @MainActor in monitor.evaluate() }
+            monitor.events.yield(.power)
         }, context)?.takeRetainedValue() {
-            CFRunLoopAddSource(CFRunLoopGetMain(), loop, .defaultMode)
-            power = loop
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+            power = source
         }
-        AgentTurnStateStore.shared.turnEndedObservers.append { [weak self] session, _ in
-            Task { @MainActor in guard let self else { return }; self.turnEnded[session] = self.services.cloud.place.nowMs }
+        AgentTurnStateStore.shared.turnEndedObservers.append { session, _ in
+            events.yield(.turnEnded(session))
         }
     }
 
