@@ -140,6 +140,7 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
     subagent: boolean;
     pill?: Rect;
     row?: { id: string; rect: Rect };
+    tray?: { height: number; entering: boolean };
   };
   /// Starts sampling every frame into `window.__frames`, each tagged with `window.__step`, twice: as
   /// the frame painted it (`cmuxAfterPaint`, support/paintedFrames.ts) and as the frame's own
@@ -169,9 +170,15 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
           at,
           step: w.__step,
           composer: rect(document.querySelector(".acpmux-composer-box")),
-          subagent: Boolean(document.querySelector(".acpmux-subagent-composer")),
+          subagent: Boolean(document.querySelector("form[data-composer-relay]")),
           pill: rect(document.querySelector(".cv-subagent-of")),
           row: last ? { id: last.getAttribute("data-row-id") ?? "", rect: rect(last) } : undefined,
+          tray: (() => {
+            const tray = document.querySelector(".acpmux-running-tray:not(.acpmux-running-tray--ghost)");
+            return tray
+              ? { height: tray.getBoundingClientRect().height, entering: tray.hasAttribute("data-tray-enter") }
+              : undefined;
+          })(),
         });
       };
       w.__stop = w.cmuxAfterPaint(
@@ -255,7 +262,7 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
       await sample(page);
       // 1. The subagent opens in the pane; its composer mounts.
       await reveal(page);
-      await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
+      await page.locator("form[data-composer-relay]").waitFor({ timeout: 10_000 });
       await settle(page, 30);
       // 2. A reply streams into the chat while the subagent shows.
       await step(page, "stream");
@@ -267,17 +274,17 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
       // 3. Back to the chat, then the subagent again.
       await step(page, "to-chat");
       await page.locator(".cv-subagent-of__pill").click();
-      await page.waitForFunction(() => !document.querySelector(".acpmux-subagent-composer"), undefined, {
+      await page.waitForFunction(() => !document.querySelector("form[data-composer-relay]"), undefined, {
         timeout: 10_000,
       });
       await settle(page, 30);
       await step(page, "to-subagent");
       await reveal(page);
-      await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
+      await page.locator("form[data-composer-relay]").waitFor({ timeout: 10_000 });
       await settle(page, 30);
       // 4. A prompt typed until it wraps: the composer's one declared move (composer-growth).
       await step(page, "type-wrap");
-      await page.locator('.acpmux-subagent-composer [role="textbox"]').first().click();
+      await page.locator('form[data-composer-relay] [contenteditable="true"]').first().click();
       await page.keyboard.type(
         "Please also check that the rebased branch still passes the gallery's undeclared-move run before it lands, and say which states changed and by how many pixels each one moved, then post the table on the pull request so the reviewer sees it before the merge",
       );
@@ -291,6 +298,10 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
           `LAYOUT-MOTION subagent step=${name} ${JSON.stringify(value)} callbacksLastRow=${inCallbacks[name]?.lastRow ?? 0}`,
         );
       expect(all.some((frame) => frame.subagent)).toBe(true);
+      const trays = all.filter((frame) => frame.step === "to-chat" && frame.tray);
+      console.log(
+        `LAYOUT-MOTION subagent to-chat tray ${JSON.stringify(trays.slice(0, 6).map((frame) => frame.tray))}`,
+      );
       // Nothing moves but the composer's own growth while the prompt wraps.
       for (const name of ["open-subagent", "stream", "to-chat", "to-subagent"]) {
         expect({ step: name, composer: result[name]?.composer ?? 0 }).toEqual({ step: name, composer: 0 });

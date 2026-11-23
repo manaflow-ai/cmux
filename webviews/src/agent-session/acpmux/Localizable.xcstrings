@@ -323892,7 +323892,7 @@
       }
     },
     "subagents.messagePlaceholder": {
-      "comment": "Agent pane: the accessible name of a subagent's own composer prompt in its pane; {name} is the subagent",
+      "comment": "Agent pane: the placeholder of a subagent's own composer in its pane; {name} is the subagent",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -324023,530 +324023,134 @@
         }
       }
     },
-    "subagents.messageSend": {
-      "comment": "Agent pane: the Send button of a subagent's own composer; {name} is the subagent",
+    "subagents.messageTextOnly": {
+      "comment": "Agent pane: the note when a file is pasted, dropped or chosen in a subagent's composer, whose message to the subagent is text only",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send to {name}"
+            "value": "A message to a subagent can only be text."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أرسل إلى {name}"
+            "value": "يمكن أن تكون الرسالة إلى وكيل فرعي نصًا فقط."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pošalji za {name}"
+            "value": "Poruka podagentu može biti samo tekst."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send til {name}"
+            "value": "En besked til en underagent kan kun være tekst."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "An {name} senden"
+            "value": "Eine Nachricht an einen Subagenten kann nur Text sein."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enviar a {name}"
+            "value": "Un mensaje a un subagente solo puede ser texto."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Envoyer à {name}"
+            "value": "Un message à un sous-agent ne peut être que du texte."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invia a {name}"
+            "value": "Un messaggio a un subagente può essere solo testo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{name} に送信"
+            "value": "サブエージェントへのメッセージはテキストのみです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្ញើទៅ {name}"
+            "value": "សារទៅកាន់ភ្នាក់ងាររងអាចជាអត្ថបទតែប៉ុណ្ណោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "{name}에게 보내기"
+            "value": "하위 에이전트에게 보내는 메시지는 텍스트만 가능합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send til {name}"
+            "value": "En melding til en underagent kan bare være tekst."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyślij do {name}"
+            "value": "Wiadomość do podagenta może zawierać tylko tekst."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enviar para {name}"
+            "value": "Uma mensagem para um subagente só pode ser texto."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отправить {name}"
+            "value": "Сообщение субагенту может быть только текстом."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ส่งถึง {name}"
+            "value": "ข้อความถึงเอเจนต์ย่อยต้องเป็นข้อความเท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{name} adlı alt ajana gönder"
+            "value": "Bir alt ajana gönderilen mesaj yalnızca metin olabilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Надіслати {name}"
+            "value": "Повідомлення субагенту може бути лише текстом."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gửi cho {name}"
+            "value": "Tin nhắn gửi đến tác tử con chỉ có thể là văn bản."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发送给 {name}"
+            "value": "发给子代理的消息只能是文本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "傳送給 {name}"
-          }
-        }
-      }
-    },
-    "subagents.messagePlaceholderShort": {
-      "comment": "Agent pane: the placeholder of a subagent's own composer in its pane (the pill over the transcript names the subagent's task)",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Message subagent"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "راسِل الوكيل الفرعي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Poruka podagentu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Besked til subagent"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nachricht an Subagent"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mensaje al subagente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Message au sous-agent"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Messaggio al subagente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サブエージェントにメッセージ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ញើសារទៅភ្នាក់ងាររង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하위 에이전트에게 메시지"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Melding til underagent"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wiadomość do podagenta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mensagem para o subagente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сообщение субагенту"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งข้อความถึงเอเจนต์ย่อย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alt ajana mesaj"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повідомлення субагенту"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nhắn cho tác tử phụ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "给子代理发消息"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "傳訊息給子代理"
-          }
-        }
-      }
-    },
-    "subagents.addUnavailable": {
-      "comment": "Agent pane: tooltip of the disabled + button in a subagent's own composer: a message to a subagent goes as text only, so nothing can be attached",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A subagent takes text only"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الوكيل الفرعي يقبل النص فقط"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podagent prima samo tekst"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En subagent tager kun tekst"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Subagent nimmt nur Text an"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un subagente solo acepta texto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un sous-agent n'accepte que du texte"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un subagente accetta solo testo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サブエージェントにはテキストのみ送れます"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ភ្នាក់ងាររងទទួលតែអត្ថបទប៉ុណ្ណោះ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하위 에이전트는 텍스트만 받습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En underagent tar bare tekst"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podagent przyjmuje tylko tekst"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Um subagente aceita apenas texto"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Субагент принимает только текст"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอเจนต์ย่อยรับได้เฉพาะข้อความ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alt ajan yalnızca metin alır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Субагент приймає лише текст"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tác tử phụ chỉ nhận văn bản"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "子代理只接受文本"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "子代理只接受文字"
-          }
-        }
-      }
-    },
-    "subagents.messageVia": {
-      "comment": "Agent pane: under a subagent's own composer, the chat that takes the message and passes it on to the subagent; {name} is the chat",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sent through {name}"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يُرسَل عبر {name}"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Šalje se preko {name}"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sendes via {name}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Geht über {name}"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se envía a través de {name}"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Envoyé via {name}"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inviato tramite {name}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{name} 経由で送信"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ញើតាម {name}"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{name}을(를) 통해 전송"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sendes via {name}"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wysyłane przez {name}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviado por meio de {name}"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отправляется через {name}"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งผ่าน {name}"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{name} üzerinden gönderilir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Надсилається через {name}"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gửi qua {name}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "经由 {name} 发送"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "經由 {name} 傳送"
+            "value": "傳給子代理的訊息只能是文字。"
           }
         }
       }
