@@ -2905,17 +2905,6 @@
       },
       "type": "object"
     },
-    "AutoSettleParams": {
-      "additionalProperties": false,
-      "properties": {
-        "_meta": {
-          "$ref": "#/types/RequestMeta"
-        },
-        "never": true,
-        "sessionId": true
-      },
-      "type": "object"
-    },
     "AttachParams": {
       "additionalProperties": false,
       "properties": {
@@ -3159,6 +3148,17 @@
           ],
           "description": "None: the chat's owner."
         }
+      },
+      "type": "object"
+    },
+    "AutoSettleParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "never": true,
+        "sessionId": true
       },
       "type": "object"
     },
