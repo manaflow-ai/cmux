@@ -441,6 +441,94 @@ fn unset_status_line_command_never_leaves_an_invalid_status_line() {
 }
 
 #[test]
+fn permission_rules_add_and_remove_in_place() {
+    let f = fixture();
+    let user = f.ctx.homes.claude_settings();
+    fs::write(
+        &user,
+        "{\n  \"model\": \"opus\",\n  \"permissions\": {\"allow\": [\"Read\"], \"defaultMode\": \"plan\"}\n}\n",
+    )
+    .unwrap();
+    let written = rule(&f.ctx, "allow", "Bash(npm run test:*)", true, None).unwrap();
+    assert_eq!(written.key, "permissions.allow");
+    assert!(written.backup.is_some());
+    let doc: Value = serde_json::from_str(&fs::read_to_string(&user).unwrap()).unwrap();
+    assert_eq!(doc["permissions"]["allow"], json!(["Read", "Bash(npm run test:*)"]));
+    assert_eq!(doc["permissions"]["defaultMode"], "plan");
+    assert_eq!(doc["model"], "opus");
+
+    // Adding it again, or removing one that is not there, writes nothing.
+    let before = fs::read_to_string(&user).unwrap();
+    rule(&f.ctx, "allow", "Bash(npm run test:*)", true, None).unwrap();
+    rule(&f.ctx, "deny", "WebFetch", false, None).unwrap();
+    assert_eq!(fs::read_to_string(&user).unwrap(), before);
+
+    // The last rule out takes the list with it.
+    rule(&f.ctx, "allow", "Read", false, None).unwrap();
+    rule(&f.ctx, "allow", "Bash(npm run test:*)", false, None).unwrap();
+    let doc: Value = serde_json::from_str(&fs::read_to_string(&user).unwrap()).unwrap();
+    assert!(doc["permissions"].get("allow").is_none(), "{doc}");
+    assert_eq!(doc["permissions"]["defaultMode"], "plan");
+
+    // A project's deny goes in its own file, which settings get then shows.
+    let written = rule(&f.ctx, "deny", "Read(./.env)", true, Some("project")).unwrap();
+    assert_eq!(written.path, f.project.join(".claude/settings.json"));
+    assert!(written.backup.is_none());
+    let report = report(&f.ctx, Agent::Claude);
+    assert!(report.to_string().contains("Read(./.env)"), "{report}");
+}
+
+#[test]
+fn permission_rules_keep_the_rest_of_the_file_byte_for_byte() {
+    let f = fixture();
+    let user = f.ctx.homes.claude_settings();
+    let before = "{\n    \"permissions\": {\n        \"deny\": [\"WebFetch\"],\n        \"ask\": [\"Bash(git push:*)\"]\n    },\n    \"zzz\": 1,\n    \"model\": \"opus\"\n}\n";
+    fs::write(&user, before).unwrap();
+    rule(&f.ctx, "ask", "Bash(rm:*)", true, None).unwrap();
+    let after = fs::read_to_string(&user).unwrap();
+    let doc: Value = serde_json::from_str(&after).unwrap();
+    assert_eq!(doc["permissions"]["ask"], json!(["Bash(git push:*)", "Bash(rm:*)"]));
+    assert_eq!(doc["permissions"]["deny"], json!(["WebFetch"]));
+    // Everything outside the edited list is the same text, in the same order.
+    let tail = "\n    },\n    \"zzz\": 1,\n    \"model\": \"opus\"\n}\n";
+    assert!(
+        after.starts_with("{\n    \"permissions\": {\n        \"deny\": [\"WebFetch\"],"),
+        "{after}"
+    );
+    assert!(after.ends_with(tail), "{after}");
+    rule(&f.ctx, "ask", "Bash(rm:*)", false, None).unwrap();
+    let doc: Value = serde_json::from_str(&fs::read_to_string(&user).unwrap()).unwrap();
+    assert_eq!(doc, serde_json::from_str::<Value>(before).unwrap());
+}
+
+#[test]
+fn permission_rules_leave_a_file_claude_code_ignores_untouched() {
+    let f = fixture();
+    let user = f.ctx.homes.claude_settings();
+    // Claude Code reads settings.json as strict JSON and skips a file with a comment, so a rule
+    // written there would never apply: the edit is refused and the file stays as it was.
+    let before = "{\n  // mine\n  \"permissions\": {\"allow\": [\"Read\"]}\n}\n";
+    fs::write(&user, before).unwrap();
+    let error = rule(&f.ctx, "allow", "Bash", true, None).unwrap_err();
+    assert!(error.message.contains("comment"), "{}", error.message);
+    assert_eq!(fs::read_to_string(&user).unwrap(), before);
+}
+
+#[test]
+fn permission_rules_refuse_what_claude_code_would_not_read() {
+    let f = fixture();
+    assert!(rule(&f.ctx, "permit", "Bash", true, None).is_err());
+    assert!(rule(&f.ctx, "allow", "", true, None).is_err());
+    assert!(rule(&f.ctx, "allow", "Bash(npm", true, None).is_err());
+    assert!(rule(&f.ctx, "allow", "two words", true, None).is_err());
+    assert!(rule(&f.ctx, "allow", "Bash", true, Some("local")).is_ok());
+    let user = f.ctx.homes.claude_settings();
+    fs::write(&user, "{\"permissions\": {\"allow\": \"Bash\"}}").unwrap();
+    let error = rule(&f.ctx, "allow", "Read", true, None).unwrap_err();
+    assert!(error.message.contains("not a list"), "{}", error.message);
+}
+
+#[test]
 fn claude_env_set_and_unset_edit_only_that_variable_and_stay_masked() {
     let f = fixture();
     let path = f.ctx.homes.claude_settings();

@@ -26,6 +26,9 @@
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
 //!
+//! `owner.fork_run` is cmux-platform's fork runs (`args.verb`: `start`, `get` or `select`;
+//! [`fork_runs`]): one machine captured once, one copy-on-write child per harness, one kept.
+//!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
 //!
@@ -51,6 +54,7 @@ pub mod background;
 mod chat;
 pub mod chief_machine;
 pub mod classic_runs;
+mod fork_runs;
 mod http;
 mod machine;
 pub mod machine_io;
