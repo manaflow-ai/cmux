@@ -227,6 +227,23 @@ struct LibraryFile {
     /// Top first.
     entries: Vec<Entry>,
     base: Base,
+    /// The app commit (`CMUXCommit`, as the app stamps it) `refresh` last
+    /// ran on, so the app runs it again at start only after an update.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refreshed_on: Option<String>,
+}
+
+/// Whether `refresh` is due on an app at `app` (its `CMUXCommit`) when it
+/// last ran on `recorded`: never on a build with no commit (a DEV build),
+/// always the first time, then only when the commit changed. A NIGHTLY
+/// stamps a short commit, so one that starts the other is the same commit.
+pub fn refresh_due(recorded: Option<&str>, app: Option<&str>) -> bool {
+    let Some(app) = app.map(str::trim).filter(|app| !app.is_empty()) else { return false };
+    let Some(recorded) = recorded.map(str::trim).filter(|recorded| !recorded.is_empty()) else {
+        return true;
+    };
+    let (app, recorded) = (app.to_ascii_lowercase(), recorded.to_ascii_lowercase());
+    !(app.starts_with(&recorded) || recorded.starts_with(&app))
 }
 
 /// One entry as a list shows it.
@@ -416,6 +433,24 @@ impl Customize {
     /// The entries, top first, and every conflict among those that are on.
     pub fn library(&self) -> Result<Listing, Error> {
         Ok(listing(&self.read_library()?.entries))
+    }
+
+    /// The app commit `refresh` last ran on ([`refresh_due`]).
+    pub fn library_refreshed_on(&self) -> Result<Option<String>, Error> {
+        Ok(self.read_library()?.refreshed_on)
+    }
+
+    /// Records that `refresh` ran on app commit `commit`. Only that field
+    /// changes: no generation, nothing live. Writes nothing when it is
+    /// already the one recorded.
+    pub fn library_mark_refreshed(&self, commit: &str) -> Result<(), Error> {
+        let _lock = self.store().lock()?;
+        let mut library = self.read_library()?;
+        if library.refreshed_on.as_deref() == Some(commit) {
+            return Ok(());
+        }
+        library.refreshed_on = Some(commit.to_owned());
+        self.write_library(&mut library)
     }
 
     /// Saves what applied generation `generation` changed from its parent as
