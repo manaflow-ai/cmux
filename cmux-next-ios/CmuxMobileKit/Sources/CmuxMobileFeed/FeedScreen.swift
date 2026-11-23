@@ -76,6 +76,12 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         }
         .onAppear {
             rowContext.open = { open($0) }
+            rowContext.openFromPeek = { open($0, animated: false) }
+            rowContext.chat = { item in
+                guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
+                      workspace.tabs.contains(where: { $0.id == item.tabID }) else { return nil }
+                return AgentSessionDirectory.shared.existingStore(id: item.tabID, macID: workspace.macID)
+            }
             #if DEBUG
             FeedStressRig.shared.start(store: store)
             // Screenshot rig: CMUX_MOBILE_FEED_SHOT_EVENT=<event id> scrolls that event to the top.
@@ -83,6 +89,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(1.5))
                     DemoDirector.shared.post(.feedScroll(toEvent: event))
+                    // CMUX_MOBILE_FEED_SHOT_STACK=<event id>: then opens the stack that event leads.
+                    if let stack = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHOT_STACK"], !stack.isEmpty {
+                        try? await Task.sleep(for: .seconds(1))
+                        DemoDirector.shared.post(.feedStack(event: stack, expanded: true))
+                    }
                 }
             }
             // Screenshot rig: CMUX_MOBILE_FEED_SHOT_FILTER=needsYou|finished|errors|all picks the filter;
@@ -117,7 +128,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         #endif
     }
 
-    private func open(_ item: FeedItem) {
+    /// `animated: false`: from the long-press preview, which has already grown to the screen.
+    private func open(_ item: FeedItem, animated: Bool = true) {
         store.markRead(item.id)
         // A Mac Feed request (a PR held for trial) opens its page.
         if let link = item.link {
@@ -129,7 +141,14 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             openTerminal(item)
             return
         }
-        path.append(AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID))
+        let destination = AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID)
+        guard !animated else {
+            path.append(destination)
+            return
+        }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { path.append(destination) }
     }
 
     /// What can change the list header's height: it is measured again only when this changes (a
@@ -367,7 +386,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         case .feedSwipeAction(let id, let action):
             swipe.demoPerform = (id, action)
             swipe.demoSerial += 1
-        case .feedExpand, .feedReply, .answerQuestion:
+        case .feedExpand, .feedReply, .answerQuestion, .feedStack:
             list.demo(command)
         default:
             break
