@@ -25,6 +25,9 @@ nonisolated enum AcpmuxPaneMethods {
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
+        // Session Info's Usage: every listed chat's usage alone (sessionPages.ts `usageByDigest`; acpmux
+        // hub/usage_answer.rs), in place of every page of `_acpmux/sessions` with `usage`.
+        "_acpmux/usage",
         // A peer chat drawn from this Mac's copy while its machine is down (direct.ts drawPeerCopy,
         // peerCopy.ts; acpmux hub/peer_snapshot/read.rs). A read like `_acpmux/events`, before the
         // attach that brings the chat into scope, so not session-scoped; acpmux answers it to this
@@ -42,7 +45,14 @@ nonisolated enum AcpmuxPaneMethods {
         // the child chat, which the click's scope credit brings in (``sourceScoped``). Only `sessionId` and `subagentId` (``knownParams``): never `_meta`,
         // which carries acpmux's control and trust-gate marks.
         "_acpmux/retry",
-        "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
+        "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond", "_acpmux/perf",
+        // The model picker's catalog (direct.ts modelCatalog, App.tsx `models.catalog`): acpmux's
+        // public model list, and its Refresh, which fetches the same feeds acpmux reads on its own.
+        // Neither grants anything. Left off this list, every pane's picker was refused at each open.
+        "catalog.get", "catalog.refresh",
+        // The Labs live-tree preview (direct.ts liveTreeStatus): its reply is cut to the numeric
+        // `liveTree` lane verdicts (``replyShapes``), never the chat's detail, folder or env.
+        "_acpmux/info",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
@@ -55,6 +65,9 @@ nonisolated enum AcpmuxPaneMethods {
         // The thread minimap's prompt bookmarks of a chat in the pane's scope (direct.ts
         // readBookmarks, setBookmark): a seq and a flag, kept in acpmux's session meta.
         "_acpmux/bookmark_get", "_acpmux/bookmark_set",
+        // A turn's before and after picture of the chat's page, for its edited-files card
+        // (direct.ts turnShots; acpmux hub/turn_shots.rs): a read of a chat in the pane's scope.
+        "_acpmux/turn_shots",
         // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
         // removeQueued, editQueued).
         "_acpmux/queue_remove", "_acpmux/queue_edit",
@@ -202,6 +215,12 @@ nonisolated enum AcpmuxPaneMethods {
         // that chat's agent signed in.
         "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
         "_acpmux/agent_login/cancel",
+        // A Cloud chat's GitHub sign-in on its own machine (CloudGitHubSignIn.tsx, the shared
+        // DeviceSignInCard): acpmux runs `gh auth login --web` there and the card shows its one-time
+        // code; finish waits for the person's approval, cancel stops it. Each names its chat
+        // (`sessionId`, required): acpmux forwards it to the chat's machine, whose owner rule
+        // (`agent_login::allowed`) admits only that machine's owner. Never this Mac's accounts.
+        "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel",
         // Run on a bigger machine (conversation/RunElsewhere.tsx; acpmux server/run_elsewhere.rs) for
         // a chat in the pane's scope. Plan reads what a run would send (the commit, the changed
         // files, the connected machines); Start runs the chat's command again on a machine the person
@@ -317,7 +336,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/turn_shots", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
@@ -328,6 +347,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
         "_acpmux/cold_archive", "_acpmux/prompt_coach",
+        "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -454,6 +474,8 @@ nonisolated enum AcpmuxPaneMethods {
         // for the failed prompt's resend. Cancel stops work: none.
         "_acpmux/agent_login/start": .always,
         "_acpmux/agent_login/api_key": .always,
+        // GitHub's sign-in on a Cloud chat's machine, likewise only on the person's click.
+        "_acpmux/account/sign_in": .always,
         // Build answers the plan approval or starts the plan in new worktrees. Compare and Keep
         // need none: Keep only archives chats the person's Build started.
         "_acpmux/plan/build": .always,

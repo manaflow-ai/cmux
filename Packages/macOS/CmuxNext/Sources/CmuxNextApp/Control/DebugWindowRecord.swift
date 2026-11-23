@@ -31,23 +31,8 @@ final class DebugWindowRecord {
     /// Every window `--record-launch` has started on, so each is recorded once.
     private var launchSeen: Set<ObjectIdentifier> = []
 
-    /// What `--record-launch DIR [--record-launch-seconds S]` asks for: every
-    /// window recorded from the moment it is made, for S seconds (6 by default,
-    /// at most 12), into `DIR/window-N`. nil without the argument or its folder.
-    struct LaunchRequest: Equatable {
-        let dir: String
-        let seconds: Double
-
-        init?(arguments: [String]) {
-            guard let flag = arguments.firstIndex(of: "--record-launch"), flag + 1 < arguments.count,
-                  !arguments[flag + 1].hasPrefix("--") else { return nil }
-            dir = (arguments[flag + 1] as NSString).expandingTildeInPath
-            let asked = arguments.firstIndex(of: "--record-launch-seconds").flatMap { index in
-                index + 1 < arguments.count ? Double(arguments[index + 1]) : nil
-            }
-            seconds = min(12, max(0.1, asked ?? 6))
-        }
-    }
+    /// What `--record-launch DIR [--record-launch-seconds S]` asks for (``LaunchRecordRequest``).
+    typealias LaunchRequest = LaunchRecordRequest
 
     private static let launchRequest = LaunchRequest(arguments: ProcessInfo.processInfo.arguments)
     /// Looks for new windows once a display frame while the launch is recorded.

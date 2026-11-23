@@ -73,7 +73,7 @@ impl Signer {
             "aud": MACHINE,
             "team": TEAM,
             "sub": "user_00000000000000000001",
-            "svc": [self.1],
+            "svc": self.1.split(',').collect::<Vec<_>>(),
             "nk": noise_key_digest(noise_key),
             "jti": URL_SAFE_NO_PAD.encode((jti as u128).to_be_bytes()),
             "iat": now() - 5,
@@ -98,12 +98,26 @@ pub const HANG: u16 = 599;
 /// The `status` at which the platform answers as for 200, two seconds late.
 pub const SLOW: u16 = 598;
 
-/// The platform's carrier route: checks the bearer, answers a Connect
-/// ticket for the open relay, a grant for the asked key, and the daemon key.
-/// `status` other than 200 (read at each request) refuses it; [`HANG`]
-/// answers nothing for a minute. The Cloud exec route (a parked dial's look
-/// at the machine) is always refused.
-// A stand-in's wiring: one argument per thing a test reads back.
+/// The platform's machine read (`POST /v1/read` `cloud.machine.get`): the
+/// status it answers, and how many reads it answered.
+pub struct MachineStub {
+    pub status: Mutex<&'static str>,
+    pub reads: AtomicUsize,
+}
+
+impl Default for MachineStub {
+    fn default() -> Self {
+        Self { status: Mutex::new("running"), reads: AtomicUsize::new(0) }
+    }
+}
+
+impl MachineStub {
+    pub fn set(&self, status: &'static str) {
+        *self.status.lock().unwrap() = status;
+    }
+}
+
+/// [`platform_with_machine`] with a machine that reads `running`.
 #[allow(clippy::too_many_arguments)]
 pub async fn platform(
     signer: Arc<Signer>,
@@ -115,6 +129,33 @@ pub async fn platform(
     keys: Keys,
     bearers: Bearers,
     ssh: Option<Arc<SshStub>>,
+) -> SocketAddr {
+    let machine = Arc::new(MachineStub::default());
+    platform_with_machine(
+        signer, relay, daemon_key, status, asked, teams, keys, bearers, ssh, machine,
+    )
+    .await
+}
+
+/// The platform's carrier route: checks the bearer, answers a Connect
+/// ticket for the open relay, a grant for the asked key, and the daemon key.
+/// `status` other than 200 (read at each request) refuses it; [`HANG`]
+/// answers nothing for a minute. The Cloud exec route (a parked dial's look
+/// at the machine) is always refused.
+/// The machine read answers `machine`'s status and is no carrier request.
+// A stand-in's wiring: one argument per thing a test reads back.
+#[allow(clippy::too_many_arguments)]
+pub async fn platform_with_machine(
+    signer: Arc<Signer>,
+    relay: SocketAddr,
+    daemon_key: Option<String>,
+    status: Arc<AtomicU16>,
+    asked: Arc<AtomicUsize>,
+    teams: Teams,
+    keys: Keys,
+    bearers: Bearers,
+    ssh: Option<Arc<SshStub>>,
+    machine: Arc<MachineStub>,
 ) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -128,6 +169,7 @@ pub async fn platform(
             let keys = keys.clone();
             let bearers = bearers.clone();
             let ssh = ssh.clone();
+            let machine = machine.clone();
             let status = status.load(Ordering::SeqCst);
             tokio::spawn(async move {
                 let mut reader = tokio::io::BufReader::new(&mut stream);
@@ -166,6 +208,27 @@ pub async fn platform(
                     assert_eq!(path, format!("/v1/cloud/machines/{MACHINE}/ssh-endpoint"));
                     assert!(authorized, "ssh-endpoint takes the person's credential");
                     let body = ssh.endpoint(&request).to_string();
+                    let reply = format!(
+                        "HTTP/1.1 200 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(reply.as_bytes()).await;
+                    return;
+                }
+                // The machine read: its status, never a wake. No carrier request.
+                if path == "/v1/read" {
+                    assert_eq!(request["op"], "cloud.machine.get", "{request}");
+                    assert_eq!(request["params"]["machine"], MACHINE, "{request}");
+                    assert!(authorized, "the machine read takes the person's credential");
+                    let state = *machine.status.lock().unwrap();
+                    machine.reads.fetch_add(1, Ordering::SeqCst);
+                    let body = json!({
+                        "op": "cloud.machine.get",
+                        "value": {"id": MACHINE, "status": state},
+                        "stream": "cloud",
+                        "revision": "1",
+                    })
+                    .to_string();
                     let reply = format!(
                         "HTTP/1.1 200 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
@@ -350,6 +413,8 @@ pub struct World {
     /// What the parking proxy saw of the links it held ([`world_parked`];
     /// nothing in every other world).
     pub parked: Arc<Parked>,
+    /// The machine read's status and its count.
+    pub machine: Arc<MachineStub>,
     /// The daemon's registration (set late in [`world_parked`]).
     _registration: Registration,
     _runtime: tokio::runtime::Runtime,
@@ -444,6 +509,8 @@ fn world_with(
     let shared_status = Arc::new(AtomicU16::new(status));
     let answered = shared_status.clone();
     let parked = Arc::new(Parked::default());
+    let machine = Arc::new(MachineStub::default());
+    let machine_read = machine.clone();
     let (platform, registration, relay, signer, daemon_key) = runtime.block_on(async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let relay_address = listener.local_addr().unwrap();
@@ -514,7 +581,7 @@ fn world_with(
             DaemonKey::Malformed => Some("not-a-key".into()),
             DaemonKey::Other => Some(URL_SAFE_NO_PAD.encode([9_u8; 32])),
         };
-        let platform = platform(
+        let platform = platform_with_machine(
             signer,
             named_relay,
             daemon_key.clone(),
@@ -524,6 +591,7 @@ fn world_with(
             keys.clone(),
             bearers.clone(),
             None,
+            machine_read,
         )
         .await;
         (platform, registration, named_relay, answered_signer, daemon_key)
@@ -539,6 +607,7 @@ fn world_with(
         status: shared_status,
         dir,
         parked,
+        machine,
         _registration: registration,
         _runtime: runtime,
     }

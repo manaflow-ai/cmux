@@ -111,6 +111,33 @@ export const PromptHeads = {
       ...(id ? { promptId: id } : {}),
     };
   },
+  /// The prompt at `index` as one head.
+  head(heads: PromptHeads, index: number): PromptHead {
+    const id = promptId(heads, index);
+    return {
+      seq: heads.seqs[index]!,
+      at: heads.ats[index]!,
+      text: text(heads, index),
+      ...(id ? { promptId: id } : {}),
+    };
+  },
+  /// `heads`' prompts with seq in [from, before) and `extra`'s there, one a seq (`heads`' wins), oldest first: a
+  /// window of the chat keeps the prompts it let go of beside the index's (direct.ts `shedPrompts`, `newerLeft`).
+  /// `heads` itself when `extra` adds none and nothing is cut. O(the prompts kept + extra).
+  merged(heads: PromptHeads, extra: Iterable<PromptHead>, from = -Infinity, before = Infinity): PromptHeads {
+    const start = countBefore(heads, from);
+    const end = countBefore(heads, before);
+    const bySeq = new Map<number, PromptHead>();
+    for (const head of extra)
+      if (head.seq >= from && head.seq < before && PromptHeads.indexOfSeq(heads, head.seq) < 0)
+        bySeq.set(head.seq, head);
+    if (bySeq.size === 0 && start === 0) return end === heads.length ? heads : { ...heads, length: end };
+    const list: PromptHead[] = [];
+    for (let index = start; index < end; index += 1) list.push(PromptHeads.head(heads, index));
+    list.push(...bySeq.values());
+    list.sort((a, b) => a.seq - b.seq);
+    return of(list);
+  },
   /// The number of prompts before `seq`.
   countBefore,
   /// The prompts before `seq`, sharing these columns: `heads` itself when it holds no later one.
