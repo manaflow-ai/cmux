@@ -50,7 +50,7 @@ fn team_vm_verb(raw_args: &[String], surface: Surface) -> bool {
 }
 
 /// `cmux github credential|gh|setup` (crate `cmux-host`): git and gh on a
-/// cmux Cloud machine with tokens its Cloud agent gets, mounted on the
+/// cmux Cloud machine with tokens its Cloud agent gets (on a joined machine, its hub), mounted on the
 /// `cmux` surface only. The helper `setup` writes runs `cmux github
 /// credential` by the `cmux` link's path.
 fn github_requested(raw_args: &[String], surface: Surface) -> bool {
@@ -58,6 +58,8 @@ fn github_requested(raw_args: &[String], surface: Surface) -> bool {
 }
 
 fn run_github(rest: &[String]) -> i32 {
+    // A machine joined to a hub (`acpmux machine join`), with no Cloud agent, asks the hub.
+    acpmux::install_github_source();
     i32::from(cmux_host::github_cli::run(rest))
 }
 
