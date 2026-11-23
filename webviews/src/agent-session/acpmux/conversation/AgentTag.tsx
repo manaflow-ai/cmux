@@ -1,5 +1,6 @@
 import type { HTMLAttributes, MouseEvent, ReactNode, Ref } from "react";
 import type { SessionHoverTrigger } from "../started/useSessionHover";
+import { WithFacts } from "../chips/FactsHoverCard";
 import "./AgentTag.css";
 
 /** A compact agent or lane name tag shared by transcript activity rows. One that opens a chat is a
@@ -40,8 +41,6 @@ export function AgentTag({
         ref={ref as Ref<HTMLButtonElement> | undefined}
         type="button"
         className={`${classes} is-open`}
-        // A chat's hover card says more than the tooltip and would sit under it.
-        title={hover?.onPointerEnter ? undefined : title}
         aria-label={ariaLabel}
         data-interactive=""
         {...attributes}
@@ -56,16 +55,31 @@ export function AgentTag({
       </button>
     );
   }
+  // A plain tag's title (the agent's whole name) shows on its facts card; a hover card the tag
+  // triggers (ui/Tooltip.tsx passes its handlers in `trigger`) says more and would sit under it.
+  const facts = trigger.onPointerEnter ? [] : [{ value: title ?? "" }];
+  /** The tag's own ref and the facts card's anchor, on one element. */
+  const both =
+    (anchor: (element: HTMLElement | null) => void) =>
+    (element: HTMLElement | null): void => {
+      anchor(element);
+      if (typeof ref === "function") ref(element);
+      else if (ref) (ref as { current: HTMLElement | null }).current = element;
+    };
   return (
-    <span
-      {...trigger}
-      ref={ref as Ref<HTMLSpanElement> | undefined}
-      className={`${classes} is-plain`}
-      title={title}
-      data-interactive=""
-      aria-hidden="true"
-    >
-      {name}
-    </span>
+    <WithFacts facts={facts}>
+      {({ ref: anchor, ...card }) => (
+        <span
+          {...trigger}
+          {...card}
+          ref={both(anchor)}
+          className={`${classes} is-plain`}
+          data-interactive=""
+          aria-hidden="true"
+        >
+          {name}
+        </span>
+      )}
+    </WithFacts>
   );
 }

@@ -16,6 +16,8 @@ fn record(session: &str, nonce: &str) -> HostRecord {
         protocol_max: PROTOCOL_MAX,
         host_build: "b".to_owned(),
         socket: PathBuf::from("/nonexistent.sock"),
+        claude_translator: false,
+        host_level: 0,
     }
 }
 

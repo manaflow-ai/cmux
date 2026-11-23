@@ -43,10 +43,12 @@ docs/design/nightly-live-updates.md): cmux-tui/<commit>/mac-live.json, written o
 reads, and cmux-tui/channels/mac-live.json, forward only. It names the commit's aarch64-apple-darwin daemon
 binaries the app's bin/ holds (cmux-tui and its companions, from the commit's manifest, each downloaded and
 checked like the Cloud machine channel's) and `live_from`, every app commit that can take them live
-(`hot-apply.py live-from`, --live-from):
+(`hot-apply.py live-from`, --live-from), and `daemon_from`, the wider list of app commits that can run
+them beside their own Swift (the daemon ABI floor only), which the nightly-live channel follows:
 
   {"schema": 1, "purpose": "cmux-mac-live-update", "channel": "nightly-live", "commit": "<sha>",
    "committed_at": T, "published_at": T, "expires_at": T, "live_from": ["<sha>", "<parent>", ...],
+   "daemon_from": ["<sha>", "<parent>", ..., "<grandparent>", ...],
    "targets": {"aarch64-apple-darwin": {"cmux-tui": {"url", "sha256", "size"},
                                         "cmux-tui-app-host": {...}, ...}}}
 
@@ -136,17 +138,31 @@ def release_version(cargo_version, commit, committed_at):
     return f"{cargo_version}+{time.strftime('%Y%m%d%H%M%S', time.gmtime(committed_at))}.{commit[:12]}"
 
 
-def live_from(args):
-    """--live-from's list (hot-apply.py live-from's JSON): the commit first, every entry a full sha."""
-    value = json.load(open(args.live_from))
-    commits = value.get("live_from") if isinstance(value, dict) else None
+def commit_list(args, key, commits):
+    """One of --live-from's lists: the commit first, at most MAC_LIVE_FROM_MAX full shas, each once."""
     if not isinstance(commits, list) or not commits or commits[0] != args.commit:
-        fail(f"{args.live_from} does not start at {args.commit}")
+        fail(f"{args.live_from} {key} does not start at {args.commit}")
     if len(commits) > MAC_LIVE_FROM_MAX or len(set(commits)) != len(commits):
-        fail(f"{args.live_from} names {len(commits)} commits (at most {MAC_LIVE_FROM_MAX}, each once)")
+        fail(f"{args.live_from} {key} names {len(commits)} commits (at most {MAC_LIVE_FROM_MAX}, each once)")
     if not all(isinstance(c, str) and re.fullmatch(r"[0-9a-f]{40}", c) for c in commits):
-        fail(f"{args.live_from} names something that is not a full commit sha")
+        fail(f"{args.live_from} {key} names something that is not a full commit sha")
     return commits
+
+
+def live_from(args):
+    """--live-from's lists (hot-apply.py live-from's JSON): live_from (whole app) and daemon_from (daemon
+    compatibility only, which the nightly-live channel reads). live_from is a prefix of daemon_from; a file
+    from an older hot-apply.py without daemon_from signs live_from alone."""
+    value = json.load(open(args.live_from))
+    if not isinstance(value, dict):
+        fail(f"{args.live_from} is not a JSON object")
+    commits = commit_list(args, "live_from", value.get("live_from"))
+    if "daemon_from" not in value:
+        return commits, None
+    daemon = commit_list(args, "daemon_from", value.get("daemon_from"))
+    if daemon[:len(commits)] != commits:
+        fail(f"{args.live_from} live_from is not a prefix of daemon_from")
+    return commits, daemon
 
 
 def mac_live(args):
@@ -154,7 +170,7 @@ def mac_live(args):
     if not args.manifest or not args.live_from or args.machine_path or args.channel or args.cargo_version:
         fail("--purpose mac-live takes --manifest and --live-from only")
     binaries = expected_sha256(args)
-    commits = live_from(args)
+    commits, daemon = live_from(args)
     os.makedirs(args.download_dir, exist_ok=True)
     files = {}
     for name in MAC_LIVE_NAMES:
@@ -175,7 +191,7 @@ def mac_live(args):
     now = int(time.time())
     return {"schema": SCHEMA, "purpose": MAC_LIVE_PURPOSE, "channel": MAC_LIVE_CHANNEL, "commit": args.commit,
             "committed_at": int(args.committed_at), "published_at": now, "expires_at": now + LIFETIME,
-            "live_from": commits, "targets": {MAC_LIVE_TARGET: files}}
+            "live_from": commits, "targets": {MAC_LIVE_TARGET: files}} | ({"daemon_from": daemon} if daemon else {})
 
 
 def payload(args):

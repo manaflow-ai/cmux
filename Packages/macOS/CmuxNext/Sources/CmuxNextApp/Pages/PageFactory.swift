@@ -181,10 +181,7 @@ struct PageFactory {
             guard let services else { return nil }
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
         }
-        let accounts = services.accounts.model
-        let github = services.accounts.github
-        provider.accountsState = { github.accountsPageState(accounts) }
-        provider.accountsRun = { params in try await github.runAccountsPage(params, accounts: accounts) }
+        (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys)
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
@@ -199,6 +196,11 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
+        let models = SettingsModels.live(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, harnesses: harnesses, settings: settings,
+                                              activeTeam: { [weak services] in services?.accounts.activeTeam }, agentKeys: services.accounts.agentKeys,
+                                              policy: services.accounts.modelsPolicy)
+        models.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() } // a chat waiting on Set up Cloud checks again
+        provider.models = models
         let cloud = services.cloud
         let environments = CloudEnvironmentsSettings(
             available: { [weak cloud] in cloud?.auth.isSignedIn ?? false },
@@ -249,8 +251,8 @@ struct PageFactory {
         provider.keys = SettingsKeys(requests: services.keyRequests, binary: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
-        let integrations = SettingsAgentIntegrations(cli: cli)
-        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url })]
+        let integrations = SettingsAgentIntegrations(cli: cli, agentTools: services.onboarding.agentTools), mcpServers = SettingsMcpServers(cli: cli, home: { [weak services] in await services?.catalogAcpmux()?.home }, openPage: { [weak services] url in _ = services?.linkOpener.openWeb(url, from: services?.windows.active?.focusedPane, background: false) }), agentMcp = SettingsAgentMcpServers(cli: cli, enabled: { [weak settings] in settings?.snapshot.agentCustomization == true }, pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first }), agentHooks = SettingsAgentHooks(cli: cli, enabled: { [weak settings] in settings?.snapshot.agentCustomization == true }), agentSkills = SettingsAgentSkills(cli: cli, enabled: { [weak services] in services?.settings?.snapshot.agentCustomization == true }, workingFolder: { [weak services] in services.flatMap { s in s.windows.active.flatMap { s.fileExplorers.folder(focusedIn: $0) } } }, openFile: { [weak services] url in _ = services?.linkOpener.openFile(url, from: services?.windows.active?.focusedPane, asText: true) })
+        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, "cmux.settings.agentTools.state": integrations, "cmux.settings.agentTools.run": integrations, SettingsMcpServers.stateOp: mcpServers, SettingsMcpServers.runOp: mcpServers, SettingsAgentMcpServers.stateOp: agentMcp, SettingsAgentMcpServers.runOp: agentMcp, SettingsAgentHooks.stateOp: agentHooks, SettingsAgentHooks.runOp: agentHooks, SettingsAgentSkills.stateOp: agentSkills, SettingsAgentSkills.runOp: agentSkills, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url }), SettingsAgentConfig.op: SettingsAgentConfig(cli: cli, enabled: { settings.snapshot.agentCustomization }, openFile: { [weak services] url in _ = services?.linkOpener.openFile(url, from: services?.windows.active?.focusedPane, asText: true) })]
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
@@ -309,7 +311,7 @@ struct PageFactory {
                                        inUse: { [weak services] in services?.settings?.snapshot.backdropSelection }, settings: services.settings,
                                        pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first })
         }
-        let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native),
+        let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: PageGestureActionProvider(page: .settings, wrapping: native)),
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
@@ -328,7 +330,7 @@ struct PageFactory {
                                         ? nil : DaemonUpdateBoard.updateRefused
                                 })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
-                      PageRoute(prefix: AppUpdatePageProvider.prefix, provider: AppUpdatePageProvider(updater: services.updater)),
+                      PageRoute(prefix: AppUpdatePageProvider.prefix, provider: AppUpdatePageProvider(updater: services.updater)), PageRoute(prefix: AppLanguageRelaunchRoute.prefix, provider: AppLanguageRelaunchRoute(updater: services.updater, app: Bundle.main.bundleURL)),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).

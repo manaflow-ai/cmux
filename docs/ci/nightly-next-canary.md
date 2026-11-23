@@ -41,6 +41,39 @@ The run refuses when:
 - the build it would serve has no DMG;
 - the feed changed while it was planning (run it again).
 
+### Health gate: real-session health pulls a build
+
+`nightly-next-health.yml` (`scripts/ci/nightly_next_health.py`) runs every 15
+minutes. For each of the feed's three newest Nightly builds (so a build
+superseded within one tick still gets a verdict), it reads Sentry release health
+of that build and the Nightly build before it (environment `nightly-next`, release
+`cmux-next@<short version>+<build>`): sessions by status and app hang events
+over the last 24 h. It writes the build's verdict to
+`https://files-next.cmux.com/nightly-next/next/health/<build>.json`, beside
+`verdicts/<build>.json`:
+
+| Verdict | When |
+| --- | --- |
+| `fail` | 2 or more crashed sessions and crash-free sessions under 99.5% and under the previous build's; or 3 or more app hangs and more than 0.2 hangs a session and more than twice the previous build's rate. |
+| `pass` | 5 sessions, or 15 minutes since its first session, and nothing failed. Judged again on every tick while the build is newest. |
+| `pending` | No session yet, or too few and too young for a pass. |
+| `unknown` | Sentry could not be read; the file says why. |
+
+A `fail` of the newest build pulls it through `nightly-next-rollback.yml` with
+`bad_build` and `if_newest` set to it, so a build published meanwhile is never
+pulled, and the pull starts the fix-forward like any other. Detection is one
+tick (at most 15 minutes after the sessions reach Sentry) plus the run.
+
+Repository variable `NIGHTLY_NEXT_HEALTH_GATE`: `off` runs nothing; `report`
+writes verdicts and pulls nothing; unset or anything else pulls a failing
+build.
+
+The rollback drill's `health` step (`gh workflow run
+nightly-next-rollback-drill.yml --ref nightly-next -f step=health`, after a
+`publish`) runs the gate on the drill feed with a made-up failing reading
+(20 sessions, 5 crashed), so its receipt's `feed_s` times judge, verdict write,
+pull and serve on the production route.
+
 ### What a pull does to installed Macs
 
 Sparkle offers an item only when its `sparkle:version` is above the running

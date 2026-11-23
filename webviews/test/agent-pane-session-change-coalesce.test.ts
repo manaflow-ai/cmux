@@ -476,3 +476,100 @@ test("a streamed chunk's frame is parsed once", async () => {
     client.close();
   }
 });
+
+// A shown chat redrew its whole pane for every frame in which any other chat changed, though the pane
+// draws nothing of them while the person reads its transcript (Lawrence, 2026-11-18: scrolling a short
+// chat dropped frames in an app with many workspaces and much history; Leo: "it's just redrawing the
+// same thing a lot, even when there's very little stuff visible"). Each of those snapshots walks the
+// whole session list in App.tsx, so its cost grows with history: 12,000 chats on Leo's Mac, about 5
+// changes a second. Other chats' changes now draw at most once every OTHER_CHATS_DRAW_MS, and none
+// while the person scrolls; the pane's own chat still draws in the next frame.
+test("other chats' changes draw a shown chat at most twice a second", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    const before = snapshots();
+    // A change every 50 ms for 2 s, each in its own frame: 40 frames with a change.
+    for (let round = 0; round < 40; round++) {
+      burst(socket, 1, round);
+      flushFrames();
+      jest.advanceTimersByTime(50);
+      flushFrames();
+    }
+    jest.advanceTimersByTime(500);
+    flushFrames();
+    const drawn = snapshots() - before;
+    expect(drawn).toBeGreaterThanOrEqual(4);
+    expect(drawn).toBeLessThanOrEqual(5);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
+test("other chats' changes wait while the person scrolls; the pane's own chat does not", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    const before = snapshots();
+    // 1.5 s of scrolling, a wheel tick every 16 ms, while other chats change.
+    for (let tick = 0; tick < 94; tick++) {
+      window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
+      if (tick % 5 === 0) burst(socket, 3, tick);
+      jest.advanceTimersByTime(16);
+      flushFrames();
+    }
+    expect(snapshots() - before).toBe(0);
+    // The pane's own chat draws in the next frame, scroll or not.
+    window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
+    socket.notify("_acpmux/session_changed", {
+      sessionId: SELECTED,
+      session: { ...summary(1), title: "Renamed" },
+      kind: "renamed",
+      seq: 40,
+    });
+    flushFrames();
+    expect(snapshots() - before).toBe(1);
+    // That snapshot carried the list: the wait has nothing left, and the scroll's end draws nothing more.
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    expect(snapshots() - before).toBe(1);
+    // A change after the scroll ends draws.
+    burst(socket, 1, 99);
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    expect(snapshots() - before).toBe(2);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
+// A page that keeps scrolling itself (a smooth scroll elsewhere in it) never rests: other chats'
+// changes wait at most 2 s for it, not for ever.
+test("a scroll that never rests holds other chats' changes at most 2 s", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    const before = snapshots();
+    burst(socket, 1, 0);
+    let drawnAt: number | undefined;
+    for (let tick = 0; tick < 250 && drawnAt === undefined; tick++) {
+      window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
+      jest.advanceTimersByTime(16);
+      flushFrames();
+      if (snapshots() > before) drawnAt = (tick + 1) * 16;
+    }
+    expect(drawnAt).toBeGreaterThanOrEqual(1900);
+    expect(drawnAt).toBeLessThanOrEqual(2100);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});

@@ -124,6 +124,9 @@ async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcErro
             configured
                 .or_else(|| carrier.as_ref().and_then(|c| c.route(machine)))
                 .or_else(|| is_key(machine).then(|| machine.to_owned()))
+                // A hub-connected machine by the name `acpmux machine ls` shows: the address
+                // book's `(daemonId, host)` rows of this person's other machines.
+                .or_else(|| book_machine(&hub.mesh_book_machines(), machine))
         }
         (None, None) => {
             return Err(RpcError::invalid_params("machine is required"));
@@ -132,11 +135,24 @@ async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcErro
     let daemon = daemon.ok_or_else(|| {
         RpcError::invalid_params(
             "no hub route to that machine: name a peer whose config names its WireGuard key, or \
-             the machine's node key (`acpmux machine status --json` there, `wgPublicKey`)",
+             the machine's node key (`acpmux machine status --json` there, `wgPublicKey`), or \
+             a machine name `acpmux machine ls` shows with via hub",
         )
         .with_data(json!({"reason": "machine.unknown"}))
     })?;
     Ok((daemon, port))
+}
+
+/// The hub `daemonId` of the machine the address book lists as `name` (its host name, matched
+/// exactly, else without case). None when no machine has that name, or two machines do and the
+/// name cannot say which: the caller then names the key.
+pub(crate) fn book_machine(machines: &[(String, String)], name: &str) -> Option<String> {
+    let named = |same: &dyn Fn(&str) -> bool| {
+        let mut found = machines.iter().filter(|(_, host)| same(host)).map(|(key, _)| key);
+        let first = found.next()?;
+        found.all(|key| key == first).then(|| first.clone())
+    };
+    named(&|host| host == name).or_else(|| named(&|host| host.eq_ignore_ascii_case(name)))
 }
 
 fn is_key(text: &str) -> bool {
@@ -161,7 +177,8 @@ pub(crate) async fn serve_pipe<R, W>(
         let carrier = hub.hub_carrier.get().ok_or_else(|| {
             RpcError::new(
                 -32000,
-                "this machine's hub carrier is off (not joined, or the cmux link holds its node key)",
+                "this machine's hub carrier is off (not joined to a Cloud account, or its node key is missing \
+                 or was replaced): `acpmux machine join`, then `acpmux daemon restart`",
             )
             .with_data(json!({"reason": "carrier.off"}))
         })?;

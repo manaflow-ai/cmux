@@ -347,8 +347,8 @@ impl FakePeer {
     /// A Linux host `host setup` set up: the daemon runs build OLD under
     /// `acpmux.service` with one agent host, and no session is busy.
     fn new(tag: &str) -> FakePeer {
-        let home = std::env::temp_dir().join(format!("acpmux-up-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
+        // FakePeer::drop owns cleanup. Two concurrent tests may use the same scenario tag.
+        let home = tempfile::Builder::new().prefix(tag).tempdir().unwrap().keep();
         let peer = FakePeer {
             home,
             after_copy: Default::default(),

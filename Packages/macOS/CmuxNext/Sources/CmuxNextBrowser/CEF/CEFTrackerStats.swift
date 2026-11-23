@@ -42,6 +42,17 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// (``CEFLayerHosting/resizeMotion(active:)``).
     public var detaches = 0
     public var attaches = 0
+    /// Window frame sync (fork API 32, ``CEFResizeFence``): window fences made, pages that joined one, pages whose frame
+    /// at the new size carried it, pages that missed the GPU's deadline, and fences this app dropped at its own deadline
+    /// with a page still out.
+    public var resizeFences = 0
+    public var resizeFenceJoined = 0
+    public var resizeFencePresented = 0
+    public var resizeFenceMissed = 0
+    public var resizeFencesExpired = 0
+    /// Main-thread seconds of the resizes that joined a fence (``CEFLayerHosting/pageViewResized()`` past its guard:
+    /// the fence port, the fork's call and the deadline task), for its perf-hot budget per call.
+    public var resizeFenceJoinSeconds = 0.0
 
     public init() {}
 
@@ -65,7 +76,10 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
         ["clip_reads": Double(clipReads), "occlusion_reads": Double(occlusionReads), "clip_builds": Double(clipBuilds),
          "clip_hits": Double(clipHits), "clip_ms": clipSeconds * 1_000, "geometry_posts": Double(geometryPosts),
          "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips),
-         "detaches": Double(detaches), "attaches": Double(attaches)]
+         "detaches": Double(detaches), "attaches": Double(attaches),
+         "fences": Double(resizeFences), "fence_joined": Double(resizeFenceJoined),
+         "fence_presented": Double(resizeFencePresented), "fence_missed": Double(resizeFenceMissed),
+         "fences_expired": Double(resizeFencesExpired), "fence_join_ms": resizeFenceJoinSeconds * 1_000]
     }
 
     /// Monotonic seconds for timing a read.

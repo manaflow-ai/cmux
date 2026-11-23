@@ -125,6 +125,10 @@
   margin-top: 0;
   margin-bottom: var(--acpmux-codex-row-bottom);
 }
+/* A capped draft's leading controls keep the capped bottom inset (composerLocation.css). */
+.acpmux-composer[data-composer-look="codex"] .acpmux-composer-inner > :not(.acpmux-composer-actions) {
+  margin-bottom: var(--acpmux-lead-bottom, var(--acpmux-codex-row-bottom));
+}
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot {
   grid-column: 2;
   grid-row: 3;
@@ -155,18 +159,6 @@
   > .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot) {
   padding-bottom: 16px;
 }
-/* The look dots ride over the middle of that row (the box's bottom is the host's line). */
-.acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot)
-  > .acpmux-composer-under
-  .acpmux-look-slot {
-  bottom: calc(var(--acpmux-codex-row-bottom) + var(--grid-composer-quiet-row-height) / 2 - var(--acpmux-look-slot-height) / 2);
-}
-/* The box is raised over the tray (above), so the dots' host after it stands over the box's row. */
-.acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot)
-  > .acpmux-composer-under {
-  z-index: calc(var(--layer-raised, 1) + 1);
-}
-
 /* Send in Codex's look is Codex's and ChatGPT's round button after the mic (Leo 2026-11-04: "our
    codex style composer should look like codex's/chatgpt's"; private ref
    codex/live/composer-codex-empty-input-controls): the ↑ on a disc in the theme's accent, always
@@ -200,56 +192,4 @@
 /* Full access names its risk in the theme's accent, where Codex draws orange. */
 .acpmux-composer[data-composer-look="codex"] .acpmux-access.acpmux-unrestricted :is(.acpmux-picker-button, .acpmux-access-trigger) {
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
-}
-
-/* The look dots in a chat (LookSwitch.tsx) use the template switch's dots (newtab/screen.css .nt-style),
-   centered on the composer, in one element that survives a look change (ComposerBox.tsx), so a look
-   switch keeps the dots and their focus. In either look the element is empty height after the quiet
-   row and the dots sit over the row's empty middle, out of its flow, so the row lays out as without
-   them. They show while the pointer is over that area or a dot has the keyboard, at once, and fade
-   when it leaves (an exit, never an entry). */
-.acpmux-look-slot {
-  --acpmux-look-slot-height: 24px;
-  position: absolute;
-  left: 50%;
-  width: 0;
-  height: var(--acpmux-look-slot-height);
-}
-/* Over a control of the row (LookSwitch.tsx useCrowded): not drawn and not in the control's way. */
-.acpmux-look-slot[data-crowded] {
-  visibility: hidden;
-}
-.nt-style.acpmux-look-dots {
-  top: 0;
-  bottom: auto;
-  max-width: none;
-  opacity: 0;
-  transition: opacity var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out);
-}
-.acpmux-composer:has(.acpmux-composer-foot:hover) .acpmux-look-dots,
-.acpmux-composer-under:hover .acpmux-look-dots,
-.acpmux-look-dots:focus-within {
-  opacity: 1;
-  transition: none;
-}
-/* The name shows after the two dots, on their line (DotSwitch nameAside). */
-.acpmux-look-dots .nt-style-name {
-  bottom: auto;
-  top: 50%;
-  padding: 0 0 0 4px;
-  transform: translateY(-50%);
-}
-/* No height of its own after the quiet row; the 24px dots ride up over the row's middle (the row is
-   28px with a 10px bottom margin, composerLocation.css .acpmux-composer-foot). */
-.acpmux-composer-under {
-  position: relative;
-  height: 0;
-}
-.acpmux-composer-under .acpmux-look-slot {
-  bottom: 12px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .nt-style.acpmux-look-dots {
-    transition: none;
-  }
 }

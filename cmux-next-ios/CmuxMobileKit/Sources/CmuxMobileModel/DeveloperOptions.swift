@@ -34,7 +34,7 @@ public enum DeveloperOptions {
     /// same container can never apply.
     public static let storedKeys = [
         mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
-        slowApprovalKey, retiredSlowFaceIDKey,
+        slowApprovalKey, retiredSlowFaceIDKey, CloudBackendOverride.storedKey,
     ]
 
     /// Removes every stored developer setting (Production launch).

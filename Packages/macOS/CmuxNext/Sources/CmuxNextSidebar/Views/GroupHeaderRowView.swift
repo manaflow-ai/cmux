@@ -69,7 +69,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// workspace row's does; the bar's pin is only a mark, and a click there folds the group. An
     /// unpinned group shows none (Leo 2026-10-21: "no empty pin symbol by default"); Pin Group stays in
     /// its menu and editor.
-    let pinButton = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 },
+    let pinButton = SidebarIconButton(icon: .browserToolbarUnpin, pointSize: { Metrics.smallIconSize - Metrics.space2 },
                                       label: GroupEditorStrings.unpin)
     private var pinned = false
     /// A remote group's machine mark (``SidebarGroup/machine``, ``SidebarHostGroupLook``).
@@ -198,11 +198,14 @@ final class GroupHeaderRowView: SidebarRowView {
         name.stringValue = group.name
         pinned = group.isPinned
         archived = group.isArchived
-        hasIcon = group.icon != nil
-        glyph.configure(icon: group.icon)
+        // A plain folder (`sidebar.groupHeader.background` Folders) leads with the folder glyph where the group has no
+        // icon of its own and runs on no other machine (a remote group leads with that machine's mark).
+        let showsFolder = details.background == .folder && group.icon == nil && group.machine == nil
+        hasIcon = group.icon != nil || showsFolder
+        glyph.configure(icon: showsFolder ? Self.folderIcon : group.icon)
         hostLook = group.hostLook
         configureMachine(group.machine)
-        pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide) : nil
+        pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide, style: .solid) : nil
         collapsed = row.isCollapsed
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
@@ -234,6 +237,9 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
         needsDisplay = true
     }
+
+    /// The plain folder's glyph (`SidebarGroupBackgroundStyle.folder`): the icon pack's folder, on the rows' icon column.
+    static let folderIcon = WorkspaceIcon.page(.folder)
 
     /// The disclosure convention of Finder and Edge (cx-fo2t): open points
     /// down, collapsed points right.
@@ -331,7 +337,7 @@ final class GroupHeaderRowView: SidebarRowView {
             // one opt-out (Leo 2026-11-05), draws a plain heading.
             if !backgroundStyle.drawsBackground {
                 rim.isHidden = true
-                return paintSection(tokens)
+                return paintSection(tokens, folder: backgroundStyle == .folder, look: look)
             }
             if look.style != .band {
                 rim.isHidden = true
@@ -416,11 +422,23 @@ final class GroupHeaderRowView: SidebarRowView {
     /// maybe we can also have an option to have that"): a plain section heading, the name and every glyph in the
     /// theme's quiet ink, no fill, no rim and no dot (its members draw no line, `GroupLineView`). Hover and a drop take
     /// the row's own fill, as a workspace row's do; the open editor lights its more button only.
-    private func paintSection(_ tokens: ThemeTokens) {
-        let quiet = tokens.textSecondary.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
-        name.textColor = quiet
+    ///
+    /// `folder` (the default since David Beyer 2026-11-20, "groups as plain folders"): the same plain row, its name in
+    /// the theme's primary ink as a workspace title's, and its folder glyph in the quiet ink, or in the group's color
+    /// where it has one, held readable on the sidebar: the color stays the group's mark with no band to carry it.
+    private func paintSection(_ tokens: ThemeTokens, folder: Bool = false,
+                              look: (style: SidebarGroupHeaderStyle, palette: GroupPalette)? = nil) {
+        let alpha: CGFloat = archived ? SidebarStyle.archivedAlpha : 1
+        let quiet = tokens.textSecondary.nsColor.withAlphaComponent(alpha)
+        name.textColor = folder ? tokens.textPrimary.nsColor.withAlphaComponent(alpha) : quiet
         count.textColor = quiet.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
-        glyph.symbolInk = quiet
+        if folder, !tint.isNone, let look {
+            let line = tint.lineRGB(palette: look.palette).withAlpha(1)
+            glyph.symbolInk = ThemeTokens.readable(line, over: tokens.sidebarBackground.withAlpha(1), minimum: ThemeTokens.minimumMarkContrast)
+                .nsColor.withAlphaComponent(alpha)
+        } else {
+            glyph.symbolInk = quiet
+        }
         pin.contentTintColor = quiet
         chevron.contentTintColor = quiet
         moreButton.tintOverride = quiet
@@ -596,7 +614,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let showsPin = pinned && (!(hasIcon || leadsWithMachineMark) || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
         pin.isHidden = !showsPin
         // `configure` sets the image; a density or type scale change since then moves `pinGlyphSide`.
-        if showsPin, pin.image?.size.width != pinSide { pin.image = NSImage.icon(.statePinned, size: pinSide) }
+        if showsPin, pin.image?.size.width != pinSide { pin.image = NSImage.icon(.statePinned, size: pinSide, style: .solid) }
         let pinInk = pin.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: SidebarItemRowView.pinGlyph) }
         let scale = window?.backingScaleFactor ?? 2
         // The pin draws as a pinned workspace row's does (`SidebarStyle.rowGlyphOptics`): its ink sized to the rows' one

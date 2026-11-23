@@ -35,6 +35,14 @@
   padding: var(--ds-space-2);
 }
 
+/* The key (ContextRing): floats on the title's line, on the body's inset, as a tooltip's hint does. */
+.acpmux-context-card-hint {
+  margin-block-start: var(--ds-space-2);
+  margin-inline-end: var(--ds-space-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
 /* The composer popover stays compact in both states. It uses the same glass material supplied by
    AnchoredCard (.ui-card.ui-glass), while this sheet only controls its content rhythm. */
 .acpmux-context-pop--compact.ui-card {

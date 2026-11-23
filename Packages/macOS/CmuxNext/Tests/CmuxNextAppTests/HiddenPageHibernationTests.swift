@@ -492,5 +492,6 @@ import CmuxNextTestSupport
         /// The pane's one browser chrome (`BrowserPaneChrome`), bound to a tab as the pane shows it.
         let browserChrome = BrowserPaneChrome()
         func surfaceWasDisplaced(_ key: String) {}
+        func surfaceIsFree(_ key: String) {}
     }
 }

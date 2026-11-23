@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextDictation
 import CmuxNextSettings
 import Foundation
@@ -46,8 +47,8 @@ extension AgentPaneRequest {
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count),
                   let offset = (params["offset"] as? NSNumber)?.intValue, offset >= 0,
                   let text = params["data"] as? String,
-                  text.utf8.count <= (maximumUploadStageChunk / 3 + 1) * 4,
-                  let data = Data(base64Encoded: text), data.count <= maximumUploadStageChunk else { return .unsupported(method) }
+                  // Its bytes are decoded where they are written, off the main thread (AgentPaneUploadWriter).
+                  let data = AgentPaneUploadChunk(base64: text), data.count <= maximumUploadStageChunk else { return .unsupported(method) }
             return .uploadStage(.chunk(token: token, offset: offset, data: data))
         case "chat.upload.finish":
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count) else { return .unsupported(method) }
@@ -99,6 +100,10 @@ extension AgentPaneRequest {
         }
         if AgentPaneCloudRepositoryRequest.methods.contains(method) {
             self = AgentPaneCloudRepositoryRequest(method: method, params: params).map(Self.cloudRepository) ?? .unsupported(method)
+            return
+        }
+        if AgentPaneGitHubRequest.methods.contains(method) {
+            self = AgentPaneGitHubRequest(method: method, params: params).map(Self.gitHub) ?? .unsupported(method)
             return
         }
         switch method {
@@ -337,8 +342,9 @@ extension AgentPaneRequest {
         case "newTab.context":
             self = .newTabContext
         case "newTab.warm":
-            if let warm = params?["warm"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: warm),
-               data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
+            // The page's own JSON text (newtab/warmSnapshot.ts), kept as it is: one list has one text, so the pages of one
+            // list share one part (``AgentPaneNewTabShared``). No parse and sorted re-encode of up to 512 KB on main.
+            if let text = params?["warm"] as? String, !text.isEmpty, text.utf8.count <= AgentPaneNewTab.maximumWarmBytes {
                 self = .newTabWarm(text)
             } else {
                 self = .unsupported(method)
@@ -390,9 +396,18 @@ extension AgentPaneRequest {
             }
             self = .cloudHandoffTurn(sessionId: session)
         case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
+        case "cloud.plan.subscribe":
+            // Only the plans the cards may name; anything else is refused here.
+            if let plan = params?["plan"] as? String, AgentPaneCloudMachines.Plan.subscribable.contains(plan) { self = .cloudPlanSubscribe(plan: plan) } else { self = .unsupported(method) }
         case "cloud.signIn":
             // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
+        case "cloud.setUp":
+            // The start's key, one of the card's ways in and the family it waits for (CloudSetup).
+            if let key = params?["key"] as? String, UUID(uuidString: key) != nil, let action = params?["action"] as? String,
+               CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.families.contains(family) {
+                self = .cloudSetUp(key: key, action: action, family: family)
+            } else { self = .unsupported(method) }
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
@@ -422,7 +437,9 @@ extension AgentPaneRequest {
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
                let names = params?["names"] as? [String], !names.isEmpty,
                names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
-                self = .attachDropped(kind, names: names)
+                // The page's `Date.now()` when it took the gesture (ms); absent from an older page.
+                let gestureAt = (params?["gestureAt"] as? NSNumber).map { $0.doubleValue / 1000 }.flatMap { $0.isFinite ? $0 : nil }
+                self = .attachDropped(kind, names: names, gestureAt: gestureAt)
             } else {
                 self = .unsupported(method)
             }
@@ -518,7 +535,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
+        case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true, terminalSwitch: params?["terminalSwitch"] as? Bool == true)
         case "pane.tabRowTools":
             if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
                 self = .tabRowTools(width: width)
@@ -544,7 +561,7 @@ extension AgentPaneRequest {
                 self = .toast(message: message, isError: params?["tone"] as? String == "error", group: params?["group"] as? String)
             } else { self = .unsupported(method) }
         case "pane.glass":
-            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
+            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"], zoom: params?["zoom"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }
         case "pane.copyText":
             if let text = params?["text"] as? String { self = .copyText(text) }
@@ -690,7 +707,10 @@ extension AgentPaneRequest {
         case "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove":
             self = AgentPaneGitWrite(method: method, params: params).map(AgentPaneRequest.gitWrite) ?? .invalidGit(method)
         case "transport.open": self = .transportOpen
-        case "transport.gesture": self = .transportGesture(AgentPaneGestureIntent(gestureParams: params))
+        case "transport.gesture":
+            var refusal: String?
+            let intent = AgentPaneGestureIntent(gestureParams: params, refusal: &refusal)
+            self = .transportGesture(intent, method: AgentPaneGestureIntent.method(gestureParams: params), refusal: refusal)
         case "transport.gesture.release": self = .transportGestureRelease
         case "transport.send":
             if let connection = params?["connection"] as? Int, let frames = params?["frames"] as? [String],
@@ -740,8 +760,6 @@ extension AgentPaneRequest {
             self = AgentPaneEnvironmentRequest(method: method, params: params).map(AgentPaneRequest.environment) ?? .unsupported(method)
         case _ where AgentPaneCloudMachineRequest.methods.contains(method):
             self = AgentPaneCloudMachineRequest(method: method, params: params).map(AgentPaneRequest.cloudMachine) ?? .unsupported(method)
-        case AgentPaneCloudCredentialTransferRequest.method:
-            self = AgentPaneCloudCredentialTransferRequest(params: params).map(AgentPaneRequest.cloudCredentialTransfer) ?? .unsupported(method)
         case _ where AgentPaneReplyRequest.methods.contains(method):
             self = AgentPaneReplyRequest(method: method, params: params).map(AgentPaneRequest.reply) ?? .unsupported(method)
         default:

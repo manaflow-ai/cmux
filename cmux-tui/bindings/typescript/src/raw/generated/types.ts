@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362. */
+/* cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -34,6 +34,8 @@ export type AgentRecord = {
   /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
   "status"?: (AgentState) | null;
   "surface": Id;
+  /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
+  "terminal_id"?: string;
   "updated_at_ms": bigint;
 };
 
@@ -883,6 +885,11 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
+};
+
+export type RemoteHostAppPermissions = {
+  "accessibility"?: (boolean) | null;
+  "screen_recording"?: (boolean) | null;
 };
 
 export type RemoteHostAppResult = {

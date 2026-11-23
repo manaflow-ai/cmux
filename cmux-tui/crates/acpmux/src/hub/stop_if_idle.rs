@@ -218,13 +218,10 @@ impl Hub {
         if self.any_process_running(session) {
             return Some("process");
         }
-        // A Claude chat with turns but none stored: stopped, it would come back as a fresh
-        // conversation (`idle.rs` keeps it awake for the same reason).
-        {
-            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            if m.claude_unstored && m.turn_count > 0 {
-                return Some("unstored");
-            }
+        // A Claude chat with turns but none stored, whose agent did work there: stopped, it would
+        // come back as a fresh conversation (`idle.rs` keeps it awake for the same reason).
+        if session.meta.lock().unwrap_or_else(|e| e.into_inner()).keeps_unstored_awake() {
+            return Some("unstored");
         }
         if session.moving().is_some() {
             return Some("moving");

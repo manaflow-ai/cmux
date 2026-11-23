@@ -763,21 +763,36 @@ def _light_room(label: str, runners: Sequence[Mapping[str, Any]], seen: Any) -> 
     """The idle runners carrying the light side `label` beyond the jobs already queued on it, or 0 while the
     janitor snapshot is unread or stale, or while a nightly or release job waits on the light family (any pool
     of the same `<class>-xcode-<version>` with reserved_queued): nightly first."""
-    snapshot = getattr(seen, "snapshot", None) if seen is not None else None
-    if not isinstance(snapshot, Mapping) or getattr(seen, "stale", True):
-        return 0
-    pools = snapshot.get("pools") or {}
-    own = _family(label)
-    if not isinstance(pools, Mapping) or any(
-            _family(str(name)) == own and int((entry or {}).get("reserved_queued") or 0) > 0
-            for name, entry in pools.items() if isinstance(entry, Mapping)):
+    if not _light_family_open(label, seen):
         return 0
     queued = int((getattr(seen, "owned_queued", None) or {}).get(label, 0) or 0)
     return max(0, pool.live_owned_free(runners, [label])[label] - queued)
 
 
+def _light_family_open(label: str, seen: Any) -> bool:
+    """Whether the janitor snapshot is read and fresh and no nightly or release job waits on the light family of
+    `label` (any pool of the same `<class>-xcode-<version>` with reserved_queued): nightly first."""
+    snapshot = getattr(seen, "snapshot", None) if seen is not None else None
+    if not isinstance(snapshot, Mapping) or getattr(seen, "stale", True):
+        return False
+    pools = snapshot.get("pools") or {}
+    own = _family(label)
+    return isinstance(pools, Mapping) and not any(
+        _family(str(name)) == own and int((entry or {}).get("reserved_queued") or 0) > 0
+        for name, entry in pools.items() if isinstance(entry, Mapping))
+
+
+def cloud_has_room(live: Mapping[str, int] | None, waiting: Mapping[str, int] | None) -> bool:
+    """Whether the light-fit jobs' Blacksmith leg (GUI_OVERFLOW) has a free slot now: in flight plus queued under
+    its capacity (next_macos_cascade.CAPACITY). light_spill_route() reads it only with both counts read."""
+    if live is None or waiting is None:
+        return False
+    return int(live.get(GUI_OVERFLOW, 0)) + int(waiting.get(GUI_OVERFLOW, 0)) < cascade.CAPACITY[GUI_OVERFLOW]
+
+
 def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any,
-                      owned: Sequence[str] = (), fast: str = "") -> tuple[str, tuple[str, ...]]:
+                      owned: Sequence[str] = (), fast: str = "", live: Mapping[str, int] | None = None,
+                      waiting: Mapping[str, int] | None = None) -> tuple[str, tuple[str, ...]]:
     """(the light minis' side label, the LIGHT_SPILL_JOBS its idle runners take), else ("", ()).
 
     Leo, 2026-11-11, with the std minis at 95 to 100% CPU and the light minis at 21 of 92 capacity units
@@ -791,6 +806,17 @@ def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any
     one job per runner, before the cascade. As light_fast_route(): attempt 1 only, never while a nightly
     or release job waits on the light family, and an unread or stale snapshot places nothing. A light
     runner the fast tier just took (`fast`) is not counted.
+
+    With no idle light runner for a job, it still queues on the light side label while that label has an
+    online runner and the Blacksmith leg (GUI_OVERFLOW) has no free slot (cloud_has_room(); `live` and
+    `waiting` are the cascade's counts). It used to go to the cascade, and the cascade's last resort is a
+    Blacksmith macOS label at its cap. On 2026-11-17, cmux#43307's daemon tests (run 44001991089) were placed
+    at 02:23Z with no idle light runner, when `blacksmith-6vcpu-macos-26` held 17 in flight and 91 queued of
+    10. The job became runnable at 04:17Z, landed on that queue and had no runner an hour later. Meanwhile the
+    owned light runners turned over every few minutes (12 busy and 56 held at 02:17Z). A queue on an owned
+    label drains as its runners free; a queue past a cloud label's cap does not. Queuing on the owned label is
+    also safe when the decision is old: the label is right whenever the job becomes runnable, and a cloud slot
+    is taken only while one is free at placement.
     """
     if runners is None or (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
         return "", ()
@@ -800,6 +826,9 @@ def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any
     if not label or not jobs:
         return "", ()
     room = _light_room(label, runners, seen) - (1 if fast == label else 0)
+    if (room < len(jobs) and _light_family_open(label, seen) and _online(label, runners) > 0
+            and live is not None and waiting is not None and not cloud_has_room(live, waiting)):
+        return label, tuple(jobs)  # queue on the owned label: the cloud leg is full (docstring)
     return (label, tuple(jobs[:room])) if room > 0 else ("", ())
 
 
@@ -1074,6 +1103,45 @@ def delimited(jobs: Sequence[str]) -> str:
 
 # The branch whose pushes run the cmux NEXT DEV pipeline.
 FEAT_BRANCH = "refs/heads/feat-cmux-next"
+
+# STACK_SLOT: a same-repository pull request labelled stack-blocker (a base-red repair, or a PR a stack of others waits
+# on) runs its Mac jobs on the std minis' nightly slot, glaeda-nightly-std-xcode-26.6, a label no other PR job asks
+# for, so a busy side label's queue never holds it. GitHub hands a label's queued jobs out in arrival order, so on
+# 2026-11-17 cmux#45498, the repair of a daemon-test red on every feat-cmux-next head, queued behind about 70 PR jobs
+# on glaeda-side-std-xcode-26.6. claude-sr2-coord, 2026-11-17: "A base-red repair jumping the Mac queue is a route we
+# need every day ... build it as the standing mechanism (the stack-blocker path), with a test." glaeda's runner hook
+# admits such a job on the slot (STACK_SLOT there) and ranks it right after nightly jobs. The workflow sets STACK_SLOT
+# only on attempt 1 of a labelled same-repository pull request; it overrides every route a Mac job's runs-on reads
+# ahead of `runner` and `deferred_runner`, so each placed job takes the slot. A rescue re-run (attempt 2) is placed as
+# before. The label is read from the run's own payload, so labelling a PR takes effect on its next push.
+STACK_SLOT_PREFIX = "glaeda-nightly-"
+# The fast tier's own fast label and the DEV compile slot's fresh label are dedicated slots of their own and keep
+# their placement; every shared route a queued job could wait on is cleared.
+STACK_SLOT_CLEARED = ("owned_jobs", "fallback_jobs", "light_jobs", "session_jobs", "borrow_jobs", "retry_jobs",
+                      "blacksmith_12_jobs", "blacksmith_6_jobs")
+
+
+def stack_slot_outputs(env: Mapping[str, str]) -> str:
+    """The outputs that send this run's placed Mac jobs to the nightly slot (STACK_SLOT), or "". Appended after the
+    placement's own, so each key's last value, the one GitHub keeps, is this one."""
+    slot = (env.get("STACK_SLOT") or "").strip()
+    if not slot.startswith(STACK_SLOT_PREFIX) or (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
+        return ""
+    return "".join(f"{key}=\n" for key in STACK_SLOT_CLEARED) + f"runner={slot}\ndeferred_runner={slot}\nwatch=true\n"
+
+
+def write_stack_slot(env: Mapping[str, str]) -> None:
+    """Append stack_slot_outputs() to GITHUB_OUTPUT and say so in the log and the summary."""
+    outputs = stack_slot_outputs(env)
+    if not outputs:
+        return
+    slot = (env.get("STACK_SLOT") or "").strip()
+    why = f"a stack-blocker pull request: its Mac jobs take the nightly slot `{slot}`, ahead of the side label's queue"
+    print(f"side-lane placement: {why}")
+    for name, text in (("GITHUB_OUTPUT", outputs), ("GITHUB_STEP_SUMMARY", f"\n{why}\n")):
+        if path := env.get(name):
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(text)
 
 
 def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
@@ -1393,7 +1461,7 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
         env = without_jobs(env, fresh_jobs)
     owned, fallback, why = decide(env, runners)
     # The jobs no idle std runner took that a light mini runs: an idle light side runner before the cascade.
-    light, light_jobs = light_spill_route(env, runners, seen, owned, fast)
+    light, light_jobs = light_spill_route(env, runners, seen, owned, fast, live, waiting)
     if light_jobs:
         env = without_jobs(env, light_jobs)
         why += f"; no idle std side runner for {', '.join(light_jobs)}, so they take idle light `{light}`"
@@ -1584,12 +1652,14 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     try:
         signal.signal(signal.SIGALRM, timeout)
         signal.setitimer(signal.ITIMER_REAL, PLACEMENT_DEADLINE_SECONDS)
-        return _main(env)
+        code = _main(env)
     except PlacementDeadline:
-        return _timeout_fallback(env)
+        code = _timeout_fallback(env)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
+    write_stack_slot(env)  # STACK_SLOT: after the deadline, so it is always written
+    return code
 
 
 if __name__ == "__main__":

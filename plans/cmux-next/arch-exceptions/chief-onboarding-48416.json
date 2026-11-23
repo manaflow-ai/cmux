@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-20",
+  "row": "app_lines",
+  "allow": 26,
+  "why": "cmux#48416: a new person's first launch opens a new agent chat in a workspace of its own once the launch's tool windows close (OnboardingService.openFirstChat), and the terminal-first pick reaches Cmd-T (NewTabKind.facts / TabLifecycle pass terminalFirst). Creating the workspace and reading the pane's daemon need AppServices (windows, agentTabs, daemon, settings), the App's own owners; the rules themselves live in CmuxNextOnboarding (OnboardingWindowPresenter.claimFirstChat, FirstRunChoicesSettingsSource, MakeItYoursStepModel) and Rust (cmux-window-rules tabs::new_tab_kind).",
+  "author": "nx-48416-chief-onboarding (claude opus)",
+  "owner": "nx-48416-chief-onboarding",
+  "receipt": "Review (correctness subagent, claude opus): SHIP at b3bf2c4fa8e598c16f432e44da2e602a55c6331b (tree-identical to 68212591f6 after a message-only rebase)",
+  "expiry": "2026-12-20"
+}

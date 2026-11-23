@@ -32,6 +32,9 @@ extension AgentPaneComposerSetting {
     /// `agentPane.newChatsIn`: Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
     public nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
     public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .local
+    /// `agentPane.sessionWorktrees`.
+    public nonisolated static let sessionWorktreesPath = ["agentPane", "sessionWorktrees"]
+    public nonisolated static let sessionWorktreesDefault: AgentPaneSessionWorktrees = .off
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -55,7 +58,7 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.composerRing", "Composer Ring"),
-                help: SettingsText.keyed("settings.agentPane.composerRing.help", "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them."),
+                help: SettingsText.keyed("settings.agentPane.composerRing.help", "What the ring at the end of the composer shows."),
                 kind: .choice([
                     SettingChoice(AgentPaneComposerRing.context.rawValue, SettingsText.keyed("settings.choice.composerRingContext", "Context")),
                     SettingChoice(AgentPaneComposerRing.planUsage.rawValue, SettingsText.keyed("settings.choice.composerRingPlanUsage", "Plan Usage")),
@@ -78,7 +81,6 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.dictationSource", "Dictate With"),
-                help: SettingsText.keyed("settings.agentPane.dictationSource.help", "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut."),
                 kind: .choice([
                     SettingChoice(AgentPaneDictationSource.cmux.rawValue, SettingsText.keyed("settings.choice.dictationSourceCmux", "cmux")),
                     SettingChoice(AgentPaneDictationSource.macos.rawValue, SettingsText.keyed("settings.choice.dictationSourceMacos", "macOS Dictation")),
@@ -96,7 +98,7 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.dictationShortcut", "Dictation App Shortcut"),
-                help: SettingsText.keyed("settings.agentPane.dictationShortcut.help", "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default."),
+                help: SettingsText.keyed("settings.agentPane.dictationShortcut.help", "The shortcut sent to your dictation app. Empty uses the app's default."),
                 kind: .text,
                 default: .string(AgentPaneComposerSetting.dictationShortcutDefault),
                 keywords: ["dictation", "shortcut", "hotkey", "key", "chatgpt", "claude", "gemini", "wispr", "flow", "superwhisper"]
@@ -116,7 +118,7 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.attachmentView", "Attachment View"),
-                help: SettingsText.keyed("settings.agentPane.attachmentView.help", "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same."),
+                help: SettingsText.keyed("settings.agentPane.attachmentView.help", "How pictures and files show in the composer and in sent messages."),
                 kind: .choice([
                     SettingChoice(AgentPaneAttachmentView.inline.rawValue, SettingsText.keyed("settings.choice.agentChatAttachmentInline", "Inline")),
                     SettingChoice(AgentPaneAttachmentView.strip.rawValue, SettingsText.keyed("settings.choice.agentChatAttachmentStrip", "Strip")),
@@ -150,13 +152,27 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.newChatsIn", "Start New Chats In"),
-                help: SettingsText.keyed("settings.agentPane.newChatsIn.help", "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat."),
+                help: SettingsText.keyed("settings.agentPane.newChatsIn.help", "Cloud copies your project to your Cloud machine. A chat's composer can change it."),
                 kind: .choice([
                     SettingChoice(AgentPaneNewChatPlace.local.rawValue, SettingsText.keyed("settings.choice.newChatsInLocal", "This Mac")),
                     SettingChoice(AgentPaneNewChatPlace.cloud.rawValue, SettingsText.keyed("settings.choice.newChatsInCloud", "Cloud")),
                 ]),
                 default: .string(AgentPaneComposerSetting.newChatsInDefault.rawValue),
                 keywords: ["cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.sessionWorktreesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.sessionWorktrees", "Session Worktrees"),
+                help: SettingsText.keyed("settings.agentPane.sessionWorktrees.help", "Choose where to keep worktrees for local chats and forks."),
+                kind: .choice([
+                    SettingChoice(AgentPaneSessionWorktrees.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(AgentPaneSessionWorktrees.shared.rawValue, SettingsText.keyed("settings.choice.sessionWorktreesShared", "Shared Worktree Folder")),
+                    SettingChoice(AgentPaneSessionWorktrees.project.rawValue, SettingsText.keyed("settings.choice.sessionWorktreesProject", "Inside Project")),
+                ]),
+                default: .string(AgentPaneComposerSetting.sessionWorktreesDefault.rawValue),
+                keywords: ["git", "worktree", "fork", "folder"]
             ),
         ]
     }

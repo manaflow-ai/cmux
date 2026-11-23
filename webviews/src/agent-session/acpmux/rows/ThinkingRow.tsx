@@ -1,15 +1,20 @@
-import { memo } from "react";
+import { memo, useContext } from "react";
 import { Thinking } from "../conversation/Thinking";
+import { LiveLinePulseContext } from "../conversation/liveLinePulse";
+import { LIVE_THINKING } from "../conversation/turns";
 import { type RowProps } from "./rowProps";
 
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 export const ThinkingRow = memo(
   function ThinkingRow({ row }: RowProps) {
+    // The transcript's live line hears its chunks without a draw (liveLinePulse.ts).
+    const pulse = useContext(LiveLinePulseContext);
     return (
       <Thinking
         starting={row.queued !== undefined}
         since={row.at}
         doing={row.doing}
+        activityDots={row.id === LIVE_THINKING}
         doingAt={row.doingAt}
         doingShell={row.doingShell}
         sendTo={row.doingSendTo}
@@ -32,6 +37,7 @@ export const ThinkingRow = memo(
         below={row.below}
         command={row.doingCommand}
         retry={row.retry}
+        pulse={row.id === LIVE_THINKING ? (pulse ?? undefined) : undefined}
       />
     );
   },

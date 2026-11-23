@@ -39,6 +39,7 @@ import Testing
         let card = WorkspaceHoverCardView()
         card.configure(.make(workspace(), machine: machine, now: Date()))
         card.detailsToggle.performClick(nil)
+        card.runPendingDetailsPresses()
         #expect(card.lines.contains { $0.contains("air-blue") }, "\(card.lines)")
         #expect(card.lines.contains(CmuxNextSidebar.Strings.statusOffline))
         #expect(Self.rows(in: card).count >= 3)

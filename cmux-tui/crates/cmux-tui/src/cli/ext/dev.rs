@@ -1311,7 +1311,9 @@ impl Session {
     /// know the request still reloads on its watch, waited for as before.
     fn pickup(&mut self, id: &str, target: &Path) -> Result<Result<(), Problem>, Stop> {
         let folder = target.display().to_string();
-        let asked = self.daemon.send(json!({ "cmd": "apps-reload-local" }))?;
+        // It names the folder, so the pass reads only it (an older daemon reads all).
+        let asked =
+            self.daemon.send(json!({ "cmd": "apps-reload-local", "folders": [&folder] }))?;
         self.daemon.wait(Instant::now() + PICKUP_DEADLINE, |value| {
             if value.get("id").and_then(Value::as_str) == Some(asked.as_str()) {
                 if value.field("ok").as_bool() != Some(true) {
@@ -1454,7 +1456,15 @@ pub(super) fn list_rows(data: &Value) -> Vec<Value> {
         .flatten()
         .filter(|row| row.field("id").as_str().is_some_and(|id| id.starts_with("local/")))
         .map(|row| {
+            // Where `ext add` got it (its link), when it did.
+            let from = row
+                .field("bundle_dir")
+                .as_str()
+                .and_then(|folder| super::share::recorded_origin(Path::new(folder)))
+                .map(|origin| origin.field("link").clone())
+                .unwrap_or(Value::Null);
             json!({
+                "from": from,
                 "app": row.field("id"), "version": row.field("version"),
                 "installed": row.field("installed"), "enabled": row.field("enabled"),
                 "available": row.field("available"), "folder": row.field("bundle_dir"),
@@ -1480,10 +1490,14 @@ pub(super) fn list_table(rows: &[Value]) -> String {
             "installed"
         };
         out.push_str(&format!(
-            "{app:width$}  {:9}  {state:10}  {}\n",
+            "{app:width$}  {:9}  {state:10}  {}",
             row.field("version").as_str().unwrap_or(""),
             row.field("folder").as_str().unwrap_or("")
         ));
+        if let Some(link) = row.field("from").as_str() {
+            out.push_str(&format!("  from {link}"));
+        }
+        out.push('\n');
     }
     out
 }

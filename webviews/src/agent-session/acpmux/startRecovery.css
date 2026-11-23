@@ -1,0 +1,58 @@
+/* Shared dialog material; no entrance animation, theme-independent paint, or new surface role. */
+.acpmux-start-recovery {
+  box-sizing: border-box;
+  max-width: calc(100vw - var(--ds-space-6));
+  width: 28rem;
+  --ui-dialog-padding: var(--ds-space-4);
+  padding: var(--ui-dialog-padding);
+  color: var(--cmux-text);
+}
+.acpmux-start-recovery-layout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--ds-space-3);
+}
+.acpmux-start-recovery-art {
+  width: var(--ds-space-56);
+  height: var(--ds-space-56);
+  color: var(--cmux-text-secondary);
+}
+.acpmux-start-recovery-reason {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  overflow-wrap: anywhere;
+}
+.acpmux-start-recovery-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+}
+.acpmux-start-recovery-layout[data-layout="centered"] {
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+}
+.acpmux-start-recovery-layout[data-layout="horizontal"] {
+  display: flex;
+  flex-wrap: wrap;
+}
+.acpmux-start-recovery-layout[data-layout="horizontal"] .acpmux-start-recovery-reason {
+  flex: 1;
+}
+.acpmux-start-recovery-layout[data-layout="horizontal"] .acpmux-start-recovery-actions {
+  margin-inline-start: auto;
+}
+
+.acpmux-start-recovery,
+.acpmux-start-recovery-backdrop {
+  transition: none;
+}
+.acpmux-start-recovery[data-starting-style],
+.acpmux-start-recovery-backdrop[data-starting-style] {
+  opacity: 1;
+  scale: none;
+}

@@ -22,7 +22,8 @@
 //! the last line, which no other sender can take.
 //!
 //! Two lanes (cmuxterm-hq `docs/design/remote-cloud-durability.md` 4.6, F18): the answer to a
-//! cheap read ([`is_cheap_read`]: identify, the session list, host health, status) goes in the
+//! cheap read ([`is_cheap_read`]: identify, the session list, host health, status, the peer list
+//! the agent pane probes the daemon's liveness with) goes in the
 //! read lane, which the pump takes before anything else; every other line keeps its order in the
 //! bulk lane. So the pump never lets the bulk lane hold more than [`BULK_WINDOW`] bytes in the
 //! transport's channel: a replay of thousands of lines stays here, where a read answered after it
@@ -32,6 +33,8 @@
 
 use super::*;
 use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::time::{Duration, Instant};
 use tokio::sync::{Notify, watch};
 
 /// The bytes of the bulk lane the transport's channel may hold: what a read answered now waits
@@ -39,7 +42,7 @@ use tokio::sync::{Notify, watch};
 pub(super) const BULK_WINDOW: usize = 256 << 10;
 
 /// Whether the answer to `method` goes in the read lane ([module docs](self)).
-pub(super) fn is_cheap_read(method: &str) -> bool {
+pub(crate) fn is_cheap_read(method: &str) -> bool {
     use crate::rpc::method;
     matches!(
         method,
@@ -49,6 +52,10 @@ pub(super) fn is_cheap_read(method: &str) -> bool {
             | method::MUX_STATUS
             | method::MUX_HARNESS_HEALTH
             | "_acpmux/host_health"
+            // The agent pane's liveness probe (webviews `direct.ts` `probeDaemon`): the pane gives
+            // its socket up when this goes unanswered for 15 s, so behind a huge chat's replay a
+            // busy but alive daemon had every pane cut and reattach at once.
+            | "_acpmux/peers"
     )
 }
 
@@ -79,9 +86,31 @@ pub(super) enum Lane {
 /// ([`crate::rpc::MAX_MESSAGE_BYTES`]) and change, so a whole list and the stream behind it fit.
 pub(super) const OUTBOUND_BYTE_BOUND: usize = 64 << 20;
 
+/// The bytes every connection's queue may hold together. Each connection alone may hold
+/// [`OUTBOUND_BYTE_BOUND`], so a host with a few hundred readers (agents' CLIs, the app, peers)
+/// could hold tens of GB before any one bound tripped: huge-blue's daemon reached 16.5 GB and
+/// stopped answering (2026-11-20). Past this, a line for a connection that holds more than
+/// [`FAIR_SHARE`] ends that connection, as its own bound would; one that holds less is still
+/// served, so a cheap read's answer always goes out.
+pub(super) const TOTAL_BYTE_BOUND: usize = 1 << 30;
+/// What a connection may hold when the daemon is past [`TOTAL_BYTE_BOUND`].
+pub(super) const FAIR_SHARE: usize = 4 << 20;
+/// How long a reader over [`FAIR_SHARE`] may take nothing before the daemon-wide bound ends it.
+/// One that is taking lines is slow, not stuck, and keeps its connection up to its own bound: on
+/// cosmic-gray the cut fell on the app's coordinator chats mid-replay, each cut cost a re-attach of
+/// the whole chat (99 s for the largest), and the re-attach queued the same bytes again
+/// (cmuxterm-hq `docs/handbook/gui-chat-loses-its-agent-session.md`).
+pub(super) const READER_STALL: Duration = Duration::from_secs(10);
+/// The bytes every live queue holds now (the sum of their [`State::held`]).
+pub(crate) static TOTAL_HELD: AtomicUsize = AtomicUsize::new(0);
+
 /// Connections ended because their reader fell [`OUTBOUND_BYTE_BOUND`] behind, since the daemon
 /// started (`daemon status`, `gauges.queues.overruns`).
 pub(crate) static OVERRUNS: AtomicU64 = AtomicU64::new(0);
+/// Of [`OVERRUNS`], those the daemon-wide bound made ([`TOTAL_BYTE_BOUND`]: a stalled reader over
+/// its fair share), not the connection's own (`gauges.queues.totalOverruns`). The GUI disconnect
+/// detector reads the split (cmuxterm-hq `docs/handbook/gui-chat-loses-its-agent-session.md`).
+pub(crate) static TOTAL_OVERRUNS: AtomicU64 = AtomicU64::new(0);
 
 /// Why a connection's queue ended it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,17 +143,20 @@ impl Overrun {
 /// The queue's state, under its one lock.
 struct State {
     /// The bulk lane.
-    queue: VecDeque<String>,
+    queue: VecDeque<Line>,
     /// The read lane, taken first.
-    reads: VecDeque<String>,
+    reads: VecDeque<Line>,
     /// Bytes queued and not yet taken by the transport's reader: both lanes, the pump's
     /// lines, and [`State::sent`].
     held: usize,
     /// The sizes of the lines the pump sent to the transport that may still be in its channel,
     /// oldest first.
-    sent: VecDeque<usize>,
+    sent: VecDeque<(usize, Option<super::controls::Ticket>)>,
     /// The sum of [`State::sent`].
     sent_bytes: usize,
+    /// When the transport's reader last took a line, or the queue held nothing for it to take:
+    /// the daemon-wide bound ends only a reader stalled past [`READER_STALL`].
+    progress_at: Instant,
     /// Lines the pump took and has not sent yet (waiting for the durable gate, or for room).
     taken: usize,
     /// The transport, to read its room. Weak: once the pump ends, nothing holds it open.
@@ -132,39 +164,60 @@ struct State {
     capacity: usize,
     /// Every handle is gone: the pump sends what is left and ends.
     finished: bool,
+    /// The sum [`State::held`] counts toward: [`TOTAL_HELD`], or a test's own.
+    pool: &'static AtomicUsize,
     overrun: Option<Overrun>,
     /// The pump ended (its transport closed, the journal's writer ended, the daemon is stopping,
     /// or it overran): nothing queued now would ever be sent.
     ended: bool,
 }
 
+impl Drop for State {
+    fn drop(&mut self) {
+        self.set_held(0);
+    }
+}
+
 impl State {
+    /// Sets [`State::held`], keeping its pool ([`TOTAL_HELD`]) the sum over every queue.
+    fn set_held(&mut self, held: usize) {
+        if held >= self.held {
+            self.pool.fetch_add(held - self.held, Ordering::Relaxed);
+        } else {
+            self.pool.fetch_sub(self.held - held, Ordering::Relaxed);
+        }
+        self.held = held;
+    }
+
     /// Forgets the lines the transport's reader took since the last look.
     fn settle(&mut self) {
         let Some(transport) = self.transport.upgrade() else {
             return;
         };
         let in_channel = self.capacity.saturating_sub(transport.capacity());
+        if self.sent.len() > in_channel {
+            self.progress_at = Instant::now();
+        }
         while self.sent.len() > in_channel {
-            let Some(size) = self.sent.pop_front() else { break };
+            let Some((size, _ticket)) = self.sent.pop_front() else { break };
             self.sent_bytes -= size;
-            self.held = self.held.saturating_sub(size);
+            self.set_held(self.held.saturating_sub(size));
         }
     }
 
     /// Takes the read lane, then the bulk lane while the transport's channel holds less than
     /// `window` bytes (at least one line into an empty channel, whatever its size).
-    fn take_into(&mut self, batch: &mut Vec<String>, window: usize) -> Taken {
+    fn take_into(&mut self, batch: &mut Vec<Line>, window: usize) -> Taken {
         let mut took = self.reads.len();
         batch.extend(self.reads.drain(..));
         if !self.queue.is_empty() {
             self.settle();
             let mut ahead = self.sent_bytes;
             while let Some(line) = self.queue.front() {
-                if ahead >= window || (ahead > 0 && ahead + line.len() > window) {
+                if ahead >= window || (ahead > 0 && ahead + line.text.len() > window) {
                     break;
                 }
-                ahead += line.len();
+                ahead += line.text.len();
                 took += 1;
                 batch.extend(self.queue.pop_front());
             }
@@ -199,6 +252,11 @@ struct Shared {
     /// True once the queue overran or its pump ended.
     closed: watch::Sender<bool>,
     bound: usize,
+    /// [`TOTAL_BYTE_BOUND`] and [`FAIR_SHARE`], or a test's.
+    total_bound: usize,
+    fair_share: usize,
+    /// [`READER_STALL`], or a test's.
+    reader_stall: Duration,
 }
 
 impl Shared {
@@ -207,32 +265,54 @@ impl Shared {
     }
 
     /// Queues `line` in `lane` with the lock held; false (and nothing queued) once it overran.
-    fn push_locked(&self, state: &mut State, line: String, lane: Lane) -> bool {
+    fn push_locked(&self, state: &mut State, line: Line, lane: Lane) -> bool {
         if state.overrun.is_some() || state.ended {
             return false;
         }
-        let size = line.len();
-        if state.held + size > self.bound {
+        let size = line.text.len();
+        // A reader with nothing left to take is not behind.
+        if state.held == 0 {
+            state.progress_at = Instant::now();
+        }
+        let over_total = |state: &State| {
+            state.held + size > self.fair_share
+                && state.pool.load(Ordering::Relaxed) + size > self.total_bound
+                && state.progress_at.elapsed() >= self.reader_stall
+        };
+        if state.held + size > self.bound || over_total(state) {
             state.settle();
         }
-        if state.held + size > self.bound {
+        let own = state.held + size > self.bound;
+        if own || over_total(state) {
             let overrun = Overrun { held: state.held };
             tracing::warn!(
                 held = state.held,
                 line = size,
                 bound = self.bound,
-                "a connection's reader fell past its byte bound: it is disconnected"
+                total = state.pool.load(Ordering::Relaxed),
+                total_bound = self.total_bound,
+                "{}",
+                if own {
+                    "a connection's reader fell past its byte bound: it is disconnected"
+                } else {
+                    "every connection's queues together are past their bound: this one, over its fair share, is disconnected"
+                }
             );
             OVERRUNS.fetch_add(1, Ordering::Relaxed);
+            if !own {
+                TOTAL_OVERRUNS.fetch_add(1, Ordering::Relaxed);
+            }
             state.overrun = Some(overrun);
-            state.held = state.sent_bytes;
+            let in_channel = state.sent_bytes;
+            state.set_held(in_channel);
             state.queue = VecDeque::new();
             state.reads = VecDeque::new();
             self.closed.send_replace(true);
             self.wake.notify_one();
             return false;
         }
-        state.held += size;
+        let held = state.held + size;
+        state.set_held(held);
         match lane {
             Lane::Read => state.reads.push_back(line),
             Lane::Bulk => state.queue.push_back(line),
@@ -268,11 +348,25 @@ impl Queue<'_> {
     }
 
     pub(super) fn push_in(&mut self, line: String, lane: Lane) -> bool {
-        self.shared.push_locked(&mut self.state, line, lane)
+        self.shared.push_locked(&mut self.state, Line { text: line, ticket: None }, lane)
     }
 }
 
+/// A control ticket stays held through the pump and the transport channel.
+pub(super) struct Line {
+    pub(super) text: String,
+    pub(super) ticket: Option<super::controls::Ticket>,
+}
+
 impl Outbound {
+    pub(super) fn push_control(&self, line: Line) -> bool {
+        self.shared.push_locked(&mut self.shared.lock(), line, Lane::Bulk)
+    }
+
+    pub(super) fn settle(&self) {
+        self.shared.lock().settle();
+    }
+
     /// Queues `line` in the bulk lane; false when the connection overran or its reader is gone.
     pub(super) fn push(&self, line: String) -> bool {
         self.lock().push(line)
@@ -361,11 +455,11 @@ impl Pump {
     /// Takes the read lane's lines, then the bulk lane's that fit [`BULK_WINDOW`] ([module
     /// docs](self)), into `batch`, waiting until there is one; false once there is nothing more
     /// to send (every handle is gone and both lanes are empty, or it overran).
-    pub(super) async fn take(&self, batch: &mut Vec<String>) -> bool {
+    pub(super) async fn take(&self, batch: &mut Vec<Line>) -> bool {
         self.take_within(batch, BULK_WINDOW).await
     }
 
-    pub(super) async fn take_within(&self, batch: &mut Vec<String>, window: usize) -> bool {
+    pub(super) async fn take_within(&self, batch: &mut Vec<Line>, window: usize) -> bool {
         loop {
             let taken = {
                 let mut state = self.shared.lock();
@@ -399,7 +493,7 @@ impl Pump {
 
     /// Sends `line` to the transport once it has room, keeping its last slot free; false when its
     /// reader is gone or the queue overran.
-    pub(super) async fn forward(&self, line: String) -> bool {
+    pub(super) async fn forward(&self, line: Line) -> bool {
         let keep = if self.transport.max_capacity() > 1 { 2 } else { 1 };
         let mut closed = self.shared.closed.subscribe();
         let room = tokio::select! {
@@ -409,14 +503,14 @@ impl Pump {
         };
         let Ok(mut room) = room else { return false };
         let Some(permit) = room.next() else { return false };
-        let size = line.len();
+        let size = line.text.len();
         let mut state = self.shared.lock();
         if state.overrun.is_some() {
             return false;
         }
-        permit.send(line);
+        permit.send(line.text);
         state.taken = state.taken.saturating_sub(1);
-        state.sent.push_back(size);
+        state.sent.push_back((size, line.ticket));
         state.sent_bytes += size;
         // Forget what the reader took meanwhile, so `sent` stays as short as the channel.
         state.settle();
@@ -465,6 +559,34 @@ pub(super) fn start_bounded(
     transport: mpsc::Sender<String>,
     bound: usize,
 ) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
+    let limits = Limits {
+        pool: &TOTAL_HELD,
+        total_bound: TOTAL_BYTE_BOUND,
+        fair_share: FAIR_SHARE,
+        reader_stall: READER_STALL,
+    };
+    start_limited(scope, durability, transport, bound, limits)
+}
+
+/// The daemon-wide limits of a queue: the sum it counts toward ([`TOTAL_HELD`]), its bound
+/// ([`TOTAL_BYTE_BOUND`]), [`FAIR_SHARE`] and [`READER_STALL`]. A test gives its own pool, so other
+/// tests' queues, filling and draining beside it, never move its bound.
+pub(super) struct Limits {
+    pub(super) pool: &'static AtomicUsize,
+    pub(super) total_bound: usize,
+    pub(super) fair_share: usize,
+    pub(super) reader_stall: Duration,
+}
+
+/// [`start_bounded`] with the daemon-wide [`Limits`] given.
+pub(super) fn start_limited(
+    scope: &cmux_scope::Scope,
+    durability: Option<crate::store::Durability>,
+    transport: mpsc::Sender<String>,
+    bound: usize,
+    limits: Limits,
+) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
+    let Limits { pool, total_bound, fair_share, reader_stall } = limits;
     let (closed, _) = watch::channel(false);
     let shared = Arc::new(Shared {
         state: StdMutex::new(State {
@@ -473,16 +595,21 @@ pub(super) fn start_bounded(
             held: 0,
             sent: VecDeque::new(),
             sent_bytes: 0,
+            progress_at: Instant::now(),
             taken: 0,
             transport: transport.downgrade(),
             capacity: transport.max_capacity(),
             finished: false,
+            pool,
             overrun: None,
             ended: false,
         }),
         wake: Notify::new(),
         closed,
         bound,
+        total_bound,
+        fair_share,
+        reader_stall,
     });
     let pump = Pump { shared: Arc::clone(&shared), transport };
     let gate = match durability {

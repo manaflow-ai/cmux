@@ -69,6 +69,11 @@ pub(super) fn call(attachment: &Attachment, params: Params) -> Result<Value, Ref
     else {
         return Err(Refusal::Refused);
     };
+    // Remembered before the tag: a side chat is the owner's alone, so no teammate, team member
+    // or link guest attaches to it and the team list leaves it out (agent_session_side_known.rs).
+    if let Some(mux) = attachment.mux.upgrade() {
+        mux.control_clients.agent_sessions.sides.remember(&side);
+    }
     let take_back = || {
         let purge = json!({"sessionId": side, "purge": true, "cancelFork": true});
         let _ = link.send_ignoring_reply("_acpmux/kill", attachment.stamp(purge));
@@ -101,41 +106,5 @@ pub(super) fn call(attachment: &Attachment, params: Params) -> Result<Value, Ref
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_fork_is_live_or_through_one_positive_turn() {
-        assert_eq!(boundary("s", true, None), Some(json!({"sessionId": "s", "live": true})));
-        assert_eq!(boundary("s", false, Some(4)), Some(json!({"sessionId": "s", "throughSeq": 4})));
-        assert_eq!(boundary("s", false, Some(0)), None);
-        assert_eq!(boundary("s", false, None), None);
-        assert_eq!(boundary("s", true, Some(4)), None);
-    }
-
-    #[test]
-    fn a_first_prompt_needs_text_and_an_id() {
-        assert!(matches!(first_prompt(None, None), Ok(None)));
-        assert!(matches!(
-            first_prompt(Some("look".into()), Some("p-1".into())),
-            Ok(Some((text, id))) if text == "look" && id == "p-1"
-        ));
-        for (text, id) in [
-            (Some("look"), None),
-            (None, Some("p-1")),
-            (Some("  "), Some("p-1")),
-            (Some("look"), Some("")),
-            (Some("look"), Some("p 1")),
-        ] {
-            assert!(
-                matches!(
-                    first_prompt(text.map(Into::into), id.map(Into::into)),
-                    Err(Refusal::BadRequest)
-                ),
-                "{text:?} {id:?}"
-            );
-        }
-        let long = "x".repeat(MAX_PROMPT_BYTES + 1);
-        assert!(matches!(first_prompt(Some(long), Some("p".into())), Err(Refusal::BadRequest)));
-    }
-}
+#[path = "agent_session_side_tests.rs"]
+mod tests;

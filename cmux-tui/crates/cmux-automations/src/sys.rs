@@ -91,7 +91,7 @@ pub(crate) fn pid_alive(pid: u32) -> bool {
 
 /// This machine's name, for the run row's `runner`.
 #[cfg(unix)]
-pub(crate) fn hostname() -> Option<String> {
+pub fn hostname() -> Option<String> {
     let mut buf = [0u8; 256];
     // SAFETY: gethostname writes at most `buf.len()` bytes into `buf`.
     if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } != 0 {
@@ -104,7 +104,7 @@ pub(crate) fn hostname() -> Option<String> {
 
 /// This machine's name, for the run row's `runner`.
 #[cfg(windows)]
-pub(crate) fn hostname() -> Option<String> {
+pub fn hostname() -> Option<String> {
     std::env::var("COMPUTERNAME").ok().filter(|n| !n.is_empty())
 }
 

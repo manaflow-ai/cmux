@@ -40,9 +40,11 @@ mod generated {
 }
 
 pub mod backend;
+pub mod connect_retry;
 mod error;
 pub mod machine;
 pub mod ops;
+pub mod transcript;
 
 pub use error::ApiError;
 pub use generated::*;
@@ -65,6 +67,9 @@ pub enum BuildError {
     InvalidBaseUrl(String),
     /// The HTTP client could not be constructed.
     Http(reqwest::Error),
+    /// This process is a dev build without a usable build space
+    /// (`cmux_build_space`): it calls no cloud rather than nightly's.
+    BuildSpace(cmux_build_space::Unusable),
 }
 
 impl std::fmt::Display for BuildError {
@@ -76,6 +81,7 @@ impl std::fmt::Display for BuildError {
                 write!(f, "the base URL {url:?} is not an absolute http or https URL")
             }
             Self::Http(e) => write!(f, "could not build the HTTP client: {e}"),
+            Self::BuildSpace(e) => std::fmt::Display::fmt(e, f),
         }
     }
 }
@@ -87,7 +93,8 @@ impl std::error::Error for BuildError {}
 ///
 /// A client for `base_url` that sends `Authorization: Bearer <bearer>`
 /// (marked sensitive, so it never shows in debug output) and, with `team`,
-/// [`TEAM_HEADER`] on every request. Pass `None` for the generated methods'
+/// [`TEAM_HEADER`] on every request, plus this process's build space
+/// (`x-cmux-build-space`, [`cmux_build_space::process`]) for a dev build. Pass `None` for the generated methods'
 /// own team arguments; this client already sends it. Redirects are never
 /// followed, so the bearer cannot be forwarded to another origin.
 pub fn client(
@@ -119,7 +126,9 @@ pub fn client_for(
 }
 
 /// The `reqwest::Client` [`client`] wraps, for [`ops`] and for the routes
-/// cmux-platform does not describe yet (cmux-platform#825).
+/// cmux-platform does not describe yet (cmux-platform#825). Every client of
+/// this crate is made here, so each one carries the process's build space;
+/// a process that may not call the cloud gets [`BuildError::BuildSpace`].
 pub fn http(
     base_url: &str,
     bearer: Option<&str>,
@@ -132,7 +141,7 @@ pub fn http(
         Ok(url) if matches!(url.scheme(), "http" | "https") && url.has_host() => {}
         _ => return Err(BuildError::InvalidBaseUrl(base_url.to_owned())),
     }
-    let mut headers = reqwest::header::HeaderMap::new();
+    let mut headers = cmux_build_space::headers().map_err(BuildError::BuildSpace)?;
     if let Some(bearer) = bearer {
         let mut auth = reqwest::header::HeaderValue::try_from(format!("Bearer {bearer}"))
             .map_err(|_| BuildError::InvalidBearer)?;

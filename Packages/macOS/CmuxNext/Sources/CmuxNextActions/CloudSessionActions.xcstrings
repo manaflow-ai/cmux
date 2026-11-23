@@ -1,6 +1,8 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "argument.cloud.secret": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"السر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Tajna"}},"da":{"stringUnit":{"state":"needs_review","value":"Hemmelighed"}},"de":{"stringUnit":{"state":"needs_review","value":"Geheimnis"}},"en":{"stringUnit":{"state":"translated","value":"Secret"}},"es":{"stringUnit":{"state":"needs_review","value":"Secreto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Secret"}},"it":{"stringUnit":{"state":"needs_review","value":"Segreto"}},"ja":{"stringUnit":{"state":"needs_review","value":"シークレット"}},"km":{"stringUnit":{"state":"needs_review","value":"អាថ៌កំបាំង"}},"ko":{"stringUnit":{"state":"needs_review","value":"시크릿"}},"nb":{"stringUnit":{"state":"needs_review","value":"Hemmelighet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Sekret"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Segredo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Секрет"}},"th":{"stringUnit":{"state":"needs_review","value":"ความลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gizli Anahtar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Секрет"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bí mật"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"密钥"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"密鑰"}}}},
+    "action.cloud.secret.remove": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إزالة سر السحابة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ukloni Cloud tajnu…"}},"da":{"stringUnit":{"state":"needs_review","value":"Fjern Cloud-hemmelighed…"}},"de":{"stringUnit":{"state":"needs_review","value":"Cloud-Geheimnis entfernen…"}},"en":{"stringUnit":{"state":"translated","value":"Remove Cloud Secret…"}},"es":{"stringUnit":{"state":"needs_review","value":"Eliminar secreto de Cloud…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Supprimer un secret Cloud…"}},"it":{"stringUnit":{"state":"needs_review","value":"Rimuovi segreto Cloud…"}},"ja":{"stringUnit":{"state":"needs_review","value":"Cloud シークレットを削除…"}},"km":{"stringUnit":{"state":"needs_review","value":"លុបអាថ៌កំបាំង Cloud…"}},"ko":{"stringUnit":{"state":"needs_review","value":"Cloud 시크릿 제거…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fjern Cloud-hemmelighet…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Usuń sekret Cloud…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Remover segredo do Cloud…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Удалить секрет Cloud…"}},"th":{"stringUnit":{"state":"needs_review","value":"ลบความลับ Cloud…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud Gizli Anahtarını Kaldır…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Видалити секрет Cloud…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xóa bí mật Cloud…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"移除 Cloud 密钥…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"移除 Cloud 密鑰…"}}}},
     "action.cloudStartSession": {
       "comment": "Command title: starts an agent session (Claude, Codex, ...) on a Cloud machine.",
       "extractionState": "manual",
@@ -134,33 +136,6 @@
         "tr": {"stringUnit": {"state": "needs_review", "value": "Kopyalanacak Bu Mac'teki Klasör"}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Папка на цьому Mac для копіювання"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục trên máy Mac này để sao chép"}}
-      }
-    },
-    "argument.cloudStartSession.login": {
-      "comment": "Argument title: how the Cloud machine's agent harness (Claude, Codex) gets a login: pass, machine or none.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Harness Login"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "تسجيل دخول الأداة"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Prijava alata"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Værktøjslogin"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Harness-Anmeldung"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Inicio de sesión del arnés"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Connexion du harnais"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Accesso dello strumento"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ハーネスのログイン"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ការចូលរបស់ឧបករណ៍"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "하네스 로그인"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Verktøypålogging"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Logowanie narzędzia"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Login da ferramenta"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Вход инструмента"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "การเข้าสู่ระบบของเครื่องมือ"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Araç girişi"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Вхід інструмента"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Đăng nhập công cụ"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "工具登录"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "工具登入"}}
       }
     }
   },

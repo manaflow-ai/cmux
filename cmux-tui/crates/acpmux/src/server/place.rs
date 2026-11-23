@@ -56,6 +56,7 @@ async fn this_machine(hub: &Hub) -> Candidate {
         local: true,
         health: super::peer_status::host_health(hub, Origin::Peer).await,
         health_at: Some(crate::store::now_ms()),
+        via_hub: false,
     }
 }
 
@@ -190,8 +191,13 @@ pub(super) fn role_refusal(host: &str, work: Work) -> Option<String> {
 fn named_refusal(registry: &Value, host: &str, work: Work) -> Option<String> {
     let hosts = crate::placement::lane_hosts(Some(registry))?;
     crate::placement::registry_lanes(&hosts, host)?;
-    let only =
-        [Candidate { name: host.to_owned(), local: false, health: Value::Null, health_at: None }];
+    let only = [Candidate {
+        name: host.to_owned(),
+        local: false,
+        health: Value::Null,
+        health_at: None,
+        via_hub: false,
+    }];
     let v = crate::placement::place(&only, Some(registry), work);
     if let Some(r) = v.pointer("/hosts/0/refused").and_then(Value::as_str) {
         return Some(format!("{host}: {r}"));
@@ -229,7 +235,7 @@ mod tests {
     use super::*;
 
     fn here(health: Value) -> [Candidate; 1] {
-        [Candidate { name: "box".into(), local: true, health, health_at: None }]
+        [Candidate { name: "box".into(), local: true, health, health_at: None, via_hub: false }]
     }
 
     fn health(ram_gb: u64, live: u64) -> Value {
@@ -291,6 +297,7 @@ mod tests {
             json!({"name": "up", "connected": true, "state": "connected", "health": health(40, 0)}),
             json!({"name": "stale", "connected": true, "state": "reconnecting"}),
             json!({"name": "gone", "connected": false, "state": "offline"}),
+            json!({"name": "old-disk", "connected": true, "state": "connected", "outdated": true}),
         ];
         let (peers, down) = split_peers(rows);
         assert_eq!(peers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["up"]);
@@ -299,8 +306,45 @@ mod tests {
             [
                 ("stale".to_owned(), "not connected (reconnecting)".to_owned()),
                 ("gone".to_owned(), "not connected (offline)".to_owned()),
+                ("old-disk".to_owned(), "outdated peer build (stale disk copy)".to_owned()),
             ]
         );
+    }
+
+    /// gcp-codex-swarm-07, 2026-11-20: a lane VM at its lane cap whose only other machine is one
+    /// the mesh hub lists. `new --machine auto` picked that machine (no reading, so it took the
+    /// work once no host with one was under its cap) and the start failed with `no peer`. Now
+    /// the hub machine is passed over with why, and is never the pick.
+    #[test]
+    fn a_machine_only_the_hub_reaches_is_never_picked() {
+        let reg = json!({"machines": {
+            "box": {"lanes": {"max_lanes": 6}},
+            "swarm-01": {"lanes": {"max_lanes": 6}}}});
+        let rows = vec![json!({"name": "swarm-01", "connected": true, "state": "connected",
+            "via": "hub", "lastSeen": 1, "sessions": 0})];
+        let (peers, down) = split_peers(rows.clone());
+        assert!(peers.is_empty(), "{peers:?}");
+        assert_eq!(down.len(), 1);
+        assert!(down[0].1.contains("`acpmux machine add swarm-01`"), "{down:?}");
+
+        let full = here(health(40, 6));
+        let verdict = crate::placement::with_down(
+            crate::placement::place(&full, Some(&reg), Work::Agent),
+            &down,
+        );
+        assert_ne!(verdict["pick"], json!("swarm-01"), "{verdict:#}");
+        let listed = verdict["hosts"].as_array().unwrap();
+        let hub = listed.iter().find(|h| h["name"] == "swarm-01").expect("listed");
+        assert!(
+            hub["refused"].as_str().unwrap().starts_with("only the mesh hub reaches it"),
+            "{hub}"
+        );
+
+        // Before: the same row as a candidate was the pick.
+        let mut was = full.to_vec();
+        was.extend(rows.iter().filter_map(Candidate::peer));
+        let before = crate::placement::place(&was, Some(&reg), Work::Agent);
+        assert_eq!(before["pick"], json!("swarm-01"), "the case this guards: {before:#}");
     }
 
     /// A command-line `new` on a machine a person works at weighs only the others: this one and
@@ -317,6 +361,7 @@ mod tests {
             local,
             health: Value::Null,
             health_at: None,
+            via_hub: false,
         };
         let kept = off_interactive_hosts(
             vec![c("mac", true), c("laptop", false), c("desk", false), c("lane", false)],
@@ -347,7 +392,7 @@ mod tests {
     }
 
     fn named(name: &str, local: bool, health: Value) -> Candidate {
-        Candidate { name: name.into(), local, health, health_at: None }
+        Candidate { name: name.into(), local, health, health_at: None, via_hub: false }
     }
 
     /// design/agent-dispatch.md: `dispatch --host auto` never starts a new lane on a person's

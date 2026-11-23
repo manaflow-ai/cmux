@@ -55,6 +55,7 @@
     Icon: () => Icon,
     Image: () => Image,
     LazyVStack: () => LazyVStack,
+    Line: () => Line,
     Menu: () => Menu,
     Panel: () => Panel,
     ProgressView: () => ProgressView,
@@ -69,7 +70,9 @@
     Toggle: () => Toggle,
     VStack: () => VStack,
     ViewNode: () => ViewNode,
-    ZStack: () => ZStack
+    ZStack: () => ZStack,
+    linearGradient: () => linearGradient,
+    radialGradient: () => radialGradient
   });
   var currentComputation = null;
   var currentOwner = null;
@@ -625,6 +628,9 @@
     monospaced() {
       return this.set("monospaced", true);
     }
+    fontDesign(v) {
+      return this.set("fontDesign", v);
+    }
     color(v) {
       return this.set("color", v);
     }
@@ -673,6 +679,9 @@
     hoverBackground(v) {
       return this.set("hoverBackground", v);
     }
+    glass(level = "popover") {
+      return this.set("glass", level);
+    }
     cornerRadius(v) {
       return this.set("cornerRadius", v);
     }
@@ -699,6 +708,15 @@
     }
     rotation(degrees) {
       return this.set("rotation", degrees);
+    }
+    rotationEffect(degrees) {
+      return this.set("rotation", degrees);
+    }
+    offset(v) {
+      return this.set("offset", v);
+    }
+    position(v) {
+      return this.set("position", v);
     }
     cursor(v) {
       return this.set("cursor", v);
@@ -732,6 +750,36 @@
       this.menu = items;
       return this;
     }
+    symbolRendering(mode, colors) {
+      if (!SYMBOL_RENDERINGS.includes(mode))
+        throw new TypeError(`symbolRendering: unknown mode ${JSON.stringify(mode)}`);
+      this.set("symbolRendering", mode);
+      if (colors === undefined)
+        return this;
+      if (!Array.isArray(colors) || colors.length < 1 || colors.length > 3 || !colors.every(isSceneColor))
+        throw new TypeError(`symbolRendering: colors must be 1 to 3 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`);
+      return this.set("symbolColors", [...colors]);
+    }
+  }
+  var SCENE_COLOR_TOKENS = ["primary", "secondary", "tertiary", "accent", "separator", "success", "warning", "danger", "hover", "selected", "badge", "clear"];
+  var HEX_COLOR = /^#[\da-f]{6}([\da-f]{2})?$/i;
+  var isSceneColor = (value) => typeof value === "string" && (SCENE_COLOR_TOKENS.includes(value) || HEX_COLOR.test(value));
+  var SYMBOL_RENDERINGS = ["monochrome", "hierarchical", "palette", "multicolor"];
+  function gradientStops(name, colors) {
+    if (!Array.isArray(colors) || colors.length < 2 || colors.length > 8 || !colors.every(isSceneColor))
+      throw new TypeError(`${name}: colors must be 2 to 8 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`);
+    return [...colors];
+  }
+  function linearGradient(colors, angle) {
+    const stops = gradientStops("linearGradient", colors);
+    if (angle === undefined)
+      return { linear: { colors: stops } };
+    if (typeof angle !== "number" || !Number.isFinite(angle))
+      throw new TypeError("linearGradient: angle must be a finite number of degrees");
+    return { linear: { colors: stops, angle } };
+  }
+  function radialGradient(colors) {
+    return { radial: { colors: gradientStops("radialGradient", colors) } };
   }
   var clean = (children) => children.filter((c) => !!c);
   function container(type) {
@@ -749,6 +797,15 @@
   var LazyVStack = container("LazyVStack");
   var Group = container("Group");
   function Text(text) {
+    if (text !== null && typeof text === "object") {
+      const node = new ViewNode("Text");
+      node.props.text = "";
+      node.props.date = text.date;
+      node.props.dateStyle = text.style ?? "time";
+      if (text.timeZone !== undefined)
+        node.props.timeZone = text.timeZone;
+      return node;
+    }
     const node = new ViewNode("Text");
     node.props.text = typeof text === "function" ? () => String(text() ?? "") : String(text ?? "");
     return node;
@@ -784,6 +841,7 @@
   var Circle = (props = {}) => new ViewNode("Circle").withProps(props);
   var Capsule = (props = {}) => new ViewNode("Capsule").withProps(props);
   var Rectangle = (props = {}) => new ViewNode("Rectangle").withProps(props);
+  var Line = (props = {}) => new ViewNode("Line").withProps(props);
   var RoundedRectangle = (props = {}) => new ViewNode("RoundedRectangle").withProps(props);
   function ProgressView(value) {
     const node = new ViewNode("ProgressView");
@@ -1051,7 +1109,12 @@
           } else {
             const owner = createOwner();
             const [read, write] = signal(item, { equals: () => false });
-            const nodeId = runWithOwner(owner, () => build(m, template(read, key), depth + 1));
+            const nodeId = runWithOwner(owner, () => {
+              const child = template(read, key);
+              if (view.type === "Reorderable" && spec.onMove)
+                child.props.reorderKey = key;
+              return build(m, child, depth + 1);
+            });
             next.set(key, { key, owner, setItem: (v) => write(() => v), nodeId });
           }
           nextOrder.push(key);
@@ -1781,7 +1844,38 @@
     });
     return rows.filter((r) => r.state === "open" || merged && r.state === "merged").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
-  var READERS = { "github.pulls": githubPulls, "github.changes": githubChanges };
+  async function httpJson(params, call) {
+    const url = String(params.url ?? "");
+    const r = await call("net.fetch", {
+      url,
+      method: "GET",
+      headers: {},
+      body: null,
+      cache: "shared"
+    });
+    const host = () => {
+      try {
+        return new URL(url).host;
+      } catch {
+        return url;
+      }
+    };
+    const retryable = (status) => status === 408 || status === 429 || status >= 500;
+    const failed = r.cache?.failed;
+    if (failed) {
+      const message = failed.status !== undefined ? `${host()} answered ${failed.status}` : `${host()}: ${failed.message ?? failed.code ?? "the fetch failed"}`;
+      throw new CmuxError("upstream.failed", message, { signal: "http.json", ...failed }, failed.status === undefined || retryable(failed.status));
+    }
+    if (r.status < 200 || r.status >= 300) {
+      throw new CmuxError("upstream.failed", `${host()} answered ${r.status}`, { signal: "http.json", status: r.status }, retryable(r.status));
+    }
+    try {
+      return JSON.parse(r.body ?? "");
+    } catch {
+      throw new CmuxError("upstream.failed", "the response is not JSON", { signal: "http.json", status: r.status }, true);
+    }
+  }
+  var READERS = { "github.pulls": githubPulls, "github.changes": githubChanges, "http.json": httpJson };
   var pointer = (base, key) => `${base}/${String(key).replace(/~/g, "~0").replace(/\//g, "~1")}`;
   var typeOf = (v) => {
     if (v === null)
@@ -2322,6 +2416,145 @@
         staleAfterSeconds: 300,
         safetyPollSeconds: 900
       },
+      "http.json": {
+        docs: "A JSON document at an https URL (a weather forecast, a status page, a feed), parsed. The daemon reads each URL once for every app and widget that watches it and keeps it fresh for 60 s, or the response's Cache-Control max-age when that is longer; a re-read shows the kept value while it revalidates. Bodies over 1 MiB are refused. Needs the app's net:<host> scope for the URL's host.",
+        scopes: [
+          "net:<host>"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "url"
+          ],
+          properties: {
+            url: {
+              type: "string",
+              minLength: 9,
+              maxLength: 2048,
+              pattern: "^https://",
+              description: "The https URL to read. Its host must be one the app holds a net: scope for (net:api.open-meteo.com, or net:*.example.com for its subdomains)."
+            },
+            everySeconds: {
+              type: "integer",
+              minimum: 60,
+              maximum: 86400,
+              description: "Read again this often while this reader is shown (default 300, never under 60). The daemon's cache still answers within max(60 s, max-age) without a request."
+            }
+          }
+        },
+        value: {
+          description: "The response body, parsed as JSON."
+        },
+        read: {
+          reader: "http.json",
+          ops: [
+            {
+              op: "net.fetch",
+              scope: "net:<host>",
+              docs: `GET params.url with cache: "shared": the daemon's shared HTTP cache (apps/http_cache.rs) answers it, one request per URL for every app, after the egress gate checks this app's net:<host> scope.`
+            }
+          ]
+        },
+        push: [],
+        pollFloorSeconds: 60,
+        staleAfterSeconds: 300
+      },
+      "system_calendar.events": {
+        docs: "The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s.",
+        scopes: [
+          "system_calendar:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            days: {
+              type: "integer",
+              minimum: 1,
+              maximum: 31
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 50
+            }
+          }
+        },
+        value: {
+          type: "object",
+          required: [
+            "access",
+            "events"
+          ],
+          properties: {
+            access: {
+              enum: [
+                "granted",
+                "denied",
+                "restricted",
+                "notDetermined",
+                "unavailable"
+              ]
+            },
+            events: {
+              type: "array",
+              items: {
+                type: "object",
+                required: [
+                  "id",
+                  "title",
+                  "start",
+                  "end",
+                  "allDay",
+                  "calendar"
+                ],
+                properties: {
+                  id: {
+                    type: "string"
+                  },
+                  title: {
+                    type: "string"
+                  },
+                  start: {
+                    type: "number",
+                    description: "Unix ms"
+                  },
+                  end: {
+                    type: "number",
+                    description: "Unix ms"
+                  },
+                  allDay: {
+                    type: "boolean"
+                  },
+                  calendar: {
+                    type: "string",
+                    description: "The calendar's title"
+                  },
+                  color: {
+                    type: "string",
+                    description: "The calendar's color, #rrggbb"
+                  },
+                  location: {
+                    type: "string"
+                  },
+                  url: {
+                    type: "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        read: {
+          op: "system_calendar.events"
+        },
+        push: [
+          "system_calendar.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 300
+      },
       "workspace.list": {
         docs: "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",
         scopes: [
@@ -2402,6 +2635,7 @@
     return next;
   }
   var asError = (e) => e instanceof CmuxError ? e : new CmuxError("operation.failed", e instanceof Error ? e.message : String(e));
+  var pacedByParams = (def) => def.params.properties?.everySeconds !== undefined;
   function lookup(name, params) {
     const def = typeof name === "string" ? SIGNALS[name] : undefined;
     if (!def)
@@ -2413,6 +2647,10 @@
     const errors = v.validate(p);
     if (errors.length)
       throw new CmuxError("signal.params", `${name}: ${errors.map((e) => `${e.path || "params"} ${e.message}`).join("; ")}`, { signal: name, errors });
+    if (pacedByParams(def) && typeof p.everySeconds === "number") {
+      const { everySeconds, ...read } = p;
+      return { def, params: JSON.parse(canonical(read)), pace: everySeconds };
+    }
     return { def, params: JSON.parse(canonical(p)) };
   }
   function missingScope(def) {
@@ -2491,7 +2729,7 @@
     if (!active(e))
       return;
     if (error) {
-      if (FINAL.has(error.code))
+      if (FINAL.has(error.code) || error.code === "upstream.failed" && !error.retryable)
         return schedule(e, -1);
       const floor = e.def.pollFloorSeconds * 1000;
       return schedule(e, Math.min(MAX_BACKOFF_MS, floor * 2 ** Math.min(e.failures - 1, 20)));
@@ -2640,10 +2878,12 @@
     };
   }
   function watch(name, params, options = {}) {
-    const every = typeof options.everySeconds === "number" ? options.everySeconds : undefined;
+    const option = typeof options.everySeconds === "number" ? options.everySeconds : undefined;
+    let every = option;
     const id = nextReader++;
     const resolve = (p) => {
       const found = lookup(name, p);
+      every = option ?? found.pace;
       return entryFor(name, found.def, found.params);
     };
     const [current, setCurrent] = signal(resolve(typeof params === "function" ? untrack(params) : params));
@@ -2673,8 +2913,14 @@
             log("error", `watch ${name}: ${asError(err).message}`);
             return;
           }
-          if (e === current.peek())
+          if (e === current.peek()) {
+            if (e.readers.get(id) !== every && e.readers.has(id)) {
+              e.readers.set(id, every);
+              if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0)
+                schedule(e, pollMs(e));
+            }
             return;
+          }
           const old = release;
           release = join(e, id, every);
           setCurrent(e);

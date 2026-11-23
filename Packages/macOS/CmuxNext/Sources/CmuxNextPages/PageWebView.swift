@@ -56,6 +56,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Called after the page's effective visibility changes. Owners use this to revoke native
     /// page proofs on hide/detach and rebind them after the Chromium document is visible again.
     public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
+    /// The host keeps the page drawn while no pane shows it (``setDrawnAway(_:)``): to the page and to
+    /// its owner it is hidden, though its engine still draws it, off screen.
+    public internal(set) var isDrawnAway = false
     /// The Chromium host this page started in: told when its Chromium page attached
     /// (``PageChromiumHosting/focusViewChanged(_:)``).
     weak var chromiumFocusHost: (any PageChromiumHosting)?
@@ -185,6 +188,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// reloads or restarts such a page by itself: a reload would read the file again and drop them.
     /// They stay in the recovery draft and the quit hook; the person closes or saves the tab.
     public var holdsUnsavedEdits: () -> Bool = { false }
+    /// The daemon tab the page shows (the agent chat's), nil for a page in no tab: app health names a stuck
+    /// page by that tab's title and workspace (`AppHealthPlaces`).
+    public var healthTabKey: @MainActor () -> String? = { nil }
     /// The page's own last word on unsaved edits (its heartbeat's `edits`: an editor that marked
     /// itself `[data-cmux-unsaved-edits]`, the Cloud page's file editor), kept until the next beat.
     public internal(set) var reportsUnsavedEdits = false
@@ -677,9 +683,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused: main=\(message.isMainFrame, privacy: .public) url=\(message.frameURL?.absoluteString ?? "-", privacy: .public)")
             return nil
         }
-        // The message conversion stays here: `handle` must start in the order the page posted, and
-        // `message.body` is a non-Sendable WebKit object graph (page messages are small calls).
-        guard let body = JSONValue(foundation: message.body) else { return nil }
+        // A Chromium envelope arrives converted off the main actor. A WebKit one is converted here: `handle` must
+        // start in the order the page posted, and `message.body` is a non-Sendable WebKit object graph.
+        guard let body = message.json ?? JSONValue(foundation: message.body) else { return nil }
         overlayStartSpoke()
         let started = ProcessInfo.processInfo.systemUptime
         let reply = await router.handle(body)
@@ -724,7 +730,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setChromiumVisibility(true)
-        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)
@@ -753,7 +759,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         setChromiumVisibility(true)
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)
@@ -767,7 +773,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
-        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)

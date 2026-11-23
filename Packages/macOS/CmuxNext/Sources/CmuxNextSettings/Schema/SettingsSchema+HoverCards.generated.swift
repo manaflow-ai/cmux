@@ -9,9 +9,9 @@ extension HoverCardSettings {
     public nonisolated static let delayPath = ["sidebar", "hoverCards", "delay"]
     public nonisolated static let delayDefault: Double = 1300
     public nonisolated static let delayRange: ClosedRange<Double> = 0...5000
-    /// `sidebar.hoverCards.layout`: u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). timeline (default): stats and a scrollable history of prompts, waits and finished turns; compact: the facts and the last three moments; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.
+    /// `sidebar.hoverCards.layout`: u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). compact (default since Lawrence 2026-11-20: "drastically simplify all parts of the UI"): the facts and the last three moments; timeline: stats and a scrollable history of prompts, waits and finished turns; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.
     public nonisolated static let layoutPath = ["sidebar", "hoverCards", "layout"]
-    public nonisolated static let layoutDefault: HoverCardLayoutSetting = .timeline
+    public nonisolated static let layoutDefault: HoverCardLayoutSetting = .compact
     /// `sidebar.hoverCards.sections.timings`: u3320 (Lawrence 2026-10-19): which parts a workspace hover card shows. On by default.
     public nonisolated static let timingsPath = ["sidebar", "hoverCards", "sections", "timings"]
     public nonisolated static let timingsDefault = true
@@ -86,7 +86,7 @@ nonisolated enum HoverCardSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.hoverCards.delay", "Hover Card Delay"),
-                help: SettingsText.keyed("settings.sidebar.hoverCards.delay.help", "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.delay.help", "How long the pointer rests before a card opens."),
                 kind: .number(SettingNumber(HoverCardSettings.delayRange, step: 100, unit: .milliseconds)),
                 default: .number(HoverCardSettings.delayDefault),
                 keywords: ["hover", "card", "delay", "wait", "milliseconds"]
@@ -96,7 +96,7 @@ nonisolated enum HoverCardSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.hoverCards.layout", "Workspace Card Layout"),
-                help: SettingsText.keyed("settings.sidebar.hoverCards.layout.help", "What a workspace's hover card shows: its history of prompts and waits, its details, or both."),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.layout.help", "What a workspace's hover card shows."),
                 kind: .choice([
                     SettingChoice(HoverCardLayoutSetting.timeline.rawValue, SettingsText.keyed("settings.choice.hoverCardTimeline", "Stats and History")),
                     SettingChoice(HoverCardLayoutSetting.compact.rawValue, SettingsText.keyed("settings.choice.hoverCardCompact", "Compact")),

@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+public import CmuxNextIcons
 
 /// One tab as the strip displays it. The App fills these from daemon state.
 public struct TabItem: Identifiable, Hashable, Sendable {
@@ -56,6 +57,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// The machine the tab's terminal runs on when it is not this Mac: a
     /// very subtle trailing label (plans/cmux-next/data-model.md 1.2b).
     public var machineBadge: String?
+    /// Draws the machine badge as this glyph instead of its text, which then only names it to
+    /// VoiceOver (a Cloud chat: a cloud, never its lease's machine name, #45952).
+    public var machineBadgeIcon: IconName?
     /// Explains the machine badge in the hover card and to VoiceOver (a
     /// remote-localhost browser tab: "localhost is build-box").
     public var machineBadgeHelp: String?
@@ -73,6 +77,11 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     public var presence: TabPresence?
     /// A browser tab playing sound, or muted: a speaker after the title.
     public var audio: TabAudio?
+    /// An agent chat's count for `experiments.agentBadges` (taste build 5): its unread agent messages plus its
+    /// pending approvals, drawn as a neutral count pill while the experiment is on (TabCell+CountPill). Nil for a
+    /// tab that is no agent chat: it reserves no pill slot. 0: an agent chat with nothing to count, which keeps
+    /// the slot so its title never moves when a count comes.
+    public var agentBadgeCount: Int?
     /// What the hover card says beyond the title and subtitle (Leo 2026-10-14).
     public var hover = TabHoverFacts()
 

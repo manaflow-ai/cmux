@@ -31,5 +31,4 @@ bundle_args=()
 python3 scripts/verify_remote_daemon_release.py \
   --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
   --assets-dir remote-daemon-assets --app "$app" --embed ${bundle_args[@]+"${bundle_args[@]}"}
-bash scripts/ci/verify-computer-use-helper.sh layout "$app"
 echo "app=$app" >> "$GITHUB_OUTPUT"

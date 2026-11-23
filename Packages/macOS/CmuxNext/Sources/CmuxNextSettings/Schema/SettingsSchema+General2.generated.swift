@@ -4,6 +4,80 @@
 public import CmuxNextDesign
 
 extension GeneralSettingsSchema {
+    static var window: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.window", "Window")
+        return [
+            SettingDescriptor(
+                WindowTitlebarSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.window.titlebar", "Titlebar"),
+                help: SettingsText.keyed("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
+                kind: .choice([
+                    SettingChoice(TitlebarStyle.minimal.rawValue, SettingsText.keyed("settings.choice.minimal", "Minimal")),
+                    SettingChoice(TitlebarStyle.standard.rawValue, SettingsText.keyed("settings.choice.standard", "Standard")),
+                ]),
+                default: .string(WindowTitlebarSetting.fallback.rawValue),
+                keywords: ["traffic lights", "title"]
+            ),
+            SettingDescriptor(
+                TitlebarButtonsSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
+                help: SettingsText.keyed("settings.window.titlebarButtons.help", "With the sidebar hidden, On Hover shows its buttons only over the top row."),
+                kind: .choice([
+                    SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
+                    SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                ]),
+                default: .string(TitlebarButtonsSetting.fallback.rawValue),
+                keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.globalHotKeyPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
+                help: SettingsText.keyed("settings.app.globalHotKey.help", "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
+                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows from any app"),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.globalHotKeyDefault),
+                keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.startAgentGlobalHotKeyPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
+                help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help", "⌃⌥⌘Space starts an agent while another app is in front."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyDefault),
+                keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.hideDockIconWithoutWindowsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.hideDockIconWithoutWindows", "Hide Dock Icon When No Windows Are Open"),
+                help: SettingsText.keyed("settings.app.hideDockIconWithoutWindows.help", "cmux stays in the menu bar until a window opens."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault),
+                keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.showMenuBarIconPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.showMenuBarIconDefault),
+                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
+            ),
+        ]
+    }
+}
+
+extension GeneralSettingsSchema {
     static var quitting: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.quit", "Quitting")
         return [
@@ -26,7 +100,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.app.confirmQuit", "Ask Before Quitting Ends Agents or Terminals"),
-                help: SettingsText.keyed("settings.app.confirmQuit.help", "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks."),
+                help: SettingsText.keyed("settings.app.confirmQuit.help", "Ask before Cmd-Q ends agents or terminals."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.confirmQuitDefault),
                 keywords: ["quit", "cmd-q", "confirm", "ask", "warn", "exit", "agents", "terminals"]
@@ -181,7 +255,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.focusFollowsMouse", "Focus Follows Mouse"),
-                help: SettingsText.keyed("settings.layout.focusFollowsMouse.help", "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."),
+                help: SettingsText.keyed("settings.layout.focusFollowsMouse.help", "Pointing at or scrolling over a pane focuses it."),
                 summary: SettingsText.keyed("settings.layout.focusFollowsMouse.summary", "Hovering or scrolling a pane focuses it"),
                 kind: .toggle,
                 default: .bool(ColumnLayoutSettings.focusFollowsMouseDefault),
@@ -192,7 +266,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.scrollAreas", "Scroll Areas"),
-                help: SettingsText.keyed("settings.layout.scrollAreas.help", "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."),
+                help: SettingsText.keyed("settings.layout.scrollAreas.help", "Panes that do not fit scroll sideways instead of shrinking."),
                 summary: SettingsText.keyed("settings.layout.scrollAreas.summary", "Splits scroll instead of squashing"),
                 kind: .toggle,
                 default: .bool(ColumnLayoutSettings.scrollAreasDefault),
@@ -203,7 +277,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.scrollModifier", "Scroll Columns and Rows With"),
-                help: SettingsText.keyed("settings.layout.scrollModifier.help", "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."),
+                help: SettingsText.keyed("settings.layout.scrollModifier.help", "What moves columns and rows: Command + Scroll, or a plain sideways scroll."),
                 summary: SettingsText.keyed("settings.layout.scrollModifier.summary", "Command + Scroll moves columns and rows"),
                 kind: .choice([
                     SettingChoice(LayoutScrollModifier.command.rawValue, SettingsText.keyed("settings.choice.scrollModifierCommand", "Command + Scroll")),
@@ -217,7 +291,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.pagesHandleCommandScroll", "Web Pages Get Command + Scroll First"),
-                help: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.help", "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."),
+                help: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.help", "Pages like Figma keep Command + Scroll. Off, it always moves columns."),
                 summary: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.summary", "Figma and Excalidraw keep Command + Scroll zoom"),
                 kind: .toggle,
                 default: .bool(ColumnLayoutSettings.pagesHandleCommandScrollDefault),
@@ -246,7 +320,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.newPanePlacement", "New Terminals and Browsers"),
-                help: SettingsText.keyed("settings.layout.newPanePlacement.help", "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."),
+                help: SettingsText.keyed("settings.layout.newPanePlacement.help", "Split Automatically splits the largest pane."),
                 kind: .choice([
                     SettingChoice(NewPanePlacement.tab.rawValue, SettingsText.keyed("settings.choice.newPaneTab", "Open a Tab")),
                     SettingChoice(NewPanePlacement.split.rawValue, SettingsText.keyed("settings.choice.newPaneSplit", "Split Automatically")),
@@ -269,7 +343,6 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.linkPlacement", "Open Links and Files"),
-                help: SettingsText.keyed("settings.layout.linkPlacement.help", "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."),
                 kind: .choice([
                     SettingChoice(LinkPlacement.splitRight.rawValue, SettingsText.keyed("settings.choice.linkPlacementSplitRight", "Split Right")),
                     SettingChoice(LinkPlacement.newColumn.rawValue, SettingsText.keyed("settings.choice.linkPlacementNewColumn", "New Column on the Right")),
@@ -283,55 +356,13 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.layout.mainPane", "Main Pane"),
-                help: SettingsText.keyed("settings.layout.mainPane.help", "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back."),
+                help: SettingsText.keyed("settings.layout.mainPane.help", "Keeps a chat as the main pane, with what it opens in a column on its right."),
                 kind: .choice([
                     SettingChoice(MainPaneSetting.agentChats.rawValue, SettingsText.keyed("settings.choice.mainPaneAgentChats", "Agent Chats")),
                     SettingChoice(MainPaneSetting.off.rawValue, SettingsText.keyed("settings.choice.mainPaneOff", "Off")),
                 ]),
                 default: .string(MainPaneSetting.fallback.rawValue),
                 keywords: ["main", "pane", "chat", "agent", "right", "column", "side", "link", "subagent", "tab"]
-            ),
-        ]
-    }
-}
-
-extension GeneralSettingsSchema {
-    static var workspaceList: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
-        return [
-            SettingDescriptor(
-                CmuxConfigSnapshot.newWorkspacePlacementPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.workspaces.newPlacement", "New Workspace Position"),
-                help: SettingsText.keyed("settings.workspaces.newPlacement.help", "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."),
-                kind: .choice([
-                    SettingChoice(NewWorkspacePlacement.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
-                    SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue, SettingsText.keyed("settings.choice.afterCurrentWorkspace", "After Current Workspace")),
-                    SettingChoice(NewWorkspacePlacement.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
-                ]),
-                default: .string(CmuxConfigSnapshot.newWorkspacePlacementDefault.rawValue),
-                keywords: ["workspace", "new", "cmd-n", "position", "order", "top", "bottom", "after", "sidebar", "placement"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.groupByComputerPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupByComputer", "Group Workspaces by Computer"),
-                help: SettingsText.keyed("settings.sidebar.groupByComputer.help", "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.groupByComputerDefault),
-                keywords: ["sidebar", "computer", "machine", "cloud", "remote", "group", "section", "header", "flat", "list"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.autoNameWorkspacesPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.workspaces.autoName", "Name Workspaces from Tabs"),
-                help: SettingsText.keyed("settings.workspaces.autoName.help", "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.autoNameWorkspacesDefault),
-                keywords: ["workspace", "name", "rename", "auto", "title", "tab", "chat", "page", "folder", "sidebar"]
             ),
         ]
     }

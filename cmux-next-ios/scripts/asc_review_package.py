@@ -32,7 +32,8 @@ ASC_API_KEY_P8_BASE64 (the production lane's names), or ASC_KEY_ID, ASC_ISSUER_I
 and ASC_PRIVATE_KEY_PATH (the INTERNAL builder's names). The JWT is signed with
 openssl, so no Python package is installed next to the key.
 
-The app sells no digital goods, so there is no subscription step here.
+The app's subscriptions (cmux Go, Pro and Max) are set up in App Store Connect,
+not by this script; the notes only tell App Review where they are.
 """
 
 from __future__ import annotations
@@ -77,8 +78,29 @@ def note(message: str) -> None:
     print(f"asc-review-package: {message}", file=sys.stderr)
 
 
+_MARKETING_VERSION = re.compile(r"^\s*MARKETING_VERSION:\s*\"?([0-9][0-9.]*)\"?\s*$", re.MULTILINE)
+
+
 def marketing_version(project_yml: Path = PROJECT_YML) -> str:
-    match = re.search(r"^\s*MARKETING_VERSION:\s*\"?([0-9][0-9.]*)\"?\s*$", project_yml.read_text(encoding="utf-8"), re.MULTILINE)
+    """The App Store version: the AppStore configuration's MARKETING_VERSION
+    (`settings: configs: AppStore:` in project.yml), else the base one. The
+    INTERNAL TestFlight lane keeps the base version; the App Store record has
+    its own (app_review_gate.py `version --lane appstore` reads the same)."""
+    text = project_yml.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line != "    AppStore:":
+            continue
+        block = []
+        for follow in lines[i + 1:]:
+            if follow.strip() and len(follow) - len(follow.lstrip()) <= 4:
+                break
+            block.append(follow)
+        match = _MARKETING_VERSION.search("\n".join(block))
+        if match:
+            return match.group(1)
+        break
+    match = _MARKETING_VERSION.search(text)
     if not match:
         raise PackageError(f"{project_yml}: no MARKETING_VERSION")
     return match.group(1)

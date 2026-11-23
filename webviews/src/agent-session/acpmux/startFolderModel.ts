@@ -98,10 +98,17 @@ export async function newWorktree(
   callNative: Native,
   cwd: string,
   use: (cwd: string) => void,
+  /// A GitHub repository (`owner/name`) to start in instead of `cwd`: the host finds this Mac's checkout of
+  /// it, or clones it, then makes the worktree of that (`github.repos.checkout`, the same reply). `candidates`:
+  /// the folders this page knows for that repository.
+  github?: { repo: string; candidates: string[] },
 ): Promise<{ root: string; branch?: string; ask?: FolderAsk; setup?: WorktreeSetupStart }> {
   let reply: { value?: { root?: unknown; branch?: unknown; setup?: unknown } } | undefined;
   try {
-    reply = (await callNative("git.worktree.create", { cwd, idempotency_key: crypto.randomUUID() })) as typeof reply;
+    const key = crypto.randomUUID();
+    reply = (await (github
+      ? callNative("github.repos.checkout", { repo: github.repo, candidates: github.candidates, idempotency_key: key })
+      : callNative("git.worktree.create", { cwd, idempotency_key: key }))) as typeof reply;
   } catch (error) {
     // The session host's own words (`details.extra.message`: a base that names nothing, not a
     // repository) say more than the pane's generic failure.

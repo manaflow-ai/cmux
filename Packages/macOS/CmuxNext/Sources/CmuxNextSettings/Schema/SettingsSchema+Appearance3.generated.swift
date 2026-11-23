@@ -4,6 +4,44 @@
 public import CmuxNextDesign
 
 extension AppearanceSettingsSchema {
+    static var tuning: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
+        return [
+            SettingDescriptor(
+                AppearanceTuningSetting.glassTransparencyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
+                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
+                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
+                keywords: ["glass", "transparency", "alpha", "clear"]
+            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
+            SettingDescriptor(
+                AppearanceTuningSetting.huePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
+                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
+                default: .number(AppearanceTuningSetting.hueDefault),
+                keywords: ["tint", "color", "colour"]
+            ),
+            SettingDescriptor(
+                AppearanceTuningSetting.saturationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
+                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
+                default: .number(AppearanceTuningSetting.saturationDefault),
+                keywords: ["tint", "color", "colour", "intensity"]
+            ),
+        ]
+    }
+}
+
+extension AppearanceSettingsSchema {
     static var look: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
         return [
@@ -46,7 +84,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.uiScale", "App Zoom"),
-                help: SettingsText.keyed("settings.appearance.uiScale.help", "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."),
+                help: SettingsText.keyed("settings.appearance.uiScale.help", "Zoom for chat, Settings and other app pages."),
                 kind: .number(SettingNumber(UIScaleSetting.range, step: 0.05, unit: .fraction, placeholder: UIScaleSetting.placeholder)),
                 default: .number(UIScaleSetting.fallback),
                 keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller", "interface scale"]
@@ -56,18 +94,18 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.textSize", "Text Size"),
-                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."),
+                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of the sidebar, tabs, menus and chat. Terminals have their own size."),
                 kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: InterfaceSizeSetting.placeholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
+                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize", "sidebar font size", "menu", "interface font", "bigger", "larger", "readable", "accessibility"]
             ),
             SettingDescriptor(
                 FontSmoothingSetting.configPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.fontSmoothing", "Text Smoothing"),
-                help: SettingsText.keyed("settings.appearance.fontSmoothing.help", "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."),
+                help: SettingsText.keyed("settings.appearance.fontSmoothing.help", "How text draws. Some text changes after cmux restarts; terminals keep their own."),
                 kind: .choice([
                     SettingChoice(FontSmoothing.auto.rawValue, SettingsText.keyed("settings.choice.fontSmoothingAuto", "Auto")),
                     SettingChoice(FontSmoothing.antialiased.rawValue, SettingsText.keyed("settings.choice.fontSmoothingThin", "Thin")),
@@ -166,7 +204,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.focusIndicator", "Focused Pane"),
-                help: SettingsText.keyed("settings.appearance.focusIndicator.help", "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."),
+                help: SettingsText.keyed("settings.appearance.focusIndicator.help", "How the focused pane stands out."),
                 summary: SettingsText.keyed("settings.appearance.focusIndicator.summary", "How the focused pane stands out"),
                 kind: .choice([
                     SettingChoice(FocusIndicator.border.rawValue, SettingsText.keyed("settings.choice.border", "Border")),
@@ -182,7 +220,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
-                help: SettingsText.keyed("settings.focus.inactiveTabStyle.help", "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
+                help: SettingsText.keyed("settings.focus.inactiveTabStyle.help", "How other panes' tabs look subtler when Focused Pane marks tabs."),
                 summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
                 kind: .choice([
                     SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
@@ -218,7 +256,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.chromeStyle", "Window Style"),
-                help: SettingsText.keyed("settings.appearance.chromeStyle.help", "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."),
+                help: SettingsText.keyed("settings.appearance.chromeStyle.help", "Whether panes sit in one rounded card, and where lines are drawn."),
                 summary: SettingsText.keyed("settings.appearance.chromeStyle.summary", "Card, lines and sidebar background"),
                 kind: .choice(ChromeStyleSetting.choices),
                 default: .string(ChromeStyleSetting.fallback.rawValue),
@@ -229,7 +267,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.titleAreaTone", "Title Area"),
-                help: SettingsText.keyed("settings.appearance.titleAreaTone.help", "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."),
+                help: SettingsText.keyed("settings.appearance.titleAreaTone.help", "The title bar, tab bar and sidebar in the content's color, or shaded apart."),
                 summary: SettingsText.keyed("settings.appearance.titleAreaTone.summary", "One color or a subtle tone for the title area"),
                 kind: .choice([
                     SettingChoice(TitleAreaTone.oneColor.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.oneColor", "One Color")),
@@ -243,11 +281,49 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.titleAreaContrast", "Title Area Contrast"),
-                help: SettingsText.keyed("settings.appearance.titleAreaContrast.help", "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."),
+                help: SettingsText.keyed("settings.appearance.titleAreaContrast.help", "How much darker the title bar, tab bar and sidebar are. 1 is the default."),
                 summary: SettingsText.keyed("settings.appearance.titleAreaContrast.summary", "How much the title and tab bar stand apart"),
                 kind: .number(SettingNumber(TitleAreaContrastSetting.range, step: 0.05, unit: .fraction, placeholder: TitleAreaContrastSetting.placeholder)),
                 default: .number(TitleAreaContrastSetting.fallback),
                 keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
+            ),
+            SettingDescriptor(
+                TwoToneSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.twoTone", "Two-Tone"),
+                help: SettingsText.keyed("settings.appearance.twoTone.help", "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme."),
+                summary: SettingsText.keyed("settings.appearance.twoTone.summary", "A second tone for the sidebar and tab bar"),
+                kind: .choice([
+                    SettingChoice(TwoTone.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(TwoTone.auto.rawValue, SettingsText.keyed("settings.choice.twoTone.auto", "From Theme")),
+                    SettingChoice(TwoTone.inkSakura.rawValue, SettingsText.keyed("settings.choice.twoTone.inkSakura", "Ink & Sakura")),
+                    SettingChoice(TwoTone.charcoalRose.rawValue, SettingsText.keyed("settings.choice.twoTone.charcoalRose", "Charcoal & Rose")),
+                    SettingChoice(TwoTone.inkMagenta.rawValue, SettingsText.keyed("settings.choice.twoTone.inkMagenta", "Ink Blue & Magenta")),
+                    SettingChoice(TwoTone.creamForest.rawValue, SettingsText.keyed("settings.choice.twoTone.creamForest", "Cream & Forest")),
+                    SettingChoice(TwoTone.navySand.rawValue, SettingsText.keyed("settings.choice.twoTone.navySand", "Navy & Sand")),
+                    SettingChoice(TwoTone.boneOxblood.rawValue, SettingsText.keyed("settings.choice.twoTone.boneOxblood", "Bone & Oxblood")),
+                    SettingChoice(TwoTone.slateMatcha.rawValue, SettingsText.keyed("settings.choice.twoTone.slateMatcha", "Slate & Matcha")),
+                    SettingChoice(TwoTone.plumAmber.rawValue, SettingsText.keyed("settings.choice.twoTone.plumAmber", "Plum & Amber")),
+                ]),
+                default: .string(TwoToneSetting.fallback.rawValue),
+                keywords: ["two tone", "two-tone", "duotone", "tone", "pairing", "sidebar", "tab bar", "chrome", "color", "sakura", "pink", "magenta", "forest", "sand", "oxblood", "matcha", "amber", "palette"]
+            ),
+            SettingDescriptor(
+                CornerFlushSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.cornerFlush", "Selected Tab Shape"),
+                help: SettingsText.keyed("settings.appearance.cornerFlush.help", "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."),
+                summary: SettingsText.keyed("settings.appearance.cornerFlush.summary", "Pill, flush or goo for the selected tab"),
+                kind: .choice([
+                    SettingChoice(CornerFlush.off.rawValue, SettingsText.keyed("settings.choice.cornerFlush.off", "Pill")),
+                    SettingChoice(CornerFlush.flush.rawValue, SettingsText.keyed("settings.choice.cornerFlush.flush", "Flush")),
+                    SettingChoice(CornerFlush.tight.rawValue, SettingsText.keyed("settings.choice.cornerFlush.tight", "Flush, Tight to the Sidebar")),
+                    SettingChoice(CornerFlush.goo.rawValue, SettingsText.keyed("settings.choice.cornerFlush.goo", "Goo")),
+                ]),
+                default: .string(CornerFlushSetting.fallback.rawValue),
+                keywords: ["corner", "flush", "goo", "gooey", "folder tab", "fillet", "pill", "selected tab", "tab shape", "card", "material"]
             ),
         ]
     }
@@ -262,7 +338,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
-                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once."),
+                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms and column scrolls slide into place."),
                 kind: .toggle,
                 default: .bool(PaneAnimationsSetting.fallback),
                 keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]
@@ -286,95 +362,6 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(AnimationKindsSetting.newWorkspaceDefault),
                 keywords: ["motion", "animation", "workspace", "sidebar"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var panes: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.panes", "Panes")
-        return [
-            SettingDescriptor(
-                PaneChromeConfigParser.paneSeparationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
-                help: SettingsText.keyed("settings.layout.paneSeparation.help", "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."),
-                summary: SettingsText.keyed("settings.layout.paneSeparation.summary", "How panes are told apart"),
-                kind: .choice([
-                    SettingChoice(PaneSeparation.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                    SettingChoice(PaneSeparation.dividers.rawValue, SettingsText.keyed("settings.choice.dividers", "Dividers")),
-                    SettingChoice(PaneSeparation.borders.rawValue, SettingsText.keyed("settings.choice.borders", "Borders")),
-                    SettingChoice(PaneSeparation.cards.rawValue, SettingsText.keyed("settings.choice.cards", "Cards")),
-                ]),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.choice.default", "Default"),
-                keywords: ["border", "divider", "separator", "gap", "cards", "lines", "seamless", "pane"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.panePaddingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.panePadding", "Padding"),
-                kind: .number(SettingNumber(PaneChromeConfigParser.panePaddingRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.panePaddingPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneCornerRadiusPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneCornerRadius", "Corner Radius"),
-                help: SettingsText.keyed("settings.layout.paneCornerRadius.help", "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding."),
-                kind: .number(SettingNumber(PaneChromeConfigParser.paneCornerRadiusRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.paneCornerRadiusPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["rounded", "radius", "tabs", "concentric", "corners"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.cornerPaddingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.cornerPadding", "Corner Padding"),
-                help: SettingsText.keyed("settings.layout.cornerPadding.help", "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."),
-                kind: .number(SettingNumber(PaneChromeConfigParser.cornerPaddingRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.cornerPaddingPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["inset", "gap", "tabs", "concentric", "corners", "radius"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorder", "Border"),
-                kind: .choice([
-                    SettingChoice(PaneBorderStyle.subtle.rawValue, SettingsText.keyed("settings.choice.subtle", "Subtle")),
-                    SettingChoice(PaneBorderStyle.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: .string(PaneChromeConfigParser.paneBorderDefault.rawValue),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderColorPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorderColor", "Border Color"),
-                kind: .color,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.theme", "Theme"),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderWidthPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorderWidth", "Border Width"),
-                kind: .number(SettingNumber(PaneChromeConfigParser.paneBorderWidthRange, step: 0.5, unit: .points)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.onePixel", "One pixel"),
-                keywords: []
             ),
         ]
     }

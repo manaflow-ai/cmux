@@ -49,7 +49,9 @@ public struct CEFStagedPrewarm: Sendable {
         self.closeTimeout = closeTimeout
     }
 
-    /// The switches beyond the app's own: no background fetches into a profile that is thrown away.
+    /// The switches beyond the app's own: no background fetches into a profile that is thrown away. The staged
+    /// pre-warm keeps Chromium's code-sign clone enabled because this is the only Chromium process started while a
+    /// newer Sparkle bundle is staged, so its helpers remain safe when Sparkle replaces the running bundle.
     nonisolated static let extraSwitches = ["disable-background-networking", "disable-component-update"]
 
     /// The pre-warm's root cache: one folder per bundle in the temporary directory, reused by each pre-warm (one at a
@@ -62,7 +64,7 @@ public struct CEFStagedPrewarm: Sendable {
     /// mock keychain) plus ``extraSwitches``.
     nonisolated static func switches(forkAPIVersion: Int32, rendererPaths: Bool, bundleIdentifier: String?) -> [String] {
         var set = CEFSwitches.current(forkAPIVersion: forkAPIVersion, rendererPaths: rendererPaths,
-                                      bundleIdentifier: bundleIdentifier, environment: [:])
+                                      bundleIdentifier: bundleIdentifier, environment: [:], keepsCodeSignClone: true)
         set.useMockKeychain = true
         set.loadExtensions = []
         set.builtInExtensions = []
@@ -184,11 +186,19 @@ final class CEFPrewarmSession {
     func endWithParent() {
         let parent = getppid()
         guard parent > 1 else { _exit(0) }  // already orphaned: the running app is gone
-        let source = DispatchSource.makeProcessSource(identifier: parent, eventMask: .exit, queue: .global(qos: .userInitiated))
-        source.setEventHandler { _exit(0) }
-        source.resume()
-        parentWatch = source
+        parentWatch = Self.watchExit(of: parent) { _exit(0) }
         if getppid() != parent { _exit(0) }  // the parent ended before the watch was armed
+    }
+
+    /// Runs `end` on a background queue when process `pid` exits; the returned source must be kept for the watch to last.
+    /// Nonisolated: in this main-actor module the handler would otherwise be a main-actor closure, and the runtime's
+    /// isolation check trapped on the background queue as the parent ended (NIGHTLY 4401252575901, 2026-11-16).
+    nonisolated static func watchExit(of pid: pid_t, then end: @escaping @Sendable () -> Void) -> any DispatchSourceProcess {
+        // A process source: the only exit signal for a process this one did not start (the pre-warm's main thread is Chromium's).
+        let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .global(qos: .userInitiated))
+        source.setEventHandler { end() }
+        source.resume()
+        return source
     }
 
     /// `OnScheduleMessagePumpWork` from any thread: to the session's pump on the main run loop.

@@ -100,3 +100,38 @@ fn one_changed_row_under_budget_sends_one_update_op() {
     });
     assert_eq!(update["ops"].as_array().map(Vec::len), Some(1), "{update}");
 }
+
+/// A third-party `js` server (servers.rs) runs its ops in the app's own
+/// QuickJS host, so the budget ladder that guards a view guards it too: an
+/// op past its entry deadline three times pauses the app, and a paused app
+/// runs no op until it is resumed.
+#[test]
+fn a_js_server_runs_under_the_app_host_budget() {
+    let root = temp_dir();
+    let server = json!({ "kind": "js", "instances": "user", "hosts": ["local"] });
+    write_server_app_3p(&root.0, "jsrv", server, true);
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("acme/jsrv");
+    f.supervisor.logs(CLIENT, "acme/jsrv", true);
+    // Approved at install: an op runs as its export in the app host.
+    assert_eq!(
+        run_op(&f, "acme/jsrv", "acme.jsrv.go", Origin::Cli).unwrap(),
+        json!({ "value": "go" })
+    );
+    // Each spin runs past its deadline and ends its host; the third pauses the app.
+    for _ in 0..3 {
+        run_op(&f, "acme/jsrv", "acme.jsrv.spin", Origin::Cli).unwrap_err();
+    }
+    wait_log(&f, "acme/jsrv", "paused: 3 entry timeouts in 60 s");
+    assert_eq!(app_entry(&f.supervisor.list(), "acme/jsrv")["budget"], "paused");
+    let paused = run_op(&f, "acme/jsrv", "acme.jsrv.go", Origin::Cli).unwrap_err();
+    assert_eq!(paused.message, PAUSED, "{paused:?}");
+    // Resumed, it runs again.
+    f.supervisor
+        .store_call(CLIENT, "apps.resume", json!({ "app": "acme/jsrv" }), Origin::Cli)
+        .unwrap();
+    assert_eq!(
+        run_op(&f, "acme/jsrv", "acme.jsrv.go", Origin::Cli).unwrap(),
+        json!({ "value": "go" })
+    );
+}
