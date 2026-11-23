@@ -10,6 +10,15 @@ extension AgentDefaultsSettingsSchema {
     nonisolated static let promptCachePath = ["agents", "promptCache"]
     nonisolated static let promptCacheDefault = "1h"
     nonisolated static let promptCacheValues = ["1h", "5m"]
+    /// `agents.env`: Variables every agent chat gets, as Claude Code's env setting and Codex's shell_environment_policy.set. acpmux reads it at each chat start (cmux-tui/crates/acpmux/src/agent_env.rs): a value the profile, preset, route, session or login shell sets wins; a remote-origin chat gets none.
+    nonisolated static let agentEnvPath = ["agents", "env"]
+    nonisolated static let agentEnvDefault: JSONValue = .object([:])
+    /// `agents.envExclude`: Variable names (or PREFIX_*) no agent chat gets, as Codex's shell_environment_policy.exclude. acpmux removes them last when it builds the agent's command (cmux-tui/crates/acpmux/src/agent_env.rs); its own ACPMUX_* session wiring stays.
+    nonisolated static let agentEnvExcludePath = ["agents", "envExclude"]
+    nonisolated static let agentEnvExcludeDefault: [String] = []
+    /// `agents.additionalDirectories`: Folders every new chat gets on top of its Sources, as Claude Code's additionalDirectories setting: Claude Code --add-dir, ACP additionalDirectories. acpmux adds them at chat creation (cmux-tui/crates/acpmux/src/hub/additional_dirs.rs); a folder that is not there is skipped; a remote-origin chat gets none.
+    nonisolated static let additionalDirectoriesPath = ["agents", "additionalDirectories"]
+    nonisolated static let additionalDirectoriesDefault: [String] = []
     /// `agents.modelRouter.model`: The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.
     nonisolated static let modelRouterModelPath = ["agents", "modelRouter", "model"]
     nonisolated static let modelRouterModelDefault = "deepseek/deepseek-v4.1-flash-1017"
@@ -55,6 +64,37 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 ]),
                 default: .string(AgentDefaultsSettingsSchema.promptCacheDefault),
                 keywords: ["prompt cache", "cache", "ttl", "claude", "cost", "tokens", "1 hour", "5 minutes"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.agentEnvPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.env", "Agent Environment"),
+                help: SettingsText.keyed("settings.agents.env.help", "Variables every new chat's agent and its tools get. A value an agent profile already sets wins."),
+                kind: .stringMap,
+                default: AgentDefaultsSettingsSchema.agentEnvDefault,
+                keywords: ["environment", "env", "variables", "agent", "claude", "codex", "shell"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.agentEnvExcludePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.envExclude", "Hidden from Agents"),
+                help: SettingsText.keyed("settings.agents.envExclude.help", "Variable names agents never get, such as AWS_SECRET_ACCESS_KEY or AWS_*."),
+                kind: .stringList,
+                default: .array(AgentDefaultsSettingsSchema.agentEnvExcludeDefault.map { .string($0) }),
+                keywords: ["environment", "env", "exclude", "hide", "secret", "variables", "agent"],
+                placeholder: SettingsText.keyed("settings.agents.envExclude.placeholder", "NAME or PREFIX_*")
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.additionalDirectoriesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.additionalDirectories", "Folders Every Chat Sees"),
+                help: SettingsText.keyed("settings.agents.additionalDirectories.help", "Added to every new chat's Sources. Use full or ~/ paths."),
+                kind: .folderList,
+                default: .array(AgentDefaultsSettingsSchema.additionalDirectoriesDefault.map { .string($0) }),
+                keywords: ["folders", "directories", "add-dir", "additional", "sources", "agent", "claude", "codex"]
             ),
             SettingDescriptor(
                 AgentDefaultsSettingsSchema.modelRouterModelPath,

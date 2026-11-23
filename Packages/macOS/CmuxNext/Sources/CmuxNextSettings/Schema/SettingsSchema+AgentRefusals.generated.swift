@@ -134,6 +134,8 @@ extension SettingsSchema {
         "agents.cmuxMcp": .userOnly,
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
         "agents.promptCache": .userOnly,
+        // What every agent's process gets in its environment and which folders every chat may read and write: an agent must not widen its own or other agents' access.
+        "agents.env": .userOnly, "agents.envExclude": .userOnly, "agents.additionalDirectories": .userOnly,
         // Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.
         "computerUse.mode": .userOnly, "computerUse.deniedApps": .userOnly, "computerUse.allowOwnMachines": .userOnly,
         "computerUse.pauseOnTakeover": .userOnly, "computerUse.allowForeground": .userOnly,

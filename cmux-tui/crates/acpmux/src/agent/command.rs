@@ -179,6 +179,11 @@ fn build_harness_command(
     env.remove(crate::agent_tools::OFF_ENV);
     // OpenCode asked to ask (`opencode_ask.rs`): its config is set below.
     let opencode_ask = env.remove(crate::opencode_ask::MARKER).is_some();
+    // The person's `agents.envExclude` (agent_env.rs): removed last, below.
+    let env_exclude = env
+        .remove(crate::agent_env::EXCLUDE_MARKER)
+        .map(|marker| crate::agent_env::patterns(&marker))
+        .unwrap_or_default();
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
@@ -412,6 +417,15 @@ fn build_harness_command(
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
     }
+    // `agents.envExclude`, last: whoever set a name (the daemon, the login shell, a profile,
+    // `agents.env`, acpmux above), the agent never gets it; acpmux's session wiring stays.
+    if !env_exclude.is_empty() {
+        for (key, _) in command_env_with(&cmd, !remote_environment) {
+            if crate::agent_env::excluded(&key, &env_exclude) {
+                cmd.env_remove(&key);
+            }
+        }
+    }
     Ok((cmd, codex))
 }
 
@@ -619,6 +633,26 @@ mod tests {
     }
 
     use super::*;
+
+    /// `agents.envExclude` (agent_env.rs) removes its names from the agent's whole env, the
+    /// profile's and the inherited ones, last; acpmux's own session wiring and the marker stay out.
+    #[test]
+    fn env_exclude_removes_names_last_but_keeps_acpmux_wiring() {
+        let p = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"],
+            "env": {"SECRET_TOKEN": "x", "SECRET_OTHER": "y", "KEEP": "1", "PATH": "/usr/bin",
+                (crate::agent_env::EXCLUDE_MARKER): "SECRET_*,HOME,ACPMUX_*"}
+        }))
+        .unwrap();
+        let cmd =
+            harness_command("t", &p, &std::env::temp_dir(), None, Some(("s1", "n1"))).unwrap();
+        let env = command_env(&cmd);
+        let has = |k: &str| env.iter().any(|(n, _)| n == k);
+        assert!(!has("SECRET_TOKEN") && !has("SECRET_OTHER") && !has("HOME"));
+        assert!(has("KEEP"));
+        assert!(has("ACPMUX_SESSION_ID") && has("ACPMUX_SOCKET"));
+        assert!(!has(crate::agent_env::EXCLUDE_MARKER));
+    }
 
     /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.

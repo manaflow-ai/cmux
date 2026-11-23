@@ -746,6 +746,18 @@ impl Hub {
                 &login,
             );
         }
+        // The person's `agents.env` and `agents.envExclude` (agent_env.rs), every harness: a
+        // value already set here or by the login shell wins; the exclude list goes to the
+        // command build, which removes those names last. A remote-origin chat gets no values.
+        {
+            let family = crate::config::derive_family(&meta.harness, profile);
+            let remote = meta.remote_origin;
+            let login = |key: &str| {
+                crate::login_env::var(key)
+                    .filter(|v| !remote && crate::login_env::allowed(key, v, Some(&family)))
+            };
+            crate::agent_env::AgentEnv::current().apply(&mut p.env, remote, &login);
+        }
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {
             p.argv.extend(super::tools::disallowed_args(&meta.tools));

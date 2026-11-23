@@ -100,6 +100,83 @@
           ]
         },
         {
+          "key": "agents.env",
+          "name": "agentEnv",
+          "note": "Variables every agent chat gets, as Claude Code's env setting and Codex's shell_environment_policy.set. acpmux reads it at each chat start (cmux-tui/crates/acpmux/src/agent_env.rs): a value the profile, preset, route, session or login shell sets wins; a remote-origin chat gets none.",
+          "title": {
+            "key": "settings.agents.env",
+            "text": "Agent Environment"
+          },
+          "help": {
+            "key": "settings.agents.env.help",
+            "text": "Variables every new chat's agent and its tools get. A value an agent profile already sets wins."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "environment",
+            "env",
+            "variables",
+            "agent",
+            "claude",
+            "codex",
+            "shell"
+          ]
+        },
+        {
+          "key": "agents.envExclude",
+          "name": "agentEnvExclude",
+          "note": "Variable names (or PREFIX_*) no agent chat gets, as Codex's shell_environment_policy.exclude. acpmux removes them last when it builds the agent's command (cmux-tui/crates/acpmux/src/agent_env.rs); its own ACPMUX_* session wiring stays.",
+          "title": {
+            "key": "settings.agents.envExclude",
+            "text": "Hidden from Agents"
+          },
+          "help": {
+            "key": "settings.agents.envExclude.help",
+            "text": "Variable names agents never get, such as AWS_SECRET_ACCESS_KEY or AWS_*."
+          },
+          "placeholder": {
+            "key": "settings.agents.envExclude.placeholder",
+            "text": "NAME or PREFIX_*"
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "environment",
+            "env",
+            "exclude",
+            "hide",
+            "secret",
+            "variables",
+            "agent"
+          ]
+        },
+        {
+          "key": "agents.additionalDirectories",
+          "name": "additionalDirectories",
+          "note": "Folders every new chat gets on top of its Sources, as Claude Code's additionalDirectories setting: Claude Code --add-dir, ACP additionalDirectories. acpmux adds them at chat creation (cmux-tui/crates/acpmux/src/hub/additional_dirs.rs); a folder that is not there is skipped; a remote-origin chat gets none.",
+          "title": {
+            "key": "settings.agents.additionalDirectories",
+            "text": "Folders Every Chat Sees"
+          },
+          "help": {
+            "key": "settings.agents.additionalDirectories.help",
+            "text": "Added to every new chat's Sources. Use full or ~/ paths."
+          },
+          "kind": "folder_list",
+          "default": [],
+          "keywords": [
+            "folders",
+            "directories",
+            "add-dir",
+            "additional",
+            "sources",
+            "agent",
+            "claude",
+            "codex"
+          ]
+        },
+        {
           "key": "agents.modelRouter.model",
           "name": "modelRouterModel",
           "note": "The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.",

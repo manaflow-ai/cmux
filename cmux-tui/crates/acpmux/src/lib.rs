@@ -25,6 +25,7 @@ pub mod adopt_tools;
 pub mod agent;
 pub mod agent_credentials;
 pub mod agent_displays;
+pub mod agent_env;
 pub mod agent_guidance;
 pub mod agent_host;
 pub mod agent_link;
