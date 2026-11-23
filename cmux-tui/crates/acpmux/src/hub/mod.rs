@@ -358,7 +358,8 @@ mod unread_steer;
 mod update_repeats;
 mod watch;
 pub use new_request::{
-    NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
+    NewRequest, SUFFIX_TAKEN_NAME, declared_model_json, profile_takes_model_at_spawn,
+    suffixed_name, terminal_harness_refusal,
 };
 pub use paging::{
     DEFAULT_PAGE_BYTES, EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes,
