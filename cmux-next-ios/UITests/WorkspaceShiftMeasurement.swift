@@ -24,6 +24,9 @@ final class WorkspaceShiftMeasurement {
         let direction: String
         let keyboardUp: Bool
         let workspaceID: String
+        let actionStart: Double
+        let actionStartUnixSeconds: Double
+        let captureEnd: Double
         let frames: Int
         var shiftedFrames = 0
         var shifts: [Shift] = []
@@ -50,6 +53,7 @@ final class WorkspaceShiftMeasurement {
         action: () throws -> Void, arrived: () throws -> Void
     ) throws {
         let start = CACurrentMediaTime()
+        let startWallTime = Date().timeIntervalSince1970
         try action()
         try arrived()
         RunLoop.current.run(until: Date().addingTimeInterval(0.45))
@@ -67,7 +71,8 @@ final class WorkspaceShiftMeasurement {
         }
         let frames = Array(all[first...last])
         var result = Result(surface: surface, direction: direction, keyboardUp: keyboardUp,
-                            workspaceID: workspaceID, frames: frames.count)
+                            workspaceID: workspaceID, actionStart: start, actionStartUnixSeconds: startWallTime,
+                            captureEnd: end, frames: frames.count)
         let page = "page.\(surface)"
         let row = "workspace.row.\(workspaceID)"
         let content = "content.\(surface)"
