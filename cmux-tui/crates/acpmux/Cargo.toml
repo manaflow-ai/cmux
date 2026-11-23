@@ -242,7 +242,8 @@ cmux-build-space = { workspace = true, features = ["testing"] }
 acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).
 proptest = { version = "1", default-features = false, features = ["std"] }
-# The Cloud store in memory, under the real store's rules (tests/auto_session.rs).
+# The Cloud store in memory, under the real store's rules (tests/auto_session.rs), also behind
+# a fake agent socket (tests/auto_machine/agent.rs).
 cmux-auto-session = { workspace = true, features = ["test-support"] }
 # The simulated crash file system, for the journal store's crash tests.
 cmux-journal = { workspace = true, features = ["sim"] }
@@ -267,9 +268,6 @@ blake2 = "0.10"
 rusqlite.workspace = true
 # The test-hooks check over this crate's own sources (`src/test_hooks_tree.rs`, cmux#41350).
 cmux-source-scan = { path = "../cmux-source-scan" }
-# Auto mode's in-memory Cloud store (`FakeAutoCloud`), behind a fake agent socket
-# (tests/auto_machine/agent.rs).
-cmux-auto-session = { workspace = true, features = ["test-support"] }
 # The crate's own sources, read by the detector of writes under the home by path
 # (`src/home_writers_by_path_tests.rs`); span-locations for its rows' line numbers.
 syn = { version = "2", default-features = false, features = ["full", "parsing", "visit", "printing"] }
