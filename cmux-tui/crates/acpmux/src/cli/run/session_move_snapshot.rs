@@ -82,7 +82,7 @@ pub(crate) fn bundle_from_snapshot(
     records.sort_by_key(|r| r.seq);
     records.dedup_by_key(|r| r.seq);
     let last_seq = records.last().map_or(0, |r| r.seq);
-    let mut meta = json!({
+    let mut kept = json!({
         "schema": crate::store::META_SCHEMA,
         "id": new_id,
         "name": text("name").unwrap_or(new_id),
@@ -100,14 +100,14 @@ pub(crate) fn bundle_from_snapshot(
     // next start reads the transcript instead), its title and counts.
     for k in ["family", "agentSessionId", "title", "titleSource", "lastPrompt", "preview"] {
         if let Some(v) = text(k) {
-            meta[k] = json!(v);
+            kept[k] = json!(v);
         }
     }
     if let Some(n) = row.get("turnCount").and_then(Value::as_u64) {
-        meta["turnCount"] = json!(n);
+        kept["turnCount"] = json!(n);
     }
-    let session_json = serde_json::to_vec_pretty(&meta)?;
-    // The meta must be one the target reads back.
+    let session_json = serde_json::to_vec_pretty(&kept)?;
+    // The kept meta must be one the target reads back.
     serde_json::from_slice::<crate::store::SessionMeta>(&session_json)
         .context("the kept row makes no chat")?;
     let mut events = Vec::new();
@@ -133,7 +133,7 @@ pub(crate) fn bundle_from_snapshot(
         "transferId": uuid::Uuid::now_v7().to_string(),
         "sessionId": new_id,
         "files": listed,
-        "session": {"sessionId": new_id, "name": meta["name"], "harness": harness, "cwd": cwd},
+        "session": {"sessionId": new_id, "name": kept["name"], "harness": harness, "cwd": cwd},
     });
     Ok(SnapshotBundle {
         files,
