@@ -379,6 +379,7 @@ impl Hub {
                     harness: Some(target_harness.clone().unwrap_or_else(|| meta.harness.clone())),
                     preset: if target_harness.is_some() { None } else { meta.preset.clone() },
                     name: Some(name.clone()),
+                    suffix_taken_name: false,
                     cwd: Some(meta.cwd.clone()),
                     policy: Some(side_policy(self.btw_chat_policy(session).await, inline)),
                     model: model.clone(),
@@ -413,6 +414,7 @@ impl Hub {
                     require_asking: false,
                     // A side chat never runs on its chat's Cloud credential.
                     credential: None,
+                    create_key: None,
                 };
                 let side = match with_inline_creation(
                     self.clone(),
@@ -867,7 +869,7 @@ impl Hub {
     fn btw_transcript(&self, session: &Session) -> String {
         // The two kinds it reads, parsed one record at a time (never the whole log).
         let mut lines: Vec<(&str, String)> = Vec::new();
-        let _ = self.store.scan_kinds(
+        let _ = self.scan_kinds_off(
             &session.id,
             &["user_message", "agent_message_chunk"],
             &mut |e: EventRecord| {
