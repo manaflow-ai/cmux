@@ -16,6 +16,7 @@ import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -178,12 +179,19 @@ try:
     added = rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
     safe_print("panes", pane_ids, "newTab", json.dumps(added)[:200], flush=True)
     wait(lambda: len((first_pane().get("tab_slots") or [])) >= 2, 15)
+    toolbar = lambda: json.dumps(first_pane().get("toolbar"), sort_keys=True, ensure_ascii=False)  # noqa: E731
+    before_hook = toolbar()
     payload = json.dumps({"session_id": "5a7e5a7e-0000-4000-8000-0000000000aa", "prompt": "shot"})
     exe = os.environ.get("NX_APP_CLI") or "cmux"
     line = f"\"$(command -v cmux || echo '{exe}')\" agent hook emit --source claude --event SessionStart --payload-json '{payload}'"
     cli("terminal", terminal or "", "write", "--text", line + "\n")
     cli("agent", "hook", "emit", "--source", "claude", "--event", "SessionStart", "--terminal", terminal or "", "--payload-json", payload)
-    time.sleep(3)  # capture harness: the hook's report reaches the tab and its toolbar
+    # The hook's report reaches the tab and its toolbar: the toolbar report changes, then holds still.
+    if not wait(lambda: toolbar() != before_hook, 15):
+        safe_print("note: the pane toolbar did not change 15 s after the SessionStart hook", flush=True)
+    if wait_stable(toolbar, "the pane toolbar after the hook", timeout=10, interval=0.1, reads=4,
+                   raise_on_timeout=False) is None:
+        safe_print("note: the pane toolbar did not hold still in 10 s", flush=True)
     for density in densities:
         write_config(density)
         time.sleep(1.5)  # capture harness: the config watcher applies the density
