@@ -59,3 +59,12 @@ export const OWN_LOGIN_HINT: Record<NoAccountFamily, string> = {
   opencode:
     "Or use your own provider sign-in on this machine: run `cr use own opencode`, then `opencode auth login` (on older machines, start OpenCode with `env -u OPENAI_BASE_URL -u ANTHROPIC_BASE_URL opencode`).",
 };
+
+/**
+ * The terminal 403 text when a team with no Claude account of its own has
+ * used up the model usage included with its account (claudeFallback.ts).
+ * Plain words for someone who has never heard of upstream accounts: no
+ * provider or service names, just the two ways to keep going.
+ */
+export const INCLUDED_USAGE_USED_UP_MESSAGE =
+  "The model usage included with your account is used up. To keep going, sign in to Claude on this machine: run `cr use own claude`, restart claude, and sign in with /login. Or add credits to your team.";

@@ -1,5 +1,7 @@
 import { accountAccessForIdentity } from "./accountAccess";
-import { noAccountConfiguredMessage } from "./noAccountMessage";
+import { INCLUDED_USAGE_USED_UP_MESSAGE, noAccountConfiguredMessage } from "./noAccountMessage";
+import { defaultClaudeFallbackSpend, UNPRICED_USD_PER_TOKEN, type ClaudeFallbackSpend } from "./claudeFallback";
+import { estimateApiEquivalent } from "./apiEquivalentPricing";
 // The Claude leg of coderouter: serves the Anthropic Messages API to a guest
 // (Claude Code inside a Cloud VM, or any Anthropic SDK client holding a
 // route token) and forwards to one of the team's Claude upstream accounts.
@@ -139,6 +141,8 @@ export type ClaudeProxyDependencies = {
   readonly fetch: typeof fetch;
   readonly now: () => Date;
   readonly capture: typeof captureCoderouterEvent;
+  /** Where a fallback completion's cost is added to its team's cached spend. */
+  readonly fallbackSpend?: ClaudeFallbackSpend;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -165,6 +169,7 @@ const defaultDependencies: ClaudeProxyDependencies = {
   fetch: (input, init) => fetch(input, init),
   now: () => new Date(),
   capture: captureCoderouterEvent,
+  fallbackSpend: defaultClaudeFallbackSpend,
 };
 
 function resolveClaudeRuntime(
@@ -190,6 +195,7 @@ type RouteFailureStage =
   | "auth"
   | "account_selection"
   | "provider_config"
+  | "usage_cap"
   | "upstream_transport"
   | "upstream_response";
 
@@ -527,6 +533,30 @@ async function routeRounds(
           "permission_error",
           noAccountConfiguredMessage("claude", identity),
         ),
+      };
+    }
+    if (selection.kind === "fallback_capped") {
+      // A team with no account of its own used up its included usage on the
+      // fallback account. Not retryable: a 403 surfaces once in Claude Code.
+      addCoderouterBreadcrumb("routing", "Included Claude usage used up", { surface }, "warning");
+      return {
+        kind: "exhausted",
+        attempts,
+        outcome: "no_usable_account",
+        failureStage: "usage_cap",
+        response: anthropicError(403, "permission_error", INCLUDED_USAGE_USED_UP_MESSAGE),
+      };
+    }
+    if (selection.kind === "fallback_unavailable") {
+      // The fallback's spend could not be read: refuse (fail closed), retryably.
+      return {
+        kind: "exhausted",
+        attempts,
+        outcome: "provider_unavailable",
+        failureStage: "account_selection",
+        response: anthropicError(503, "api_error", "coderouter could not check the team's included usage. Retry shortly.", {
+          "retry-after": "5",
+        }),
       };
     }
     if (selection.kind === "exhausted") {
@@ -1348,6 +1378,9 @@ function captureModelUsage(
   if (!usage || usage.totalTokens === 0) return;
   const inputTokens =
     usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
+  if (upstream.fallback) noteFallbackSpend(dependencies, identity.teamId, upstream.accountId, usage, inputTokens);
+  // A fallback completion stays the caller team's usage; its
+  // upstream_account_id is the configured fallback account id.
   recordUsageEvent({
     requestId: ledger.requestId,
     teamId: identity.teamId,
@@ -1367,6 +1400,23 @@ function captureModelUsage(
     totalTokens: usage.totalTokens,
     status: ledger.status,
   });
+}
+
+function noteFallbackSpend(
+  dependencies: ClaudeProxyDependencies,
+  teamId: string,
+  accountId: string,
+  usage: ClaudeUsage,
+  inputTokens: number,
+): void {
+  const estimate = estimateApiEquivalent({
+    model: usage.model ?? "",
+    inputTokens,
+    cachedInputTokens: usage.cacheReadInputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+  });
+  dependencies.fallbackSpend?.note(teamId, accountId, estimate.usd + estimate.unpricedTokens * UNPRICED_USD_PER_TOKEN);
 }
 
 function agentFromUserAgent(value: string | null): string {

@@ -1,5 +1,12 @@
 import { grantVmImportedAccount } from "./vmAccountImport";
 import { accountAccessPredicate, type CoderouterAccountAccess } from "./accountAccess";
+import {
+  claudeFallbackConfig,
+  defaultClaudeFallbackSpend,
+  loadClaudeAccountRowById,
+  teamHasAnyClaudeAccount,
+  type ClaudeFallbackDependencies,
+} from "./claudeFallback";
 // Per-team Claude upstream accounts for the coderouter `/v1/messages` leg.
 //
 // A team holds any number of accounts of any kind (Anthropic API key, Claude
@@ -67,6 +74,12 @@ export type ClaudeUpstream = {
   readonly secret: ClaudeUpstreamSecret;
   readonly config: ClaudeUpstreamConfig;
   readonly updatedAt: Date;
+  /**
+   * Set only when this is the configured fallback account serving a team with
+   * no Claude account of its own (claudeFallback.ts). `teamId` above is the
+   * account's owner, not the caller.
+   */
+  readonly fallback?: true;
 };
 
 /** What the dashboard, the CLI, and the GET route see. Never carries a secret. */
@@ -151,6 +164,8 @@ export type ClaudeUpstreamDependencies = {
   readonly keyId?: string;
   readonly now?: () => Date;
   readonly newId?: () => string;
+  /** The capped fallback account; absent means no fallback. */
+  readonly fallback?: ClaudeFallbackDependencies<ClaudeAccountRow>;
 };
 
 export type ClaudeSelectionInput = {
@@ -170,6 +185,10 @@ export type ClaudeSelection =
   | { readonly kind: "selected"; readonly upstream: ClaudeUpstream; readonly total: number; readonly healthy: number }
   /** The team has no accounts at all. */
   | { readonly kind: "none" }
+  /** The team has no accounts and has used up its fallback usage. */
+  | { readonly kind: "fallback_capped" }
+  /** The team has no accounts and its fallback usage could not be read. */
+  | { readonly kind: "fallback_unavailable" }
   /** Every remaining account is disabled, cooling down, or already tried. */
   | {
     readonly kind: "exhausted";
@@ -343,7 +362,39 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
 
   /** Whether the caller can be served at all: one active account. A metadata read; nothing is decrypted or written. */
   async function hasActive(teamId: string, access?: CoderouterAccountAccess): Promise<boolean> {
-    return (await store.list(teamId, undefined, access)).some((row) => row.state === "active");
+    const rows = await store.list(teamId, undefined, access);
+    if (rows.length > 0) return rows.some((row) => row.state === "active");
+    const fallback = await fallbackFor(teamId);
+    return fallback.kind === "row" && fallback.row.state === "active";
+  }
+
+  /**
+   * The fallback row for a team whose caller sees no account, or why not.
+   * Only reached when `store.list` came back empty, so a team with accounts
+   * never gets here, and an unset id costs nothing beyond reading the env.
+   */
+  async function fallbackFor(teamId: string, signal?: AbortSignal): Promise<
+    | { readonly kind: "none" }
+    | { readonly kind: "capped" }
+    | { readonly kind: "unavailable" }
+    | { readonly kind: "row"; readonly row: ClaudeAccountRow }
+  > {
+    const fallback = dependencies.fallback;
+    if (!fallback) return { kind: "none" };
+    const config = fallback.config();
+    if (config.kind !== "on") return { kind: "none" };
+    // Rows the caller cannot see still belong to its team: that team uses its
+    // own accounts (or is told to share one), never the fallback.
+    if (await fallback.teamHasAnyAccount(teamId, signal)) return { kind: "none" };
+    throwIfAborted(signal);
+    const spent = await fallback.spend.spentUsd(teamId, config.accountId, signal);
+    throwIfAborted(signal);
+    if (spent === null) return { kind: "unavailable" };
+    if (spent >= config.capUsd) return { kind: "capped" };
+    const row = await fallback.loadAccount(config.accountId, signal);
+    throwIfAborted(signal);
+    if (!row || row.id.toLowerCase() !== config.accountId) return { kind: "none" };
+    return { kind: "row", row };
   }
 
   async function add(
@@ -411,9 +462,17 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
    */
   async function select(teamId: string, input: ClaudeSelectionInput): Promise<ClaudeSelection> {
     throwIfAborted(input.signal);
-    const rows = await store.list(teamId, input.signal, input.access);
+    let rows = await store.list(teamId, input.signal, input.access);
     throwIfAborted(input.signal);
-    if (rows.length === 0) return { kind: "none" };
+    let fallback = false;
+    if (rows.length === 0) {
+      const found = await fallbackFor(teamId, input.signal);
+      if (found.kind === "none") return { kind: "none" };
+      if (found.kind === "capped") return { kind: "fallback_capped" };
+      if (found.kind === "unavailable") return { kind: "fallback_unavailable" };
+      rows = [found.row];
+      fallback = true;
+    }
     const at = now();
     const excluded = new Set(input.excludedAccountIds ?? []);
     const eligible = rows.filter((row) => row.state === "active" && !excluded.has(row.id));
@@ -429,8 +488,9 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     const chosen = input.stickyKey
       ? rendezvousPick(input.stickyKey, healthy)
       : leastRecentlyUsed(healthy);
-    const upstream = await decrypt(chosen, input.signal);
+    const decrypted = await decrypt(chosen, input.signal);
     throwIfAborted(input.signal);
+    const upstream: ClaudeUpstream = fallback ? { ...decrypted, fallback: true } : decrypted;
     return { kind: "selected", upstream, total: rows.length, healthy: healthy.length };
   }
 
@@ -735,7 +795,18 @@ function rowFromDb(row: typeof coderouterClaudeAccounts.$inferSelect): ClaudeAcc
  * store with test encryption keys. */
 export const claudeAccountStore: ClaudeAccountStore = drizzleStore;
 
-const defaultService = createClaudeUpstreamService({ store: drizzleStore });
+const defaultService = createClaudeUpstreamService({
+  store: drizzleStore,
+  fallback: {
+    config: () => claudeFallbackConfig(),
+    teamHasAnyAccount: teamHasAnyClaudeAccount,
+    loadAccount: async (accountId, signal) => {
+      const row = await loadClaudeAccountRowById(accountId, signal);
+      return row ? rowFromDb(row) : null;
+    },
+    spend: defaultClaudeFallbackSpend,
+  },
+});
 
 export const listClaudeAccounts = defaultService.list;
 export const hasActiveClaudeAccount = defaultService.hasActive;
