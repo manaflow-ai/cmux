@@ -263,6 +263,16 @@ impl Hub {
         let mut prompt_file = None;
         {
             let cfg = self.config.read().await;
+            // The built-in Claude Code's or Codex's program, home, args and env from cmux
+            // Settings (`agents.providers.*`, provider_settings.rs), read at each start; a
+            // person's own profile keeps its own. Before the preset and the remote checks, so
+            // both see the launch as it will run.
+            if let Some(provider) = crate::provider_settings::Provider::of_builtin(
+                profile,
+                cfg.discovered.contains(&meta.harness),
+            ) {
+                crate::provider_settings::Launch::current(provider).apply(&mut p, provider);
+            }
             if let Some(name) = &meta.preset
                 && let Some(preset) = cfg.presets.get(name)
             {

@@ -542,6 +542,240 @@
             "haiku",
             "naming"
           ]
+        },
+        {
+          "key": "agents.providers.claude.path",
+          "name": "claudeProviderPath",
+          "note": "The program acpmux starts for the built-in Claude Code (claude) in place of the one on PATH. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.claude.path",
+            "text": "Claude Code Program"
+          },
+          "help": {
+            "key": "settings.agents.providers.claude.path.help",
+            "text": "The Claude Code program new chats run. Empty uses the one on your PATH."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "/usr/local/bin/claude"
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "claude",
+            "claude code",
+            "agent",
+            "provider",
+            "harness",
+            "path",
+            "binary",
+            "program",
+            "executable",
+            "command"
+          ]
+        },
+        {
+          "key": "agents.providers.claude.home",
+          "name": "claudeProviderHome",
+          "note": "CLAUDE_CONFIG_DIR for the built-in Claude Code; a bound account's own home still wins. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.claude.home",
+            "text": "Claude Code Home Folder"
+          },
+          "help": {
+            "key": "settings.agents.providers.claude.home.help",
+            "text": "Where Claude Code keeps its settings and sign-in (CLAUDE_CONFIG_DIR). Empty uses ~/.claude."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "~/.claude-work"
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "claude",
+            "claude code",
+            "agent",
+            "provider",
+            "harness",
+            "home",
+            "config dir",
+            "CLAUDE_CONFIG_DIR",
+            "folder"
+          ]
+        },
+        {
+          "key": "agents.providers.claude.args",
+          "name": "claudeProviderArgs",
+          "note": "Extra arguments after the built-in Claude Code launch, before a preset's. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.claude.args",
+            "text": "Claude Code Launch Arguments"
+          },
+          "help": {
+            "key": "settings.agents.providers.claude.args.help",
+            "text": "Arguments added when cmux starts Claude Code, one per entry."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "--verbose"
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "claude",
+            "claude code",
+            "agent",
+            "provider",
+            "harness",
+            "args",
+            "arguments",
+            "flags",
+            "launch",
+            "command line"
+          ]
+        },
+        {
+          "key": "agents.providers.claude.env",
+          "name": "claudeProviderEnv",
+          "note": "Environment for the built-in Claude Code, over config.json's defaults.claude.env; a preset's and the session's env win. Secrets go in cmux harness secret, never this file. Not agents.env (every agent's). Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.claude.env",
+            "text": "Claude Code Environment"
+          },
+          "help": {
+            "key": "settings.agents.providers.claude.env.help",
+            "text": "Variables Claude Code starts with. Keep keys and tokens out: use cmux harness secret."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "claude",
+            "claude code",
+            "agent",
+            "provider",
+            "harness",
+            "env",
+            "environment",
+            "variables"
+          ]
+        },
+        {
+          "key": "agents.providers.codex.path",
+          "name": "codexProviderPath",
+          "note": "The codex binary the built-in Codex bridge runs (its CODEX_PATH) in place of the one on PATH. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.codex.path",
+            "text": "Codex Program"
+          },
+          "help": {
+            "key": "settings.agents.providers.codex.path.help",
+            "text": "The Codex program new chats run. Empty uses the one on your PATH."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "/usr/local/bin/codex"
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "codex",
+            "codex",
+            "agent",
+            "provider",
+            "harness",
+            "path",
+            "binary",
+            "program",
+            "executable",
+            "command"
+          ]
+        },
+        {
+          "key": "agents.providers.codex.home",
+          "name": "codexProviderHome",
+          "note": "CODEX_HOME for the built-in Codex; a bound account's own home still wins. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.codex.home",
+            "text": "Codex Home Folder"
+          },
+          "help": {
+            "key": "settings.agents.providers.codex.home.help",
+            "text": "Where Codex keeps its settings and sign-in (CODEX_HOME). Empty uses ~/.codex."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "~/.codex-work"
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "codex",
+            "codex",
+            "agent",
+            "provider",
+            "harness",
+            "home",
+            "config dir",
+            "CODEX_HOME",
+            "folder"
+          ]
+        },
+        {
+          "key": "agents.providers.codex.args",
+          "name": "codexProviderArgs",
+          "note": "Extra arguments after the built-in Codex launch, before a preset's. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.codex.args",
+            "text": "Codex Launch Arguments"
+          },
+          "help": {
+            "key": "settings.agents.providers.codex.args.help",
+            "text": "Arguments added when cmux starts Codex, one per entry."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "--verbose"
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "codex",
+            "codex",
+            "agent",
+            "provider",
+            "harness",
+            "args",
+            "arguments",
+            "flags",
+            "launch",
+            "command line"
+          ]
+        },
+        {
+          "key": "agents.providers.codex.env",
+          "name": "codexProviderEnv",
+          "note": "Environment for the built-in Codex, over config.json's defaults.codex.env; a preset's and the session's env win. Secrets go in cmux harness secret, never this file. Not agents.env (every agent's). Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.",
+          "title": {
+            "key": "settings.agents.providers.codex.env",
+            "text": "Codex Environment"
+          },
+          "help": {
+            "key": "settings.agents.providers.codex.env.help",
+            "text": "Variables Codex starts with. Keep keys and tokens out: use cmux harness secret."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "codex",
+            "codex",
+            "agent",
+            "provider",
+            "harness",
+            "env",
+            "environment",
+            "variables"
+          ]
         }
       ]
     },

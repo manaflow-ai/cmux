@@ -49,6 +49,30 @@ extension AgentDefaultsSettingsSchema {
     nonisolated static let textGenerationModelPath = ["agents", "titles", "model"]
     nonisolated static let textGenerationModelDefault = "haiku"
     nonisolated static let textGenerationModelValues = ["haiku", "sonnet", "opus"]
+    /// `agents.providers.claude.path`: The program acpmux starts for the built-in Claude Code (claude) in place of the one on PATH. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.
+    nonisolated static let claudeProviderPathPath = ["agents", "providers", "claude", "path"]
+    nonisolated static let claudeProviderPathDefault = ""
+    /// `agents.providers.claude.home`: CLAUDE_CONFIG_DIR for the built-in Claude Code; a bound account's own home still wins. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.
+    nonisolated static let claudeProviderHomePath = ["agents", "providers", "claude", "home"]
+    nonisolated static let claudeProviderHomeDefault = ""
+    /// `agents.providers.claude.args`: Extra arguments after the built-in Claude Code launch, before a preset's. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.
+    nonisolated static let claudeProviderArgsPath = ["agents", "providers", "claude", "args"]
+    nonisolated static let claudeProviderArgsDefault: [String] = []
+    /// `agents.providers.claude.env`: Environment for the built-in Claude Code, over config.json's defaults.claude.env; a preset's and the session's env win. Secrets go in cmux harness secret, never this file. Not agents.env (every agent's). Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.
+    nonisolated static let claudeProviderEnvPath = ["agents", "providers", "claude", "env"]
+    nonisolated static let claudeProviderEnvDefault: JSONValue = .object([:])
+    /// `agents.providers.codex.path`: The codex binary the built-in Codex bridge runs (its CODEX_PATH) in place of the one on PATH. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.
+    nonisolated static let codexProviderPathPath = ["agents", "providers", "codex", "path"]
+    nonisolated static let codexProviderPathDefault = ""
+    /// `agents.providers.codex.home`: CODEX_HOME for the built-in Codex; a bound account's own home still wins. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.
+    nonisolated static let codexProviderHomePath = ["agents", "providers", "codex", "home"]
+    nonisolated static let codexProviderHomeDefault = ""
+    /// `agents.providers.codex.args`: Extra arguments after the built-in Codex launch, before a preset's. Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.
+    nonisolated static let codexProviderArgsPath = ["agents", "providers", "codex", "args"]
+    nonisolated static let codexProviderArgsDefault: [String] = []
+    /// `agents.providers.codex.env`: Environment for the built-in Codex, over config.json's defaults.codex.env; a preset's and the session's env win. Secrets go in cmux harness secret, never this file. Not agents.env (every agent's). Read at each start of the provider's chat (cmux-tui/crates/acpmux/src/provider_settings.rs); a harness profile of the person's own (cmux harness add) keeps its own. Empty: today's launch.
+    nonisolated static let codexProviderEnvPath = ["agents", "providers", "codex", "env"]
+    nonisolated static let codexProviderEnvDefault: JSONValue = .object([:])
 }
 
 extension AgentDefaultsSettingsSchema {
@@ -230,6 +254,92 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 ]),
                 default: .string(AgentDefaultsSettingsSchema.textGenerationModelDefault),
                 keywords: ["title", "titles", "summary", "summaries", "text generation", "model", "haiku", "naming"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.claudeProviderPathPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.providers.claude.path", "Claude Code Program"),
+                help: SettingsText.keyed("settings.agents.providers.claude.path.help", "The Claude Code program new chats run. Empty uses the one on your PATH."),
+                kind: .text,
+                default: .string(AgentDefaultsSettingsSchema.claudeProviderPathDefault),
+                keywords: ["claude", "claude code", "agent", "provider", "harness", "path", "binary", "program", "executable", "command"],
+                placeholder: SettingText(key: nil, text: "/usr/local/bin/claude")
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.claudeProviderHomePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.providers.claude.home", "Claude Code Home Folder"),
+                help: SettingsText.keyed("settings.agents.providers.claude.home.help", "Where Claude Code keeps its settings and sign-in (CLAUDE_CONFIG_DIR). Empty uses ~/.claude."),
+                kind: .text,
+                default: .string(AgentDefaultsSettingsSchema.claudeProviderHomeDefault),
+                keywords: ["claude", "claude code", "agent", "provider", "harness", "home", "config dir", "CLAUDE_CONFIG_DIR", "folder"],
+                placeholder: SettingText(key: nil, text: "~/.claude-work")
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.claudeProviderArgsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.providers.claude.args", "Claude Code Launch Arguments"),
+                help: SettingsText.keyed("settings.agents.providers.claude.args.help", "Arguments added when cmux starts Claude Code, one per entry."),
+                kind: .stringList,
+                default: .array(AgentDefaultsSettingsSchema.claudeProviderArgsDefault.map { .string($0) }),
+                keywords: ["claude", "claude code", "agent", "provider", "harness", "args", "arguments", "flags", "launch", "command line"],
+                placeholder: SettingText(key: nil, text: "--verbose")
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.claudeProviderEnvPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.providers.claude.env", "Claude Code Environment"),
+                help: SettingsText.keyed("settings.agents.providers.claude.env.help", "Variables Claude Code starts with. Keep keys and tokens out: use cmux harness secret."),
+                kind: .stringMap,
+                default: AgentDefaultsSettingsSchema.claudeProviderEnvDefault,
+                keywords: ["claude", "claude code", "agent", "provider", "harness", "env", "environment", "variables"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.codexProviderPathPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.providers.codex.path", "Codex Program"),
+                help: SettingsText.keyed("settings.agents.providers.codex.path.help", "The Codex program new chats run. Empty uses the one on your PATH."),
+                kind: .text,
+                default: .string(AgentDefaultsSettingsSchema.codexProviderPathDefault),
+                keywords: ["codex", "codex", "agent", "provider", "harness", "path", "binary", "program", "executable", "command"],
+                placeholder: SettingText(key: nil, text: "/usr/local/bin/codex")
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.codexProviderHomePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.providers.codex.home", "Codex Home Folder"),
+                help: SettingsText.keyed("settings.agents.providers.codex.home.help", "Where Codex keeps its settings and sign-in (CODEX_HOME). Empty uses ~/.codex."),
+                kind: .text,
+                default: .string(AgentDefaultsSettingsSchema.codexProviderHomeDefault),
+                keywords: ["codex", "codex", "agent", "provider", "harness", "home", "config dir", "CODEX_HOME", "folder"],
+                placeholder: SettingText(key: nil, text: "~/.codex-work")
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.codexProviderArgsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.providers.codex.args", "Codex Launch Arguments"),
+                help: SettingsText.keyed("settings.agents.providers.codex.args.help", "Arguments added when cmux starts Codex, one per entry."),
+                kind: .stringList,
+                default: .array(AgentDefaultsSettingsSchema.codexProviderArgsDefault.map { .string($0) }),
+                keywords: ["codex", "codex", "agent", "provider", "harness", "args", "arguments", "flags", "launch", "command line"],
+                placeholder: SettingText(key: nil, text: "--verbose")
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.codexProviderEnvPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.providers.codex.env", "Codex Environment"),
+                help: SettingsText.keyed("settings.agents.providers.codex.env.help", "Variables Codex starts with. Keep keys and tokens out: use cmux harness secret."),
+                kind: .stringMap,
+                default: AgentDefaultsSettingsSchema.codexProviderEnvDefault,
+                keywords: ["codex", "codex", "agent", "provider", "harness", "env", "environment", "variables"]
             ),
         ]
     }

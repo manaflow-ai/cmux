@@ -1077,6 +1077,17 @@ pub enum HarnessCmd {
         /// anthropic-endpoint / openai-endpoint: the name the model picker shows.
         #[arg(long)]
         name: Option<String>,
+        /// An argument the harness starts with, after the profile's own; repeat it for
+        /// several (`--arg=--verbose` for one that starts with a dash).
+        #[arg(long = "arg", value_name = "ARG", allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// KEY=VALUE in the harness's environment; repeat it for several. Never a secret: a
+        /// key or token goes in the Keychain with `cmux harness secret set ID KEY`.
+        #[arg(long = "env", value_name = "KEY=VALUE")]
+        env: Vec<String>,
+        /// The agent's home folder: CLAUDE_CONFIG_DIR for Claude Code, CODEX_HOME for Codex.
+        #[arg(long, value_name = "DIR")]
+        home: Option<String>,
         /// Replace an existing file.
         #[arg(long)]
         force: bool,

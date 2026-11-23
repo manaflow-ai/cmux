@@ -219,5 +219,10 @@ extension SettingsSchema {
         "browser.passwords.allowExport": .privacy,
         // The person decides whether cmux reads verification emails.
         "browser.verificationAutofill.enabled": .privacy, "browser.verificationAutofill.accounts": .privacy,
+        // Which program the person's Claude Code and Codex run, with which home, arguments and environment: an agent must never choose the binary or env its own or another agent's launch runs.
+        "agents.providers.claude.path": .userOnly, "agents.providers.claude.home": .userOnly,
+        "agents.providers.claude.args": .userOnly, "agents.providers.claude.env": .userOnly,
+        "agents.providers.codex.path": .userOnly, "agents.providers.codex.home": .userOnly,
+        "agents.providers.codex.args": .userOnly, "agents.providers.codex.env": .userOnly,
     ]
 }
