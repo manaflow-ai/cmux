@@ -13,6 +13,7 @@ use crate::hybrid::{Delta, Span};
 use crate::stream::Frame;
 use crate::{
     BLINK, BOLD, Color, FAINT, INVERSE, INVISIBLE, ITALIC, STRIKETHROUGH, Style, UNDERLINE,
+    UNDERLINE_STYLE,
 };
 
 /// Where the viewer's cursor goes after a frame.
@@ -29,7 +30,6 @@ fn sgr(out: &mut String, style: Style) {
         (BOLD, "1"),
         (FAINT, "2"),
         (ITALIC, "3"),
-        (UNDERLINE, "4"),
         (BLINK, "5"),
         (INVERSE, "7"),
         (INVISIBLE, "8"),
@@ -38,6 +38,15 @@ fn sgr(out: &mut String, style: Style) {
         if style.attrs & bit != 0 {
             out.push(';');
             out.push_str(code);
+        }
+    }
+    if style.attrs & UNDERLINE != 0 {
+        // `4` alone for a single line, `4:2` to `4:5` for double, curly, dotted and dashed.
+        match (style.attrs & UNDERLINE_STYLE) >> 9 {
+            0 => out.push_str(";4"),
+            kind => {
+                let _ = write!(out, ";4:{}", kind + 1);
+            }
         }
     }
     let color = |out: &mut String, color: Color, base: u8, bright: u8, extended: u8| match color {
@@ -217,5 +226,16 @@ mod tests {
         let text = String::from_utf8(frame_bytes(&frame, 32, Cursor::default()).unwrap()).unwrap();
         assert!(text.contains("\x1b[32;1H\n\n"), "{text:?}");
         assert!(!text.contains("\x1b[2J"));
+    }
+
+    /// A curly underline goes as `4:3`; a plain one stays `4`.
+    #[test]
+    fn an_underline_keeps_its_line() {
+        let mut out = String::new();
+        sgr(&mut out, Style { attrs: UNDERLINE | crate::UNDERLINE_CURLY | BOLD, ..Style::PLAIN });
+        assert_eq!(out, "\x1b[0;1;4:3m");
+        out.clear();
+        sgr(&mut out, Style { attrs: UNDERLINE, ..Style::PLAIN });
+        assert_eq!(out, "\x1b[0;4m");
     }
 }

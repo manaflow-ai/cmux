@@ -614,19 +614,48 @@ fn color(spec: ghostty_vt::ColorSpec) -> Color {
 
 /// A frame's screen as the hybrid stream's cells: authored colors (the viewer's theme
 /// resolves them, as it does the PTY's), the v7 attributes and underline.
+/// The hybrid stream's underline bits for `cell`: [`UNDERLINE`] and which line.
+fn underline(cell: &ghostty_vt::Cell) -> u16 {
+    use cmux_agent_cli_render::{
+        UNDERLINE_CURLY, UNDERLINE_DASHED, UNDERLINE_DOTTED, UNDERLINE_DOUBLE,
+    };
+    use ghostty_vt::UnderlineStyle;
+    if !cell.underline {
+        return 0;
+    }
+    UNDERLINE
+        | match cell.underline_style {
+            None | Some(UnderlineStyle::Single) => 0,
+            Some(UnderlineStyle::Double) => UNDERLINE_DOUBLE,
+            Some(UnderlineStyle::Curly) => UNDERLINE_CURLY,
+            Some(UnderlineStyle::Dotted) => UNDERLINE_DOTTED,
+            Some(UnderlineStyle::Dashed) => UNDERLINE_DASHED,
+        }
+}
+
 fn grid(frame: &ghostty_vt::RenderFrame) -> Grid {
     let (cols, rows) = frame.size;
     let mut grid = Grid::blank(cols, rows);
     for (slot, row) in grid.cells.iter_mut().zip(frame.styled_rows()) {
+        // The right half of a wide glyph takes the glyph's style: the viewer draws it with
+        // that style (the glyph covers it), and a half of another style would start a span of
+        // its own whose blank, written over the glyph's right half, erases the glyph.
+        let mut wide: Option<Style> = None;
         *slot = row
             .iter()
-            .map(|cell| Cell {
-                text: cell.text.clone(),
-                style: Style {
-                    fg: color(cell.fg),
-                    bg: color(cell.bg),
-                    attrs: cell.attrs() | if cell.underline { UNDERLINE } else { 0 },
-                },
+            .map(|cell| {
+                let style = match wide.take() {
+                    Some(style) if cell.text.is_empty() => style,
+                    _ => Style {
+                        fg: color(cell.fg),
+                        bg: color(cell.bg),
+                        attrs: cell.attrs() | underline(cell),
+                    },
+                };
+                if cell.width == ghostty_vt::CellWidth::Wide {
+                    wide = Some(style);
+                }
+                Cell { text: cell.text.clone(), style }
             })
             .collect();
         slot.resize(usize::from(cols), Cell::default());
