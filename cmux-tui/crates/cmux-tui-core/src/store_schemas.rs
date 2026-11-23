@@ -229,13 +229,15 @@ fn written_since(path: &Path, limit_ms: u64, only_with_bytes: bool) -> bool {
 /// a write goes to the `-wal` file first, to the store file at a later
 /// time). This reads no store.
 ///
-/// The time of the folder and a `-wal` file of 0 bytes say nothing here. The
-/// check's own read of a store that was closed makes a `-wal` file of 0
-/// bytes in the folder, which changes the folder's time; a read writes no
-/// byte to a `-wal` file and none to a store file. So this does not see a
-/// folder that a rename moves to a name at or before the place, when
-/// nothing wrote its stores since. The reset command makes such a rename:
-/// [`in_reset`] is for it.
+/// The time of the folder and a `-wal` file of 0 bytes say nothing here. A
+/// plain read of a store that was closed makes a `-wal` file of 0 bytes and
+/// a `-shm` file in the folder, which changes the folder's time, and a
+/// second plain read writes the `-shm` file again; a read writes no byte to
+/// a `-wal` file and none to a store file. The check makes the plain read
+/// only for a store that is not at rest ([`schema_version`]). So this does
+/// not see a folder that a rename moves to a name at or before the place,
+/// when nothing wrote its stores since. The reset command makes such a
+/// rename: [`in_reset`] is for it.
 fn changed_since(session: &Path, since_ms: u64) -> bool {
     let limit_ms = since_ms.saturating_sub(FILE_TIME_MARGIN_MS);
     STORES.iter().any(|(_, file, _)| {
@@ -475,12 +477,183 @@ pub fn stored_from(
 
 /// `meta.schema_version` of the SQLite store at `path`, read-only; nil when
 /// the store has no schema yet.
+///
+/// The check must leave the folder of a closed store as it found it: the
+/// reset command holds a confirmation text for each file of a session's
+/// folder between its 2 calls, and refuses when one of them changed. The
+/// plain read ([`plain_schema_version`]) of a closed store in WAL mode makes
+/// a `-wal` file and a `-shm` file in the folder and leaves them, and a
+/// second plain read writes the `-shm` file again. So a store that is at
+/// rest is read with no lock and no side file ([`version_at_rest`]). Each
+/// other store, and each store for which that read gives an error or is not
+/// sure, gets the plain read, and the plain read's number or error is the
+/// answer. On a system that is not unix each store gets the plain read.
 fn schema_version(path: &Path) -> anyhow::Result<Option<i64>> {
-    let connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .with_context(|| format!("open {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        if let Some(version) = version_at_rest(path) {
+            return Ok(version);
+        }
+    }
+    plain_schema_version(path)
+}
+
+/// The read of a store that takes the store's locks and reads its `-wal`
+/// file: right for each store, also one that a process writes now.
+fn plain_schema_version(path: &Path) -> anyhow::Result<Option<i64>> {
+    stored_version(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX, path)
+}
+
+/// What a look sees of a store: the length of the store file, its time of
+/// the last write (seconds, then nanoseconds), which file it is (the device
+/// and the file number), the length of its `-wal` file (0 when it has none)
+/// and if it has a `-journal` file.
+#[cfg(unix)]
+#[derive(PartialEq, Eq)]
+struct StoreLook {
+    length: u64,
+    written: (i64, i64),
+    device: u64,
+    file: u64,
+    wal_bytes: u64,
+    journal: bool,
+}
+
+/// `path` with `tail` after its last letter: the name of a side file.
+#[cfg(unix)]
+fn side_file(path: &Path, tail: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(tail);
+    PathBuf::from(name)
+}
+
+/// A look at the store at `path`. It opens no file. Nil when the look cannot
+/// be sure: the store or its `-wal` is no plain file, or a name of the look
+/// gives an error other than "not there".
+#[cfg(unix)]
+fn look_at(path: &Path) -> Option<StoreLook> {
+    use std::os::unix::fs::MetadataExt;
+    let wal_bytes = match std::fs::symlink_metadata(side_file(path, "-wal")) {
+        Ok(wal) if wal.is_file() => wal.len(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        _ => return None,
+    };
+    let journal = match std::fs::symlink_metadata(side_file(path, "-journal")) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => return None,
+    };
+    let store = std::fs::metadata(path).ok()?;
+    store.is_file().then(|| StoreLook {
+        length: store.len(),
+        written: (store.mtime(), store.mtime_nsec()),
+        device: store.dev(),
+        file: store.ino(),
+        wal_bytes,
+        journal,
+    })
+}
+
+/// The rule of the look before the read: true when the read that makes no
+/// file can be tried for the store that `look` saw at the wall clock
+/// `now_ms`. The store has no `-wal` file with bytes and no `-journal` file
+/// (its newest content can be in such a file, and that read does not look
+/// at one), and its file is at rest ([`at_rest`]).
+#[cfg(unix)]
+fn can_read_at_rest(look: &StoreLook, now_ms: Option<u64>) -> bool {
+    look.wal_bytes == 0 && !look.journal && at_rest(look.written, now_ms)
+}
+
+/// The rule of the look after the read: true when the answer of the read
+/// that makes no file counts. The look `after` saw the same store file as
+/// the look `before` (the device and the file number), with the same length
+/// and the same time of the last write, and again no `-wal` file with bytes
+/// and no `-journal` file.
+#[cfg(unix)]
+fn stayed_at_rest(before: &StoreLook, after: &StoreLook) -> bool {
+    after.wal_bytes == 0 && !after.journal && after == before
+}
+
+/// True when the time of the last write `written` (seconds, then
+/// nanoseconds) is older than [`FILE_TIME_MARGIN_MS`] at the wall clock
+/// `now_ms`. Then a write after the look gives the file a new time, which
+/// the look after the read sees with each step that a file system keeps its
+/// times in. A time before 1970, a time ahead of the clock and a clock that
+/// cannot be read are not at rest.
+#[cfg(unix)]
+fn at_rest(written: (i64, i64), now_ms: Option<u64>) -> bool {
+    let (Ok(seconds), Ok(nanos), Some(now_ms)) =
+        (u64::try_from(written.0), u64::try_from(written.1), now_ms)
+    else {
+        return false;
+    };
+    let written_ms = seconds.saturating_mul(1_000).saturating_add(nanos / 1_000_000);
+    written_ms.saturating_add(FILE_TIME_MARGIN_MS) < now_ms
+}
+
+/// The name of the store at `path` for a read that takes no lock and makes
+/// no file: a file URI of the absolute path with `immutable=1`. Each byte of
+/// the path that is not a letter, a digit, `/`, `-`, `.`, `_` or `~` is in
+/// it as `%` and 2 hex digits, so a `?`, a `#`, a `%` and a byte that is not
+/// ASCII in a name are bytes of the name. Nil when the path cannot be made
+/// absolute.
+#[cfg(unix)]
+fn immutable_uri(path: &Path) -> Option<String> {
+    use std::os::unix::ffi::OsStrExt;
+    let absolute = std::path::absolute(path).ok()?;
+    if !absolute.is_absolute() {
+        return None;
+    }
+    let mut uri = String::from("file://");
+    for &byte in absolute.as_os_str().as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'.' | b'_' | b'~') {
+            uri.push(char::from(byte));
+        } else {
+            uri.push('%');
+            uri.push(char::from_digit(u32::from(byte >> 4), 16)?);
+            uri.push(char::from_digit(u32::from(byte & 0x0f), 16)?);
+        }
+    }
+    uri.push_str("?immutable=1");
+    Some(uri)
+}
+
+/// The stored schema of the store at `path` by a read that takes no lock,
+/// makes no `-wal` file, no `-shm` file and no other file, and writes no
+/// byte. That read does not look at a `-wal` file and does not see a write
+/// that comes while it runs, so its answer counts only for a store at rest:
+/// a look before the read ([`look_at`]) must pass [`can_read_at_rest`], and
+/// a second look after the read must pass [`stayed_at_rest`]. Nil in each
+/// other case, and when the read gives an error: the caller then makes the
+/// plain read, and the plain read's number or error is the answer. A file
+/// that goes away under the check (the reset deletes a folder) is such a
+/// case: a look or the read does not find it.
+///
+/// The limits. A store whose file was written less than
+/// [`FILE_TIME_MARGIN_MS`] before the check, and a store whose `-wal` file
+/// holds bytes, get the plain read, which can make or write the side files.
+/// A wall clock that was set back after the last write of a store makes that
+/// store "not at rest" until the clock is past that write again.
+#[cfg(unix)]
+fn version_at_rest(path: &Path) -> Option<Option<i64>> {
+    let before = look_at(path)?;
+    if !can_read_at_rest(&before, millis_of(SystemTime::now())) {
+        return None;
+    }
+    let uri = immutable_uri(path)?;
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY
+        | OpenFlags::SQLITE_OPEN_NO_MUTEX
+        | OpenFlags::SQLITE_OPEN_URI;
+    let version = stored_version(Path::new(&uri), flags, path).ok()?;
+    stayed_at_rest(&before, &look_at(path)?).then_some(version)
+}
+
+/// `meta.schema_version` of the SQLite store that `name` opens with `flags`;
+/// nil when the store has no schema yet. `path` is the store's file, for the
+/// text of an error.
+fn stored_version(name: &Path, flags: OpenFlags, path: &Path) -> anyhow::Result<Option<i64>> {
+    let connection = Connection::open_with_flags(name, flags)
+        .with_context(|| format!("open {}", path.display()))?;
     connection.busy_timeout(Duration::from_millis(500))?;
     let has_meta: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
@@ -581,3 +754,7 @@ pub fn run(args: &[String]) -> Result<String, String> {
     };
     answer.map_err(|error| error.to_string())
 }
+
+#[cfg(all(test, unix))]
+#[path = "store_schemas_tests.rs"]
+mod tests;
