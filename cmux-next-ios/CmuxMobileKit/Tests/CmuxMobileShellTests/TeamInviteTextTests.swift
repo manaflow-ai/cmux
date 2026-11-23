@@ -6,7 +6,7 @@ import Testing
 
 /// The team invite toasts and the email alert's Send: a failure says why, a join names its team,
 /// and Send waits for an address the service accepts.
-@Suite struct TeamInviteTextTests {
+@MainActor @Suite struct TeamInviteTextTests {
     @Test func sendWaitsForAnAddressShape() {
         #expect(InviteEmail.isPlausible("name@example.com"))
         #expect(InviteEmail.isPlausible("  a.b+c@mail.example.co.uk \n"))

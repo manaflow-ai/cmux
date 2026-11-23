@@ -5,7 +5,7 @@ import Testing
 
 /// Joining by invite link says why it failed: Stack's known-error codes (the ones the web's accept
 /// page reads) and the SDK's `network_error` map to their sentences; anything else keeps the caller's.
-@Suite struct TeamInviteFailureTests {
+@MainActor @Suite struct TeamInviteFailureTests {
     @Test func stackCodesMapToTheirSentences() {
         #expect(TeamInviteFailure(code: "VERIFICATION_CODE_EXPIRED") == .expired)
         #expect(TeamInviteFailure(code: "VERIFICATION_CODE_ALREADY_USED") == .expired)
