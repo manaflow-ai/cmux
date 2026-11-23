@@ -254,6 +254,218 @@ class RenderTests(unittest.TestCase):
                 self.assertLess(source.count("\n"), 400)
 
 
+def shaped_document() -> dict[str, Any]:
+    """The layout fixture plus a profile edit (tri-state fields) and a spawn with grouped fields."""
+    document = layout_document()
+    string = {"kind": "scalar", "name": "string"}
+    uint16 = {"kind": "scalar", "name": "uint16"}
+    boolean = {"kind": "scalar", "name": "boolean"}
+    document["types"]["SurfaceResult"] = {
+        "kind": "object",
+        "fields": {"surface": _field(ID), "pane": _field(ID), "terminal_id": _field(string, required=False, nullable=True)},
+        "additional_properties": False,
+    }
+    base = document["commands"]["swap-pane"]
+    document["commands"]["update-profile"] = {
+        **copy.deepcopy(base),
+        "request": {"kind": "object", "additional_properties": False, "fields": {
+            "profile": _field(string),
+            "color": _field(string, required=False, nullable=True),
+            "release": _field(boolean, required=False, default=False),
+            "origin": _field(string, required=False, nullable=True),
+            "mutation_id": _field(string, required=False, nullable=True),
+        }},
+    }
+    document["commands"]["new-tab"] = {
+        **copy.deepcopy(base),
+        "request": {"kind": "object", "additional_properties": False, "fields": {
+            "pane": _field(ID, required=False, nullable=True),
+            "cwd": _field(string, required=False, nullable=True),
+            "cols": _field(uint16, required=False, nullable=True),
+            "rows": _field(uint16, required=False, nullable=True),
+        }},
+        "result": {"kind": "ref", "name": "SurfaceResult"},
+    }
+    return document
+
+
+def shaped_bindings() -> dict[str, Any]:
+    bindings = layout_bindings()
+    bindings["ids"].update({"surface": "SurfaceID"})
+    bindings["families"]["Creation"] = {
+        "results": {"SurfaceResult": {"name": "SurfaceCreated", "doc": ["The new tab."], "order": ["surface", "pane"]}},
+        "requests": {
+            "new-tab": {
+                "name": "NewTabRequest",
+                "protocol": "TerminalSpawningRequest",
+                "order": ["pane", "options"],
+                "groups": {"options": {"type": "SpawnOptions", "default": "SpawnOptions()", "wire": ["cwd"]},
+                           "size": {"type": "CellSize?", "default": "nil",
+                                    "members": {"cols": "size?.cols", "rows": "size?.rows"}}},
+            },
+        },
+    }
+    bindings["families"]["Profiles"] = {"requests": {"update-profile": {
+        "name": "UpdateProfileRequest",
+        "order": ["profile", "color", "release", "mutation"],
+        "fields": {"color": {"update": True}, "release": {"default": "false"}},
+        "groups": {"mutation": {"type": "MutationIdentity?", "encode": "MutationFields(identity: mutation)",
+                                "wire": ["origin", "mutation_id"]}},
+    }}}
+    return bindings
+
+
+class ShapeTests(unittest.TestCase):
+    def files(self) -> dict[str, str]:
+        return rendered(shaped_document(), shaped_bindings())
+
+    def test_a_field_update_is_tri_state_and_unset_by_default(self) -> None:
+        source = self.files()["Profiles/UpdateProfileRequest.generated.swift"]
+        self.assertIn("    public var color: FieldUpdate<String>\n", source)
+        self.assertIn("color: FieldUpdate<String> = .unchanged", source)
+        # Mutation.swift's KeyedEncodingContainer.encode(_: FieldUpdate, forKey:): absent, null or the value.
+        self.assertIn("        try container.encode(color, forKey: .color)\n", source)
+
+    def test_a_defaulted_optional_wire_field_is_sent_only_when_it_differs(self) -> None:
+        source = self.files()["Profiles/UpdateProfileRequest.generated.swift"]
+        self.assertIn("    public var release: Bool\n", source)
+        self.assertIn("release: Bool = false", source)
+        self.assertIn(
+            "        if release {\n            try container.encode(release, forKey: .release)\n        }\n",
+            source,
+        )
+
+    def test_a_required_override_always_sends_an_optional_wire_field(self) -> None:
+        bindings = shaped_bindings()
+        bindings["families"]["Profiles"]["requests"]["update-profile"]["fields"]["release"] = {
+            "required": True, "default": "true",
+        }
+        source = rendered(shaped_document(), bindings)["Profiles/UpdateProfileRequest.generated.swift"]
+        self.assertIn("    public var release: Bool\n", source)
+        self.assertIn("release: Bool = true", source)
+        self.assertIn("        try container.encode(release, forKey: .release)\n", source)
+
+    def test_a_capability_override_replaces_or_drops_the_schema_one(self) -> None:
+        bindings = shaped_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["capability"] = "layout-undo-v2"
+        source = rendered(shaped_document(), bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+        self.assertIn('    public static let requiredCapability: String? = "layout-undo-v2"\n', source)
+        request["capability"] = None
+        self.assertNotIn("requiredCapability", rendered(shaped_document(), bindings)["Layout/SetSplitRatioRequest.generated.swift"])
+
+    def test_a_group_that_encodes_itself_writes_its_fields_flat(self) -> None:
+        source = self.files()["Profiles/UpdateProfileRequest.generated.swift"]
+        self.assertIn("    public var mutation: MutationIdentity?\n", source)
+        self.assertIn(
+            "public init(profile: String, color: FieldUpdate<String> = .unchanged, release: Bool = false,"
+            " mutation: MutationIdentity?) {",
+            source,
+        )
+        self.assertIn("        try MutationFields(identity: mutation).encode(to: encoder)\n", source)
+        self.assertNotIn("case origin", source)
+        self.assertNotIn("mutationID", source)
+
+    def test_a_group_with_members_expands_into_several_wire_fields(self) -> None:
+        source = self.files()["Creation/NewTabRequest.generated.swift"]
+        self.assertIn("public struct NewTabRequest: TerminalSpawningRequest {", source)
+        self.assertIn(
+            "public init(pane: PaneID? = nil, options: SpawnOptions = SpawnOptions(), size: CellSize? = nil) {",
+            source,
+        )
+        self.assertIn("        case cols\n        case rows\n", source)
+        self.assertIn("        try container.encodeIfPresent(size?.cols, forKey: .cols)\n", source)
+        self.assertIn("        try options.encode(to: encoder)\n", source)
+        self.assertNotIn("public var cwd", source)
+
+    def test_a_named_result_is_a_shared_struct_and_the_requests_response(self) -> None:
+        files = self.files()
+        result = files["Creation/SurfaceCreated.generated.swift"]
+        self.assertIn("/// The new tab.\npublic struct SurfaceCreated: Decodable, Sendable, Equatable {", result)
+        self.assertIn("    public var terminalID: String?\n", result)
+        self.assertIn("    public init(surface: SurfaceID, pane: PaneID, terminalID: String? = nil) {", result)
+        self.assertIn('        case terminalID = "terminal_id"\n', result)
+        self.assertIn(
+            "    public typealias Response = SurfaceCreated\n", files["Creation/NewTabRequest.generated.swift"]
+        )
+
+    def test_a_result_can_name_its_conformances(self) -> None:
+        bindings = shaped_bindings()
+        bindings["families"]["Creation"]["results"]["SurfaceResult"]["conformances"] = ["Codable", "Sendable", "Hashable"]
+        source = rendered(shaped_document(), bindings)["Creation/SurfaceCreated.generated.swift"]
+        self.assertIn("public struct SurfaceCreated: Codable, Sendable, Hashable {", source)
+
+    def test_the_shaped_output_passes_the_hygiene_rules(self) -> None:
+        for path, source in self.files().items():
+            with self.subTest(path=path):
+                self.assertNotIn("\n\n\n", source)
+                self.assertIsNone(re.search(r"[ \t]+\n", source))
+                self.assertNotIn(";", source)
+
+
+class ShapeErrorTests(unittest.TestCase):
+    def assert_refused(self, message: str, bindings: dict[str, Any], document: dict[str, Any] | None = None) -> None:
+        with self.assertRaises(BindingError) as raised:
+            rendered(document or shaped_document(), bindings)
+        self.assertIn(message, str(raised.exception))
+
+    def profile(self, bindings: dict[str, Any]) -> dict[str, Any]:
+        return bindings["families"]["Profiles"]["requests"]["update-profile"]
+
+    def test_a_field_update_on_a_required_or_non_nullable_field_is_refused(self) -> None:
+        for wire in ("profile", "release"):
+            with self.subTest(wire=wire):
+                bindings = shaped_bindings()
+                self.profile(bindings)["fields"][wire] = {"update": True}
+                self.assert_refused(f"update-profile.{wire}: a FieldUpdate field must be optional and nullable", bindings)
+
+    def test_a_required_override_of_a_required_field_is_refused(self) -> None:
+        bindings = shaped_bindings()
+        self.profile(bindings)["fields"]["profile"] = {"required": True}
+        self.assert_refused("required is for a field the schema makes optional", bindings)
+
+    def test_a_group_carrying_a_field_the_schema_lacks_is_refused(self) -> None:
+        bindings = shaped_bindings()
+        self.profile(bindings)["groups"]["mutation"]["wire"].append("expected_revision")
+        self.assert_refused("'expected_revision' is not a field of the schema", bindings)
+
+    def test_a_field_carried_by_two_groups_is_refused(self) -> None:
+        bindings = shaped_bindings()
+        self.profile(bindings)["groups"]["other"] = {"type": "Other", "wire": ["origin"]}
+        self.assert_refused("'origin' is carried by two groups", bindings)
+
+    def test_a_self_encoding_group_cannot_carry_a_required_field(self) -> None:
+        bindings = shaped_bindings()
+        self.profile(bindings)["groups"]["mutation"]["wire"].append("profile")
+        self.profile(bindings)["order"].remove("profile")
+        self.assert_refused("cannot carry the required profile", bindings)
+
+    def test_overriding_a_grouped_field_is_refused(self) -> None:
+        bindings = shaped_bindings()
+        self.profile(bindings)["fields"]["origin"] = {"type": "String"}
+        self.assert_refused("update-profile.origin: a field a group carries cannot also be overridden", bindings)
+
+    def test_a_group_with_members_and_wire_is_refused(self) -> None:
+        bindings = shaped_bindings()
+        self.profile(bindings)["groups"]["mutation"]["members"] = {"origin": "mutation?.origin"}
+        self.assert_refused("give members, or wire with an optional encode", bindings)
+
+    def test_update_or_default_in_a_result_is_refused(self) -> None:
+        bindings = shaped_bindings()
+        bindings["families"]["Creation"]["results"]["SurfaceResult"]["fields"] = {"terminal_id": {"default": "nil"}}
+        self.assert_refused("update, default and required apply to request fields only", bindings)
+
+    def test_a_result_the_schema_lacks_is_refused(self) -> None:
+        bindings = shaped_bindings()
+        bindings["families"]["Creation"]["results"]["NoSuchResult"] = {"name": "Nope"}
+        self.assert_refused("the schema has no object NoSuchResult", bindings)
+
+    def test_a_result_also_bound_in_types_is_refused(self) -> None:
+        bindings = shaped_bindings()
+        bindings["types"]["SurfaceResult"] = "SurfaceCreated"
+        self.assert_refused("result SurfaceResult is generated twice or also bound in types", bindings)
+
+
 class BindingErrorTests(unittest.TestCase):
     def assert_refused(self, message: str, document: dict[str, Any] | None = None,
                        bindings: dict[str, Any] | None = None) -> None:

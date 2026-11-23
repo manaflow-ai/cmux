@@ -36,30 +36,6 @@ public enum SplitRespawn: Sendable, Hashable, Encodable {
     }
 }
 
-/// `move-tab-to-split` with `respawn`: one owner op that moves the tab into
-/// a new pane beside its own pane and spawns `respawn` in the pane it left.
-/// It can launch a terminal host, so it uses the spawn deadline.
-public struct MoveTabToSplitRespawnRequest: TerminalSpawningRequest {
-    public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-split"
-    public static let requiredCapability: String? = DaemonCapability.tabSplitRespawn.rawValue
-    public var surface: SurfaceID
-    public var pane: PaneID
-    public var edge: PaneEdge
-    public var ratio: Double?
-    public var respawn: SplitRespawn
-    public var transaction: ClientTransactionID?
-    public init(surface: SurfaceID, pane: PaneID, edge: PaneEdge, ratio: Double? = nil, respawn: SplitRespawn,
-                transaction: ClientTransactionID? = nil) {
-        self.surface = surface
-        self.pane = pane
-        self.edge = edge
-        self.ratio = ratio
-        self.respawn = respawn
-        self.transaction = transaction
-    }
-}
-
 extension MoveTabToSplitRespawnRequest {
     /// Sends this request on `connection`. A fresh terminal gets its own
     /// host id and placement environment, as from `new-tab`.

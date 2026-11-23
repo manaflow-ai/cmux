@@ -67,6 +67,172 @@
             "browser_profile_id"
           ],
           "response": "BookmarkList"
+        },
+        "create-bookmark": {
+          "name": "CreateBookmarkRequest",
+          "doc": [
+            "`create-bookmark`: an existing `bookmark` id returns the stored node."
+          ],
+          "order": [
+            "bookmark",
+            "browser_profile_id",
+            "parent",
+            "index",
+            "kind",
+            "title",
+            "url",
+            "favicon_key",
+            "source_key",
+            "created_ms",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            },
+            "created_ms": {
+              "type": "Int64"
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "doc": [
+                "The exactly-once key; reuse it on every retry of this write."
+              ],
+              "wire": [
+                "origin",
+                "mutation_id"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "BookmarkResult"
+        },
+        "update-bookmark": {
+          "name": "UpdateBookmarkRequest",
+          "doc": [
+            "`update-bookmark`: absent keeps; `.clear` sends null. `icon`",
+            "(`bookmark-icon-v1`) is for folders only: the daemon refuses it, null",
+            "included, on a URL bookmark, and an asset icon must already be stored there."
+          ],
+          "order": [
+            "bookmark",
+            "title",
+            "url",
+            "favicon_key",
+            "last_used_ms",
+            "icon",
+            "mutation"
+          ],
+          "fields": {
+            "favicon_key": {
+              "update": true
+            },
+            "last_used_ms": {
+              "update": true,
+              "type": "Int64"
+            },
+            "icon": {
+              "update": true
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "BookmarkResult"
+        },
+        "move-bookmark": {
+          "name": "MoveBookmarkRequest",
+          "doc": [
+            "`move-bookmark`: `index` is the final position among the new siblings."
+          ],
+          "order": [
+            "bookmark",
+            "parent",
+            "index",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "BookmarkResult"
+        },
+        "delete-bookmark": {
+          "name": "DeleteBookmarkRequest",
+          "doc": [
+            "`delete-bookmark`: removes the node and its subtree."
+          ],
+          "order": [
+            "bookmark",
+            "mutation"
+          ],
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "BookmarkDeletion"
+        },
+        "import-bookmarks": {
+          "name": "ImportBookmarksRequest",
+          "doc": [
+            "`import-bookmarks`: one transaction. With `sourceKey` and `replace`, the",
+            "folder carrying `sourceKey` keeps its id and position and takes",
+            "`nodes[0]`'s title and children."
+          ],
+          "order": [
+            "browser_profile_id",
+            "parent",
+            "index",
+            "source_key",
+            "replace",
+            "nodes",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            },
+            "nodes": {
+              "type": "[BookmarkImportNode]"
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "BookmarkImportResult"
         }
       }
     },
@@ -114,6 +280,72 @@
             },
             "direction": {
               "type": "ColumnMoveDirection"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "set-divider-visible": {
+          "name": "SetDividerVisibleRequest",
+          "doc": [
+            "A split's divider drawn or not (`split-divider-visibility-v1`): a hidden divider draws no line",
+            "and still drags. The daemon keeps it on the split node, so it persists with the layout."
+          ],
+          "order": [
+            "split",
+            "visible"
+          ],
+          "fields": {
+            "split": {
+              "type": "SplitID"
+            }
+          },
+          "capability": null
+        },
+        "set-viewport-pane-width": {
+          "name": "SetColumnWidthRequest",
+          "doc": [
+            "Column width drag (`viewport-column-resize-v1`)."
+          ],
+          "order": [
+            "pane",
+            "width",
+            "transaction"
+          ],
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            },
+            "width": {
+              "doc": [
+                "0.1...1.0 of the viewport."
+              ]
+            }
+          },
+          "response": "EmptyResponse",
+          "capability": null
+        },
+        "set-row-heights": {
+          "name": "SetRowHeightsRequest",
+          "doc": [
+            "`set-row-heights` (`rows-v1`): every row of one column at once. `fit`",
+            "requires a sum of exactly 1000."
+          ],
+          "order": [
+            "column",
+            "heights",
+            "fit",
+            "transaction"
+          ],
+          "fields": {
+            "column": {
+              "type": "ColumnID"
+            },
+            "heights": {
+              "type": "[RowHeightValue]"
+            },
+            "fit": {
+              "required": true,
+              "default": "false"
             }
           },
           "response": "EmptyResponse"
@@ -314,6 +546,143 @@
             }
           },
           "response": "ProfileResult"
+        },
+        "update-browser-profile": {
+          "name": "UpdateBrowserProfileRequest",
+          "doc": [
+            "`update-browser-profile`: absent keeps, `.clear` sends null."
+          ],
+          "order": [
+            "browser_profile",
+            "name",
+            "color",
+            "icon",
+            "proxy"
+          ],
+          "fields": {
+            "browser_profile": {
+              "name": "id"
+            },
+            "color": {
+              "update": true
+            },
+            "icon": {
+              "update": true
+            },
+            "proxy": {
+              "update": true,
+              "type": "BrowserProfileSnapshot.Proxy",
+              "doc": [
+                "The profile's own proxy (#24432), as `cmux browser profile proxy set|clear` sends it; the daemon validates it."
+              ]
+            }
+          },
+          "response": "BrowserProfileResult"
+        },
+        "set-personal-workspace": {
+          "name": "SetPersonalWorkspaceRequest",
+          "doc": [
+            "Sets a qualified workspace's personal order (insertion index), group,",
+            "browser profile or theme; JSON null clears."
+          ],
+          "order": [
+            "session_id",
+            "workspace_key",
+            "index",
+            "group",
+            "browser_profile_id",
+            "theme",
+            "remote_localhost"
+          ],
+          "fields": {
+            "workspace_key": {
+              "type": "WorkspaceKey"
+            },
+            "index": {
+              "type": "Int"
+            },
+            "group": {
+              "update": true,
+              "type": "WorkspaceGroupID"
+            },
+            "browser_profile_id": {
+              "update": true,
+              "type": "BrowserProfileKey"
+            },
+            "theme": {
+              "update": true
+            },
+            "remote_localhost": {
+              "update": true,
+              "doc": [
+                "Needs `personal-remote-localhost-v1` unless unchanged."
+              ]
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "update-personal-group": {
+          "name": "UpdatePersonalGroupRequest",
+          "order": [
+            "group",
+            "name",
+            "color",
+            "collapsed",
+            "profile"
+          ],
+          "fields": {
+            "group": {
+              "type": "WorkspaceGroupID"
+            },
+            "color": {
+              "update": true
+            },
+            "profile": {
+              "type": "ProfileID",
+              "doc": [
+                "Moves the group, and pins its members, to another room."
+              ]
+            }
+          },
+          "response": "PersonalGroupResult"
+        },
+        "update-profile": {
+          "name": "UpdateProfileRequest",
+          "doc": [
+            "Renames a profile or sets/clears its appearance or terminal defaults."
+          ],
+          "order": [
+            "profile",
+            "name",
+            "color",
+            "icon",
+            "theme",
+            "browser_profile_id",
+            "defaults"
+          ],
+          "fields": {
+            "profile": {
+              "type": "ProfileID"
+            },
+            "color": {
+              "update": true
+            },
+            "icon": {
+              "update": true
+            },
+            "theme": {
+              "update": true
+            },
+            "browser_profile_id": {
+              "update": true,
+              "type": "BrowserProfileKey"
+            },
+            "defaults": {
+              "update": true,
+              "type": "ProfileDefaults"
+            }
+          },
+          "response": "ProfileResult"
         }
       }
     },
@@ -329,6 +698,39 @@
           "fields": {
             "scope": {
               "type": "ProjectionScope"
+            }
+          },
+          "response": "FrontendProjection"
+        },
+        "put-frontend-projection": {
+          "name": "PutFrontendProjectionRequest",
+          "doc": [
+            "CAS write of an opaque (<= 1 MiB) per-window/profile document."
+          ],
+          "order": [
+            "frontend",
+            "scope",
+            "subject_key",
+            "schema_version",
+            "projection",
+            "expected_projection_revision",
+            "mutation"
+          ],
+          "fields": {
+            "scope": {
+              "type": "ProjectionScope"
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity",
+              "wire": [
+                "origin",
+                "mutation_id",
+                "expected_generation",
+                "expected_revision"
+              ],
+              "encode": "MutationFields(identity: mutation)"
             }
           },
           "response": "FrontendProjection"
@@ -482,6 +884,58 @@
             }
           },
           "response": "ScreenGroupResult"
+        },
+        "update-screen-group": {
+          "name": "UpdateScreenGroupRequest",
+          "order": [
+            "group",
+            "name",
+            "color",
+            "collapsed",
+            "icon"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            },
+            "icon": {
+              "update": true,
+              "doc": [
+                "`screen-group-icon-v1`: sent only when set; `.clear` sends `null`, which removes it."
+              ]
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "set-screen-metadata": {
+          "name": "SetScreenMetadataRequest",
+          "doc": [
+            "Shared screen color and icon. A field sent as JSON null clears it; an",
+            "omitted field keeps its value."
+          ],
+          "order": [
+            "screen",
+            "color",
+            "icon"
+          ],
+          "fields": {
+            "screen": {
+              "type": "ScreenID"
+            },
+            "color": {
+              "update": true,
+              "doc": [
+                "Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]`; frontends offer the nine group colors."
+              ]
+            },
+            "icon": {
+              "update": true,
+              "doc": [
+                "SF Symbol name or one emoji grapheme."
+              ]
+            }
+          },
+          "response": "ScreenMetadataResult"
         }
       }
     },
@@ -679,6 +1133,59 @@
             }
           },
           "response": "TabGroupResult"
+        },
+        "remove-tabs-from-tab-group": {
+          "name": "RemoveTabsFromGroupRequest",
+          "doc": [
+            "Removes tabs from their groups; each lands just after its former group.",
+            "A group left without members disappears."
+          ],
+          "order": [
+            "surfaces",
+            "transaction"
+          ],
+          "fields": {
+            "surfaces": {
+              "type": "[SurfaceID]",
+              "name": "tabs",
+              "doc": [
+                "Wire `surfaces`."
+              ]
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabGroupResult"
+        },
+        "move-tab-group": {
+          "name": "MoveTabGroupRequest",
+          "doc": [
+            "Reorders a group in its strip or moves it into another pane at `index`."
+          ],
+          "order": [
+            "group",
+            "pane",
+            "index",
+            "transaction"
+          ],
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "pane": {
+              "required": true,
+              "type": "PaneID"
+            },
+            "index": {
+              "required": true,
+              "type": "Int"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabGroupResult"
         }
       }
     },
@@ -749,6 +1256,68 @@
             }
           },
           "response": "TabMoveResult"
+        },
+        "move-tab-to-workspace": {
+          "name": "MoveTabToWorkspaceRequest",
+          "doc": [
+            "Move into an existing workspace's active pane, or a new workspace when",
+            "`workspace` is nil (`tab-workspace-move-v1`)."
+          ],
+          "order": [
+            "surface",
+            "workspace",
+            "transaction"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabMoveResult",
+          "capability": null
+        },
+        "move-tab-to-split": {
+          "name": "MoveTabToSplitRespawnRequest",
+          "doc": [
+            "`move-tab-to-split` with `respawn`: one owner op that moves the tab into",
+            "a new pane beside its own pane and spawns `respawn` in the pane it left.",
+            "It can launch a terminal host, so it uses the spawn deadline."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "order": [
+            "surface",
+            "pane",
+            "edge",
+            "ratio",
+            "respawn",
+            "transaction"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "pane": {
+              "type": "PaneID"
+            },
+            "edge": {
+              "type": "PaneEdge"
+            },
+            "respawn": {
+              "required": true,
+              "type": "SplitRespawn"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabMoveResult",
+          "capability": "tab-split-respawn-v1"
         }
       }
     },
@@ -803,6 +1372,144 @@
               "type": "ScreenID"
             }
           }
+        },
+        "close-pane": {
+          "name": "ClosePaneRequest",
+          "doc": [
+            "`endTerminals` (`batch-close-v1`) also ends, in the same commit, each",
+            "terminal whose tabs all close and that is not kept. Sent only when true."
+          ],
+          "order": [
+            "pane",
+            "end_terminals"
+          ],
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            },
+            "end_terminals": {
+              "default": "false"
+            }
+          }
+        },
+        "close-screen": {
+          "name": "CloseScreenRequest",
+          "doc": [
+            "`endTerminals` as in `ClosePaneRequest`."
+          ],
+          "order": [
+            "screen",
+            "end_terminals"
+          ],
+          "fields": {
+            "screen": {
+              "type": "ScreenID"
+            },
+            "end_terminals": {
+              "default": "false"
+            }
+          }
+        },
+        "close-tabs": {
+          "name": "CloseTabsRequest",
+          "doc": [
+            "Closes several tabs in one daemon commit (`batch-close-v1`). With",
+            "`endTerminals`, each terminal whose tabs all close ends in that same",
+            "commit, unless it is kept; a terminal still shown elsewhere keeps running."
+          ],
+          "order": [
+            "surfaces",
+            "end_terminals",
+            "transaction",
+            "mutation",
+            "reason"
+          ],
+          "fields": {
+            "surfaces": {
+              "type": "[SurfaceID]"
+            },
+            "end_terminals": {
+              "default": "false"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id",
+                "expected_generation",
+                "expected_revision"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            },
+            "reason": {
+              "type": "CloseReason?",
+              "default": "nil",
+              "doc": [
+                "Why the tabs close (`close-reason-v1`); `.sessionEnd` keeps them out of closed history."
+              ],
+              "members": {
+                "reason": "reason?.rawValue"
+              }
+            }
+          },
+          "response": "CloseTabsResult"
+        },
+        "close-terminal": {
+          "name": "CloseTerminalRequest",
+          "doc": [
+            "Kills the PTY at once. Closing a tab/pane/screen only detaches it; with",
+            "`terminal-reap-v1` the daemon ends it after the reap grace period unless kept."
+          ],
+          "order": [
+            "terminal_id",
+            "terminal_incarnation",
+            "mutation"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "terminal_incarnation": {
+              "type": "TerminalIncarnation"
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id",
+                "expected_generation",
+                "expected_revision"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "JSONValue"
+        },
+        "set-frontend-browser-history": {
+          "name": "SetFrontendBrowserHistoryRequest",
+          "doc": [
+            "Stores (or with nil, clears) a frontend browser tab's session history."
+          ],
+          "order": [
+            "surface",
+            "history"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "history": {
+              "type": "FrontendBrowserHistory"
+            }
+          },
+          "response": "EmptyResponse"
         }
       }
     },
@@ -865,6 +1572,343 @@
             "blob"
           ],
           "response": "IconAssetBlob"
+        },
+        "create-workspace": {
+          "name": "CreateWorkspaceRequest",
+          "order": [
+            "name",
+            "key",
+            "first_tab",
+            "mutation"
+          ],
+          "fields": {
+            "key": {
+              "type": "WorkspaceKey"
+            },
+            "first_tab": {
+              "type": "WorkspaceFirstBrowserTab",
+              "doc": [
+                "`workspace-first-tab-v1`: the workspace's first tab, made by this request; the reply names it",
+                "(``WorkspaceMutationResult/firstTab``). Send it only to a daemon that serves the capability."
+              ]
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id",
+                "expected_generation",
+                "expected_revision"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "WorkspaceMutationResult",
+          "capability": null
+        },
+        "rename-workspace": {
+          "name": "RenameWorkspaceRequest",
+          "order": [
+            "workspace",
+            "name",
+            "source",
+            "expectedNameRevision",
+            "release",
+            "mutation"
+          ],
+          "fields": {
+            "source": {
+              "type": "WorkspaceNameSource"
+            },
+            "release": {
+              "default": "false"
+            }
+          },
+          "groups": {
+            "workspace": {
+              "type": "WorkspaceRef",
+              "wire": [
+                "workspace",
+                "key"
+              ],
+              "encode": "WorkspaceRefFields(ref: workspace)"
+            },
+            "expectedNameRevision": {
+              "type": "UInt64?",
+              "default": "nil",
+              "members": {
+                "expected_name_revision": "expectedNameRevision.map { String($0) }"
+              }
+            },
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id",
+                "expected_generation",
+                "expected_revision"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "WorkspaceMutationResult"
+        },
+        "move-workspace": {
+          "name": "MoveWorkspaceRequest",
+          "order": [
+            "workspace",
+            "index",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            }
+          },
+          "groups": {
+            "workspace": {
+              "type": "WorkspaceRef",
+              "wire": [
+                "workspace",
+                "key"
+              ],
+              "encode": "WorkspaceRefFields(ref: workspace)"
+            },
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id",
+                "expected_generation",
+                "expected_revision"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "WorkspaceMutationResult"
+        },
+        "set-workspace-metadata": {
+          "name": "SetWorkspaceMetadataRequest",
+          "doc": [
+            "Shared color/icon/title (`workspace-metadata-v1`), the sidebar pin",
+            "(`workspace-pin-v1`), and the manual unread mark",
+            "(`notification-mark-unread-v1`). Emits `workspace-changed`."
+          ],
+          "order": [
+            "workspace",
+            "color",
+            "icon",
+            "title",
+            "pinned",
+            "marked_unread",
+            "mutation"
+          ],
+          "fields": {
+            "color": {
+              "update": true,
+              "doc": [
+                "Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]`."
+              ]
+            },
+            "icon": {
+              "update": true,
+              "doc": [
+                "SF Symbol name."
+              ]
+            },
+            "title": {
+              "update": true,
+              "doc": [
+                "1-256 characters; overrides `name` for display."
+              ]
+            },
+            "pinned": {
+              "doc": [
+                "Nil leaves the pin unchanged; the field has no clear state."
+              ]
+            },
+            "marked_unread": {
+              "doc": [
+                "Nil leaves the manual unread mark unchanged."
+              ]
+            }
+          },
+          "groups": {
+            "workspace": {
+              "type": "WorkspaceRef",
+              "wire": [
+                "workspace",
+                "key"
+              ],
+              "encode": "WorkspaceRefFields(ref: workspace)"
+            },
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id",
+                "expected_generation",
+                "expected_revision"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "WorkspaceMetadataResult"
+        }
+      }
+    },
+    "Creation": {
+      "requests": {
+        "new-screen": {
+          "name": "NewScreenRequest",
+          "protocol": "TerminalSpawningRequest",
+          "order": [
+            "workspace",
+            "size"
+          ],
+          "fields": {
+            "workspace": {
+              "type": "WorkspaceHandle"
+            }
+          },
+          "groups": {
+            "size": {
+              "type": "CellSize?",
+              "default": "nil",
+              "members": {
+                "cols": "size?.cols",
+                "rows": "size?.rows"
+              }
+            }
+          },
+          "response": "SurfaceCreated"
+        },
+        "new-pane": {
+          "name": "NewPaneRequest",
+          "doc": [
+            "Adds a pane to the pane's column (vertical stack inside a column)."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "order": [
+            "pane",
+            "options"
+          ],
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            }
+          },
+          "groups": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()",
+              "wire": [
+                "cwd",
+                "cols",
+                "rows",
+                "env",
+                "keep",
+                "terminal_id",
+                "shell_args",
+                "pane_id",
+                "tab_id"
+              ]
+            }
+          },
+          "response": "SurfaceCreated"
+        }
+      }
+    },
+    "Session": {
+      "requests": {
+        "page-credential": {
+          "name": "ScopedPageCredentialRequest",
+          "doc": [
+            "`page-credential {page}` (`page-credential-scoped-v1`): a single-use credential bound to one",
+            "page of the daemon's page-router table, for any trusted local connection. It admits only a",
+            "WebSocket handshake whose Origin names that page and never carries the person's Cloud lease,",
+            "so it is narrower than the file token next to the socket."
+          ],
+          "order": [
+            "page"
+          ],
+          "fields": {
+            "page": {
+              "required": true,
+              "doc": [
+                "The page id (`home-channels`)."
+              ]
+            }
+          },
+          "response": "PageCredentialRequest.Response",
+          "capability": "page-credential-scoped-v1"
+        },
+        "remote-host-status": {
+          "name": "RemoteHostStatusRequest",
+          "doc": [
+            "`remote-host-status` (`remote-host-v1`, docs/cmux-remote.md): cmux Remote's state as the",
+            "daemon sees it (never starts the host)."
+          ],
+          "response": "JSONValue"
+        },
+        "remote-host-call": {
+          "name": "RemoteHostCallRequest",
+          "doc": [
+            "`remote-host-call {method, params}`: one cmux Remote request (status, refresh, request,",
+            "open_settings, restart, screen.share, screen.access, screen.stop_session)."
+          ],
+          "order": [
+            "method",
+            "params"
+          ],
+          "fields": {
+            "params": {
+              "required": true,
+              "default": ".object([:])"
+            }
+          },
+          "response": "JSONValue"
+        },
+        "computer-use-config": {
+          "name": "ComputerUseConfigRequest",
+          "doc": [
+            "`computer-use-config {config}`: the person's Computer Use policy (`PolicyConfig` JSON), from this",
+            "verified app. On macOS the daemon hands it to cmux Remote's Computer Use worker."
+          ],
+          "order": [
+            "config"
+          ],
+          "response": "JSONValue"
+        },
+        "computer-use-approvals": {
+          "name": "ComputerUseApprovalsRequest",
+          "doc": [
+            "`computer-use-approvals {action, app_id?}`: list, forget, always, never or revoke_sessions."
+          ],
+          "order": [
+            "action",
+            "app_id"
+          ],
+          "response": "JSONValue"
+        },
+        "subscribe": {
+          "name": "SubscribeRequest",
+          "order": [
+            "tree_events",
+            "surface"
+          ],
+          "fields": {
+            "tree_events": {
+              "required": true,
+              "default": ".deltas",
+              "type": "TreeEventMode"
+            },
+            "surface": {
+              "type": "SurfaceID"
+            }
+          }
         }
       }
     }
