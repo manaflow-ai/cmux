@@ -143,7 +143,7 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
       props: { ...baseProps, load: async () => ({ chats: rows, ready: true }) },
     },
     "search-empty": {
-      note: "A named chat query offers one text-link next step to search message text through the shared illustrated empty state.",
+      note: "A named chat query offers one text-link next step, Clear search, through the shared illustrated empty state.",
       props: { ...baseProps, load: async ({ query }) => (query ? { chats: [], ready: true } : first) },
       play: searchEmpty,
     },

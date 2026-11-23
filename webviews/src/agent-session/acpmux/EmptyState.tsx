@@ -1,7 +1,7 @@
 import { FolderIcon } from "./NewTabPage";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import { useT } from "./i18n";
-import { EMPTY_STATE_LABELS } from "./emptyStateModel";
+import { EMPTY_STATE_LABELS, type EmptyStateStart } from "./emptyStateModel";
 import { experimentArm } from "../../experiments/experiment";
 import { emptyStateContext } from "./emptyStateContext.experiment";
 import { TourOffer, type TourOfferActions } from "./repoTour/TourOffer";
@@ -18,10 +18,7 @@ export type EmptyStateProjects = {
   onNoProject?(): void;
 };
 
-export type EmptyStateStart = {
-  label: string;
-  onPick(): void;
-};
+export type { EmptyStateStart } from "./emptyStateModel";
 
 /// A new chat's hero, centered in place of the empty transcript and kept quiet:
 /// a small prompt glyph and one line naming the session's project. With `picker` the project's
@@ -75,9 +72,9 @@ export function EmptyState({
       {contextual && starts && starts.length > 0 && (
         <div className="acpmux-empty-starts">
           {starts.slice(0, 3).map((start) => (
-            <button key={start.label} type="button" className="acpmux-empty-start" onClick={start.onPick}>
+            <button key={start.id} type="button" className="acpmux-empty-start" onClick={start.onPick}>
               <span className="acpmux-empty-start-label">{start.label}</span>
-              <span className="acpmux-empty-start-time">{t("emptyState.startNow")}</span>
+              {start.time && <span className="acpmux-empty-start-time">{start.time}</span>}
             </button>
           ))}
         </div>

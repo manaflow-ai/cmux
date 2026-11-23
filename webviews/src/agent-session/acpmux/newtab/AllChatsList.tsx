@@ -371,7 +371,7 @@ export function AllChatsList({
         className="nt-chats-empty-state"
         layout="beside"
         line={t("emptyState.chatMatches", { query: state.query.trim() })}
-        action={{ label: t("emptyState.searchMessages"), kind: "link", onClick: () => search(state.query) }}
+        action={{ label: t("emptyState.clearSearch"), kind: "link", onClick: () => search("") }}
       />
     ) : (
       <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>

@@ -144,3 +144,19 @@ test("a reply for a query typed past is dropped, and clearing the field reads th
   await typeInto("");
   expect(queries(requests)).toEqual(["dep", "deplo", ""]);
 });
+
+test("a search that matches nothing offers Clear search, which empties the field and reads the whole list", async () => {
+  const requests: Request[] = [];
+  await mount(requests);
+  await type("zzz");
+  await settle();
+  expect(queries(requests)).toEqual(["zzz"]);
+  await act(async () => requests[1]!.resolve({ chats: [], ready: true }));
+  const action = [...container.querySelectorAll("button")].find((button) => button.textContent === "Clear search");
+  // The next step is never the same query again (it just matched nothing).
+  expect(action).toBeDefined();
+  await act(async () => action!.click());
+  expect(input().value).toBe("");
+  await settle();
+  expect(queries(requests)).toEqual(["zzz", ""]);
+});

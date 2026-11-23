@@ -10,9 +10,9 @@ type Props = { project?: string; picker?: EmptyStateProjects; tour?: TourOfferAc
 
 const tour: TourOfferActions = { onTake: () => undefined, onDismiss: () => undefined };
 const starts: EmptyStateStart[] = [
-  { label: "Pick up the retry parser", onPick: () => undefined },
-  { label: "Review pull request #46734", onPick: () => undefined },
-  { label: "Tour this repo", onPick: () => undefined },
+  { id: "last-prompt", label: "Pick up the retry parser", time: "2 hours ago", onPick: () => undefined },
+  { id: "review-pull-request", label: "Review pull request #46734", onPick: () => undefined },
+  { id: "tour", label: "Tour this repo", onPick: () => undefined },
 ];
 
 const projects: Project[] = [
@@ -95,7 +95,7 @@ export default componentEntry<Props>({
       },
     },
     "contextual-starts": {
-      note: "Three quiet starts use the last prompt, a pull request suggestion, and a repo tour, each marked now under the composer.",
+      note: "Three quiet starts use the last prompt, a pull request suggestion, and a repo tour, the last prompt marked with its age; a pick fills the composer and sends nothing.",
       props: { project: "cmux", picker: picker("/Users/you/src/cmux"), starts },
     },
     search: {

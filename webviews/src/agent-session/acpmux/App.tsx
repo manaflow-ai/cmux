@@ -178,7 +178,7 @@ import { keptChips } from "./composer/keptAttachments";
 import { chatAccessGrants } from "./header/grantsMenu";
 import { SIGN_IN_REQUIRED } from "./startRefusal";
 import { type EmptyStateProjects, type EmptyStateStart } from "./EmptyState";
-import { isNewChat, projectName } from "./emptyStateModel";
+import { contextualStarts, isNewChat, projectName } from "./emptyStateModel";
 import type { TourOfferActions } from "./repoTour/TourOffer";
 import { dismissTour, isTourDismissed, offersTour, TOUR_PROMPT, type TourTask } from "./repoTour/tourModel";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
@@ -8373,25 +8373,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const emptyStateStarts = useMemo<readonly EmptyStateStart[] | undefined>(() => {
     if (!freshChat || !tourCwd || draft?.trim() || emptyStartsDismissed) return undefined;
-    const folder = tourCwd.replace(/(.)\/+$/, "$1");
-    const lastPrompt = newTabFolderSessions
-      .filter((session) => session.cwd?.replace(/(.)\/+$/, "$1") === folder && session.recentPrompt?.trim())
-      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]?.recentPrompt;
-    const starts: EmptyStateStart[] = [];
-    if (lastPrompt)
-      starts.push({ label: lastPrompt, onPick: () => void callNative("chat.send", { text: lastPrompt }) });
-    if (headerPullRequest?.number) {
-      starts.push({
-        label: t("emptyState.reviewPullRequest", { number: headerPullRequest.number }),
-        onPick: () =>
-          void callNative("chat.send", {
-            text: `Review pull request #${headerPullRequest.number} in this repository and summarize the changes.`,
-          }),
-      });
-    }
-    if (tourOffer) starts.push({ label: t("tour.offer"), onPick: tourOffer.onTake });
-    return starts.slice(0, 3);
-  }, [draft, emptyStartsDismissed, freshChat, headerPullRequest, newTabFolderSessions, t, tourCwd, tourOffer]);
+    // A start fills the composer; the person reads it and sends (never a replay on one click).
+    return contextualStarts({
+      folder: tourCwd,
+      sessions: newTabFolderSessions,
+      pullRequest: headerPullRequest?.number,
+      tour: tourOffer && { label: t("tour.offer"), onTake: tourOffer.onTake },
+      prefill: (text) => composerHandle.current?.prefill(text),
+      t,
+      now: Date.now(),
+      language,
+    });
+  }, [
+    draft,
+    emptyStartsDismissed,
+    freshChat,
+    headerPullRequest,
+    language,
+    newTabFolderSessions,
+    t,
+    tourCwd,
+    tourOffer,
+  ]);
+  // Stable across renders (the composer takes it as a prop): it calls this render's wake.
+  const wakeOnTypingNow = useRef(wakeOnTyping);
+  wakeOnTypingNow.current = wakeOnTyping;
+  const wakeOnTypingAndDismissStarts = useCallback((text: string) => {
+    if (text.trim()) setEmptyStartsDismissed(true);
+    wakeOnTypingNow.current();
+  }, []);
   useEffect(() => {
     if (freshChat) setEmptyStartsDismissed(false);
   }, [freshChat, snapshot.sessionId]);
@@ -9178,10 +9188,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     onNewChatDraft,
     onCloudTyping,
     onCloudMachinePicked,
-    wakeOnTyping: (text: string) => {
-      if (text.trim()) setEmptyStartsDismissed(true);
-      wakeOnTyping();
-    },
+    wakeOnTyping: wakeOnTypingAndDismissStarts,
     handleCmuxCommand,
     handleLocalCommand,
     commandState,
