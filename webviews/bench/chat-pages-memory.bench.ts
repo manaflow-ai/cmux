@@ -510,18 +510,21 @@ try {
             .filter((el) => el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY))
             .sort((a, b) => b.scrollHeight - a.scrollHeight)[0];
         const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-        const out: { ms: number; atBottom: boolean }[] = [];
+        const out: { ms: number; atBottom: boolean; layout: number; frame1: number }[] = [];
         let visible = mounts.length - 1;
         for (let step = 0; step < Math.min(n as number, mounts.length - 1); step++) {
           const target = step % (mounts.length - 1);
           const start = performance.now();
           hide(mounts[visible], true);
           hide(mounts[target], false);
+          void mounts[target].offsetHeight;
+          const layout = performance.now() - start;
           await frame();
+          const frame1 = performance.now() - start;
           await frame();
           const ms = performance.now() - start;
           const el = scroller(mounts[target]);
-          out.push({ ms, atBottom: !el || el.scrollHeight - el.scrollTop - el.clientHeight < 8 });
+          out.push({ ms, layout, frame1, atBottom: !el || el.scrollHeight - el.scrollTop - el.clientHeight < 8 });
           visible = target;
         }
         return out;
@@ -532,6 +535,11 @@ try {
       const ms = switches.map((entry) => entry.ms);
       const [p50, p95] = [percentile(ms, 0.5), percentile(ms, 0.95)];
       const kept = switches.filter((entry) => entry.atBottom).length;
+      const mid = (pick: (entry: (typeof switches)[number]) => number) =>
+        percentile(switches.map(pick), 0.5).toFixed(0);
+      console.log(
+        `chat-pages-memory: shared switch split p50: style+layout ${mid((e) => e.layout)} ms, first frame ${mid((e) => e.frame1)} ms, second frame ${mid((e) => e.ms)} ms`,
+      );
       console.log(
         `chat-pages-memory: a hidden view (${SHARED_HIDE}) shown again draws in p50 ${p50.toFixed(0)} ms, p95 ${p95.toFixed(0)} ms; ${kept}/${switches.length} kept their scroll at the newest reply`,
       );
