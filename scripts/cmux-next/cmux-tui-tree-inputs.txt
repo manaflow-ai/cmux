@@ -163,8 +163,6 @@ blob skills/cmux-customization/templates/clock-weather/cmux-app.json
 blob skills/cmux-customization/templates/clock-weather/main.js
 blob skills/cmux-customization/templates/my-prs/cmux-app.json
 blob skills/cmux-customization/templates/my-prs/main.js
-blob skills/cmux-customization/templates/threads/cmux-app.json
-blob skills/cmux-customization/templates/threads/main.js
 blob schemas/build-identity/vectors.json
 blob webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl
 blob webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl
