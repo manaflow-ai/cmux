@@ -104,6 +104,7 @@ import Testing
         let services = appServices()
         let router = makeReleaseRouter(services)
         let desktop = services.notifications.desktop
+        let before = (Date().timeIntervalSince1970 * 1000).rounded(.down)
         desktop.post(id: "older", title: "Claude finished", body: "first turn", surface: 3, workspace: nil, defaultSound: false)
         desktop.post(id: "newer", title: "Claude needs you", subtitle: "repo", body: "second turn", surface: 7, workspace: nil,
                      defaultSound: false, reply: true)
@@ -120,6 +121,11 @@ import Testing
         #expect(newest["approval"] == .bool(false))
         #expect(newest["category"] == .string(DesktopNotifier.replyCategory))
         #expect(newest["attachment"] == nil, "the release list carries no badge PNG: \(newest)")
+        // Stamped when posted, on the daemon's clock (Unix ms), so the probe times the app's hop from the stamps.
+        let stamps = banners.suffix(2).compactMap { $0.objectValue?["posted_at_ms"]?.doubleValue }
+        let after = (Date().timeIntervalSince1970 * 1000).rounded(.up)
+        #expect(stamps.count == 2 && stamps[0] <= stamps[1] && stamps.allSatisfy { (before...after).contains($0) },
+                "posted_at_ms \(stamps) not in \(before)...\(after)")
         #expect(answer.objectValue?["authorization"]?.stringValue != nil, "\(answer)")
         withExtendedLifetime(services) {}
     }

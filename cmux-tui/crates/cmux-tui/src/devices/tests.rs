@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::model::{self, Kind, Role, Sources, State, Via};
 use super::network::{
@@ -567,7 +567,7 @@ fn a_joined_machine_is_a_computer_that_runs_agents_and_its_remove_revokes_it() {
 #[test]
 fn no_joined_source_adds_no_rows() {
     let mut sources = sources();
-    sources.joined = serde_json::Value::Null;
+    sources.joined = Value::Null;
     let listing = model::merge(&sources, tailscale_up(), &nodes());
     assert!(listing.devices.iter().all(|d| !d.id.starts_with("joined:")));
 }
@@ -824,4 +824,104 @@ fn every_machine_says_what_the_screen_sharing_page_offers_for_it() {
     assert_eq!(wire("peer:linux-desk"), json!({"action": "view", "route": "hub"}));
     assert_eq!(wire("peer:vm-1"), json!({"action": "none", "reason": "no-desktop"}));
     assert!(wire("allow:austin@manaflow.ai").is_null());
+}
+
+/// A machine reached only through the mesh hub (`via: "hub"`) has no ssh health: its kind and
+/// its offer come from what the device hub says of it (`deviceHub`). Leo, 2026-11-21: "...plus
+/// most of our vms (if we even have any lanes on freestyle vms yet!?) dont have screns..."
+#[test]
+fn a_hub_only_machine_reads_its_screen_from_the_device_hub() {
+    use cmux_device_kind::DeviceKind;
+    use cmux_device_kind::screen::{NoScreen, Screen, ScreenRoute};
+    let hub_row = |name: &str, device_hub: Value| {
+        let mut row = json!({"name": name, "connected": true, "state": "connected", "via": "hub",
+                             "lastSeen": 1, "sessions": 0});
+        if !device_hub.is_null() {
+            row["deviceHub"] = device_hub;
+        }
+        row
+    };
+    let src = Sources {
+        peers: json!({"peers": [
+            hub_row("lane-desk", json!({"listed": true, "platform": "linux", "screenShared": true})),
+            hub_row("lane-off", json!({"listed": true, "platform": "linux", "screenShared": false})),
+            hub_row("lane-bare", json!({"listed": false})),
+            hub_row("hub-mac", json!({"listed": true, "platform": "macos", "screenShared": false})),
+            hub_row("lane-unread", Value::Null),
+        ]}),
+        ..Sources::default()
+    };
+    let listing = model::merge(&src, tailscale_up(), &[]);
+    let view = |route| Some(Screen::View { route });
+    let none = |reason| Some(Screen::None { reason });
+    for (id, kind, screen) in [
+        ("peer:lane-desk", DeviceKind::LinuxDesktop, view(ScreenRoute::Hub)),
+        ("peer:lane-off", DeviceKind::Generic, none(NoScreen::SharingOff)),
+        ("peer:lane-bare", DeviceKind::Generic, none(NoScreen::NoScreenHost)),
+        ("peer:hub-mac", DeviceKind::Generic, view(ScreenRoute::Hub)),
+        // No share host here read the hub's list: nothing tells.
+        ("peer:lane-unread", DeviceKind::Generic, none(NoScreen::Unknown)),
+    ] {
+        let d = device(&listing, id);
+        assert_eq!((d.device, d.screen), (kind, screen), "{id}");
+    }
+    assert_eq!(device(&listing, "peer:lane-off").os.as_deref(), Some("linux"));
+    let wire = |id| serde_json::to_value(device(&listing, id)).unwrap()["screen"].clone();
+    assert_eq!(wire("peer:lane-desk"), json!({"action": "view", "route": "hub"}));
+    assert_eq!(wire("peer:lane-bare"), json!({"action": "none", "reason": "no-screen-host"}));
+    // A hub-only machine that is down says so first.
+    let mut down = src;
+    down.peers["peers"][2]["connected"] = json!(false);
+    let listing = model::merge(&down, tailscale_up(), &[]);
+    assert_eq!(device(&listing, "peer:lane-bare").screen, none(NoScreen::Offline));
+}
+
+/// A Linux desktop reached over ssh (`linux-desktop` in its health) is shared through the screen
+/// host the device hub lists for it: its row carries that host's hub id (what `macScreen.open
+/// --device` opens), and with none listed it says so instead of a View that opens nothing.
+/// 2026-11-23: a Linux desktop's row read "view" while `--device peer:NAME` named no device.
+/// Leo, 2026-11-18: "i should be able to see into any connected mac or linux machine".
+#[test]
+fn an_ssh_linux_desktop_is_shared_through_the_screen_host_the_hub_lists() {
+    use cmux_device_kind::screen::{NoScreen, Screen, ScreenRoute};
+    let row = |name: &str, device_hub: Value| {
+        let mut row = json!({"name": name, "url": format!("ssh://{name}"), "connected": true,
+                             "health": {"os": "linux", "device": "linux-desktop"}});
+        if !device_hub.is_null() {
+            row["deviceHub"] = device_hub;
+        }
+        row
+    };
+    let src = Sources {
+        peers: json!({"peers": [
+            row("desk-on", json!({"listed": true, "id": "dev_on", "platform": "linux",
+                                  "online": true, "screenShared": true})),
+            row("desk-off", json!({"listed": true, "id": "dev_off", "platform": "linux",
+                                   "online": true, "screenShared": false})),
+            row("desk-none", json!({"listed": false})),
+            row("desk-unread", Value::Null),
+        ]}),
+        ..Sources::default()
+    };
+    let listing = model::merge(&src, tailscale_up(), &[]);
+    let view = Some(Screen::View { route: ScreenRoute::Hub });
+    let none = |reason| Some(Screen::None { reason });
+    for (id, screen, hub_device) in [
+        ("peer:desk-on", view, Some("dev_on")),
+        ("peer:desk-off", none(NoScreen::SharingOff), Some("dev_off")),
+        ("peer:desk-none", none(NoScreen::NoScreenHost), None),
+        // No share host here read the hub's list: its kind decides, as before.
+        ("peer:desk-unread", view, None),
+    ] {
+        let d = device(&listing, id);
+        assert_eq!((d.screen, d.hub_device.as_deref()), (screen, hub_device), "{id}");
+    }
+    let wire = serde_json::to_value(device(&listing, "peer:desk-on")).unwrap();
+    assert_eq!(wire["hub_device"], json!("dev_on"));
+    assert!(
+        serde_json::to_value(device(&listing, "peer:desk-none"))
+            .unwrap()
+            .get("hub_device")
+            .is_none()
+    );
 }
