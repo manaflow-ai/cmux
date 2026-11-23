@@ -372,6 +372,24 @@ class NativeShapes(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("AgentSubagent shows a connection state ('Disconnected')", out)
 
+    def test_a_sidebar_sections_row_click_is_an_action(self):
+        """A Mac sidebar section's rows are clicked through `activate(_ id: LayoutItemID)` (HostsSidebar opens a
+        connecting host); a section with no row click does not pass on its words alone."""
+        clicked = ("final class HostsSidebar {\n"
+                   "    static func caption(_ connecting: Bool) -> String { connecting ? \"Connecting…\" : \"Ready\" }\n"
+                   "    func activate(_ id: LayoutItemID) -> Bool { true }\n}\n")
+        unclicked = ("final class QuietSidebar {\n"
+                     "    static func caption(_ connecting: Bool) -> String { connecting ? \"Connecting…\" : \"Ready\" }\n"
+                     "    func activated(_ id: String) -> Bool { true }\n}\n")
+        tree = Tree(self)
+        tree.write(f"{IOS}/HostsSidebar.swift", clicked)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{IOS}/QuietSidebar.swift", unclicked)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("QuietSidebar shows a connection state", out)
+
     def test_tests_and_galleries_are_not_read(self):
         tree = Tree(self)
         tree.write(f"{IOS}/Tests/TerminalStatusLineTests.swift", IOS_OLD)
