@@ -99,6 +99,11 @@ pub(super) async fn route(
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
     hub.prepare_store_request(m, &params).await;
+    // The owner's phone a peer daemon vouches for on this request, before any rule reads it.
+    super::remote_guard::note_vouched_phone(hub, conn, &params);
+    if m == crate::rpc::method::MUX_OWNER_PHONE_CHANGED {
+        return super::remote_guard::owner_phone_changed(hub, conn, &params).await;
+    }
     // A browser's own device on the mesh hub (`web_device.rs`): web connections only.
     if let Some(reply) = super::web_device::dispatch(hub, conn, m, &params).await {
         return reply;
