@@ -62,6 +62,20 @@ enum QuitStrings {
 
     static var recoveredOpen: String { String(localized: "recovery.open", defaultValue: "Open", table: "Quit", bundle: .module.inAppLanguage) }
 
+    /// The question after the first press of the quit shortcut (`QuitShortcutGuard`).
+    static var shortcutQuestionTitle: String {
+        String(localized: "quit.shortcutQuestion.title", defaultValue: "Quit cmux?", table: "Quit", bundle: .module.inAppLanguage)
+    }
+
+    /// Its body; `shortcut` is the quit shortcut's keys ("⌘Q").
+    static func shortcutQuestionBody(_ shortcut: String) -> String {
+        String(format: String(localized: "quit.shortcutQuestion.body", defaultValue: "Your agents and terminals keep running. Press %@ again to quit.",
+                              table: "Quit", bundle: .module.inAppLanguage), shortcut)
+    }
+
+    /// Its button: quits now.
+    static var shortcutQuestionQuit: String { String(localized: "quit.shortcutWarning.quit", defaultValue: "Quit", table: "Quit", bundle: .module.inAppLanguage) }
+
     /// acpmux is already shutting down; it may not have ended its agents.
     static var agentsShutdownInProgress: String {
         String(localized: "quit.failed.agentsShutdownInProgress",
