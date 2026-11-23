@@ -10,6 +10,7 @@ on:
       - scripts/ci/risk_tier.py
       - tests/test_risk_tier.py
       - tests/git_fixture_env.py
+      - tests/fleet_test_host.py
       - .github/workflows/risk-tier.yml
       - .github/workflows/risk-tier-tests.yml
 
@@ -27,7 +28,7 @@ env:
 jobs:
   tests:
     name: risk tier tests
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }} # read-only unit tests
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }} # read-only unit tests
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -37,6 +38,7 @@ jobs:
             scripts/ci/risk_tier.py
             tests/test_risk_tier.py
             tests/git_fixture_env.py
+            tests/fleet_test_host.py
             .github/workflows/risk-tier.yml
           sparse-checkout-cone-mode: false
       - run: python3 tests/test_risk_tier.py -v

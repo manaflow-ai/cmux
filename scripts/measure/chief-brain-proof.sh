@@ -178,9 +178,10 @@ for n in $(seq 1 "$runs"); do
 done
 # A step's artifact is one regular file (a folder is not uploaded): the kept brain logs go into
 # artifacts/brain-logs.tgz. `cmux-ci artifact --failed JOB OUT` downloads it for a failed step.
-if [[ -d artifacts/brain-logs ]]; then
-  tar -czf artifacts/brain-logs.tgz -C artifacts brain-logs && echo "BRAIN logs: artifacts/brain-logs.tgz"
-fi
+# The file exists on a pass too (an empty folder then): a declared --artifact that is missing
+# fails the step (cmux-ci step c20dd02bb8d8, 40 of 40 checks passed).
+mkdir -p artifacts/brain-logs
+tar -czf artifacts/brain-logs.tgz -C artifacts brain-logs && echo "BRAIN logs: artifacts/brain-logs.tgz"
 # Pass rate per check over the runs (a check missing from a run's log counts as a failure).
 cat "$work"/driver-*.log | python3 -I -c '
 import re, sys
