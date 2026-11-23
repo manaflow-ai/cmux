@@ -36,6 +36,7 @@ import {
   type UnavailableGroup,
   useMachineRefresh,
 } from "./environmentPickerModel";
+import { WithFacts } from "./chips/FactsHoverCard";
 
 /// The Cloud row's value (cloudRun.ts): not a machine id, and not an action of the list.
 const CLOUD_RUN = "\u0000cloud-run";
@@ -748,27 +749,33 @@ export function EnvironmentPicker({
         </span>
       );
     }
-    // Cloud as where the new chat runs: one line, as This Mac; what it does is its tooltip. It says
+    // Cloud as where the new chat runs: one line, as This Mac; what it does is on its hover card. It says
     // only Cloud, never the active team (https://github.com/manaflow-ai/cmux/issues/45695).
     if (value === CLOUD_RUN) {
       const checked = listRows === "where" ? cloudChecked : clouded;
       return (
-        <span
-          className="acpmux-location-row acpmux-env-row acpmux-env-new"
-          data-kind="cloud"
-          data-mode="cloud"
-          data-current={checked ? "" : undefined}
-          title={t("composer.cloudRunDetail")}
-        >
-          <EnvironmentIcon kind="cloud" />
-          <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">{t("composer.cloud")}</span>
-            {listRows === "run" && runDetails && <span className="acpmux-menu-description">{runDetails.cloud}</span>}
-          </span>
-          <span className="acpmux-location-check" aria-hidden="true">
-            {checked && <CheckIcon />}
-          </span>
-        </span>
+        <WithFacts facts={[{ value: t("composer.cloudRunDetail") }]}>
+          {(facts) => (
+            <span
+              {...facts}
+              className="acpmux-location-row acpmux-env-row acpmux-env-new"
+              data-kind="cloud"
+              data-mode="cloud"
+              data-current={checked ? "" : undefined}
+            >
+              <EnvironmentIcon kind="cloud" />
+              <span className="acpmux-menu-text acpmux-location-name">
+                <span className="acpmux-menu-label">{t("composer.cloud")}</span>
+                {listRows === "run" && runDetails && (
+                  <span className="acpmux-menu-description">{runDetails.cloud}</span>
+                )}
+              </span>
+              <span className="acpmux-location-check" aria-hidden="true">
+                {checked && <CheckIcon />}
+              </span>
+            </span>
+          )}
+        </WithFacts>
       );
     }
     if (value === UNAVAILABLE) {
@@ -811,7 +818,6 @@ export function EnvironmentPicker({
           data-current={checked ? "" : undefined}
           data-ready={action.reason ? "false" : undefined}
           aria-disabled={action.reason ? true : undefined}
-          title={action.reason}
         >
           {action.icon ? (
             action.icon
@@ -877,48 +883,71 @@ export function EnvironmentPicker({
     // An account Cloud machine acpmux does not list is a pick (it resumes or opens), not greyed.
     const greyed = !ready && !isCloudMachineRow(environment);
     return (
-      <span
-        className="acpmux-location-row acpmux-env-row"
-        data-kind={environment.kind}
-        data-current={environment.id === checkedRow || (savedLocal && isLocal(environment)) ? "" : undefined}
-        data-ready={greyed ? "false" : undefined}
-        aria-disabled={greyed ? true : undefined}
-        // This Mac's row says "This Mac"; its own name is the row's tooltip.
-        title={isLocal(environment) && environment.label !== t("composer.thisMac") ? environment.label : undefined}
+      <WithFacts
+        facts={[
+          {
+            value:
+              (isLocal(environment) && environment.label !== t("composer.thisMac") ? environment.label : undefined) ??
+              "",
+          },
+        ]}
       >
-        <EnvironmentIcon kind={environment.kind} name={environment.label} />
-        <span className="acpmux-menu-text acpmux-location-name">
-          <span className="acpmux-menu-label">{isLocal(environment) ? t("composer.thisMac") : environment.label}</span>
-          {listRows === "run" && runDetails && isLocal(environment) && (
-            <span className="acpmux-menu-description">{runDetails.local}</span>
-          )}
-          {/* Other devices' rows say how each connects, in the words the search matches. */}
-          {list === "devices" && <span className="acpmux-menu-description">{t(KIND_LABELS[environment.kind])}</span>}
-        </span>
-        {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
+        {(facts) => (
+          <span
+            {...facts}
+            className="acpmux-location-row acpmux-env-row"
+            data-kind={environment.kind}
+            data-current={environment.id === checkedRow || (savedLocal && isLocal(environment)) ? "" : undefined}
+            data-ready={greyed ? "false" : undefined}
+            aria-disabled={greyed ? true : undefined}
+            // This Mac's row says "This Mac"; its own name is on the row's hover card.
+          >
+            <EnvironmentIcon kind={environment.kind} name={environment.label} />
+            <span className="acpmux-menu-text acpmux-location-name">
+              <span className="acpmux-menu-label">
+                {isLocal(environment) ? t("composer.thisMac") : environment.label}
+              </span>
+              {listRows === "run" && runDetails && isLocal(environment) && (
+                <span className="acpmux-menu-description">{runDetails.local}</span>
+              )}
+              {/* Other devices' rows say how each connects, in the words the search matches. */}
+              {list === "devices" && (
+                <span className="acpmux-menu-description">{t(KIND_LABELS[environment.kind])}</span>
+              )}
+            </span>
+            {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
             Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
-        {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
-        {ready && environment.loadWarning && (
-          <span className="acpmux-env-state" data-warning="true">
-            {environment.loadWarning}
+            {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
+            {ready && environment.loadWarning && (
+              <span className="acpmux-env-state" data-warning="true">
+                {environment.loadWarning}
+              </span>
+            )}
+            {/* Other devices marks every machine a chat can start on with the online dot. */}
+            {ready &&
+              !environment.loadWarning &&
+              environment.kind !== "local" &&
+              (environment.connected !== undefined || list === "devices") && (
+                <span
+                  className="acpmux-env-status"
+                  data-connected={String(list === "devices" || environment.connected)}
+                >
+                  <span className="acpmux-env-status-text">
+                    {t(
+                      list === "devices" || environment.connected
+                        ? "composer.envConnected"
+                        : "composer.envNotConnected",
+                    )}
+                  </span>
+                </span>
+              )}
+            {number !== undefined && digits && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
+            <span className="acpmux-location-check" aria-hidden="true">
+              {(environment.id === checkedRow || (savedLocal && isLocal(environment))) && <CheckIcon />}
+            </span>
           </span>
         )}
-        {/* Other devices marks every machine a chat can start on with the online dot. */}
-        {ready &&
-          !environment.loadWarning &&
-          environment.kind !== "local" &&
-          (environment.connected !== undefined || list === "devices") && (
-            <span className="acpmux-env-status" data-connected={String(list === "devices" || environment.connected)}>
-              <span className="acpmux-env-status-text">
-                {t(list === "devices" || environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
-              </span>
-            </span>
-          )}
-        {number !== undefined && digits && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
-        <span className="acpmux-location-check" aria-hidden="true">
-          {(environment.id === checkedRow || (savedLocal && isLocal(environment))) && <CheckIcon />}
-        </span>
-      </span>
+      </WithFacts>
     );
   };
 

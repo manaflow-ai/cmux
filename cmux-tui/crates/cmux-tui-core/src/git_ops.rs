@@ -103,6 +103,10 @@ pub(crate) const WORKTREE_REMOVE_CAPABILITY: &str = "git-worktree-remove-v1";
 /// recipe, and the session host answers `git.worktree.setup`.
 pub(crate) const WORKTREE_SETUP_CAPABILITY: &str = "git-worktree-setup-v1";
 
+/// Advertised in identify: a repository recipe's setup waits for the
+/// person's approval, and the session host answers `git.worktree.setup.run`.
+pub(crate) const WORKTREE_SETUP_RUN_CAPABILITY: &str = "git-worktree-setup-run-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -118,6 +122,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitWorktreeApply
             | ResourceOperation::GitWorktreeRemove
             | ResourceOperation::GitWorktreeSetup
+            | ResourceOperation::GitWorktreeSetupRun
     ) || checkpoint::handles(operation)
         || diff_comments::handles(operation)
 }
@@ -140,6 +145,9 @@ pub(crate) fn dispatch(
         ResourceOperation::GitWorktreeApply => return worktree_apply::dispatch(mux, &request),
         ResourceOperation::GitWorktreeRemove => return worktree_remove::dispatch(mux, &request),
         ResourceOperation::GitWorktreeSetup => return worktree_setup::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeSetupRun => {
+            return worktree_setup::dispatch_run(mux, &request);
+        }
         _ => {}
     }
     let operation = match request.envelope.operation {
