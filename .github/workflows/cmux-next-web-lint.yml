@@ -98,8 +98,8 @@ jobs:
               print(tool, gate.ensure_tool(lock, tool))
           PY
 
-      # cmux-next-fast-gates.yml's Freestyle runners restore the lint tools and the Bun cache from R2 (GitHub's store
-      # answers them at about 0.9 MB/s): saved here, on the feat-cmux-next push that already saves the GitHub copies.
+      # cmux-next-fast-gates.yml restores the lint tools and the Bun cache from R2 first (GitHub's store answers
+      # Freestyle and some pool hosts at about 0.9 MB/s): saved here, on the feat-cmux-next push that already saves the GitHub copies.
       - name: Save the pinned lint tools to R2
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         timeout-minutes: 2
