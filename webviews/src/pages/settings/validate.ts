@@ -173,7 +173,7 @@ export function isHostEndpoint(text: unknown): boolean {
 export function isMachineHost(value: unknown): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const host = value as Record<string, unknown>;
-  if (typeof host.label !== "string" || host.label.trim() === "" || [...host.label].length > 64) return false;
+  if (typeof host.label !== "string" || host.label.trim() === "" || Array.from(host.label).length > 64) return false;
   let endpoints: unknown[];
   if (host.endpoints !== undefined && host.endpoint === undefined) {
     if (!Array.isArray(host.endpoints) || host.endpoints.length < 1 || host.endpoints.length > 16) return false;
