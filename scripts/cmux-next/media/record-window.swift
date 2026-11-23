@@ -31,19 +31,39 @@ struct WindowMovie {
             guard #available(macOS 15.0, *) else { throw CaptureError.message("macOS 15 is required") }
             // A capture job must already have permission; never open a prompt on a shared runner.
             guard CGPreflightScreenCaptureAccess() else { throw CaptureError.message("no Screen Recording grant") }
-            guard CommandLine.arguments.count == 3, let pid = Int32(CommandLine.arguments[1]) else {
-                throw CaptureError.message("usage: record-window PID OUTPUT.mov")
+            // --menus: the app's open native menus too. A popup menu is its own window, never a child of the main
+            // window, so a recording of that window alone leaves it out (What's New `customizations-menu`).
+            let arguments = CommandLine.arguments.filter { $0 != "--menus" }
+            let menus = arguments.count < CommandLine.arguments.count
+            guard arguments.count == 3, let pid = Int32(arguments[1]) else {
+                throw CaptureError.message("usage: record-window PID OUTPUT.mov [--menus]")
             }
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
             guard let window = content.windows.filter({ $0.owningApplication?.processID == pid && $0.windowLayer == 0 })
                 .max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
                 throw CaptureError.message("no app window")
             }
-            let filter = SCContentFilter(desktopIndependentWindow: window)
+            let filter: SCContentFilter
             let config = SCStreamConfiguration()
+            var size = window.frame.size
+            if menus {
+                // Every window of this app (its menus among them) on the window's display, cut to the window's
+                // frame: never another app's window, so concurrent tours on one console stay out.
+                guard let app = window.owningApplication,
+                      let display = content.displays.max(by: { $0.frame.intersection(window.frame).area < $1.frame.intersection(window.frame).area }),
+                      display.frame.intersects(window.frame) else {
+                    throw CaptureError.message("no display under the app window")
+                }
+                filter = SCContentFilter(display: display, including: [app], exceptingWindows: [])
+                config.sourceRect = window.frame.intersection(display.frame).offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+                size = config.sourceRect.size
+            } else {
+                filter = SCContentFilter(desktopIndependentWindow: window)
+                size = filter.contentRect.size
+            }
             config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
-            config.width = Int(filter.contentRect.width * CGFloat(filter.pointPixelScale)) / 2 * 2
-            config.height = Int(filter.contentRect.height * CGFloat(filter.pointPixelScale)) / 2 * 2
+            config.width = Int(size.width * CGFloat(filter.pointPixelScale)) / 2 * 2
+            config.height = Int(size.height * CGFloat(filter.pointPixelScale)) / 2 * 2
             config.includeChildWindows = true
             config.showsCursor = false
             config.capturesAudio = false
@@ -80,4 +100,8 @@ struct WindowMovie {
     }
 
     enum CaptureError: Error { case message(String) }
+}
+
+private extension CGRect {
+    var area: CGFloat { isNull ? 0 : width * height }
 }
