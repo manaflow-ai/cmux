@@ -636,4 +636,15 @@ public final class DaemonStore: StateResourceQueries {
         }
         if !unchanged { sidebarSections = sections }
     }
+
+    /// The workspace ids in sidebar order, then any the sections miss. The flattening lists each workspace once
+    /// (`recomputeSidebar`), so as many as the store lists means none is missing: no set of every id per call.
+    public var sidebarOrderedIDs: [String] {
+        var ids: [String] = []
+        ids.reserveCapacity(workspaces.count)
+        for section in sidebarSections { for workspace in section.workspaces { ids.append(workspace.id) } }
+        guard ids.count != workspaces.count else { return ids }
+        let listed = Set(ids)
+        return ids + workspaces.map(\.id).filter { !listed.contains($0) }
+    }
 }
