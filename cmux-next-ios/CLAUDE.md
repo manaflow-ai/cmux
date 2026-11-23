@@ -73,6 +73,28 @@ so it shows their real data (the Demo build's rule). The fleet builds only the u
 Cloud backend, `try.sh status` lists the last tries and their times. Design and phases (built ahead, the in-app
 Try PR picker, Swift hot patches on the device): cmuxterm-hq `docs/design/ios-dev-channels.md`.
 
+## Show a screen on demand: the iOS dev CLI
+
+`scripts/cmux-ios` drives a DEBUG or Demo build (simulator or a connected iPhone) to a screen in a
+state and screenshots it, for the person and for agents' proof, instead of hand-rolled taps:
+
+```bash
+cmux-next-ios/scripts/cmux-ios list                                   # targets, by screen
+cmux-next-ios/scripts/cmux-ios show settings-devices --look light --shot /tmp/devices.png
+cmux-next-ios/scripts/cmux-ios show feed-error --device iphone --tag <task-slug>   # on the phone
+cmux-next-ios/scripts/cmux-ios show settings --live                   # in process, the app's own data
+cmux-next-ios/scripts/cmux-ios show-all --out /tmp/all                # every target, light and dark
+```
+
+Targets live in `scripts/cmux_ios_targets.json`: the app's own DEBUG launch arguments, environment
+and demo drivers on mock data (the hooks `UITests/AllUIStates*` use). `show` relaunches the app with
+them and a nonce, waits for the app's DEBUG receipt (`CmuxMobileShell/DevShow.swift`, compiled out of
+Release), checks it names the target's destination, tab and Settings page, then shoots. `--live`
+hands the running app a `cmux-next://dev/show?...` request instead (a request file and a Darwin
+notification on a simulator, `devicectl --payload-url` on a phone): no relaunch, the person's own data,
+and a look that is never saved. A demo target also waits for the receipt's `demo_done`. A state that needs a tap (a swipe, a long press, a typed draft) stays in the
+UI-state capture suites; add a launch hook and a catalog row to make one showable.
+
 ## Hand-off command
 
 This is the ["Finishing a task"](../skills/cmux-dev-workflow/references/finishing-a-task.md) hand-off for the
