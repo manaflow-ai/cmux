@@ -230,3 +230,42 @@ test("Toggle Plan Mode's key runs the + menu's Plan row, and the row names the k
   );
   expect(row?.querySelector(".acpmux-menu-hint")?.textContent).toBe("⌃⌥⌘P");
 });
+
+test("the + menu's rows carry what Return does, and the none arm draws no hint", async () => {
+  // The design review: "show what Return does before Return" (cmux#49930). Every row carries the
+  // keycap and its verb; styles.css shows it on the highlighted row only.
+  const container = installDom();
+  root = createRoot(container);
+  const entries = composerPlusRegistry({
+    translate,
+    planMode: { id: "plan", name: "Plan mode", description: "Plan before editing" },
+  });
+  const draw = async () => {
+    await act(async () =>
+      root!.render(<ComposerPlusMenu entries={entries} onCommand={() => undefined} onSlash={() => undefined} />),
+    );
+    await act(async () => {
+      expect(openComposerControl("addMenu", translate)).toBe(true);
+    });
+    return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
+  };
+  const rows = await draw();
+  const verbOf = (name: string) =>
+    rows.find((el) => el.textContent?.includes(name))?.querySelector(".acpmux-menu-return-verb")?.textContent;
+  expect(verbOf("Plan mode")).toBe("Switch to");
+  expect(rows.every((row) => row.querySelector(".acpmux-menu-return .ui-key-hint")?.getAttribute("data-keys") === "↩")).toBe(true);
+  expect(rows.every((row) => row.querySelector(".acpmux-menu-return")?.getAttribute("aria-hidden") === "true")).toBe(
+    true,
+  );
+
+  await act(async () => root!.unmount());
+  root = createRoot(container);
+  globalThis.cmuxExperiments = { "composer-plus-return-hint": "none" };
+  try {
+    const plain = await draw();
+    expect(plain.length).toBeGreaterThan(0);
+    expect(plain.some((row) => row.querySelector(".acpmux-menu-return"))).toBe(false);
+  } finally {
+    delete globalThis.cmuxExperiments;
+  }
+});

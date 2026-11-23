@@ -13,7 +13,12 @@ import { hintIsKey } from "./composerPickerModel";
 import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
-import { type PaletteSection, filterPaletteSections } from "./paletteMenuModel";
+import {
+  type PaletteReturnLook,
+  type PaletteSection,
+  descriptionRestatesName,
+  filterPaletteSections,
+} from "./paletteMenuModel";
 type Props = {
   label: string;
   className?: string;
@@ -23,6 +28,13 @@ type Props = {
   returnFocus?: boolean;
   tooltip?: string;
   onOpen?: () => void;
+  /** How the highlighted row says what Return does (paletteMenuModel `PaletteReturnLook`). Default "verb": the keycap and
+   * the verb Return carries out (Leo, 2026-11-22). "none" is the look before. */
+  returnLook?: PaletteReturnLook;
+  /** The search field's placeholder and name; default "Search actions, chats and tabs" (`palette.searchPlaceholder`). */
+  placeholder?: string;
+  /** Leave out a description that only restates its row's title (`descriptionRestatesName`). Default on. */
+  quietDescriptions?: boolean;
 };
 
 /** Searchable, keyboard navigable + menu. It dispatches every row through the native action registry. */
@@ -35,6 +47,9 @@ export function PaletteMenu({
   returnFocus = true,
   tooltip,
   onOpen,
+  returnLook = "verb",
+  placeholder,
+  quietDescriptions = true,
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -75,6 +90,10 @@ export function PaletteMenu({
     [filtered],
   );
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
+  const searchLabel = placeholder ?? t("palette.searchPlaceholder");
+  // The outcome line under the list (the `footer` look): the highlighted row's whole outcome with its target.
+  const outcome = returnLook === "footer" ? rows[selected]?.choice.outcome : undefined;
+  const outcomeId = `${menuId}-outcome`;
   const openMenu = useCallback(() => {
     dispatch.current += 1;
     setError(undefined);
@@ -223,9 +242,10 @@ export function PaletteMenu({
               aria-haspopup="listbox"
               aria-expanded={open}
               aria-controls={menuId}
-              aria-label={t("sidebar.searchPlaceholder")}
+              aria-label={searchLabel}
+              aria-describedby={outcome ? outcomeId : undefined}
               aria-activedescendant={rows.length ? `${menuId}-${selected}` : undefined}
-              placeholder={t("sidebar.searchPlaceholder")}
+              placeholder={searchLabel}
               autoComplete="off"
             />
           </div>
@@ -259,6 +279,14 @@ export function PaletteMenu({
                   {section.choices.map((choice) => {
                     index += 1;
                     const at = index;
+                    const description =
+                      quietDescriptions && descriptionRestatesName(choice.name, choice.description)
+                        ? undefined
+                        : choice.description;
+                    // Return's row says so before Return: the keycap the slash menu, New Tab and the cards use,
+                    // and under the `verb` and `footer` looks the verb Return carries out.
+                    const verb =
+                      returnLook === "verb" || returnLook === "footer" ? (choice.verb ?? section.verb) : undefined;
                     return (
                       <div
                         key={`${section.title}-${choice.id}`}
@@ -279,7 +307,7 @@ export function PaletteMenu({
                         {choice.icon}
                         <span className="acpmux-menu-text">
                           <span className="acpmux-menu-label">{choice.name}</span>
-                          {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
+                          {description && <span className="acpmux-menu-description">{description}</span>}
                         </span>
                         {choice.hint &&
                           (hintIsKey(choice.hint) ? (
@@ -287,6 +315,12 @@ export function PaletteMenu({
                           ) : (
                             <span className="acpmux-menu-hint acpmux-menu-arg">{choice.hint}</span>
                           ))}
+                        {returnLook !== "none" && at === selected && (
+                          <span className="acpmux-palette-return" aria-hidden="true">
+                            {verb && <span className="acpmux-palette-return-verb">{verb}</span>}
+                            <KeyHint keys="↩" />
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -295,6 +329,12 @@ export function PaletteMenu({
             ))}
             {!rows.length && <div className="acpmux-palette-empty">{t("composer.noMatchingCommands")}</div>}
           </div>
+          {outcome && (
+            <div id={outcomeId} className="acpmux-palette-outcome">
+              <KeyHint keys="↩" />
+              <span className="acpmux-palette-outcome-text">{outcome}</span>
+            </div>
+          )}
         </div>
       )}
     </span>

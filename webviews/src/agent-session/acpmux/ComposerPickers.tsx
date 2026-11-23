@@ -2058,6 +2058,7 @@ export function Picker({
   tooltip,
   shortcut,
   onOpen,
+  returnHint = false,
 }: {
   label: string;
   className: string;
@@ -2070,6 +2071,8 @@ export function Picker({
   /// The keycaps of the shortcut that opens it, shown after the tooltip (shortcuts.ts).
   shortcut?: string | undefined;
   onOpen?: () => void;
+  /// The highlighted row ends in the Return keycap and its choice's `verb` (the + menu). Off: no hint.
+  returnHint?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -2127,6 +2130,7 @@ export function Picker({
                         section={section}
                         current={choice.id === section.current}
                         warnUnrestricted={warnUnrestricted}
+                        returnHint={returnHint}
                         close={() => setMenuOpen(false)}
                       />
                     ))}
@@ -2139,6 +2143,7 @@ export function Picker({
                       section={section}
                       current={choice.id === section.current}
                       warnUnrestricted={warnUnrestricted}
+                      returnHint={returnHint}
                       close={() => setMenuOpen(false)}
                     />
                   ))
@@ -2157,12 +2162,14 @@ function PickerMenuItem({
   section,
   current,
   warnUnrestricted,
+  returnHint,
   close,
 }: {
   choice: Choice;
   section: Section;
   current: boolean;
   warnUnrestricted: boolean;
+  returnHint: boolean;
   close(): void;
 }) {
   return (
@@ -2193,6 +2200,14 @@ function PickerMenuItem({
         ) : (
           <span className="acpmux-menu-hint acpmux-menu-arg">{choice.hint}</span>
         ))}
+      {returnHint && choice.verb && (
+        // Drawn on every row and shown on the highlighted one only (styles.css), so moving the
+        // highlight re-renders nothing. Decoration: the row's name is what a screen reader reads.
+        <span className="acpmux-menu-return" aria-hidden="true">
+          <span className="acpmux-menu-return-verb">{choice.verb}</span>
+          <KeyHint keys="↩" />
+        </span>
+      )}
       {current && <CheckIcon />}
     </MenuItem>
   );

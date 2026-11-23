@@ -87,7 +87,17 @@
      2026-11-01: "doesn't make sense for these to be spaced differently"). #27580 drew them on the
      28 list row with a 24 block gap between each, about 50 apart (Leo, 2026-11-02: "well now
      there's sometimes too much spacing between tool calls"). */
-  --cv-tool-row-height: 22px;
+  /* The air every one-line row gets over its 22 line of words, half above and half below (transcriptGrid.ts
+     ROW_AIR_LOOKS, which model.ts places the rows with): one token, so every activity, tool, notice and message
+     row moves together. Leo, 2026-11-22 10:55Z, beside the newer ChatGPT's tool list: "it's just too much fucking
+     text crammed together ... just add some more. our is too much of a dense eyesore right now." 22 + 10 = 32 apart
+     (ChatGPT about 33 at our size); gallery agent-pane.row-air compares 0, 6, 10 and 12. */
+  --cv-row-air: 10px;
+  --cv-tool-row-height: calc(22px + var(--cv-row-air));
+  /* A name chip on a row (AgentTag.css): a quieter wash than the inset surface, and the theme's secondary ink, so the
+     chips stop reading as a second row of buttons (same ask; gallery agent-pane.row-air, `data-chip-look`). */
+  --cv-chip-bg: color-mix(in srgb, var(--cv-text) 7%, transparent);
+  --cv-chip-ink: color-mix(in srgb, var(--cv-text) 82%, transparent);
   --cv-thought-pitch: 20px; /* an opened thought's line pitch (.cv-thought__text line-height) */
   --cv-glyph-slot: var(--grid-transcript-icon-box);
   --cv-glyph-line: var(--grid-transcript-icon-box);
@@ -3768,6 +3778,23 @@ body {
 }
 /* Gallery versions for the transcript spacing review. The selected default is the root rhythm
    above; these are capture-only comparisons. */
+/* Gallery looks of the row air and the chips (transcriptGrid.ts ROW_AIR_LOOKS; agent-pane.row-air). */
+:root[data-row-air="before"] {
+  --cv-row-air: 0px;
+}
+:root[data-row-air="a"] {
+  --cv-row-air: 6px;
+}
+:root[data-row-air="c"] {
+  --cv-row-air: 12px;
+}
+:root[data-chip-look="wash"] {
+  --cv-chip-bg: var(--ds-surface-inset);
+  --cv-chip-ink: var(--cv-text);
+}
+:root[data-chip-look="plain"] {
+  --cv-chip-bg: transparent;
+}
 :root[data-transcript-tool-spacing="tight"] {
   --cv-tool-row-height: 20px;
   --cv-tool-run-bottom-gap: 2px;
@@ -3968,6 +3995,23 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   white-space: normal;
   overflow-wrap: break-word;
 }
+/* A wrapped label keeps its glyph, chevron and status on its first line, as a thought's does
+   (cmux#51746): centred on the row, they sat on the middle of the whole wrapped block, a line or more
+   under the words they belong to. The row tops its items; each is the first line's height with its
+   content centred in it, and the chevron (its glyph's size in the transcript) takes the rest as
+   margins. One line opened draws as before. test/transcript-chevron-vertical-center.test.ts. */
+.acpmux-row .cv-tool.is-whole-open[aria-expanded="true"] {
+  align-items: flex-start;
+}
+.acpmux-row .cv-tool.is-whole-open[aria-expanded="true"] > :is(.cv-tool__icon, .cv-tool__meta, .cv-tool__trail) {
+  height: var(--cv-tool-row-height);
+}
+.acpmux-row .cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__text {
+  padding-block: calc((var(--cv-tool-row-height) - 1lh) / 2);
+}
+.acpmux-row .cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__chevron {
+  margin-block: calc((var(--cv-tool-row-height) - var(--cv-chevron-glyph)) / 2);
+}
 /* The rows' verb column (ToolVerb.tsx), as the Codex app lines its tool rows up (Leo 2026-10-29:
    "having stuff aligned is nice"): each verb ("Ran", "Read", "Edited") is a box as wide as the
    widest verb of its turn's rows, so every subject starts at one x. The widest is never measured:
@@ -4058,6 +4102,14 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 }
 .cv-thought:is(.is-toggle, .is-whole) > :is(.cv-tool__icon, .cv-tool__chevron, .cv-thought__time) {
   height: var(--cv-tool-row-height);
+}
+/* In the transcript every row's chevron is its glyph's size (`.acpmux-row :is(.cv-tool__chevron,
+   …)` below, which outranks the height above), so in this top-aligned row it sat at the line's top,
+   5px over its words while the glyph and the time sat on them (cmux#51746). Its margins centre it
+   on the first line instead, open or closed, as `align-items: center` does on every other row.
+   test/transcript-chevron-vertical-center.test.ts. */
+.acpmux-row .cv-thought:is(.is-toggle, .is-whole) > .cv-tool__chevron {
+  margin-block: calc((var(--cv-tool-row-height) - var(--cv-chevron-glyph)) / 2);
 }
 .cv-thought.is-full {
   flex-direction: column;
@@ -8449,8 +8501,13 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* An attachment in the text lays its thumbnail out as a flex box, as the strip's tile does: on a
+   text line the loaded image's button adds the font's descent (about 7px) under it, so the tile,
+   its line and every line under it would grow when the image loads, past the placeholder's box
+   and the row's estimate (Leo, 2026-11-22: "there should be no problem doing so for inline
+   attachments after send"). */
 .cv-user__inline-image {
-  display: inline-block;
+  display: inline-flex;
   max-width: calc(100% - 8px);
   margin: 2px 4px;
   vertical-align: middle;
@@ -8673,6 +8730,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   border-radius: 50%;
   background: var(--agent-accent);
   align-self: center;
+}
+/* Last in its column (no time, check or state after it), the dot ends the line: flush on the right
+   edge the rows' times end on, with no room kept for a time it lacks (cmux#51746: a finished
+   subagent with no duration drew its dot 6px in from the edge, under nothing).
+   test/transcript-chevron-vertical-center.test.ts. */
+.cv-reaction-mark:last-child {
+  margin-right: 0;
 }
 /* A failed call draws no failure mark (Lucas, 2026-11-06): no "Failed" / "Exit 1" word, no
    "(N failed)" count, no cause line and no tint. The words stay for screen readers (Find already

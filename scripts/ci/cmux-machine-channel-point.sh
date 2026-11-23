@@ -26,7 +26,11 @@
 # cannot be computed (the commit is not fetchable) keeps the old rule: the channel moves.
 #
 # DIR is a private scratch directory (mode 700). Reads SIGNING_KEY, R2_ENDPOINT and the R2
-# credentials (AWS_*) from the environment. A compare-and-swap on the bytes compared (as
+# credentials (AWS_*) from the environment. A Linux release file is also signed with
+# LINUX_RELEASE_SIGNING_KEY (the secret CMUX_LINUX_RELEASE_SIGNING_KEY, the dedicated release key of
+# cmuxterm-hq docs/design/linux-signed-packages.md section 3) once web-update-keys.json lists it: both
+# signatures through the rotation, so old and new installers verify it. Unset, the file carries the
+# web update key's signature alone and a warning says so. A compare-and-swap on the bytes compared (as
 # cmux-tui-point-channel.sh): a run that finds the channel moved under it reads and compares again.
 set -euo pipefail
 payload=$1 dir=$2 same_tree="" commit_only=""
@@ -80,10 +84,19 @@ if [[ -z "${SIGNING_KEY:-}" ]]; then
   exit 1
 fi
 signed="$dir/signed.json"
-trap 'rm -f "$dir/key.pem"' EXIT
+trap 'rm -f "$dir/key.pem" "$dir/release-key.pem"' EXIT
 (umask 077; printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
-python3 "$ptr" sign --payload "$payload" --key "$dir/key.pem" --keys "$keys" --out "$signed"
-rm -f "$dir/key.pem"
+extra=()
+if [[ "$purpose" == cmux-linux-release ]]; then
+  if [[ -n "${LINUX_RELEASE_SIGNING_KEY:-}" ]]; then
+    (umask 077; printf '%s\n' "$LINUX_RELEASE_SIGNING_KEY" > "$dir/release-key.pem")
+    extra=(--extra-key "$dir/release-key.pem")
+  else
+    echo "::warning::CMUX_LINUX_RELEASE_SIGNING_KEY is not set; the $label is signed with the web update key alone"
+  fi
+fi
+python3 "$ptr" sign --payload "$payload" --key "$dir/key.pem" ${extra[@]+"${extra[@]}"} --keys "$keys" --out "$signed"
+rm -f "$dir/key.pem" "$dir/release-key.pem"
 upload() { # KEY CACHE-CONTROL MODE...
   local key=$1 cache=$2
   shift 2
