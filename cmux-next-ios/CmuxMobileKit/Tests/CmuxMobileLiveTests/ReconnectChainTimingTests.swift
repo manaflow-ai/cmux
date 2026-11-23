@@ -67,23 +67,35 @@ private final class Lockstep: @unchecked Sendable {
     private var held = false
     private var up: [Work] = []
     private var down: [Work] = []
-    private let continuation: AsyncStream<Work>.Continuation
+    private var freeLatency: Duration?
+    private let continuation: AsyncStream<(due: ContinuousClock.Instant?, work: Work)>.Continuation
 
     init() {
-        let (stream, continuation) = AsyncStream.makeStream(of: Work.self, bufferingPolicy: .unbounded)
+        let (stream, continuation) = AsyncStream.makeStream(of: (due: ContinuousClock.Instant?, work: Work).self,
+                                                            bufferingPolicy: .unbounded)
         self.continuation = continuation
         Task.detached(priority: .high) {
-            for await work in stream { work() }
+            // One latency for every message, so the due times only grow: in order, each on time.
+            for await (due, work) in stream {
+                if let due { try? await Task.sleep(until: due, clock: .continuous) } // test: the fake wire's one-way delay
+                work()
+            }
         }
     }
 
+    /// Free delivery's one-way delay (nil: at once). Wall time, for the free-running bench only.
+    var latency: Duration? {
+        get { lock.withLock { freeLatency } }
+        set { lock.withLock { freeLatency = newValue } }
+    }
+
     func send(up isUp: Bool, _ work: @escaping Work) {
-        let queued = lock.withLock { () -> Bool in
-            guard held else { return false }
+        let free = lock.withLock { () -> (Bool, Duration?) in
+            guard held else { return (true, freeLatency) }
             if isUp { up.append(work) } else { down.append(work) }
-            return true
+            return (false, nil)
         }
-        if !queued { continuation.yield(work) }
+        if free.0 { continuation.yield((due: free.1.map { ContinuousClock.now + $0 }, work: work)) }
     }
 
     func hold() { lock.withLock { held = true } }
@@ -144,6 +156,16 @@ private final class FakeAcpmux: @unchecked Sendable {
         ]
     }
 
+    /// One live record the Mac streams while the phone switches away and back (the duress rows).
+    func streamRecord() -> Data {
+        lock.withLock {
+            let seq = log.count + 1
+            let record = #"{"sessionId":"s1","seq":\#(seq),"at":6,"dir":"mux","kind":"user_message","msg":{"text":"stream \#(seq)","promptId":"ps\#(seq)","turnId":"s\#(seq)"}}"#
+            log.append(record)
+            return Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":\#(record)}"#.utf8)
+        }
+    }
+
     /// The replies to one request, in order.
     func answer(_ object: [String: Any]) -> [Data] {
         guard let method = object["method"] as? String, let rawID = object["id"] else { return [] }
@@ -193,8 +215,21 @@ private final class FakeMac: @unchecked Sendable {
     let lockstep = Lockstep()
     private let lock = NSLock()
     private var oneWayLatency: Duration = .milliseconds(40)
+    private var dialCount = 0
+    private var keyArrival: ContinuousClock.Instant?
+    private weak var latestLink: ChainLink?
 
     init(macID: String) { self.macID = macID }
+
+    /// Links dialed so far.
+    var dials: Int { lock.withLock { dialCount } }
+    func dialed(_ link: ChainLink) { lock.withLock { dialCount += 1; latestLink = link } }
+    var currentLink: ChainLink? { lock.withLock { latestLink } }
+
+    /// When the Mac's daemon first served a `send` (a typed key) since `resetKey`.
+    var keyArrived: ContinuousClock.Instant? { lock.withLock { keyArrival } }
+    func resetKey() { lock.withLock { keyArrival = nil } }
+    func keyServed() { lock.withLock { if keyArrival == nil { keyArrival = .now } } }
 
     var oneWay: Duration {
         get { lock.withLock { oneWayLatency } }
@@ -236,7 +271,7 @@ private final class ChainChannel: LinkChannel, @unchecked Sendable {
     }
 
     func send(_ data: Data) async throws {
-        guard let link else { throw LinkError(code: "closed", message: "link closed") }
+        guard let link, !link.isClosed else { throw LinkError(code: "closed", message: "link closed") }
         link.phoneSent(self, data)
     }
 
@@ -261,6 +296,7 @@ private final class ChainLink: MacLink, @unchecked Sendable {
     private let lock = NSLock()
     private var nextID: UInt32 = 1
     private var paired = false
+    private var closed = false
     private var held: [@Sendable () -> Void] = []
     private var channels: [ChainChannel] = []
     /// acpmux request id -> method, to name the replies.
@@ -301,8 +337,16 @@ private final class ChainLink: MacLink, @unchecked Sendable {
 
     func probe(timeout: Duration) async throws -> UInt32? { try await ping() }
 
+    var isClosed: Bool { lock.withLock { closed } }
+
+    /// The Mac pushes `data` on this link's latest `service` channel (the duress stream).
+    func push(service: String, _ data: Data) {
+        guard let channel = lock.withLock({ closed ? nil : channels.last { $0.service == service } }) else { return }
+        gated { [self] in toPhone(channel, data) }
+    }
+
     func close() async {
-        let open = lock.withLock { channels }
+        let open = lock.withLock { () -> [ChainChannel] in closed = true; return channels }
         for channel in open { channel.end() }
         stateContinuation.yield(.disconnected(reason: "closed"))
         stateContinuation.finish()
@@ -389,7 +433,9 @@ private final class ChainLink: MacLink, @unchecked Sendable {
             let replies: [Data]
             switch channel.service {
             case "acpmux": replies = Self.objects(data).flatMap { mac.acpmux.answer($0) }
-            case "daemon": replies = FakeMac.daemon(data)
+            case "daemon":
+                if Self.objects(data).contains(where: { $0["cmd"] as? String == "send" }) { mac.keyServed() }
+                replies = FakeMac.daemon(data)
             default: replies = []
             }
             for reply in replies { toPhone(channel, reply) }
@@ -412,6 +458,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
 
     func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         let link = ChainLink(mac: mac)
+        mac.dialed(link)
         mac.marks.follow(link)
         mac.marks.mark("dial", link: link)
         return link
@@ -452,12 +499,27 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         try #require(done(), "timed out waiting for \(what)")
     }
 
-    @Test func reconnectChainAfterForeground() async throws {
+    /// One coordinator on the fake Mac: paired, chats ready, chat `s1` open with its first live record.
+    @MainActor fileprivate struct Rig {
+        let live: LiveCoordinator
+        let mac: FakeMac
+        let clock: LinkTestClock
+        let session: MacSession
+        let chat: AgentChatStore
+        let pick: String
+
+        func stop() {
+            live.stop()
+            clock.stop()
+            UserDefaults.standard.removeObject(forKey: pick)
+        }
+    }
+
+    fileprivate func rig() async throws -> Rig {
         let userID = "user-\(UUID().uuidString)"
         let teamID = "t-chain-\(UUID().uuidString.prefix(8))"
         let macID = "mac-chain-\(UUID().uuidString.prefix(8).lowercased())"
         let pick = "cmuxMobile.live.mac.\(teamID)"
-        defer { UserDefaults.standard.removeObject(forKey: pick) }
         let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
         ServiceStub.install(host: host) { _ in nil }
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-chain-\(UUID().uuidString)")
@@ -483,10 +545,6 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             readMarks: FeedReadMarks(url: directory.appending(path: "read.json")),
             pins: MacPins(file: nil), clock: clock
         )
-        defer {
-            live.stop()
-            clock.stop()
-        }
         // No kept transcript: the chat's history comes from the Mac only.
         live.transcriptCache = nil
 
@@ -500,6 +558,46 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         let source = session.acpmux.source(sessionID: "s1", summary: summary)
         let chat = AgentChatStore(source: source)
         try await waitFor("the chat's first live record") { chat.turns.contains { $0.id == "l0" } }
+
+        return Rig(live: live, mac: mac, clock: clock, session: session, chat: chat, pick: pick)
+    }
+
+    /// Leo, 2026-11-22: "shit shouldnt somehow instantly dissipate after i navigate away for like
+    /// one second". A 1 s app switch keeps the link: with the Mac's answers held (no round trip
+    /// yet), the same link, pairing, chats, daemon channel and chat are all still there, so the
+    /// first key and the first frame cost no round trip. The old `.resume` closed the link here
+    /// and every one of these waited for the chain `reconnectChainAfterForeground` measures.
+    @Test func shortResumeKeepsTheLinkWithNoRoundTrip() async throws {
+        let rig = try await rig()
+        defer { rig.stop() }
+        let (live, mac, session, chat) = (rig.live, rig.mac, rig.session, rig.chat)
+        let kept = try #require(session.link.link) as AnyObject
+        let serial = session.workspaces.connectionSerial
+        var lines: [String] = []
+        for _ in 0..<20 {
+            mac.lockstep.hold()
+            live.background()
+            live.foreground(after: .seconds(1))
+            #expect((session.link.link as AnyObject?) === kept, "a 1 s resume replaced the link")
+            #expect(session.workspaces.connectionSerial == serial, "a 1 s resume unbound the workspaces")
+            #expect(session.workspaces.daemon != nil, "a key typed now would throw no-link")
+            #expect(session.pairingState == .paired)
+            #expect(session.acpmux.isReady)
+            #expect(chat.turns.contains { $0.id == "l0" })
+            // The quick probe's pong comes back in one round trip; the link stays.
+            mac.lockstep.roundTrip()
+            mac.lockstep.release()
+            #expect((session.link.link as AnyObject?) === kept)
+        }
+        lines.append(#"RESUME_KEEP {"away_s":1,"n":20,"round_trips_to_input":0,"round_trips_to_frame":0,"redials":0}"#)
+        print(lines[0])
+        Attachment.record(lines.joined(separator: "\n"), named: "resume-keep.txt")
+    }
+
+    @Test func reconnectChainAfterForeground() async throws {
+        let rig = try await rig()
+        defer { rig.stop() }
+        let (live, mac, session, chat) = (rig.live, rig.mac, rig.session, rig.chat)
 
         // Adoption: the controller hands the coordinator a new link.
         let marks = mac.marks
@@ -528,7 +626,8 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 mac.lockstep.hold()
                 live.background()
                 marks.mark("resume")
-                live.foreground()
+                // A suspend iOS ended the link of: `.resume` replaces it (a short one keeps it).
+                live.foreground(after: nil)
                 // Main-actor marks: each counts once its old state was seen gone.
                 var sawUnpaired = false
                 var sawNotReady = false
@@ -573,6 +672,101 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         }
         // One attach per run (and the first open's): no retry hid in the numbers.
         #expect(mac.acpmux.attachCount == reattach + 1)
+    }
+}
+
+/// One typed key's send; `failed` once it threw (no-link), so the bench sends it again.
+@MainActor private final class KeyAttempt { var failed = false }
+
+/// The live resume bench, on the chain suite's rig and fake Mac; its own suite for a longer time limit.
+@MainActor
+// Runs alone: its wall-time loop holds the main actor for minutes, which starves the timing tests
+// beside it. The fleet script turns it on when an only= filter names this suite.
+@Suite(.serialized, .timeLimit(.minutes(20)),
+       .enabled(if: ProcessInfo.processInfo.environment["CMUX_RESUME_LIVE_BENCH"] == "1",
+                "runs alone: CMUX_RESUME_LIVE_BENCH=1")) struct ResumeLiveBenchTests {
+    /// Leo, 2026-11-22: "me swiping up to go to another app then back to the ios cmux internal
+    /// app... there's lag when coming back. lag to interaction." Free-running, in wall time, with
+    /// the fake Mac 80 ms away (40 ms each way): per app switch, whether the chat kept its content,
+    /// how long the first typed key takes to reach the Mac's daemon (through the terminal's `send`
+    /// path, retried every 5 ms while it throws no-link), the round trips that took, and the links
+    /// dialed. The away time is injected (`foreground(after:)`), never slept: the link machine
+    /// decides on it alone. Each row runs twice in the same process: `base` is the pre-fix return
+    /// (`foreground(after: nil)` sends `.resume`, which redials every link, the path every return took
+    /// before), `after` is the return with its away time. Asserts only that the key lands.
+    @Test func resumeLiveBench() async throws {
+        let chain = ReconnectChainTimingTests()
+        let rig = try await chain.rig()
+        defer { rig.stop() }
+        let (live, mac, session, chat) = (rig.live, rig.mac, rig.session, rig.chat)
+        let oneWayMillis = 40.0
+        mac.oneWay = .milliseconds(Int(oneWayMillis))
+        mac.lockstep.latency = .milliseconds(Int(oneWayMillis))
+        let pre = chat.turns.map(\.id)
+        try #require(pre.contains("l0"))
+        func millis(_ d: Duration) -> Double {
+            Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15
+        }
+        func settled() -> Bool {
+            session.pairingState == .paired && session.acpmux.isReady && session.workspaces.daemon != nil
+                && session.link.link != nil
+        }
+        var report: [String] = []
+        let rows: [(away: Int, duress: Bool)] = [(1, false), (5, false), (30, false), (300, false), (1, true), (30, true)]
+        for mode in ["base", "after"] { for row in rows {
+            var keyMillis: [Double] = []
+            var roundTrips: [Double] = []
+            var kept = 0
+            var reconnects = 0
+            for _ in 0..<20 {
+                try await chain.waitFor("the link to settle before a switch") { settled() }
+                try await Task.sleep(for: .milliseconds(200)) // test: lets the last switch's probe and replies drain
+                // Duress: the Mac streams a live record every 10 ms, from before the switch until the key lands.
+                let streaming: Task<Void, Never>? = row.duress ? Task.detached(priority: .high) {
+                    while !Task.isCancelled {
+                        mac.currentLink?.push(service: "acpmux", mac.acpmux.streamRecord())
+                        try? await Task.sleep(for: .milliseconds(10)) // test: the stream's cadence
+                    }
+                } : nil
+                if row.duress { try await Task.sleep(for: .milliseconds(50)) } // test: the stream runs before the switch
+                mac.resetKey()
+                let dialsBefore = mac.dials
+                live.background()
+                live.foreground(after: mode == "base" ? nil : .seconds(row.away))
+                let start = ContinuousClock.now
+                // The screen's model, read on every pass until the key lands: never cleared.
+                var contentKept = pre.allSatisfy { id in chat.turns.contains { $0.id == id } }
+                var attempt: KeyAttempt?
+                var watchdog = AwakeDeadline(.seconds(10))
+                while mac.keyArrived == nil, watchdog.hasTimeLeft() {
+                    if attempt == nil || attempt!.failed {
+                        let next = KeyAttempt()
+                        attempt = next
+                        let serial = session.workspaces.connectionSerial
+                        Task { @MainActor in
+                            // The terminal's typing path (TerminalFeed.type): this connection's daemon channel.
+                            guard let type = session.terminalFeed.type else { next.failed = true; return }
+                            do { try await type(1, Data("x".utf8), serial) } catch { next.failed = true }
+                        }
+                    }
+                    try await Task.sleep(for: .milliseconds(5)) // test: the retry cadence of a key that threw no-link
+                    if !pre.allSatisfy({ id in chat.turns.contains { $0.id == id } }) { contentKept = false }
+                }
+                streaming?.cancel()
+                let landed = try #require(mac.keyArrived, "the first key never reached the Mac within 10 s (away \(row.away) s)")
+                let ms = millis(landed - start)
+                keyMillis.append(ms)
+                // Serial round trips the key waited for: its time on the wire past the one way it travels, in RTTs.
+                roundTrips.append(max(0, ((ms - oneWayMillis) / (2 * oneWayMillis)).rounded()))
+                if contentKept { kept += 1 }
+                try await chain.waitFor("the link to settle after the key") { settled() }
+                reconnects += mac.dials - dialsBefore
+            }
+            let line = #"RESUME_LIVE {"mode":"\#(mode)","away_s":\#(row.away),"n":20,"duress":\#(row.duress),"content_kept":\#(kept),"first_key_p50_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(keyMillis, 0.5))),"first_key_p95_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(keyMillis, 0.95))),"round_trips_p95":\#(Int(ReconnectChainTimingTests.percentile(roundTrips, 0.95))),"reconnects":\#(reconnects),"rtt_ms":80,"away":"injected, not slept"}"#
+            print(line)
+            report.append(line)
+        } }
+        Attachment.record(report.joined(separator: "\n"), named: "resume-live.txt")
     }
 }
 #endif
