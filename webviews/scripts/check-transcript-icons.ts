@@ -9,9 +9,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const TRANSCRIPT = join(HERE, "../src/agent-session/acpmux/conversation");
 
 export const INLINE_SVG_EXCEPTIONS: Readonly<Record<string, { count: number; reason: string }>> = {
-  "icons.tsx": {
-    count: 3,
-    reason: "The shared animated spinner and the GitHub/arXiv brand marks.",
+  "icons.tsx": { count: 2, reason: "The GitHub/arXiv brand marks." },
+  "Spinner.tsx": {
+    count: 1,
+    reason: "The shared animated spinner (its own module so the diff viewer skips the pack).",
   },
   "NoticeMark.tsx": { count: 1, reason: "Existing severity illustration; migrate separately." },
   "EditedFilesCard.tsx": { count: 1, reason: "Existing file-change mark; migrate separately." },

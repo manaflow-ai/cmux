@@ -299,38 +299,7 @@ class SidebarRowView: NSView {
 
 // MARK: - Workspace
 
-/// An empty section's row. Pinned's says "Drop here to pin"; any other empty list draws
-/// nothing, as classic draws nothing there (https://github.com/manaflow-ai/cmux/issues/32728),
-/// and stays only as the list's drop target.
-final class EmptySectionRowView: SidebarRowView {
-    private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-
-    required init(key: SidebarRowKey) {
-        super.init(key: key)
-        // Left-aligned where a workspace's title would start, so the drop
-        // zone reads as the list's first line.
-        label.alignment = .natural
-        addSubview(label)
-    }
-
-    func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
-        label.setString(pinned ? Strings.pinnedEmpty : "")
-        label.setFont(SidebarStyle.subtitleFont)
-        label.isHidden = !pinned
-        needsLayout = true
-    }
-
-    override func layout() {
-        super.layout()
-        let b = layoutBounds
-        let x = SidebarStyle.columns(rowWidth: b.width).text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
-        let width = max(0, b.width - x - Metrics.space2)
-        let height = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: width, height: height)
-        needsDisplay = true
-    }
-
-    override func updateLayer() {
-        performWithTheme { label.setColor(Palette.textTertiary) }
-    }
-}
+/// An empty section's row: it draws nothing, as classic draws nothing there
+/// (https://github.com/manaflow-ai/cmux/issues/32728), and stays only as the list's drop target. Pinned's drop zone says
+/// nothing either (plans/cmux-next/ui-simplify.md, Pin: "no drop overlay text"): the gap a drag opens there is the cue.
+final class EmptySectionRowView: SidebarRowView {}
