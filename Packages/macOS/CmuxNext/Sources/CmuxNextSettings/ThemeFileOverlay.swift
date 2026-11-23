@@ -135,6 +135,16 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         return managed.contains { key in rows.contains { $0 == key || $0.hasPrefix(key + ".") } } ? nil : density
     }
 
+    /// Setting rows this file supplies, including a density defined by the top-level token block.
+    var settingKeys: Set<String> {
+        var keys = Set(values.map { $0.path.joined(separator: ".") })
+        if density != nil {
+            keys.insert(DensitySetting.configPath.joined(separator: "."))
+            keys.insert(CustomDensitySelectionSetting.configPath.joined(separator: "."))
+        }
+        return keys
+    }
+
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.name == rhs.name && lhs.isLoaded == rhs.isLoaded && lhs.isUnparsable == rhs.isUnparsable && lhs.diagnostics == rhs.diagnostics && lhs.corrected == rhs.corrected
             && lhs.density == rhs.density

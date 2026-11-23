@@ -159,6 +159,6 @@ extension SettingsController {
     /// Whether the active theme file sets `key` (dotted), so a write there needs an exception to apply.
     func setsInThemeFile(_ key: String) -> Bool {
         guard !ThemeFileExceptionsSetting.unexceptionable.contains(key) else { return false }
-        return themeFile?.values.contains { $0.path.joined(separator: ".") == key } ?? false
+        return themeFile?.settingKeys.contains(key) ?? false
     }
 }
