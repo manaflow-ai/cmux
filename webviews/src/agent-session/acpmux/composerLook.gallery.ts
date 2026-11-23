@@ -308,7 +308,7 @@ const runningChat = () => {
 };
 const DRAFT = { draft: "Also cover the 503 path" };
 const ALT_AFTER_MIC = `
-.acpmux-composer-actions > :is(.acpmux-send, .acpmux-cancel) { order: 1; }`;
+.acpmux-composer-actions > :is(.acpmux-send, .acpmux-cancel, .acpmux-send-slot) { order: 1; }`;
 /// Codex's Send (composerLook.css, the pick: the accent disc after the mic). The alternates: ChatGPT's
 /// disc in the text colour, and the plain ↑ glyph Codex's look drew before (#23763's no-disc rule).
 const ALT_TEXT_DISC = `
