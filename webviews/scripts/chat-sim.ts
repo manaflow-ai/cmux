@@ -14,7 +14,8 @@
 //   bun scripts/chat-sim.ts --sweep ~/.acpmux/sessions [--jobs 4]   (replay every chat there, grouped)
 //   bun scripts/chat-sim.ts --capture SESSION --window "2:05PM NOV 22 TO 2:11PM" --name leo-2205-x
 //   bun scripts/chat-sim.ts --capture SESSION --report "WHY DID IT" [--minutes 6]   (the minutes before that prompt)
-//   bun scripts/chat-sim.ts --drift ~/.acpmux/sessions   (record kinds live chats write that no fixture or scenario plays)
+//   bun scripts/chat-sim.ts --capture HOST/NAME --window "22:05Z-22:11Z" --out /tmp   (a chat on a peer, over the hub)
+//   bun scripts/chat-sim.ts --drift ~/.acpmux/sessions [--days 7 --json]   (record kinds live chats write that no fixture or scenario plays)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -27,6 +28,12 @@ import {
   parseWindow,
   pickRange,
   readOffsets,
+  findReportTurn,
+  parseHistory,
+  parseTail,
+  readAfterSeq,
+  REMOTE_SESSION,
+  type HistoryTurn,
 } from "../src/agent-session/acpmux/sim/capture";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
@@ -46,7 +53,7 @@ function usage(code: number): never {
   console.log(
     readFileSync(import.meta.path, "utf8")
       .split("\n")
-      .slice(1, 19)
+      .slice(1, 20)
       .map((line) => line.replace(/^\/\/ ?/, ""))
       .join("\n"),
   );
@@ -86,6 +93,145 @@ function sessionRecords(source: string): { records: EventRecord[]; from: string 
   return { records: readRecords(join(dest, dir)), from: `${source} (acpmux session export)` };
 }
 
+/// The window a capture asks for (`--window`, or the `--minutes` before the `--report` prompt) out of the
+/// records it read: a time with no date takes the date of the chat's last record. Exits 2 when there is none.
+function captureWindow(records: EventRecord[], from: string, zone: string, minutes: number): [number, number] {
+  if (records.length === 0) {
+    console.error(`chat-sim: ${from} has no records`);
+    process.exit(2);
+  }
+  const last = records.reduce((most, record) => Math.max(most, record.at), 0);
+  const reportText = value("--report");
+  if (value("--window")) return windowOf(last, zone, minutes);
+  if (reportText !== undefined) {
+    const report = findReport(records, reportText);
+    if (!report) {
+      console.error(`chat-sim: no prompt of the person's in ${from} holds "${reportText}"`);
+      process.exit(2);
+    }
+    return [report.at - minutes * 60_000, report.at];
+  }
+  console.error("chat-sim: --capture needs --window TIMES or --report TEXT");
+  process.exit(2);
+}
+
+function windowOf(near: number, zone: string, minutes: number): [number, number] {
+  const window = parseWindow(value("--window")!, { zone, near, minutes });
+  if (window) return window;
+  console.error(
+    `chat-sim: cannot read the window "${value("--window")}" (e.g. "2:05PM NOV 22 TO 2:11PM", "22:05Z-22:11Z")`,
+  );
+  process.exit(2);
+}
+
+function localCapture(source: string, zone: string, minutes: number) {
+  const { records, from } = sessionRecords(source);
+  return { records, from, window: captureWindow(records, from, zone, minutes) };
+}
+
+/** How long one acpmux read over the hub may take (`--timeout S`, default 120 for the history, 600 for the tail). */
+const hubTimeout = (fallback: number) => (number("--timeout") ?? fallback) * 1000;
+
+/// One line naming the hub's error, then exit 2: no retry, a relay-only host fails every read the same way.
+function hubFailed(source: string, detail: string): never {
+  console.error(
+    `chat-sim: cannot read ${source} over the mesh hub: ${detail.trim().split("\n")[0] || "no answer"}. ` +
+      "A host listed only via relay fails every read until cmux#48249; capture on that host instead.",
+  );
+  process.exit(2);
+}
+
+/// `acpmux ARGS` read whole, inside `ms`; its stdout, or hubFailed with its stderr.
+async function acpmuxRead(source: string, args: string[], ms: number): Promise<string> {
+  const child = Bun.spawn(["acpmux", ...args], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  const timer = setTimeout(() => child.kill(), ms);
+  const [text, errors] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  const code = await child.exited;
+  clearTimeout(timer);
+  if (child.signalCode) hubFailed(source, `acpmux ${args.slice(0, 2).join(" ")} gave no answer in ${ms / 1000} s`);
+  if (code !== 0) hubFailed(source, errors);
+  return text;
+}
+
+/// The records after seq `after`, from `acpmux session tail --json --since`, read as they stream in and
+/// stopped at the first record past `until` (the tail itself would read on to the log's end).
+async function tailRecords(source: string, after: number, until: number, ms: number): Promise<EventRecord[]> {
+  const child = Bun.spawn(["acpmux", "session", "tail", source, "--json", "--since", String(after)], {
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill();
+  }, ms);
+  const errors = new Response(child.stderr).text();
+  const out: EventRecord[] = [];
+  const decoder = new TextDecoder();
+  let rest = "";
+  let past = false;
+  for await (const chunk of child.stdout as unknown as AsyncIterable<Uint8Array>) {
+    rest += decoder.decode(chunk, { stream: true });
+    const cut = rest.lastIndexOf("\n");
+    if (cut < 0) continue;
+    for (const record of parseTail(rest.slice(0, cut))) {
+      if (record.at > until) {
+        past = true;
+        break;
+      }
+      out.push(record);
+    }
+    rest = rest.slice(cut + 1);
+    if (past) break;
+  }
+  if (!past) for (const record of parseTail(rest)) if (record.at <= until) out.push(record);
+  if (past) child.kill();
+  const code = await child.exited;
+  clearTimeout(timer);
+  if (timedOut) hubFailed(source, `acpmux session tail gave no answer in ${ms / 1000} s (${out.length} records read)`);
+  if (!past && code !== 0) hubFailed(source, await errors);
+  return out;
+}
+
+/// A chat on a peer (`HOST/NAME`), over the hub: its turn history places the window, then the tail reads from
+/// the prompt of the turn running when the window opened to the window's end.
+async function remoteCapture(source: string, zone: string, minutes: number) {
+  let turns: HistoryTurn[];
+  try {
+    turns = parseHistory(await acpmuxRead(source, ["session", "history", source, "--json"], hubTimeout(120)));
+  } catch (error) {
+    hubFailed(source, `its history did not read (${(error as Error).message})`);
+  }
+  const near = turns.reduce((most, turn) => Math.max(most, turn.endedAt ?? turn.startedAt), 0) || Date.now();
+  let window: [number, number];
+  const reportText = value("--report");
+  if (value("--window")) window = windowOf(near, zone, minutes);
+  else if (reportText) {
+    const turn = findReportTurn(turns, reportText);
+    if (!turn) {
+      console.error(`chat-sim: no prompt in ${source}'s history starts with "${reportText}"`);
+      process.exit(2);
+    }
+    window = [turn.startedAt - minutes * 60_000, turn.startedAt];
+  } else {
+    console.error("chat-sim: --capture HOST/NAME needs --window TIMES or --report TEXT (from the prompt's start)");
+    process.exit(2);
+  }
+  const after = readAfterSeq(turns, window[0]);
+  // A few seconds past the end: a record's time can trail the one before it by a little.
+  const records = await tailRecords(source, after, window[1] + 10_000, hubTimeout(600));
+  if (reportText) {
+    const report = findReport(records, reportText);
+    if (report) window = [report.at - minutes * 60_000, report.at];
+  }
+  return {
+    records,
+    from: `${source} (acpmux session tail over the hub, ${records.length} records after seq ${after})`,
+    window,
+  };
+}
+
 const capture = value("--capture");
 if (capture) {
   // A reported breakage as a fixture (sim/README.md "Capture a reported breakage"): the window's records,
@@ -94,34 +240,14 @@ if (capture) {
   const began = performance.now();
   const zone = value("--tz") ?? DEFAULT_ZONE;
   const minutes = number("--minutes") ?? 6;
-  const { records, from } = sessionRecords(capture);
+  const remote =
+    REMOTE_SESSION.test(capture) &&
+    !existsSync(home(capture)) &&
+    !existsSync(join(home("~/.acpmux/sessions"), capture, "events"));
+  const { records, from, window } = remote
+    ? await remoteCapture(capture, zone, minutes)
+    : localCapture(capture, zone, minutes);
   const read = performance.now();
-  if (records.length === 0) {
-    console.error(`chat-sim: ${from} has no records`);
-    process.exit(2);
-  }
-  const last = records.reduce((most, record) => Math.max(most, record.at), 0);
-  let window: [number, number] | undefined;
-  const reportText = value("--report");
-  if (value("--window")) {
-    window = parseWindow(value("--window")!, { zone, near: last, minutes });
-    if (!window) {
-      console.error(
-        `chat-sim: cannot read the window "${value("--window")}" (e.g. "2:05PM NOV 22 TO 2:11PM", "22:05Z-22:11Z")`,
-      );
-      process.exit(2);
-    }
-  } else if (reportText !== undefined) {
-    const report = findReport(records, reportText);
-    if (!report) {
-      console.error(`chat-sim: no prompt of the person's in ${from} holds "${reportText}"`);
-      process.exit(2);
-    }
-    window = [report.at - minutes * 60_000, report.at];
-  } else {
-    console.error("chat-sim: --capture needs --window TIMES or --report TEXT");
-    process.exit(2);
-  }
   const range = pickRange(records, window[0], window[1], flag("--no-lead") ? "none" : "turn");
   if (!range) {
     console.error(
@@ -248,6 +374,25 @@ if (drift) {
   const source = paneSource(join(import.meta.dir, "..", "src", "agent-session"));
   const read = [...seen].filter(([key]) => source.includes(`"${key.split(" ")[1]}"`));
   const days = number("--days") ?? 7;
+  if (flag("--json")) {
+    // For a timer (the fleet's chat-sim-drift pass): the same answer as one JSON object.
+    console.log(
+      JSON.stringify({
+        played: covered.size,
+        days,
+        chats: chats.length,
+        missing: read.map(([key, entry]) => ({
+          kind: key,
+          records: entry.records,
+          chats: entry.chats.size,
+          newest: new Date(entry.newest).toISOString(),
+          example: [...entry.chats][0],
+        })),
+        unread: seen.size - read.length,
+      }),
+    );
+    process.exit(read.length ? 1 : 0);
+  }
   console.log(
     `${covered.size} record kinds played offline. Chats here in the last ${days} days wrote ${read.length} more that the pane reads ` +
       `and the simulator never plays (and ${seen.size - read.length} the pane does not read; --all-kinds lists them):`,
