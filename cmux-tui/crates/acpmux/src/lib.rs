@@ -74,7 +74,6 @@ pub mod codex_desktop;
 pub mod codex_repo_gate;
 pub mod complete;
 pub mod computer_use;
-pub mod computer_use_gate;
 pub mod config;
 pub mod conn_origin;
 pub mod context_inventory;

@@ -84,6 +84,10 @@ test("the draft's badges: each tool word's range and href, and the tool each hre
     { start: 23, end: 35, href: "cmux-tool:browser-use" },
   ]);
   expect(toolWords("review @computer-use.md or me@computer-use")).toEqual([]);
+  // A full stop then a closing mark ends the word, as the parser reads it.
+  expect(toolWords("Please do this (@computer-use.)")).toEqual([
+    { start: 16, end: 29, href: "cmux-tool:computer-use" },
+  ]);
   // A typographic quote around it is punctuation, as a straight one is.
   expect(toolWords("say \u201C@computer-use\u201D or \u2018@browser-use\u2019").map((word) => word.href)).toEqual([
     "cmux-tool:computer-use",

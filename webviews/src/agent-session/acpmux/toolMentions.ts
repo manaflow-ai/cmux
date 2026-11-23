@@ -58,7 +58,7 @@ export function toolWords(text: string): { start: number; end: number; href: str
   if (!text.includes("@")) return [];
   const out: { start: number; end: number; href: string }[] = [];
   for (const match of text.matchAll(
-    /(^|[\s\uFFFC(["'\u201C\u2018])@(computer-use|browser-use)(?=[\s\uFFFC]|$|[,;:!?)\]"'\u201D\u2019]|\.(?:\s|$))/gi,
+    /(^|[\s\uFFFC(["'\u201C\u2018])@(computer-use|browser-use)(?=[\s\uFFFC]|$|[,;:!?)\]"'\u201D\u2019]|\.(?:\s|$|[)\]"'\u201D\u2019]))/gi,
   )) {
     const start = match.index! + match[1]!.length;
     out.push({ start, end: start + 1 + match[2]!.length, href: TOOL_HREF_PREFIX + match[2]!.toLowerCase() });
@@ -99,8 +99,10 @@ export function toolMentionsIn(text: string): readonly ToolMentionId[] {
   // A bracket or quote before it (`(@computer-use)`, `“@computer-use”`) is punctuation, not part of
   // another word; a block quote's marker (`>@computer-use`) is blanked by `withoutCode`. The same rule
   // as acpmux's tool_mentions.rs, which writes the agent's note: tool_mention_cases.json holds both.
+  // A full stop ends it before a space, the end or a closing mark (`(@computer-use.)`), never before
+  // more letters (`@computer-use.md` is a file).
   for (const match of prose.matchAll(
-    /(^|[\s\uFFFC(["'\u201C\u2018])[*_~]*[@$](computer-use|browser-use)(?=[*_~]*(?:[\s\uFFFC]|$|[,;:!?)\]"'\u201D\u2019]|\.(?:\s|$)))/gi,
+    /(^|[\s\uFFFC(["'\u201C\u2018])[*_~]*[@$](computer-use|browser-use)(?=[*_~]*(?:[\s\uFFFC]|$|[,;:!?)\]"'\u201D\u2019]|\.(?:\s|$|[)\]"'\u201D\u2019])))/gi,
   ))
     found.add(match[2]!.toLowerCase());
   return TOOL_MENTIONS.filter((tool) => found.has(tool.id)).map((tool) => tool.id);
@@ -187,7 +189,7 @@ function fenceLines(): (wide: string) => FenceLine {
       return { code: true, start: start(after), continues: false };
     }
     const continues = paragraph && !closed && open.length === before && !blank(after) && !startsBlock(after);
-    paragraph = !blank(after) && !heading(after);
+    paragraph = !blank(after) && !heading(after) && !thematicBreak(after);
     return { code: false, start: start(after), continues };
   };
 }
@@ -259,6 +261,8 @@ function openNew(open: (number | undefined)[], rest: string): string {
       if (rest.startsWith(" ")) rest = rest.slice(1);
       continue;
     }
+    // `* * *` is a thematic break, no list item.
+    if (thematicBreak(rest)) return rest;
     const marker = listMarker(after);
     if (marker === undefined) return rest;
     const content = after.slice(marker);
@@ -290,12 +294,21 @@ function closes(rest: string, mark: string, length: number): boolean {
 }
 
 /// Whether `rest` starts a block, so it is no lazy line of a paragraph: a block quote, a list item, a
-/// fence or a heading.
+/// fence, a heading or a thematic break.
 function startsBlock(rest: string): boolean {
   const n = spaces(rest);
   if (n > 3) return false;
   const after = rest.slice(n);
-  return after.startsWith(">") || listMarker(after) !== undefined || !!opens(rest) || heading(rest);
+  return (
+    after.startsWith(">") || listMarker(after) !== undefined || !!opens(rest) || heading(rest) || thematicBreak(rest)
+  );
+}
+
+/// Whether `rest` is a thematic break: at most three spaces, then 3+ of one of `-`, `*`, `_`, with spaces
+/// between them allowed. It ends a paragraph (under one, `---` underlines a heading, which ends it too), so
+/// an inline code span never runs across it.
+function thematicBreak(rest: string): boolean {
+  return /^ {0,3}(?:(?:- *){3,}|(?:\* *){3,}|(?:_ *){3,})$/.test(rest.replace(/[ \r]+$/, ""));
 }
 
 /// Whether `rest` is an ATX heading: at most three spaces, 1 to 6 `#`, then a space or the end.

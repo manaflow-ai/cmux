@@ -6,9 +6,6 @@
 //! a text-only side question, a Sandboxed run and a queue edit, none of which keep a client's
 //! context.
 //!
-//! A prompt that names `@computer-use` while this Mac's Computer Use is not ready is refused
-//! before its agent sees it, on every route (`computer_use_gate.rs`).
-//!
 //! The rules match the web page's parser (webviews/src/agent-session/acpmux/toolMentions.ts
 //! `toolMentionsIn`); `tool_mention_cases.json` is the contract both read. The notes are text for
 //! the agent, copied verbatim from that file's `NOTES`.
@@ -86,6 +83,34 @@ pub fn own_text(blocks: &[Value]) -> String {
         .join("\n")
 }
 
+/// `text` without the tools note acpmux made for its own mentions ([`note`] of [`mentioned`] of
+/// the rest), with the blank lines before it, wherever it stands: the one text a bridged chat's
+/// app was sent joins the person's words and the note (`hub/bridge.rs` `text_of`), and a Codex
+/// Desktop transcript keeps it (`hub/watch.rs`). Any other text stays, a `<cmux-…-context>`
+/// element the person wrote too.
+pub fn without_own_note(text: &str) -> std::borrow::Cow<'_, str> {
+    if text.contains(TAG) {
+        for set in 1..(1usize << TOOLS.len()) {
+            let tools: Vec<&str> = TOOLS
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| set & (1 << i) != 0)
+                .map(|(_, (name, _))| *name)
+                .collect();
+            let Some(note) = note(&tools) else { continue };
+            let joined = format!("\n\n{note}");
+            if !text.contains(&joined) {
+                continue;
+            }
+            let rest = text.replace(&joined, "");
+            if mentioned(&rest) == tools {
+                return std::borrow::Cow::Owned(rest);
+            }
+        }
+    }
+    std::borrow::Cow::Borrowed(text)
+}
+
 /// Whether context block `block` of `blocks` is only the note their words make: it hides nothing
 /// a rebuild from the words loses, so a Retry or a resend still runs the prompt (`prompt_images.rs`
 /// `hiddenContext`, [`add_note`] on the rebuilt blocks).
@@ -130,32 +155,23 @@ fn leads(before: &str) -> bool {
 
 /// Whether a mention may end before `after`: any Markdown emphasis, then the end, a space, an
 /// attachment, a closing mark (a straight or typographic quote too), or a full stop that ends a
-/// sentence (`@computer-use.md` is a file).
+/// sentence: the end, a space or a closing mark after it (`(@computer-use.)`; `@computer-use.md`
+/// is a file).
 fn trails(after: &str) -> bool {
     let after = after.trim_start_matches(['*', '_', '~']);
     let mut chars = after.chars();
     match chars.next() {
         None => true,
-        Some('.') => chars.next().is_none_or(is_space),
+        Some('.') => chars.next().is_none_or(|ch| is_space(ch) || closing(ch)),
         Some(ch) => {
-            is_space(ch)
-                || matches!(
-                    ch,
-                    '\u{FFFC}'
-                        | ','
-                        | ';'
-                        | ':'
-                        | '!'
-                        | '?'
-                        | ')'
-                        | ']'
-                        | '"'
-                        | '\''
-                        | '\u{201D}'
-                        | '\u{2019}'
-                )
+            is_space(ch) || matches!(ch, '\u{FFFC}' | ',' | ';' | ':' | '!' | '?') || closing(ch)
         }
     }
+}
+
+/// A closing bracket or a straight or typographic closing quote.
+fn closing(ch: char) -> bool {
+    matches!(ch, ')' | ']' | '"' | '\'' | '\u{201D}' | '\u{2019}')
 }
 
 /// `text` as prose: each line's container markers (`>`, a list item's marker and indent) and its
@@ -269,7 +285,7 @@ impl Fences {
             && self.open.len() == before
             && !blank(rest)
             && !starts_block(rest);
-        self.paragraph = !blank(rest) && !heading(rest);
+        self.paragraph = !blank(rest) && !heading(rest) && !thematic_break(rest);
         Line { code: false, start: start(rest), continues }
     }
 }
@@ -361,6 +377,10 @@ fn open_new<'a>(open: &mut Vec<Option<usize>>, mut rest: &'a str) -> &'a str {
             rest = inner.strip_prefix(' ').unwrap_or(inner);
             continue;
         }
+        // `* * *` is a thematic break, no list item.
+        if thematic_break(rest) {
+            return rest;
+        }
         let Some(marker) = list_marker(after) else { return rest };
         let content = &after[marker..];
         if blank(content) {
@@ -402,14 +422,34 @@ fn closes(rest: &str, mark: u8, length: usize) -> bool {
 }
 
 /// Whether `rest` starts a block, so it is no lazy line of a paragraph: a block quote, a list
-/// item, a fence or a heading.
+/// item, a fence, a heading or a thematic break.
 fn starts_block(rest: &str) -> bool {
     let n = spaces(rest);
     if n > 3 {
         return false;
     }
     let after = &rest[n..];
-    after.starts_with('>') || list_marker(after).is_some() || opens(rest).is_some() || heading(rest)
+    after.starts_with('>')
+        || list_marker(after).is_some()
+        || opens(rest).is_some()
+        || heading(rest)
+        || thematic_break(rest)
+}
+
+/// Whether `rest` is a thematic break: at most three spaces, then 3+ of one of `-`, `*`, `_`,
+/// with spaces between them allowed. It ends a paragraph (under one, `---` underlines a heading,
+/// which ends it too), so an inline code span never runs across it.
+fn thematic_break(rest: &str) -> bool {
+    let n = spaces(rest);
+    if n > 3 {
+        return false;
+    }
+    let after = rest[n..].trim_end_matches([' ', '\r']);
+    let Some(mark) = after.bytes().next().filter(|b| matches!(b, b'-' | b'*' | b'_')) else {
+        return false;
+    };
+    after.bytes().all(|b| b == mark || b == b' ')
+        && after.bytes().filter(|b| *b == mark).count() >= 3
 }
 
 /// Whether `rest` is an ATX heading: at most three spaces, 1 to 6 `#`, then a space or the end.
@@ -559,6 +599,35 @@ mod tests {
         let mut blocks = vec![json!({"type": "text", "text": "no tools"})];
         add_note(&mut blocks);
         assert_eq!(blocks.len(), 1);
+    }
+
+    #[test]
+    fn tool_mention_own_note_goes_from_a_transcript_and_nothing_else() {
+        let cu = note(&["computer-use"]).unwrap();
+        let both = note(&["computer-use", "browser-use"]).unwrap();
+        // At the end, or followed by other text (a reply hint).
+        assert_eq!(
+            without_own_note(&format!("open Notes with @computer-use\n\n{cu}")),
+            "open Notes with @computer-use"
+        );
+        assert_eq!(
+            without_own_note(&format!(
+                "use @browser-use and @computer-use\n\n{both}\n\nReply in one line."
+            )),
+            "use @browser-use and @computer-use\n\nReply in one line."
+        );
+        // A person's own context-shaped example stays, with the note after it gone.
+        let example = "show me @computer-use with\n\n<cmux-foo-context>\nx\n</cmux-foo-context>";
+        assert_eq!(without_own_note(example), example);
+        assert_eq!(without_own_note(&format!("{example}\n\n{cu}")), example);
+        // A note that is not the one the words make, or with no blank line before it, stays.
+        let other = format!("open Notes with @browser-use\n\n{cu}");
+        assert_eq!(without_own_note(&other), other);
+        let no_mention = format!("plain words\n\n{cu}");
+        assert_eq!(without_own_note(&no_mention), no_mention);
+        let glued = format!("use @computer-use {cu}");
+        assert_eq!(without_own_note(&glued), glued);
+        assert_eq!(without_own_note("plain words"), "plain words");
     }
 
     #[test]

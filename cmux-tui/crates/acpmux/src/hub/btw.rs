@@ -224,9 +224,6 @@ impl Hub {
         if question.is_empty() {
             return Err(RpcError::invalid_params("question is required"));
         }
-        // A question that names `@computer-use` waits for Computer Use to be ready, before any
-        // side session or Claude Code's own side question (`computer_use_gate.rs`).
-        self.computer_use_gate.check_text(question)?;
         // One deadline covers the inline fallback from this entry point through answer and cleanup;
         // it cannot spend separate acceptance and answer windows beyond the app's request budget.
         let inline_deadline = inline.then(|| tokio::time::Instant::now() + INLINE_TIMEOUT);
@@ -258,7 +255,13 @@ impl Hub {
             // active turn. An idle process uses the read-only emulation below.
             // The translator enforces its own active-turn check at dispatch,
             // including when it lives in a separate agent-host process.
-            if target_harness.is_none() && is_claude && session.turn().is_some() {
+            // The callback takes only the question's words, so a question that names an `@` tool
+            // goes to the side session below, which adds the tools note (`tool_mentions.rs`).
+            if target_harness.is_none()
+                && is_claude
+                && session.turn().is_some()
+                && crate::tool_mentions::mentioned(question).is_empty()
+            {
                 match with_inline_deadline(
                     inline_deadline,
                     Box::pin(self.btw_inline_claude(session, question)),
