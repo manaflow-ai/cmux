@@ -49,7 +49,7 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     why: "the mic button while dictation starts",
   },
   {
-    file: "pages/home-messages/transcript/transcript.css",
+    file: "pages/home-channels/transcript/transcript.css",
     keyframes: "mt-dot",
     selector: ".mt-typing i",
     why: "the Messages typing bubble's three dots (the native transcript's typing indicator, shown only while someone types; still under the motion gate), not a status dot",

@@ -1,4 +1,5 @@
 // l10n-allow-file: the chat simulator's sanitizer, a dev tool, not shipped UI.
+// l10n-allow-file: the chat simulator's sanitizer, not shipped UI.
 // The chat simulator's sanitizer (sim/README.md "Replaying a real chat"): turns a real session's
 // records (~/.acpmux/sessions/<id>/events/*.ndjson) into a fixture that is safe to commit. It keeps
 // the chat's shape (which records, in what order, how far apart, how long each text is, where its

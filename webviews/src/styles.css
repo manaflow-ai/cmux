@@ -532,20 +532,10 @@ body {
   white-space: nowrap;
   font-weight: 500;
 }
+/* The shared `Spinner` (its sheet turns it, and Reduce Motion holds it still, cx-sya4n). */
 .base-picker-spinner {
-  width: 12px;
-  height: 12px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
-  border-top-color: var(--cmux-diff-fg);
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
-}
-/* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
-@media (prefers-reduced-motion: reduce) {
-  .base-picker-spinner {
-    animation: none;
-  }
+  color: var(--cmux-diff-fg);
 }
 .base-picker-popover {
   /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
@@ -1299,25 +1289,13 @@ body[data-status-only="true"] #status-text {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-#status[data-pending="true"]::before,
-body[data-loading="true"] #status::before {
-  content: "";
-  width: 14px;
-  height: 14px;
+/* The status line's spinner while the diff loads: the shared `Spinner` (diff-viewer/Loading.tsx). */
+#status .status-spinner {
   flex: 0 0 auto;
-  border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
-  border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
-  border-radius: 50%;
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
+  color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
-}
-@media (prefers-reduced-motion: reduce) {
-  #status[data-pending="true"]::before,
-  body[data-loading="true"] #status::before {
-    animation: none;
-  }
 }
 
 /* Diff review comments */

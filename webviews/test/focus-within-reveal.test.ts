@@ -53,7 +53,6 @@ const KNOWN = new Set([
   "src/agent-session/acpmux/conversation/conversation.css: .cv-received:focus-within .cv-received__reply",
   "src/agent-session/acpmux/markdownField.css: .acpmux-md-inline-chip:focus-within .acpmux-md-inline-remove",
   "src/agent-session/acpmux/needsYou/needsYou.css: .acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-tools",
-  "src/agent-session/acpmux/prototype/prototype.css: .proto-tab:focus-within .proto-tab-close",
   "src/agent-session/acpmux/session-info/sessionInfo.css: .acpmux-session-info-pr:is(:hover, :focus-within) .acpmux-session-info-pr__more",
   "src/agent-session/acpmux/session-info/sessionInfo.css: .acpmux-session-info-source:is(:hover, :focus-within) .acpmux-session-info-source__more",
   "src/agent-session/acpmux/session-info/sessionInfo.css: .acpmux-session-info-source:is(:has([data-popup-open]), :focus-within) .acpmux-session-info-source__more",

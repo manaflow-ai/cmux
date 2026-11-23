@@ -512,5 +512,6 @@ export function summarize(result: SimResult): string {
   for (const fold of result.folds)
     if (fold.verdict === "sibling") sibling.set(fold.kind, (sibling.get(fold.kind) ?? 0) + 1);
   const siblings = [...sibling].map(([kind, count]) => `${kind}=${count}`).join(" ") || "none";
+  // l10n-allow: simulator report for a terminal, not shipped UI
   return `${result.scenario}: ${result.steps} steps, ${result.rows} rows drawn (${result.recordRows} before folding), ${Math.round(result.virtualMs / 1000)} s simulated in ${result.wallMs} ms; violations ${rules}; mid-turn sibling folds ${siblings}`;
 }

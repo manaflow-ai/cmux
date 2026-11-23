@@ -426,10 +426,11 @@
 }
 
 /* A promise toast (NoticeQueue.promise): the lead is a spinner while it works, then its result's
-   mark, in the same slot, so the text never moves sideways. The spinner is the shared Spinner
-   (cv-spinner, turned by spinner.css); motion off holds it still. */
-:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"]) .cv-spinner.ui-notice-spinner:not([data-working]) {
-  animation: none;
+   mark, in the same slot, so the text never moves sideways. The spinner is the shared `Spinner`
+   (its sheet turns it on the shared keyframes and clock, and Reduce Motion holds it still); motion
+   off holds it still here too. */
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"]) .ui-notice-spinner {
+  animation: none !important;
 }
 
 /* Toasts v2 (toastsV2.experiment.ts), only on a card with `data-look`: the default arm draws none of
