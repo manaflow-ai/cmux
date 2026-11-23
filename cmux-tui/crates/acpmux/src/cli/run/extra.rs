@@ -381,11 +381,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let Some(icon) = icon else {
                 let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
                 if json_out {
-                    print_json(&v["icon"]);
+                    print_json(&v.get("icon").cloned().unwrap_or_default());
                     return Ok(());
                 }
-                match serde_json::from_value::<crate::session_icon::SessionIcon>(v["icon"].clone())
-                {
+                match serde_json::from_value::<crate::session_icon::SessionIcon>(
+                    v.get("icon").cloned().unwrap_or_default(),
+                ) {
                     Ok(icon) => println!("{}", icon.describe()),
                     Err(_) => println!("none (its harness mark)"),
                 }
@@ -398,8 +399,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if json_out {
                 print_json(&v);
             } else {
-                match serde_json::from_value::<crate::session_icon::SessionIcon>(v["icon"].clone())
-                {
+                match serde_json::from_value::<crate::session_icon::SessionIcon>(
+                    v.get("icon").cloned().unwrap_or_default(),
+                ) {
                     Ok(icon) => println!("{}", icon.describe()),
                     Err(_) => println!("cleared"),
                 }
@@ -418,8 +420,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             } else {
                 json!({"sessionId": id, "newName": new_name})
             };
-            if let Some(icon) = icon {
-                params["newIcon"] = json!(crate::cli::icon_input::wire(&icon).await?);
+            if let (Some(icon), Some(fields)) = (icon, params.as_object_mut()) {
+                fields.insert("newIcon".into(), json!(crate::cli::icon_input::wire(&icon).await?));
             }
             let v = client.request(method::MUX_RENAME, params).await?;
             if json_out {

@@ -152,7 +152,7 @@ impl SessionIcon {
             Some("image/x-icon")
         } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
             Some("image/jpeg")
-        } else if std::str::from_utf8(&bytes[..bytes.len().min(512)])
+        } else if std::str::from_utf8(bytes.get(..bytes.len().min(512)).unwrap_or(bytes))
             .is_ok_and(|head| head.to_ascii_lowercase().contains("<svg"))
         {
             Some("image/svg+xml")
