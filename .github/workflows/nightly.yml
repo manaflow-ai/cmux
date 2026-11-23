@@ -1376,6 +1376,8 @@ jobs:
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
           TRUSTED_RUNNER: ${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+          # 6 vCPU first, as runs-on's literal fallback (#39585): blacksmith-12vcpu-macos-26 is the starved overflow.
+          FIRST: 6vcpu
           ENABLED: ${{ needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && '1' || '0' }}
         run: python3 scripts/ci/classic_nightly_build_runner.py
 
