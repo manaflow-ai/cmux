@@ -54,7 +54,8 @@ test("the prompts' Map is the same object until an editable prompt changes", () 
   expect(trackEditableTurns(rows, "claude", first)).toBe(first);
   expect(trackEditableTurns([...rows], "claude", first).seqs).toBe(first.seqs);
   const finished = trackEditableTurns([...streamed.slice(0, -1), reply(4, "tok"), summary(4)], "claude", third);
-  expect(finished.seqs).toBe(third.seqs);
+  expect(finished.seqs).not.toBe(third.seqs);
+  expect(finished.seqs.get("user-4")).toBe(3);
   const next = trackEditableTurns([...finished.rows, user(5)], "claude", finished);
   expect(next.seqs).not.toBe(finished.seqs);
   expect(next.seqs.get("user-5")).toBe(4);
