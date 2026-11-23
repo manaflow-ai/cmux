@@ -1119,36 +1119,45 @@ extension LiveCoordinator {
         let phase = session.link.phase
         bannerTask?.cancel()
         let name = session.link.target?.name ?? "Mac"
+        // A link coming up or coming back shows nothing until it took longer than
+        // the shared 10 s bound (QuietStatusGate.threshold); a state with an
+        // action (offline with Retry, can't reach, sign in) shows at once.
         switch phase {
         case .idle:
-            banner = nil
+            bannerHold.show(nil)
         case .macOffline:
-            banner = .macOffline(name, identity: session.macID)
+            bannerHold.show(.macOffline(name, identity: session.macID))
         case .signedOut:
-            banner = .signedOut
+            bannerHold.show(.signedOut)
         case .connected:
-            if everConnected, banner != nil, banner != .connected {
-                banner = .connected
+            // "Connected" only answers a banner that was on screen; a held one never showed.
+            if everConnected, let shown = banner, shown != .connected {
+                bannerHold.show(.connected)
                 bannerTask = Task { [weak self, clock] in
                     do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
-                    self?.banner = nil
+                    self?.bannerHold.show(nil)
                 }
             } else {
-                banner = nil
+                bannerHold.show(nil)
             }
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
         case .connecting(_, let attempt):
             if attempt == 1, !everConnected {
-                banner = .connecting(to: name, identity: session.macID)
+                bannerHold.hold(.connecting(to: name, identity: session.macID), for: QuietStatusGate.threshold)
             } else {
-                banner = .reconnecting(to: name, identity: session.macID)
+                bannerHold.hold(.reconnecting(to: name, identity: session.macID), for: QuietStatusGate.threshold)
             }
         case .waiting(let transport, let attempt, let reason, _):
-            banner = Self.waitingBanner(
+            let state = Self.waitingBanner(
                 macName: name, transport: transport, reason: reason, attempt: attempt,
                 wasConnected: session.link.target.map { connectedMacIDs.contains($0.macID) } ?? false,
                 relayAvailable: relayAvailable, identity: session.macID)
+            if state == .reconnecting(to: name, identity: session.macID) {
+                bannerHold.hold(state, for: QuietStatusGate.threshold)
+            } else {
+                bannerHold.show(state)
+            }
         }
     }
 
