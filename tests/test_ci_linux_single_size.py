@@ -306,9 +306,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
-    def test_web_subarea_scope_takes_the_persistent_pool(self) -> None:
+    def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
         # Run 41275619982 (2026-11-01): job 124762739841 waited 50 minutes unassigned on LINUX_RUNNER's
         # stalled 32 vCPU size while every webview shard waited behind it.
         document = yaml.safe_load((WORKFLOWS / "ci-web.yml").read_text(encoding="utf-8"))
@@ -316,7 +317,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotIn("LINUX_RUNNER", runs_on)
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:

@@ -98,6 +98,7 @@ STALE_HOURS = 24
 # cron feeds gets a pass within STALE_HOURS: the goals in cmuxterm-hq's NOW (terminal-throughput reads
 # terminal.throughput.ratio) need one every 24 h. Four hours under that leave room for one queue wait and the part.
 PART_STALE_HOURS = 20
+SUPERSEDE_AFTER_HOURS = 24  # a tip measurement younger than this keeps its Mac parts for an unread part (supersede_for_unread)
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
 ABANDON_WALL_HOURS = 48     # the hard cap, yielding included
 # A tip measurement closed at its bound (close_at_bound) has this long to finish before it is abandoned after all.
@@ -1311,13 +1312,19 @@ def supersede_for_unread(state, t, newest, supported_parts):
     """End the Mac parts still to do of the tip measurement in flight as 'superseded' when a part that never produced a
     reading (unread_missing) runs at newest, the newest measurable commit with a published cmux-tui tree (plan): the
     measurement finishes with the parts that ran, as after no_host_for_tip, and the next tip, which has the part,
-    measures it first (part_order). Once per part: every newer tip has it. Returns why, or None.
+    measures it first (part_order). Once per part: every newer tip has it. A measurement younger than
+    SUPERSEDE_AFTER_HOURS keeps its parts. Returns why, or None.
 
     2026-11-22: tip 9a55953f had measured 24 of its 28 parts in 165 h, and chat-size (cmux#48916, merged after it)
     had never run, so NOW's infinite_chat_size_ratio_max read unknown for days."""
     cur = state.get("current")
     missing = unread_missing(state, cur)
     if not missing or not newest:
+        return None
+    # Only a measurement a day old gives way: parts land most days, so giving way at once restarted every Mac pass
+    # before it finished (tip 12aa19c2, 2026-11-22: 4 Mac parts done, 17 superseded for tabs and typing 12 h in,
+    # chat-size among them). Wall time, not active_hours: the stall this fixes was yielding to the fleet.
+    if hours_between(parse_iso(cur["started_at"]), t) < SUPERSEDE_AFTER_HOURS:
         return None
     have = [p for p in missing if p in supported_parts(newest)]
     if not have:

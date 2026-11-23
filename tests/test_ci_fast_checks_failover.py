@@ -40,8 +40,6 @@ BLACKSMITH_LINUX = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(-arm)?")
 HOSTED = re.compile(r"ubuntu-(latest|slim|\d)")
 
 
-PERSISTENT = "'cmux-linux'"
-
 def runs_on_lines() -> list[str]:
     text = WORKFLOW.read_text(encoding="utf-8")
     return [line for line in text.splitlines() if re.match(r"^\s*runs-on\s*:", line)]
@@ -75,19 +73,19 @@ class FastChecksFailoverTests(unittest.TestCase):
             receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
         return result, receipt
 
-    def test_the_label_comes_from_the_persistent_pool(self) -> None:
+    def test_the_label_comes_from_the_linux_pool(self) -> None:
         # The Linux job's label; setup=kernel-free's Mac job (checks-mac) names the owned side-light pool.
-        lines = [line for line in runs_on_lines() if PERSISTENT in line]
+        lines = [line for line in runs_on_lines() if "RUNNER_POOLS" in line]
         self.assertEqual(len(lines), 1)
         line = lines[0].rstrip()
-        self.assertTrue(line.endswith(f"|| {PERSISTENT} }}}}"), line.strip())
+        self.assertTrue(line.endswith(POOL), line.strip())
         # Past the re-dispatch input, no size is written down.
         self.assertNotRegex(line.split("inputs.runner ||")[-1], BLACKSMITH_LINUX)
 
-    def test_the_linux_job_names_the_persistent_pool(self) -> None:
+    def test_the_linux_pool_is_selected_from_the_live_pool_variable(self) -> None:
         lines = runs_on_lines()
         self.assertTrue(lines)
-        self.assertTrue(any(PERSISTENT in line for line in lines))
+        self.assertTrue(any("fromJSON(vars.RUNNER_POOLS).linux" in line for line in lines))
         for line in lines:
             # The fallback after the broker input is the live pool value, never
             # one hard-coded Blacksmith size.
