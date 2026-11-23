@@ -81,7 +81,9 @@ describe("make cmux yours", () => {
       "onboarding.makeItYours.windowStyle.two-tone",
     ])
       expect(words).toContain(strings.t(key));
-    for (const name of ["Catppuccin", "Nord", "Dracula", "14 pt"]) expect(words).toContain(name);
+    // Theme tiles are swatches in the default look: each is named by its radio.
+    for (const name of ["Catppuccin", "Nord", "Dracula"]) expect(html).toContain(`aria-label="${name}"`);
+    expect(words).toContain("14 pt");
     // No reset while Text Size is the density's.
     expect(html).not.toContain("onb-make-reset");
     // The tiles are pictures: each is named by its radio (and the chosen one under the window).
