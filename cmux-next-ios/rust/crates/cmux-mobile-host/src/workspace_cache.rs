@@ -285,6 +285,16 @@ async fn session(path: &std::path::Path, published: &Published, generation: u64)
     session_with_probe(path, published, generation, IDLE_PROBE_INTERVAL, QUERY_WAIT).await
 }
 
+/// The cache connection's hello: page records for surface checks, then the subscription.
+fn cache_hello() -> String {
+    format!(
+        "{{\"cmd\":\"set-client-info\",\"id\":\"cache-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"{}\",\"{}\",\"{}\"]}}\n{{\"cmd\":\"subscribe\",\"id\":\"cache-subscribe\",\"tree_events\":\"deltas\"}}\n",
+        cmux_mobile_link::names::CONVERSATION_TABS,
+        cmux_mobile_link::names::PAGE_TABS,
+        cmux_mobile_link::names::AGENT_SESSION_TABS
+    )
+}
+
 async fn session_with_probe(
     path: &std::path::Path,
     published: &Published,
@@ -300,7 +310,7 @@ async fn session_with_probe(
     // subscription can go missing. Negotiate page records for surface checks, and agent
     // session tabs as they are (the daemon shows them as browser tabs otherwise), so a
     // phone's bind is checked against the tab's own host and session.
-    write.write_all(b"{\"cmd\":\"set-client-info\",\"id\":\"cache-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\",\"agent-session-tabs-v1\"]}\n{\"cmd\":\"subscribe\",\"id\":\"cache-subscribe\",\"tree_events\":\"deltas\"}\n").await.map_err(|_| ())?;
+    write.write_all(cache_hello().as_bytes()).await.map_err(|_| ())?;
     let mut state = Snapshots::default();
     let mut subscribed = false;
     let startup_deadline = Instant::now() + QUERY_WAIT;
@@ -505,6 +515,15 @@ fn find<'a>(entities: &'a mut [Value], key: &str, id: u64) -> Result<&'a mut Val
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The hello is the bytes hostd always sent, its capability names now from the registry.
+    #[test]
+    fn cache_hello_is_unchanged() {
+        assert_eq!(
+            cache_hello(),
+            "{\"cmd\":\"set-client-info\",\"id\":\"cache-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\",\"agent-session-tabs-v1\"]}\n{\"cmd\":\"subscribe\",\"id\":\"cache-subscribe\",\"tree_events\":\"deltas\"}\n"
+        );
+    }
 
     #[tokio::test]
     async fn one_worker_per_socket_lives_only_while_handles_exist() {
