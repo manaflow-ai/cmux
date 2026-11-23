@@ -378,7 +378,7 @@ impl NFSFileSystem for Nfs {
 #[must_use]
 pub fn mount_options(port: u16) -> String {
     let mut options = format!(
-        "vers=3,tcp,port={port},mountport={port},locallocks,rsize=1048576,wsize=1048576,\
+        "vers=3,tcp,noresvport,port={port},mountport={port},locallocks,rsize=1048576,wsize=1048576,\
          readahead=16,nobrowse,soft,intr,timeo=10,retrans=3,deadtimeout=30"
     );
     if let Ok(extra) = std::env::var("CMUX_PROJECTION_NFS_OPTS")
