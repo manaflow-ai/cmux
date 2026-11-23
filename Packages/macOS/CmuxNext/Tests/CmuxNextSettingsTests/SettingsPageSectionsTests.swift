@@ -22,13 +22,13 @@ struct SettingsPageSectionsTests {
         #expect(SettingsPageLayout.sidebarSections.allSatisfy { !$0.categories.isEmpty })
     }
 
-    /// Six pages (one settings area, findings G6; Leo 2026-11-22: "ay, fuck it we ball"): every
-    /// section is titled, and the sidebar draws each as one link that opens its first category.
+    /// Seven pages (one settings area, findings G6; Leo 2026-11-22: "ay, fuck it we ball"; design
+    /// court dp-d5c2e44ba3 keeps Tools): every section is titled, and the sidebar draws each as one link that opens its first category.
     @Test func everySectionIsATitledPage() {
         let sections = SettingsPageLayout.sidebarSections
         #expect(sections.allSatisfy { $0.title?.key != nil })
-        #expect(sections.map(\.id) == ["general", "appearance", "ai", "devices", "keyboard", "advanced"])
-        #expect(sections.map { $0.categories.first?.id } == ["general", "appearance", "chat", "accounts", "keyboard", "advanced"])
+        #expect(sections.map(\.id) == ["general", "appearance", "ai", "devices", "keyboard", "tools", "advanced"])
+        #expect(sections.map { $0.categories.first?.id } == ["general", "appearance", "chat", "accounts", "keyboard", "terminal", "advanced"])
     }
 
     @Test func theExportCarriesTheSidebarSections() throws {

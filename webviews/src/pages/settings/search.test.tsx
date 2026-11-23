@@ -46,7 +46,7 @@ test("a result's header is its page then its category", async () => {
   await changeValue(search(page), "font");
   const title = (id: string) =>
     page!.container.querySelector(`[data-search-results] [data-section="${id}"] .result-section-title`)?.textContent;
-  expect(title("terminal")).toBe("Terminal and Browser › Terminal");
+  expect(title("terminal")).toBe("Tools › Terminal");
   await changeValue(search(page), "transparency");
   expect(title("appearance")).toBe("Appearance");
 });
