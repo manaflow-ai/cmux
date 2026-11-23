@@ -191,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: f8195c5b7317d2ff376b6a12ca08e3c75c4ebe0fd0ab5edfaeef629c0a6149ba
+// app-ffi-pin-checksum: 5b64a461dd0562022e68c71330630c9d133754f8437bc44bd5b3dea8a5c14622
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -2616,7 +2616,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("Localizable.xcstrings"),
             ],
             swiftSettings: daemonSwiftSettings,
-            // The Schema/*.generated.swift files, from schemas/settings (RFD 0048).
+            // The Schema/<name>.generated.swift files, from schemas/settings (RFD 0048).
             plugins: [.plugin(name: "SettingsSchemaPlugin")]
         ),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
