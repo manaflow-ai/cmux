@@ -8,7 +8,6 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
@@ -93,6 +92,7 @@ strings.__cmuxPaneStrings = { en: english };
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 setBookmarkTransport({
   get: async (sessionId) => ({ sessionId, bookmarks: [] }),

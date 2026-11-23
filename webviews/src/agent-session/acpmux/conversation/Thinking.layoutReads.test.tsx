@@ -6,9 +6,14 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { Thinking } from "./Thinking";
-import { type WorkingCounts, WorkingCountsContext } from "./workingForModel";
+import type { WorkingCounts } from "./workingForModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+// Loaded with a document in place: this file installs its own jsdom per test (import-order-lint).
+const [{ Thinking }, { WorkingCountsContext }] = await importWithDom(() =>
+  Promise.all([import("./Thinking"), import("./workingForModel")]),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

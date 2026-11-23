@@ -277,6 +277,11 @@ pub struct Sources {
     /// by itself with its required scopes (the user wrote it) and reloads
     /// when its files change (`local_reload.rs`).
     pub customize: Option<PathBuf>,
+    /// The person's saved prompts (`cmux agent-config commands add --agent cmux`): one `NAME.md`
+    /// each, `$CMUX_COMMANDS_DIR`, else `$XDG_CONFIG_HOME/cmux/commands`, else
+    /// `~/.config/cmux/commands`. `apps.composer.list` answers them first, so the composer's `/`
+    /// menu lists them in every chat (`composer.rs`).
+    pub saved_prompts: Option<PathBuf>,
     /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
     /// directory as the default set when present.
     pub defaults: Option<Vec<String>>,
@@ -305,6 +310,11 @@ impl Sources {
             extra,
             local: state_dir.map(|d| d.join("apps").join("local")),
             customize: customize_dir(),
+            saved_prompts: std::env::var_os("HOME").filter(|h| !h.is_empty()).map(|home| {
+                cmux_agent_customize::paths::cmux_commands_dir(Path::new(&home), |name| {
+                    std::env::var_os(name)
+                })
+            }),
             defaults,
         }
     }
@@ -511,10 +521,22 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     }
     // First-party only from the shipped directories (the first-party dir and
     // the samples next to the daemon's real executable): a cmux/ or
-    // manaflow-ai/ id in a CMUX_APPS_DIRS directory is unverified (no native
-    // server, no served ops).
+    // manaflow-ai/ id in a CMUX_APPS_DIRS directory (the store packages) is
+    // Verified when cmux's store key signed exactly these files
+    // (`store_trust`), else unverified (no native server, no served ops).
     let tier = if first_party && matches!(kind, DirKind::FirstParty | DirKind::Bundled) {
         Tier::FirstParty
+    } else if first_party
+        && kind == DirKind::Extra
+        && super::store_trust::verify(
+            dir,
+            &id,
+            manifest.get("version").and_then(Value::as_str).unwrap_or_default(),
+            &super::store_trust::trusted_keys(),
+        )
+        .is_ok()
+    {
+        Tier::Verified
     } else {
         Tier::Unverified
     };

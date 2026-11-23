@@ -432,7 +432,14 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
         connection: c.id,
         account: approved.account,
         scopes_granted: [...approved.scopes_granted],
-        ...(approved.resources ? { resources: { repos: approved.resources.repos === null ? null : [...approved.resources.repos] } } : {})
+        ...(approved.resources
+          ? {
+              resources: {
+                repos: approved.resources.repos === null ? null : [...approved.resources.repos],
+                ...(approved.resources.linked_by_github_id !== undefined ? { linked_by_github_id: approved.resources.linked_by_github_id } : {})
+              }
+            }
+          : {})
       }, `activate:${c.id}:${sha256(canonicalJson([approved.account.key, approved.scopes_granted, approved.resources ?? null])).slice(0, 43)}`)
     const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
     // An exchange that began inside the lifetime and finished after it still activates when the
@@ -617,13 +624,24 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * - `installation.unsuspend`, or `installation.new_permissions_accepted` while the installation is not
    *   suspended: a connection a suspension marked is active again; the granted permissions are synced.
    * - `installation_repositories.removed`: the removed repositories leave the recorded list.
-   *   An added repository is not joined: under `linking_user_repos` the list is what the linking user
-   *   could reach, which only their own GitHub sign-in can tell (they relink, or Connect opens it);
-   *   under `installation` scope the list is not consulted.
+   * - `installation_repositories.added`: under `linking_user_repos` the list is what the linking user
+   *   could reach. When the delivery's `sender` is that user (`resources.linked_by_github_id`, recorded
+   *   at link time), the added repositories join it: adding a repository to an installation takes
+   *   administering it, so the sender reaching it is proven. Any other sender, or a connection with no
+   *   recorded id (linked before it was recorded), joins nothing; only the linking user's own sign-in
+   *   can tell what they reach (they relink, or Connect opens it). Under `installation` scope the list
+   *   is not consulted.
    */
   private githubInstallationEvent(c: Connection, event: ProviderEvent): void {
     if (c.status !== "active" && c.status !== "needs_reauth" && c.status !== "error") return
-    const p = (event.payload ?? {}) as { installation?: { permissions?: unknown; suspended_at?: unknown }; repositories_removed?: unknown }
+    const p = (event.payload ?? {}) as {
+      installation?: { permissions?: unknown; suspended_at?: unknown }
+      repositories_removed?: unknown
+      repositories_added?: unknown
+      sender?: { id?: unknown }
+    }
+    const names = (list: unknown) =>
+      Array.isArray(list) ? list.map((r) => (r as { full_name?: unknown } | null)?.full_name).filter((n): n is string => typeof n === "string") : []
     const key = (what: string) => `${what}:${c.id}:${event.delivery_id}`
     switch (event.event) {
       case "installation.deleted":
@@ -642,10 +660,15 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
         return
       }
       case "installation_repositories.removed": {
-        const removed = Array.isArray(p.repositories_removed)
-          ? p.repositories_removed.map((r) => (r as { full_name?: unknown } | null)?.full_name).filter((n): n is string => typeof n === "string")
-          : []
+        const removed = names(p.repositories_removed)
         if (removed.length > 0) this.submitSystem("connection.github.sync", { connection: c.id, repos_removed: removed }, key("github-sync"))
+        return
+      }
+      case "installation_repositories.added": {
+        const linkedBy = c.resources?.linked_by_github_id
+        if (linkedBy === undefined || !Array.isArray(c.resources?.repos) || p.sender?.id !== linkedBy) return
+        const added = names(p.repositories_added)
+        if (added.length > 0) this.submitSystem("connection.github.sync", { connection: c.id, repos_added: added }, key("github-sync"))
         return
       }
     }

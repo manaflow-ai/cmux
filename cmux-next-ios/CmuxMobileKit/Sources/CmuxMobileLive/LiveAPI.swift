@@ -426,7 +426,7 @@ extension LiveAPI {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
                 return ServiceFailureMessage(text: "You're offline. Connect to the internet and try again.")
             case .timedOut:
-                return ServiceFailureMessage(text: "The Cloud service didn't answer in time. Try again.")
+                return ServiceFailureMessage(text: "Can't reach the cmux Cloud service right now. Try again in a moment.")
             default:
                 return ServiceFailureMessage(text: "Couldn't reach the Cloud service. Try again in a moment.")
             }

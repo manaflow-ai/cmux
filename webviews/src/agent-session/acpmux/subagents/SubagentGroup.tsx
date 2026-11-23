@@ -34,6 +34,7 @@ import {
   STACK,
 } from "./subagentGroupModel";
 import { Clock } from "../../../ui/Typography";
+import { intl } from "../../../ui/intl";
 
 /// A subagent's avatar: the subagent mark in the agent's tone (another family's harness mark,
 /// AgentIdentity.tsx `foreignHarness`), and its place in the running wave
@@ -76,7 +77,7 @@ function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subag
   ].filter((part): part is string => typeof part === "string");
   const total = t("subagents.count", { n });
   if (states.length === 0) return total;
-  const list = new Intl.ListFormat(language, { type: "unit", style: "short" }).format(states);
+  const list = intl.ListFormat(language, { type: "unit", style: "short" }).format(states);
   return t("subagents.countAndStates", { count: total, states: list });
 }
 

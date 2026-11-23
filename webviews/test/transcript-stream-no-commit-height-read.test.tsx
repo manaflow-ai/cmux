@@ -6,7 +6,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller } from "./support/jsdomScroller";
 import { teardownDom } from "./support/domTeardown";
 
@@ -99,6 +98,7 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "offsetHeight", {
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
