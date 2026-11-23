@@ -70,6 +70,7 @@ dependencies = [
  "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
+ "cmux-usage-share",
  "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",
@@ -1791,6 +1792,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-duress"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-agent-cli-render",
+ "cmux-fault",
+ "ghostty-vt",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "toml",
+]
+
+[[package]]
 name = "cmux-embed"
 version = "0.1.0"
 dependencies = [
@@ -2601,6 +2617,15 @@ name = "cmux-terminal-prediction"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-terminal-projection"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
 name = "cmux-terminal-sizing"
 version = "0.1.0"
 dependencies = [
@@ -3006,6 +3031,21 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-usage-share"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cmux-config",
+ "getrandom 0.3.4",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
