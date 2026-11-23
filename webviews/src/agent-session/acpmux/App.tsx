@@ -413,6 +413,8 @@ import {
   workflowAgentTarget,
 } from "./subagents/subagentMessage";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
+import { AutoSessionBanner } from "./autoSession/AutoSessionBanner";
+import { autoUnderHeader } from "./autoSession/autoSession";
 import type { LocalCommand } from "./localCommands";
 import {
   composerAgentLocal,
@@ -4477,11 +4479,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The tab's chat is not listed yet and its last-read rows are drawn (direct.ts `drawMissingTail`):
   /// why it is not here is a line under the header, over the transcript, not the centered state.
   const missingRows = !!snapshot.unavailable && snapshot.missingSession !== undefined && snapshot.rows.length > 0;
+  // An Auto chat's line and its kept-changes notice (autoSession/AutoSessionBanner.tsx): where the
+  // chat runs when that is not this Mac. A chat nobody runs says Resuming only once the person sent.
+  const autoSession = snapshot.summary?.autoSession;
+  const autoSending = snapshot.isWorking === true || snapshot.queue.length > 0;
+  const autoChat = snapshot.sessionId;
+  const autoBanner =
+    autoSession && autoChat && autoUnderHeader(autoSession, autoSending) ? (
+      <AutoSessionBanner
+        key={autoChat}
+        auto={autoSession}
+        sending={autoSending}
+        onSetUpCloud={() => connectMachine("cloud")}
+        onLeftover={(action) =>
+          directClient.current?.autoLeftover(autoChat, action) ?? Promise.reject(new Error(t("error.notOpen")))
+        }
+        onFailed={notices.failed}
+      />
+    ) : null;
   const underHeader: UnderHeaderLines = {
     checkpointReview: checkpoints.review != null,
     unavailable: missingRows && snapshot.unavailable?.reason !== "connecting",
     liveChat: !!snapshot.liveChat,
     peerCopy: !!snapshot.peerCopy?.offline,
+    autoSession: autoBanner !== null,
     watching: !!snapshot.summary?.watching,
     handoffError: !reviewing && !!snapshot.handoff?.error,
   };
@@ -9656,6 +9677,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     turnWorking,
     summaryPanel,
     underHeader,
+    autoBanner,
     checkpoints,
     cloudUnavailable,
     cloudRecovery,
