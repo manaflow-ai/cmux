@@ -135,6 +135,8 @@ mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
+mod machine_chats;
+#[cfg(unix)]
 mod mobile_chat;
 #[cfg(unix)]
 pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkError;
@@ -154,6 +156,8 @@ pub use agent_session_attach::{
 pub(crate) use agent_session_attach::{
     close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
+#[cfg(unix)]
+pub use machine_chats::machine_chats;
 #[cfg(unix)]
 pub mod agent_transfer;
 mod app_trust;
@@ -335,7 +339,7 @@ use socket_path::default_socket_path_in_runtime_dir;
 pub(crate) use socket_path::unix_socket_path_fits;
 pub use socket_path::{
     default_socket_path, try_default_socket_path, try_default_socket_path_in_base,
-    validate_session_name,
+    try_default_socket_path_in_base_scoped, validate_session_name,
 };
 pub(crate) mod activity;
 mod browser_input;

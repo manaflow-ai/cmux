@@ -362,6 +362,90 @@ class AppReviewGateTests(unittest.TestCase):
               json.dumps({"description": "cmux for iPhone", "supportUrl": "https://cmux.com/support"}))
         self.assertIn("metadata.subscription-terms", self.rules(self.run_lint()))
 
+    INTERNAL_NOTES = "cmux-next-ios/AppStoreReview/review-notes-asc-internal.txt"
+    TRUTHFUL_INTERNAL_NOTES = ('## comment: "Subscribe" in a comment line is not sent\n'
+                               'Settings > "Plan" shows the account\'s current plan.\n'
+                               "This version offers no purchase, no subscription and no external purchase link.\n")
+
+    def write_no_sale(self, internal_notes: str, bundles: str = '"dev.cmux.app.internal"') -> None:
+        """A selling tree (write_billing) whose app lists cmux INTERNAL in
+        appsWithoutSubscriptions (cmux#50453), with INTERNAL's own notes."""
+        self.write_billing()
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/BillingPurchaseAvailability.swift",
+              f"public struct BillingPurchaseAvailability {{\n"
+              f"    public static let appsWithoutSubscriptions: Set<String> = [{bundles}]\n}}\n")
+        write(self.root, self.INTERNAL_NOTES, internal_notes)
+
+    def iap_findings(self, lane: str) -> dict[str, list[str]]:
+        found: dict[str, list[str]] = {}
+        for f in self.run_lint(lane).findings:
+            if f.rule.startswith(("iap.", "metadata.subscription")):
+                found.setdefault(f.rule, []).append(f"{f.severity}: {f.message}")
+        return found
+
+    def test_internal_notes_that_promise_a_purchase_block_a_build_that_sells_nothing(self) -> None:
+        self.write_no_sale('Settings > "Plan" opens "Plans". "Subscribe" buys in the Sandbox.\n'
+                           '"Restore Purchases" is there; "Manage Subscription" opens Apple\'s settings.\n')
+        found = self.iap_findings("internal-submission")
+        self.assertEqual(set(found), {"iap.review-notes"}, found)
+        message = found["iap.review-notes"][0]
+        self.assertTrue(message.startswith("blocker: "), message)
+        for word in (self.INTERNAL_NOTES, '"Subscribe"', '"Restore Purchases"', '"Manage Subscription"', "Sandbox",
+                     "dev.cmux.app.internal"):
+            self.assertIn(word, message)
+
+    def test_internal_notes_must_still_name_the_plan_row(self) -> None:
+        self.write_no_sale("This version offers no purchase.\n")
+        self.assertIn('never names "Plan"', self.iap_findings("internal-submission")["iap.review-notes"][0])
+
+    def test_truthful_internal_notes_pass_and_the_selling_rules_do_not_apply(self) -> None:
+        self.write_no_sale(self.TRUTHFUL_INTERNAL_NOTES)
+        # No restore, renewal terms, manage sheet or listing Terms link: a build that sells nothing owes none.
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBillingUI/MobilePlansView.swift",
+              'import StoreKit\nText("Plans")\n')
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/LiveStoreKitClient.swift",
+              "import StoreKit\n")
+        write(self.root, "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json",
+              json.dumps({"description": "cmux for iPhone", "supportUrl": "https://cmux.com/support"}))
+        self.assertEqual(self.iap_findings("internal-submission"), {})
+        self.assertIn("subscriptions", self.run_lint("internal-submission").checked)
+
+    def test_the_internal_notes_in_the_repository_pass_the_inverted_rule(self) -> None:
+        self.write_no_sale((ROOT / self.INTERNAL_NOTES).read_text())
+        self.assertEqual(self.iap_findings("internal-submission"), {})
+
+    def test_internal_notes_are_held_to_the_selling_rules_while_the_app_sells(self) -> None:
+        # Before the app lists dev.cmux.app.internal (cmux#50453), or once INTERNAL gets
+        # subscriptions and leaves the list, its build shows the purchase controls.
+        for bundles in ("", '"some.other.app"'):
+            with self.subTest(bundles=bundles):
+                self.write_no_sale(self.TRUTHFUL_INTERNAL_NOTES, bundles=bundles)
+                found = self.iap_findings("internal-submission")
+                self.assertEqual(set(found), {"iap.review-notes"}, found)
+                self.assertIn(self.INTERNAL_NOTES, found["iap.review-notes"][0])
+                self.assertIn('never names "Restore Purchases"', found["iap.review-notes"][0])
+
+    def test_the_appstore_lane_is_unchanged_by_the_internal_no_sale_list(self) -> None:
+        # com.cmux.app sells: its lane reads review-notes-asc.txt with every selling rule,
+        # whatever INTERNAL's notes or list say.
+        self.write_no_sale(self.TRUTHFUL_INTERNAL_NOTES)
+        self.assertEqual(self.iap_findings("appstore"), {})
+        self.write_no_sale('"Subscribe" "Restore Purchases" "Manage Subscription" Sandbox\n',
+                           bundles='"dev.cmux.app.internal", "com.cmux.app.not-this-one"')
+        self.assertEqual(self.iap_findings("appstore"), {})
+        write(self.root, "cmux-next-ios/AppStoreReview/review-notes-asc.txt", self.TRUTHFUL_INTERNAL_NOTES)
+        found = self.iap_findings("appstore")
+        self.assertEqual(set(found), {"iap.review-notes"}, found)
+        self.assertIn("cmux-next-ios/AppStoreReview/review-notes-asc.txt", found["iap.review-notes"][0])
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBillingUI/MobilePlansView.swift",
+              'import StoreKit\nText("Plans")\n')
+        self.assertTrue({"iap.restore", "iap.disclosure", "iap.manage"} <= set(self.iap_findings("appstore")))
+
+    def test_the_ordinary_internal_lane_keeps_the_appstore_notes_rule(self) -> None:
+        # The TestFlight nightly lane submits nothing: it judges as it did before.
+        self.write_no_sale('Settings > "Plan" opens "Plans". "Subscribe" buys in the Sandbox.\n')
+        self.assertEqual(self.iap_findings("internal"), {})
+
     def test_a_switched_entitlements_setting_judges_every_file_it_can_pick(self) -> None:
         # project.yml's AppStore configuration picks its entitlements by
         # CMUX_MOBILE_ASSOCIATED_DOMAINS; both files must carry Sign in with Apple.
@@ -811,6 +895,33 @@ class RealTreeTests(unittest.TestCase):
                 self.assertIn(f"func {name}(", tests, entry["key"])
             self.assertNotIn("agent", rule, "no agent rule is pinned")
 
+    def test_the_app_store_build_names_no_private_framework_path(self) -> None:
+        # The binary scan's api.private-framework blocker (2.5.1) failed the
+        # 1.0.0 upload's IPA check (run 44431574873): CmuxConversationUI named
+        # ChatKit's PrivateFrameworks path. Packages compile into every
+        # configuration, so the path lives only in the app target, compiled out
+        # of every shipping build (CMUX_MOBILE_PRODUCTION: Production, TestFlight,
+        # which builds the cmux INTERNAL record, TestFlightStaging and AppStore),
+        # and the package is handed the bundle.
+        packages = [p for p in (ROOT / "Packages/iOS").rglob("*.swift") if "PrivateFrameworks/" in p.read_text()]
+        self.assertEqual(packages, [], "an iOS package names a PrivateFrameworks path")
+        app = (ROOT / "cmux-next-ios/App/CmuxMobileApp.swift").read_text()
+        self.assertIn("PrivateFrameworks/ChatKit.framework", app)
+        depth = 0
+        for line in app.splitlines():
+            stripped = line.strip()
+            if stripped == "#if !CMUX_MOBILE_PRODUCTION":
+                depth += 1
+            elif depth and stripped.startswith("#if"):
+                depth += 1
+            elif depth and stripped == "#endif":
+                depth -= 1
+            elif "PrivateFrameworks/" in line:
+                self.assertGreater(depth, 0, f"outside #if !CMUX_MOBILE_PRODUCTION: {stripped}")
+        project = (ROOT / gate.PROJECT_YML).read_text()
+        for conditions in ("CMUX_MOBILE_PRODUCTION CMUX_MOBILE_TESTFLIGHT", "CMUX_MOBILE_PRODUCTION CMUX_MOBILE_APPSTORE"):
+            self.assertIn(f"SWIFT_ACTIVE_COMPILATION_CONDITIONS: {conditions}", project)
+
     def test_pushes_and_pull_requests_fail_on_a_new_blocker(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
         self.assertIn('--known-blockers "base/$known" --proposed-known-blockers "$known"', workflow)
@@ -1219,6 +1330,21 @@ class InternalSubmissionTests(unittest.TestCase):
         submit = doc["jobs"]["submit"]["steps"][-1]["run"]
         self.assertIn('[ "$CONFIRM" != SUBMIT ] || mode=--confirm-submit', submit)
         self.assertIn("mode=--dry-run", submit)
+
+    def test_the_submission_writes_cmux_internals_own_review_notes(self) -> None:
+        # The INTERNAL record sells nothing: its submit writes review-notes-asc-internal.txt
+        # (asc_review_package.py --config TestFlight) before it validates and submits.
+        steps = self.workflow("ios-internal-submit.yml")["jobs"]["submit"]["steps"]
+        self.assertIn("cmux-next-ios/AppStoreReview", steps[0]["with"]["sparse-checkout"].split())
+        self.assertIn('--build-number "$BUILD_NUMBER" --config TestFlight "$mode"', steps[-1]["run"])
+        script = (ROOT / "cmux-next-ios/scripts/asc_submit_review.sh").read_text()
+        notes_at = script.index('asc_review_package.py" --app "$app" --config "$config" "${notes[@]}"')
+        self.assertLess(notes_at, script.index("asc validate --app"))
+        self.assertIn("[[ $dry_run == 0 ]] || notes+=(--dry-run)", script)
+        proc = subprocess.run(["bash", str(ROOT / "cmux-next-ios/scripts/asc_submit_review.sh"), "submit", "--app", "1",
+                               "--version", "1.2.0", "--build-number", "2", "--dry-run"], capture_output=True, text=True)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("submit needs --config AppStore or TestFlight", proc.stderr)
 
     def test_the_receipt_round_trips_and_refuses_another_run_or_a_blocker(self) -> None:
         nightly = self.workflow("ios-internal-nightly.yml")["jobs"]["submission-receipt"]["steps"][0]["run"]

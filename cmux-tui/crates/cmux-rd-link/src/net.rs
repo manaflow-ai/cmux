@@ -25,6 +25,7 @@ use crate::{KeyPair, LinkError, Role};
 use cmux_rd_proto::{DatagramDeparture, DatagramHeader, MAX_DEPARTURE_RECEIPTS};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::io;
 use std::mem::size_of_val;
@@ -102,11 +103,7 @@ impl Candidate {
         if self.kind == CandidateKind::Relay {
             return PathKind::TurnRelay;
         }
-        let local = match self.addr.ip() {
-            IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
-            IpAddr::V6(v6) => (v6.segments()[0] & 0xfe00) == 0xfc00 || v6.is_loopback(),
-        };
-        if self.kind == CandidateKind::Host && local {
+        if self.kind == CandidateKind::Host && crate::endpoint::is_local(self.addr.ip()) {
             PathKind::DirectLan
         } else {
             PathKind::DirectWan
@@ -168,6 +165,78 @@ pub enum NetEvent {
     },
     /// The link failed (handshake timeout, wrong peer, socket error); the driver stopped.
     Failed(String),
+    /// A connect step happened, once each per driver: where connect time goes
+    /// ([`ConnectPhase`]). `at_us` counts from [`Net::start`]; `route` is the
+    /// path it happened on, when there is one.
+    Phase {
+        phase: ConnectPhase,
+        at_us: u64,
+        route: Option<Route>,
+    },
+}
+
+impl NetEvent {
+    /// A [`NetEvent::Phase`] as the one stdout line `cmux rd serve`, `connect`
+    /// and `bench --link` print for it:
+    /// `{"phase":"first_check_answered","ms":0.42,"route":"172.20.21.17:61200"}`
+    /// (`ms` from [`Net::start`]; `route` is `relay<N>><peer>` for a relayed
+    /// path and absent when there is none). The app's line reader reads a line
+    /// it does not know as empty, so the line is safe on the app's pipe too.
+    pub fn phase_line(&self) -> Option<String> {
+        let Self::Phase { phase, at_us, route } = self else { return None };
+        let ms = *at_us as f64 / 1000.0;
+        let route = match route {
+            Some(Route::Udp(addr)) => format!(",\"route\":\"{addr}\""),
+            Some(Route::Relay { relay, peer }) => format!(",\"route\":\"relay{relay}>{peer}\""),
+            None => String::new(),
+        };
+        Some(format!("{{\"phase\":\"{}\",\"ms\":{ms:.3}{route}}}", phase.name()))
+    }
+}
+
+/// The steps of a connect, in the order a healthy one reaches them (gathering
+/// runs beside the others, and nothing on the link waits for it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectPhase {
+    /// Every local candidate was reported (`CandidatesDone`).
+    GatherDone,
+    /// The first packet to the peer left on any path (msg1 or a punch).
+    FirstCheckSent,
+    /// The first packet from the peer arrived on any path.
+    FirstCheckAnswered,
+    /// The first handshake message was sent or received.
+    HandshakeStart,
+    /// The link is up (`Established`).
+    HandshakeDone,
+    /// The selector picked the first path (`PathChanged` with a route).
+    Nominated,
+}
+
+impl ConnectPhase {
+    const ALL: [Self; 6] = [
+        Self::GatherDone,
+        Self::FirstCheckSent,
+        Self::FirstCheckAnswered,
+        Self::HandshakeStart,
+        Self::HandshakeDone,
+        Self::Nominated,
+    ];
+
+    /// The name the binaries print (`{"phase": NAME, ...}`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::GatherDone => "gather_done",
+            Self::FirstCheckSent => "first_check_sent",
+            Self::FirstCheckAnswered => "first_check_answered",
+            Self::HandshakeStart => "handshake_start",
+            Self::HandshakeDone => "handshake_done",
+            Self::Nominated => "nominated",
+        }
+    }
+
+    fn bit(self) -> u8 {
+        1 << Self::ALL.iter().position(|p| *p == self).unwrap_or(0)
+    }
 }
 
 /// Servers still resolving when the link started: `None` until they are
@@ -419,6 +488,8 @@ impl Net {
             start: Instant::now(),
             gathered: std::cell::Cell::new([0; 3]),
             heard: 0,
+            phases: std::cell::Cell::new(0),
+            refused: BTreeMap::new(),
         };
         // Host candidates are known at once.
         for ip in interface_addresses().into_iter().filter(|_| !config.relay_only) {
@@ -613,6 +684,42 @@ struct Driver {
     gathered: std::cell::Cell<[u32; 3]>,
     /// Packets from anywhere but a STUN or TURN server, handed to the link.
     heard: u64,
+    /// The [`ConnectPhase`]s already reported, one bit each.
+    phases: std::cell::Cell<u8>,
+    /// Sends the system refused, by OS error (`-1`: none given), for a failure's reason.
+    refused: BTreeMap<i32, u64>,
+}
+
+/// Sends `packet` to `to`, counting a refusal in `refused`. A refused send is not an error
+/// of the session (another path may work), but one that is never named reads as a silent
+/// network: a Mac app without Local Network access sees every LAN send fail with
+/// `EHOSTUNREACH` while the peer hears nothing (cmuxterm-hq CMUX-572).
+fn send_counted(
+    socket: &UdpSocket,
+    refused: &mut BTreeMap<i32, u64>,
+    packet: &[u8],
+    to: SocketAddr,
+) -> Option<(u64, usize)> {
+    send_to_observed(socket, refused, packet, to)
+}
+
+/// `; sends refused: <error> xN, ..`, or nothing when every send went out.
+fn refused_text(refused: &BTreeMap<i32, u64>) -> String {
+    if refused.is_empty() {
+        return String::new();
+    }
+    let each: Vec<String> = refused
+        .iter()
+        .map(|(code, n)| {
+            let error = if *code < 0 {
+                "unknown error".to_owned()
+            } else {
+                io::Error::from_raw_os_error(*code).to_string()
+            };
+            format!("{error} x{n}")
+        })
+        .collect();
+    format!("; sends refused: {}", each.join(", "))
 }
 
 impl Driver {
@@ -646,6 +753,33 @@ impl Driver {
             }
             self.gathered.set(gathered);
         }
+        let phase = match &event {
+            NetEvent::CandidatesDone => Some((ConnectPhase::GatherDone, None)),
+            NetEvent::Endpoint(EndpointEvent::Link(crate::Event::Established)) => {
+                Some((ConnectPhase::HandshakeDone, None))
+            }
+            NetEvent::Endpoint(EndpointEvent::PathChanged { route: Some(route), .. }) => {
+                Some((ConnectPhase::Nominated, Some(*route)))
+            }
+            _ => None,
+        };
+        self.send_event(event);
+        if let Some((phase, route)) = phase {
+            self.phase(phase, route);
+        }
+    }
+
+    /// Reports `phase` the first time it happens.
+    fn phase(&self, phase: ConnectPhase, route: Option<Route>) {
+        let seen = self.phases.get();
+        if seen & phase.bit() != 0 {
+            return;
+        }
+        self.phases.set(seen | phase.bit());
+        self.send_event(NetEvent::Phase { phase, at_us: now_us(self.start), route });
+    }
+
+    fn send_event(&self, event: NetEvent) {
         if self.events.send(event).is_ok() {
             // SAFETY: one byte from a local to the event pipe's write end (owned by `Net`,
             // which joins this thread before closing it).
@@ -681,18 +815,23 @@ impl Driver {
 
     fn send(&mut self, route: Route, packet: &[u8], now: u64) -> Option<(u64, usize)> {
         match route {
-            Route::Udp(addr) => send_to_observed(&self.socket, packet, addr),
+            Route::Udp(addr) => send_counted(&self.socket, &mut self.refused, packet, addr),
             Route::Relay { relay, peer } => {
                 let r = self.relays.get_mut(usize::from(relay))?;
                 let wrapped = r.client.send(peer, packet, now)?;
-                send_to_observed(&self.socket, &wrapped, r.server)
+                send_counted(&self.socket, &mut self.refused, &wrapped, r.server)
             }
         }
     }
 
     fn flush(&mut self, now: u64) -> Result<(), LinkError> {
         for t in self.endpoint.poll_transmit(now)? {
-            let _ = self.send(t.route, &t.packet, now);
+            if self.send(t.route, &t.packet, now).is_some() {
+                self.phase(ConnectPhase::FirstCheckSent, Some(t.route));
+                if is_handshake(&t.packet) {
+                    self.phase(ConnectPhase::HandshakeStart, Some(t.route));
+                }
+            }
         }
         for event in self.endpoint.take_events() {
             self.emit(NetEvent::Endpoint(event));
@@ -753,7 +892,12 @@ impl Driver {
             }
             q.attempts += 1;
             q.next_us = now + STUN_RETRY_US;
-            let _ = self.socket.send_to(&binding_request(q.transaction), q.server);
+            send_counted(
+                &self.socket,
+                &mut self.refused,
+                &binding_request(q.transaction),
+                q.server,
+            );
         }
         self.maybe_done(now);
     }
@@ -773,7 +917,7 @@ impl Driver {
     fn turn_tick(&mut self, now: u64) {
         for r in &mut self.relays {
             for packet in r.client.poll_transmit(now) {
-                let _ = self.socket.send_to(&packet, r.server);
+                send_counted(&self.socket, &mut self.refused, &packet, r.server);
             }
         }
         self.turn_events(now);
@@ -834,6 +978,12 @@ impl Driver {
 
     /// Feeds one link packet to the endpoint. True when the peer closed the session.
     fn deliver(&mut self, route: Route, packet: &[u8], now: u64) -> Result<bool, LinkError> {
+        if self.phases.get() & ConnectPhase::HandshakeDone.bit() == 0 {
+            self.phase(ConnectPhase::FirstCheckAnswered, Some(route));
+            if is_handshake(packet) {
+                self.phase(ConnectPhase::HandshakeStart, Some(route));
+            }
+        }
         for event in self.endpoint.on_packet(route, packet, now)? {
             let closed = matches!(event, EndpointEvent::Link(crate::Event::Closed));
             self.emit(NetEvent::Endpoint(event));
@@ -885,7 +1035,7 @@ impl Driver {
 
     /// What this side gathered and what the peer sent, by kind, for a failure's reason
     /// ([`no_path`]): whether the handshake ever reached this side and which routes each
-    /// side had. Counts only, never an address.
+    /// side had (the sends the system refused follow it, [`refused_text`]). Counts only, never an address.
     fn candidate_counts(&self) -> (no_path::Counts, no_path::Counts) {
         let mut peer = [0u32; 3];
         for c in &self.remote {
@@ -905,6 +1055,7 @@ impl Driver {
             LinkError::HandshakeTimeout => no_path::handshake_timeout(local, peer, self.heard),
             e => format!("{e} ({})", no_path::counts(local, peer, self.heard)),
         };
+        let why = format!("{why}{}", refused_text(&self.refused));
         self.emit(NetEvent::Failed(why));
     }
 
@@ -958,7 +1109,7 @@ impl Driver {
                         }
                         for r in &mut self.relays {
                             for packet in r.client.close() {
-                                let _ = self.socket.send_to(&packet, r.server);
+                                send_counted(&self.socket, &mut self.refused, &packet, r.server);
                             }
                         }
                         return Ok(());
@@ -1017,4 +1168,9 @@ impl Driver {
             }
         }
     }
+}
+
+/// A Noise handshake message (msg1, msg2 or msg3).
+fn is_handshake(packet: &[u8]) -> bool {
+    matches!(packet.first(), Some(&(crate::TAG_HANDSHAKE_1..=crate::TAG_HANDSHAKE_3)))
 }
