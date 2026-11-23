@@ -361,18 +361,10 @@ struct CustomSidebarValidationTests {
 struct CustomSidebarSampleContextTests {
     /// The workspaces the validator samples, as field dictionaries.
     private func sampleWorkspace(titled title: String) throws -> [String: SwiftValue] {
-        let workspaces = try #require(SwiftValue.extract(
-            "workspaces", from: CustomSidebarValidator.defaultDataContext
-        ))
-        let items = try #require(SwiftValue.arrayElements(workspaces))
-        for item in items {
-            if let fields = SwiftValue.objectFields(item), fields["title"] == .string(title) {
-                return fields
-            }
-        }
-        Issue.record("The sample context has no workspace titled \(title)")
-        struct MissingSampleWorkspace: Error {}
-        throw MissingSampleWorkspace()
+        let context = CustomSidebarValidator.defaultDataContext
+        let workspaces = try #require(SwiftValue.arrayElements(context["workspaces"]))
+        let match = workspaces.lazy.compactMap { SwiftValue.objectFields($0) }.first { $0["title"] == .string(title) }
+        return try #require(match, "The sample context has no workspace titled \(title)")
     }
 
     @Test("the sample data context carries the render builder's shapes and optionality")
@@ -459,12 +451,8 @@ struct CustomSidebarSampleContextTests {
 
 /// Test-only projections over ``SwiftValue`` payloads.
 private extension SwiftValue {
-    static func extract(_ key: String, from context: [String: SwiftValue]) -> SwiftValue? {
-        context[key]
-    }
-
-    static func arrayElements(_ value: SwiftValue) -> [SwiftValue]? {
-        if case .array(let items) = value { return items }
+    static func arrayElements(_ value: SwiftValue?) -> [SwiftValue]? {
+        if case .array(let items)? = value { return items }
         return nil
     }
 

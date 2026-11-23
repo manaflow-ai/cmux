@@ -161,6 +161,16 @@ public struct CustomSidebarValidator {
         return String(localized: "sidebar.custom.validation.readFailed", defaultValue: "Failed to read sidebar file.")
     }
 
+    /// The sample workspace's pull request; the builder emits the same object as `pr` and inside `prs`.
+    private static let samplePullRequest: SwiftValue = .object([
+        "number": .int(5812),
+        "label": .string("PR 5812"),
+        "url": .string("https://github.com/manaflow-ai/cmux/pull/5812"),
+        "status": .string("open"),
+        "stale": .bool(false),
+        "branch": .string("main"),
+    ])
+
     /// Representative data context used when validating Swift sidebars outside a live render.
     ///
     /// Every field present carries the type CustomSidebarDataContextBuilder emits
@@ -188,24 +198,8 @@ public struct CustomSidebarValidator {
                 "color": .string("#0A84FF"),
                 "branch": .string("main"),
                 "dirty": .bool(true),
-                "pr": .object([
-                    "number": .int(5812),
-                    "label": .string("PR 5812"),
-                    "url": .string("https://github.com/manaflow-ai/cmux/pull/5812"),
-                    "status": .string("open"),
-                    "stale": .bool(false),
-                    "branch": .string("main"),
-                ]),
-                "prs": .array([
-                    .object([
-                        "number": .int(5812),
-                        "label": .string("PR 5812"),
-                        "url": .string("https://github.com/manaflow-ai/cmux/pull/5812"),
-                        "status": .string("open"),
-                        "stale": .bool(false),
-                        "branch": .string("main"),
-                    ]),
-                ]),
+                "pr": samplePullRequest,
+                "prs": .array([samplePullRequest]),
                 "progress": .object([
                     "value": .double(0.42),
                     "label": .string("Running tests"),
