@@ -353,6 +353,8 @@
    #39934; Leo 2026-11-09: no blank stage and no jump when the notes load). */
 .wn-card[data-decoration="doodle"] .wn-card-note {
   min-height: 2.6em;
+  /* The change in full, as the plain card shows it (u51892): never cut after two lines. */
+  -webkit-line-clamp: none;
 }
 .wn-card[data-decoration="doodle"][data-glass] {
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
@@ -381,7 +383,11 @@
   flex-direction: column;
   justify-content: center;
   gap: var(--wn-gap);
-  height: var(--composer-material-height);
+  /* At least the composer's one-line box, and as tall as its lines (u51892, 2026-11-23: "the stuff
+     in this message box is now just cut off ... we need to elongate it according to how much content there
+     is. we need to show everything"): a fixed 48 cut the change line's descenders at every density whose
+     two lines need more than the box leaves, and a long change wraps instead of being cut at the edge. */
+  min-height: var(--composer-material-height);
   padding: 0 var(--wn-side);
 }
 /* The same room on all four sides of the words (Lawrence 2026-11-07, "feels like too much padding on
@@ -397,7 +403,9 @@
   .wn-updated:not([data-placement="button"]) :is(.wn-card-head > *, .wn-card-rest > p) {
     text-box: trim-both cap alphabetic;
   }
-  .wn-updated:not([data-placement="button"]) :is(.wn-card-title, .wn-card-rest > p) {
+  /* The title clips only sideways, so its trimmed descenders still show. The change line wraps and
+     never clips: clipped, its descenders were cut at its trimmed baseline (u51892). */
+  .wn-updated:not([data-placement="button"]) .wn-card-title {
     overflow: clip visible;
   }
 }
@@ -417,10 +425,9 @@
   white-space: nowrap;
 }
 .wn-updated .wn-card-title {
-  min-width: 0;
+  /* The title keeps its words (Leo 2026-11-23: "updated to ellipsis"): never cut to an ellipsis. */
+  flex: none;
   padding-right: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .wn-updated .wn-card-sep { flex: none; color: var(--page-text-3); }
 .wn-card-link {
@@ -439,12 +446,16 @@
 }
 .wn-card-link:hover { color: var(--page-text); }
 .wn-updated[data-placement="top-right"] .wn-card-link { margin-left: auto; }
+/* The change line in full (u51892, "we need to show everything"): where the card has a change line
+   (`two-line`, the button look) it wraps under the title and the card grows to hold it (the page
+   reports its height, the host sizes the slot to it), never clipped or cut. */
 .wn-updated .wn-card-note {
   display: block;
   margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: none;
 }
 .wn-updated[data-placement="button"] .wn-card-note { margin-top: var(--wn-gap); }
 

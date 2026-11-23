@@ -376,7 +376,7 @@ export function UpdatedCard({
         {top ? (
           <>
             <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
-            {top.phrases[0]}
+            {top.full[0] ?? top.phrases[0]}
           </>
         ) : (
           strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")

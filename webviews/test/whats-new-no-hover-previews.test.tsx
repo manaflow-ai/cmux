@@ -80,7 +80,12 @@ const noop = () => undefined;
 test("the Updated card's change titles show no hover preview", async () => {
   const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
   await render((strings) => (
-    <UpdatedCard data={data} strings={strings as never} actions={{ openChangelog: noop, dismiss: noop }} />
+    <UpdatedCard
+      data={data}
+      shape="two-line"
+      strings={strings as never}
+      actions={{ openChangelog: noop, dismiss: noop }}
+    />
   ));
   // The top change (updateSummary.ts's first area) and the rest of the card have no tooltip.
   expect(host.querySelectorAll(".wn-card-note").length).toBe(1);
