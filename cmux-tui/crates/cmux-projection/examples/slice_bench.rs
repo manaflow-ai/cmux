@@ -436,7 +436,7 @@ fn mount(args: &[String]) -> anyhow::Result<()> {
         overlay.serve_fsmonitor(&Path::new(state).join("fsmonitor.sock"))?;
         let warm = overlay.warm_git();
         let warm_ms = ms(warming);
-        let primed = overlay.prime_git();
+        let primed = overlay.prime_git(&at);
         println!(
             "{{\"fsmonitor_ready\":true,\"warm_ms\":{warm_ms:.1},\"ready_ms\":{:.1},\"repos\":{},\"warm_files\":{},\"warm_bytes\":{},\"warm_fetched_bytes\":{},\"primed\":{primed}}}",
             ms(warming),

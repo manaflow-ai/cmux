@@ -248,7 +248,12 @@ impl Overlay {
     /// journal, each entry the manifest shows unchanged since the index was written marked clean.
     /// Only an index still in the lower layer (one the agent's git already wrote is git's own),
     /// and only paths still in the lower layer are clean. Returns how many indexes it wrote.
-    pub fn prime_git(&self) -> usize {
+    ///
+    /// It writes as git does, through the mount at `mount` (so the kernel's view stays right):
+    /// `index.lock` made exclusively, then renamed over `index`. A git running meanwhile finds the
+    /// lock held and leaves the index alone, or holds it first and this one skips the repo. Call
+    /// it off the mount's own threads.
+    pub fn prime_git(&self, mount: &Path) -> usize {
         let mut primed = 0;
         for (_, dir) in self.git_dirs() {
             let index_path = join(&dir, "index");
@@ -256,25 +261,36 @@ impl Overlay {
             if self.upper.stat(&index_path).is_ok() {
                 continue;
             }
-            let Some(index_mtime) =
-                self.manifest.entry(index).map(|e| e.mtime_ns.div_euclid(1_000_000_000))
-            else {
+            let lock = mount.join(format!("{index_path}.lock"));
+            let Ok(mut file) = fs::File::options().write(true).create_new(true).open(&lock) else {
                 continue;
             };
-            // The token first: a change made from here on is after it, whatever is judged below.
-            let token = self.journal.token();
-            let Ok(bytes) = self.lower_bytes(index) else { continue };
-            let tree = Self::parent_of(&dir).to_owned();
-            let mut folders: HashMap<String, bool> = HashMap::new();
-            let rewritten = fsmonitor::prime(&bytes, &token, |entry| {
-                self.clean_since(&tree, entry, index_mtime, &mut folders)
+            // Under git's lock: whether the index is still the lower one is settled.
+            let rewritten =
+                self.upper.stat(&index_path).is_err().then(|| self.primed(&dir, index)).flatten();
+            let landed = rewritten.is_some_and(|bytes| {
+                file.write_all(&bytes).is_ok() && fs::rename(&lock, mount.join(&index_path)).is_ok()
             });
-            let Some(rewritten) = rewritten else { continue };
-            if self.write_index(&index_path, &rewritten).is_ok() {
+            if landed {
                 primed += 1;
+            } else {
+                let _ = fs::remove_file(&lock);
             }
         }
         primed
+    }
+
+    /// The bytes of lower index `index` (in `.git` folder `dir`) with its `FSMN` extension.
+    fn primed(&self, dir: &str, index: u32) -> Option<Vec<u8>> {
+        let index_mtime = self.manifest.entry(index)?.mtime_ns.div_euclid(1_000_000_000);
+        // The token first: a change made from here on is after it, whatever is judged below.
+        let token = self.journal.token();
+        let bytes = self.lower_bytes(index).ok()?;
+        let tree = Self::parent_of(dir).to_owned();
+        let mut folders: HashMap<String, bool> = HashMap::new();
+        fsmonitor::prime(&bytes, &token, |entry| {
+            self.clean_since(&tree, entry, index_mtime, &mut folders)
+        })
     }
 
     /// Whether index entry `entry` of the repo whose worktree is `tree` still matches its lower
@@ -308,16 +324,6 @@ impl Overlay {
             && (lower.mode & 0o100 != 0) == (entry.mode & 0o100 != 0)
             && lower.size as u32 == entry.size
             && lower.mtime_ns.div_euclid(1_000_000_000) == i64::from(entry.mtime_s)
-    }
-
-    /// Writes `bytes` over the file at `path` through the overlay, as a write through the mount
-    /// does (the lower file copied up first).
-    fn write_index(&self, path: &str, bytes: &[u8]) -> Result<(), i32> {
-        let ino = self.lookup_path(path)?.ino;
-        let handle = self.open_handle(ino, libc::O_WRONLY | libc::O_TRUNC)?;
-        let written = self.write_handle(handle, ino, 0, bytes);
-        self.release(handle);
-        written.map(drop)
     }
 
     /// Answers git's fsmonitor hook on the Unix socket `socket` (an old socket file there is

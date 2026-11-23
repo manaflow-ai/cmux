@@ -124,7 +124,6 @@ fn git_status_through_the_hook_matches_git_status_without_it() {
     assert_eq!(warm.repos, 1);
     // HEAD, config, the index, refs, and both `.gitignore` files at least.
     assert!(warm.files >= 5, "{warm:?}");
-    assert_eq!(overlay.prime_git(), 1);
     let at_path = std::fs::canonicalize(at.path()).unwrap();
     let mounted = match cmux_projection::mount::mount(overlay.clone(), &at_path) {
         Ok(mounted) => mounted,
@@ -133,6 +132,13 @@ fn git_status_through_the_hook_matches_git_status_without_it() {
             return;
         }
     };
+    // git already read the lower index through the mount: the primed one must replace it there.
+    assert_eq!(git(&at_path.join("repo"), &["ls-files"]).lines().count(), 6);
+    std::fs::write(at_path.join("repo/.git/index.lock"), "").unwrap();
+    assert_eq!(overlay.prime_git(&at_path), 0, "git holds the index lock");
+    std::fs::remove_file(at_path.join("repo/.git/index.lock")).unwrap();
+    assert_eq!(overlay.prime_git(&at_path), 1);
+    assert_eq!(overlay.prime_git(&at_path), 0, "the index is git's own now");
     let worktree = at_path.join("repo");
     let hook = format!(
         "core.fsmonitor='{}' fsmonitor-hook '{}' '{}'",
