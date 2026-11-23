@@ -5386,11 +5386,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // Written after every sample and stop, so a run cut short (a step timeout, a cancel) still uploads what it had.
         let sofar: ResumeSample[] = [];
         let stops: ResumeStop[] = [];
+        const row = async () => (await api.read("cloud.machine.get", { machine: created.id }, 30_000).catch(() => null)) as Record<string, any> | null;
+        const first = await row();
+        // The machine's provider as the API names it; staging's machines are VM API machines, with no client sessions.
+        const provider = String(first?.provider ?? first?.platform ?? first?.transport ?? "unnamed (cloud.machine.get names none)");
         const writeMatrix = () => {
           if (!outDir) return;
           const scrubbed = (x: unknown) => scrub(JSON.stringify(x, null, 2), J.secrets);
-          writeFileSync(path.join(outDir, "resume-matrix.json"), `${scrubbed({ backend: backend.name, machine: created.id, samples: sofar, stops })}\n`);
-          writeFileSync(path.join(outDir, "resume-matrix.md"), resumeMarkdown(sofar, stops));
+          writeFileSync(path.join(outDir, "resume-matrix.json"), `${scrubbed({ backend: backend.name, machine: created.id, provider, samples: sofar, stops })}\n`);
+          writeFileSync(path.join(outDir, "resume-matrix.md"), resumeMarkdown(sofar, stops, [provider]));
         };
         const samples = await runResumeMatrix({
           ctx: {
@@ -5423,6 +5427,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             J.secrets.push(v.token);
             return { token: v.token, vm_id: String(v.vm_id), api_base_url: String(v.api_base_url) };
           },
+          status: async () => String((await row())?.status ?? "unread"),
+          provider,
           fillPct: resumeFill,
           deadlineAt: resumeDeadlineAt,
           failStreak: resumeFailStreak,
@@ -5435,7 +5441,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
         sofar = samples;
         for (const x of stops) J.record({ step: `resume matrix: ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""} stopped early`, status: "fail", ms: 0, detail: x.reason });
-        const table = resumeMarkdown(samples, stops);
+        const table = resumeMarkdown(samples, stops, [provider]);
         for (const s of samples.filter((x) => x.error)) J.record({ step: `resume matrix: ${s.pause_s} s ${s.arm} #${s.i}`, status: "fail", ms: s.first_byte_ms ?? 0, detail: s.error });
         if (samples.length) J.record({ step: "resume matrix", status: samples.some((x) => x.error) ? "fail" : "pass", ms: 0, detail: `${samples.length} samples` });
         console.log(table);

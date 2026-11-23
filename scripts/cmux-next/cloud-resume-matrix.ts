@@ -62,6 +62,22 @@ export type ResumeSample = {
   page_in_ms?: number | null;
   /** The guest saw a resume (`notify event=resumed`) this long after the event, guest clock corrected. */
   resumed_notify_ms?: number | null;
+  /** With --resume-fill: the MiB the guest held resident through the pause (the page-in's size). */
+  fill_mib?: number;
+  /**
+   * The agent came back as it was (hq#21300 lane C's restore): the same agent processes before the pause and after the
+   * wake (`agent_same_process`) and the wake's turn ended once, completed. Null when either read failed.
+   */
+  agent_same_process?: boolean | null;
+  restored?: boolean | null;
+  /** The turn's own end, when it did not complete (a product answer: `Not logged in` after a resume, cmux#45776). */
+  turn?: string;
+  /**
+   * Which part failed, so a harness fault is told from a product one: `pause` (the pause did not land or hold),
+   * `unavailable` (the arm cannot run here), `wake` (the resume call), `attach` (the client's new dial did not attach
+   * the chat after the wake), `reply` (attached, no reply), `turn` (a reply, but the turn did not complete), `read`.
+   */
+  cause?: "pause" | "unavailable" | "wake" | "attach" | "reply" | "turn" | "read";
   error: string;
 };
 
@@ -73,6 +89,8 @@ export type ResumeDeps = {
   platformResume: () => Promise<{ serverTiming?: Record<string, number> }>;
   /** After a direct or send arm: tell the platform the machine runs (its own read), so the next pause is real. */
   platformSync: () => Promise<void>;
+  /** The platform's status read of the machine (`paused`, `running`, ...): the pause is checked to hold before a wake. */
+  status?: () => Promise<string>;
   /** A fresh client session for the machine: the provider's API base, VM id and identity token (ttl 60..900 s). */
   clientSession: (ttlSeconds: number) => Promise<{ token: string; vm_id: string; api_base_url: string }>;
   /**
@@ -96,6 +114,8 @@ export type ResumeDeps = {
    * plus a minute). The job's step timeout would otherwise kill the run before it writes anything (run 45147962604).
    */
   deadlineAt?: number;
+  /** The machine's provider as the platform names it, for the table and an unavailable arm's reason. */
+  provider?: string;
   /** K: an arm that fails K samples in a row is dropped from its cell, and a cell whose last K samples all failed ends. */
   failStreak?: number;
 };
@@ -139,9 +159,23 @@ export function fillStartCommand(pct: number): string {
 export const TOUCH_COMMAND = `rm -f ${TICKER}/touch; kill -USR1 "$(cat ${TICKER}/fillpid)" 2>/dev/null && `
   + `for i in $(seq 1 1200); do [ -s ${TICKER}/touch ] && break; sleep 0.05; done; echo "@@touch $(cat ${TICKER}/touch 2>/dev/null)"`;
 
+/** The agent processes on the guest (pid and start time, so a restarted one with a reused pid differs). */
+export const AGENT_PIDS_COMMAND = `for p in $(pgrep -x claude 2>/dev/null; pgrep -f 'claude-code|codex app-server' 2>/dev/null); do echo "@@agent $p $(cut -d' ' -f22 /proc/$p/stat 2>/dev/null)"; done | sort -u; echo "@@agents-read"`;
+
+/** The agent process set an AGENT_PIDS_COMMAND printed, sorted; null when the read did not finish. */
+export function parseAgents(stdout: string): string[] | null {
+  if (!stdout.includes("@@agents-read")) return null;
+  return [...new Set([...stdout.matchAll(/@@agent (\d+ \d+)/g)].map((m) => m[1]))].sort();
+}
+
+/** Whether a provider's answer says the arm cannot run on this machine at all (not a failed sample of it). */
+export function armUnavailable(error: string): boolean {
+  return /cloud\.provider\.unsupported|has no client sessions/.test(error);
+}
+
 /** One exec after a wake: the guest's clock now, the ticker's gaps and the journal's relay and resume lines since `sinceS`. */
 export function wakeFactsCommand(sinceS: number): string {
-  return `echo "@@now $(date +%s%3N)"; sed 's/^/@@gap /' ${TICKER}/gaps 2>/dev/null | tail -n 50; `
+  return `echo "@@now $(date +%s%3N)"; sed 's/^/@@gap /' ${TICKER}/gaps 2>/dev/null | tail -n 50; ${AGENT_PIDS_COMMAND}; `
     + `J=journalctl; [ "$(id -u)" = 0 ] || J='sudo -n journalctl'; `
     + `$J -o short-unix --no-pager --since @${Math.max(0, Math.floor(sinceS) - 5)} 2>/dev/null `
     + `| grep -E 'relay registration on \\S+: registered|event=resumed' | head -n 200 | sed 's/^/@@j /'; true`;
@@ -241,6 +275,9 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
   const k = Math.max(1, deps.failStreak ?? FAIL_STREAK);
   const out: ResumeSample[] = [];
   const stops: ResumeStop[] = [];
+  let fillMib: number | undefined;
+  /** Arms no machine of this provider can run (the direct arm on a provider with no client sessions). */
+  const unavailable = new Set<ResumeArm>();
   const stop = (x: ResumeStop) => {
     stops.push(x);
     log(`resume matrix: pause ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""}: stopped after ${x.after} sample(s): ${x.reason}`);
@@ -251,7 +288,8 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
   if (deps.fillPct) {
     const f = await ctx.exec(`${ctx.guest}${fillStartCommand(deps.fillPct)}`, 120_000);
     if (!/@@fill \d+/.test(f.stdout)) throw new Error(`the guest memory fill did not start: ${(f.stdout + f.stderr).slice(-200)}`);
-    log(`resume matrix: holding ${Math.round(Number(/@@fill (\d+)/.exec(f.stdout)![1]) / 2 ** 20)} MiB resident (${deps.fillPct}% of MemTotal)`);
+    fillMib = Math.round(Number(/@@fill (\d+)/.exec(f.stdout)![1]) / 2 ** 20);
+    log(`resume matrix: holding ${fillMib} MiB resident (${deps.fillPct}% of MemTotal)`);
   }
   const chat = new ChatClient(ctx);
   await chat.open(ctx.harness ?? "claude");
@@ -264,7 +302,7 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
   try {
     for (const [cell, pause_s] of pauses.entries()) {
       const until = cellDeadline(now(), deps.deadlineAt, pauses.length - cell);
-      const live = new Set(arms);
+      const live = new Set(arms.filter((a) => !unavailable.has(a)));
       const armStreak = new Map<ResumeArm, number>();
       let cellStreak = 0;
       let longest = pause_s * 1000 + 60_000;
@@ -281,24 +319,37 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
           const sampleStart = now();
           const s: ResumeSample = { pause_s, arm, i, machine: ctx.machine, at: new Date().toISOString(), paused_ms: null, answered_ms: null, running_ms: null, registered_ms: null, first_byte_ms: null, ack_ms: null, clock_offset_ms: null, error: "" };
           out.push(s);
+          if (fillMib !== undefined) s.fill_mib = fillMib;
           try {
             await deps.refreshAuth?.();
             // The client session is minted while the machine runs (minting one for a paused machine may wake it),
             // unless the hold outlasts any session the route gives.
             const plan = directSessionPlan(pause_s);
-            let session = arm === "direct" && !plan.afterHold ? await deps.clientSession(plan.ttl) : null;
+            let session = null as Awaited<ReturnType<ResumeDeps["clientSession"]>> | null;
+            if (arm === "direct" && !plan.afterHold) {
+              try { session = await deps.clientSession(plan.ttl); } catch (e) { s.cause = armUnavailable((e as Error).message) ? "unavailable" : "wake"; throw e; }
+            }
             await chat.caughtUp(chat.held, 30_000);
-            await deps.pause();
+            const before = parseAgents((await ctx.exec(`${ctx.guest}${AGENT_PIDS_COMMAND}`, 60_000).catch(() => ({ stdout: "" }))).stdout);
+            // The client's dial ends before the pause and stays down through the hold: a held dial freezes with the
+            // machine, and a redial may wake it (run 45177970049: `not_paused (state running)` after a 5 s hold).
+            chat.suspend();
+            try { await deps.pause(); } catch (e) { s.cause = "pause"; throw new Error(`pause: ${(e as Error).message}`); }
             const pausedAt = now();
             await sleep(pause_s * 1000);
+            if (deps.status) {
+              const st = await deps.status().catch((e: Error) => `unread (${e.message})`);
+              if (st !== "paused") { s.cause = "pause"; throw new Error(`pause did not hold: the machine read ${st} after the ${pause_s} s hold`); }
+            }
             if (arm === "direct" && plan.afterHold) {
               await deps.refreshAuth?.();
-              session = await deps.clientSession(plan.ttl);
+              try { session = await deps.clientSession(plan.ttl); } catch (e) { s.cause = armUnavailable((e as Error).message) ? "unavailable" : "wake"; throw e; }
               s.session_minted_paused = true;
             }
             const t0 = now();
             s.paused_ms = t0 - pausedAt;
             const marker = feltMarker(`${safe(ctx.tag)}-rm-${pause_s}-${arm}-${i}`);
+            let wakeError = "";
             const wake = arm === "platform"
               ? deps.platformResume().then((r) => { s.answered_ms = now() - t0; s.server_timing = r.serverTiming; })
               : arm === "direct"
@@ -308,13 +359,23 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
                     if (r.status < 200 || r.status >= 300) throw new Error(`direct ${r.mode}: HTTP ${r.status}`);
                   })
                 : Promise.resolve();
+            // The app's reconnect after a wake: a new dial at the event, the chat attached again on it, and the send
+            // held until then; the reply's clock runs from the event (send: the redial and the prompt are the wake).
+            chat.wake();
+            const until = t0 + FIRST_BYTE_DEADLINE_MS;
             const [felt] = await Promise.all([
-              feltAfterSend(chat, `${marker} back.`, FIRST_BYTE_DEADLINE_MS, floor ?? chat.held),
-              wake.catch((e: Error) => { s.error = e.message; }),
+              chat.waitAttached(until).then((ok) => ok
+                ? feltAfterSend(chat, `${marker} back.`, FIRST_BYTE_DEADLINE_MS, floor ?? chat.held, t0)
+                : { felt_ms: null, ack_ms: null, tries: 0, error: `the client's new dial did not attach the chat within ${FIRST_BYTE_DEADLINE_MS / 1000} s${chat.lastError ? ` (last: ${chat.lastError})` : ""}; dial: ${(chat.dial.events ?? []).slice(-4).join("; ")}`, attachFailed: true }),
+              wake.catch((e: Error) => { wakeError = e.message; }),
             ]);
             s.first_byte_ms = felt.felt_ms;
             s.ack_ms = felt.ack_ms;
-            if (felt.felt_ms === null) s.error ||= `no reply within ${FIRST_BYTE_DEADLINE_MS / 1000} s${felt.error ? ` (${felt.error})` : ""}`;
+            if (wakeError) { s.error = wakeError; s.cause = "wake"; }
+            if (felt.felt_ms === null) {
+              s.error ||= `no reply within ${FIRST_BYTE_DEADLINE_MS / 1000} s${felt.error ? ` (${felt.error})` : ""}`;
+              s.cause ??= "attachFailed" in felt ? "attach" : "reply";
+            }
             if (deps.fillPct) {
               const t = await ctx.exec(`${ctx.guest}${TOUCH_COMMAND}`, 120_000);
               const ms = /@@touch (\d+)/.exec(t.stdout);
@@ -325,17 +386,32 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             const got = now();
             const w = parseWakeFacts(facts.stdout, t0, sent, got);
             Object.assign(s, { running_ms: w.running, registered_ms: w.registered, resumed_notify_ms: w.resumed, clock_offset_ms: w.offset });
-            const ended = (await turnOutcome(ctx, marker, chat.session)).ok;
-            floor = await feltBoundary(ctx, chat.session, floor ?? chat.held, ended);
+            const after = parseAgents(facts.stdout);
+            s.agent_same_process = before && after ? before.length > 0 && before.join(",") === after.join(",") : null;
+            const outcome = s.first_byte_ms === null && s.cause === "attach" ? { ok: false, text: "not sent" } : await turnOutcome(ctx, marker, chat.session);
+            if (!outcome.ok) s.turn = outcome.text;
+            if (!outcome.ok && s.first_byte_ms !== null) { s.error ||= `turn: ${outcome.text}`; s.cause ??= "turn"; }
+            s.restored = s.agent_same_process === null ? null : s.agent_same_process && outcome.ok && s.first_byte_ms !== null;
+            floor = await feltBoundary(ctx, chat.session, floor ?? chat.held, outcome.ok);
             if (arm !== "platform") await deps.platformSync();
           } catch (e) {
             s.error ||= (e as Error).message;
+            s.cause ??= "read";
+            chat.wake();
             await deps.platformSync().catch(() => undefined);
           }
           log(`resume matrix: pause ${pause_s} s ${arm} #${i}: ${RESUME_POINTS.map((p) => `${p} ${s[`${p}_ms` as const] ?? "-"}`).join(", ")}${s.server_timing ? ` (server ${JSON.stringify(s.server_timing)})` : ""}${s.direct_mode ? ` [${s.direct_mode}]` : ""}${s.error ? ` ERROR ${s.error}` : ""}`);
           taken += 1;
           longest = Math.max(longest, now() - sampleStart);
           deps.onSample?.(s, out);
+          if (s.cause === "unavailable") {
+            // No sample of this arm can run on this machine: one says why, and no other is taken (no fail streak).
+            unavailable.add(arm);
+            live.delete(arm);
+            stop({ pause_s, arm, after: 1, reason: `unavailable${deps.provider ? ` on ${deps.provider}` : ""}: ${s.error}` });
+            if (!live.size) { ended = true; break; }
+            continue;
+          }
           armStreak.set(arm, s.error ? (armStreak.get(arm) ?? 0) + 1 : 0);
           cellStreak = s.error ? cellStreak + 1 : 0;
           if (cellStreak >= k) {
@@ -388,12 +464,12 @@ const sec = (ms: number | null) => (ms === null ? "-" : (ms / 1000).toFixed(2));
  * The table: one row per pause length and arm, p50 / p95 seconds per point, n, and the gap the stop condition judges:
  * the arm's first-byte p95 less the direct arm's answered p95 (our whole path over the provider's own resume).
  */
-export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { machine?: string })[] = []): string {
+export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { machine?: string })[] = [], providers: string[] = []): string {
   const cells = resumeCells(samples);
   const get = (pause_s: number, arm: ResumeArm, point: ResumePoint) => cells.find((c) => c.pause_s === pause_s && c.arm === arm && c.point === point);
   const lines = [
-    "| pause | arm | n | failed | answered p50 / p95 | running p50 / p95 | registered p50 / p95 | first byte p50 / p95 | first byte p95 - direct answered p95 | page-in p50 / p95 |",
-    "|---|---|---|---|---|---|---|---|---|---|",
+    "| pause | arm | n | failed | restored | answered p50 / p95 | running p50 / p95 | registered p50 / p95 | first byte p50 / p95 | first byte p95 - direct answered p95 | page-in p50 / p95 |",
+    "|---|---|---|---|---|---|---|---|---|---|---|",
   ];
   for (const pause_s of [...new Set(cells.map((c) => c.pause_s))]) {
     const floor = get(pause_s, "direct", "answered")?.p95 ?? null;
@@ -404,7 +480,10 @@ export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { m
       const pts = RESUME_POINTS.map((p) => { const c = get(pause_s, arm, p); return `${sec(c?.p50 ?? null)} / ${sec(c?.p95 ?? null)}`; });
       const gap = fb.p95 !== null && floor !== null ? sec(fb.p95 - floor) : "-";
       const pin = samples.filter((x) => x.pause_s === pause_s && x.arm === arm).map((x) => x.page_in_ms).filter((x): x is number => typeof x === "number");
-      lines.push(`| ${pause_s} s | ${arm} | ${total} | ${fb.failed} | ${pts.join(" | ")} | ${gap} | ${pin.length ? `${sec(percentile(pin, 50))} / ${sec(percentile(pin, 95))}` : "-"} |`);
+      const mine = samples.filter((x) => x.pause_s === pause_s && x.arm === arm);
+      const judged = mine.filter((x) => typeof x.restored === "boolean");
+      const restored = judged.length ? `${judged.filter((x) => x.restored).length}/${judged.length}` : "-";
+      lines.push(`| ${pause_s} s | ${arm} | ${total} | ${fb.failed} | ${restored} | ${pts.join(" | ")} | ${gap} | ${pin.length ? `${sec(percentile(pin, 50))} / ${sec(percentile(pin, 95))}` : "-"} |`);
     }
   }
   const stopped = stops.map((x) => `- ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""}${x.machine ? ` (${x.machine})` : ""}: stopped after ${x.after} sample(s): ${x.reason}`);
@@ -413,12 +492,17 @@ export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { m
   for (const pause_s of [...new Set(samples.map((x) => x.pause_s))].sort((a, b) => a - b)) {
     for (const arm of RESUME_ARMS) {
       const counts = new Map<string, number>();
-      for (const x of samples) if (x.pause_s === pause_s && x.arm === arm && x.error) counts.set(x.error, (counts.get(x.error) ?? 0) + 1);
+      for (const x of samples) if (x.pause_s === pause_s && x.arm === arm && x.error) { const k = `${x.cause ? `[${x.cause}] ` : ""}${x.error}`; counts.set(k, (counts.get(k) ?? 0) + 1); }
       for (const [e, c] of [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3)) errs.push(`- ${pause_s} s ${arm}: ${c}x ${e.slice(0, 300)}`);
     }
   }
   const extra = `${stopped.length ? `\n\nStopped early:\n\n${stopped.join("\n")}` : ""}${errs.length ? `\n\nErrors:\n\n${errs.join("\n")}` : ""}`;
-  return `${lines.join("\n")}${extra}\n\nSeconds from the wake's event. answered: the resume call's answer (send: none). running: the guest's first tick after the pause. registered: the relay registration line. first byte: the agent reply's first record on the client. page-in: with --resume-fill, the guest's walk over its held memory after the reply (cold pages load on first touch; about 0.85 s per GiB in hq#17877). n counts samples; a point's p50/p95 uses the samples that reached it.\n`;
+  const turns = new Map<string, number>();
+  for (const x of samples) if (x.turn) turns.set(`${x.pause_s} s ${x.arm}: ${x.turn.slice(0, 200)}`, (turns.get(`${x.pause_s} s ${x.arm}: ${x.turn.slice(0, 200)}`) ?? 0) + 1);
+  const turnLines = [...turns].map(([t, c]) => `- ${t} (${c}x)`);
+  const fill = [...new Set(samples.map((x) => x.fill_mib).filter((x): x is number => typeof x === "number"))];
+  const head = `${providers.length ? `Provider: ${[...new Set(providers)].join(", ")}. ` : ""}${fill.length ? `Resident through each pause: ${fill.join(", ")} MiB (--resume-fill). ` : ""}`;
+  return `${head ? `${head}\n\n` : ""}${lines.join("\n")}${extra}${turnLines.length ? `\n\nTurns that did not complete:\n\n${turnLines.join("\n")}` : ""}\n\nrestored: samples whose agent processes were the same before the pause and after the wake and whose turn completed, of those read. Causes: pause (did not land or hold), unavailable, wake (the resume call), attach (the client's new dial did not attach the chat), reply, turn, read.\n\nSeconds from the wake's event. answered: the resume call's answer (send: none). running: the guest's first tick after the pause. registered: the relay registration line. first byte: the agent reply's first record on the client. page-in: with --resume-fill, the guest's walk over its held memory after the reply (cold pages load on first touch; about 0.85 s per GiB in hq#17877). n counts samples; a point's p50/p95 uses the samples that reached it.\n`;
 }
 
 if (import.meta.main && process.argv[2] === "aggregate") {
@@ -429,7 +513,7 @@ if (import.meta.main && process.argv[2] === "aggregate") {
   const runs = files.map((f) => JSON.parse(readFileSync(f, "utf8")));
   const samples: ResumeSample[] = runs.flatMap((j) => (Array.isArray(j) ? j : j.samples ?? []));
   const stops: ResumeStop[] = runs.flatMap((j) => (Array.isArray(j) ? [] : (j.stops ?? []).map((x: ResumeStop) => ({ ...x, machine: j.machine }))));
-  const table = resumeMarkdown(samples, stops);
+  const table = resumeMarkdown(samples, stops, runs.flatMap((j) => (typeof j?.provider === "string" ? [j.provider] : [])));
   if (md) writeFileSync(md, table);
   console.log(table);
 }

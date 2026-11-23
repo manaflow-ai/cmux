@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { cliExecResult } from "./cloud-journey.ts";
-import { armOrder, cellDeadline, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
+import { armOrder, armUnavailable, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
   test("takes the gap spanning the event and the first relay line after it, guest clock corrected", () => {
@@ -42,8 +42,8 @@ test("percentile is nearest rank", () => {
 test("resumeMarkdown judges first byte p95 against the direct answer's p95", () => {
   const s = (arm: ResumeSample["arm"], answered: number | null, fb: number): ResumeSample => ({ pause_s: 30, arm, i: 0, machine: "m", at: "", paused_ms: 30_000, answered_ms: answered, running_ms: null, registered_ms: null, first_byte_ms: fb, ack_ms: null, clock_offset_ms: 0, error: "" });
   const md = resumeMarkdown([s("direct", 800, 1500), s("platform", 1200, 2300), s("send", null, 2600)]);
-  expect(md).toContain("| 30 s | platform | 1 | 0 | 1.20 / 1.20 | - / - | - / - | 2.30 / 2.30 | 1.50 | - |");
-  expect(md).toContain("| 30 s | send | 1 | 0 | - / - | - / - | - / - | 2.60 / 2.60 | 1.80 | - |");
+  expect(md).toContain("| 30 s | platform | 1 | 0 | - | 1.20 / 1.20 | - / - | - / - | 2.30 / 2.30 | 1.50 | - |");
+  expect(md).toContain("| 30 s | send | 1 | 0 | - | - / - | - / - | - / - | 2.60 / 2.60 | 1.80 | - |");
 });
 
 test("the fill holder ships its python as base64, so no shell or printf reads its % or quotes", () => {
@@ -123,5 +123,29 @@ describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a
   test("a machine neither read finds fails", async () => {
     await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => { throw new Error("HTTP 404"); })).rejects.toThrow("vm_99 missing from 3 machines, and cloud.machine.get: HTTP 404");
     await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => ({ id: "vm_99", status: "deleted" }))).rejects.toThrow("reads deleted");
+  });
+});
+
+describe("run 45177970049's causes", () => {
+  test("a provider with no client sessions makes the direct arm unavailable, not a failed sample", () => {
+    expect(armUnavailable("client-session: HTTP 501 {\"code\":\"cloud.provider.unsupported\"}")).toBe(true);
+    expect(armUnavailable("direct start: HTTP 403")).toBe(false);
+  });
+  test("the agent process set reads as pid and start time; an unfinished read is null", () => {
+    expect(parseAgents("@@agent 412 9001\n@@agent 77 120\n@@agent 412 9001\n@@agents-read\n")).toEqual(["412 9001", "77 120"]);
+    expect(parseAgents("@@agents-read")).toEqual([]);
+    expect(parseAgents("@@agent 412 9001")).toBeNull();
+  });
+  test("the table shows restored k/n, each error's cause, the provider and turns that did not complete", () => {
+    const base: ResumeSample = { pause_s: 5, arm: "platform", i: 0, machine: "m", at: "", paused_ms: 5_000, answered_ms: 900, running_ms: 800, registered_ms: null, first_byte_ms: 2_000, ack_ms: null, clock_offset_ms: 0 };
+    const md = resumeMarkdown([
+      { ...base, restored: true },
+      { ...base, i: 1, restored: false, turn: "Not logged in" },
+      { ...base, i: 2, answered_ms: null, first_byte_ms: null, cause: "pause", error: "pause did not hold: the machine read running after the 5 s hold" },
+    ], [], ["vmapi"]);
+    expect(md).toContain("Provider: vmapi.");
+    expect(md).toMatch(/\| 5 s \| platform \| 3 \| 1 \| 1\/2 \|/);
+    expect(md).toContain("- 5 s platform: 1x [pause] pause did not hold: the machine read running after the 5 s hold");
+    expect(md).toContain("- 5 s platform: Not logged in (1x)");
   });
 });

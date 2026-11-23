@@ -172,8 +172,12 @@ jobs:
           mkdir -p "$out"
           # The journey's create and chat come first; the matrix ends by the budget from this step's start.
           deadline=$(( $(date +%s) + BUDGET_MIN * 60 ))
+          # hq#21300 lane C, page-in against resident memory: shard 1 holds 25% of the guest's memory resident
+          # through each pause and walks it after the wake; shard 0 holds none, so the two compare.
+          fill=0
+          if [ "${{ matrix.shard }}" = "1" ]; then fill=25; fi
           bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --cmux "$RUNNER_TEMP/cmux-tui-bin/cmux-tui" \
-            --model stub --resume-matrix "$PAUSE" --resume-n "$N" --resume-deadline "$deadline"
+            --model stub --resume-matrix "$PAUSE" --resume-n "$N" --resume-deadline "$deadline" --resume-fill "$fill"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
