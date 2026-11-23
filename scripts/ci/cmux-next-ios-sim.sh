@@ -41,6 +41,8 @@
 #               A suite named *ColdUITests runs each of its test*Cold methods
 #               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
 #               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl
+#               AnimationFrameBenchUITests also writes report.json and raw frame windows. The PR gate
+#               uses duress=off duress=heavy on one build; its heavy pass measures composer typing.
 #             duress=SPEC   run the UI suites under the offline duress simulator
 #               (cmux-next-ios/design/duress-sim.md): cmux-duress (cmux-tui Rust) expands a
 #               recorded Claude Code PTY stream and chat-sim's recorded chat into replay files
@@ -333,6 +335,7 @@ ui_suites=()
 ui_cold=()
 ui_video=0
 ui_profile=0
+animation_frames=0
 duress_specs=()
 if [[ "$mode" == test && $# -gt 1 ]]; then
   for sel in "${@:2}"; do
@@ -352,6 +355,7 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
           # A suite named *ColdUITests runs each of its test*Cold methods on a freshly booted
           # simulator, CMUX_LAUNCH_COLD_RUNS times (default 10): one cold launch per run.
+          if [[ "$item" == AnimationFrameBenchUITests ]]; then animation_frames=1; fi
           if [[ "$item" == *ColdUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
         done ;;
       duress=?*)
@@ -1357,12 +1361,23 @@ ui_cold_tests() {
   note "- cold UI suites ${ui_cold[*]}: $runs runs per test, one fresh boot each"
 }
 
+# The UI device is new for this step. Moving its cache after each run gives baseline
+# and heavy separate evidence even though both passes install the same bundle ID.
+keep_animation_frames() {
+  local name=$1 data
+  data="$(xcrun simctl get_app_container "$ui_udid" "$bundle_id" data)" &&
+    mv "$data/Library/Caches/framelog.jsonl" "$out/$name-framelog.jsonl" && return 0
+  note "- Missing animation frame log for $name"
+  return 1
+}
+
 # ui_duress_runs: the warm UI suites once per duress= SPEC (cmux-next-ios/design/duress-sim.md), after
 # one build-for-testing, on the one simulator. cmux-duress writes each SPEC's replay files under
 # $work/duress/SLUG (duress.json copied to $out/duress/SLUG); the simulator's global defaults name that folder (CmuxMobileDuress), which the
 # DEBUG app reads at launch, so the benches need no change. off deletes the key: no duress.
 ui_duress_runs() {
   local spec slug dir status bundle t1
+  local -a selected test_env
   t1=$SECONDS
   xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
   ui_status=$?
@@ -1401,11 +1416,18 @@ ui_duress_runs() {
       [[ "$(xcrun simctl spawn "$ui_udid" defaults read -g CmuxMobileDuress 2>/dev/null)" == "$dir" ]] ||
         { note "- duress $spec: the simulator did not keep CmuxMobileDuress"; ui_status=1; continue; }
     fi
+    selected=("${ui_suites[@]}")
+    test_env=()
+    if [[ $animation_frames -eq 1 ]]; then test_env=("TEST_RUNNER_CMUX_ANIMATION_EXPECT_DURESS=$spec"); fi
+    if [[ "$spec" == heavy && $animation_frames -eq 1 && ${#selected[@]} -eq 1 ]]; then
+      selected=("${selected[0]}/testComposerTyping")
+    fi
     bundle="$work/ui-duress-$slug.xcresult"
     t1=$SECONDS
-    xcodebuild test-without-building "${ui_xcodebuild[@]}" -resultBundlePath "$bundle" \
-      "${ui_suites[@]}" >"$work/ui-duress-$slug-test.log" 2>&1
+    env ${test_env[@]+"${test_env[@]}"} xcodebuild test-without-building "${ui_xcodebuild[@]}" -resultBundlePath "$bundle" \
+      "${selected[@]}" >"$work/ui-duress-$slug-test.log" 2>&1
     status=$?
+    if [[ $animation_frames -eq 1 ]]; then keep_animation_frames "ui-duress-$slug" || ui_status=1; fi
     keep_test_logs "$work/ui-duress-$slug-test.log" "$bundle" "ui-duress-$slug"
     # The run named first is also the plain ui-* set, so the summary's readers keep working.
     if [[ ! -d "$work/ui.xcresult" ]]; then cp -R "$bundle" "$work/ui.xcresult"; cp "$work/ui-duress-$slug-test.log" "$work/ui-test.log"; fi
@@ -1431,6 +1453,11 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$dd_root/dd-ui"
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet)
+  if [[ $animation_frames -eq 1 ]]; then
+    # Record the selected simulator's app container. XCTest would otherwise
+    # be free to install and measure on a parallel-testing clone.
+    ui_xcodebuild+=(-parallel-testing-enabled NO)
+  fi
   ui_action=test
   ui_status=0
   if [[ $ui_profile -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
@@ -1522,6 +1549,9 @@ print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
     ui_profile_finish
   fi
   set -e
+  if [[ $animation_frames -eq 1 && ${#duress_specs[@]} -eq 0 ]]; then
+    keep_animation_frames ui || ui_status=1
+  fi
   xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
   ui_udid=""
@@ -1533,6 +1563,16 @@ print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
   # Bash 3.2 treats an empty array as unset under nounset (warm-only or cold-only).
   note "- UI tests ${ui_suites[*]-} ${ui_cold[*]-}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
+  if [[ $animation_frames -eq 1 ]]; then
+    frame_runs=()
+    for spec in ${duress_specs[@]+"${duress_specs[@]}"}; do frame_runs+=(--run "$spec"); done
+    if [[ ${#frame_runs[@]} -eq 0 ]]; then frame_runs=(--run off); fi
+    if ! python3 -I scripts/measure/ios_animation_frames.py --evidence "$out" --out "$out/report.json" \
+      --model "$device_name" --runtime "${runtime##*.}" "${frame_runs[@]}" | tee "$out/animation-frames.md" >> "$summary"; then
+      note "- Animation frame gate failed; see report.json and the per-run frame logs."
+      ui_status=1
+    fi
+  fi
   # Launch marks (LaunchTTIUITests): every LAUNCHTTI line, and per flow and phase the p50 of each span.
   if ! python3 -I scripts/ci/ios_launch_samples.py "$out" --cold-runs "${ui_cold_runs:-10}" \
     --suites ${ui_suites[@]+"${ui_suites[@]}"} ${ui_cold[@]+"${ui_cold[@]}"}; then

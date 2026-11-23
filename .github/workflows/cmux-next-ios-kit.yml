@@ -60,6 +60,8 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "scripts/ci/cmux-next-ios-sim.sh"
+      - "scripts/measure/ios_animation_frames.py"
       - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
@@ -100,6 +102,8 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "scripts/ci/cmux-next-ios-sim.sh"
+      - "scripts/measure/ios_animation_frames.py"
       - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
@@ -269,6 +273,46 @@ jobs:
         run: |
           python3 scripts/ci/same_tree_reuse.py decide --keys "$KEYS" --hits "$HITS" \
             --receipts .same-tree --audit-percent "$AUDIT_PERCENT" >> "$GITHUB_OUTPUT"
+
+  animation-frames:
+    name: Animation frame budgets (fleet iPhone simulator)
+    # The gateway accepts repository heads. Forks use the unprivileged kit-tests runner below.
+    if: github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || 'ubuntu-24.04' }}
+    timeout-minutes: 100
+    steps:
+      - name: Measure the PR head with and without heavy typing load
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/animation-frames-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$out"
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if [[ ! -x "$client" ]]; then
+            echo "::error::Animation frame gate needs cmux-ci on the simulator gateway ($RUNNER_NAME)"
+            exit 1
+          fi
+          status=0
+          "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh \
+            --ref "$HEAD_SHA" --arg test --arg ui=AnimationFrameBenchUITests --arg duress=off --arg duress=heavy \
+            --artifact artifacts/ios-sim/evidence.zip --timeout 5400 2>&1 | tee "$out/step.log" || status=$?
+          step="$(sed -nE 's/.*step ([0-9a-f]{24}).*/\1/p' "$out/step.log" | sed -n '1p')"
+          [[ -n "$step" ]] || { echo "::error::No simulator step receipt for $HEAD_SHA"; exit 1; }
+          zip="$RUNNER_TEMP/animation-frames-$step.zip"
+          "$client" artifact "$step" "$zip" || "$client" artifact --failed "$step" "$zip"
+          unzip -p "$zip" report.json > "$out/report.json"
+          unzip -p "$zip" animation-frames.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the report and simulator receipt
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: animation-frames
+          path: ${{ runner.temp }}/animation-frames-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
 
   kit-tests:
     needs: [runner]
