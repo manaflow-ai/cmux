@@ -370,6 +370,10 @@ public final class AgentChatStore {
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
+    #if os(iOS)
+    /// The new-chat entrance (`NewChatEntrance`) plays once per chat: which parts already did.
+    @ObservationIgnored var newChatEntrance = NewChatEntrance.Played()
+    #endif
     private var currentMessageID: String?
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
@@ -388,7 +392,7 @@ public final class AgentChatStore {
 
     /// The chat's one quiet line by the composer. A link that is down or catching up draws
     /// nothing, however long it takes: the kept rows stay, sends show at once and wait for it
-    /// (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want
+    /// (Leo, 2026-11-22: "i dont wanna see connecting to [machine]... with the spinner, i want
     /// it to just work"). Only a call that still could not reach the Mac after
     /// ``sendDeadline`` says so, here, until the next send or the link is back. A message that
     /// could not go says so on its own bubble instead (``AgentTurn/LocalSend/notSent``).
@@ -2045,7 +2049,7 @@ private final class EarlierHistorySource: AgentSessionSource {
 
 extension AgentChatStore {
     /// What the chat's loading state says. Never the link: a chat waiting on its Mac loads like any other (Leo, 2026-11-22: "i dont
-    /// wanna see connecting to cosmic-gray... with the spinner").
+    /// wanna see connecting to [machine]... with the spinner").
     public var loadingText: String {
         isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
     }

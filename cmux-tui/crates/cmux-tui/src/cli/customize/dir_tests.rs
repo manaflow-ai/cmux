@@ -143,6 +143,35 @@ fn a_folder_is_named_by_its_last_part() {
 }
 
 #[test]
+fn a_file_opened_or_read_is_not_a_save() {
+    use notify::EventKind;
+    use notify::event::{
+        AccessKind, AccessMode, CreateKind, DataChange, MetadataKind, ModifyKind, RemoveKind,
+        RenameMode,
+    };
+    let event = |kind| Ok(notify::Event::new(kind).add_path(PathBuf::from("/w/a.ts")));
+    for kind in [
+        EventKind::Access(AccessKind::Open(AccessMode::Any)),
+        EventKind::Access(AccessKind::Read),
+        EventKind::Access(AccessKind::Close(AccessMode::Read)),
+        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)),
+        EventKind::Other,
+    ] {
+        assert!(saved_paths(event(kind)).is_empty(), "{kind:?}");
+    }
+    for kind in [
+        EventKind::Create(CreateKind::File),
+        EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+        EventKind::Modify(ModifyKind::Name(RenameMode::To)),
+        EventKind::Access(AccessKind::Close(AccessMode::Write)),
+        EventKind::Remove(RemoveKind::File),
+        EventKind::Any,
+    ] {
+        assert_eq!(saved_paths(event(kind)), vec![PathBuf::from("/w/a.ts")], "{kind:?}");
+    }
+}
+
+#[test]
 fn output_and_installs_are_not_saves() {
     let tmp = tempfile::tempdir().unwrap();
     let kept = worth_a_build(

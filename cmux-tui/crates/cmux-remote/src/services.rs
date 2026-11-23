@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use cmux_remote_protocol::{
-    Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
+    Lane, MUX_CONTROL_LINE_CODECS, MUX_INPUT_V1_FEATURE, MUX_LINE_CODEC_ZLIB,
+    MUX_LINE_ZLIB_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
     RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl,
     TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
     WorkspaceRequest, WorkspaceResponse,
@@ -530,6 +531,7 @@ impl DaemonServices {
                     grant.as_deref(),
                     incoming.stream,
                     mux_upload_budget,
+                    mux_line_zlib_requested(&incoming.metadata),
                 )
                 .await
             }
@@ -994,13 +996,16 @@ impl DaemonServices {
 
     /// One `mux-control` stream, spliced to the session daemon's unix socket. A
     /// grant-admitted session's stream first carries the grant's signed role
-    /// (`mux_carrier_role.rs`), before any of the person's bytes.
+    /// (`mux_carrier_role.rs`), before any of the person's bytes. `line_zlib`:
+    /// the client listed zlib in its open metadata, so large lines to it go
+    /// compressed and `opened` says so.
     #[cfg(unix)]
     async fn serve_mux_control_with_budget(
         mux_socket: Option<PathBuf>,
         grant: Option<&CarrierGrant>,
         stream: ServiceStream,
         upload_budget: MuxUploadBudget,
+        line_zlib: bool,
     ) -> Result<(), ServicesError> {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
@@ -1023,9 +1028,9 @@ impl DaemonServices {
             return Ok(());
         }
         let stream = Arc::new(stream);
-        send_opened(&stream, Lane::Interactive).await?;
+        send_opened_with(&stream, Lane::Interactive, line_zlib).await?;
         let (reader, writer) = socket.into_split();
-        pump_mux_server_with_budget(stream, reader, writer, upload_budget).await
+        pump_mux_server_with_budget(stream, reader, writer, upload_budget, line_zlib).await
     }
 
     #[cfg(not(unix))]
@@ -1034,6 +1039,7 @@ impl DaemonServices {
         _grant: Option<&CarrierGrant>,
         stream: ServiceStream,
         _upload_budget: MuxUploadBudget,
+        _line_zlib: bool,
     ) -> Result<(), ServicesError> {
         stream
             .reject(
@@ -1418,12 +1424,32 @@ impl MessageStream {
     }
 }
 
+/// Whether a `mux-control` open lists zlib among the line codecs its client
+/// reads (`MUX_CONTROL_LINE_CODECS`).
+fn mux_line_zlib_requested(metadata: &BTreeMap<String, String>) -> bool {
+    metadata
+        .get(MUX_CONTROL_LINE_CODECS)
+        .is_some_and(|codecs| codecs.split(',').any(|codec| codec.trim() == MUX_LINE_CODEC_ZLIB))
+}
+
 async fn send_opened(stream: &ServiceStream, lane: Lane) -> Result<(), ServicesError> {
+    send_opened_with(stream, lane, false).await
+}
+
+async fn send_opened_with(
+    stream: &ServiceStream,
+    lane: Lane,
+    line_zlib: bool,
+) -> Result<(), ServicesError> {
     let payload = if stream.service() == Service::MuxControl {
+        let mut features = vec![MUX_INPUT_V1_FEATURE];
+        if line_zlib {
+            features.push(MUX_LINE_ZLIB_V1_FEATURE);
+        }
         serde_json::to_vec(&serde_json::json!({
             "type": "opened",
             "service": stream.service(),
-            "features": [MUX_INPUT_V1_FEATURE],
+            "features": features,
         }))?
     } else {
         serde_json::to_vec(&ServiceControl::Opened { service: stream.service() })?
@@ -1525,6 +1551,7 @@ async fn read_mux_uploads<R>(
     interactive: mpsc::Sender<MuxUploadMessage>,
     control: mpsc::Sender<MuxUploadMessage>,
     bulk: mpsc::Sender<MuxUploadMessage>,
+    line_zlib: bool,
 ) -> Result<(), ServicesError>
 where
     R: AsyncRead + Unpin,
@@ -1558,11 +1585,20 @@ where
                 actual: Lane::Tunnel,
             });
         }
-        let packets = crate::mux_codec::encode_line_with_limit(
-            message,
-            &line,
-            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
-        )?;
+        let maximum = crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES;
+        let packets = if line_zlib && line.len() >= crate::mux_codec::ZLIB_BLOCKING_LINE_BYTES {
+            // Tens of milliseconds of deflate stay off the runtime's workers.
+            let owned = std::mem::take(&mut line);
+            tokio::task::spawn_blocking(move || {
+                crate::mux_codec::encode_line_for_client(message, &owned, maximum, true)
+            })
+            .await
+            .map_err(|error| {
+                ServicesError::Remote(format!("mux line compression failed: {error}"))
+            })??
+        } else {
+            crate::mux_codec::encode_line_for_client(message, &line, maximum, line_zlib)?
+        };
         let encoded_bytes =
             packets.iter().try_fold(0_usize, |total, packet| total.checked_add(packet.len()));
         let Some(encoded_bytes) = encoded_bytes else {
@@ -1604,6 +1640,7 @@ async fn pump_mux_server_with_budget<R, W>(
     local_reader: R,
     mut local_writer: W,
     upload_budget: MuxUploadBudget,
+    line_zlib: bool,
 ) -> Result<(), ServicesError>
 where
     R: AsyncRead + Unpin,
@@ -1625,6 +1662,7 @@ where
                 interactive_tx,
                 control_tx,
                 bulk_tx,
+                line_zlib,
             );
             let send_interactive =
                 send_mux_uploads(remote.clone(), Lane::Interactive, interactive_rx);

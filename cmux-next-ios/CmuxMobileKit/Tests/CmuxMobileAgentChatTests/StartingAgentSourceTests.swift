@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import Foundation
 import Testing
 @testable import CmuxMobileAgentChat
@@ -86,6 +87,8 @@ import Testing
         #expect(store.loadingText == "Starting Claude…")
         source.inFlight = false
         #expect(store.loadingText == "Loading chat…", "never \"Connecting to Mac…\" (Leo 2026-11-22)")
+        let shown = AgentChatStore(source: source, quietStatus: QuietStatusGate(delay: .zero))
+        #expect(shown.loadingText == "Loading chat…", "not past the bound either")
     }
 
     @Test func theChatStaysStartingUntilItsFirstSendEnds() {

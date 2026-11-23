@@ -964,7 +964,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// How long a prompt may wait for the link before the chat marks it not sent: long enough
     /// that a resume, a network switch or a slow first link never reaches the person (Leo,
     /// 2026-11-12, on LTE: "thjs chatters too often with connectivity"; 2026-11-22: "i dont
-    /// wanna see connecting to cosmic-gray... with the spinner, i want it to just work").
+    /// wanna see connecting to [machine]... with the spinner, i want it to just work").
     /// Meanwhile the message shows as sent (``AgentChatStore`` draws it at once).
     var heldPromptWindow: Duration = AgentChatStore.sendDeadline
     /// The clock prompts are aged on (tests inject one).

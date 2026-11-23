@@ -27,7 +27,7 @@ import Testing
         #expect(store.connectionLine == nil, "nothing for the first 10 s")
     }
 
-    /// Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it
+    /// Leo, 2026-11-22: "i dont wanna see connecting to [machine]... with the spinner, i want it
     /// to just work." However long the link is down, the chat says nothing about it; only a
     /// message the Mac could not take says so, on that message.
     @Test func aLongOutageNeverShowsAConnectingLine() async throws {

@@ -426,7 +426,7 @@ public final class ConversationViewController: UIViewController {
 
     /// The header's line under the name says nothing about the link, however long it is down: the
     /// conversation reconnects on its own (Leo, 2026-11-22: "i dont wanna see connecting to
-    /// cosmic-gray... with the spinner, i want it to just work").
+    /// [machine]... with the spinner, i want it to just work").
     private func showConnectionStatus() {
         header.setConnectionStatus(nil)
     }

@@ -69,8 +69,14 @@ public struct LinkMachine: Sendable {
         /// The scene actually entered the background; links may go stale
         /// while iOS suspends the process. Inactive scenes do not count.
         case background
-        /// The scene became active. Replace any link kept across suspension.
+        /// The scene became active after an unknown time away. Replace any link kept across
+        /// suspension.
         case resume
+        /// The scene became active `after` this long in the background. Under
+        /// ``shortSuspend`` the live link is kept and probed, never closed: an app switch
+        /// of a second leaves every channel, attach and chat in place (Leo, 2026-11-22).
+        /// Longer, the link stays beside the redial (make before break).
+        case resumed(after: Duration)
         case probeFailed(generation: Int, reason: String)
         /// A presence frame says the target Mac's signaling socket is up
         /// (again): its host may have restarted under a live link, whose
@@ -131,6 +137,8 @@ public struct LinkMachine: Sendable {
     public private(set) var media: VideoMediaState = .off
     /// Retry delays in seconds after the silent retries; the last one repeats.
     public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
+    /// A background shorter than this keeps the link: a quick probe, no redial.
+    public static let shortSuspend: Duration = .seconds(30)
     /// Failed dials retried at once, before any failure shows.
     public static let silentRetries = 1
     /// Whether an unanswered probe keeps the link beside the redial
@@ -165,6 +173,23 @@ public struct LinkMachine: Sendable {
                 return dial(attempt: 1, closing: true)
             }
             return handle(.foreground)
+        case .resumed(let away):
+            let wasBackgrounded = isBackgrounded
+            isBackgrounded = false
+            guard wasBackgrounded, isActive else { return handle(.foreground) }
+            // A dial or a wait in flight across the suspension started on a path that may be
+            // gone: start it again, as before.
+            guard case .connected = phase else { return dial(attempt: 1, closing: true) }
+            // Short: the link is almost always alive. Keep it and every channel on it; an
+            // unanswered probe takes the probe-failed path (standby beside a redial).
+            if away < Self.shortSuspend { return [.quickProbe(generation: generation)] }
+            // Long: the link may be stale. Dial at once, but keep it beside the dial; if it
+            // answers first, nothing was re-attached.
+            guard keepsStandby else { return dial(attempt: 1, closing: true) }
+            let kept = generation
+            let effects = dropStandby() + [.keepStandby] + dial(attempt: 1, closing: false)
+            standby = kept
+            return effects
         case .target(let next):
             let sameMac = next?.macID == target?.macID
             target = next

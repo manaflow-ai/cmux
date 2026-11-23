@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxMobileAgentChat
 
-/// Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to
+/// Leo, 2026-11-22: "i dont wanna see connecting to [machine]... with the spinner, i want it to
 /// just work." A message shows the moment it is sent, whether or not the Mac is there yet; only one
 /// the Mac never took within ``AgentChatStore/sendDeadline`` says so, quietly, on its own row.
 @MainActor

@@ -1,6 +1,6 @@
 import XCTest
 
-/// Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to
+/// Leo, 2026-11-22: "i dont wanna see connecting to [machine]... with the spinner, i want it to
 /// just work. i dont wanna see reconnecting to the Mac in a toast, i want it to just connect."
 ///
 /// The read-back of his flow: an open agent chat, the app sent to the background (its link
