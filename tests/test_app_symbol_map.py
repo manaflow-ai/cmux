@@ -52,9 +52,19 @@ def macho(symbols: list[tuple[str, int, int, int]], slice_uuid: uuid.UUID = SLIC
     return header + commands + nlist + strtab
 
 
+def expand_names(block: bytes, count: int) -> list[bytes]:
+    """The names of a CMXSYM2 block; a legacy Rust hash reads back as 16 zeros."""
+    shared, rests = block[:count], block[count:].split(b"\0")
+    names, previous = [], b""
+    for n, rest in zip(shared, rests):
+        previous = previous[:n] + rest
+        names.append(previous[:-1] + b"17h0000000000000000E" if previous[-1:] == b"\x01" else previous)
+    return names
+
+
 def read_map(path: Path) -> dict[uuid.UUID, list[tuple[int, str]]]:
     data = path.read_bytes()
-    assert data[:8] == b"CMXSYM1\x00", data[:8]
+    assert data[:8] == b"CMXSYM2\x00", data[:8]
     (count,) = struct.unpack_from("<I", data, 8)
     pos = 12
     slices = {}
@@ -76,7 +86,7 @@ def read_map(path: Path) -> dict[uuid.UUID, list[tuple[int, str]]]:
                     break
             offset += delta
             offsets.append(offset)
-        names = payload[cursor:].decode().split("\x00")
+        names = [name.decode() for name in expand_names(payload[cursor:], n)]
         slices[key] = list(zip(offsets, names))
     return slices
 
@@ -150,8 +160,8 @@ class AppSymbolMapTest(unittest.TestCase):
             self.strip(app)
             symbols = read_map(app / "Contents/Resources/cmux-tui-symbols.bin")
             self.assertEqual(symbols, {SLICE_UUID: [
-                (0x1000, "_ZN4tokio7runtime4park17h0123456789abcdefE"),
-                (0x1200, "_ZN8cmux_tui4main17hfedcba9876543210E"),
+                (0x1000, "_ZN4tokio7runtime4park17h0000000000000000E"),
+                (0x1200, "_ZN8cmux_tui4main17h0000000000000000E"),
                 (0x2000, ""),
             ]})
             self.assertFalse((app / "Contents/Resources/cmux-symbols.bin").exists())

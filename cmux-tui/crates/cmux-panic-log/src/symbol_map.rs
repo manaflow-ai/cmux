@@ -5,11 +5,16 @@
 //! strip, `scripts/write-app-symbol-map.py` writes its `__TEXT,__text`
 //! functions into `Contents/Resources/cmux-tui-symbols.bin`, the format the
 //! app's own `cmux-symbols.bin` has (and `AppSymbolMap.swift` reads):
-//! little-endian, `b"CMXSYM1\0"`, u32 slice count, then per slice the 16-byte
+//! little-endian, `b"CMXSYM2\0"`, u32 slice count, then per slice the 16-byte
 //! `LC_UUID`, u32 payload size and the payload as raw DEFLATE: u32 symbol
 //! count, one unsigned LEB128 offset delta per symbol (offsets from the
-//! image's Mach-O header), then the names joined by NUL. The last entry has
-//! an empty name: the end of `__TEXT,__text`.
+//! image's Mach-O header), one byte per symbol (how many leading bytes its
+//! name shares with the name before it), then each name's remaining bytes and
+//! a NUL. A Rust legacy name's `17h<hash>E` tail is stored as the one byte
+//! 0x01 and read back as `17h0000000000000000E`: the demangler prints no
+//! hash, and the hashes were 4 MB of the map. The last entry has an empty
+//! name: the end of `__TEXT,__text`. The first format, `b"CMXSYM1\0"`, held
+//! the whole names joined by NUL; it still reads.
 
 use std::io::Read;
 
@@ -27,7 +32,9 @@ impl SymbolMap {
     /// or the file does not decode.
     pub fn parse(blob: &[u8], uuid: &[u8; 16]) -> Option<Self> {
         let mut file = Reader { bytes: blob, at: 0 };
-        if file.take(8)? != b"CMXSYM1\0" {
+        let magic = file.take(8)?;
+        let shared_prefixes = magic == b"CMXSYM2\0";
+        if !shared_prefixes && magic != b"CMXSYM1\0" {
             return None;
         }
         let count = file.u32()?;
@@ -40,12 +47,12 @@ impl SymbolMap {
             }
             let mut inflated = Vec::new();
             flate2::read::DeflateDecoder::new(payload).read_to_end(&mut inflated).ok()?;
-            return Self::table(&inflated);
+            return Self::table(&inflated, shared_prefixes);
         }
         None
     }
 
-    fn table(payload: &[u8]) -> Option<Self> {
+    fn table(payload: &[u8], shared_prefixes: bool) -> Option<Self> {
         let mut payload = Reader { bytes: payload, at: 0 };
         let count = payload.u32()? as usize;
         // Each entry takes at least one byte, so a corrupt count never reserves more than the file.
@@ -56,7 +63,11 @@ impl SymbolMap {
             offset = offset.wrapping_add(payload.leb128()?);
             offsets.push(offset);
         }
-        let names = payload.bytes.get(payload.at..)?.to_vec();
+        let names = if shared_prefixes {
+            Self::expand(payload.bytes.get(payload.at..)?, count)?
+        } else {
+            payload.bytes.get(payload.at..)?.to_vec()
+        };
         let mut starts = Vec::with_capacity(capacity);
         starts.push(0u32);
         for (index, byte) in names.iter().enumerate() {
@@ -65,6 +76,37 @@ impl SymbolMap {
             }
         }
         (starts.len() == offsets.len()).then_some(Self { offsets, names, starts })
+    }
+
+    /// The names of a shared-prefix block (`count` prefix lengths, then `count` NUL-ended rests)
+    /// as the first format held them: whole names joined by NUL, the last without one.
+    fn expand(block: &[u8], count: usize) -> Option<Vec<u8>> {
+        const HASH_MARK: u8 = 0x01;
+        const NO_HASH: &[u8] = b"17h0000000000000000E";
+        let (shared, rests) = block.split_at_checked(count)?;
+        let mut rests = rests.split(|byte| *byte == 0);
+        let mut names = Vec::with_capacity(block.len().saturating_mul(3));
+        // The previous name as stored (with its hash mark), which the next one shares a prefix of.
+        let mut previous: Vec<u8> = Vec::new();
+        for (index, shared) in shared.iter().enumerate() {
+            let rest = rests.next()?;
+            previous.truncate(usize::from(*shared));
+            if previous.len() != usize::from(*shared) {
+                return None;
+            }
+            previous.extend_from_slice(rest);
+            if index != 0 {
+                names.push(0);
+            }
+            match previous.split_last() {
+                Some((&HASH_MARK, name)) => {
+                    names.extend_from_slice(name);
+                    names.extend_from_slice(NO_HASH);
+                }
+                _ => names.extend_from_slice(&previous),
+            }
+        }
+        Some(names)
     }
 
     /// The function holding `offset` (from the image header): its mangled
@@ -135,12 +177,31 @@ mod tests {
                 }
             }
         }
-        body.extend(symbols.iter().map(|(_, name)| *name).collect::<Vec<_>>().join("\0").bytes());
+        let mut previous: Vec<u8> = Vec::new();
+        let (mut shared, mut rests) = (Vec::new(), Vec::new());
+        for (_, name) in symbols {
+            let mut name = name.as_bytes().to_vec();
+            // As the writer does: a legacy Rust hash becomes the one byte 0x01.
+            if name.len() >= 20
+                && name.ends_with(b"E")
+                && name[name.len() - 20..].starts_with(b"17h")
+            {
+                name.truncate(name.len() - 20);
+                name.push(1);
+            }
+            let same = name.iter().zip(&previous).take_while(|(a, b)| a == b).count().min(255);
+            shared.push(same as u8);
+            rests.extend_from_slice(&name[same..]);
+            rests.push(0);
+            previous = name;
+        }
+        body.extend(shared);
+        body.extend(rests);
         let mut encoder =
             flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::best());
         encoder.write_all(&body).unwrap();
         let payload = encoder.finish().unwrap();
-        let mut file = b"CMXSYM1\0".to_vec();
+        let mut file = b"CMXSYM2\0".to_vec();
         file.extend(1u32.to_le_bytes());
         file.extend(uuid);
         file.extend((payload.len() as u32).to_le_bytes());
@@ -156,12 +217,37 @@ mod tests {
             &[(0x1000, "_ZN4cmux4main17h0123456789abcdefE"), (0x1200, "tokio_poll"), (0x2000, "")],
         );
         let map = SymbolMap::parse(&file, &uuid).expect("slice for uuid");
-        assert_eq!(map.function(0x1000), Some(("_ZN4cmux4main17h0123456789abcdefE", 0)));
-        assert_eq!(map.function(0x11ff), Some(("_ZN4cmux4main17h0123456789abcdefE", 0x1ff)));
+        // The hash is not kept: it reads back as zeros, which the demangler never prints.
+        let main = "_ZN4cmux4main17h0000000000000000E";
+        assert_eq!(map.function(0x1000), Some((main, 0)));
+        assert_eq!(map.function(0x11ff), Some((main, 0x1ff)));
         assert_eq!(map.function(0x1234), Some(("tokio_poll", 0x34)));
         // Before the first function and past the end of __text: no name.
         assert_eq!(map.function(0xfff), None);
         assert_eq!(map.function(0x2000), None);
+    }
+
+    #[test]
+    fn names_sharing_a_prefix_read_back_whole() {
+        let uuid = [7u8; 16];
+        let file = map_file(
+            uuid,
+            &[
+                (0x10, "_ZN4core3fmt5write17h00000000000000aaE"),
+                (0x20, "_ZN4core3fmt5write17h00000000000000bbE"),
+                (0x30, "_ZN4core3fmt3foo17h00000000000000ccE"),
+                (0x40, "_ZN4core3fmt3foo"),
+                (0x50, "_ZN4core3fmt3foobar"),
+                (0x60, ""),
+            ],
+        );
+        let map = SymbolMap::parse(&file, &uuid).expect("slice for uuid");
+        assert_eq!(map.function(0x10).unwrap().0, "_ZN4core3fmt5write17h0000000000000000E");
+        assert_eq!(map.function(0x20).unwrap().0, "_ZN4core3fmt5write17h0000000000000000E");
+        assert_eq!(map.function(0x30).unwrap().0, "_ZN4core3fmt3foo17h0000000000000000E");
+        assert_eq!(map.function(0x40).unwrap().0, "_ZN4core3fmt3foo");
+        assert_eq!(map.function(0x50).unwrap().0, "_ZN4core3fmt3foobar");
+        assert_eq!(map.function(0x60), None);
     }
 
     #[test]

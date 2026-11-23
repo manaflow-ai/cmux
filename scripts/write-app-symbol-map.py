@@ -14,10 +14,18 @@ as dladdr names them (without the leading underscore), then one entry with
 an empty name at the end of __TEXT,__text: addresses past it (__stubs,
 __objc_stubs) name no function.
 
-Format, little-endian: b"CMXSYM1\\0", u32 slice count, then per slice the
+Format, little-endian: b"CMXSYM2\\0", u32 slice count, then per slice the
 16-byte UUID, u32 payload size and the payload as raw DEFLATE (what
 Foundation's `.zlib` decompression reads): u32 symbol count, one unsigned
-LEB128 offset delta per symbol, then the names joined by NUL.
+LEB128 offset delta per symbol, one byte per symbol (how many leading bytes
+the name shares with the one before it, at most 255), then each name's
+remaining bytes, each ending in NUL. A Rust legacy name's trailing
+`17h<16 hex digits>E` hash is stored as the single byte 0x01 and read back as
+`17h0000000000000000E` (the demangler prints no hash; the hashes were 4 MB of
+bytes that do not compress). The first format, b"CMXSYM1\\0", stored the names
+whole, joined by NUL; the readers still take it. Shared prefixes and no
+hashes make the map 1.9 MB where the whole names took 5.7 (cmux-tui) and 4.2
+MB where they took 4.8 (the app), CMUX-570.
 
 A second strip pass over the stripped executable leaves OUT as it is: OUT
 already holds a map for every slice UUID (stripping keeps the UUID), and the
@@ -28,6 +36,7 @@ An executable with no such symbols also leaves OUT alone.
 from __future__ import annotations
 
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -127,7 +136,7 @@ def mapped_uuids(path: str) -> set[bytes]:
             blob = f.read()
     except OSError:
         return set()
-    if blob[:8] != b"CMXSYM1\0" or len(blob) < 12:
+    if blob[:8] not in (b"CMXSYM1\0", b"CMXSYM2\0") or len(blob) < 12:
         return set()
     (count,) = struct.unpack_from("<I", blob, 8)
     uuids, at = set(), 12
@@ -138,6 +147,27 @@ def mapped_uuids(path: str) -> set[bytes]:
         uuids.add(blob[at:at + 16])
         at += 20 + size
     return uuids
+
+
+LEGACY_HASH = re.compile(rb"17h[0-9a-f]{16}E$")
+HASH_MARK = b"\x01"
+
+
+def names_block(names: list[bytes]) -> bytes:
+    """The shared-prefix byte of every name, then every name's rest and a NUL."""
+    shared, rests, previous = bytearray(), bytearray(), b""
+    for name in names:
+        if b"\0" in name or HASH_MARK in name:
+            raise ValueError(f"symbol name holds a NUL or 0x01 byte: {name!r}")
+        name = LEGACY_HASH.sub(HASH_MARK, name)
+        n = 0
+        limit = min(len(name), len(previous), 255)
+        while n < limit and name[n] == previous[n]:
+            n += 1
+        shared.append(n)
+        rests += name[n:] + b"\0"
+        previous = name
+    return bytes(shared) + bytes(rests)
 
 
 def payload(symbols: list[tuple[int, str]]) -> bytes:
@@ -151,7 +181,7 @@ def payload(symbols: list[tuple[int, str]]) -> bytes:
             body.append(byte | (0x80 if delta else 0))
             if not delta:
                 break
-    body += "\0".join(name for _, name in symbols).encode()
+    body += names_block([name.encode() for _, name in symbols])
     compressor = zlib.compressobj(9, zlib.DEFLATED, -15)
     return compressor.compress(bytes(body)) + compressor.flush()
 
@@ -168,7 +198,7 @@ def main() -> int:
     if not tables:
         print(f"app symbol map: no function names in {executable}; {out} unchanged")
         return 0
-    blob = bytearray(b"CMXSYM1\0" + struct.pack("<I", len(tables)))
+    blob = bytearray(b"CMXSYM2\0" + struct.pack("<I", len(tables)))
     count = 0
     for uuid, symbols in tables:
         packed = payload(symbols)
