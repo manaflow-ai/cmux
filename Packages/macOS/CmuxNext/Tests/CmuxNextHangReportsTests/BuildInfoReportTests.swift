@@ -5,9 +5,9 @@ import Testing
 /// Copy Version Info and Copy Debug Info (the command palette): the clipboard text names the
 /// version, the build, the channel's bundle id and the commit; the debug text adds the system.
 struct BuildInfoReportTests {
-    private static let info: [String: Any] = [
+    private static var info: [String: Any] { [
         "CFBundleShortVersionString": "0.65.2", "CFBundleVersion": "3845050", "CMUXCommit": "539f78054aef",
-    ]
+    ] }
 
     @Test func versionTextHasVersionBuildChannelAndCommit() {
         let report = BuildInfoReport(info: Self.info, bundleID: "com.cmuxterm.app.nightly")
