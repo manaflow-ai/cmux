@@ -247,6 +247,7 @@ public final class AddressBarView: NSView {
         }
         density.start()
         pill.onHoverChange = { [weak self] hovering in self?.updateQuietIcons(fade: ChromeHover.fade(showing: hovering)) }
+        pill.onLookChange = { [weak self] in self?.repaintInk() }
         followDisplay()
     }
 
@@ -300,6 +301,8 @@ public final class AddressBarView: NSView {
         set { profileBadgeView.makeMenu = newValue }
     }
 
+    /// The profile badge's text color now (tests).
+    var profileBadgeTextColor: NSColor? { profileBadgeView.shownTextColor }
     /// The badge shown now, for diagnostics (`debug.browser`).
     public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
@@ -655,5 +658,13 @@ public final class AddressBarView: NSView {
         if !field.isFieldEditorActive {
             field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
         }
+    }
+
+    /// Every mark on the bar takes the bar's ink again (`OmnibarStyle.ink`): the look changed (glass, transparent,
+    /// flat, its tint or coverage), which brings no appearance change and no theme repaint.
+    func repaintInk() {
+        field.repaintInk()
+        chip.repaintInk()
+        for view in [starButton, profileBadgeView, machineBadgeView] as [NSView] { view.needsDisplay = true }
     }
 }

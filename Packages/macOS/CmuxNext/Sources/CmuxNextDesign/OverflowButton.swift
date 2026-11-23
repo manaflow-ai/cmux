@@ -188,8 +188,11 @@ public final class OverflowButton: ClickableButton {
         performWithTheme {
             // Without a fill, a press or an open menu shows in the glyph's own ink, as the tab bar's + does.
             let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary
+            // On a popover's glass the glyph's ink is fit to the glass over any page (``NSView/glassInk(_:minimum:)``).
+            let hoverInk = glassInk(\.textPrimary, minimum: CmuxDialogButtonLook.minimumContrast) ?? Palette.textPrimary
+            let restInk = glassInk(\.textSecondary, minimum: CmuxDialogButtonLook.minimumContrast) ?? Palette.textSecondary
             contentTintColor = !isEnabled ? disabledInk
-                : tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? Palette.textPrimary : Palette.textSecondary)
+                : tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? hoverInk : restInk)
             if drawsInGlyphView { paneGlyphView.contentTintColor = contentTintColor }
         }
         hover.refresh(animated: false)

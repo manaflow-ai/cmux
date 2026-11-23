@@ -87,6 +87,17 @@ fn a_deck_with_no_front_matter_takes_the_file_name_and_drops_bad_classes() {
 }
 
 #[test]
+fn a_skipped_slide_is_marked_and_keeps_its_notes() {
+    let html = md_deck::compile(
+        "# Talk\n\n---\n\n<!-- skip -->\n<!-- _class: center -->\n## Backup\n\n<!-- say it only if asked -->\n",
+        "t.md",
+    );
+    assert!(html.contains("<section class=\"center\" data-skip>\n<h2>Backup</h2>"), "{html}");
+    assert!(html.contains("<aside class=\"notes\">say it only if asked</aside>"), "{html}");
+    assert_eq!(html.matches(" data-skip>").count(), 1, "only the marked slide");
+}
+
+#[test]
 fn deck_files_are_told_apart_from_documents() {
     let folder = tempfile::tempdir().expect("a temp dir");
     let deck = folder.path().join("talk.md");
