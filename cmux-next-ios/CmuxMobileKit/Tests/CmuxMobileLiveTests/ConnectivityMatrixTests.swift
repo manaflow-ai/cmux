@@ -115,7 +115,7 @@ private struct Timeline {
                 pending.append(standbyOutcome(generation: generation, world: world))
             case .promoteStandby:
                 resumed += 1
-            case .close, .probe, .quickProbe, .closeStandby:
+            case .close, .probe, .quickProbe, .closeStandby, .park, .resumeParked:
                 break
             }
         }
