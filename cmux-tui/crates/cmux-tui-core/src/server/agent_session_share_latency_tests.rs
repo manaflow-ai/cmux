@@ -13,28 +13,38 @@
 //! (`cmux-bench share-latency`).
 use super::super::super::GUEST_PREFIX;
 use super::*;
+
+// Keep the fake-room proof and staging flow on the exact same statistics and bound code.
+#[path = "share_latency_report.rs"]
+mod share_latency_report;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::mpsc::RecvTimeoutError;
 
 /// Leo's bound for both: live and cut off.
-const BOUND: Duration = Duration::from_secs(1);
+const BOUND: Duration = Duration::from_millis(share_latency_report::BOUND_MS as u64);
 /// How often a wait on the room's channel also reads the daemon's connection table.
 const TICK: Duration = Duration::from_millis(1);
 
 fn ms(d: Duration) -> f64 {
-    (d.as_secs_f64() * 10_000.0).round() / 10.0
+    share_latency_report::rounded_ms(d.as_secs_f64() * 1_000.0)
 }
 
-/// Prints `case`'s p50 and max, then holds the slowest to [`BOUND`].
-fn report(case: &str, load: &str, mut samples: Vec<Duration>) {
-    assert!(!samples.is_empty(), "{case} ({load}): no sample");
-    samples.sort();
-    let (p50, max) = (samples[samples.len() / 2], samples[samples.len() - 1]);
-    let line = json!({"case": case, "load": load, "n": samples.len(), "p50_ms": ms(p50),
-        "max_ms": ms(max), "bound_ms": ms(BOUND)});
+/// Prints `case`'s p50, p95 and max, then holds every raw sample to the 1 s bound.
+fn report(case: &str, load: &str, samples: Vec<Duration>) {
+    let raw: Vec<f64> = samples.iter().map(|sample| sample.as_secs_f64() * 1_000.0).collect();
+    let summary = share_latency_report::summarize(&raw).unwrap_or_else(|error| {
+        panic!("{case} ({load}): {error}");
+    });
+    let line = json!({"case": case, "load": load, "n": summary.n, "p50_ms": summary.p50_ms,
+        "p95_ms": summary.p95_ms, "max_ms": summary.max_ms, "bound_ms": ms(BOUND),
+        "within_1s": summary.within_1s});
     println!("SHARE-LATENCY {line}");
-    assert!(max < BOUND, "{case} ({load}): the slowest took {} ms, over the 1 s bound", ms(max));
+    assert!(
+        summary.all_samples_within_1s,
+        "{case} ({load}): the slowest took {} ms, over the 1 s bound",
+        summary.max_ms
+    );
 }
 
 /// Reads what the room sees, each with the moment it was read, until `done` holds (`true`) or
