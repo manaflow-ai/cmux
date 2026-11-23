@@ -94,8 +94,8 @@ impl NoticeOutbox {
                 if state.closed {
                     return Err(Closed);
                 }
-                let Some(next) = item.take() else { return Ok(()) };
                 if state.backlog.is_empty() && !state.draining {
+                    let Some(next) = item.take() else { return Ok(()) };
                     match self.inner.hub.try_send(next) {
                         Ok(()) => return Ok(()),
                         Err(mpsc::error::TrySendError::Closed(_)) => {
