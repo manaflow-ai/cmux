@@ -125,7 +125,7 @@ def rpc(path, method, params=None, *, timeout=10):
                     raise HostFailure("host_rpc_incomplete")
                 data += chunk
         answer = json.loads(data)
-        if answer.get("ok") is not True or not isinstance(answer.get("result"), dict):
+        if not isinstance(answer, dict) or answer.get("ok") is not True or not isinstance(answer.get("result"), dict):
             raise HostFailure("host_rpc_refused")
         if "error" in answer["result"]:
             raise HostFailure("host_rpc_action_failed")
@@ -370,7 +370,15 @@ class Host:
             data = self.events_path.read_bytes()
             if len(data) > 1024 * 1024:
                 raise HostFailure("host_input_log_bound")
-            return [json.loads(line) for line in data.splitlines() if line.endswith(b"}")]
+            events = []
+            for line in data.splitlines():
+                if not line.endswith(b"}"):
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    continue
+            return events
         except FileNotFoundError:
             return []
 
