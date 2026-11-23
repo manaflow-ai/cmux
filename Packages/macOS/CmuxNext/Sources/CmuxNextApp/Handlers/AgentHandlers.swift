@@ -28,10 +28,9 @@ import Observation
 /// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
-    /// Inspect Element (#24707): the web-content menus that place it (the agent chat page's)
-    /// leave it out while Debug Settings' UI pointer inspector
-    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off. Native menus never
-    /// place it (InspectElementScopeTests).
+    /// Point at Element (#24707, ask-5077a4ec48): the menus that place it (the agent chat page's, and the native
+    /// tab, pane, workspace row and sidebar item menus) leave it out while Debug Settings' UI pointer inspector
+    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off (InspectElementScopeTests).
     static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
         ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
             !AgentPaneTunables.pointerInspector.value
@@ -135,9 +134,7 @@ enum AgentHandlers {
             registry.bindEffect(id, effect: { invocation in
                 guard let app = (invocation["appId"] ?? invocation["app_id"])?.stringValue, !app.isEmpty else { return .refused(ComputerUseSessionStrings.noApp) }
                 let decision = invocation["decision"]?.stringValue
-                if id == "computerUse.approval.set", decision != "always", decision != "never" {
-                    return .refused(ComputerUseSessionStrings.noDecision)
-                }
+                if id == "computerUse.approval.set", decision != "always", decision != "never" { return .refused(ComputerUseSessionStrings.noDecision) }
                 let remote = context.services.cmuxRemote
                 // action-wait-allow: the saved approvals live in cmux Remote's Computer Use worker, another process.
                 return .waiting(.externalProcess) {
@@ -148,6 +145,7 @@ enum AgentHandlers {
                 }
             })
         }
+        context.services.cmuxRemote.bindApprovalSuggestions(into: registry)
         registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane(customizeRows: { context.services.settings?.snapshot.customizeFromTheApp == true }) { invocation in
@@ -187,11 +185,12 @@ enum AgentHandlers {
                 "Point at Element is off. Turn on UI pointer inspector in Debug Settings."
         }, run: { invocation in
             // Palette, keyboard and the CLI keep the existing toggle contract.
-            // A targeted context-menu invocation starts at the right-click point.
+            // A right-click menu's run starts on what was right-clicked: the chat page's element, or the native
+            // tab, pane, workspace row or sidebar item the menu belongs to.
             if invocation.target == nil {
                 context.services.uiInspector.toggle()
             } else {
-                context.services.uiInspector.inspectFromContextMenu()
+                context.services.uiInspector.inspectFromContextMenu(menu: invocation.menuContext, target: invocation.target)
             }
         })
         gatePointerInspectorMenuRows(in: registry)

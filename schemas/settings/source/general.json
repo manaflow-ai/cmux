@@ -747,6 +747,33 @@
             "type": "CmuxConfigSnapshot",
             "prefixed": true
           }
+        },
+        {
+          "key": "app.warnBeforeQuitShortcut",
+          "note": "https://github.com/manaflow-ai/cmux/issues/48621: an accidental Cmd-Q quit at once. The first Cmd-Q asks \"Quit cmux?\" (Quit, Cancel, Don't ask again); pressing or holding it again quits. The Quit menu, the Dock and scripts quit at once.",
+          "title": {
+            "key": "settings.app.warnBeforeQuitShortcut",
+            "text": "Warn Before Quitting with ⌘Q"
+          },
+          "help": {
+            "key": "settings.app.warnBeforeQuitShortcut.help",
+            "text": "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "quit",
+            "cmd-q",
+            "warn",
+            "hold",
+            "accidental",
+            "confirm",
+            "exit"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
         }
       ]
     },
