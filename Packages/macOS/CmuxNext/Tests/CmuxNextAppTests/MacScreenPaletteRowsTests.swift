@@ -32,12 +32,13 @@ import Testing
         #expect(ran.first?.origin == .user)
     }
 
-    /// A Linux desktop and a Windows PC draw their own glyph, not a Mac's (Leo 2026-11-16: "i dont see windows nor linux").
+    /// A Linux desktop draws its own glyph, not a Mac's (Leo 2026-11-16: "i dont see windows nor linux"); a Windows PC,
+    /// which this Mac cannot view yet, gets no Connect row (Your Devices lists it as "Can’t view yet").
     @Test func linuxAndWindowsRowsDrawTheirPlatform() {
         let linux = HubDevice(id: "3b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", name: "Box", platform: .linux, online: true)
         let windows = HubDevice(id: "4b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", name: "PC", platform: .windows, online: true)
         let rows = MacScreenPages.paletteRows(devices: [linux, windows], actionTitle: "Screen Sharing") { _ in }
-        #expect(rows.map(\.symbol) == ["server.rack", "pc"])
+        #expect(rows.map(\.symbol) == ["server.rack"])
     }
 
     @Test func noActionTitleListsNoRows() {
