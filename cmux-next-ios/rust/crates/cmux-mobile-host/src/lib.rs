@@ -53,6 +53,7 @@ pub mod services;
 pub mod size_release;
 pub mod surface;
 pub mod traffic;
+pub mod try_pr;
 
 mod side_completion;
 mod workspace_cache;
