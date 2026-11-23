@@ -11,8 +11,13 @@ export const trayFoldHeadLook = defineExperiment({
   id: "subagent-tray-fold-head",
   title: "Running tray folded header",
   description:
-    "What the running tray's header says: each kind's mark and count (hover a kind for its names), the newest two by name, the newest one, or only counts.",
+    "What the running tray's header says: a summary in words that shrinks with the width, each kind's mark and count (hover a kind for its names), the newest two by name, the newest one, or only counts.",
   arms: {
+    summary: {
+      label: "Summary: words that shrink step by step",
+      description:
+        "One line that says what runs in words (2 subagents running · 1 command running) when there is room, then short words (2 subagents · 1 command), then each kind's mark and number, then +N for the kinds past the edge. Every kind takes the same step; a lone item reads its name. The time and the controls never move.",
+    },
     tally: {
       label: "Tally: a mark and a count per kind",
       description:
@@ -46,5 +51,11 @@ export const trayFoldHeadLook = defineExperiment({
   // commands with their own symbols"; ""running" doesn't need text. it can usually just be. you can
   // put symbols for state. and state can fucking only be relevant when you may need to
   // investigate/take action").
-  defaultArm: "tally",
+  // Then the tally's lone number read as too little, so the line says it in words while there is room
+  // and gives them up step by step (Leo, 2026-11-23, on a hat that read the Claude mark and "2": "this 2
+  // is too bare. it being alone, it's just bad. ... we need to have it meaningful even when there's
+  // only 1 thing ... like just im saying x subagents running y commands running etc with full text
+  // when you have space and it gradually shrinks when there is none... and have it not shift too
+  // much"). traySummaryFit.ts picks the step.
+  defaultArm: "summary",
 });

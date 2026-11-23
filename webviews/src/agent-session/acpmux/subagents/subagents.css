@@ -684,6 +684,95 @@ button.cv-subagent > :last-child {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The `summary` arm (trayFoldHead.experiment.ts, HeadSummary.tsx; Leo, 2026-11-23: "x subagents running
+   y commands running etc with full text when you have space and it gradually shrinks when there is
+   none... and have it not shift too much"). The line takes the header's free room, so its width is the
+   room it has, never what it draws: traySummaryFit.ts picks the step from it, and the time and the
+   controls after it keep their place at every step. One row, never wrapped; the first mark stays in
+   the lines' icon column. */
+.acpmux-running-tray__head > .acpmux-running-tray__title.acpmux-running-tray__summary {
+  flex: 1 1 0;
+  flex-wrap: nowrap;
+  column-gap: var(--ds-space-2, 8px);
+}
+.acpmux-running-tray__head > .acpmux-running-tray__summary ~ .acpmux-running-tray__time {
+  flex: none;
+  text-align: right;
+}
+.acpmux-running-tray__summary > [data-kind="plan"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+}
+.acpmux-running-tray__summary > [data-kind="plan"] > .acpmux-running-tray__kind-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-running-tray__summary-line {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.acpmux-running-tray__summary[data-summary="count"] > .acpmux-running-tray__summary-line {
+  column-gap: var(--ds-space-3, 12px);
+}
+/* A lone item's name is the one form that may still be longer than the line between two measures. */
+.acpmux-running-tray__summary[data-summary="named"] .acpmux-running-tray__kind-unit,
+.acpmux-running-tray__summary[data-summary="named"] .acpmux-running-tray__kind {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.acpmux-running-tray__summary[data-summary="named"] .acpmux-running-tray__kind-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-running-tray__summary-kind {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* The kinds folded past the line's end: "+N", quiet; the hover names them. */
+.acpmux-running-tray__summary-more {
+  flex: none;
+  color: var(--agent-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-running-tray__summary-gap {
+  display: inline-block;
+  width: var(--ds-space-3, 12px);
+}
+/* Every kind in every form, laid out off the line, never seen, read or hit. */
+.acpmux-running-tray__summary-probe {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: max-content;
+  visibility: hidden;
+  pointer-events: none;
+  contain: layout style;
+}
+/* The probe's words are CSS content, never the header's text. */
+.acpmux-running-tray__summary-probe [data-text]::after {
+  content: attr(data-text);
+}
+.acpmux-running-tray__summary-probe > [data-probe-kind] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
 /* The separator between kinds (trayKindLine.experiment.ts), quiet, as the counts' was. */
 .acpmux-running-tray__kind-sep {
   flex: none;
