@@ -326,8 +326,10 @@ public final class TerminalModel {
             // Nothing the person typed was dropped: nothing to say.
             break
         case .inputNotSent:
-            composerNotice = TerminalConnectionState.inputNotSentNotice
-            // A composer send that waited out a blip and was dropped comes back to edit.
+            // Nothing is said (Leo, 2026-11-23: "things just work"): keys held
+            // past the hold never run late, their predicted glyphs are rolled
+            // back by the screen, and a composer send that waited out a blip and
+            // was dropped comes back to the composer to send again.
             if let held = heldComposerSend, !composerText.isEmpty, composerText == held.text {
                 // Refused inside `send` itself (the hold was full or already dropped): the
                 // composer keeps its text.
@@ -623,11 +625,10 @@ public final class TerminalModel {
     @ObservationIgnored private var composerSending = false
 
     /// The session dropped, refused or got an error for a composer send
-    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:)``): never silent.
-    /// The notice shows and the text comes back to an empty composer (one the
-    /// person typed into since keeps what they typed).
+    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:)``): the text comes
+    /// back to an empty composer (one the person typed into since keeps what
+    /// they typed), with no notice: the draft back in the field is the answer.
     private func composerSendNotSent(_ text: String) {
-        composerNotice = TerminalConnectionState.composerSendNotSentNotice
         heldComposerSend = nil
         if composerSending {
             composerSendRefused = true

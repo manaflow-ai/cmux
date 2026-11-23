@@ -153,10 +153,6 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
-    /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
-    public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
-    /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
-    public static let composerSendNotSentNotice = "Your message was not sent."
 }
 
 /// One terminal on a Mac, as the phone sees it: bytes in, input out, resize and

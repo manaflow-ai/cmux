@@ -89,7 +89,7 @@ import Testing
         #expect(!sends(daemon).contains { $0["submit"] != nil || $0["text"] != nil })
     }
 
-    // MARK: Silent failure: a send that does not reach the terminal brings the draft back with a notice.
+    // MARK: A send that does not reach the terminal brings the draft back, with no banner.
 
     /// The daemon answers the paste with an error.
     @Test func aRefusedSendGivesTheDraftBack() async throws {
@@ -98,13 +98,13 @@ import Testing
         daemon.refusesPasteSubmit = true
         model.composerText = Self.draft
         model.send()
-        try await waitUntil { model.composerNotice != nil }
-        #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+        try await waitUntil { model.composerText == Self.draft }
+        #expect(model.composerNotice == nil, "the draft comes back with no banner")
         #expect(model.composerText == Self.draft)
     }
 
     /// The channel fails after the paste was written and before its answer (a reconnect
-    /// mid-send): the Mac may or may not have it, it is not sent again, and the person is told.
+    /// mid-send): the Mac may or may not have it, it is not sent again, and the draft comes back.
     @Test func aChannelLostMidSendGivesTheDraftBack() async throws {
         let channels = ChannelLog()
         let (daemon, session, model) = try await rig(pasteSubmit: true, channels: channels, clock: { 1000 })
@@ -115,8 +115,8 @@ import Testing
         try await waitUntil { sends(daemon).count == 1 }
         #expect(model.composerText.isEmpty)
         await channels.last?.close(code: "link_closed", reason: "link dropped")
-        try await waitUntil { model.composerNotice != nil }
-        #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+        try await waitUntil { model.composerText == Self.draft }
+        #expect(model.composerNotice == nil, "the draft comes back with no banner")
         #expect(model.composerText == Self.draft)
         #expect(sends(daemon).count == 1, "a written paste is never sent twice")
     }
@@ -135,8 +135,8 @@ import Testing
         clock += DaemonTerminalSession.inputHoldLimit + 0.5
         session.reconnect()
         try await waitUntil { session.isAttached }
-        try await waitUntil { model.composerNotice != nil }
-        #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+        try await waitUntil { model.composerText == Self.draft }
+        #expect(model.composerNotice == nil, "the draft comes back with no banner")
         #expect(model.composerText == Self.draft)
         #expect(sends(daemon).isEmpty)
     }
@@ -152,7 +152,7 @@ import Testing
         model.composerText = big
         model.send()
         #expect(model.composerText == big)
-        #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+        #expect(model.composerNotice == nil)
     }
 
     /// After a drop the session refuses input until it attaches again: a send then stays in the composer.
@@ -167,7 +167,7 @@ import Testing
         model.composerText = Self.draft
         model.send()
         #expect(model.composerText == Self.draft)
-        #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+        #expect(model.composerNotice == nil)
     }
 
     /// Holds while `condition` stays true, for at most `window`: returns early when it turns false.
