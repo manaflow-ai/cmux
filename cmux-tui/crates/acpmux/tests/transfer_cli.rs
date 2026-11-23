@@ -77,6 +77,19 @@ impl Daemon {
     /// A daemon whose peer `target` is the daemon at `peer` (home, socket), its agent started
     /// with `agent_env`.
     async fn spawn(tag: &str, peer: Option<(PathBuf, PathBuf)>, agent_env: Value) -> Self {
+        Self::spawn_linked(tag, peer, agent_env, None).await
+    }
+
+    /// [`Daemon::spawn`], and with `link` (this daemon's WebSocket port, the peer's, a one-way
+    /// delay in milliseconds) the daemon listens there and its own peer link to `target` runs
+    /// over the stand-in `ssh -W`, so a chat on the peer is reached from this daemon as the app
+    /// reaches it.
+    async fn spawn_linked(
+        tag: &str,
+        peer: Option<(PathBuf, PathBuf)>,
+        agent_env: Value,
+        link: Option<(u16, u16, u64)>,
+    ) -> Self {
         let (home, socket) = Self::place(tag);
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
@@ -84,8 +97,13 @@ impl Daemon {
         let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": agent_env}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
         let path = peer.map(|(peer_home, peer_socket)| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
-            session_move::fake_ssh(&home, &peer_home, &peer_socket)
+            let link = link.map(|(_, port, delay)| (port, delay));
+            session_move::fake_ssh_linked(&home, &peer_home, &peer_socket, link)
         });
+        if let Some((port, ..)) = link {
+            config["websocket"] =
+                json!({"listen": format!("127.0.0.1:{port}"), "token": "5a".repeat(32)});
+        }
         std::fs::write(home.join("config.json"), config.to_string()).expect("config");
         let mut command = daemon_env::command(&home, daemon_env::Agents::StandIn, &[]);
         if let Some(path) = path {
@@ -156,3 +174,5 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
 mod session_move;
 #[path = "transfer_cli/session_move_live.rs"]
 mod session_move_live;
+#[path = "transfer_cli/view_latency.rs"]
+mod view_latency;

@@ -14,9 +14,9 @@ use std::collections::BTreeMap;
 const HOPS: usize = 10;
 
 /// One side of the pair: its daemon and the folder the chat gets there.
-struct Side {
-    daemon: Daemon,
-    folder: PathBuf,
+pub(super) struct Side {
+    pub(super) daemon: Daemon,
+    pub(super) folder: PathBuf,
 }
 
 async fn pair(tag: &str, logs: &Path) -> [Side; 2] {
@@ -66,7 +66,7 @@ fn steps(events: &[Value]) -> Vec<(String, usize, usize)> {
     order.into_iter().map(|call| (call.clone(), seen[&call].0, seen[&call].1)).collect()
 }
 
-async fn move_to_the_other(from: &Side, to: &Side, id: &str, mode: &[&str]) -> Duration {
+pub(super) async fn move_to_the_other(from: &Side, to: &Side, id: &str, mode: &[&str]) -> Duration {
     let mut command = daemon_env::tokio_command(&from.daemon.home, daemon_env::Agents::Deny);
     command
         .args(["--json", "session", "move", id, "--machine", "target"])
