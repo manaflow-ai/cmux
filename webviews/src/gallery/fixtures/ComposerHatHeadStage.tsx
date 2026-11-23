@@ -8,8 +8,11 @@ import { trayItems, finishedTrayItems } from "../../agent-session/acpmux/subagen
 import { SubagentTray } from "../../agent-session/acpmux/subagents/SubagentTray";
 import type { Subagent } from "../../agent-session/acpmux/subagents/subagentFold";
 import type { BackgroundCommand } from "../../agent-session/acpmux/session-info/processes";
+import type { HatStepArm } from "../../agent-session/acpmux/subagents/hatStep.experiment";
 
 const STEPS = ["Bash", "Read SubagentTray.tsx", "Grep latestLine", "Edit trayMotion.tsx", "Bash"];
+/// Each step's ACP kind, as acpmux sends it (`tool_kind`), for the phase arm's word.
+const KINDS = ["execute", "read", "search", "edit", "execute"];
 const NO_WAITING: ReadonlySet<string> = new Set();
 const shown = { current: "gallery-hat" as string | undefined };
 
@@ -18,10 +21,14 @@ export type ComposerHatHeadState = "running" | "done" | "two" | "joined-command"
 export function ComposerHatHeadStage({
   start = "running",
   tuck = false,
+  stepLook = "exact",
 }: {
   start?: ComposerHatHeadState;
   /// The hat can tuck away: its tuck control shows at its top middle (hatTuck.experiment.ts).
   tuck?: boolean;
+  /// How the lone subagent's step shows; "default" takes the experiment's arm (hatStep.experiment.ts).
+  /// The exact step by default: most variants are about its hand-over.
+  stepLook?: HatStepArm | "default";
 }) {
   const [clock] = useState(() => Date.now());
   const [step, setStep] = useState(0);
@@ -35,6 +42,7 @@ export function ComposerHatHeadStage({
     task: "Diagnose nightly lag, idle fleet",
     kind: "general-purpose",
     action: STEPS[step % STEPS.length],
+    actionKind: KINDS[step % KINDS.length],
     state: done ? "completed" : "running",
     startedAt: clock - 492_000,
     ...(done ? { endedAt: clock } : {}),
@@ -99,6 +107,7 @@ export function ComposerHatHeadStage({
             waiting={NO_WAITING}
             onOpen={() => undefined}
             shown={shown}
+            stepLook={stepLook === "default" ? undefined : stepLook}
             onTuck={tuck ? () => undefined : undefined}
           />
           <div className="acpmux-composer">
