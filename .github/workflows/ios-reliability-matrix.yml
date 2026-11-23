@@ -13,7 +13,8 @@ name: iOS reliability matrix
 #   services, fake daemon, a toxic pipe for latency, loss and outages).
 # - ios (an owned simulator mini, iOS simulator): the phone's cells in
 #   CmuxMobileLiveTests/ConnectivityMatrixTests.swift and the existing tests
-#   the catalog names (link recovery, cached lists).
+#   the catalog names (link recovery, cached lists), and the terminal
+#   projection's resize harness on the phone (TerminalProjectionResizeHarnessTests).
 # - report: one table in the run summary (scripts/ci/ios_reliability_matrix.py);
 #   it fails when a cell marked `gate: true` fails. Nightly runs the same full
 #   matrix on feat-cmux-next.
@@ -28,6 +29,9 @@ on:
       - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**"
       - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/**"
       - "cmux-next-ios/reliability-matrix/**"
+      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**"
+      - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalProjection*"
+      - "cmux-tui/crates/cmux-terminal-projection/**"
       - "cmux-tui/crates/cmux-wg/**"
       - "cmux-tui/crates/cmux-transport/**"
       - "cmux-tui/vendor/smoltcp/**"
@@ -42,6 +46,9 @@ on:
       - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**"
       - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/**"
       - "cmux-next-ios/reliability-matrix/**"
+      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**"
+      - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalProjection*"
+      - "cmux-tui/crates/cmux-terminal-projection/**"
       - "cmux-tui/crates/cmux-wg/**"
       - "cmux-tui/crates/cmux-transport/**"
       - "cmux-tui/vendor/smoltcp/**"
@@ -198,6 +205,8 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: ios-reliability-matrix
@@ -270,6 +279,8 @@ jobs:
         if: steps.ffi.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: ios-reliability-matrix-apple
@@ -314,11 +325,12 @@ jobs:
           echo "simulator $udid"
           # Not -quiet: the report reads each test's result and its MATRIX lines.
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
-            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO \
+            -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO \
             -only-testing:CmuxMobileLiveTests/ConnectivityMatrixTests \
             -only-testing:CmuxMobileLiveTests/LinkRecoveryTests \
             -only-testing:CmuxMobileLiveTests/PairingRetryTests \
             -only-testing:CmuxMobileWorkspacesTests/WorkspacesLaunchStateTests \
+            -only-testing:CmuxMobileTerminalTests/TerminalProjectionResizeHarnessTests \
             2>&1 | tee "$RUNNER_TEMP/matrix/ios.log" || true
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

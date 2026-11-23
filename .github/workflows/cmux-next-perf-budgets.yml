@@ -26,8 +26,10 @@ name: cmux-next perf cron
 #   linux    (Linux, only when plan picked it) one Linux part: the diff-viewer budgets
 #            (scripts/benchmark-diff-viewer.sh's benches), which left ci-web.yml, or the web UI benches
 #            (webviews/bench/web-ui-suite.ts: chat open and switch, transcript scroll and rows, the thread
-#            rail, the activity list), slowest first against their targets in the step summary. It takes
-#            no Mac, so it runs while Mac parts yield.
+#            rail, the activity list), slowest first against their targets in the step summary, or cmux
+#            Cloud claim-to-ready (scripts/cmux-next/cloud-claim-rows.py, read from the production Cloud
+#            journey's artifacts; the only part with a token, actions: read). It takes no Mac, so it runs
+#            while Mac parts yield.
 #   report   (Linux) stores the part; after the last part compares every row with the last good run
 #            and opens, updates or closes the one issue "cmux-next perf regression" (the table, the sha
 #            range, the runs); a missing measurement for 24 h is noted there. No job fails on a
@@ -566,6 +568,8 @@ jobs:
     runs-on: ${{ needs.plan.outputs.linux_runner }}
     permissions:
       contents: read
+      # The cloud-claim part lists the production Cloud journey's runs and downloads their probe.json artifacts.
+      actions: read
     # Each of a part's bench runs has a 30-minute cap (cmd_run_linux_part); the plan's linux_minutes is their sum
     # plus setup (40 for a one-run part; 70 for infinite-items' build-only run and suite, which the fixed 40 cut off).
     timeout-minutes: ${{ fromJSON(needs.plan.outputs.linux_minutes || '40') }}
@@ -608,6 +612,9 @@ jobs:
           # The runner class this job runs on (the plan's linux_runner, also this job's runs-on): the Linux rows'
           # host, so a diff row is compared only with values of the same class.
           RUNNER_CLASS: ${{ needs.plan.outputs.linux_runner }}
+          # The cloud-claim part reads the production Cloud journey's probe.json artifacts (actions: read); no other
+          # part gets a token.
+          GH_TOKEN: ${{ needs.plan.outputs.linux_part == 'cloud-claim' && github.token || '' }}
         run: |
           set -uo pipefail
           cp "$RUNNER_TEMP/perf-cron.py" scripts/cmux-next/perf-cron-tip.py

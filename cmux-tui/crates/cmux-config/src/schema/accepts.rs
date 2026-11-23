@@ -106,6 +106,10 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an object of transcript look tokens, each in its range (docs/cmux-next/transcript-customization.md)",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::Hosts) {
+        Accepted::Shape(
+            "an array of hosts, each with a unique label and endpoints (ssh addresses tried in order)",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
         Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
     } else {
@@ -121,16 +125,26 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 
 /// The stored value when valid, else the default (what the app applies).
 /// An unset row that replaced a retired key reads that key through the
-/// retired-keys table (`super::retired`), as the app does.
+/// retired-keys table (`super::retired`), as the app does, and an old choice
+/// value reads as its replacement (`super::aliases`).
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
     let stored = crate::value::value_at(root, &row.path).or_else(|| {
         let replaced = super::replaced_by_row(&row.path)?;
         replaced.read(crate::value::value_at(root, &replaced.old)?)
     });
+    let stored = stored.map(|stored| aliased(row, stored));
     match stored {
-        Some(stored) if row_accepts(row, stored, domains) => Some(stored.clone()),
+        Some(stored) if row_accepts(row, &stored, domains) => Some(stored),
         _ => row.default.clone(),
     }
+}
+
+/// `value` as the row reads it: an old choice value as its replacement.
+pub fn aliased(row: &Row, value: &Value) -> Value {
+    value
+        .as_str()
+        .and_then(|old| super::choice_alias(&row.key, old))
+        .map_or_else(|| value.clone(), |new| Value::String(new.to_owned()))
 }
 
 fn is_backdrop_selection(row: &Row) -> bool {
@@ -204,6 +218,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         super::Validation::Domain(DomainKind::TranscriptTokens) => {
             return crate::transcript_look::accepts_tokens(value);
         }
+        super::Validation::Domain(DomainKind::Hosts) => {
+            return crate::hosts::accepts(value);
+        }
         _ => {}
     }
     if is_backdrop_selection(row) {
@@ -216,7 +233,8 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         let folder = text
             .strip_prefix("folder:")
             .is_some_and(|path| path.starts_with('/') && path.len() > 1);
-        return path || folder || is_accepted(&row.kind, value, domains);
+        let live = super::backdrop::is_live(text);
+        return path || folder || live || is_accepted(&row.kind, value, domains);
     }
     is_accepted(&row.kind, value, domains)
 }
@@ -463,6 +481,7 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::CommandLabels => "command_labels",
         DomainKind::AppId => "app_id",
         DomainKind::TranscriptTokens => "transcript_tokens",
+        DomainKind::Hosts => "hosts",
     }
 }
 

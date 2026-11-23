@@ -435,6 +435,7 @@ fn fixture_sources(
                 extra: vec![root.0.join("extra")],
                 local: Some(state.join("apps/local")),
                 customize: customize.clone(),
+                saved_prompts: Some(root.0.join("saved-prompts")),
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
             },
             idle_stop: idle,
@@ -1149,6 +1150,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        saved_prompts: None,
         defaults: None,
     });
     assert_eq!(catalog.defaults, vec!["cmux/coderouter".to_string()]);
@@ -1164,6 +1166,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        saved_prompts: None,
         defaults: Some(vec![]),
     });
     assert!(overridden.defaults.is_empty());
@@ -1204,6 +1207,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
                 extra: vec![],
                 local: None,
                 customize: None,
+                saved_prompts: None,
                 defaults: None,
             },
             idle_stop: Duration::from_secs(60),
@@ -1221,6 +1225,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
         extra: vec![],
         local: None,
         customize: None,
+        saved_prompts: None,
         defaults: None,
     });
     let list = supervisor.list();

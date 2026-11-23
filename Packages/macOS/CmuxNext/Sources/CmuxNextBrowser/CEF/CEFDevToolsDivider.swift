@@ -131,7 +131,7 @@ final class CEFDevToolsDivider: NSView {
         let close = NSMenuItem(title: Strings.devToolsClose, action: #selector(closeItem(_:)), keyEquivalent: "")
         close.target = self
         menu.addItem(close)
-        return menu
+        return NSMenu.withoutSystemItems(menu)
     }
 
     @objc private func dockItem(_ sender: NSMenuItem) {

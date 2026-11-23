@@ -354,6 +354,11 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         applyFooter(layout)
     }
 
+    /// The row is its stack's newest event (`FeedStacks`): its fold line follows with no divider between them.
+    var leadsStack = false {
+        didSet { if leadsStack != oldValue { divider.isHidden = leadsStack } }
+    }
+
     /// The minute changed: only the time label moves.
     func refreshTime() {
         guard let layout else { return }

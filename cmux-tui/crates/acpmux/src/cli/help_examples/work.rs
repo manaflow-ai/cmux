@@ -181,8 +181,72 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("race stop", &[("Stop a race's agents, keeping its results", "acpmux race stop RACE_ID")]),
     ("race ls", &[("List this chat's races", "acpmux race ls")]),
     ("race stats", &[("Wins per model in this chat", "acpmux race stats")]),
+    (
+        "fork-run",
+        &[
+            (
+                "Fork a Cloud machine three ways",
+                "acpmux fork-run start --workspace WS --machine vm_ID --harness claude,codex,pi",
+            ),
+            ("Keep the codex fork", "acpmux fork-run select RUN_ID CHILD_ID --workspace WS"),
+        ],
+    ),
+    (
+        "fork-run start",
+        &[(
+            "One fork per harness, each continuing a chat",
+            "acpmux fork-run start --workspace WS --machine vm_ID --harness claude --harness codex --session S",
+        )],
+    ),
+    (
+        "fork-run status",
+        &[(
+            "Wait up to 3 minutes for the forks",
+            "acpmux fork-run status RUN_ID --workspace WS --wait 180",
+        )],
+    ),
+    (
+        "fork-run select",
+        &[("Keep one ready fork", "acpmux fork-run select RUN_ID CHILD_ID --workspace WS")],
+    ),
     ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
     ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
+    (
+        "account",
+        &[
+            ("List every account and which is the default", "acpmux account list"),
+            ("Add a second ChatGPT account", "acpmux account sign-in --family codex"),
+            ("Make it the Codex default", "acpmux account switch codex-2"),
+        ],
+    ),
+    (
+        "account sign-in",
+        &[
+            ("Sign an account in again", "acpmux account sign-in --account codex-2"),
+            (
+                "Add a Claude account with a name",
+                "acpmux account sign-in --family claude --name Work",
+            ),
+            ("Add a GitHub account through gh", "acpmux account sign-in --family github"),
+        ],
+    ),
+    (
+        "account sign-out",
+        &[("Sign an account out; it stays listed", "acpmux account sign-out codex-2")],
+    ),
+    (
+        "account switch",
+        &[("Make a GitHub account gh's active one", "acpmux account switch github:alice")],
+    ),
+    ("account remove", &[("Remove an account's route", "acpmux account remove claude-2")]),
+    ("account list", &[("Every account as JSON", "acpmux --json account list")]),
+    (
+        "account readiness",
+        &[
+            ("Which of GitHub, Codex and Claude still need a sign-in", "acpmux account readiness"),
+            ("The same as JSON, for a script", "acpmux --json account readiness"),
+        ],
+    ),
     (
         "group tidy",
         &[

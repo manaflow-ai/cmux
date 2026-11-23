@@ -204,6 +204,7 @@ cmux-automations.workspace = true
 cmux-holder.workspace = true
 # `cmux carrier supervise`: the serve socket's lease between supervisors (carrier/supervise.rs).
 cmux-file-lock.workspace = true
+cmux-install-check.workspace = true
 # Projected folders (link/sync_cli/project.rs): the manifest and the stream the machine reads through.
 cmux-projection.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.

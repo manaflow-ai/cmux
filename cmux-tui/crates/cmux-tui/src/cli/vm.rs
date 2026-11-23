@@ -663,8 +663,8 @@ const APP_CREATE_FLAGS: [&str; 6] =
     ["--size", "--persistent", "--repo", "--machine-config", "--bootstrap", "--bootstrap-script"];
 
 /// Flags only the VM API's create takes (cmux-vm's `CreateArgs`).
-const VM_API_CREATE_FLAGS: [&str; 5] =
-    ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout"];
+const VM_API_CREATE_FLAGS: [&str; 6] =
+    ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout", "--label"];
 
 /// Where `vm new <tail>` (or its old spelling `machine new`) goes. A flag only one side takes
 /// picks that side; otherwise the app makes it when there is one (`app_present`), with its own
@@ -738,7 +738,7 @@ table on stderr.
 Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
 takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
---public-egress, --idle-timeout SECONDS and --idempotency-key KEY.
+--public-egress, --idle-timeout SECONDS, --label KEY=VALUE and --idempotency-key KEY.
 
 --provider freestyle (the default) is all of the above. --provider gcp makes a
 fleet VM on our own Compute Engine capacity (the CI builder pool, lanes),

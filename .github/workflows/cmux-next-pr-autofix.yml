@@ -693,16 +693,32 @@ jobs:
     outputs:
       patch: ${{ steps.patch.outputs.patch }}
     steps:
+      # The merge commit's tree, then only that commit's history (commits and trees, no blobs), as
+      # action-areas fetches it. fetch-depth 0 fetched every branch's (about 25,000) commits and trees:
+      # 94-108 s of this job's ~150 s on 2026-11-21, against 19-25 s for action-areas' same history.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
-          filter: blob:none # the commit graph without historical blobs, as action-areas
+          filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
           persist-credentials: false
+
+      # The merge base for Changed paths and the stale-inputs guard, and the base commit the autofix
+      # scripts come from: the merge commit's parents are the base and the head. A fetch that still
+      # fails after three tries fails the job, as the fetch-depth 0 checkout it replaces did.
+      - name: History of the merge commit
+        run: |
+          set -euo pipefail
+          for try in 1 2 3; do
+            [ "$(git rev-parse --is-shallow-repository)" = false ] && exit 0
+            git fetch --no-tags --quiet --filter=blob:none --unshallow origin "$GITHUB_SHA" && exit 0
+            echo "::warning::history fetch failed (try $try of 3)"
+            sleep $((try * 10))
+          done
+          exit 1
 
       # The pull request's changed paths from the commit graph this job already
       # fetched, instead of the files API (a call per 100 files, on every push):
@@ -830,6 +846,8 @@ jobs:
         if: steps.areas.outputs.clippy == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-pr-autofix-clippy
