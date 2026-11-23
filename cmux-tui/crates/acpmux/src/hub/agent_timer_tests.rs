@@ -1,5 +1,6 @@
 //! Wake kind 4 (`agent_timer.rs`): a /loop timer the agent set keeps its chat's agent and its
-//! Cloud machine up until it fires, on a fixed wall time passed in (no waiting on real time).
+//! Cloud machine up until it fires. Times are offsets from the wall clock read once at the start,
+//! passed in where the code takes a time; nothing waits on real time.
 //!
 //! On the base this scenario fails at its first check: between two loop runs no turn is open,
 //! so the idle reaper ended Claude (and its loop) after 2 minutes and the Cloud report said 0
@@ -10,9 +11,8 @@ use crate::config::{Config, StoreMode};
 use crate::daemon::cloud_activity_probe as report;
 use std::path::Path;
 
-const NOW: u64 = 1_790_000_000_000;
 /// A self-paced /loop's ScheduleWakeup of 270 s.
-const DUE: u64 = NOW + 270_000;
+const DELAY: u64 = 270_000;
 
 async fn chat() -> (Arc<Hub>, Arc<Session>) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
@@ -64,50 +64,56 @@ fn cloud_reads(hub: &Hub, now: u64) -> (bool, Value) {
 
 #[tokio::test]
 async fn a_pending_loop_timer_keeps_its_machine_up_until_it_fires() {
+    // The idle reaper reads the wall clock itself: the timer is set ahead of it.
+    let start = crate::store::now_ms();
+    let due = start + DELAY;
     let (hub, session) = chat().await;
     assert!(hub.idle_eligible(&session), "a ready chat with nothing going on");
-    assert!(cloud_reads(&hub, NOW).0, "no timer: the machine may pause");
+    assert!(cloud_reads(&hub, start).0, "no timer: the machine may pause");
 
-    set_goal(&session, wakeup(DUE)).await;
+    set_goal(&session, wakeup(due)).await;
     // Between two runs: no turn open, the loop's next run 270 s ahead. A pause now (the Cloud's)
     // or Claude's exit (the reaper's, which ends the loop) means the run never comes on time.
-    for now in [NOW, NOW + 120_000, DUE - 1, DUE + FIRE_GRACE_MS - 1] {
-        assert!(!hub.idle_eligible(&session), "the reaper would end the loop at {now}");
+    assert!(!hub.idle_eligible(&session), "the reaper would end the loop before it fires");
+    for now in [start, start + 120_000, due - 1, due + FIRE_GRACE_MS - 1] {
+        assert!(hub.pending_timer(&session, now).is_some(), "no timer pending at {now}");
         let (pausable, phases) = cloud_reads(&hub, now);
         assert!(!pausable, "the Cloud would pause the machine at {now}, before the timer fired");
         assert_eq!(phases[0]["phase"], "timer");
     }
-    assert_eq!(cloud_reads(&hub, NOW).1[0]["wake_at"], json!(DUE), "the due time is reported");
-    assert_eq!(cloud_reads(&hub, DUE).1[0].get("wake_at"), None, "due now: no time ahead");
+    assert_eq!(cloud_reads(&hub, start).1[0]["wake_at"], json!(due), "the due time is reported");
+    assert_eq!(cloud_reads(&hub, due).1[0].get("wake_at"), None, "due now: no time ahead");
 
     // Its grace over, a wakeup that did not re-arm holds nothing.
-    assert!(hub.idle_eligible(&session));
-    assert!(cloud_reads(&hub, DUE + FIRE_GRACE_MS).0);
+    assert_eq!(hub.pending_timer(&session, due + FIRE_GRACE_MS), None);
+    assert!(cloud_reads(&hub, due + FIRE_GRACE_MS).0);
+    set_goal(&session, wakeup(start - FIRE_GRACE_MS - 1)).await;
+    assert!(hub.idle_eligible(&session), "a wakeup past its grace no longer holds its agent");
 
     // A recurring cron holds while armed, past its first known fire too.
     let cron = json!({"kind": "loop", "status": "active", "objective": "babysit", "schedule": "every 5 minutes",
-        "nextRunAt": DUE, "timers": [{"at": DUE, "recurring": true}, {"at": DUE + 600_000, "recurring": false}]});
+        "nextRunAt": due, "timers": [{"at": due, "recurring": true}, {"at": due + 600_000, "recurring": false}]});
     set_goal(&session, cron).await;
-    assert_eq!(cloud_reads(&hub, NOW).1[0]["wake_at"], json!(DUE), "the earliest timer");
-    let (pausable, phases) = cloud_reads(&hub, DUE + 3_600_000);
+    assert_eq!(cloud_reads(&hub, start).1[0]["wake_at"], json!(due), "the earliest timer");
+    let (pausable, phases) = cloud_reads(&hub, due + 3_600_000);
     assert!(!pausable && phases[0]["phase"] == "timer" && phases[0].get("wake_at").is_none());
     assert!(!hub.idle_eligible(&session));
 
     // A loop stored before `timers` was listed still holds by its own next run.
     set_goal(
         &session,
-        json!({"kind": "loop", "status": "active", "objective": "x", "nextRunAt": DUE}),
+        json!({"kind": "loop", "status": "active", "objective": "x", "nextRunAt": due}),
     )
     .await;
-    assert_eq!(cloud_reads(&hub, NOW).1[0]["wake_at"], json!(DUE));
+    assert_eq!(cloud_reads(&hub, start).1[0]["wake_at"], json!(due));
 
     // A goal that is not a loop (Codex's) holds nothing.
     set_goal(&session, json!({"status": "active", "objective": "Ship the fix"})).await;
     assert!(hub.idle_eligible(&session));
-    assert!(cloud_reads(&hub, NOW).0);
+    assert!(cloud_reads(&hub, start).0);
 
     // Claude's exit ends its loops: nothing left to wake for.
-    set_goal(&session, wakeup(DUE)).await;
+    set_goal(&session, wakeup(due)).await;
     let child = session.child.lock().await.clone().unwrap();
     session
         .inbound_tx
@@ -117,7 +123,7 @@ async fn a_pending_loop_timer_keeps_its_machine_up_until_it_fires() {
     let (done, applied) = tokio::sync::oneshot::channel();
     session.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
     applied.await.unwrap();
-    assert_eq!(hub.pending_timer(&session, NOW), None, "a timer outlived its agent");
-    assert!(cloud_reads(&hub, NOW).0);
+    assert_eq!(hub.pending_timer(&session, start), None, "a timer outlived its agent");
+    assert!(cloud_reads(&hub, start).0);
     hub.shutdown_all().await;
 }
