@@ -4,7 +4,7 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// The hover dock (Leo 2026-10-20, the ChatGPT Codex mini pet): the pointer on the pet opens its reply
+/// The hover dock (Leo 2026-10-20, the Codex mini pet): the pointer on the pet opens its reply
 /// box without taking the keys; leaving the pet and the box closes it after the delay unless the box
 /// is in use; a click on the pet keeps the box the hover opened instead of toggling it away.
 @MainActor @Suite(.serialized) struct ChiefPetHoverDockTests {

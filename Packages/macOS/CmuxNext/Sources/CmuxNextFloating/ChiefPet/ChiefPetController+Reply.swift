@@ -35,7 +35,7 @@ extension ChiefPetController {
         if byHover { reply.orderFrontRegardless() } else { reply.present() }
     }
 
-    /// The hover dock (Leo 2026-10-20, the ChatGPT Codex mini pet): the pointer coming onto the pet
+    /// The hover dock (Leo 2026-10-20, the Codex mini pet): the pointer coming onto the pet
     /// opens its reply box; leaving the pet and the box closes a box it opened after
     /// `ChiefPetHoverDock.closeDelay`, unless the field has the caret or text by then.
     func hover(_ inside: Bool, onPet: Bool) {
