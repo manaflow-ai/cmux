@@ -446,6 +446,7 @@ import {
   cloudSendAfterCheck,
   composerCloudStartFolder,
   pageOnOtherMachine,
+  pickOnlyNewChat,
 } from "./cloudRun";
 import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
 import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
