@@ -179,6 +179,7 @@ import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
+import { ChatFolderChip } from "./ChatFolderChip";
 import { peerLink, type PeerLink } from "./peerLink";
 import {
   emojiMatches,
@@ -3217,6 +3218,8 @@ function ComposerFrame({
         chips={
           <PromptFocusProvider focus={focusPrompt}>
             <Chips snapshot={snapshot} />
+            {/* A started chat's folder, once the location strip that named it is gone (cmux#46201). */}
+            {!locationVisible && <ChatFolderChip summary={snapshot.summary} />}
             <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
           </PromptFocusProvider>
         }
