@@ -291,6 +291,19 @@ pub fn agent_switch_answer(
     }
 }
 
+/// The agent a harness name or family names for [`agent_switch_key`]: `codex…` is Codex,
+/// `claude…` is Claude Code; `None` for another.
+pub fn switch_agent(harness: &str) -> Option<&'static str> {
+    let harness = harness.trim().to_ascii_lowercase();
+    if harness.starts_with("codex") {
+        Some("codex")
+    } else if harness.starts_with("claude") {
+        Some("claude")
+    } else {
+        None
+    }
+}
+
 /// The `cmux` server every agent cmux starts gets: this cmux CLI's `mcp
 /// serve` (`--all-tools` lists every tool instead of code mode) under the
 /// name [`CMUX_SERVER`]. Its env always names `settings_file`, the settings

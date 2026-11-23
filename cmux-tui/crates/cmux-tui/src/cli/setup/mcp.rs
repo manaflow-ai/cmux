@@ -349,8 +349,9 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let text = match () {
         _ if serves => format!(
             "Claude Code and Codex you start in cmux (its terminals, agent chats and the Chief) \
-             get cmux's tools from cmux's server, named {SERVER}, reading {}. cmux changes \
-             no agent's own settings",
+             get cmux's tools from cmux's server, named {SERVER}, reading {}, unless switched \
+             off in Settings > Agents (each client's state says). cmux changes no agent's own \
+             settings",
             settings.display()
         ),
         _ => format!(
