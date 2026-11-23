@@ -349,9 +349,11 @@ class RunOnce(unittest.TestCase):
     def test_a_child_that_ignores_sigterm_is_killed_before_run_once_returns(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             marker = Path(temp) / "child-survived"
+            pid_file = Path(temp) / "child-pid"
             child = (f"import os, signal, time\n"
                      f"if os.fork() == 0:\n"
                      f"    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                     f"    open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
                      f"    time.sleep(4)\n"
                      f"    open({str(marker)!r}, 'w').close()\n"
                      f"else:\n"
@@ -363,7 +365,15 @@ class RunOnce(unittest.TestCase):
             finally:
                 retry.KILL_GRACE_SECONDS = original
             self.assertEqual(status, retry.TIMEOUT_EXIT)
-            time.sleep(4)
+            # The grandchild that ignored SIGTERM is gone (or a zombie awaiting its reaper), so it never writes.
+            grandchild = int(pid_file.read_text())
+            deadline = time.monotonic() + 10
+            while True:
+                state = subprocess.run(["ps", "-o", "stat=", "-p", str(grandchild)], capture_output=True, text=True)
+                if not state.stdout.strip() or state.stdout.strip().startswith("Z"):
+                    break
+                self.assertLess(time.monotonic(), deadline, f"the grandchild {grandchild} outlived run_once")
+                time.sleep(0.05)
             self.assertFalse(marker.exists())
 
     def test_the_exit_status_passes_through(self) -> None:

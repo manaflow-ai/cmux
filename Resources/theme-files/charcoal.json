@@ -5,11 +5,12 @@
   "name": "Charcoal",
   "description": "A charcoal page, a darker sidebar, gray accents, no borders.",
 
-  // The terminal theme, and its own colors.
+  // The terminal theme, and its own colors. Builtin Dark draws selected text black, so the
+  // selection is a gray that black reads on (`cmux theme check`).
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.
   "appearance.appTheme": "followTerminal",
-  "colors": { "background": "#212121", "foreground": "#ececec", "selection": "#424242", "accent": "#b4b4b4" },
+  "colors": { "background": "#212121", "foreground": "#ececec", "selection": "#8e8e8e", "accent": "#b4b4b4" },
   "appearance.accent": "neutral",
 
   "appearance.background": "none",

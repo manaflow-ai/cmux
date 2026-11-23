@@ -195,6 +195,10 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). #30648 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks scripts/ci/fast_checks_runner.py's live admission and bounded overflow; run python3 tests/test_ci_fast_checks_runner.py yourself after changing it or fast-checks.yml's picker (about 1 s, no build)."
 
 [[test]]
+path = "tests/test_ci_fast_checks_rust_nextest.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fetch_complexity_base.py"
 lane = "linux-guard"
 
@@ -455,10 +459,6 @@ path = "tests/test_ci_owned_catch_up.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_owned_first_not_census_frozen.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_owned_pool_rescue.py"
 lane = "linux-guard"
 
@@ -522,8 +522,9 @@ path = "tests/test_ci_pool_snapshot_job_cache.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_portable_job_placement.py"
-lane = "linux-guard"
+path = "tests/test_ci_routed_jobs_check_needs.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_routed_jobs_check_needs.py"
 
 [[test]]
 path = "tests/test_ci_post_merge_checks.py"

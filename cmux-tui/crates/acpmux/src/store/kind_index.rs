@@ -21,8 +21,9 @@
 //! line is written to its copy once, not once per [`COPY_AFTER`] bytes of log: a chat whose
 //! prompts were megabytes each rewrote its whole copy, every prompt in it, on every scan
 //! (cmuxterm-hq#9263: `logged_inbox_answer` → `scan_kinds`, 131 of 757 samples of 549 GB of
-//! writes in a day). Nothing is written on the append path, and a chat's folder is deleted with
-//! its copies.
+//! writes in a day). The append path writes one copy per segment, of the segment a rotation just
+//! filled (`store/segment_writer.rs`), so a chat never scanned still has a copy of every segment
+//! but the open one; a chat's folder is deleted with its copies.
 //!
 //! A strict scan ([`Store::scan_kinds_strict`], the transfer authority's) fails on a line that
 //! does not read, as one of the whole log would: a copy says whether every line it covers read,
@@ -112,6 +113,12 @@ pub const INDEXED_KINDS: &[&str] = &[
     "inbox_subscription",
     // A recipient's grants of its threads to owners, read with them.
     "inbox_owner_grant",
+    // A log load's rate-limit hold (`hub/rate_hold.rs` `restore_rate_hold`), read back to the
+    // newest completed turn: a chat with none near its end read its whole log at every start.
+    "rate_limit_held",
+    "rate_limit_parked",
+    "rate_limit_lifted",
+    "rate_limit_unparked",
 ];
 
 /// The folder of a chat's copies, beside its `events`.
