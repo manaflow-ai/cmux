@@ -143,6 +143,7 @@ mod frontend_browser;
 mod host_mount;
 mod hosts;
 mod hosts_check;
+mod hosts_edit;
 #[cfg(unix)]
 mod inference_gateway;
 #[cfg(unix)]
@@ -202,6 +203,25 @@ pub(crate) fn find_cloud_machine<'a>(
     cloud_workspaces::find(machines, selector).map_err(|error| {
         error.get("message").and_then(serde_json::Value::as_str).unwrap_or("ambiguous").to_owned()
     })
+}
+
+/// A short-lived access token from the signed-in cmux app this CLI belongs to (`auth.token`), for
+/// a command run in a terminal with no `CMUX_CLOUD_ACCESS_TOKEN` (`cmux device add HOST --yes`).
+#[cfg(unix)]
+pub(crate) fn app_access_token() -> Result<String, String> {
+    chat_start::joined::app_token(&GlobalArgs::default())
+}
+
+/// `cmux acp WORDS` (this binary's acpmux, with no cmux credential in its environment) with
+/// `stdin`, for at most `limit`: its JSON answer, or the failure (`cmux device add` joins the
+/// Mac that ran it with `acp host enroll-self`).
+#[cfg(unix)]
+pub(crate) fn acp_json(
+    words: &[&str],
+    stdin: Option<&str>,
+    limit: std::time::Duration,
+) -> Result<serde_json::Value, serde_json::Value> {
+    chat_start::joined::acp_json(words, stdin, limit)
 }
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
