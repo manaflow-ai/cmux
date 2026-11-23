@@ -614,6 +614,8 @@ fn tui_bytes_run(
     // main-queue hop that took them started (events already waiting then are in it).
     let mut waiting: Vec<(f64, Write, f64)> = Vec::new();
     let (mut waiting_cost, mut hop_start) = (0.0f64, 0.0f64);
+    // When the last coalesced paint started: the next waits a display frame after it.
+    let mut last_paint = f64::NEG_INFINITY;
     let trim = |text: &str| text.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
 
     // One `output` event leaving the Mac's attach worker at `due` (virtual ms): `held` are the
@@ -645,9 +647,13 @@ fn tui_bytes_run(
             .and_then(|data| STANDARD.decode(data).ok())
             .ok_or("an output event's data")?;
         let decode_ms = ms(started);
-        if scenario.phone_coalesce && !waiting.is_empty() && arrived > hop_start {
-            // This event came after its hop started: the hop's paint ran first.
-            phone_free = coalesced_paint(&mut waiting, phone_free, waiting_cost, metrics);
+        // The pending paint's time: once its first hop ran, and a frame after the last paint.
+        let due = hop_start.max(last_paint + FRAME_MS);
+        if scenario.phone_coalesce && !waiting.is_empty() && arrived > due {
+            // This event came after the paint was due: the paint ran first.
+            let start = due.max(phone_free);
+            last_paint = start;
+            phone_free = coalesced_paint(&mut waiting, start, waiting_cost, metrics);
         }
         // When the phone reads the event off its socket: once it is done with the last.
         let took = arrived.max(phone_free);
@@ -665,8 +671,8 @@ fn tui_bytes_run(
         let build_ms = ms(started);
         metrics.push("phone_wait_ms", "ms", took - arrived);
         let (paint_ms, present) = if scenario.phone_coalesce {
-            // Parsed on the main thread in turn; painted once its hop's events are parsed
-            // (`coalesced_paint`, when the next event is not in the hop or the run ends).
+            // Parsed on the main thread in turn; painted once, a frame after the last paint
+            // at the soonest (`coalesced_paint`, when the next event came after it was due).
             if waiting.is_empty() {
                 hop_start = took;
             }
@@ -771,7 +777,8 @@ fn tui_bytes_run(
         }
         drop(send);
         if !waiting.is_empty() {
-            coalesced_paint(&mut waiting, phone_free, waiting_cost, metrics);
+            let start = hop_start.max(last_paint + FRAME_MS).max(phone_free);
+            coalesced_paint(&mut waiting, start, waiting_cost, metrics);
         }
         finish_tui_bytes_run(scenario, metrics, events, wire_total);
         return Ok(());
@@ -804,13 +811,15 @@ fn tui_bytes_run(
     }
     drop(send);
     if !waiting.is_empty() {
-        coalesced_paint(&mut waiting, phone_free, waiting_cost, metrics);
+        let start = hop_start.max(last_paint + FRAME_MS).max(phone_free);
+        coalesced_paint(&mut waiting, start, waiting_cost, metrics);
     }
     finish_tui_bytes_run(scenario, metrics, events, wire_total);
     Ok(())
 }
 
-/// `phone_coalesce`'s paint: on the main thread from `main_free` (its hop's events parsed), for
+/// `phone_coalesce`'s paint: on the main thread from `main_free` (its events parsed, a display
+/// frame after the last paint), for
 /// `cost`, presented at the next vsync, for every write `waiting` holds. When the main thread
 /// is free again.
 fn coalesced_paint(
@@ -863,6 +872,8 @@ fn finish_tui_bytes_run(scenario: &Scenario, metrics: &mut Metrics, events: u64,
     let seconds = scenario.tui.as_ref().map_or(1, |tui| tui.seconds.max(1)) as f64;
     metrics.push("events_per_s", "events/s", events as f64 / seconds);
     metrics.push("wire_bytes_per_s", "bytes/s", wire_total as f64 / seconds);
+    let paints = metrics.0.get("phone_paint_ms").map_or(0, |m| m.samples.len());
+    metrics.push("phone_paints_per_s", "paints/s", paints as f64 / seconds);
     metrics.declare("scroll_to_paint_ms", "ms");
 }
 
@@ -1082,8 +1093,9 @@ ui = ["X"]
         assert!(held.0["wire_bytes"].samples.len() < each.0["wire_bytes"].samples.len());
     }
 
-    /// A phone slower than the events: painting once per main-queue hop (`phone_coalesce`)
-    /// shows every scroll sooner than a paint per event, in fewer paints, with the same screen.
+    /// A phone slower than the events: painting at most once per display frame
+    /// (`phone_coalesce`) shows every scroll sooner than a paint per event, in fewer paints,
+    /// with the same screen.
     #[test]
     fn a_slow_phone_painting_once_per_hop_keeps_up() {
         let text = |phone: &str| {
@@ -1133,6 +1145,8 @@ ui = ["X"]
         }
         assert!(once.0["phone_paint_ms"].samples.len() < each.0["phone_paint_ms"].samples.len());
         assert!(p95(&once, "scroll_to_paint_ms") < p95(&each, "scroll_to_paint_ms"));
+        // At most one paint per display frame.
+        assert!(once.0["phone_paints_per_s"].samples[0] <= 1000.0 / FRAME_MS + 1.0);
     }
 
     #[test]

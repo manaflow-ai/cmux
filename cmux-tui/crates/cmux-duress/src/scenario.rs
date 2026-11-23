@@ -84,9 +84,10 @@ pub struct Scenario {
     pub phone_batch: bool,
     /// `terminal` with `[tui]` only, the projection's paint coalescing (ask-0e9bbe35bb): the
     /// phone decodes and parses each event on its main thread in turn, as today, and paints
-    /// once when its main queue drains (no event waiting), everything parsed by then, paying
-    /// the paint and `phone_event_ms` once per paint. The paint holds the main thread: the next
-    /// event waits for it. Not with `phone_batch`.
+    /// once per display frame at most (after the hop that took the first unpainted event, and a
+    /// frame after the last paint), everything parsed by then, paying the paint and
+    /// `phone_event_ms` once per paint. The paint holds the main thread: the next event waits
+    /// for it. Not with `phone_batch`.
     #[serde(default)]
     pub phone_coalesce: bool,
     #[serde(default, rename = "event")]
