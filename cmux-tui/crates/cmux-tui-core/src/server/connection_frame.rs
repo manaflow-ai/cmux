@@ -112,6 +112,11 @@ fn handle_frame(
     if let Some(keep_open) = incognito_remote::refuse_line(mux, client, message, writer) {
         return keep_open;
     }
+    // Settings > Agents > Agents Can Change cmux on Read Only: an agent's app-changing line is
+    // refused before any owner sees it (server/agent_app_control.rs).
+    if let Some(keep_open) = agent_app_control::refuse_line(mux, client, message, writer) {
+        return keep_open;
+    }
     // A host proxy's link for a teammate reaches the shared chat's verbs and nothing else the
     // daemon serves (agent_session_proxy.rs).
     #[cfg(unix)]
@@ -389,7 +394,8 @@ fn handle_request_uncounted(
                 .or_else(|| cloud_conversations::error_reason(&error));
             retryable = cloud_conversations::error_retryable(&error);
             details = renderer_grant::error_details(&error)
-                .or_else(|| conversations::error_details(&error));
+                .or_else(|| conversations::error_details(&error))
+                .or_else(|| stop_if_idle::error_details(&error));
             let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);

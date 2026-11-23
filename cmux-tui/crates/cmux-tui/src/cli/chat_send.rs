@@ -584,7 +584,7 @@ where
 }
 
 /// The `machine` of the workspace whose tab shows chat `session`.
-fn machine_of(session: &str, topology: &Value) -> Option<String> {
+pub(super) fn machine_of(session: &str, topology: &Value) -> Option<String> {
     fn shows(value: &Value, session: &str) -> bool {
         match value {
             Value::Object(object) => {
@@ -610,7 +610,7 @@ fn machine_of(session: &str, topology: &Value) -> Option<String> {
 }
 
 /// Whether `machine` is a Cloud VM: its session's transport says `cloud`.
-fn is_cloud(machine: &str, topology: &Value) -> bool {
+pub(super) fn is_cloud(machine: &str, topology: &Value) -> bool {
     sessions(topology).iter().any(|row| {
         row.get("machine").and_then(Value::as_str) == Some(machine)
             && row.get("transport").and_then(Value::as_str) == Some("cloud")

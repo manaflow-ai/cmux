@@ -323,6 +323,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: its phone cells take the kit "
         "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "
         "refused job ends at its 60-minute timeout and a person's re-run lands on Blacksmith",
+    ".github/workflows/ios-review-gate.yml":
+        "feat-cmux-next only: its reviewer-path legs take the review-gate lane's pick in plan (an owned simulator mini) on "
+        "attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or refused leg ends at its 120-minute timeout "
+        "and a person's re-run lands on Blacksmith",
     ".github/workflows/cloud-chat-proof.yml":
         "a manual proof that never takes an owned pool: pick-proof-runner runs e2e_runner_pool.py with --owned 0 and "
         "keeps only a Blacksmith macOS 26 label, because each proof job holds a Stack account pair; a re-run takes "
@@ -364,7 +368,10 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/labels-sync.yml": _POOL_READ_WHY,
     ".github/workflows/mux.yml": _POOL_READ_WHY,
     ".github/workflows/pr-body-checks.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-checks.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-checks.yml":
+        "one advisory job (CI v2 step 6) that holds a pull-requests write token, so it takes a one-job VM: the "
+        "Blacksmith (the CI_TRUSTED_RUNNER selector, or 4 vCPU for a fork), never an "
+        "owned Mac; none of its steps can fail a pull request, and the next push or a re-run answers again",
     ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,
     ".github/workflows/risk-tier-tests.yml": _POOL_READ_WHY,
     ".github/workflows/signing-keychain-macos.yml": _POOL_READ_WHY,
@@ -1238,6 +1245,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     """
     if deadline is None:
         deadline = now() + dt.timedelta(seconds=target.watch_limit)
+    # sleep-ok: the poll's first interval; no job can wait long enough to rescue before it, and a look costs quota
     sleep(FIRST_LOOK_SECONDS)
     looks = 0
     on_persistent = False
