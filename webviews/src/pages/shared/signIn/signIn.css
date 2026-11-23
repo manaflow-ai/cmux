@@ -95,8 +95,10 @@
 /* Sheet: a dialog over the page. */
 .signin-sheet {
   width: min(380px, calc(100vw - 48px));
-  padding: var(--ds-space-5);
-  border-radius: calc(var(--ds-radius-control) + var(--ds-space-5));
+  /* Concentric with its buttons, one sheet padding in. */
+  --concentric-padding: var(--ds-space-5);
+  padding: var(--concentric-padding);
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
 }
 
 .signin[data-look="sheet"] {
