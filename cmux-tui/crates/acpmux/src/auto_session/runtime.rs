@@ -8,11 +8,13 @@
 //! - [`run`]: the task: it waits for a command, a hub event, the next time a chat asked for, or
 //!   a change of this machine's network. Nothing is polled.
 //! - [`signals`]: a hub event read as a change of the chat's work.
+//! - [`settle`]: work that ends with no hub event, read again when the hub says it settled.
 //! - [`effects`]: what the loop does for each effect, and what comes back of it.
 //! - [`tasks`]: the work that calls the store or reads the disk. Each runs as a task of its own
 //!   and comes back as a [`Command`], so a slow answer never holds another chat's renewal.
 //! - [`inbox`]: the Cloud inbox's messages into the chat's queue, each once.
 //! - [`switch`]: Auto switched on or off for a chat, and a prompt to a chat held elsewhere.
+//! - [`away`]: the person's Auto chats this laptop does not have, which it stands by for.
 //! - [`chats`]: what the loop keeps of each chat, and the chat's record and row kept in step.
 //! - [`clock`]: the wall clock, injected.
 //!
@@ -22,11 +24,13 @@
 //! changes the folder and an ack follows its drain. Renewals, registrations and copies go at
 //! once, beside the lane: a slow copy or import never holds a lease.
 
+mod away;
 mod chats;
 pub mod clock;
 mod effects;
 mod inbox;
 mod run;
+mod settle;
 mod signals;
 mod switch;
 mod tasks;
@@ -75,12 +79,22 @@ pub(crate) enum Command {
     /// Step chat `id` with `event`. `view` is the store's view that came with it.
     Step { id: String, event: Event, view: Option<Box<SessionView>> },
     /// The chat's `needsRun` was read. `change`: what it was read for; None tells the state
-    /// machine only when `needsRun` differs from what it has.
-    Work { id: String, change: Option<Change>, needs_run: bool },
+    /// machine only when `needsRun` differs from what it has. `settles`: with work, what
+    /// changes when that work ends with no record (`settle.rs`).
+    Work {
+        id: String,
+        change: Option<Change>,
+        needs_run: bool,
+        settles: Option<watch::Receiver<u64>>,
+    },
+    /// The chat's work settled with no record in its log (`settle.rs`).
+    Settled { id: String },
     /// Auto on or off for a chat, and whether it stays in the Cloud.
     Switch { id: String, auto: bool, keep: Option<bool>, reply: Option<Reply> },
     /// The system woke.
     Wake,
+    /// The owner's open chats were read (`away.rs`).
+    Listed { result: Result<Vec<SessionView>, AutoCloudError> },
     /// The store assigned a chat to this Cloud machine.
     Assigned(Box<Assignment>),
     /// A prompt for a chat this machine may not run now.

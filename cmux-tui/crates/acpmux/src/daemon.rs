@@ -1120,13 +1120,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         hub.scope.spawn_until_cancelled("usage-share-upload", crate::server::usage_upload_loop());
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_activity::activity_loop(hub.clone()));
-    // Auto mode's holder loop on a laptop (`auto_session/laptop.rs`); it asks nothing of the
-    // Cloud until a chat has Auto on. The importer here brings no chat home: the Cloud machine
-    // side's importer (`auto_session/import.rs`) takes its place when it lands.
-    let _auto_session = crate::auto_session::laptop::start(
-        hub.clone(),
-        Arc::new(crate::auto_session::laptop::NoImporter),
-    );
+    // Auto mode's holder loop on a laptop (`auto_session/laptop.rs`). It asks the Cloud once for
+    // the person's Auto chats this laptop does not have, then nothing until a chat has Auto on.
+    let _auto_session = crate::auto_session::laptop::start(hub.clone());
     // An update that moves this executable away swaps to the installed build, make-before-break
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
     #[cfg(any(target_os = "linux", target_os = "macos"))]

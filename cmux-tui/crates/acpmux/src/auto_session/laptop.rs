@@ -17,15 +17,13 @@ mod sign_in;
 
 use std::sync::Arc;
 
-use cmux_auto_session::holder::ImportReason;
-use cmux_auto_session::wire::{Holder, SessionView};
+use cmux_auto_session::wire::Holder;
 use cmux_cloud_api::auto_sessions::OwnerAutoCloud;
-use futures::future::BoxFuture;
 
+use super::import::Importer;
+use super::machine::chats_root;
 use super::runtime::SystemClock;
-use super::{
-    HolderHandle, HolderOptions, ImportError, Imported, SessionImporter, spawn_holder_with,
-};
+use super::{HolderHandle, HolderOptions, SessionImporter, spawn_holder_with};
 use crate::hub::Hub;
 use crate::user_settings::{self, Settings};
 
@@ -43,27 +41,18 @@ fn auto_for_new_chats() -> bool {
     }
 }
 
-/// The importer of a build that has none: every handback fails, and the chat stays where the
-/// Cloud has it. The Cloud machine slice's importer ([`super::import`]) takes its place.
-pub struct NoImporter;
-
-impl SessionImporter for NoImporter {
-    fn import<'a>(
-        &'a self,
-        _session: &'a SessionView,
-        _reason: ImportReason,
-    ) -> BoxFuture<'a, Result<Imported, ImportError>> {
-        Box::pin(async {
-            Err(ImportError::Local("this build cannot bring a chat in from the Cloud".to_owned()))
-        })
-    }
-}
-
 /// Starts Auto mode on a laptop's daemon. None on a Cloud machine, whose own side starts the
 /// loop ([`super::machine`]), and when this machine has no id to hold a chat under.
 ///
-/// Nothing is asked of the Cloud until a chat has Auto on.
-pub fn start(hub: Arc<Hub>, importer: Arc<dyn SessionImporter>) -> Option<HolderHandle> {
+/// A chat comes home through the importer ([`super::import`]) over the same transport the
+/// loop renews with. One that is new to this laptop (started from the phone with the laptop
+/// off) gets its folder where a Cloud machine puts it, `~/Projects/auto/<chat id>`
+/// ([`chats_root`]): a clone of its own, not a worktree under `~/.cmux/worktrees`, whose
+/// folders are trusted without asking.
+///
+/// The Cloud is asked once at the start for the person's Auto chats this laptop does not have
+/// (`runtime/away.rs`); after that, nothing is asked until a chat has Auto on.
+pub fn start(hub: Arc<Hub>) -> Option<HolderHandle> {
     if crate::cloud_host::is_cloud_vm() {
         return None;
     }
@@ -76,6 +65,8 @@ pub fn start(hub: Arc<Hub>, importer: Arc<dyn SessionImporter>) -> Option<Holder
     };
     let asks = hub.scope.child("auto-session sign-in");
     let cloud = Arc::new(OwnerAutoCloud::new(sign_in::AppSignIn::from_env(asks)));
+    let importer: Arc<dyn SessionImporter> =
+        Importer::new(Arc::clone(&hub), Arc::clone(&cloud), chats_root());
     let options = HolderOptions {
         clock: Arc::new(SystemClock),
         network: Some(crate::peer::network::changes()),

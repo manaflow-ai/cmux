@@ -39,6 +39,15 @@ impl Hub {
         self.at_work(session).is_some()
     }
 
+    /// Changes each time a continuation of a cut turn stops waiting for `session`
+    /// (`auto_resume.rs`). One waits from a turn's end until the hub has settled whether the
+    /// turn is continued, and the chat is at work for that long ([`Self::auto_needs_run`]);
+    /// its end is no log record. Whoever read "at work" reads again when this changes. Take it
+    /// before the read, so what is let go right after the read still changes it.
+    pub(crate) fn auto_work_settles(&self, session: &Session) -> tokio::sync::watch::Receiver<u64> {
+        session.auto_resume.released()
+    }
+
     /// The chat's Auto record.
     pub(crate) fn auto_record(&self, session: &Session) -> Option<AutoRecord> {
         session.read_meta(|m| m.auto_session.clone())

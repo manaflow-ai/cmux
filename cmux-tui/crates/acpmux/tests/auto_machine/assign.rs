@@ -1,14 +1,14 @@
-//! The machine's assignments: `create` and `deliver` handled whole, and the reader that waits
-//! at the store and handles what arrives, or tells the holder loop of it.
+//! The machine's assignments: the reader waits at the store and tells the holder loop of what
+//! arrives, and the loop does the work: `create`, `takeover` and `deliver`, each acked once.
 
 use std::sync::Arc;
+use std::time::Duration;
 
-use acpmux::auto_session::SessionImporter;
-use acpmux::auto_session::import::Importer;
 use acpmux::auto_session::machine::{Machine, attach};
 use cmux_auto_session::cloud::AutoCloud;
+use cmux_auto_session::fake::FakeAutoCloud;
 use cmux_auto_session::wire::{
-    AssignmentKind, CreateRequest, FirstMessage, InboxPost, Repo, SessionView,
+    Assignment, AssignmentKind, CreateRequest, FirstMessage, InboxPost, Repo, SessionView,
 };
 
 use super::agent::FakeAgent;
@@ -19,6 +19,28 @@ use super::{turns_ended, vm};
 /// How often `text` was sent to the chat as a prompt.
 fn times(texts: &[String], text: &str) -> usize {
     texts.iter().filter(|sent| *sent == text).count()
+}
+
+/// Waits until `ready` holds, for at most a minute.
+async fn until(what: &str, mut ready: impl FnMut() -> bool) {
+    let waited = async {
+        while !ready() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    let in_time = tokio::time::timeout(Duration::from_secs(60), waited).await;
+    assert!(in_time.is_ok(), "timed out waiting for: {what}");
+}
+
+/// Waits until the store has nothing assigned to the machine: the loop acked what it was told.
+async fn acked(owner: &FakeAutoCloud) {
+    let machine = owner.as_machine(VM);
+    let none_left = async {
+        while !machine.assignments(0).await.unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(60), none_left).await.expect("acked in time");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -47,7 +69,9 @@ async fn create_starts_a_chat_from_a_repository_and_deliver_queues_each_message_
     assert_eq!(assigned.len(), 1);
     assert_eq!(assigned[0].kind, AssignmentKind::Create);
     assert_eq!(assigned[0].session.id, id);
-    machine.handle(&assigned[0]).await.unwrap();
+    // The reader tells the loop, which makes the chat, takes its inbox and acks.
+    let reader = tokio::spawn(machine.run());
+    acked(&owner).await;
 
     // A chat of the repository's branch under the Cloud's id, with the first message run.
     let chat = machine_hub.resolve(&id).expect("the chat is here");
@@ -55,32 +79,33 @@ async fn create_starts_a_chat_from_a_repository_and_deliver_queues_each_message_
     assert_eq!(read(&root.join(&id), "README.md"), "base\n");
     let log = log_when(&machine_hub, &id, "the first turn", |log| turns_ended(log) >= 1).await;
     assert_eq!(prompts(&log), ["start here"]);
-    // The store was told: nothing is assigned and the inbox is read.
-    assert!(cloud.assignments(0).await.unwrap().is_empty());
     let after_create: SessionView = owner.get(&id).await.unwrap();
     assert!(!after_create.inbox_pending(), "{after_create:?}");
 
-    // A message sent while the chat is here is a `deliver`: it goes into the chat's queue.
+    // A message sent while the chat is here goes into the chat's queue and is acked.
     let message = InboxPost { id: "m2".into(), text: "and then this".into() };
     owner.post_inbox(&id, &message).await.unwrap();
-    let delivered = cloud.assignments(0).await.unwrap();
-    assert_eq!(delivered.len(), 1);
-    assert_eq!(delivered[0].kind, AssignmentKind::Deliver);
-    assert!(delivered[0].session.inbox_pending());
-    machine.handle(&delivered[0]).await.unwrap();
-    assert!(cloud.assignments(0).await.unwrap().is_empty());
-    // An ack that was lost: the same messages are read again, from the first one on, and
-    // none runs a second time.
-    let _ = machine.drain(&delivered[0].session).await;
-    let _ = machine.drain(&assigned[0].session).await;
-    let log = log_when(&machine_hub, &id, "the second turn", |log| turns_ended(log) >= 2).await;
+    log_when(&machine_hub, &id, "the second turn", |log| turns_ended(log) >= 2).await;
+    acked(&owner).await;
+    assert!(!owner.get(&id).await.unwrap().inbox_pending());
+
+    // An ack that was lost: the store assigns the same again, and nothing runs a second time.
+    let acks =
+        |agent: &FakeAgent| agent.calls().iter().filter(|call| **call == "assignment_ack").count();
+    let before = acks(&agent);
+    let now = owner.get(&id).await.unwrap();
+    holder.assigned(&Assignment { kind: AssignmentKind::Create, session: now.clone() });
+    holder.assigned(&Assignment { kind: AssignmentKind::Deliver, session: now });
+    // The repeated deliver's ack follows its look at the inbox.
+    until("both repeats are acked", || acks(&agent) >= before + 2).await;
+    let log = machine_hub.events(&id, 0, 100_000).unwrap();
     let texts = prompts(&log);
     assert_eq!((times(&texts, "start here"), times(&texts, "and then this")), (1, 1), "{texts:?}");
-    assert!(!owner.get(&id).await.unwrap().inbox_pending());
+    reader.abort();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn the_reader_handles_a_takeover_when_the_store_assigns_it() {
+async fn the_loop_takes_a_chat_over_when_the_reader_tells_it() {
     let owner = store().await;
     let tar = {
         let mut tar = tar::Builder::new(Vec::new());
@@ -102,13 +127,8 @@ async fn the_reader_handles_a_takeover_when_the_store_assigns_it() {
     // Nothing is assigned: the reader waits at the store and no chat appears.
     assert!(machine_hub.resolve(CHAT).is_err());
     laptop_goes_away(&owner);
-    // The takeover arrives through the held wait; the reader imports the chat and acks.
-    let acked = async {
-        while !owner.as_machine(VM).assignments(0).await.unwrap().is_empty() {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(60), acked).await.expect("acked in time");
+    // The takeover arrives through the held wait; the loop imports the chat and acks.
+    acked(&owner).await;
     let chat = machine_hub.resolve(CHAT).expect("the chat is here");
     assert_eq!(chat.meta().cwd, root.path().join(CHAT));
     assert_eq!(read(&root.path().join(CHAT), "notes.txt"), "hello\n");
@@ -117,24 +137,20 @@ async fn the_reader_handles_a_takeover_when_the_store_assigns_it() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_reader_that_tells_leaves_the_work_to_the_one_it_tells() {
+async fn the_reader_does_none_of_the_work_itself() {
     let owner = store().await;
     laptop_copy(&owner, 0, b"never read").await;
     let machine_hub = hub();
     let agent = FakeAgent::start(&owner, VM);
     let root = tempfile::tempdir().unwrap();
-    let cloud = Arc::new(agent.cloud());
-    let importer: Arc<dyn SessionImporter> =
-        Importer::new(Arc::clone(&machine_hub), Arc::clone(&cloud), root.path());
     let (tell, mut told) = tokio::sync::mpsc::unbounded_channel();
-    let machine =
-        Machine::telling(Arc::clone(&machine_hub), cloud, vm(), importer, move |assignment| {
-            let _ = tell.send((assignment.kind, assignment.session.id.clone()));
-        });
+    let machine = Machine::telling(Arc::new(agent.cloud()), move |assignment| {
+        let _ = tell.send((assignment.kind, assignment.session.id.clone()));
+    });
     let reader = tokio::spawn(machine.run());
     laptop_goes_away(&owner);
     // The takeover arrives through the held wait and is told, as the holder loop would be.
-    let first = tokio::time::timeout(std::time::Duration::from_secs(60), told.recv()).await;
+    let first = tokio::time::timeout(Duration::from_secs(60), told.recv()).await;
     assert_eq!(first.expect("told in time"), Some((AssignmentKind::Takeover, CHAT.to_owned())));
     // The reader did none of its work: no chat is here and the assignment waits for its ack.
     assert!(machine_hub.resolve(CHAT).is_err());
