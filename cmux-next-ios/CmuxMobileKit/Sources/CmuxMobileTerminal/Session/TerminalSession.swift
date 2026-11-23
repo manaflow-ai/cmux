@@ -24,6 +24,10 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// The device that sets the Mac's grid changed (its name, or nil when it
     /// is this phone or unknown), for the letterbox note.
     case hostGridOwner(String?)
+    /// The Mac stamped the redraw whose bytes the session just gave (`pseq`), and its line
+    /// arrived at `receivedMs` (epoch ms): the screen reports when it painted it
+    /// (``TerminalPaintTally``, `phone-frames` `paint`).
+    case paintMark(seq: Int, receivedMs: Double)
 }
 
 /// Whether the screen shows the Mac's terminal yet. Anything but `attached`
@@ -270,6 +274,9 @@ public protocol TerminalSession: AnyObject {
     /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
     /// there (`phone-frames`). Others ignore it.
     func reportScrollFrames(_ pan: TerminalPanFrames)
+    /// Stamped redraws the screen painted (`[seq, received, painted]`, epoch ms), for a
+    /// session with a Mac to join with its stamps (`phone-frames` `paint`). Others ignore it.
+    func reportPaint(_ samples: [TerminalPaintTally.Sample])
 }
 
 extension TerminalSession {
@@ -319,6 +326,8 @@ extension TerminalSession {
     public var fitsToPhone: Bool? { nil }
 
     public func toggleFitToPhone() {}
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
 
     public var hostGridOwnerName: String? { nil }
 }

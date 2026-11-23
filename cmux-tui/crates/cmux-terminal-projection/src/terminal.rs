@@ -112,6 +112,9 @@ pub struct Terminal {
     pub history: VecDeque<Row>,
     /// Rows dropped from the front of `history` (its limit) since the last reset.
     pub history_dropped: u64,
+    /// Rows ever pushed to `history`, never reset (a clear or `ESC c`
+    /// keeps counting): what a view has not painted yet is the difference.
+    pub history_pushed: u64,
     history_limit: usize,
     cursor: Cursor,
     /// The primary screen's cursor while the alternate screen is up.
@@ -176,6 +179,7 @@ impl Terminal {
             alt_active: false,
             history: VecDeque::new(),
             history_dropped: 0,
+            history_pushed: 0,
             history_limit,
             cursor: Cursor::default(),
             primary_cursor: Cursor::default(),
@@ -828,7 +832,9 @@ impl Terminal {
         let links = std::mem::take(&mut self.links);
         let passthrough = std::mem::take(&mut self.passthrough);
         let replies = std::mem::take(&mut self.replies);
+        let pushed = self.history_pushed;
         *self = Terminal::new(cols, rows, limit);
+        self.history_pushed = pushed;
         // Interned strings stay valid for cells still on the phone.
         self.styles = styles;
         self.graphemes = graphemes;
@@ -1221,6 +1227,7 @@ impl Terminal {
         row.cells.truncate(keep);
         row.cells.shrink_to_fit();
         self.history.push_back(row);
+        self.history_pushed += 1;
         while self.history.len() > self.history_limit {
             self.history.pop_front();
             self.history_dropped += 1;

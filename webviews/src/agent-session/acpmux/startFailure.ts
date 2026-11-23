@@ -67,6 +67,16 @@ const SERVICE_UNREACHABLE = new Set([
   "transport.outbound_overflow",
 ]);
 
+/// A start that failed only because the page's line to acpmux was down or went down: nothing the
+/// person can do about it, so the switch starts again by itself on the next connection (or on this
+/// one, once it answers) instead of failing with "Try again" (Leo, 2026-11-12, after a reboot: "if
+/// we do the recovery needs to be a lot better and it shouldn't talk so much bullshit", and on a
+/// Try again line: "try what? no, it should just automatically do stuff").
+export function isConnectionLoss(error: unknown): boolean {
+  const code = startFailureCode(error);
+  return code !== undefined && SERVICE_UNREACHABLE.has(code);
+}
+
 /// Codes whose card already says all it needs (startFailureSentence's own views).
 const CODED = new Set([SIGN_IN_REQUIRED, HARNESS_MISSING, ROUTE_UNAVAILABLE]);
 
