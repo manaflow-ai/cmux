@@ -11,6 +11,15 @@ enum AnimationFrameBench {
     private static let recorder = FrameIntervalLog()
     private static var activeLabel: String?
     private static var firstTick: FrameClock.Token?
+    private static let summaryProbe: UIView = {
+        let view = UIView(frame: CGRect(x: 1, y: 1, width: 2, height: 2))
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = true
+        view.accessibilityTraits = .staticText
+        view.accessibilityIdentifier = "debug.animationFrameSummary"
+        view.accessibilityLabel = "Animation frame summary"
+        return view
+    }()
 
     static func installIfRequested() {
         guard FrameLogSwitch.isEnabled,
@@ -47,7 +56,16 @@ enum AnimationFrameBench {
             guard activeLabel == label else { return }
             let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
                 .first { $0.activationState == .foregroundActive }
-            recorder.end(displayMaximumHz: scene?.screen.maximumFramesPerSecond)
+            if let stats = recorder.end(displayMaximumHz: scene?.screen.maximumFramesPerSecond),
+               let data = try? JSONEncoder().encode(stats),
+               let window = scene?.windows.first(where: \.isKeyWindow) {
+                // A presented sheet owns its accessibility tree. Put the probe
+                // in the front controller each time, after the window closes.
+                var controller = window.rootViewController
+                while let presented = controller?.presentedViewController { controller = presented }
+                summaryProbe.accessibilityValue = String(decoding: data, as: UTF8.self)
+                (controller?.view ?? window).addSubview(summaryProbe)
+            }
             FrameLogFile.flush()
             activeLabel = nil
             acknowledge(name)

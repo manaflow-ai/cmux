@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Gate the labelled FrameIntervalStats JSONL from cmux-next-ios-sim.sh test ui=AnimationFrameBenchUITests."""
+"""Gate labelled FrameIntervalStats XCTest attachments from a fleet simulator evidence.zip."""
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 
 ANIMATIONS = (
@@ -50,24 +51,39 @@ def measure(stats: dict) -> dict:
 
 
 def read_run(evidence: Path, profile: str) -> tuple[list[dict], list[str]]:
-    slug = profile.replace(",", "_").replace("=", "_")
-    path = evidence / f"ui-duress-{slug}-framelog.jsonl"
-    if profile == "off" and not path.exists():
-        path = evidence / "ui-framelog.jsonl"
+    folder = evidence / f"ui-duress-{profile}-attachments"
+    if profile == "off" and not folder.exists():
+        folder = evidence / "ui-attachments"
     # Heavy XCTest emits a distinct mark only on the path that verifies active replay.
     expected = ("composer-typing-heavy",) if profile == "heavy" else ANIMATIONS
     windows = {name: [] for name in expected}
     errors = []
     try:
-        with path.open(encoding="utf-8") as source:
-            for line_no, line in enumerate(source, 1):
-                stats = json.loads(line)
-                if not isinstance(stats, dict) or not isinstance(stats.get("label"), str):
-                    raise ValueError(f"invalid window on line {line_no}")
-                if stats["label"] in windows:  # Other FrameIntervalLog consumers share the cache.
-                    windows[stats["label"]].append(stats)
-    except (OSError, ValueError) as error:
-        errors.append(f"{path.name}: {error}")
+        manifest = json.loads((folder / "manifest.json").read_text())
+        entries = manifest if isinstance(manifest, list) else [manifest]
+        for entry in entries:
+            for attachment in entry["attachments"]:
+                # Xcode can add _<index>_<UUID> to the suggested name when
+                # exporting an attachment (the exported filename is opaque).
+                name = attachment.get("suggestedHumanReadableName", "")
+                match = re.fullmatch(
+                    r"animation-frame-([a-z-]+)(?:\.json)?(?:_\d+_[a-fA-F0-9-]{36})?(?:\.json)?", name
+                )
+                if not match or match[1] not in windows:
+                    continue
+                label = match[1]
+                filename = attachment["exportedFileName"]
+                if not isinstance(filename, str) or Path(filename).name != filename:
+                    raise ValueError(f"{name}: invalid exported filename")
+                try:
+                    stats = json.loads((folder / filename).read_text())
+                    if not isinstance(stats, dict) or stats.get("label") != label:
+                        raise ValueError("stats label differs from attachment name")
+                    windows[label].append(stats)
+                except (OSError, ValueError) as error:
+                    errors.append(f"{folder.name}/{name}: {error}")
+    except (KeyError, OSError, TypeError, ValueError) as error:
+        errors.append(f"{folder.name}/manifest.json: {error}")
 
     rows = []
     for name, samples in windows.items():
@@ -84,32 +100,52 @@ def read_run(evidence: Path, profile: str) -> tuple[list[dict], list[str]]:
     return rows, errors
 
 
+def simulator_identity(evidence, sha, model, runtime):
+    summary_path = evidence / "SUMMARY.md"
+    errors = []
+    if summary_path.exists():
+        lines = summary_path.read_text().splitlines()
+        for line in lines:
+            if line.startswith("- commit: "):
+                observed = line.removeprefix("- commit: ").strip()
+                if observed != sha:
+                    errors.append(f"SUMMARY.md measured commit {observed}, expected {sha}")
+            elif line.startswith("- simulator: "):
+                device_type, on, version = line.removeprefix("- simulator: ").partition(" on ")
+                if on:
+                    model = model or device_type.strip()
+                    runtime = version.strip()
+            elif line.startswith("- device: "):
+                model = line.removeprefix("- device: ").split(" (", 1)[0].strip()
+    if not model or not runtime:
+        errors.append("missing simulator model or runtime in SUMMARY.md or --model/--runtime")
+    return {"simulator_model": model, "runtime": runtime}, errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--run", action="append", metavar="PROFILE")
-    parser.add_argument("--model", required=True)
-    parser.add_argument("--runtime", required=True)
+    parser.add_argument("--run", action="append", choices=("off", "heavy"))
+    parser.add_argument("--model")
+    parser.add_argument("--runtime")
     parser.add_argument("--sha", required=True)
     args = parser.parse_args()
-    rows, errors = [], []
+    measured_on, errors = simulator_identity(args.evidence, args.sha, args.model, args.runtime)
+    rows = []
     for profile in args.run or ["off"]:
-        if not profile or "/" in profile:
-            parser.error("invalid profile")
         windows, failures = read_run(args.evidence, profile)
         rows.extend(windows)
         errors.extend(failures)
-    if not args.model.strip() or not args.runtime.strip():
-        errors.append("missing simulator model or runtime")
 
     report = {
-        "head": args.sha, "measured_on": {"simulator_model": args.model, "runtime": args.runtime},
+        "head": args.sha, "measured_on": measured_on,
         "cpu_p95_budget_ms": CPU_BUDGET_MS, "max_dropped_frames_per_window": MAX_DROPS,
         "animations": rows, "gate": "fail" if errors else "pass", "failures": errors,
     }
+    args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
-    print(f"Measured on {args.model} ({args.runtime}), head `{args.sha}`.\n")
+    print(f"Measured on {measured_on['simulator_model']} ({measured_on['runtime']}), head `{args.sha}`.\n")
     print("| Animation | Load | Frames | p50 / p95 / max (ms) | Dropped | Nominal ms | Screen max Hz | CPU p95 ms | Gate |")
     print("|---|---|---:|---|---:|---:|---:|---:|---|")
     for row in rows:

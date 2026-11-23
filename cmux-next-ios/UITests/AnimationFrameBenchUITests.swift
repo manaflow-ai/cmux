@@ -10,7 +10,8 @@ final class AnimationFrameBenchUITests: XCTestCase {
     }
 
     @MainActor
-    func testChatAnimations() {
+    func testChatAnimations() throws {
+        try XCTSkipIf(heavyDuress, "the heavy pass measures composer typing")
         let app = launch(["-cmux-mobile-demo", "kbd-chat"], labels: [
             "keyboard-show", "composer-grow", "jump-to-bottom", "keyboard-hide",
         ])
@@ -19,7 +20,7 @@ final class AnimationFrameBenchUITests: XCTestCase {
         let field = app.textViews["chat.composer.field"]
         let focus = composerFocusTarget(app)
         XCTAssertFalse(keyboard.exists)
-        window("keyboard-show") { focus.tap() }
+        window("keyboard-show", in: app) { focus.tap() }
         XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
         XCTAssertTrue(field.waitForExistence(timeout: 10))
 
@@ -30,7 +31,7 @@ final class AnimationFrameBenchUITests: XCTestCase {
             format: "label ==[c] 'return' OR identifier ==[c] 'return'"
         )).firstMatch
         let insertLine = center(returnKey, in: app)
-        window("composer-grow") { insertLine.tap() }
+        window("composer-grow", in: app) { insertLine.tap() }
         XCTAssertGreaterThan(field.frame.height, oneLine + 1, "inserting a newline grew the composer")
 
         // The short drag from ComposerGrowKeepsTranscriptUITests leaves the
@@ -41,19 +42,19 @@ final class AnimationFrameBenchUITests: XCTestCase {
         let jump = app.buttons["Jump to bottom"].firstMatch
         let jumpTarget = center(jump, in: app)
         XCTAssertTrue(keyboard.exists)
-        window("jump-to-bottom") { jumpTarget.tap() }
+        window("jump-to-bottom", in: app) { jumpTarget.tap() }
         XCTAssertTrue(jump.waitForNonExistence(timeout: 10), "the transcript returned to the newest turn")
         XCTAssertTrue(keyboard.exists)
 
         let transcript = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
-        window("keyboard-hide") { transcript.tap() }
+        window("keyboard-hide", in: app) { transcript.tap() }
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
     }
 
     /// The fleet runs the same input once in isolation and once with duress=heavy.
     @MainActor
     func testComposerTyping() {
-        let heavy = ProcessInfo.processInfo.environment["CMUX_ANIMATION_EXPECT_DURESS"] == "heavy"
+        let heavy = heavyDuress
         let label = heavy ? "composer-typing-heavy" : "composer-typing"
         let app = launch(["-cmux-mobile-demo", "kbd-chat"], labels: [label])
         defer { app.terminate() }
@@ -72,13 +73,28 @@ final class AnimationFrameBenchUITests: XCTestCase {
         // Multiple keyboard-render frames and at least one update of the
         // duress player's once-a-second delivery counter.
         let text = "Measure typing in the composer while the recorded chat streams new messages into the transcript."
-        window(label) { app.typeText(text) }
-        if heavy {
-            let after = recordsDelivered(probe)
-            XCTAssertGreaterThan(after, before, "duress chat records advanced during typing (\(before) to \(after))")
-            print("animation-frame composer-typing duress records=\(before)..\(after)")
-        }
-        XCTAssertEqual(field.value as? String, text, "all keystrokes reached the chat composer")
+        window(label, in: app, verify: {
+            guard field.value as? String == text else {
+                XCTFail("all keystrokes must reach the chat composer")
+                return false
+            }
+            if heavy {
+                let after = self.recordsDelivered(probe)
+                guard before > 0, after > before else {
+                    XCTFail("duress chat records did not advance during typing (\(before) to \(after))")
+                    return false
+                }
+                print("animation-frame composer-typing duress records=\(before)..\(after)")
+            }
+            return true
+        }) { app.typeText(text) }
+    }
+
+    /// The existing simulator runner writes the absolute replay folder into
+    /// the simulator's global defaults before launching XCTest and the app.
+    private var heavyDuress: Bool {
+        guard let path = UserDefaults.standard.string(forKey: "CmuxMobileDuress") else { return false }
+        return URL(fileURLWithPath: path).lastPathComponent == "heavy"
     }
 
     @MainActor
@@ -88,7 +104,8 @@ final class AnimationFrameBenchUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceAnimations() {
+    func testWorkspaceAnimations() throws {
+        try XCTSkipIf(heavyDuress, "the heavy pass measures composer typing")
         let app = launch(["-cmux-mobile-tab", "workspaces"], labels: [
             "workspace-enter", "tab-overview-zoom", "sheet-present", "sheet-dismiss", "workspace-exit",
         ])
@@ -98,12 +115,12 @@ final class AnimationFrameBenchUITests: XCTestCase {
             app.buttons["Manaflow"].tap()
         }
         let enter = center(row, in: app)
-        window("workspace-enter") { enter.tap() }
+        window("workspace-enter", in: app) { enter.tap() }
         let tabs = app.buttons.matching(NSPredicate(
             format: "label ==[c] 'Tabs' OR label BEGINSWITH[c] 'Show All Tabs' OR label BEGINSWITH[c] 'Tab overview'"
         )).firstMatch
         let overview = center(tabs, in: app)
-        window("tab-overview-zoom") { overview.tap() }
+        window("tab-overview-zoom", in: app) { overview.tap() }
         let card = app.buttons.matching(NSPredicate(format: "label ENDSWITH ', tab'")).firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 15))
 
@@ -112,10 +129,10 @@ final class AnimationFrameBenchUITests: XCTestCase {
         XCTAssertTrue(new.waitForExistence(timeout: 10))
         new.tap()
         let present = center(app.buttons["Screen Sharing"].firstMatch, in: app)
-        window("sheet-present") { present.tap() }
+        window("sheet-present", in: app) { present.tap() }
         let done = app.buttons["screenSharing.done"].firstMatch
         let dismiss = center(done, in: app)
-        window("sheet-dismiss") { dismiss.tap() }
+        window("sheet-dismiss", in: app) { dismiss.tap() }
         XCTAssertTrue(done.waitForNonExistence(timeout: 10))
         XCTAssertTrue(card.waitForExistence(timeout: 10))
 
@@ -126,7 +143,7 @@ final class AnimationFrameBenchUITests: XCTestCase {
         XCTAssertTrue(tabs.waitForExistence(timeout: 15))
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.45))
         let far = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.45))
-        window("workspace-exit") {
+        window("workspace-exit", in: app) {
             edge.press(forDuration: 0.05, thenDragTo: far, withVelocity: .fast, thenHoldForDuration: 0)
         }
         XCTAssertTrue(row.waitForExistence(timeout: 15))
@@ -167,12 +184,28 @@ final class AnimationFrameBenchUITests: XCTestCase {
     }
 
     @MainActor
-    private func window(_ label: String, action: () -> Void) {
+    private func window(_ label: String, in app: XCUIApplication, verify: () -> Bool = { true }, action: () -> Void) {
         mark("begin", label)
         action()
         // A coordinate tap can return before the last UIKit or scroll frame.
         RunLoop.current.run(until: Date().addingTimeInterval(0.35))
         mark("end", label)
+        guard verify() else { return }
+        let summary = app.staticTexts["debug.animationFrameSummary"]
+        guard summary.waitForExistence(timeout: 10), let json = summary.value as? String else {
+            XCTFail("no recorded summary for \(label)")
+            return
+        }
+        let data = Data(json.utf8)
+        guard let row = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              row["label"] as? String == label else {
+            XCTFail("invalid or stale frame summary for \(label)")
+            return
+        }
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        attachment.name = "animation-frame-\(label).json"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor
