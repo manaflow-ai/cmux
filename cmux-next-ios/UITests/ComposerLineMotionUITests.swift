@@ -10,6 +10,10 @@ import XCTest
 /// (`-cmux-mobile-motion-probe`): its kind and the time from the stack's first changed frame
 /// to the transcript's spring completing.
 final class ComposerLineMotionUITests: XCTestCase {
+    /// Each step's probe reading, attached as `line-motion-settled.txt` (a UI test's print never
+    /// reaches the step's artifact; an attachment does).
+    @MainActor private var readings: [String] = []
+
     /// A 150 ms critically damped spring settles in about 1.1 x its length on the screen
     /// (under half a point left) and UIKit calls its completion a little later; 0.35 s took
     /// about 520 ms. 300 ms holds the first and fails the second on any simulator.
@@ -49,6 +53,7 @@ final class ComposerLineMotionUITests: XCTestCase {
         for _ in 0..<"\nline 3".count { field.typeText(XCUIKeyboardKey.delete.rawValue) }
         assertLineMotion(probe, "shrinking to 3 lines")
         attach(app, "shrunk-3-lines")
+        attachText("line-motion-settled", readings.joined(separator: "\n"))
     }
 
     @MainActor
@@ -56,6 +61,7 @@ final class ComposerLineMotionUITests: XCTestCase {
         XCTAssertTrue(probe.waitForExistence(timeout: 5), "\(when): the app reported no stack motion (chat.stackMotion)",
                       file: file, line: line)
         let value = probe.value as? String ?? ""
+        readings.append("\(when): \(value)")
         let fields = Dictionary(uniqueKeysWithValues: value.split(separator: " ").compactMap { pair -> (String, String)? in
             let parts = pair.split(separator: "=", maxSplits: 1)
             return parts.count == 2 ? (String(parts[0]), String(parts[1])) : nil
@@ -64,6 +70,14 @@ final class ComposerLineMotionUITests: XCTestCase {
         let settled = Int(fields["settled_ms"] ?? "") ?? .max
         XCTAssertLessThanOrEqual(settled, Self.settledBudgetMs,
                                  "\(when): composer and transcript settled in \(settled) ms (\(value))", file: file, line: line)
+    }
+
+    @MainActor
+    private func attachText(_ name: String, _ text: String) {
+        let attachment = XCTAttachment(string: text)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor
@@ -77,14 +91,21 @@ final class ComposerLineMotionUITests: XCTestCase {
 
 /// The gallery behind `ComposerLineMotion.defaultSeconds`: the same three-line grow and one-line
 /// shrink at each candidate length (`-cmux-mobile-line-motion-ms`), 0 (no motion) through 350
-/// (the old stack spring), with a screenshot mid-motion and the settled time per step printed as
-/// `LINEMOTION ms=N step=... settled_ms=N` for the console. Run on demand with `video`:
+/// (the old stack spring), with a screenshot mid-motion and the settled time per step attached as
+/// `line-motion-gallery` (`LINEMOTION ms=N step=... settled_ms=N` per line). Run on demand with `video`:
 ///   cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg test \
 ///     --arg ui=ComposerLineMotionGalleryUITests --arg video --artifact artifacts/ios-sim/evidence.zip
 final class ComposerLineMotionGalleryUITests: XCTestCase {
     @MainActor
     func testVariants() throws {
         XCUIDevice.shared.orientation = .portrait
+        var lines: [String] = []
+        defer {
+            let table = XCTAttachment(string: lines.joined(separator: "\n"))
+            table.name = "line-motion-gallery"
+            table.lifetime = .keepAlways
+            add(table)
+        }
         for ms in [0, 100, 150, 200, 350] {
             let app = XCUIApplication()
             app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -101,7 +122,7 @@ final class ComposerLineMotionGalleryUITests: XCTestCase {
             for step in 1...3 {
                 field.typeText("\nline \(step)")
                 let value = probe.waitForExistence(timeout: 5) ? (probe.value as? String ?? "") : "none"
-                print("LINEMOTION ms=\(ms) step=grow\(step) \(value)")
+                lines.append("LINEMOTION ms=\(ms) step=grow\(step) \(value)")
             }
             let shot = XCTAttachment(screenshot: app.screenshot())
             shot.name = "line-motion-\(ms)ms-4-lines"
@@ -109,7 +130,7 @@ final class ComposerLineMotionGalleryUITests: XCTestCase {
             add(shot)
             for _ in 0..<"\nline 3".count { field.typeText(XCUIKeyboardKey.delete.rawValue) }
             let value = probe.waitForExistence(timeout: 5) ? (probe.value as? String ?? "") : "none"
-            print("LINEMOTION ms=\(ms) step=shrink \(value)")
+            lines.append("LINEMOTION ms=\(ms) step=shrink \(value)")
             app.terminate()
         }
     }
