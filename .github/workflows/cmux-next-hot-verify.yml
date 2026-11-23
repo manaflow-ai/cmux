@@ -350,13 +350,26 @@ jobs:
           sparse-checkout: |
             /scripts/cmux-next/hot-verify-pr.sh
             /scripts/ci/gh_budget_wait.sh
+            /scripts/ci/ci_pool_tokens.py
           sparse-checkout-cone-mode: false
+      # The pull request read goes out on a CI pool App first (each its own installation hour), then github.token
+      # (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES). On github.token alone it waited out the
+      # spent hour: 2026-11-23 17:43-23:43Z, post the look's read took 569 s at the median and 1,579 s at p90 (242
+      # runs), check the pull request's 303 s (103 runs), about 13,000 runner-minutes a day for one GET.
+      - name: Mint the CI pool's tokens
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+        run: python3 scripts/ci/ci_pool_tokens.py
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Read the pull request
         id: check
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
           LAYERS: ${{ inputs.layers }}
@@ -494,13 +507,26 @@ jobs:
             scripts/cmux-next/hot-verify-ci.py
             scripts/cmux-next/hot-verify-pr.sh
             scripts/ci/gh_budget_wait.sh
+            scripts/ci/ci_pool_tokens.py
           sparse-checkout-cone-mode: false
+      # The pull request read goes out on a CI pool App first (each its own installation hour), then github.token
+      # (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES). On github.token alone it waited out the
+      # spent hour: 2026-11-23 17:43-23:43Z, post the look's read took 569 s at the median and 1,579 s at p90 (242
+      # runs), check the pull request's 303 s (103 runs), about 13,000 runner-minutes a day for one GET.
+      - name: Mint the CI pool's tokens
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+        run: python3 scripts/ci/ci_pool_tokens.py
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Read the pull request
         id: check
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
           LAYERS: ${{ inputs.layers }}
