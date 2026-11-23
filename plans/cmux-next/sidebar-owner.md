@@ -22,6 +22,7 @@
   2026-11-21, entry below: the pinned state draws the filled pin) and the one Pin/Unpin row at the top of a workspace
   menu (More has none). Regression: `SidebarEmptyWorkspaceHintTests.pinnedsDropZoneDrawsNoText`,
   `PinningSurfacesTests.aWorkspaceRowsMenuPinsOnceAtItsTop`.
+- 2026-11-22 (sidebar-thumb-on-scroll): Sidebar-Look: Leo, 2026-11-22: "to be honest, when hovering your mouse to the sidebar, do you want to see the thumb? claude code, you dont see it... unless you scroll first. hovering only doesnt show. this completely eliminates the problem where for us right now, when you're near the thumb and the sliding repositioner, it gets confused and sometimes goes to the thumb instead of the dragger." The list's scroll thumb shows only while the list scrolls and for 800 ms after, never for the pointer alone; the pointer only widens and holds a thumb a scroll showed. A press anywhere in the resize band always resizes (`ResizeBands`, registered by `SidebarResizeHandle` and `DividerHandleView`); the old yield-to-thumb path is gone. The thumb is an overlay: nothing moves when it shows. Regression: `SidebarEdgeHitMapTests`, `ThinScrollerFadeTests`, `ThinScrollerGrabZoneTests`.
 - 2026-11-21 (a-tooltip-cuts): Sidebar-Look: Lawrence: "drastically simplify all parts of the UI" (a1315's tooltip
   cuts, picked by Chief: a tooltip is a name and a shortcut on one line; none on a control that shows its text; none on
   rows, which have hover cards). A workspace row carries no tooltip: its muted bell, usage warning triangle, badges,

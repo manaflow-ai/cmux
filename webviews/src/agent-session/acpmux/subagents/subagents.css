@@ -2019,6 +2019,9 @@ button.cv-subagent > :last-child {
   /* How strong the surface is: faint at rest once revealed, so it reads as a control before the
      pointer reaches it; lit on hover; darker while pressed. */
   --acpmux-tuck-ink: 6%;
+  /* Over the rim's resize band (a resize handle's layer, scrollers.ts RESIZE_HANDLE_CSS), so the
+     revealed tuck keeps the middle of the band's clicks. */
+  z-index: calc(var(--cmux-resize-handle-layer, 2) + 1);
   top: 0;
   width: calc(2 * var(--ds-space-48));
   height: var(--ds-space-3);

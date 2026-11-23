@@ -117,6 +117,7 @@ import {
 } from "./sessionInfoModel";
 import { tooltipProps } from "../shortcuts";
 import { intl } from "../../../ui/intl";
+import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -264,6 +265,7 @@ export function SessionInfoPanel({
     >
       <div
         className="acpmux-session-info__resize"
+        {...RESIZE_HANDLE_PROPS}
         aria-hidden="true"
         onPointerDown={(event) => {
           if (event.button !== 0 || !frame.current) return;

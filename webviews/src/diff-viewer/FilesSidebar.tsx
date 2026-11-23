@@ -38,6 +38,7 @@ import type { DiffViewerLabelResolver } from "../labels";
 import { type AppAction, type AppState } from "./state";
 import { LoadingFileList } from "./Loading";
 import { useSyncedRef } from "./useSyncedRef";
+import { RESIZE_HANDLE_PROPS } from "../scrollers";
 import { diffChromeRows, FILE_TREE_ITEM_HEIGHT, useDiffDensityScale } from "./density";
 
 export function FilesSidebarBackdrop({
@@ -165,6 +166,7 @@ export function FilesSidebar({
     >
       <button
         id="files-resize-handle"
+        {...RESIZE_HANDLE_PROPS}
         aria-label={label("files")}
         type="button"
         tabIndex={0}
