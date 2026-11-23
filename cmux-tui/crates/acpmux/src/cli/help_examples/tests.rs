@@ -70,10 +70,18 @@ fn every_visible_command_has_an_about_line_and_examples() {
     fn walk(command: &Command, path: &mut Vec<String>, missing: &mut Vec<String>) {
         let key = path.join(" ");
         if command.get_about().is_none() && command.get_long_about().is_none() && !key.is_empty() {
-            missing.push(format!("acpmux {key}: no about line"));
+            missing.push(format!(
+                "acpmux {key}: no about line. Write a doc comment on its clap variant, the one \
+                 line a person reads in the parent's --help."
+            ));
         }
         if examples(&key).is_none_or(|e| e.is_empty()) && !has_own_examples(command) {
-            missing.push(format!("acpmux {key}: no examples"));
+            missing.push(format!(
+                "acpmux {key}: no examples. Add this to the EXAMPLES table of the \
+                 src/cli/help_examples file for its group, and replace the text with what a \
+                 person reaches for the command to do:\n    \
+                 (\"{key}\", &[(\"What someone wants this for\", \"acpmux {key} …\")]),"
+            ));
         }
         for sub in command.get_subcommands().filter(|sub| !sub.is_hide_set()) {
             path.push(sub.get_name().to_owned());
@@ -84,7 +92,11 @@ fn every_visible_command_has_an_about_line_and_examples() {
     walk(&Cli::command(), &mut Vec::new(), &mut missing);
     assert!(
         missing.is_empty(),
-        "add these to cli/help_examples (one entry per command path):\n{}",
+        "a command a person sees in --help needs an about line and at least one example, so \
+         adding a subcommand means adding its examples in the same change:\n{}\n\
+         The group files are src/cli/help_examples/{{top,work,session,host,harness,daemon}}.rs; \
+         every example line has to parse as the command it documents, so run this module's tests \
+         after editing one.",
         missing.join("\n")
     );
 }

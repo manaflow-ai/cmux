@@ -499,6 +499,66 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("share-host on", &[("Turn sharing this Mac's screen on", "acpmux share-host on")]),
     ("share-host off", &[("Turn sharing this Mac's screen off", "acpmux share-host off")]),
+    (
+        "share-host screens",
+        &[
+            ("Find a share's session id before you stop or move it", "acpmux share-host screens"),
+            (
+                "List the live shares, host and viewer each, as JSON",
+                "acpmux share-host screens --json",
+            ),
+        ],
+    ),
+    (
+        "share-host start",
+        &[
+            (
+                "Put this Mac's screen on your iPhone, with no tap on the phone",
+                "acpmux share-host start --to iphone",
+            ),
+            (
+                "Let another of your devices watch without typing or clicking",
+                "acpmux share-host start --to 3f2a --view-only",
+            ),
+        ],
+    ),
+    (
+        "share-host stop",
+        &[(
+            "End a share this machine hosts, by the id prefix screens printed",
+            "acpmux share-host stop 7c1e",
+        )],
+    ),
+    (
+        "share-host move",
+        &[
+            (
+                "Carry a live share to the device you just picked up",
+                "acpmux share-host move 7c1e --to iphone",
+            ),
+            (
+                "Leave the viewer where it is and show it another Mac's screen",
+                "acpmux share-host move 7c1e --host studio",
+            ),
+        ],
+    ),
+    (
+        "share-host link",
+        &[
+            (
+                "Get the link that opens this Mac's screen, view-only, in cmux",
+                "acpmux share-host link",
+            ),
+            (
+                "Link one virtual display by the id vdisplay printed, labelled for the viewer",
+                "acpmux share-host link --display 7 --name 'gui run 3'",
+            ),
+            (
+                "Hand someone a link that can type and click, not only watch",
+                "acpmux share-host link --control",
+            ),
+        ],
+    ),
     ("router", &[("Start the local CodeRouter", "acpmux router serve")]),
     ("router serve", &[("Start the local router listeners", "acpmux router serve")]),
 ];
