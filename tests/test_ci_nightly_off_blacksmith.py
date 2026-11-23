@@ -44,7 +44,7 @@ CMUX_LINUX_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-c
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, the cmux-linux
-# pool, or a picker's owned output (pick-nightly-build-runner, pick-nightly-sign-runner).
+# pool, or a picker's owned output (pick-nightly-build-runner, find-nightly-next-recovery).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
                          r"|'cmux-linux'"
                          r"|needs\.[\w-]+\.outputs\.(?:owned|owned_pool|sign_owned|sign_owned_pool|mini_runner|runs_on|helper|dedicated)\b"

@@ -39,7 +39,7 @@ PIPELINE_ROOTS = (
 # The split pipeline's jobs: each one, with the one-job gate on, is skipped (a root, or it needs a root's success).
 PIPELINE_JOBS = PIPELINE_ROOTS + (
     "build-nightly-ghostty-cli-helper", "prepare-nightly-variant-primary", "prepare-nightly-variant",
-    "pick-nightly-sign-runner", "build-sign-notarize-nightly", "verify-signed-nightly",
+    "build-sign-notarize-nightly", "verify-signed-nightly",
     "verify-final-dmg-nightly", "await-nightly-tree-marker", "dispatch-nightly-next-sign",
     "recover-nightly-next-notarization", "verify-recovered-nightly-next", "publish-nightly",
 )
