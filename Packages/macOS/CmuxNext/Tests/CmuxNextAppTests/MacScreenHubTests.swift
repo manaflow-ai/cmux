@@ -155,6 +155,26 @@ struct MacScreenDeviceRecordTests {
         #expect(pages.record(forDevice: "Studio", requesting: .full).isHome)
         #expect(pages.pendingScopes[hostID] == .view)
     }
+
+    /// `macScreen.open --autoconnect` into a tab that is not selected asks the hub at once,
+    /// not when the tab is first shown; a tab opened without a scope still waits.
+    @MainActor
+    @Test func anAutoconnectIntoABackgroundTabAsksTheHubBeforeItIsShown() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-bg-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.prepare("background", record: pages.record(forDevice: hostID, requesting: .view), byPerson: true)
+        pages.connectInBackground("background")
+        let viewer = try #require(pages.tab("background")?.pane?.model.hub)
+        // No hub in this test: the request ran, so it was refused as signed out rather than left idle.
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
+        #expect(viewer.resumeScope == nil)
+
+        pages.prepare("waiting", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        pages.connectInBackground("waiting")
+        #expect(pages.tab("waiting") == nil)
+        pages.tabClosed("background")
+        pages.tabClosed("waiting")
+    }
 }
 
 @MainActor
