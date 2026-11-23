@@ -2,6 +2,7 @@
 import AuthenticationServices
 import CMUXAuthCore
 import CmuxAuthRuntime
+import CmuxMobileBilling
 import CmuxMobileModel
 import Foundation
 import Observation
@@ -51,10 +52,26 @@ public final class CmuxMobileAuthModel {
     @ObservationIgnored let stack: StackClientApp?
     /// The `cmux-mobile-api` base URL (`CMUX_MOBILE_API_BASE`), when configured.
     @ObservationIgnored let apiBase: URL?
+    /// This build's cloud data space: a Debug build's dev tag (Info.plist `CmuxMobileDevTag`) as
+    /// `X-Cmux-Build-Space: dev:<slug>` on every request to cmux-mobile-api and cloud-api.
+    /// `.nightly` (nightly-paired Demo, Production, TestFlight, App Store, mock) sends no header. A
+    /// Debug build without a usable tag is misconfigured: every client refuses its calls
+    /// (``CMUXBuildSpaceError``). Decided once in ``live(environment:bundleIdentifier:devTag:devBuild:)``;
+    /// every client of this account takes it from here.
+    public let buildSpace: CMUXBuildSpaceState
     /// Where Create Team goes (``TeamCreationRoute``): the cmux team API for production accounts.
     @ObservationIgnored let teamCreationRoute: TeamCreationRoute
+    /// The cmux web origin account deletion goes to (`AuthConfig.apiBaseURL`):
+    /// `DELETE /api/account` and its pre-delete `GET /api/account/deletion-check`.
+    @ObservationIgnored let accountAPIBase: URL?
+    /// DEBUG `CMUX_MOBILE_BILLING_ORIGIN`: the cmux web origin for App Store plans in a
+    /// development build (``TeamCreationRoute/billingOrigin(launchOverride:)``). Nil otherwise.
+    @ObservationIgnored let billingOriginOverride: String?
     /// Mock mode (DEBUG `CMUX_MOBILE_MOCK_AUTH=1`): signed in as a local user, no network.
     public let isMock: Bool
+    /// The Stack project this build signs in to: the Cloud derives its user and team ids from it
+    /// (`CloudIdentity.workerUserID` on the Mac). Nil in mock mode.
+    public let stackProjectID: String?
     private var mockSignedIn: Bool
 
     /// The provider whose flow is in flight (its button shows a spinner).
@@ -63,7 +80,12 @@ public final class CmuxMobileAuthModel {
     public var errorMessage: String?
 
     init(coordinator: AuthCoordinator?, stack: StackClientApp? = nil, apiBase: URL? = nil,
-         teamCreationRoute: TeamCreationRoute? = nil, isMock: Bool) {
+         teamCreationRoute: TeamCreationRoute? = nil, accountAPIBase: URL? = nil, isMock: Bool, stackProjectID: String? = nil,
+         billingOriginOverride: String? = nil, buildSpace: CMUXBuildSpaceState = .nightly) {
+        self.stackProjectID = stackProjectID
+        self.accountAPIBase = accountAPIBase
+        self.billingOriginOverride = billingOriginOverride
+        self.buildSpace = buildSpace
         self.coordinator = coordinator
         self.stack = stack
         self.apiBase = apiBase
@@ -79,8 +101,13 @@ public final class CmuxMobileAuthModel {
     /// Reads launch overrides from the environment (DEBUG only): `CMUX_MOBILE_CLEAR_AUTH=1` starts signed out,
     /// `CMUX_MOBILE_MOCK_AUTH=1` (or Settings → Developer → Mock) signs in a
     /// local mock user, and
-    /// `CMUX_MOBILE_STACK_EMAIL` / `CMUX_MOBILE_STACK_PASSWORD` auto-login a Stack test account.
-    public static func live(environment: [String: String], bundleIdentifier: String?) -> CmuxMobileAuthModel {
+    /// `CMUX_MOBILE_STACK_EMAIL` / `CMUX_MOBILE_STACK_PASSWORD` auto-login a Stack test account, and
+    /// `CMUX_MOBILE_STACK_REFRESH_TOKEN` restores a session made elsewhere (``launchTokenStore(primary:environment:)``).
+    /// `devTag` is the build's Info.plist `CmuxMobileDevTag` (set only by the Debug configuration,
+    /// project.yml); a usable one makes ``buildSpace``. `devBuild`: the app was built with the Debug
+    /// configuration (not Demo), so it must have a tag of its own.
+    public static func live(environment: [String: String], bundleIdentifier: String?, devTag: String?,
+                            devBuild: Bool) -> CmuxMobileAuthModel {
         #if DEBUG
         let isDebug = true
         if environment["CMUX_MOBILE_MOCK_AUTH"] == "1" || DeveloperOptions.mockData {
@@ -109,12 +136,12 @@ public final class CmuxMobileAuthModel {
         let stack = StackClientApp(
             projectId: config.stack.projectId,
             publishableClientKey: config.stack.publishableClientKey,
-            tokenStore: .custom(tokenStore),
+            tokenStore: .custom(Self.launchTokenStore(primary: tokenStore, environment: environment)),
             oauthBrowserSessionPrivacy: .shared
         )
         let defaults = UserDefaults.standard
         let coordinator = AuthCoordinator(
-            client: StackAuthClient(stack: stack),
+            client: StackAuthClient(stack: stack, tokenStore: tokenStore),
             sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "cmuxMobile.auth.hasTokens"),
             userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "cmuxMobile.auth.cachedUser"),
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "cmuxMobile.auth.selectedTeam"),
@@ -157,6 +184,19 @@ public final class CmuxMobileAuthModel {
             serviceEnvironment["CMUX_MOBILE_API_BASE"] = stored
         }
         #endif
+        #if DEBUG
+        // A tag stack's backend (review.sh --backend tag-stack, kept by CloudBackendOverride) brings its
+        // own mobile Worker, the port after its API's, unless a rig names one: the tag's Mac registers
+        // there (the stack's client-config), so the phone must look for it there too.
+        if serviceEnvironment["CMUX_MOBILE_API_BASE"] == nil,
+           let stackMobile = CloudBackendOverride.resolve(environment: environment, defaults: .standard)?.mobileAPI {
+            serviceEnvironment["CMUX_MOBILE_API_BASE"] = stackMobile.absoluteString
+        }
+        #endif
+        let buildSpace = CMUXBuildSpaceState(devBuild: devBuild, devTag: devTag)
+        if let refusal = buildSpace.refusal {
+            authModelLog.fault("cloud calls refused: \(refusal.localizedDescription, privacy: .public)")
+        }
         let apiBase = Self.apiBase(environment: serviceEnvironment, infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileAPIBase") as? String, isDebug: isDebug)
         // Which backend this build talks to (public ids only, no tokens).
         authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug || stagingStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
@@ -165,8 +205,32 @@ public final class CmuxMobileAuthModel {
             teamAPIBase: URL(string: config.apiBaseURL),
             mobileServiceBase: apiBase
         )
-        return CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase,
-                                   teamCreationRoute: teamCreationRoute, isMock: false)
+        let model = CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase,
+                                        teamCreationRoute: teamCreationRoute, accountAPIBase: URL(string: config.apiBaseURL),
+                                        isMock: false, stackProjectID: config.stack.projectId,
+                                        billingOriginOverride: isDebug ? environment["CMUX_MOBILE_BILLING_ORIGIN"] : nil,
+                                        buildSpace: buildSpace)
+        // The welcome screen says why this build's cloud never answers.
+        model.errorMessage = buildSpace.refusal?.localizedDescription
+        return model
+    }
+
+    /// The token store a launch uses: the app's own, which a DEBUG build fills, while it holds no
+    /// session, from `CMUX_MOBILE_STACK_REFRESH_TOKEN`. That is a fleet step's own session (hq
+    /// build-fleet `sign_in`): its submitter signs the test account in on their Mac, the step gets
+    /// only the refresh token and the submitter revokes it when the step ends, so no password reaches
+    /// the simulator or the fleet. A sign-out revokes it like any session of this app's. Only the
+    /// keychain store is Swift's here; non-DEBUG builds never read the variable.
+    nonisolated static func launchTokenStore(
+        primary: any StackAuthTokenStoreProtocol,
+        environment: [String: String]
+    ) -> any StackAuthTokenStoreProtocol {
+        #if DEBUG
+        if let session = ImportedTokenPair(accessToken: nil, refreshToken: environment["CMUX_MOBILE_STACK_REFRESH_TOKEN"]) {
+            return ImportingTokenStore(primary: primary, sources: [{ session }], sharesSessions: false)
+        }
+        #endif
+        return primary
     }
 
     /// The `cmux-mobile-api` base URL: the `CMUX_MOBILE_API_BASE` launch override (DEBUG
@@ -386,7 +450,7 @@ public final class CmuxMobileAuthModel {
             }
             team = AppStore.AccountTeam(id: created.id, name: created.displayName)
         case .mobileService(let apiBase):
-            let creation = ServiceTeamCreation(apiBase: apiBase)
+            let creation = ServiceTeamCreation(apiBase: apiBase, buildSpace: buildSpace)
             let tokens = try await coordinator.currentTokens()
             let (data, response) = try await URLSession.shared.data(for: creation.request(accessToken: tokens.accessToken, name: name))
             team = try creation.team(from: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
@@ -418,13 +482,20 @@ public final class CmuxMobileAuthModel {
         case requestFailed
     }
 
+    /// `POST <apiBase>/v1/teams/:teamId/invites`, the request ``inviteLink(teamID:)`` sends.
+    static func inviteRequest(apiBase: URL, teamID: String, accessToken: String, buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
+        var request = URLRequest(url: apiBase.appending(path: "v1/teams/\(teamID)/invites"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        try buildSpace.apply(to: &request)
+        return request
+    }
+
     /// A Stack invitation URL for `teamID` from `POST /v1/teams/:teamId/invites`.
     public func inviteLink(teamID: String) async throws -> URL {
         guard let apiBase, let coordinator else { throw InviteError.serviceUnavailable }
         let tokens = try await coordinator.currentTokens()
-        var request = URLRequest(url: apiBase.appending(path: "v1/teams/\(teamID)/invites"))
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+        let request = try Self.inviteRequest(apiBase: apiBase, teamID: teamID, accessToken: tokens.accessToken, buildSpace: buildSpace)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200,
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -436,6 +507,46 @@ public final class CmuxMobileAuthModel {
 
     /// The `cmux-mobile-api` base URL for live data (nil in mock mode or when unconfigured).
     public var apiBaseURL: URL? { isMock ? nil : apiBase }
+
+    /// The cmux web origin that sells and verifies App Store plans
+    /// (`<origin>/api/billing/apple/*`, `docs/billing/ios-in-app-purchases.md`):
+    /// only for accounts of the production Stack project, the one cmux.com
+    /// signs in to. Nil (no Plan row) in mock, DEBUG and staging builds, unless a DEBUG
+    /// build names one with `CMUX_MOBILE_BILLING_ORIGIN` (a development-project origin such as
+    /// staging, for Sandbox purchase testing).
+    public var billingAPIBase: URL? {
+        isMock ? nil : teamCreationRoute.billingOrigin(launchOverride: billingOriginOverride)
+    }
+
+    /// Builds the app's one App Store billing model over this account's Stack
+    /// session, or nil when the build has no billing origin (``billingAPIBase``)
+    /// or bundle id. The server derives each StoreKit product id from the
+    /// bundle id and offers none to a bundle it does not sell in, so the plans
+    /// screen then says plans are unavailable instead of showing a fake offer.
+    /// An app whose App Store record has no subscriptions shows the current plan
+    /// read-only instead (``BillingPurchaseAvailability``).
+    /// - Parameter bundleIdentifier: The app bundle id (`x-cmux-bundle-id`).
+    /// - Returns: The model; the caller starts it.
+    public func makeBillingModel(bundleIdentifier: String?) -> BillingModel? {
+        guard let origin = billingAPIBase, let coordinator,
+              let bundleIdentifier, !bundleIdentifier.isEmpty else { return nil }
+        let api = HTTPBillingAPI(
+            baseURL: origin.absoluteString,
+            bundleID: bundleIdentifier,
+            credentials: {
+                guard await coordinator.isAuthenticated else { return nil }
+                do {
+                    let pair = try await coordinator.coherentTokenPair()
+                    return BillingAPICredentials(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
+                } catch AuthError.unauthorized {
+                    return nil
+                }
+            },
+            storeKitEnvironment: { await LiveStoreKitClient.appStoreEnvironment() },
+            session: URLSession(configuration: .default)
+        )
+        return BillingModel(api: api, store: LiveStoreKitClient(), analytics: nil, bundleIdentifier: bundleIdentifier)
+    }
 
     /// A current Stack access token (refreshed by the runtime when needed).
     /// `forceRefresh` mints a new one after the service rejected the last (401).
@@ -486,6 +597,29 @@ public final class CmuxMobileAuthModel {
             switch self {
             case .serviceData(let detail), .account(let detail): detail
             }
+        }
+    }
+
+    /// What Delete Account asks before it deletes (App Store Guideline
+    /// 5.1.1(v)): whether an App Store subscription on this account will keep
+    /// renewing after the account is gone. `nil` when the check could not be
+    /// read (offline, signed out, a server error); the caller then shows the
+    /// plain confirmation, because the check never blocks deletion.
+    public func accountDeletionCheck() async -> AccountDeletionCheck? {
+        #if DEBUG
+        if let demo = AccountDeletionCheck.demo(environment: ProcessInfo.processInfo.environment) { return demo }
+        #endif
+        if isMock { return .nothingToWarn }
+        guard let coordinator, let accountAPIBase else { return nil }
+        do {
+            let pair = try await coordinator.coherentTokenPair()
+            return try await AccountDeletionCheckClient(origin: accountAPIBase)
+                .check(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
+        } catch is CancellationError {
+            return nil
+        } catch {
+            authModelLog.error("account deletion check failed: \(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 

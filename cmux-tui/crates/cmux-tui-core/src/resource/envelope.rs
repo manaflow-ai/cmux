@@ -118,6 +118,25 @@ impl ResponseEnvelope {
         }
     }
 
+    /// The envelope as a JSON value, the value `serde_json::to_value` makes,
+    /// with `result` moved in: `to_value` copies it, and a result can be the
+    /// whole session (`session.snapshot`).
+    pub fn into_value(self) -> Result<Value, serde_json::Error> {
+        let Self { protocol, envelope_type, id, ok, result, error } = self;
+        let mut object = serde_json::Map::new();
+        object.insert("protocol".into(), Value::String(protocol));
+        object.insert("type".into(), serde_json::to_value(envelope_type)?);
+        object.insert("id".into(), serde_json::to_value(id)?);
+        object.insert("ok".into(), Value::Bool(ok));
+        if let Some(result) = result {
+            object.insert("result".into(), result);
+        }
+        if let Some(error) = error {
+            object.insert("error".into(), serde_json::to_value(error)?);
+        }
+        Ok(Value::Object(object))
+    }
+
     pub fn validate(&self) -> Result<(), ResourceError> {
         if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Response {
             return Err(ResourceError::validation_invalid(
@@ -140,6 +159,10 @@ impl ResponseEnvelope {
 pub struct ResourceCursor {
     pub generation: String,
     pub revision: WireDecimal,
+    /// The position of the live terminal facts the client has. Only on a
+    /// connection that sent `session-live-cursor-v1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

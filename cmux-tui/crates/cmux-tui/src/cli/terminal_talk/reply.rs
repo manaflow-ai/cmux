@@ -221,3 +221,50 @@ fn after_before(lines: &[String], before: &[String]) -> Option<usize> {
 pub(in crate::cli) fn lines(text: &str) -> Vec<String> {
     text.split('\n').map(str::to_owned).collect()
 }
+
+/// The prompt marks an input box line starts with.
+const PROMPT_MARKS: [char; 3] = ['❯', '>', '›'];
+
+/// The text in the agent's input box at the bottom of `screen`: the lines
+/// between the last two rules (Claude Code draws its input box so), the
+/// first of them starting with a prompt mark, without the mark. `None` when
+/// the screen shows no such box.
+pub(in crate::cli) fn input_box_text(screen: &str) -> Option<String> {
+    let lines: Vec<&str> = screen.lines().collect();
+    let rules: Vec<usize> = (0..lines.len())
+        .filter(|index| lines.get(*index).is_some_and(|line| is_rule(line)))
+        .collect();
+    let (top, bottom) = rules.windows(2).rev().find_map(|pair| match pair {
+        [top, bottom] if bottom > &(top + 1) => Some((*top, *bottom)),
+        _ => None,
+    })?;
+    let inside = lines.get(top + 1..bottom)?;
+    let (first, rest) = inside.split_first()?;
+    let first =
+        first.trim_start_matches(|character: char| character.is_whitespace() || character == '│');
+    let first = first.strip_prefix(PROMPT_MARKS)?;
+    let mut text = first.trim().to_owned();
+    for line in rest {
+        let line =
+            line.trim_matches(|character: char| character.is_whitespace() || character == '│');
+        if !line.is_empty() {
+            text.push(' ');
+            text.push_str(line);
+        }
+    }
+    Some(text)
+}
+
+/// Whether the input box on `screen` ([`input_box_text`]) still holds
+/// `message`: its text is the start of the message (or the whole of it), or
+/// a paste placeholder (`[Pasted text #1 +20 lines]`). An empty box, a hint
+/// in it, or no box is `false`.
+pub(in crate::cli) fn input_box_holds(screen: &str, message: &str) -> bool {
+    let Some(text) = input_box_text(screen) else { return false };
+    if text.contains("[Pasted text") {
+        return true;
+    }
+    let boxed = squeeze(&text);
+    let sent = squeeze(message);
+    !boxed.is_empty() && (sent.starts_with(&boxed) || boxed.starts_with(&sent))
+}

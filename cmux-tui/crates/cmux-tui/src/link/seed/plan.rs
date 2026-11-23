@@ -5,7 +5,8 @@
 //! The bundle carries `refs/cmux-seed/head` (HEAD), `refs/cmux-seed/index`
 //! (a commit of the staged tree, parent HEAD), `refs/cmux-seed/work` (a
 //! commit of the working tree with untracked files that are not ignored,
-//! less the secrets [`secrets`] names, parent the index commit) and
+//! less the secrets [`secrets`] names, heavy folders and big files (each
+//! named in `skipped`), parent the index commit) and
 //! `refs/cmux-seed/stash` when there is a stash, with `^BASE` as its one
 //! prerequisite. Git leaves out of the bundle any seed ref whose commit
 //! the machine already has (HEAD when it is the base; in a delta seed,
@@ -28,6 +29,7 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+use super::super::sync_cli;
 use super::{git, github, secrets};
 use crate::link::sync_cli::skips;
 
@@ -93,6 +95,12 @@ pub struct Planned {
     /// A delta seed found HEAD, the index, the working tree and refs/stash as
     /// the previous seed left them: nothing to send.
     pub unchanged: bool,
+    /// The `.gitattributes` files (from the top, `/`-separated) that name `filter=lfs`;
+    /// [`SeedParams::lfs`] is whether there is one. A head-first seed reads where they are:
+    /// only one that can reach the head's files keeps the seed from opening at its head
+    /// (`seed_cli::asks_head_first`).
+    #[serde(skip)]
+    pub lfs_attributes: Vec<String>,
 }
 
 /// The commits an earlier seed of this folder sent ([`plan_since`]).
@@ -125,7 +133,8 @@ pub enum FallbackCode {
     NoBase,
     /// The index has unresolved merge conflicts.
     Unmerged,
-    /// A submodule has commits not on its remote, or uncommitted changes.
+    /// A submodule is at a commit not on its remote, or has none checked out
+    /// (its uncommitted changes alone stay on this Mac, named).
     SubmoduleLocalWork,
     /// A delta seed's previous commits are not in this repository (a gc
     /// dropped them, or they came from another one).
@@ -186,6 +195,17 @@ pub fn plan(folder: &Path, out_bundle: &Path) -> Result<Planned, Fallback> {
     build(&repo, out_bundle, &Since::Base(&base), bases)
 }
 
+/// Whether [`plan`] would seed `folder` rather than fall back to the copy, read from git alone
+/// (no bundle, no commit written): a start's estimate before any machine (`sync_cli::estimate`).
+/// The machine may still refuse the seed (`seed.needs_github`); the copy then goes as estimated.
+pub fn seedable(folder: &Path) -> Result<(), Fallback> {
+    let repo = Repo::open(folder)?;
+    if repo.bases().is_empty() {
+        return Err(Fallback::new(FallbackCode::NoBase, "no commit is known to be on the remote"));
+    }
+    Ok(())
+}
+
 /// [`plan`] from `base` (one of [`Planned::bases`], after the machine
 /// found the remote lacks the first).
 pub fn plan_with_base(folder: &Path, out_bundle: &Path, base: &str) -> Result<Planned, Fallback> {
@@ -231,6 +251,93 @@ pub fn plan_since(
         }
     }
     build(&repo, out_bundle, &Since::Previous(previous), Vec::new())
+}
+
+/// The seed `recorded` (one this Mac sent before) again, from this repository's object store
+/// alone: no INDEX or WORK commit of the folder as it is now, nothing read from its working tree
+/// and nothing written to it, its index or its refs. The bundle carries `recorded`'s commits as
+/// `refs/cmux-seed/*` with `^BASE`, BASE the best base of `recorded.head`. Move to another
+/// Cloud machine seeds the second machine with it (`seed_cli::hop`), so both hold the seed
+/// Bring Back Local merges against.
+pub fn plan_recorded(
+    folder: &Path,
+    out_bundle: &Path,
+    recorded: &PreviousSeed,
+) -> Result<Planned, Fallback> {
+    let mut repo = Repo::open(folder)?;
+    let mut ids = vec![&recorded.head, &recorded.index, &recorded.work];
+    ids.extend(recorded.stash.as_ref());
+    for id in ids {
+        let hex = (4..=64).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_hexdigit());
+        if !hex || repo.commit(id).as_deref() != Some(id.as_str()) {
+            return Err(Fallback::new(
+                FallbackCode::NoPrevious,
+                format!("the recorded seed's commit {id} is not in this repository"),
+            ));
+        }
+    }
+    // The bases of the recorded HEAD, not of whatever this Mac checked out since.
+    repo.head = recorded.head.clone();
+    let bases = repo.bases();
+    let Some(base) = bases.first().cloned() else {
+        return Err(Fallback::new(
+            FallbackCode::NoBase,
+            format!("no commit on {} is known to share history with the seed", repo.remote),
+        ));
+    };
+    let scratch = Scratch::new()?;
+    let store = scratch.0.join("store.git");
+    git::output(git::at(&scratch.0).args(["init", "-q", "--bare", "--template="]).arg(&store))
+        .map_err(|error| failed("making the scratch repository", error))?;
+    let objects = repo.git_path("objects")?;
+    std::fs::create_dir_all(store.join("objects/info"))
+        .map_err(|error| failed("making the scratch object store", error.to_string()))?;
+    write(&store.join("objects/info/alternates"), format!("{}\n", objects.display()))?;
+    let shallow = repo.git_path("shallow")?;
+    if shallow.is_file() {
+        std::fs::copy(shallow, store.join("shallow"))
+            .map_err(|error| failed("copying the shallow list", error.to_string()))?;
+    }
+    let mut refs = vec![
+        ("refs/cmux-seed/head", recorded.head.as_str()),
+        ("refs/cmux-seed/index", recorded.index.as_str()),
+        ("refs/cmux-seed/work", recorded.work.as_str()),
+    ];
+    if let Some(stash) = &recorded.stash {
+        refs.push(("refs/cmux-seed/stash", stash.as_str()));
+    }
+    for (name, id) in &refs {
+        run(git::bare(&store).args(["update-ref", *name, *id]), "naming the seed commits")?;
+    }
+    let mut bundle = git::bare(&store);
+    bundle.args(["bundle", "create", "-q"]).arg(out_bundle);
+    bundle.args(refs.iter().map(|(name, _)| *name)).arg(format!("^{base}"));
+    run(&mut bundle, "making the bundle")?;
+    let bundle_bytes = std::fs::metadata(out_bundle)
+        .map_err(|error| failed("reading the bundle", error.to_string()))?
+        .len();
+    let lfs_attributes = lfs_attributes(&repo, &[]);
+    Ok(Planned {
+        params: SeedParams {
+            url: repo.github.url(),
+            repo: repo.github.slug(),
+            base,
+            head_ref: repo.head_ref,
+            head: recorded.head.clone(),
+            index: recorded.index.clone(),
+            work: recorded.work.clone(),
+            stash: recorded.stash.clone(),
+            sparse: None,
+            lfs: !lfs_attributes.is_empty(),
+            since: None,
+        },
+        skipped: Vec::new(),
+        submodules: Vec::new(),
+        bases,
+        bundle_bytes,
+        unchanged: false,
+        lfs_attributes,
+    })
 }
 
 /// What the machine already has.
@@ -316,6 +423,10 @@ impl Repo {
         if let Some(upstream) = self.upstream.as_deref().and_then(|name| self.commit(name)) {
             bases.extend(self.merge_base(&upstream));
         }
+        // A branch with no upstream (or a fetch refspec of one branch, so no
+        // default branch here) is still seeded when the remote has HEAD or an
+        // ancestor of it on any branch this Mac fetched.
+        bases.extend(self.nearest_on_remote());
         let remote = &self.remote;
         let default = [
             format!("refs/remotes/{remote}/HEAD"),
@@ -340,6 +451,32 @@ impl Repo {
             "-q",
             format!("{name}^{{commit}}").as_str(),
         ]))
+    }
+
+    /// The newest commit of HEAD's history that a remote-tracking branch of
+    /// [`Self::remote`] has: HEAD itself when it is pushed (the bundle then
+    /// carries only the uncommitted state), else the first commit where
+    /// HEAD's own commits meet what the remote has. None when no fetched
+    /// branch of the remote shares HEAD's history.
+    fn nearest_on_remote(&self) -> Option<String> {
+        let remotes = format!("--remotes={}", self.remote);
+        // One walk of HEAD's own commits: none means HEAD is on the remote.
+        let own = git::text(git::at(&self.top).args([
+            "rev-list",
+            "--boundary",
+            self.head.as_str(),
+            "--not",
+            remotes.as_str(),
+        ]))
+        .ok()?;
+        if own.trim().is_empty() {
+            // With no remote branch nothing is excluded and HEAD's whole
+            // history is listed, so an empty list means one of them has HEAD.
+            return Some(self.head.clone());
+        }
+        // `-SHA` lines are the boundary: commits the remote has, parents of
+        // HEAD's own; the first is the newest the walk met.
+        own.lines().find_map(|line| line.strip_prefix('-')).map(str::to_owned)
     }
 
     fn merge_base(&self, other: &str) -> Option<String> {
@@ -462,9 +599,9 @@ fn build(
     since: &Since<'_>,
     bases: Vec<String>,
 ) -> Result<Planned, Fallback> {
-    let submodules = submodules(repo)?;
+    let (submodules, submodule_work) = submodules(repo)?;
     let scratch = Scratch::new()?;
-    let Commits { index: index_commit, work: work_commit, skipped, sparse } =
+    let Commits { index: index_commit, work: work_commit, mut skipped, sparse } =
         commits(repo, &scratch)?;
     let store = scratch.0.join("store.git");
     git::output(git::at(&scratch.0).args(["init", "-q", "--bare", "--template="]).arg(&store))
@@ -480,7 +617,8 @@ fn build(
             .map_err(|error| failed("copying the shallow list", error.to_string()))?;
     }
     let stash = repo.commit("refs/stash");
-    let lfs = uses_lfs(repo, &skipped);
+    let lfs_attributes = lfs_attributes(repo, &skipped);
+    skipped.extend(submodule_work);
 
     let mut refs = vec![
         ("refs/cmux-seed/head", repo.head.as_str()),
@@ -559,7 +697,7 @@ fn build(
             work: work_commit,
             stash,
             sparse,
-            lfs,
+            lfs: !lfs_attributes.is_empty(),
             since,
         },
         skipped,
@@ -567,6 +705,7 @@ fn build(
         bases,
         bundle_bytes,
         unchanged,
+        lfs_attributes,
     })
 }
 
@@ -698,35 +837,69 @@ fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), Fallback> {
         .map_err(|error| failed(&format!("writing {}", path.display()), error.to_string()))
 }
 
+/// An untracked file bigger than this stays on this Mac, named with its
+/// size: one checkpoint or dataset would outweigh the rest of the seed.
+const BIG_UNTRACKED: u64 = 5 * 1024 * 1024;
+
 /// Untracked files that are not ignored but stay on this Mac: likely
-/// secrets, and git repositories nested in the folder (not submodules).
+/// secrets, git repositories nested in the folder (not submodules), heavy
+/// folders the project rebuilds on the machine (one entry each, as a copy
+/// names them) and files over [`BIG_UNTRACKED`].
 fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
+    use std::os::unix::ffi::OsStrExt as _;
     let listed =
         git::output(git::at(&repo.top).args(["ls-files", "-z", "--others", "--exclude-standard"]))
             .map_err(|error| failed("listing untracked files", error))?;
     let mut skipped = Vec::new();
+    let mut heavy_named = std::collections::BTreeSet::new();
     for raw in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
         let path = String::from_utf8_lossy(raw).into_owned();
+        if let Some((folder, why)) =
+            std::str::from_utf8(raw).ok().and_then(|name| sync_cli::heavy_folder(&repo.top, name))
+        {
+            if heavy_named.insert(folder.clone()) {
+                skipped.push(Skipped {
+                    raw: folder.clone().into_bytes(),
+                    path: folder,
+                    why: why.to_string(),
+                });
+            }
+            continue;
+        }
         let why = if path.ends_with('/') {
-            Some("a separate git repository inside this folder (not a submodule)")
-        } else {
+            Some("a separate git repository inside this folder (not a submodule)".to_string())
+        } else if let Some(why) =
             // A plain copy's credential rule too (`.aws/credentials`, `.config/gh/hosts.yml`).
             secrets::reason(&repo.top, raw).or_else(|| skips::credential_text(&path))
+        {
+            Some(why.to_string())
+        } else {
+            std::fs::symlink_metadata(repo.top.join(std::ffi::OsStr::from_bytes(raw)))
+                .ok()
+                .filter(|meta| meta.is_file() && meta.len() > BIG_UNTRACKED)
+                .map(|meta| {
+                    format!(
+                        "a big file ({}) that stays on this Mac",
+                        sync_cli::bytes_text(meta.len())
+                    )
+                })
         };
         if let Some(why) = why {
-            skipped.push(Skipped { path, why: why.to_string(), raw: raw.to_vec() });
+            skipped.push(Skipped { path, why, raw: raw.to_vec() });
         }
     }
     Ok(skipped)
 }
 
-/// Each submodule with the commit checked out in it. One with a commit not
-/// on its remote-tracking refs, or with uncommitted changes, is local work
-/// this plan cannot seed yet.
-fn submodules(repo: &Repo) -> Result<Vec<Submodule>, Fallback> {
+/// Each submodule with the commit checked out in it, and the submodules
+/// whose uncommitted changes stay on this Mac (the machine gets the
+/// commit). One whose commit is not on its remote-tracking refs is local
+/// work this plan cannot seed: the machine could not fetch it.
+fn submodules(repo: &Repo) -> Result<(Vec<Submodule>, Vec<Skipped>), Fallback> {
     let staged = git::output(git::at(&repo.top).args(["ls-files", "-z", "-s"]))
         .map_err(|error| failed("listing the index", error))?;
     let mut found = Vec::new();
+    let mut left_here = Vec::new();
     for entry in staged.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
         let entry = String::from_utf8_lossy(entry);
         let Some((meta, path)) = entry.split_once('\t') else { continue };
@@ -753,7 +926,12 @@ fn submodules(repo: &Repo) -> Result<Vec<Submodule>, Fallback> {
         let dirty = git::text(git::at(&checkout).args(["status", "--porcelain"]))
             .map_err(|error| failed(&format!("reading submodule {path}"), error))?;
         if !dirty.is_empty() {
-            return Err(local_work("has uncommitted changes".to_string()));
+            let folder = format!("{path}/");
+            left_here.push(Skipped {
+                raw: folder.clone().into_bytes(),
+                path: folder,
+                why: "a submodule's uncommitted changes stay on this Mac".to_string(),
+            });
         }
         let on_remote = git::optional(git::at(&checkout).args([
             "for-each-ref",
@@ -768,7 +946,7 @@ fn submodules(repo: &Repo) -> Result<Vec<Submodule>, Fallback> {
         }
         found.push(Submodule { path: path.to_string(), commit });
     }
-    Ok(found)
+    Ok((found, left_here))
 }
 
 /// The sparse-checkout patterns when sparse checkout is on.
@@ -781,9 +959,9 @@ fn sparse_patterns(repo: &Repo) -> Result<Option<String>, Fallback> {
     Ok(Some(std::fs::read_to_string(file).unwrap_or_default()))
 }
 
-/// Whether any `.gitattributes` in the working tree (tracked, or untracked
-/// and going) names `filter=lfs`.
-fn uses_lfs(repo: &Repo, skipped: &[Skipped]) -> bool {
+/// The `.gitattributes` files in the working tree (tracked, or untracked and
+/// going) that name `filter=lfs`, from the top. The seed uses LFS when any does.
+fn lfs_attributes(repo: &Repo, skipped: &[Skipped]) -> Vec<String> {
     let listed = git::output(git::at(&repo.top).args([
         "ls-files",
         "-z",
@@ -799,8 +977,9 @@ fn uses_lfs(repo: &Repo, skipped: &[Skipped]) -> bool {
         .filter(|path| !path.is_empty())
         .map(|path| String::from_utf8_lossy(path).into_owned())
         .filter(|path| !skipped.iter().any(|item| &item.path == path))
-        .any(|path| {
-            std::fs::read(repo.top.join(&path))
+        .filter(|path| {
+            std::fs::read(repo.top.join(path))
                 .is_ok_and(|text| String::from_utf8_lossy(&text).contains("filter=lfs"))
         })
+        .collect()
 }

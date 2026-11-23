@@ -84,6 +84,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             vec!["notification", "create", "--title", "t", "--body", "", "--workspace", WORKSPACE],
             "notification.create",
         ),
+        // The guarded end `worktree close` sends (#39092).
+        (vec!["terminal", TERMINAL, "close", "--if-unplaced"], "terminal.close"),
         (vec!["pane", "create", "--shell", "make watch"], "pane.create"),
         (vec!["pane", "create", "--", "make", "watch"], "pane.create"),
         (vec!["screen", "create", "--shell", "make watch"], "screen.create"),
@@ -98,6 +100,27 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["tab", TAB, "update", "--marked-unread", "true"], "tab.update"),
         (vec!["attention", "request", "--tab", TAB, "--reason", "Confirm"], "tab.update"),
         (vec!["attention", "clear", "--tab", TAB], "tab.update"),
+        // W5-P: pane.move's other destinations and the parents of a named one.
+        (
+            vec![
+                "pane",
+                PANE,
+                "move",
+                "--to-tab",
+                TAB,
+                "--to-workspace",
+                WORKSPACE,
+                "--to-screen",
+                "screen_00000000000000000000000000000005",
+                "--index",
+                "1",
+                "--focus",
+            ],
+            "pane.move",
+        ),
+        (vec!["pane", PANE, "move", "--new-screen", "--name", "logs"], "pane.move"),
+        // W5-P: agent list --terminal takes any terminal selector.
+        (vec!["agent", "list", "--terminal", "alpha"], "agent.list"),
         (vec!["workspace", WORKSPACE, "close", "--report-closed-ids"], "workspace.close"),
         (
             vec![
@@ -163,6 +186,24 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "session.journal.append",
         ),
+        // A terminal agent's approval (Claude's PermissionRequest) rides beside the event as
+        // live_approval.
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "PermissionRequest",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"make","description":"Build"}}"#,
+            ],
+            "session.journal.append",
+        ),
         // column.update: the pinned (Home) dock and whether it takes tabs (pinned-dock-v1).
         (
             vec![
@@ -187,6 +228,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (vec!["pane", PANE, "split", "--down", "--shell", "make watch"], "pane.split"),
+        (vec!["pane", PANE, "split", "--right", "--fit"], "pane.split"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
         (
             vec![
@@ -312,6 +354,18 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // A page's palette ranks its rows with it; the
                         // CLI has no palette.
                         | "palette.rank"
+                        // The App Store chat list (extensibility-DESIGN.md step 3):
+                        // `cmux chat list` is the Chief's verb, so the CLI reaches
+                        // these through `cmux raw operation chat.list` for now.
+                        | "chat.list"
+                        | "chat.mark_read"
+                        | "chat.pin"
+                        // `cmux theme import/export/from-image` convert in
+                        // process with the same crate (cmux-theme-tokens);
+                        // the ops are for pages and extensions.
+                        | "theme.scheme.convert"
+                        | "theme.scheme.export"
+                        | "theme.scheme.from_image"
                         // Stash (stash-v1) is the app's native OneTab; the
                         // CLI has no stash verbs yet.
                         | "stash.create"
@@ -327,19 +381,33 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // plan and records what it made.
                         | "conductor_import.plan"
                         | "conductor_import.record"
+                        // The browser import is the app's: it reads
+                        // another browser's files, by path.
+                        | "browser_import.read"
+                        // The app's languages on first use: only the
+                        // verified app asks, with its bundle's manifest.
+                        | "language_packs.ensure"
                         // Cloud API calls carry the caller's access token;
                         // `cmux cloud` reaches them through its own stdin
                         // request, not a CLI verb per op.
+                        | "cloud.machine.chat_access"
                         | "cloud.machine.io"
+                        | "cloud.machine.share_chat"
+                        | "cloud.machine.chief_start"
                         | "cloud.owner.acpmux_keyed_start"
                         | "cloud.owner.acpmux_person_holds"
                         | "cloud.owner.fork_run"
                         | "cloud.owner.github_app"
+                        | "cloud.owner.github_connect"
+                        | "cloud.owner.github_repos"
                         | "cloud.owner.handoff_begin_turn"
                         | "cloud.owner.handoff_open"
                         | "cloud.owner.handoff_wait"
                         | "cloud.owner.handoffs"
                         | "cloud.owner.harness_login_copy"
+                        | "cloud.owner.turn_checkpoint"
+                        | "cloud.owner.turn_rewind"
+                        | "cloud.owner.turns"
                         | "cloud.previews.create_link"
                         | "cloud.previews.refresh"
                         | "cloud.previews.revoke_link"
@@ -447,6 +515,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // Apart from settings.list, daemon settings ops have no
                         // noun-first CLI verb yet, as they have no MCP tool
                         // (83285ad2b3bf; cx-9ce.12, cx-ncc.32).
+                        | "settings.edit"
                         | "settings.get"
                         | "settings.reset"
                         | "settings.reset_all"
@@ -499,7 +568,15 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // selection; apps and MCP send anchor and ids.
         ("layout.bulk", "anchor"),
         ("layout.bulk", "ids"),
+        // git.status's github: the Changes sidebar's pull request list asks for github_repo
+        // (#44129); `cmux git status` prints the working tree's status and never sends it.
+        ("git.status", "github"),
+        // terminal.output_read's recovery token: a client that reconnects to a live terminal
+        // echoes it to resume output (#43185); a one-shot `cmux terminal read` never sends it.
+        ("terminal.output_read", "recovery"),
     ];
+    // Every operation's drift at once, so one run names all of it.
+    let mut drift = Vec::new();
     for operation in &expected {
         let catalog_fields = catalog["operations"][operation]["params"]["fields"]
             .as_object()
@@ -508,10 +585,16 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             .filter(|field| !app_owned.contains(&(*operation, field.as_str())))
             .cloned()
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(
-            covered_fields.get(operation).cloned().unwrap_or_default(),
-            catalog_fields,
-            "{operation} has catalog fields with no exercised CLI representation"
-        );
+        let covered = covered_fields.get(operation).cloned().unwrap_or_default();
+        if covered != catalog_fields {
+            let missing = catalog_fields.difference(&covered).cloned().collect::<Vec<_>>();
+            let extra = covered.difference(&catalog_fields).cloned().collect::<Vec<_>>();
+            drift.push(format!("{operation}: no exercised CLI representation for {missing:?}; not in the catalog: {extra:?}"));
+        }
     }
+    assert!(
+        drift.is_empty(),
+        "catalog fields with no exercised CLI representation:\n{}",
+        drift.join("\n")
+    );
 }

@@ -102,9 +102,13 @@ await requireBrowserLane("updated-card-preview-reads-whole.test.ts", async () =>
         test(`the open card cuts no line of the header or of a change (${look})`, async () => {
           const page = await open(look);
           const got = await page.evaluate(() => {
+            // A line is cut when it overflows a side it clips. The card's lines are trimmed to cap height and
+            // baseline and clip only sideways (e32e58ca90f, Lawrence 2026-11-07: "feels like too much padding
+            // on top"), so their descenders overflow below the box on purpose, shown, not cut.
             const cut = (element: Element | null) =>
               !!element &&
-              (element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1);
+              (element.scrollWidth > element.clientWidth + 1 ||
+                (getComputedStyle(element).overflowY !== "visible" && element.scrollHeight > element.clientHeight + 1));
             const text = (selector: string) => document.querySelector(selector)?.textContent ?? "";
             const top = (selector: string) => document.querySelector(selector)?.getBoundingClientRect().top ?? NaN;
             const list = document.querySelector(".wn-preview-list")!;

@@ -20,11 +20,22 @@ enum TerminalHosts {
 
     /// The daemon's host children that serve a terminal: those with a
     /// published discovery record under `state`. This leaves out the spare
-    /// host (R81: one idle `__terminal-host` started ahead of the next new
-    /// tab, with no PTY and no record until a new tab adopts it). Leak
+    /// host (R81: one idle `__terminal-host` started ahead of the next
+    /// terminal, with no PTY and no record until a create adopts it). Leak
     /// checks use `of(daemon:)`, which includes the spare.
     static func terminals(daemon pid: Int32, state: URL) -> Set<Int32> {
-        of(daemon: pid).intersection(published(state: state))
+        census(daemon: pid, state: state).terminals
+    }
+
+    /// One read of the daemon's host children: `all` (the spare included,
+    /// for leak checks) and `terminals` (those that serve a terminal, for
+    /// counts). The daemon keeps the spare after its first terminal create
+    /// of any kind (a new tab, a split, a new screen or workspace), and
+    /// refills it in the background after each, so `all` is the terminals
+    /// plus zero or one spare; a count of `all` is not a count of terminals.
+    static func census(daemon pid: Int32, state: URL) -> (all: Set<Int32>, terminals: Set<Int32>) {
+        let all = of(daemon: pid)
+        return (all, all.intersection(published(state: state)))
     }
 
     /// Host pids named by the discovery records under `state`

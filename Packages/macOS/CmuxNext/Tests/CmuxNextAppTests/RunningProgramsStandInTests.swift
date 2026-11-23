@@ -11,7 +11,7 @@ import Testing
         let standIn = TabModel(TabSnapshot(surface: ProvisionalTab().surface, kind: .pty, title: "opening"))
         let live = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .pty, title: "live"))
         // No connection: every terminal asked counts as `unanswered` says, so only the stand-in's exclusion keeps it out.
-        let asked = await DaemonService().runningPrograms(of: [standIn, live]) { $0.title }
+        let asked = await DaemonService().runningPrograms(of: [standIn, live]) { $0.titleText }
         #expect(asked.keys.sorted { $0.rawValue < $1.rawValue } == [live.surface], "a stand-in was asked: \(asked)")
         #expect(asked.programNames == ["live"], "a stand-in counts as a running program: \(asked.programNames)")
     }

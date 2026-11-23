@@ -124,9 +124,6 @@
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
       <FileRef
-         location = "group:CmuxComputerUseHelper">
-      </FileRef>
-      <FileRef
          location = "group:CmuxNext">
       </FileRef>
       <FileRef

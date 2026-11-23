@@ -84,10 +84,7 @@ export type SearchGroup = { category: Category; groups: CategoryGroup[]; rows: S
 
 export type ListFilter = {
   query: string;
-  /** Only rows a user changed (`customized`). */
-  changedOnly?: boolean;
   valueOf(key: string): unknown;
-  isChanged?(key: string): boolean;
   /** The host is a DEV build: DEV-only categories are searched too. */
   devBuild?: boolean;
   /** Settings scope and owner revision used to invalidate the searchable text cache. */
@@ -95,26 +92,21 @@ export type ListFilter = {
   revision?: number;
 };
 
-/** Matching rows of every category, in navigation order; an empty query with changedOnly lists
- * every changed row. */
+/** Matching rows of every category, in navigation order; an empty query matches none. */
 // Rows the page never lists: appearance.themeEdits is the theme pickers' "(custom)" themes and
 // appearance.favoriteThemes their stars.
 const UNLISTED = new Set(["appearance.themeEdits", "appearance.favoriteThemes"]);
 
 export function filterRows({
   query,
-  changedOnly = false,
   valueOf,
-  isChanged,
   devBuild = false,
   scope = "user",
   revision = 0,
 }: ListFilter): SearchGroup[] {
   const terms = queryTerms(query);
   const keep = (row: SchemaRow) =>
-    !UNLISTED.has(row.key) &&
-    (terms.length === 0 ? changedOnly : rowMatches(row, valueOf(row.key), terms, { scope, revision })) &&
-    (!changedOnly || (isChanged?.(row.key) ?? false));
+    !UNLISTED.has(row.key) && terms.length > 0 && rowMatches(row, valueOf(row.key), terms, { scope, revision });
   return shownCategories(devBuild)
     .map((category) => {
       const groups = category.groups

@@ -245,10 +245,8 @@ test("with no folder repository, a bare #N links only when the transcript names 
 test("rule d: with no evidence and one candidate, the folder's repository, asking nothing", async () => {
   const view = await render([user("What landed?"), assistant("#634 landed.")], []);
   expect(view.chips()).toEqual([["#634", pr(FOLDER, 634)]]);
-  // Nothing to resolve; the drawn chip's own cache-only ask, for its mark's state colour, is all.
-  expect(view.calls.filter((call) => call.method === "pr.inspect").map((call) => call.params)).toEqual([
-    { url: pr(FOLDER, 634), cached: true },
-  ]);
+  // Nothing to resolve, and the drawn chip asks nothing for itself (no state colour, 2026-11-11).
+  expect(view.calls.filter((call) => call.method === "pr.inspect").map((call) => call.params)).toEqual([]);
 });
 
 test("an agent's message: its own address names the repository of its bare #N", async () => {

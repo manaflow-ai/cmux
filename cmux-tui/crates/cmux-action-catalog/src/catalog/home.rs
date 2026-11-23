@@ -12,7 +12,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.show",
         group: GROUP,
-        title: t("ActionCatalog", "action.home.show", "Go to Home"),
+        title: t("ActionCatalog", "action.home.show", "Go to Chief"),
         keywords: &["home", "mux", "messages", "conversations", "orchestrator"],
         category: "window",
         symbol: "house",
@@ -20,6 +20,33 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "home show",
         main_menu: Some("file"),
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "home.showSetup",
+        group: GROUP,
+        title: t("ActionCatalog", "action.home.showSetup", "Set Up cmux…"),
+        keywords: &["home", "setup", "set up", "onboarding", "first run", "agents", "account", "history", "cli"],
+        category: "window",
+        symbol: "checklist",
+        surfaces: PALETTE | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "home setup",
+        main_menu: Some("app"),
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "home.meetChief",
+        group: GROUP,
+        title: t("HomeActions", "action.home.meetChief", "Meet Chief"),
+        keywords: &["chief", "meet", "onboarding", "intro", "introduction", "welcome", "tour", "first run", "getting started", "permissions", "density", "text size"],
+        category: "window",
+        symbol: "sparkles",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-meet-chief",
         focuses: true,
         ..Action::DEFAULT
     },
@@ -38,7 +65,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.tab",
         group: GROUP,
-        title: t("HomeActions", "action.home.tab", "Open Home in Tab"),
+        title: t("HomeActions", "action.home.tab", "Open Chief in Tab"),
         keywords: &["home", "tab", "split", "pane", "messages", "conversations", "side by side"],
         category: "window",
         symbol: "house",
@@ -65,7 +92,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.switchView",
         group: GROUP,
-        title: t("HomeActions", "action.home.switchView", "Switch Home View"),
+        title: t("HomeActions", "action.home.switchView", "Switch Chief View"),
         keywords: &["home", "messages", "channels", "slack", "imessage", "view", "toggle", "switch", "layout"],
         category: "window",
         symbol: "arrow.left.arrow.right",
@@ -272,6 +299,20 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::NAME_3.optional(), args::HARNESS.optional(), args::ENGINE_2.optional()],
         cli_name: "home new-chief",
         main_menu: Some("file"),
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    // Set My Picture: the person's own conversation picture (`user_local`), as
+    // `cmux avatar set me FILE` (`participant.avatar.set`); the app asks for the image.
+    Action {
+        id: "home.setMyAvatar",
+        group: GROUP,
+        title: t("HomeActions", "action.home.setMyAvatar", "Set My Picture…"),
+        keywords: &["avatar", "picture", "photo", "profile", "image", "me", "channels", "conversation"],
+        category: "window",
+        symbol: "person.crop.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "avatar set",
         waits_for_result: true,
         ..Action::DEFAULT
     },
@@ -615,10 +656,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["home", "flight recorder", "blink", "debug", "record", "dump", "messages"],
         category: "window",
         symbol: "record.circle",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action home-save-flight-recording",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -629,11 +668,9 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["home", "chief", "agent", "messages", "playground", "variants", "header", "fold", "debug"],
         category: "window",
         symbol: "square.stack.3d.up",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::STYLE.optional(), args::EXPANDED.optional(), args::TEAM.optional(), args::PEER.optional(), args::DARK.optional()],
         cli_name: "action home-agent-message-playground",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -644,11 +681,9 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["home", "chief", "mcp", "connect", "server", "card", "playground", "variants", "debug"],
         category: "window",
         symbol: "square.stack.3d.up",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::STYLE_2.optional(), args::FIXTURE.optional(), args::PHASE.optional()],
         cli_name: "action home-mcp-connect-playground",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -659,11 +694,9 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["home", "chief", "table", "before", "after", "compare", "slider", "pictures", "playground", "variants", "debug"],
         category: "window",
         symbol: "rectangle.split.2x1",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::VARIANT.optional(), args::ROW.optional(), args::DARK.optional()],
         cli_name: "action home-compare-table-playground",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -674,11 +707,9 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["home", "chief", "teleport", "move", "location", "cloud", "mac mini", "playground", "variants", "debug"],
         category: "window",
         symbol: "location.circle",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::STATE.optional()],
         cli_name: "action home-chief-teleport-playground",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },

@@ -202,8 +202,10 @@ extension VerticalTabListView {
 
     // MARK: Groups and New Tab
 
-    /// Chrome's group chip as a row: a solid pill of the group's color with its name, and a chevron
-    /// that says whether its tabs show. Collapsed to icons, a short bar of the color.
+    /// Chrome's group chip as a row: a pill of the group's color with its name, and a chevron
+    /// that says whether its tabs show. The pill is the strip chip's glass with a rim
+    /// (``GroupChipGlass``), or the solid fill when `sidebar.groupHeader.background` is solid.
+    /// Collapsed to icons, a short bar of the color.
     private func drawGroupHeader(_ group: TabGroupItem, row: Row) {
         let frame = viewRect(row.frame)
         guard showsTitles else {
@@ -218,7 +220,10 @@ extension VerticalTabListView {
         }
         let chevron = Metrics.smallIconSize
         let pillHeight = max(Metrics.space5, frame.height - 2 * Metrics.space1)
-        let font = Typography.caption
+        // The rows' own face and size at the regular weight (`Typography.body`, as the tab titles under it), as the
+        // sidebar's group headers (`SidebarStyle.groupHeaderFont`): it was the smaller caption face (Leo 2026-11-05: "this
+        // strange font of the group on the side"). The color sets the group apart, not a different face.
+        let font = VerticalTabListView.groupNameFont
         let name = group.name as NSString
         let iconSize = metrics.iconSize * 0.8
         let iconWidth = group.icon == nil ? 0 : iconSize + Metrics.space1
@@ -226,15 +231,14 @@ extension VerticalTabListView {
         let maxPill = max(pillHeight, frame.width - chevron - 2 * Metrics.space2)
         let pillWidth = textWidth + iconWidth == 0 ? pillHeight : min(maxPill, textWidth + iconWidth + 2 * TabTunables.groupChipPadding.value)
         let pill = CGRect(x: frame.minX, y: pixel(frame.midY - pillHeight / 2), width: pillWidth, height: pillHeight)
-        group.tint.chipFill.setFill()
-        NSBezierPath(roundedRect: pill, xRadius: pillHeight / 2, yRadius: pillHeight / 2).fill()
+        let ink = drawGroupPill(group, in: pill)
         var x = pill.minX + TabTunables.groupChipPadding.value
-        if let icon = group.icon, let image = icon.groupChipImage(tint: Palette.textPrimary, size: iconSize, scale: scale) {
+        if let icon = group.icon, let image = icon.groupChipImage(tint: ink, size: iconSize, scale: scale) {
             draw(image, in: CGRect(x: x, y: pill.midY - iconSize / 2, width: iconSize, height: iconSize))
             x += iconWidth
         }
         if textWidth > 0 {
-            drawTitle(group.name, font: font, color: Palette.textPrimary,
+            drawTitle(group.name, font: font, color: ink,
                       in: CGRect(x: x, y: pill.minY, width: max(0, pill.maxX - TabTunables.groupChipPadding.value - x), height: pill.height))
         }
         let symbol = group.isCollapsed ? "chevron.right" : "chevron.down"
@@ -242,6 +246,45 @@ extension VerticalTabListView {
                                                    size: chevron, scale: scale) {
             draw(image, in: CGRect(x: frame.maxX - Metrics.space1 - chevron, y: frame.midY - chevron / 2, width: chevron, height: chevron))
         }
+    }
+
+    /// A group header's name: the tab rows' font (`Typography.body`).
+    static var groupNameFont: NSFont { Typography.body }
+
+    /// Paints a group header's pill (glass with its rim, or the solid fill) and returns the ink for its name and icon.
+    /// The row's own hover fill sits behind the pill, so the glass takes no hover step of its own.
+    private func drawGroupPill(_ group: TabGroupItem, in pill: CGRect) -> NSColor {
+        let radius = pill.height / 2
+        let tokens = themeTokens
+        let opaque = ReduceTransparency.shared.isEnabled
+        guard let paint = GroupChipGlass.current.paint(tint: group.tint, tokens: tokens, opaque: opaque) else {
+            group.tint.chipFill.setFill()
+            NSBezierPath(roundedRect: pill, xRadius: radius, yRadius: radius).fill()
+            return Palette.textPrimary
+        }
+        paint.fill.nsColor.setFill()
+        NSBezierPath(roundedRect: pill, xRadius: radius, yRadius: radius).fill()
+        let hairline = Metrics.lineWidth(1 / max(scale, 1))
+        if hairline > 0 {
+            // The rim: a hairline ring inside the pill, lit at the top (the `group` role's, as on the strip's chip);
+            // under Reduce Transparency a plain separator hairline.
+            let inner = pill.insetBy(dx: hairline, dy: hairline)
+            let ring = NSBezierPath(roundedRect: pill, xRadius: radius, yRadius: radius)
+            ring.append(NSBezierPath(roundedRect: inner, xRadius: max(0, radius - hairline), yRadius: max(0, radius - hairline)))
+            ring.windingRule = .evenOdd
+            if opaque {
+                tokens.separator.nsColor.setFill()
+                ring.fill()
+            } else {
+                let rim = GroupChipGlass.rim(isDark: tokens.isDark)
+                NSGraphicsContext.saveGraphicsState()
+                ring.addClip()
+                // The list is flipped: 90 degrees runs from its top edge down.
+                NSGradient(starting: rim.top, ending: rim.bottom)?.draw(in: pill, angle: isFlipped ? 90 : -90)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
+        return paint.ink.nsColor
     }
 
     private func drawNewTab(_ row: Row) {

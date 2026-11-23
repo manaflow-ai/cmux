@@ -289,7 +289,13 @@ fn timed_out(wait: &WaitPlan) -> Failure {
         error: json!({
             "code": "wait.timeout",
             "message": format!("the status entry {:?} was not {until} within {millis} ms", wait.key),
-            "details": {"key": wait.key, "until": until, "timeout_ms": millis.to_string()},
+            "details": {
+                "key": wait.key,
+                "until": until,
+                "timeout_ms": millis.to_string(),
+                "timed_out": true,
+                "waited_ms": millis.to_string(),
+            },
             "retryable": true,
         }),
         exit: TIMEOUT_EXIT,

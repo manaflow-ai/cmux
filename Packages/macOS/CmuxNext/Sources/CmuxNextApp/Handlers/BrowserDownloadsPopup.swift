@@ -121,7 +121,7 @@ final class BrowserDownloadsPopup {
 
     private func makeContent() -> FirstMouseHostingView<BrowserDownloadsPopupView> {
         let content = FirstMouseHostingView(rootView: BrowserDownloadsPopupView(model: model))
-        let card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        let card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
         self.content = content
         return content
@@ -326,7 +326,7 @@ private struct BrowserDownloadPopupRow: View {
                             .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .themedHelp(BrowserHitStrings.downloadShowInFinder)
                     .accessibilityLabel(BrowserHitStrings.downloadShowInFinder)
                 }
@@ -341,8 +341,6 @@ private struct BrowserDownloadPopupRow: View {
             overRow = inside
             if inside { model.pointerEntered() }
         }
-        // The name truncates in the middle, so hovering the row shows it whole.
-        .themedHelp(download.filename)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser.downloads.row")
     }
@@ -376,7 +374,7 @@ private struct BrowserDownloadsFooterRow: View {
             .contentShape(Rectangle())
             .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(hovered ? colors.hover : Color.clear))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .padding(.horizontal, 4)
         .onHover { hovered = $0 }
     }

@@ -12,5 +12,9 @@ cmux-palette-ranker = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+# tests/tab_moves.rs ranks the catalog's own rows.
+cmux-action-catalog = { workspace = true }
+
 [lints]
 workspace = true

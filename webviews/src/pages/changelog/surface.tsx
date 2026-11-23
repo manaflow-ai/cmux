@@ -117,9 +117,9 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   };
   const render = (data: UpdateHighlights | null) => {
     latest = data;
-    // Committed now, not on React's next task: the size below reads these rows. The card's page is
-    // hidden until it reports (the host shows it once it has a height), so it gets no animation frame
-    // to report from, and its rows may already have their size (no resize to observe).
+    // Committed now, not on React's next task: the size below reads these rows. The host draws the
+    // card's page only once it reports, so the report must not wait for an animation frame, and its
+    // rows may already have their size (no resize to observe).
     flushSync(() =>
       react.render(
         <UiProvider container={root} dir={languageDirection(strings.language)} overlayPosition="fixed">
@@ -145,6 +145,7 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
               onPreviewGlass={previewGlass}
               anchor={place?.anchor}
               drag={place ? drag : undefined}
+              notesLoading={spans !== null && !spans.settled}
             />
           )}
         </UiProvider>,
@@ -158,17 +159,23 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   // to its hover-card cap (--wn-pop-max): a long update never makes it taller than that.
   // A short popover (`.wn-pop-brief`, no change list) also reports its own width, so the host is as
   // wide as its lines (Leo 2026-11-03: "stretched out wasted space"); 0 fills the host's width.
-  // The Updated card reports its height once its words are final (the notes of the update's span
-  // loaded, or none will): the host lays the card out at the first height it hears, so a first
-  // report from the host's items, then the span's summary, moved the sidebar's list twice on a
-  // relaunch (Leo 2026-11-04: "the restarted after nightly update does too many layout shifts").
-  // The popover waits for nothing: it opens on a hover with the host's items, and its list grows
-  // under the cap when the span's notes come (they load as the update stages, before any hover).
+  // The Updated card reports its height as soon as it has its data: its title is final then, and
+  // its change line holds its one line with a quiet indicator until the span's notes come (or the
+  // load gives up and the host's items stand in), so the words swap in at the same height. The host
+  // draws the card (its glass and this page) only from that first report, so the card never shows
+  // as blank glass while this page loads (Leo 2026-11-09: "it should have the updated to Nightly
+  // already loaded in, instead of just having a blank glass bit"). It once waited for the notes to
+  // report at all, since the host's items and then the span's summary moved the sidebar's list twice
+  // (Leo 2026-11-04); the held line keeps that fixed.
+  // The changes beside the sidebar report once their list is final. The popover waits for nothing:
+  // it opens on a hover with the host's items, and its list grows under the cap when the span's
+  // notes come (they load as the update stages, before any hover).
   const settled = () => kind === "ready" || spans === null || spans.settled;
   let reported = "";
   const report = () => {
-    if (!settled()) return;
     if (kind === "updated") {
+      // Nothing to show yet: the host keeps the card undrawn, not drawn and then emptied.
+      if (latest === null && reported === "") return;
       // The card's own height, without its hover preview (the slot keeps the card's room while the
       // preview opens over the list), the room the open preview asks for (`overlay`, 0 closed), and
       // the preview's height once open (`preview`, 0 closing), the host's glass behind the page.
@@ -182,6 +189,7 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
       call(SurfaceOps.size, { height, width: 0, overlay, preview: glass });
       return;
     }
+    if (!settled()) return;
     const scroller = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
     const pop = root.querySelector<HTMLElement>(".wn-pop");
     // The whole content: what shows, plus what the scroller hides past its edge.
@@ -235,7 +243,8 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
 /** The notes of an update's span (after `from`, up to `to`), newest first, loaded once per span;
     undefined until every build in it has loaded or is unavailable, and when none loaded (an
     older host without `cmux.changelog.*` here): the card then reads the host's items. */
-/** How long the Updated card waits for its span's notes before it reports the host's items. */
+/** How long the Updated card's change line waits for its span's notes before the host's items stand in
+    (its loading indicator never stays longer). */
 export const SPAN_SETTLE_MS = 1500;
 
 export class SpanNotes {

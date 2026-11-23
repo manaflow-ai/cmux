@@ -10,7 +10,11 @@ The payload names, per Linux target, each binary's immutable URL, sha256 and siz
 sha256 comes from the commit's published manifest (--manifest), or, before the manifest is
 published, from this run's own build of the binary (--binaries-dir: point-machine-channel-early
 uploads the Linux binaries ahead of publish). Either way it is checked again here against a
-download of every binary from its URL, which also gives its size:
+download of every binary from its URL, which also gives its size. With --machine-path the URLs are
+the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>: the Cloud machine channel's
+thin-LTO build, which the early job uploads there (scripts/ci/cmux-machine-linux-bytes.sh) so it
+never stands in for the shipped fat cmux-tui/<commit>/<name>-<target>. The updater accepts exactly
+these two URLs for the payload's commit (cmux-tui/crates/cmux-host/src/updater/channel.rs):
 
   {"schema": 1, "purpose": "cmux-cloud-machine-update", "channel": "cloud-machine",
    "key": "<sha256 over the binaries>", "commit": "<sha>", "committed_at": T,
@@ -34,12 +38,35 @@ and the glibc-named copies of the same binaries) and a version that sorts by com
    "targets": {"x86_64-unknown-linux-gnu": {"cmux-tui": {"url", "sha256", "size"},
                                              "cmux-tui-hook": {...}}, ...}}
 
+With --purpose mac-live it makes the Mac live update file instead (cmuxterm-hq
+docs/design/nightly-live-updates.md): cmux-tui/<commit>/mac-live.json, written once, which `cmux app try`
+reads, and cmux-tui/channels/mac-live.json, forward only. It names the commit's aarch64-apple-darwin daemon
+binaries the app's bin/ holds (cmux-tui and its companions, from the commit's manifest, each downloaded and
+checked like the Cloud machine channel's) and `live_from`, every app commit that can take them live
+(`hot-apply.py live-from`, --live-from), and `daemon_from`, the wider list of app commits that can run
+them beside their own Swift (the daemon ABI floor only), which the nightly-live channel follows:
+
+  {"schema": 1, "purpose": "cmux-mac-live-update", "channel": "nightly-live", "commit": "<sha>",
+   "committed_at": T, "published_at": T, "expires_at": T, "live_from": ["<sha>", "<parent>", ...],
+   "daemon_from": ["<sha>", "<parent>", ..., "<grandparent>", ...],
+   "targets": {"aarch64-apple-darwin": {"cmux-tui": {"url", "sha256", "size"},
+                                        "cmux-tui-app-host": {...}, ...}}}
+
+With --screen-sharing-helper F (mac-live only; F is the helper record of the commit's helper source key,
+scripts/ci/screen_sharing_helper_release.py) it also names the NIGHTLY's signed Screen Sharing helper, the zip
+cmux-tui/<commit>/cmux-screen-sharing-helper-aarch64-apple-darwin.zip, downloaded and checked like the binaries,
+under a NEW top-level key, never inside `targets` (a new name there makes every older `cmux app try` refuse
+the file; a new top-level key is ignored by it):
+
+   "screen_sharing_helper": {"url", "sha256", "size", "bundle_id", "team", "designated_requirement"}
+
 An installer holds the channel pointer to expires_at; the per-commit file carries the same field,
 but an installer that asks for a version by name does not enforce it.
 
 Usage:
-  cmux-machine-channel.py payload (--manifest M | --binaries-dir B) --commit SHA --committed-at T
-      --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V]]
+  cmux-machine-channel.py payload (--manifest M | --binaries-dir B [--machine-path]) --commit SHA
+      --committed-at T --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V]]
+      [--purpose mac-live --live-from F [--screen-sharing-helper R]]
 """
 import argparse
 import hashlib
@@ -52,6 +79,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nightly_version  # noqa: E402
+import screen_sharing_helper_release as helper_release  # noqa: E402
 
 SCHEMA = 1
 PURPOSE = "cmux-cloud-machine-update"
@@ -70,6 +98,18 @@ LINUX_RELEASE_CHANNELS = ("stable", "nightly", "feat-cmux-next")
 # (compatibility_target in .github/workflows/cmux-tui-build-package.yml).
 LINUX_RELEASE_TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
                          "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+
+
+MAC_LIVE_PURPOSE = "cmux-mac-live-update"
+MAC_LIVE_CHANNEL = "nightly-live"
+MAC_LIVE_TARGET = "aarch64-apple-darwin"
+# The names `cmux app try` places in the app's bin/ (cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/live.rs FILES);
+# it refuses a file naming any other. cmux-tui is required, the rest go in when the build has them.
+MAC_LIVE_NAMES = ("cmux-tui", "cmux-tui-app-host", "cmux-tui-cloud-server", "cmux-tui-browser-host",
+                  "cmux-tui-host", "cmux-tui-holder", "cmux-tui-agent-screen-detection")
+MAC_LIVE_FROM_MAX = 400
+# The top-level key of the signed Screen Sharing helper (try_cmd/helper.rs KEY).
+MAC_LIVE_HELPER_KEY = "screen_sharing_helper"
 
 
 def fail(message):
@@ -109,9 +149,93 @@ def release_version(cargo_version, commit, committed_at):
     return f"{cargo_version}+{time.strftime('%Y%m%d%H%M%S', time.gmtime(committed_at))}.{commit[:12]}"
 
 
+def commit_list(args, key, commits):
+    """One of --live-from's lists: the commit first, at most MAC_LIVE_FROM_MAX full shas, each once."""
+    if not isinstance(commits, list) or not commits or commits[0] != args.commit:
+        fail(f"{args.live_from} {key} does not start at {args.commit}")
+    if len(commits) > MAC_LIVE_FROM_MAX or len(set(commits)) != len(commits):
+        fail(f"{args.live_from} {key} names {len(commits)} commits (at most {MAC_LIVE_FROM_MAX}, each once)")
+    if not all(isinstance(c, str) and re.fullmatch(r"[0-9a-f]{40}", c) for c in commits):
+        fail(f"{args.live_from} {key} names something that is not a full commit sha")
+    return commits
+
+
+def live_from(args):
+    """--live-from's lists (hot-apply.py live-from's JSON): live_from (whole app) and daemon_from (daemon
+    compatibility only, which the nightly-live channel reads). live_from is a prefix of daemon_from; a file
+    from an older hot-apply.py without daemon_from signs live_from alone."""
+    value = json.load(open(args.live_from))
+    if not isinstance(value, dict):
+        fail(f"{args.live_from} is not a JSON object")
+    commits = commit_list(args, "live_from", value.get("live_from"))
+    if "daemon_from" not in value:
+        return commits, None
+    daemon = commit_list(args, "daemon_from", value.get("daemon_from"))
+    if daemon[:len(commits)] != commits:
+        fail(f"{args.live_from} live_from is not a prefix of daemon_from")
+    return commits, daemon
+
+
+def mac_live(args):
+    """The Mac live update payload of a commit manifest (--manifest only: the darwin build is not this job's)."""
+    if not args.manifest or not args.live_from or args.machine_path or args.channel or args.cargo_version:
+        fail("--purpose mac-live takes --manifest and --live-from only")
+    binaries = expected_sha256(args)
+    commits, daemon = live_from(args)
+    os.makedirs(args.download_dir, exist_ok=True)
+    files = {}
+    for name in MAC_LIVE_NAMES:
+        published = f"{name}-{MAC_LIVE_TARGET}"
+        sha = binaries.get(published)
+        if sha is None and name != "cmux-tui":
+            continue  # a companion this build does not have: `app try` removes the app's, as hot-apply does
+        if not re.fullmatch(r"[0-9a-f]{64}", str(sha or "")):
+            fail(f"no sha256 for {published} ({args.manifest})")
+        url = f"{FILES}/{args.commit}/{published}"
+        path = os.path.join(args.download_dir, published)
+        subprocess.run(["curl", "-fsS", "--retry", "3", "--max-time", "600", "-o", path, f"{url}?channel=1"],
+                       check=True)
+        if sha256_file(path) != sha:
+            fail(f"{url} does not have the expected sha256 {sha}")
+        files[name] = {"url": url, "sha256": sha, "size": os.path.getsize(path)}
+        os.remove(path)
+    now = int(time.time())
+    value = {"schema": SCHEMA, "purpose": MAC_LIVE_PURPOSE, "channel": MAC_LIVE_CHANNEL, "commit": args.commit,
+             "committed_at": int(args.committed_at), "published_at": now, "expires_at": now + LIFETIME,
+             "live_from": commits, "targets": {MAC_LIVE_TARGET: files}} | ({"daemon_from": daemon} if daemon else {})
+    if args.screen_sharing_helper:
+        value[MAC_LIVE_HELPER_KEY] = screen_sharing_helper(args)
+    return value
+
+
+def screen_sharing_helper(args):
+    """The signed helper of --screen-sharing-helper's record, as the commit's own copy serves it."""
+    try:
+        record = helper_release.verify_value(json.load(open(args.screen_sharing_helper)))
+    except (helper_release.Refused, ValueError) as error:
+        fail(f"{args.screen_sharing_helper}: {error}")
+    url = f"{FILES}/{args.commit}/{helper_release.ZIP}"
+    path = os.path.join(args.download_dir, helper_release.ZIP)
+    subprocess.run(["curl", "-fsS", "--retry", "3", "--max-time", "600", "-o", path, f"{url}?channel=1"],
+                   check=True)
+    size = os.path.getsize(path)
+    if sha256_file(path) != record["sha256"] or size != record["size"]:
+        fail(f"{url} is not the helper zip {args.screen_sharing_helper} names")
+    os.remove(path)
+    return {"url": url, "sha256": record["sha256"], "size": size, "bundle_id": record["bundle_id"],
+            "team": record["team"], "designated_requirement": record["designated_requirement"]}
+
+
 def payload(args):
     if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         fail(f"bad commit {args.commit!r}")
+    if args.purpose == "mac-live":
+        value = mac_live(args)
+        with open(args.out, "wb") as out:
+            out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        return
+    if args.live_from or args.screen_sharing_helper:
+        fail("--live-from and --screen-sharing-helper are for --purpose mac-live")
     release = args.purpose == "linux-release"
     if release and args.channel not in LINUX_RELEASE_CHANNELS:
         fail(f"--purpose linux-release needs --channel, one of {', '.join(LINUX_RELEASE_CHANNELS)}")
@@ -123,6 +247,10 @@ def payload(args):
         # artifacts are outside the bucket: sign only bytes equal to them.
         fail("--purpose linux-release needs --binaries-dir, this run's own build of the binaries; "
              "a checksum from the bucket proves nothing about who built the bytes")
+    if args.machine_path and (release or not args.binaries_dir):
+        # The machine copy is the Cloud machine channel's own build: never a Linux release, and only
+        # this run's build of it names its checksums.
+        fail("--machine-path is for the cloud-machine payload of --binaries-dir")
     args.targets = LINUX_RELEASE_TARGETS if release else TARGETS
     binaries = expected_sha256(args)
     os.makedirs(args.download_dir, exist_ok=True)
@@ -134,7 +262,7 @@ def payload(args):
             sha = binaries.get(published)
             if not re.fullmatch(r"[0-9a-f]{64}", str(sha or "")):
                 fail(f"no sha256 for {published} ({args.manifest or args.binaries_dir})")
-            url = f"{FILES}/{args.commit}/{published}"
+            url = f"{FILES}/{args.commit}/{'machine/' if args.machine_path else ''}{published}"
             path = os.path.join(args.download_dir, published)
             subprocess.run(["curl", "-fsS", "--retry", "3", "--max-time", "600", "-o", path, f"{url}?channel=1"],
                            check=True)
@@ -176,9 +304,14 @@ def main(argv):
     source.add_argument("--binaries-dir")
     for name in ("--commit", "--committed-at", "--download-dir", "--out"):
         p.add_argument(name, required=True)
-    p.add_argument("--purpose", choices=("cloud-machine", "linux-release"), default="cloud-machine")
+    p.add_argument("--purpose", choices=("cloud-machine", "linux-release", "mac-live"), default="cloud-machine")
+    p.add_argument("--live-from", help="--purpose mac-live: `hot-apply.py live-from SHA`'s JSON")
+    p.add_argument("--screen-sharing-helper",
+                   help="--purpose mac-live: the commit's signed helper record (screen_sharing_helper_release.py)")
     p.add_argument("--channel", help="--purpose linux-release: the channel this build publishes to")
     p.add_argument("--cargo-version", help="--purpose linux-release: default cmux-tui/Cargo.toml's version")
+    p.add_argument("--machine-path", action="store_true",
+                   help="name the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>")
     args = parser.parse_args(argv[1:])
     payload(args)
     return 0

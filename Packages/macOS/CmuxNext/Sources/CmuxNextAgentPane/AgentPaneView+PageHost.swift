@@ -54,6 +54,8 @@ extension AgentPaneView {
         // IME composition, unsent chips): a crash shows the notice, and Reload is the person's.
         page.reloadsAfterCrash = false
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
+        // No clear of the New Tab context's mark here (``AgentPaneModel/newTabSharedGeneration``): on this host each
+        // new document asks `newTab.context` early, and that answer always carries the shared text.
         page.onDocumentLoaded = { [weak self] in self?.pageLoadedAgain() }
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
@@ -86,11 +88,17 @@ extension AgentPaneView {
         if let page { page.focusPage() } else { window.makeFirstResponder(webView) }
     }
 
+    /// Whether the app froze this hidden page (hibernation): it runs no script until work for it thaws
+    /// it, and ``callPageScript(_:arguments:timeout:)`` thaws it first (``AgentPaneTransport/beforePageWork``
+    /// is set only while the page is frozen).
+    var pageIsFrozen: Bool { model.transport.beforePageWork != nil }
+
     /// Runs `body` as an async function body in the chat's page, in whichever engine shows it
-    /// (``PageWebView/callPageScript(_:arguments:)``).
-    public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
+    /// (``PageWebView/callPageScript(_:arguments:timeout:)``; `timeout` lets a script that awaits on
+    /// purpose outlast Chromium's short DevTools default).
+    public func callPageScript(_ body: String, arguments: [String: Any] = [:], timeout: Duration? = nil) async throws -> Any? {
         model.transport.beforePageWork?()
-        if let page { return try await page.callPageScript(body, arguments: arguments) }
+        if let page { return try await page.callPageScript(body, arguments: arguments, timeout: timeout) }
         return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
     }
 }

@@ -19,7 +19,8 @@ pub(super) enum Why {
     KeyFile,
     /// A folder of keys and logins ([`credential`]: `.ssh`, `.aws`, `.config/gh`, ...).
     CredentialFolder,
-    /// A file of tokens or passwords ([`credential`]: `.netrc`, `.cargo/credentials.toml`, ...).
+    /// A file of tokens or passwords ([`credential`]: `.netrc`,
+    /// `.cargo/credentials.toml`, ...; [`secret_at`]: a registry file with a token).
     CredentialFile,
     SymlinkInside,
     SymlinkOutside,
@@ -143,6 +144,15 @@ impl Skips {
         }
     }
 
+    /// `count` files of a copy past its limits stayed on this Mac after its first pass
+    /// ([`super::size_cap`]): counted as `left_on_mac`, never named (there may be thousands).
+    pub(super) fn left_on_mac(&mut self, count: u64) {
+        if count > 0 {
+            self.total += count;
+            *self.counts.entry("left_on_mac").or_default() += count;
+        }
+    }
+
     pub(super) fn total(&self) -> u64 {
         self.total
     }
@@ -178,6 +188,19 @@ pub(super) fn secret(name: &str) -> Option<Why> {
         .any(|prefix| lower.starts_with(prefix))
         || [".pem", ".p12", ".pfx", ".key"].iter().any(|suffix| lower.ends_with(suffix));
     key.then_some(Why::KeyFile)
+}
+
+/// Why the untracked file at `relative` (under `top`) stays on this Mac
+/// because it may hold a secret: [`secret`]'s names, plus everything the git
+/// seed leaves out (`git_seed::secrets::reason`: `.netrc`, a registry file
+/// with a token). One rule for a chat's copy and its seed, so a folder never
+/// sends a secret on one path that the other keeps here.
+pub(super) fn secret_at(top: &Path, relative: &str) -> Option<Why> {
+    let name = relative.rsplit('/').next().unwrap_or(relative);
+    if let Some(why) = secret(name) {
+        return Some(why);
+    }
+    cmux_tui_core::git_seed::secrets::reason(top, relative.as_bytes()).map(|_| Why::CredentialFile)
 }
 
 /// Folders of keys and logins, as paths of one or more names, left out at
@@ -277,12 +300,19 @@ pub(crate) fn within(path: &str, root: &str) -> bool {
 /// project rebuilds on the machine. The ambiguous names (`target`, `build`,
 /// `dist`, `venv`, `Pods`) count only beside the file that makes them one.
 pub(super) fn heavy(dir: &Path, name: &str) -> bool {
-    let beside = |files: &[&str]| files.iter().any(|file| dir.join(file).is_file());
+    heavy_by(name, |file| dir.join(file).is_file())
+}
+
+/// [`heavy`] for a folder that is not on this Mac: `has_file` says whether
+/// the folder holding `name` has the file at that relative path (a sibling
+/// such as `Cargo.toml`, or `venv/pyvenv.cfg`).
+pub(super) fn heavy_by(name: &str, mut has_file: impl FnMut(&str) -> bool) -> bool {
+    let mut beside = |files: &[&str]| files.iter().any(|file| has_file(file));
     match name {
         "node_modules" | ".venv" | "__pycache__" | ".next" | ".nuxt" | "DerivedData"
         | ".gradle" | ".tox" | ".mypy_cache" | ".pytest_cache" | ".cache" | ".turbo"
         | ".parcel-cache" => true,
-        "venv" => dir.join("venv/pyvenv.cfg").is_file(),
+        "venv" => beside(&["venv/pyvenv.cfg"]),
         "Pods" => beside(&["Podfile", "Podfile.lock"]),
         "target" => beside(&["Cargo.toml", "pom.xml"]),
         "build" => beside(&[
@@ -300,65 +330,5 @@ pub(super) fn heavy(dir: &Path, name: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{LISTED, Skips, Why, heavy, secret};
-
-    /// The credential folders a copy leaves out at any depth are exactly the
-    /// ones the App refuses as a selected folder
-    /// (`AgentPaneCloudFolderRefusal.secretFolders`), read from its source.
-    #[test]
-    fn credential_folders_are_the_apps_secret_folders() {
-        let swift = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift",
-        );
-        let source = std::fs::read_to_string(&swift).unwrap();
-        let list = source
-            .split("public static let secretFolders = [")
-            .nth(1)
-            .and_then(|rest| rest.split(']').next())
-            .expect("secretFolders in AgentPaneCloudFolder.swift");
-        let apps: Vec<&str> = list.split('"').skip(1).step_by(2).collect();
-        assert!(!apps.is_empty());
-        assert_eq!(super::CREDENTIAL_FOLDERS, apps.as_slice());
-    }
-
-    #[test]
-    fn secrets_are_env_files_and_keys() {
-        for name in [".env", ".env.local", "id_rsa", "id_ed25519.pub", "cert.PEM", "a.p12", "x.key"]
-        {
-            assert!(secret(name).is_some(), "{name}");
-        }
-        for name in ["env.txt", "README.md", "keys.rs", "pem"] {
-            assert!(secret(name).is_none(), "{name}");
-        }
-    }
-
-    #[test]
-    fn ambiguous_heavy_names_need_the_file_that_makes_them_one() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(heavy(dir.path(), "node_modules"));
-        assert!(!heavy(dir.path(), "target"));
-        assert!(!heavy(dir.path(), "build"));
-        assert!(!heavy(dir.path(), "venv"));
-        std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
-        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
-        assert!(heavy(dir.path(), "target"));
-        assert!(heavy(dir.path(), "build"));
-        assert!(heavy(dir.path(), "dist"));
-        assert!(!heavy(dir.path(), "src"));
-    }
-
-    #[test]
-    fn every_skip_is_counted_and_the_first_ones_are_named() {
-        let mut skips = Skips::new(std::path::Path::new("/top"));
-        for index in 0..LISTED + 5 {
-            skips.note(&format!("f{index:04}"), Why::Special);
-        }
-        skips.note(".env", Why::EnvFile);
-        assert_eq!(skips.total(), LISTED as u64 + 6);
-        let (files, counts) = skips.json();
-        assert_eq!(files.as_array().unwrap().len(), LISTED);
-        assert_eq!(counts["special"], LISTED as u64 + 5);
-        assert_eq!(counts["secret"], 1);
-    }
-}
+#[path = "skips_tests.rs"]
+mod tests;

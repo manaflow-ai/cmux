@@ -19,9 +19,13 @@ import {
   useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
+  useId,
 } from "react";
 import { relativeTime } from "../../agent-session/acpmux/conversation/relativeTime";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
+// Imported, not `new URL(...)`: the page's CSP allows `img-src data:` only, and bundle.mjs inlines it.
+import mascotMoon from "../../agent-session/acpmux/mascots/ChiefMascotMoon.png";
+import { IllustratedEmpty } from "../../ui/EmptyState/IllustratedEmpty";
 import type { Strings } from "../shared/i18n";
 import { ChecksDashboard } from "./ChecksDashboard";
 import { withRollup } from "./checksModel";
@@ -36,6 +40,9 @@ import { ReadinessBlock, type ReadinessLayout } from "./ReadinessBlock";
 import type { Blocker } from "./readiness";
 import type { GitHubSnapshot, GitHubStore } from "./store";
 import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
+
+/** The empty page's button: the person's open pull requests on GitHub, in a cmux tab. */
+const PULLS_URL = "https://github.com/pulls";
 
 /// Pierre comes in its own chunk, loaded when a file first opens.
 const GitHubFileDiff = lazy(() => import("./GitHubFileDiff").then((module) => ({ default: module.GitHubFileDiff })));
@@ -158,7 +165,12 @@ export function GitHubPage({
   if (!target) {
     return (
       <main className="gh">
-        <p className="gh-muted">{t("github.noPullRequest")}</p>
+        <IllustratedEmpty
+          className="gh-empty"
+          art={mascotMoon}
+          line={t("github.noPullRequest")}
+          action={{ label: t("github.empty.openPullRequests"), onClick: () => store.openOnGitHub(PULLS_URL) }}
+        />
       </main>
     );
   }
@@ -326,6 +338,7 @@ function Header({
 /** Merge through GitHub's normal path: a first click names the method, the second merges the shown head. */
 function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; store: GitHubStore; strings: Strings }) {
   const { t } = strings;
+  const why = useId();
   const { pullRequest: pr, details, merge } = snapshot;
   if (!pr || pr.state !== "open") return null;
   if (merge.phase === "merged") {
@@ -343,7 +356,7 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
           type="button"
           className="gh-button gh-button--primary"
           disabled={merge.phase === "merging"}
-          title={strings.format("github.merge.pinned", details?.headCommit.slice(0, 7) ?? "")}
+          aria-describedby={why}
           onClick={() => void store.merge()}
         >
           {merge.phase === "merging"
@@ -358,6 +371,10 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
         >
           {t("github.merge.cancel")}
         </button>
+        {/* Which commit it merges, as text (Chief, 2026-11-21: what a tooltip said shows on the page). */}
+        <span className="gh-merge-note gh-merge-pinned" id={why}>
+          {strings.format("github.merge.pinned", details?.headCommit.slice(0, 7) ?? "")}
+        </span>
       </span>
     );
   }
@@ -367,14 +384,20 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
         type="button"
         className="gh-button gh-button--primary"
         disabled={!ready}
-        title={details && !ready ? t("github.merge.notReady") : undefined}
+        aria-describedby={details && !ready ? why : undefined}
         onClick={() => void store.merge()}
       >
         {t("github.merge")}
       </button>
+      {/* Why it cannot merge yet, as text: a disabled button gets no hover. A refused merge says it below. */}
+      {details && !ready && merge.phase !== "failed" && (
+        <span className="gh-merge-note gh-merge-why" id={why}>
+          {t("github.merge.notReady")}
+        </span>
+      )}
       {merge.phase === "failed" && merge.message && (
         <span className="gh-failure gh-merge-failure" role="alert">
-          {merge.message}
+          {merge.refused ? t("github.merge.notReady") : merge.message}
         </span>
       )}
     </>
@@ -394,9 +417,10 @@ function CheckTally({ pr, strings }: { pr: LinkedPullRequest; strings: Strings }
       {rows
         .filter(([, count]) => count > 0)
         .map(([state, count, label]) => (
-          <span key={state} className="gh-tally-item" data-check={state} title={strings.t(label)}>
+          <span key={state} className="gh-tally-item" data-check={state}>
             <span className="gh-dot" aria-hidden="true" />
-            <span className="gh-count">{count}</span>
+            {/* The outcome in words, not only the dot's colour (Chief, 2026-11-21). */}
+            <span className="gh-count">{count}</span> <span className="gh-tally-word">{strings.t(label)}</span>
           </span>
         ))}
     </span>
@@ -556,7 +580,7 @@ function Checks({ pr, strings, open }: { pr: LinkedPullRequest; strings: Strings
     <li key={check.name} className="gh-row" data-check={check.state}>
       <span className="gh-dot" aria-hidden="true" />
       {check.url ? (
-        <button type="button" className="gh-row-link" title={check.name} onClick={() => open(check.url!)}>
+        <button type="button" className="gh-row-link" onClick={() => open(check.url!)}>
           {check.name}
         </button>
       ) : (
@@ -665,7 +689,6 @@ function Files({
                 type="button"
                 className="gh-file-row"
                 aria-expanded={patch !== undefined}
-                title={file.path}
                 onClick={() => store.toggleFile(file.path)}
               >
                 <Chevron open={patch !== undefined} />
@@ -768,7 +791,7 @@ function Linked({
         {details.linked.map((item) => (
           <li key={item.url} className="gh-row" data-issue={item.state}>
             <span className="gh-dot" aria-hidden="true" />
-            <button type="button" className="gh-row-link" title={item.title} onClick={() => open(item.url)}>
+            <button type="button" className="gh-row-link" onClick={() => open(item.url)}>
               <span className="gh-count">#{item.number}</span> {item.title}
             </button>
           </li>

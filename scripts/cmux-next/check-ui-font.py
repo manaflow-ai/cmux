@@ -18,6 +18,7 @@ schemas/type-scale/ui-font-pin.json. This check fails when:
     python3 scripts/cmux-next/check-ui-font.py --rev HEAD       # a commit, read from git
     python3 scripts/cmux-next/check-ui-font.py --rev HEAD --base origin/feat-cmux-next
     python3 scripts/cmux-next/check-ui-font.py --repo DIR ...
+    python3 scripts/cmux-next/check-ui-font.py --inputs         # the files and folders it reads, one per line
 
 CMUX_NEXT_CHECKS_SKIP_REASON does not skip it (prepush-gate.py); only a Font-order trailer changes the pin.
 """
@@ -49,6 +50,9 @@ BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 LINE_COMMENT = re.compile(r"(?<![:\"'])//.*$", re.M)
 FONT_ORDER = re.compile(r"^(Font|Leo)-order:\s*\S", re.M)
+# Every file and folder this check reads. prepush-gate.py asks for them (--inputs) and skips the check on a push
+# that changes none of them, so Tree stops the check on any read outside them: a new read must be added here.
+INPUTS = (TYPE_SCALE, PIN, CSS, DESIGN_RESOURCES, *STACK_ROOTS)
 
 
 class Tree:
@@ -57,8 +61,17 @@ class Tree:
     def __init__(self, repo: Path, rev: str | None):
         self.repo, self.rev = repo, rev
         self.cache: dict[str, bytes | None] = {}
+        # path -> blob id, from files()' listing: load() asks cat-file by id. Asked `<rev>:<path>`, git resolves each
+        # path from the root tree again, about 4 ms a file on big-red's cmux mirror (2026-11-21).
+        self.ids: dict[str, str] = {}
+
+    def covered(self, path: str) -> None:
+        """Stops the check when PATH is outside INPUTS (the gate would skip a push that changes only it)."""
+        if not path.startswith(INPUTS):
+            raise SystemExit(f"check-ui-font.py: reads {path}, which is not in INPUTS; add it to INPUTS")
 
     def read(self, path: str) -> bytes | None:
+        self.covered(path)
         if self.rev is None:
             full = self.repo / path
             return full.read_bytes() if full.is_file() else None
@@ -68,10 +81,12 @@ class Tree:
 
     def load(self, paths: list[str]) -> None:
         """Reads `paths` at the rev with one `git cat-file --batch` (missing ones read as None)."""
+        for path in paths:
+            self.covered(path)
         wanted = [p for p in paths if p not in self.cache]
         if not wanted or self.rev is None:
             return
-        request = "".join(f"{self.rev}:{p}\n" for p in wanted).encode()
+        request = "".join(f"{self.ids.get(p) or f'{self.rev}:{p}'}\n" for p in wanted).encode()
         # The request goes through a file, never `input=` (git_batch.py): over a pipe, Python can
         # block writing it while git blocks writing a big blob back, and the push hangs for good.
         with tempfile.TemporaryFile() as stdin:
@@ -96,15 +111,26 @@ class Tree:
         return None if data is None else data.decode("utf-8", errors="replace")
 
     def files(self, prefix: str) -> list[str]:
+        self.covered(prefix)
         if self.rev is None:
             found = []
             for root, dirs, names in os.walk(self.repo / prefix):
                 dirs[:] = [d for d in dirs if d not in ("node_modules", "dist")]
                 found += [os.path.relpath(os.path.join(root, n), self.repo).replace(os.sep, "/") for n in names]
             return sorted(found)
-        out = subprocess.run(["git", "-C", str(self.repo), "ls-tree", "-r", "-z", "--name-only", self.rev, "--", prefix],
-                             capture_output=True).stdout.decode()
-        return sorted(p for p in out.split("\0") if p and "/node_modules/" not in p)
+        out = subprocess.run(["git", "-C", str(self.repo), "ls-tree", "-r", "-z", self.rev, "--", prefix],
+                             capture_output=True).stdout
+        found = []
+        for entry in out.split(b"\0"):
+            meta, _, name = entry.partition(b"\t")
+            fields = meta.split()
+            path = name.decode()
+            if len(fields) != 3 or not path or "/node_modules/" in path:
+                continue
+            found.append(path)
+            if fields[1] == b"blob":
+                self.ids[path] = fields[2].decode()
+        return sorted(found)
 
 
 def blank(match: re.Match) -> str:
@@ -177,7 +203,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", default=None)
     parser.add_argument("--rev", help="check this commit (default: the working tree)")
     parser.add_argument("--base", help="also require a Font-order trailer when the pin changed since BASE")
+    parser.add_argument("--inputs", action="store_true", help="print the files and folders it reads, and stop")
     args = parser.parse_args(argv)
+    if args.inputs:
+        print("\n".join(INPUTS))
+        return 0
     repo = Path(args.repo).resolve() if args.repo else Path(__file__).resolve().parents[2]
     findings = check_tree(Tree(repo, args.rev))
     if args.base:

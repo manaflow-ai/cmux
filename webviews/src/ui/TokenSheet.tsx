@@ -135,7 +135,7 @@ export function TokenSheet({ only = "all" }: TokenSheetProps) {
       </Section>
       <Section title="Radii">
         {RADII.map((radius) => (
-          <Row key={radius.variable} name={radius.variable} value={radius.px ? `${radius.px}px` : "menu metrics"}>
+          <Row key={radius.variable} name={radius.variable} value={radius.px ? `${radius.px}px` : "from the app"}>
             <span className="ui-token-box ui-token-box--radius" style={{ borderRadius: `var(${radius.variable})` }} />
           </Row>
         ))}

@@ -11,6 +11,7 @@ import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import type { UpdateOffer } from "../src/agent-session/acpmux/harnessHealthNoticeModel";
 import { DEFAULT_COMPOSER, setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -83,12 +84,8 @@ afterEach(() => {
   for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu, .acpmux-cols")) popup.remove();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Sent = { method: "model" | "effort" | "route"; value: string | null };
@@ -99,6 +96,8 @@ async function mount(
   listed: unknown,
   options: {
     fast?: boolean;
+    /** The agent starts a new model on its own level and Fast off, as Codex does on a switch. */
+    modelResets?: boolean;
     refuse?: boolean;
     turnCount?: number;
     model?: string;
@@ -219,7 +218,9 @@ async function mount(
         pickerCatalog={picker.catalog}
         onModel={(model) => {
           sent.push({ method: "model", value: model });
-          setState((current) => ({ ...current, model }));
+          setState((current) =>
+            options.modelResets ? { ...current, model, effort: "medium", fast: "off" } : { ...current, model },
+          );
         }}
         onMode={() => undefined}
         onEffort={(id, value) => {
@@ -331,13 +332,14 @@ test("the compact chip names the model and its effort, and a click opens the sho
   expect(chipButton().getAttribute("aria-expanded")).toBe("true");
   expect(cols()!.querySelector(".ui-menu-group-label")).toBeNull();
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
-  // The running model's levels, highest first, its own checked.
-  expect(levels().map(nameOf)).toEqual(["High", "Medium", "Low"]);
+  // The running model's levels, lowest first (Low upward, #41212), its own checked.
+  expect(levels().map(nameOf)).toEqual(["Low", "Medium", "High"]);
   expect(levels().find((level) => level.getAttribute("aria-checked") === "true")?.textContent).toContain("Medium");
   // The account is the avatar in the search row.
   expect(cols()!.querySelector("button.acpmux-cols-profile")?.getAttribute("aria-label")).toContain("Account");
-  // Claude Code's order: the tab's models, then its Legacy models in the same column.
-  expect(captions()).toEqual(["Claude Code", "Legacy models"]);
+  // One plain list: no caption names the tab or its Legacy models, which follow its models in the
+  // same column (#41212, standup 2026-11-12: "we don't need labels").
+  expect(captions()).toEqual([]);
 });
 
 test("a number key picks that model and closes the menu", async () => {
@@ -355,7 +357,7 @@ test("a number key picks that model and closes the menu", async () => {
 test("Effort lists the model's levels and a pick sends it", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
-  expect(levels().map(nameOf)).toEqual(["High", "Medium", "Low"]);
+  expect(levels().map(nameOf)).toEqual(["Low", "Medium", "High"]);
   await click(levels().find((level) => nameOf(level) === "High")!);
   expect(sent).toEqual([{ method: "effort", value: "high" }]);
   // A click applies at once and the menu stays open on the new level.
@@ -584,26 +586,19 @@ test("the current machine profile keeps its compact model list without a rail", 
   expect(modelNames(menu()!)).toContain("Machine model");
 });
 
-// More models is no submenu now: the Legacy models follow the tab's own under their caption.
+// More models is no submenu now: the Legacy models follow the tab's own in one plain list, with no
+// caption between them (#41212, standup 2026-11-12: "we don't need labels").
 test("Add harness… is the last item in the harness strip, and Legacy models sit under the tab's own", async () => {
   const { added } = await mount({ routes: [] });
   await open();
   const listbox = cols()!.querySelector<HTMLElement>('[role="listbox"]')!;
   const children = [...listbox.children];
-  const legacy = children.findIndex((child) => child.textContent === "Legacy models");
-  expect(legacy).toBeGreaterThan(0);
-  const top = children
-    .slice(0, legacy)
-    .filter((child) => child.matches('[role="option"]'))
-    .map(nameOf);
-  const more = children
-    .slice(legacy)
-    .filter((child) => child.matches('[role="option"]'))
-    .map(nameOf);
-  expect(top.length).toBeGreaterThan(0);
-  expect(more.length).toBeGreaterThan(0);
-  // Only models the top list does not already show.
-  expect(more.some((name) => top.includes(name))).toBe(false);
+  expect(children.some((child) => child.textContent === "Legacy models")).toBe(false);
+  expect(listbox.querySelector(".acpmux-cols-caption, .acpmux-cols-group")).toBeNull();
+  const names = children.filter((child) => child.matches('[role="option"]')).map(nameOf);
+  // The tab's models and its Legacy ones, each once: a Legacy row never repeats a top model.
+  expect(names.length).toBeGreaterThan(1);
+  expect(new Set(names).size).toBe(names.length);
   expect(listbox.textContent).not.toContain("Add harness…");
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
   const rail = cols()!.querySelector<HTMLElement>(".acpmux-cols-rail")!;
@@ -757,7 +752,8 @@ test("a filtered row the arrows moved to stays highlighted as the composer re-re
   await settle();
   const rows = modelRows(cols()!);
   expect(rows.length).toBeGreaterThan(1);
-  expect(rows[1]!.title).toContain("Claude Code");
+  // The first group heading names the chat's harness (a row's tooltip is its name alone, 2026-11-11).
+  expect(cols()!.querySelector(".acpmux-cols-group")?.textContent).toContain("Claude Code");
   const name = nameOf(rows[1]!);
   await key("ArrowDown");
   await settle();
@@ -816,7 +812,7 @@ test("Fast mode is a switch after the effort levels, on from the session, and a 
   expect(host.querySelector(".acpmux-fast")).toBeNull();
   await open();
   const rows = [...tune().querySelectorAll<HTMLElement>('[role="radio"], [role="switch"]')];
-  expect(rows.map(nameOf)).toEqual(["High", "Medium", "Low", "Fast"]);
+  expect(rows.map(nameOf)).toEqual(["Low", "Medium", "High", "Fast"]);
   expect(fastSwitch()!.getAttribute("aria-checked")).toBe("false");
   expect(fastSwitch()!.querySelector(".acpmux-cols-switch")!.hasAttribute("data-on")).toBe(false);
   await click(fastSwitch()!);
@@ -884,6 +880,31 @@ test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", asyn
   await settle();
   expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
   expect(cols()).toBeNull();
+});
+
+// #48444: model, reasoning and Fast are independent. A plain model pick in the full picker keeps the
+// chat's level and Fast, also on an agent that resets both on a switch (Codex).
+test("a model picked in the full picker keeps the chat's level and Fast", async () => {
+  const { sent } = await mount({ routes: [] }, { effort: "high", fast: true, modelResets: true });
+  await open();
+  await click(fastSwitch()!);
+  expect(sent).toEqual([{ method: "effort", value: "on" }]);
+  sent.length = 0;
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    );
+  });
+  await settle();
+  const row = [...doc().querySelectorAll<HTMLElement>('.acpmux-mp-models [role="option"]')].find((item) =>
+    item.textContent?.includes("Fable 5.2"),
+  );
+  expect(row, "the Fable 5.2 row").toBeDefined();
+  await click(row!);
+  await settle();
+  expect(sent[0]).toEqual({ method: "model", value: "claude-fable-5-2" });
+  expect(sent.slice(1)).toContainEqual({ method: "effort", value: "high" });
+  expect(sent.slice(1)).toContainEqual({ method: "effort", value: "on" });
 });
 
 // Leo 2026-10-19: a started chat's menu drew a rail of its one harness, then offered Add harness….
@@ -1096,3 +1117,17 @@ test.each(["claude", "codex"])(
     }
   },
 );
+
+// Lawrence 2026-11-10 ("opus 5.5 medium fast": "we should communicate this better (that medium is selected)") and Leo
+// ("codex sol high": "it should highlight the path"): a search that names a level lights that level, checked, in the
+// highlighted row's Effort column, as what Enter lands.
+test("a search that names a level checks and lights that level in the Effort column", async () => {
+  await mount({ routes: [] });
+  await open();
+  await typeIn("opus high");
+  await settle();
+  const checked = levels().find((level) => level.getAttribute("aria-checked") === "true");
+  expect(checked && nameOf(checked)).toBe("High");
+  expect(checked?.hasAttribute("data-named")).toBe(true);
+  expect(levels().filter((level) => level.hasAttribute("data-named"))).toHaveLength(1);
+});

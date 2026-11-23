@@ -1,18 +1,16 @@
 //! A machine's exec and file routes. A Worker machine's go through `cmux cloud machine-io`'s
 //! logic ([`crate::machine_io`]: straight to the provider with a client session when
-//! it can, else the cmux API's `/v1/cloud/machines/{id}/...`); classic's are `/api/vm/{id}/exec` and
-//! `/api/vm/{id}/fs/...`, as they were. Either answer reads the same way. A machine's SCP route
+//! it can, else the cmux API's `/v1/cloud/machines/{id}/...`). A machine's SCP route
 //! ([`scp_endpoint`]) is always cmux-platform's.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use cmux_json::JsonSet as _;
 use reqwest::Method;
 use serde_json::{Map, Value, json};
 
 use super::http::{Auth, Body, Http, path_text, vm_error};
 use super::owner::is_machine_id;
-use super::{Failure, Request, optional_int, text};
+use super::{Failure, Request, text};
 use crate::machine_io;
 use crate::session::secure_origin;
 
@@ -103,96 +101,6 @@ pub(crate) fn read(line: &Value, path: &str) -> Result<Value, Failure> {
         0 => Err(Failure::Transport(code.unwrap_or("no answer").to_owned())),
         200..=299 => Ok(body),
         _ => Err(vm_error(status, body.to_string().as_bytes(), code)),
-    }
-}
-
-/// `machine.io` on the classic client: the same ops on `/api/vm/{id}/...`.
-pub(crate) async fn classic(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
-    let id = text(args, "machine")?;
-    let path = || text(args, "path").map(|p| vec![("path", p.to_owned())]);
-    let secs = Duration::from_secs;
-    match op_name(args) {
-        "exec" => {
-            let ms = optional_int(args, "timeout_ms").unwrap_or(30_000);
-            let body = json!({ "command": text(args, "command")?, "timeoutMs": ms });
-            let timeout = Duration::from_millis(u64::try_from(ms.max(0)).unwrap_or(0))
-                .saturating_add(secs(5));
-            http.classic(Method::POST, &["api", "vm", id, "exec"], &[], Some(body), None, timeout)
-                .await
-        }
-        "dir" => {
-            http.classic(
-                Method::GET,
-                &["api", "vm", id, "fs", "dir"],
-                &path()?,
-                None,
-                None,
-                secs(20),
-            )
-            .await
-        }
-        "read" => {
-            http.classic(
-                Method::GET,
-                &["api", "vm", id, "fs", "read"],
-                &path()?,
-                None,
-                None,
-                secs(120),
-            )
-            .await
-        }
-        "stat" => {
-            http.classic(
-                Method::GET,
-                &["api", "vm", id, "fs", "stat"],
-                &path()?,
-                None,
-                None,
-                secs(20),
-            )
-            .await
-        }
-        "remove" => {
-            http.classic(
-                Method::DELETE,
-                &["api", "vm", id, "fs", "remove"],
-                &path()?,
-                None,
-                None,
-                secs(120),
-            )
-            .await
-        }
-        "mkdir" => {
-            let body = json!({ "path": text(args, "path")? });
-            http.classic(
-                Method::POST,
-                &["api", "vm", id, "fs", "mkdir"],
-                &[],
-                Some(body),
-                None,
-                secs(20),
-            )
-            .await
-        }
-        "write" => {
-            let mut body =
-                json!({ "path": text(args, "path")?, "dataBase64": text(args, "data_base64")? });
-            if let Some(mode) = optional_int(args, "mode") {
-                body.set("mode", json!(mode));
-            }
-            http.classic(
-                Method::POST,
-                &["api", "vm", id, "fs", "write"],
-                &[],
-                Some(body),
-                None,
-                secs(120),
-            )
-            .await
-        }
-        other => Err(Failure::Transport(format!("no machine op {other:?}"))),
     }
 }
 

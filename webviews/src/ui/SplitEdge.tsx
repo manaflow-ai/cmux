@@ -133,7 +133,7 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
       onPointerMove={(event) => {
         const state = drag.current;
         if (!state) return;
-        state.value = splitEdgeWidth(state.side, event.clientX, state.pane, unit, innerWidth, min, max);
+        state.value = splitEdgeWidth(state.side, event.clientX, state.pane, unit, window.innerWidth, min, max);
         state.moved = true;
         // One write a frame, however many moves the pointer sends.
         if (!state.frame)

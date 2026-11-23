@@ -45,3 +45,20 @@ export const includedReached = (spentUsd: number, includedUsd: number) =>
     },
     { status: 402 }
   )
+
+/**
+ * The 402 of the team spending cap (team-cap.ts, price set v2): the same code as the A18 hard cap, with the period's
+ * billed spend, the cap and when the period ends (an admin raising the cap lets calls resume at once).
+ */
+export const teamCapReached = (spentUsd: number, capUsd: number, periodEnd: number) =>
+  Response.json(
+    {
+      error: {
+        code: "team.cap_reached",
+        message: "Your team reached its spending cap for this billing period. A team admin can raise it.",
+        type: "insufficient_quota",
+        details: { spent_usd: spentUsd, cap_usd: capUsd, resets_at: periodEnd }
+      }
+    },
+    { status: 402 }
+  )

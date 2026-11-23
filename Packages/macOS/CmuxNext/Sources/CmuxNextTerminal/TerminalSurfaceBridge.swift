@@ -25,10 +25,13 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
 
     /// The cached answers to Ghostty's link filter (cx-do47.1).
     let linkFilter = TerminalLinkFilter()
+    /// Each frame Ghostty shows on the surface's layer (Ghostty's present callback).
+    let presents: TerminalPresents
 
     init(input: TerminalInputSink, prediction: TerminalEchoPrediction? = nil) {
         self.input = input
         self.prediction = prediction
+        presents = TerminalPresents(prediction: prediction)
         // An answer that changed shows at once: the pointer goes to Ghostty again.
         linkFilter.onChange { [weak self] in
             MainDelivery().run { self?.sendPointerAgain() }

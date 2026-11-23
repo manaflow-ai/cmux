@@ -18,7 +18,12 @@ public final class AgentCursorStack {
     ) {
         let host = AgentCursorLayerHost(hostLayer: hostLayer, glassLayer: glassLayer, color: color, label: label,
                                         reduceTransparency: reduceTransparency)
-        let model = AgentCursorOverlayModel(resolver: resolver, host: host)
+        // The cursors glide in the host layer's window, which is the overlay child panel while a
+        // Chromium page shows. A live resize or a full screen transition of that window or of the
+        // window it is a child of lands them at once (`Motion.isLiveResizing` follows the parent).
+        let model = AgentCursorOverlayModel(resolver: resolver, host: host, animatesMovement: { [weak hostLayer] in
+            Motion.cursor.animatesMovement(in: Motion.window(showing: hostLayer))
+        })
         self.host = host
         self.model = model
         publisher = AgentCursorPublisher(renderer: model)

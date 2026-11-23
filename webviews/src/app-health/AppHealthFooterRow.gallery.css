@@ -1,0 +1,144 @@
+/* Gallery only: a sidebar's bottom (its last list rows and the footer row) drawn from the design tokens,
+   so the indicator's placements can be compared against the row they share (AppHealthFooterRow.gallery.tsx).
+   The geometry mirrors SidebarFooterBand: avatar at the leading inset, the spaces strip centered on the
+   sidebar, the update button and Search at the trailing end. */
+.ahf-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+}
+.ahf-caption {
+  color: var(--ds-color-faint);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.ahf-sidebar {
+  /* The mock row's own sizes (the native footer row and avatar), named once; positions derive from them. */
+  --ahf-row: 28px;
+  --ahf-avatar: 18px;
+  --ahf-badge: 10px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-surface);
+  overflow: hidden;
+}
+.ahf-list {
+  display: flex;
+  flex-direction: column;
+  padding: var(--ds-space-1) var(--ds-space-3);
+}
+.ahf-list-row {
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  line-height: 22px;
+}
+.ahf-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--ahf-row);
+  padding: 0 var(--ds-space-3);
+  gap: var(--ds-space-2);
+}
+.ahf-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--ahf-avatar);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+  font-size: var(--text-detail);
+}
+/* The strip centers on the sidebar (absolute at rest); pushed by an inline line, it falls back into the
+   row's flow after it, as the native strip's `minLeading` clamp did. */
+.ahf-strip {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  transform: translateX(-50%);
+}
+.ahf-strip[data-pushed] {
+  position: static;
+  transform: none;
+}
+.ahf-space {
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--ds-color-faint);
+}
+.ahf-space[data-active] {
+  background: var(--ds-color-fg);
+}
+.ahf-plus {
+  color: var(--ds-color-faint);
+  font-size: var(--text-detail);
+}
+.ahf-button {
+  flex: none;
+  width: 14px;
+  aspect-ratio: 1;
+  border: 1.5px solid var(--ds-color-muted);
+  border-radius: 999px;
+}
+.ahf-update {
+  margin-inline-start: auto;
+}
+.ahf-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+}
+.ahf-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Shipped: its own opaque chip above the row, at the avatar's leading edge, over the list's bottom. */
+.ahf-overlay {
+  position: absolute;
+  bottom: calc(var(--ahf-row) + var(--ds-space-2));
+  left: var(--ds-space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  max-width: calc(100% - 2 * var(--ds-space-3));
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-sm);
+  /* Translucent, as the native chip's sidebar-card veil, never a solid fill. */
+  background: color-mix(in srgb, var(--cmux-popup-surface, var(--ds-color-elevated)) var(--ds-glass-popover-tint), transparent);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+/* A dot on the avatar's top-trailing corner, ringed in the sidebar's color. */
+.ahf-badge {
+  position: absolute;
+  bottom: calc((var(--ahf-row) + var(--ahf-avatar)) / 2 - var(--ahf-badge) / 2);
+  left: calc(var(--ds-space-3) + var(--ahf-avatar) - var(--ahf-badge) * 0.75);
+  display: grid;
+  place-items: center;
+  width: var(--ahf-badge);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--ds-color-surface);
+}

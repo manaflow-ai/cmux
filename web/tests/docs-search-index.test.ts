@@ -70,6 +70,15 @@ describe("docs search index", () => {
     ).toBe(true);
   });
 
+  // A page block kind the indexer did not know (the architecture page's files table)
+  // crashed the nightly search build before next build ran.
+  test("indexes every cmux-next page block, the files table included", async () => {
+    const pages = (await docsSearchPages("nightly")) as DocsSearchPage[];
+    const architecture = pages.find((page) => page.locale === "en" && page.href === "/docs/next/architecture");
+    const texts = architecture?.sections.flatMap((section) => section.texts) ?? [];
+    expect(texts.some((text) => text.includes("cmux-tui/crates/acpmux"))).toBe(true);
+  });
+
   test("indexes Base only for the nightly channel", () => {
     const releaseHrefs = docsSearchRoutes("release").map((route) => route.href);
     const nightlyHrefs = docsSearchRoutes("nightly").map((route) => route.href);

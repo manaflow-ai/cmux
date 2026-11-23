@@ -11,8 +11,12 @@
 //!   says the agent waits on the person. The dialog's id and a reason come
 //!   with it, and the last screen, whose numbered options `agent start`
 //!   lists. cmux never answers the dialog on its own: the person decides.
-//! - `ready`: no dialog, and a fresh hook record says the agent is idle (the
-//!   `SessionStart` hook) or the screen shows the agent's input box.
+//! - `ready`: no dialog, and a fresh record the agent reported itself (its
+//!   hooks or the socket, never the screen-detection plugin) says it is idle
+//!   (the `SessionStart` hook), or the screen shows the agent's input box. A
+//!   resume waits for the agent's own report alone: its session id came
+//!   from the agent's hooks, and the input box of a resumed Claude Code is
+//!   drawn before it takes a message (W5-R, bench round 4 A6).
 //! - `starting`: neither yet.
 //! - `exited`: the terminal's process ended.
 //!
@@ -213,8 +217,15 @@ pub(in crate::cli) struct Look<'a> {
     pub hook_state: Option<&'a str>,
 }
 
-/// The readiness one look shows (see the module docs).
+/// The readiness one look shows for `agent start` (see the module docs).
+#[cfg(test)]
 pub(in crate::cli) fn assess(look: &Look<'_>) -> Readiness {
+    assess_for(look, false)
+}
+
+/// [`assess`], where `report_required` leaves only the agent's own idle
+/// report as ready (a resume), not its input box on the screen.
+pub(in crate::cli) fn assess_for(look: &Look<'_>, report_required: bool) -> Readiness {
     if look.exited {
         return Readiness::Exited;
     }
@@ -225,7 +236,7 @@ pub(in crate::cli) fn assess(look: &Look<'_>) -> Readiness {
         Some("blocked") => Readiness::Blocked(AGENT_QUESTION),
         Some("working") => Readiness::Starting,
         Some("idle") => Readiness::Ready,
-        _ if composer_visible(look.screen) => Readiness::Ready,
+        _ if !report_required && composer_visible(look.screen) => Readiness::Ready,
         _ => Readiness::Starting,
     }
 }
@@ -275,11 +286,19 @@ pub(in crate::cli) struct WaitOptions {
     pub poll: Duration,
     /// Agent records older than this (Unix ms) do not count.
     pub since_ms: u64,
+    /// Ready only on the agent's own idle report ([`assess_for`]).
+    pub report_required: bool,
 }
 
 impl WaitOptions {
     pub(in crate::cli) fn new(timeout: Duration, since_ms: u64) -> Self {
-        Self { timeout, settle: DEFAULT_SETTLE, poll: DEFAULT_POLL, since_ms }
+        Self {
+            timeout,
+            settle: DEFAULT_SETTLE,
+            poll: DEFAULT_POLL,
+            since_ms,
+            report_required: false,
+        }
     }
 }
 
@@ -292,6 +311,8 @@ pub(in crate::cli) struct Outcome {
     pub waited: Duration,
     /// The last screen read (the dialog's options for a blocked start).
     pub screen: String,
+    /// The wait took only the agent's own report as ready.
+    pub report_required: bool,
 }
 
 fn number(value: &Value) -> Option<u64> {
@@ -299,11 +320,13 @@ fn number(value: &Value) -> Option<u64> {
 }
 
 /// The state of the newest agent record of `records` written at or after
-/// `since_ms`.
+/// `since_ms` that the agent reported itself
+/// ([`reported_by_agent`](super::super::terminal_talk::roster::reported_by_agent)).
 pub(in crate::cli) fn fresh_hook_state(records: &Value, since_ms: u64) -> Option<&str> {
     records
         .as_array()?
         .iter()
+        .filter(|record| super::super::terminal_talk::roster::reported_by_agent(record))
         .filter(|record| number(&record["updated_at_ms"]).is_some_and(|ms| ms >= since_ms))
         .max_by_key(|record| number(&record["updated_at_ms"]).unwrap_or(0))
         .and_then(|record| record["state"].as_str())
@@ -346,15 +369,29 @@ where
             exited: terminal.get("lifecycle").is_some_and(|lifecycle| lifecycle == "exited"),
             hook_state: fresh_hook_state(&records, options.since_ms),
         };
-        let last = assess(&look);
+        let last = assess_for(&look, options.report_required);
         let at = now();
         if let Some(done) = gate.observe(screen, last, at) {
             let screen = screen.to_owned();
-            return Ok(Outcome { readiness: Some(done), last, waited: at - started, screen });
+            let report_required = options.report_required;
+            return Ok(Outcome {
+                readiness: Some(done),
+                last,
+                waited: at - started,
+                screen,
+                report_required,
+            });
         }
         if at >= deadline {
             let screen = screen.to_owned();
-            return Ok(Outcome { readiness: None, last, waited: at - started, screen });
+            let report_required = options.report_required;
+            return Ok(Outcome {
+                readiness: None,
+                last,
+                waited: at - started,
+                screen,
+                report_required,
+            });
         }
         sleep(options.poll.min(deadline.saturating_duration_since(at)));
     }

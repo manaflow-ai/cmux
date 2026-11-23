@@ -7,8 +7,11 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TAG="Debug_Helper.Test"
 TAG_SLUG="debug-helper-test"
 TAG_BUNDLE_ID="debug.helper.test"
-SOCKET_PATH="/tmp/cmux-debug-${TAG_SLUG}.sock"
-TMP_DIR="$(mktemp -d)"
+# A private folder, not a fixed name in the shared /tmp (another user could plant it). Under /tmp so the
+# socket path below stays inside the 104-byte Unix socket limit on macOS.
+TMP_DIR="$(mktemp -d /tmp/cmux-debug-cli.XXXXXXXX)"
+# Where cmux-next keeps the tag's socket, which cmux-debug-cli.sh looks at first.
+SOCKET_PATH="$TMP_DIR/home/.local/state/cmux/cmux-debug-${TAG_SLUG}.sock"
 SERVER_PID=""
 
 cleanup() {
@@ -16,7 +19,6 @@ cleanup() {
     kill "$SERVER_PID" >/dev/null 2>&1 || true
   fi
   rm -rf "$TMP_DIR"
-  rm -f "$SOCKET_PATH"
 }
 trap cleanup EXIT
 
@@ -37,7 +39,7 @@ printf '\n'
 EOF
 chmod +x "$FAKE_CLI"
 
-rm -f "$SOCKET_PATH"
+mkdir -p "$(dirname "$SOCKET_PATH")"
 python3 - "$SOCKET_PATH" <<'PY' >/dev/null 2>&1 &
 import os
 import socket
@@ -72,8 +74,8 @@ fi
 OUTPUT="$(
   HOME="$FAKE_HOME" \
   CMUX_TAG="$TAG" \
-  CMUX_SOCKET="/tmp/main-cmux-legacy.sock" \
-  CMUX_SOCKET_PATH="/tmp/main-cmux.sock" \
+  CMUX_SOCKET="$TMP_DIR/main-cmux-legacy.sock" \
+  CMUX_SOCKET_PATH="$TMP_DIR/main-cmux.sock" \
   CMUX_SOCKET_PASSWORD="main-secret" \
   CMUX_BUNDLE_ID="com.cmuxterm.app" \
   CMUX_BUNDLED_CLI_PATH="/Applications/cmux.app/Contents/Resources/bin/cmux" \
@@ -81,8 +83,8 @@ OUTPUT="$(
   CMUX_TAB_ID="main-tab" \
   CMUX_SURFACE_ID="main-surface" \
   CMUX_PANEL_ID="main-panel" \
-  CMUXD_UNIX_PATH="/tmp/main-cmuxd.sock" \
-  CMUX_DEBUG_LOG="/tmp/main-cmux.log" \
+  CMUXD_UNIX_PATH="$TMP_DIR/main-cmuxd.sock" \
+  CMUX_DEBUG_LOG="$TMP_DIR/main-cmux.log" \
   "$ROOT_DIR/scripts/cmux-debug-cli.sh" env
 )"
 

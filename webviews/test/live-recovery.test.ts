@@ -16,7 +16,16 @@ type Page = {
   failModule: () => void;
 };
 
-function page(storage?: Storage): Page {
+// A WebSocket that opens and closes when the test says so (happy-dom's would dial the network).
+class FakeSocket extends EventTarget {
+  readonly protocols: string | string[] | undefined;
+  constructor(_url: string, protocols?: string | string[]) {
+    super();
+    this.protocols = protocols;
+  }
+}
+
+function page(storage?: Storage, before?: (win: Page["win"]) => void): Page {
   const win = new Window({ url: "cmux-page://cmux.settings/" }) as Page["win"];
   const state = { reloads: 0, timers: [] as Array<() => void> };
   Object.defineProperty(win, "location", { value: { reload: () => state.reloads++ }, configurable: true });
@@ -25,6 +34,7 @@ function page(storage?: Storage): Page {
     state.timers.push(run);
     return 0;
   }) as unknown as Window["setTimeout"];
+  before?.(win);
   new win.Function("window", liveRecoveryScript.replace(/\(window,/, "(arguments[0],"))(win);
   return {
     win,
@@ -90,6 +100,37 @@ describe("a page whose modules stop loading", () => {
     flush(p);
     expect(p.reloads).toBe(0);
     expect(p.note()).toBeNull();
+  });
+
+  test("knows the Vite client holds the server even when liveNote loads after it connected", () => {
+    // The Vite client's socket opens before src/devkit/liveNote.dev.ts registers its listener, so
+    // vite:ws:connect never reaches it; the inline guard watches the HMR socket itself.
+    const p = page(undefined, (win) =>
+      Object.defineProperty(win, "WebSocket", { value: FakeSocket, configurable: true }),
+    );
+    const socket = new (p.win as unknown as { WebSocket: typeof FakeSocket }).WebSocket(
+      "ws://127.0.0.1:4200/",
+      "vite-hmr",
+    );
+    socket.dispatchEvent(new Event("open"));
+    p.failModule();
+    flush(p);
+    expect(p.reloads).toBe(0);
+    socket.dispatchEvent(new Event("close"));
+    p.failModule();
+    flush(p);
+    expect(p.reloads).toBe(1);
+  });
+
+  test("another page socket does not count as the Vite client", () => {
+    const p = page(undefined, (win) =>
+      Object.defineProperty(win, "WebSocket", { value: FakeSocket, configurable: true }),
+    );
+    const socket = new (p.win as unknown as { WebSocket: typeof FakeSocket }).WebSocket("wss://example.test/", "chat");
+    socket.dispatchEvent(new Event("open"));
+    p.failModule();
+    flush(p);
+    expect(p.reloads).toBe(1);
   });
 
   test("a failed dynamic import counts; another rejection does not", () => {

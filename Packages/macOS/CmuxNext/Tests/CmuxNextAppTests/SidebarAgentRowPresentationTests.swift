@@ -312,7 +312,7 @@ struct SidebarAgentRowPresentationTests {
         let terminal = try #require(tabs.first(where: { $0.kind == .pty }))
         terminal.applyState(nil, progress: nil)
         // An empty terminal title is idle; its cwd still supplies the name.
-        terminal.title = "zsh"
+        terminal.titleText = "zsh"
         terminal.titleText = "zsh"
         let chat = try #require(tabs.first(where: { $0.agentSession != nil }))
         #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, newTabPages: [chat.id]).title == "tmp")

@@ -11,6 +11,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -54,12 +55,9 @@ style.textContent = readFileSync(
 dom.window.document.head.append(style);
 let root: Root | undefined;
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const { createRoot } = await import("react-dom/client");

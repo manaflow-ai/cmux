@@ -65,6 +65,8 @@ struct CreationSlot {
     /// The caller-minted terminal id whose input queue this creation owns, with its generation:
     /// creating from submit to commit (`terminal-input-while-creating-v1`, `mux::creating_input`).
     creating_terminal: Option<(String, u64)>,
+    /// The slot of a `new-tab` in the list of its pane (`tab-create-place-v1`), taken at submit.
+    hole: Option<u64>,
 }
 
 impl Command {
@@ -127,17 +129,16 @@ impl PrelaunchRequest {
                 frontend_shell,
             );
         }
-        let Command::NewTab { pane, cwd, env, cols, rows, terminal_id, shell_args, .. } = command
-        else {
+        let Command::NewTab(params) = command else {
             return None;
         };
         Self::build(
-            *pane,
-            terminal_id.as_ref(),
-            cwd.as_ref(),
-            env.as_ref(),
-            shell_args.as_ref(),
-            optional_surface_size(*cols, *rows),
+            params.pane,
+            params.terminal_id.as_ref(),
+            params.cwd.as_ref(),
+            params.env.as_ref(),
+            params.shell_args.as_ref(),
+            optional_surface_size(params.cols, params.rows),
             frontend_shell,
         )
     }
@@ -189,9 +190,12 @@ impl ConnectionSurfaceScheduler {
         self: &Arc<Self>,
         mux: &Arc<Mux>,
         client: u64,
-        pending: PendingSurfaceRequest,
+        mut pending: PendingSurfaceRequest,
         writer: &MessageWriter,
     ) -> bool {
+        // On the dispatcher thread of the connection, which runs its requests
+        // in the order of their arrival: a page's request takes its slot there too.
+        let hole = pending.request.cmd.admit_tab_place(mux, client);
         let prelaunch = PrelaunchRequest::of(&pending.request.cmd, frontend_shell(mux, client));
         let label = match (&pending.request.cmd, prelaunch.is_some()) {
             (Command::NewTab { .. }, true) => "new-tab",
@@ -200,7 +204,8 @@ impl ConnectionSurfaceScheduler {
         };
         let trace = crate::debug_spans::Trace::start(label, Instant::now());
         let creating_terminal = pending.request.cmd.created_terminal_id().and_then(|terminal_id| {
-            mux.begin_creating_input(&terminal_id).map(|generation| (terminal_id, generation))
+            mux.begin_creating_input(&terminal_id, client)
+                .map(|generation| (terminal_id, generation))
         });
         let groupable = matches!(pending.request.cmd, Command::Split(_) | Command::NewPane { .. });
         let mut queue = self.creations.state.lock().recover_poison();
@@ -213,6 +218,7 @@ impl ConnectionSurfaceScheduler {
             launched: Mutex::new(None),
             trace: Mutex::new(None),
             creating_terminal,
+            hole,
         });
         queue.slots.push_back(slot.clone());
         drop(queue);
@@ -223,12 +229,16 @@ impl ConnectionSurfaceScheduler {
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
             crate::debug_spans::install(trace);
             crate::debug_spans::mark("job.start");
+            let unlaunched = Unlaunched { mux: &job_mux, hole: slot.hole };
             let launched = prelaunch.and_then(|prelaunch| prelaunch.launch(&job_mux));
             crate::debug_spans::mark("prelaunch.done");
             let trace = crate::debug_spans::take();
             *slot.trace.lock().recover_poison() = trace;
+            job_mux.run_creation_launch_hook(seq, false);
             *slot.launched.lock().recover_poison() = Some(launched);
+            drop(unlaunched);
             scheduler.commit_ready_creations(&job_mux, client, &job_writer);
+            job_mux.run_creation_launch_hook(seq, true);
         });
         if let Err(job) = mux.submit_terminal_work(job) {
             // The pool is saturated: create inline, as before the pool.
@@ -413,8 +423,8 @@ impl ConnectionSurfaceScheduler {
             Some(mut pending) => {
                 if let Some(terminal_hex) = launched.as_ref() {
                     match &mut pending.request.cmd {
-                        Command::NewTab { terminal_id, .. }
-                        | Command::NewPane { terminal_id, .. } => {
+                        Command::NewTab(params) => params.set_terminal_id(terminal_hex.clone()),
+                        Command::NewPane { terminal_id, .. } => {
                             *terminal_id = Some(terminal_hex.clone());
                         }
                         Command::Split(params) => params.set_terminal_id(terminal_hex.clone()),
@@ -462,10 +472,27 @@ impl Drop for CreateCleanup<'_> {
             let failure = self.cancelled.then_some("cancelled");
             self.mux.finish_creating_input(terminal_id, *generation, failure);
         }
+        // A create that made no tab (dropped, failed or panicked) leaves its slot.
+        self.mux.end_tab_creation(self.slot.hole, None);
         crate::debug_spans::mark("reply.queued");
         crate::debug_spans::finish(crate::debug_spans::take());
         if let Some(terminal_hex) = self.launched.take() {
             self.mux.discard_prelaunched_terminal(&terminal_hex);
+        }
+    }
+}
+
+/// A launch step that panics has no commit, so no [`CreateCleanup`]: the
+/// slot of its `new-tab` (`tab-create-place-v1`) leaves here.
+struct Unlaunched<'a> {
+    mux: &'a Mux,
+    hole: Option<u64>,
+}
+
+impl Drop for Unlaunched<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.mux.end_tab_creation(self.hole, None);
         }
     }
 }
@@ -533,6 +560,15 @@ impl MessageSink for OrderedReplySink {
         self.inner.send_control(text)
     }
 
+    fn send_control_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.wait_turn();
+        self.inner.send_control_backpressured(text, deadline)
+    }
+
     fn send_terminal(
         &self,
         text: Arc<BudgetedText>,
@@ -575,19 +611,5 @@ impl MessageSink for OrderedReplySink {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The prelaunched host runs the program the create commits, so it
-    /// resolves `terminal-frontend-shell-integration-v1` the same way.
-    #[test]
-    fn prelaunch_follows_the_frontend_shell_flag() {
-        let command: Command = serde_json::from_value(json!({
-            "cmd": "new-tab", "env": {"SHELL": "/opt/frontend/bin/zsh"},
-        }))
-        .unwrap();
-        let frontend = PrelaunchRequest::of(&command, true).unwrap();
-        assert_eq!(frontend.argv, Some(vec!["/opt/frontend/bin/zsh".to_string()]));
-        assert_eq!(PrelaunchRequest::of(&command, false).unwrap().argv, None);
-    }
-}
+#[path = "terminal_create_tests.rs"]
+mod tests;

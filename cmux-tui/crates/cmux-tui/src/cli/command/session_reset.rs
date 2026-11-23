@@ -134,6 +134,41 @@ pub(in crate::cli) fn run_session_reset_state(
     }
 }
 
+/// After `daemon stop --end-terminals` (W5-R, bench round 4 item 10):
+/// removes the stopped owner's terminal and resume state (its launch
+/// snapshot and terminal-host records) under `session_dir`, as the owner
+/// reported it. The Chief store, conversations, git checkpoints, diff
+/// comments and session settings stay. The removal waits (until `deadline`)
+/// for the stopping owner to release its session locks, and never touches
+/// the state of an owner that runs. Returns the fields for the stop result:
+/// `removed_terminal_state` (true once none is left), and on failure
+/// `terminal_state_error` (a `session.reset_state.*` code).
+pub(in crate::cli) fn end_stopped_terminal_state(
+    session: &str,
+    session_dir: &std::path::Path,
+    deadline: std::time::Instant,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut fields = serde_json::Map::new();
+    let ended = session_dir
+        .parent()
+        .map(|root| cmux_tui_core::PersistentSessionStateResetter::new(root.to_path_buf()))
+        .filter(|resetter| {
+            resetter.session_dir(session)
+                == cmux_tui_core::platform::normalize_filesystem_path(session_dir.to_path_buf())
+        })
+        .ok_or("session.reset_state.invalid_state_path")
+        .and_then(|resetter| {
+            resetter
+                .end_terminal_state(session, deadline)
+                .map_err(|error| reset_failure_advice(&error).code)
+        });
+    fields.insert("removed_terminal_state".to_owned(), json!(ended.is_ok()));
+    if let Err(code) = ended {
+        fields.insert("terminal_state_error".to_owned(), json!(code));
+    }
+    fields
+}
+
 struct ResetFailureAdvice {
     code: &'static str,
     reason: &'static str,
@@ -235,41 +270,5 @@ fn reset_error_starts_with(error: &anyhow::Error, prefixes: &[&str]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reset_failure_advice_classifies_fingerprint_race_as_state_changed() {
-        let advice = reset_failure_advice(&anyhow::anyhow!(
-            "reset path changed during fingerprint: /tmp/cmux-state/registry"
-        ));
-        assert_eq!(advice.code, "session.reset_state.state_changed");
-        assert!(advice.recovery.contains("rerun the preview"), "{}", advice.recovery);
-    }
-
-    #[test]
-    fn reset_failure_advice_classifies_confirmation_scan_limit() {
-        let advice = reset_failure_advice(&anyhow::anyhow!(
-            "reset confirmation scan exceeds 64 paths; scoped state is too large"
-        ));
-        assert_eq!(advice.code, "session.reset_state.state_too_large");
-        assert!(advice.recovery.contains("reduce the scoped saved state"), "{}", advice.recovery);
-    }
-
-    #[test]
-    fn reset_failure_advice_classifies_unsupported_checked_deletion() {
-        let advice = reset_failure_advice(&anyhow::anyhow!(
-            "safe saved-state reset is not supported on this platform because cmux cannot verify saved state during deletion"
-        ));
-        assert_eq!(advice.code, "session.reset_state.unsupported");
-        assert!(advice.recovery.contains("supported platform build"), "{}", advice.recovery);
-    }
-
-    #[test]
-    fn reset_failure_advice_ignores_marker_text_inside_paths() {
-        let advice = reset_failure_advice(&anyhow::anyhow!(
-            "workspace state root is not a directory: /tmp/already owned by another daemon"
-        ));
-        assert_eq!(advice.code, "session.reset_state.invalid_state_path");
-    }
-}
+#[path = "session_reset_tests.rs"]
+mod tests;

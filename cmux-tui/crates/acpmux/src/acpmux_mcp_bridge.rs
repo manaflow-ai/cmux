@@ -12,6 +12,7 @@ use crate::desktop_bridge::{self, App, Bridge};
 
 pub const SERVER_NAME: &str = "cmux-bridge";
 /// How long a send to a session may take before the server answers; the outbox goes on after.
+// timeout: only when the bridge tool answers the agent; the message is already in the outbox and its delivery goes on after
 const SEND_TIMEOUT: Duration = Duration::from_secs(20);
 
 fn tools(me: App) -> Value {

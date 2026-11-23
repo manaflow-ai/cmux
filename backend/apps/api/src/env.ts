@@ -16,6 +16,7 @@ import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
 import type { SpendGuardDO } from "./inference/spend-guard-do.ts"
+import type { ModelCatalogDO } from "./models-catalog/catalog-do.ts"
 import type { FreeDeviceDO } from "./inference/free-device-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
@@ -23,7 +24,15 @@ import type { UserDO } from "./user-do.ts"
 import type { HandoffDO } from "./handoffs/handoff-do.ts"
 import type { HandoffIndexDO } from "./handoffs/index-do.ts"
 
-export interface Env {
+/** A build space: "" (nightly and stable) or `dev:<slug>` (one tagged dev build; build-space.ts). */
+export type BuildSpace = "" | `dev:${string}`
+
+/**
+ * The Worker's bindings as the runtime hands them over (the fetch and scheduled handlers, a Durable Object's or an
+ * entrypoint's constructor). Code never reaches an object through it: it goes through build-space.ts's spacedEnv or
+ * envForObject first, which gives an Env.
+ */
+export interface WorkerBindings {
   /** production | staging | development | preview | test */
   readonly ENVIRONMENT: string
   readonly API_VERSION: string
@@ -191,6 +200,12 @@ export interface Env {
   readonly PAIR_BEGIN_LIMIT?: RateLimit
   /** Where provider redirects land (the dashboard's /integrations/callback). */
   readonly DASHBOARD_ORIGIN?: string
+  /**
+   * The console that finishes integration connects, when it is not DASHBOARD_ORIGIN: development has no hosted
+   * console, so its connects come back to the staging console, which finishes them on this Worker
+   * (dashboard lib/integration-callback.ts). Pairing and SSO keep DASHBOARD_ORIGIN.
+   */
+  readonly INTEGRATIONS_CALLBACK_ORIGIN?: string
   /** Secret: 32-byte base64 key that wraps credential data keys. Integrations refuse to connect without it. */
   readonly INTEGRATIONS_KEK?: string
   /**
@@ -229,6 +244,10 @@ export interface Env {
   readonly CHIEF_CREDITS_DOGFOOD_ROUND?: string
   /** `e2e` (development only): the e2e price set (1 USD included); `v2` (development or staging only): Team 25 USD per seat (billing-catalog.ts). Production is always v1. */
   readonly BILLING_USAGE_PRICE_SET?: string
+  /** A live usage sync's allowlist (billing-usage-sync.ts liveAllowList): subscription ids, comma separated; unset = all. */
+  readonly BILLING_USAGE_LIVE_ALLOW?: string
+  /** The raise lock (billing-catalog.ts teamCapUnpaidMaxPools): before its first paid renewal invoice an account's cap counts up to this many pools (default 4). */
+  readonly TEAM_CAP_UNPAID_MAX_POOLS?: string
   /** `1`: a team the usage sync has not seen on a billable subscription stops at its plan's included AI amount (inference/included-stop.ts). */
   readonly USAGE_HARD_STOP_UNBILLED?: string
   readonly INTEGRATIONS_KMS_KEY_ARN?: string
@@ -245,6 +264,11 @@ export interface Env {
   readonly STACK_SECRET_SERVER_KEY?: string
   /** Secret: the Svix endpoint secret (whsec_...) of the Stack team webhook (stack-webhook.ts); unset answers 503. */
   readonly STACK_WEBHOOK_SECRET?: string
+  /**
+   * Secret (development and previews only, never staging or production): the token of the Cloud self-test's
+   * POST /v1/dev/fixtures (dev-fixtures.ts), which makes marked test users, teams and memberships. Unset: 503.
+   */
+  readonly DEV_FIXTURES_TOKEN?: string
   /**
    * GitHub Actions jobs that may sign in as one test account by their OIDC token (ci-session.ts, hq#7076): a JSON
    * array of rows naming the exact repository, ref and workflow file, and the one Stack user. No secret.
@@ -467,6 +491,10 @@ export interface Env {
   readonly USAGE_METER_DO: DurableObjectNamespace<UsageMeterDO>
   /** Model router (src/inference, plans/cmux-next/model-router.md). One instance "global": daily caps and provider health. */
   readonly SPEND_GUARD_DO: DurableObjectNamespace<SpendGuardDO>
+  /** The live model catalog (src/models-catalog): one instance "global" holds published versions, kills and scout runs. */
+  readonly MODEL_CATALOG_DO?: DurableObjectNamespace<ModelCatalogDO>
+  /** Secret: the bearer of the catalog's internal routes (publish, kill switch, scout runs). Unset: they answer 401. */
+  readonly MODELS_CATALOG_TOKEN?: string
   /** Free tier (src/inference/free.ts): one FreeDeviceDO per App Attest key. */
   readonly FREE_DEVICE_DO: DurableObjectNamespace<FreeDeviceDO>
   /** Per-IP limits of the free tier: every free route, and new device grants. */
@@ -507,6 +535,8 @@ export interface Env {
   readonly INFERENCE_DAILY_CAP_USD_AZURE?: string
   readonly INFERENCE_DAILY_CAP_USD_CUSTOM?: string
   readonly INFERENCE_DAILY_CAP_USD_OPENAI?: string
+  readonly INFERENCE_DAILY_CAP_USD_PARTICLE?: string
+  readonly INFERENCE_DAILY_CAP_USD_VERTEX?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
   /** Open requests per team (default 4) and per free device (default 1). */
@@ -527,11 +557,15 @@ export interface Env {
   /** Vercel AI Gateway through the dashboard's OIDC relay: its URL and the shared relay key (secret). */
   readonly INFERENCE_VERCEL_RELAY_URL?: string
   readonly INFERENCE_VERCEL_RELAY_KEY?: string
+  /** Vertex AI (Gemini on our GCP) through the dashboard's keyless Vertex relay; it takes the same relay key. */
+  readonly INFERENCE_VERTEX_RELAY_URL?: string
   /** Azure AI Foundry resource endpoint (https://<resource>.services.ai.azure.com) and its key (secret). */
   readonly INFERENCE_AZURE_ENDPOINT?: string
   readonly INFERENCE_AZURE_KEY?: string
   /** OpenAI's own API key (secret). */
   readonly INFERENCE_OPENAI_KEY?: string
+  /** Particle's API key (secret, optional): the only route of particle-ai/particle-1. */
+  readonly INFERENCE_PARTICLE_KEY?: string
   /** Our own OpenAI-compatible chat/completions URL and its bearer key (secret, optional). */
   readonly INFERENCE_CUSTOM_URL?: string
   readonly INFERENCE_CUSTOM_KEY?: string
@@ -562,4 +596,13 @@ export interface Env {
   readonly PROJECTION_SHADOW?: string
   /** Where projection reads (home.search, feed sweep) go: "postgres" (default), "shadow" (Postgres answers, MySQL compared per read) or "mysql". */
   readonly PROJECTION_READS?: string
+}
+
+/** The raw bindings: only entry points hold one (build-space.ts). */
+export type RawEnv = WorkerBindings
+
+/** The bindings of one build space (build-space.ts spacedEnv): what every function that reaches an object takes. */
+export type Env = WorkerBindings & {
+  /** The space every per-build binding of this env names its objects in. */
+  readonly BUILD_SPACE: BuildSpace
 }

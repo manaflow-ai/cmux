@@ -1,7 +1,8 @@
+import { intl } from "./intl";
 function makeSegmenter(): Intl.Segmenter | undefined {
   try {
     return typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
-      ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+      ? intl.Segmenter(undefined, { granularity: "grapheme" })
       : undefined;
   } catch {
     return undefined;

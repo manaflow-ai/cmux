@@ -20,6 +20,7 @@ import {
 } from "../src/agent-session/acpmux/attachments";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=composer></div><div id=transcript></div>", {
   url: "https://cmux.test/",
@@ -90,12 +91,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// A few macrotasks for React, the field and the client to finish what an event started.

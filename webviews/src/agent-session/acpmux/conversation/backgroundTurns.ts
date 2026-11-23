@@ -8,14 +8,15 @@
 // acpmux also weighs the task whose end started the turn, from the task's own event (Leo,
 // 2026-11-03: "there's like... background tasks worth responding to and not worth responding
 // to"; acpmux hub/background_cause.rs): a step, an interim stop or a monitor tick (`silent`) draws
-// no line whatever its reply, which goes onto the call that started the task; a final result
-// (`result`) goes onto that call too, marked new, and its reply draws as today when it has
-// something to say; a failure always draws. backgroundReaction.experiment.ts holds the looks.
+// no line; a final result (`result`) goes onto the call that started the task, marked new; a
+// failure always draws. Whatever the turn said is the agent's own message, never the call's
+// (direct.ts `settleReaction`). backgroundReaction.experiment.ts holds the looks.
 import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxBackgroundCause, AcpmuxBackgroundTurn, AcpmuxBackgroundWeight, AcpmuxRow } from "../model";
 import type { Folds } from "./viewFolds";
 import type { Translate } from "../i18n";
 import { backgroundReactionLook, reactsOnCall } from "./backgroundReaction.experiment";
+import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
 
 /// The line of one background turn (direct.ts makes it at the turn's started record). Its rows are
 /// the rows an event between its started and ended record made (`inBackground`).
@@ -67,27 +68,45 @@ export function backgroundWeight(turn: AcpmuxBackgroundTurn): AcpmuxBackgroundWe
 /// Whether a background turn's line stands for its rows: while it runs, and once it ended quiet.
 /// One that ended with something to say draws its rows as they came, with no line.
 /// A silent one always folds: whatever it said goes with its task's call.
-/// One that ended with more to say than a note (`ownTurn`) never folds, whatever its weight: its
-/// rows are the agent's own turn.
+/// One whose call took its task's end and that said something (`ownTurn`) never folds, whatever its
+/// weight: its rows are the agent's own turn.
 export const foldsBackground = (row: AcpmuxRow): boolean =>
   row.kind === BACKGROUND_TURN &&
   row.background !== undefined &&
   row.background.ownTurn !== true &&
   (row.background.running || row.background.quiet === true || backgroundWeight(row.background) === "silent");
 
-/// The longest reply that still goes onto the call as a note (ReactionMark.tsx `ReactionReply`), as
-/// turns.ts `SHORT_NOTE_CHARS` (this module stays clear of turns.ts, which imports it).
-export const REACTION_NOTE_CHARS = 160;
+/// Whether a background turn ended and its rows draw at rest: it ended with something to say
+/// (`foldsBackground`), or, inline, it ended at all, as its calls draw where they ran
+/// (`hiddenInBackground`) whatever acpmux called it. turns.ts ends such a turn on its row of actions.
+export const endsDrawingRows = (row: AcpmuxRow): boolean =>
+  row.kind === BACKGROUND_TURN &&
+  row.background !== undefined &&
+  !row.background.running &&
+  (!foldsBackground(row) || backgroundTurnsInline(experimentArm(backgroundTurnLook)));
 
-/// Whether a background turn's reply is a short quiet note that may sit under the call that started
-/// its task, as the call's own muted continuation: one short line, one paragraph. Anything longer is
-/// the main agent speaking, so it draws as its own turn (`ownTurn`). Leo, 2026-11-08, on three later
-/// turns of the chat's own replies drawn as one block under "Subagent finished": "the text in this
-/// situation isn't from the subagent?".
-export function isReactionNote(reply: string): boolean {
-  const text = reply.trim();
-  return text.length > 0 && text.length <= REACTION_NOTE_CHARS && !text.includes("\n");
+/// Whether a background turn's reply says nothing: only dots, middle dots, bullets or an ellipsis
+/// ("·", ".", "…"), which Claude answers a task's end with (Leo, 2026-11-02: "why do you still do
+/// these"). Such a reply is never the agent's own turn: its task's call keeps its mark and the turn
+/// folds as quiet (direct.ts `settleReaction`).
+export function saysNothing(reply: string): boolean {
+  return /^[\s.·•…]*$/u.test(reply);
 }
+
+/// Whether a background turn's reply is quiet, as acpmux decides it for the turns Claude Code runs on
+/// its own (hub/background_turn.rs `is_quiet`, the one rule): at most one short line, with no
+/// question and no link. The pane reads it only for the turn a background command's finish opens
+/// (bgDoneNotice.ts), which acpmux prompts itself and so never brackets.
+export function isQuietReply(reply: string): boolean {
+  const text = reply.trim();
+  const lines = text.split("\n").filter((line) => line.trim()).length;
+  return lines <= 1 && Array.from(text).length <= QUIET_LINE && !text.includes("?") && !text.includes("://");
+}
+/// acpmux's `SHORT_LINE`: the longest reply, in characters, that still reads as one short line.
+const QUIET_LINE = 160;
+
+/// A background command's finish that ran as a background turn (bgDoneNotice.ts `bg-done-<task>`).
+const isBgDone = (turn: AcpmuxBackgroundTurn) => turn.id.startsWith("bg-done-");
 
 /// Whether a background turn draws its line: one that folds, while it runs or once it has a row of
 /// its own to open to. A quiet one that ended with none has nothing to show (Leo, 2026-11-03: "these
@@ -100,6 +119,11 @@ export function drawsBackgroundLine(row: AcpmuxRow): boolean {
   if (!foldsBackground(row)) return false;
   const turn = row.background!;
   const weight = backgroundWeight(turn);
+  // Inline (backgroundTurnLook.experiment.ts), only a line that names its task stays: its failure
+  // or its result. "Background update", "Scheduled check" and the rest draw nothing; the turn's
+  // tool calls draw where they ran (`hiddenInBackground`).
+  if (backgroundTurnsInline(experimentArm(backgroundTurnLook)) && weight !== "failure" && weight !== "result")
+    return false;
   if (weight !== "failure" && turn.attached && reactsOnCall(experimentArm(backgroundReactionLook))) return false;
   switch (weight) {
     case "silent":
@@ -115,16 +139,26 @@ export function drawsBackgroundLine(row: AcpmuxRow): boolean {
 /// Whether a background turn that does not fold still draws its line, over its rows: a failure
 /// that ended with something to say keeps its named line, so a long reply never hides what failed
 /// (cmux#33319). Its rows draw as they came under it; the line opens nothing.
+/// A background command's finish that reported something keeps its line too: the line is the
+/// prompt its report answers, and without it the report read as an answer to nothing.
 export function headsBackground(row: AcpmuxRow): boolean {
   if (row.kind !== BACKGROUND_TURN || !row.background || foldsBackground(row)) return false;
-  return backgroundWeight(row.background) === "failure";
+  const weight = backgroundWeight(row.background);
+  return weight === "failure" || (weight === "result" && isBgDone(row.background));
 }
 
 /// Update the owner set while a caller is already walking the transcript. Keeping this mutation
 /// beside that walk avoids a second O(rows) pass on every streamed snapshot.
 export function collectFoldedBackgroundId(closed: Set<string>, row: AcpmuxRow, expanded: Folds): void {
   if (row.kind !== BACKGROUND_TURN || !row.background) return;
-  if (foldsBackground(row) && !expanded.has(row.id)) closed.add(row.background.id);
+  // Inline there is no line to open: a running or quiet turn's reply stays hidden whatever `expanded`
+  // holds, and any other turn's reply draws, as a silent one that ended with something to say has no
+  // line left to open to it.
+  const inline = backgroundTurnsInline(experimentArm(backgroundTurnLook));
+  const hides = inline
+    ? foldsBackground(row) && (row.background.running || row.background.quiet === true)
+    : foldsBackground(row) && !expanded.has(row.id);
+  if (hides) closed.add(row.background.id);
   else closed.delete(row.background.id);
 }
 
@@ -144,16 +178,28 @@ export function foldedBackgroundIds(rows: readonly AcpmuxRow[], expanded: Folds)
 export function foldBackgroundTurns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
   if (!rows.some((row) => row.kind === BACKGROUND_TURN)) return rows;
   const folding = foldedBackgroundIds(rows, expanded);
+  const inline = backgroundTurnsInline(experimentArm(backgroundTurnLook));
   return rows.filter((row) => {
     // A line that draws nothing still draws while open (Find opened it), so it can close again.
     if (row.kind === BACKGROUND_TURN)
       return (
         drawsBackgroundLine(row) ||
         headsBackground(row) ||
-        (expanded.has(row.id) && foldsBackground(row) && row.background?.hasRows === true)
+        (!inline && expanded.has(row.id) && foldsBackground(row) && row.background?.hasRows === true)
       );
-    return !(row.inBackground !== undefined && folding.has(row.inBackground));
+    return !hiddenInBackground(row, folding);
   });
+}
+
+/// Whether `row` is hidden behind its background turn (`folded`, from `foldedBackgroundIds`). With
+/// one line per turn, every row of a closed one is. Inline (Leo, 2026-11-11: "it should maybe
+/// arguably just be treated like a normal tool call"), a folding turn's tool calls draw where they
+/// ran, as any other call does, and only its reply stays hidden: a turn acpmux called quiet has
+/// nothing to tell (Leo: "why do you guys keep sending me this/get pinged to send this"), and a
+/// running one's reply waits until acpmux says whether it is.
+export function hiddenInBackground(row: AcpmuxRow, folded: ReadonlySet<string>): boolean {
+  if (row.inBackground === undefined || !folded.has(row.inBackground)) return false;
+  return row.kind === "assistant" || !backgroundTurnsInline(experimentArm(backgroundTurnLook));
 }
 
 /// The ids of the open background lines in `rows[start..end)`, which a cached turn compares.

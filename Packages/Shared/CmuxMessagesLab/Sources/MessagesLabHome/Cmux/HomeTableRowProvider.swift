@@ -94,9 +94,12 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
 /// A table card's measured grid: column widths, row heights and each cell's text, laid out for one
 /// width. Pure CoreText, any thread.
 struct HomeTableGrid {
-    static let pad: CGFloat = 12
+    /// The card's edge to its content (text, rules, pictures): the chat column's content inset, a bubble's.
+    static let pad: CGFloat = HomeChatColumn.contentInset
     static let cellPadX: CGFloat = 8
     static let cellPadY: CGFloat = 6
+    /// The card's edge to its first column: the column's own padding then lands its text on ``pad``.
+    static let gutter: CGFloat = pad - cellPadX
     /// A column's natural width stops here (a long cell wraps instead of pushing the others out).
     static let maxNatural: CGFloat = 440
 
@@ -165,7 +168,7 @@ struct HomeTableGrid {
             let picture = pictures.contains { !($0[checked: c] ?? []).isEmpty } ? Self.pictureWidth : 0
             return max(text, picture) + 2 * Self.cellPadX
         }
-        let room = max(1, available - 2 * Self.pad)
+        let room = max(1, available - 2 * Self.gutter)
         let widths = HomeTableColumns.widths(natural: natural.map { $0.rounded(.up) }, available: room)
         self.widths = widths
         heights = zip(all, pictures).map { (row: [NSAttributedString], images: [[Slot]]) -> CGFloat in
@@ -183,7 +186,7 @@ struct HomeTableGrid {
         alignments = table.alignments
         hasEmptyCorner = table.columns > 1 && table.header[0].trimmingCharacters(in: .whitespaces).isEmpty
         compare = style == .pairs ? HomeCompareLayout(table, slots: pictures, available: available) : nil
-        cardWidth = compare?.width ?? min(available, widths.reduce(0, +) + 2 * Self.pad)
+        cardWidth = compare?.width ?? min(available, widths.reduce(0, +) + 2 * Self.gutter)
     }
 
     /// Where the rule under row `r` starts and ends (x) in a card drawn at `origin`. The header's rule leaves an
@@ -202,10 +205,10 @@ struct HomeTableGrid {
         // Columns at their 56 pt floor can be wider than a very narrow chat: they stop at the card.
         ctx.saveGState()
         defer { ctx.restoreGState() }
-        ctx.clip(to: card.insetBy(dx: Self.pad / 2, dy: 0))
+        ctx.clip(to: card.insetBy(dx: Self.gutter, dy: 0))
         var y = card.minY + Self.pad
         for (r, (row, rowHeight)) in zip(cells, heights).enumerated() {
-            var x = card.minX + Self.pad
+            var x = card.minX + Self.gutter
             for (c, (text, width)) in zip(row, widths).enumerated() {
                 var frame = CGRect(x: x + Self.cellPadX, y: y + Self.cellPadY, width: width - 2 * Self.cellPadX, height: rowHeight - 2 * Self.cellPadY)
                 for slot in slots[checked: r]?[checked: c] ?? [] {
@@ -233,7 +236,7 @@ struct HomeTableGrid {
         var out: [PictureRect] = []
         var y = origin.y + Self.pad
         for (r, rowHeight) in heights.enumerated() {
-            var x = origin.x + Self.pad
+            var x = origin.x + Self.gutter
             for (c, width) in widths.enumerated() {
                 var top = y + Self.cellPadY
                 for slot in slots[checked: r]?[checked: c] ?? [] {
@@ -366,7 +369,7 @@ final class HomePlanRowProvider: TranscriptCustomRowProvider {
 
 /// A plan card laid out for one width. Pure CoreText, any thread.
 struct HomePlanLayout {
-    static let pad: CGFloat = 12
+    static let pad: CGFloat = HomeChatColumn.contentInset
     static let rowPadY: CGFloat = 8
     static let chipWidth: CGFloat = 54
     static let pillWidth: CGFloat = 104
@@ -450,7 +453,7 @@ struct HomePlanLayout {
 enum HomeCardDraw {
     static func background(_ ctx: CGContext, _ rect: CGRect) {
         ctx.saveGState()
-        ctx.addPath(CGPath(roundedRect: rect, cornerWidth: 14, cornerHeight: 14, transform: nil))
+        ctx.addPath(CGPath(roundedRect: rect, cornerWidth: HomeChatColumn.radius, cornerHeight: HomeChatColumn.radius, transform: nil))
         ctx.setFillColor(Fixture.incoming.cgColor)
         ctx.fillPath()
         ctx.restoreGState()
@@ -471,11 +474,14 @@ enum HomeCardDraw {
     static func skeleton(_ ctx: CGContext, _ rect: CGRect) {
         guard rect.width > 0, rect.height > 0 else { return }
         ctx.saveGState()
-        ctx.addPath(CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil))
+        ctx.addPath(CGPath(roundedRect: rect, cornerWidth: pictureRadius, cornerHeight: pictureRadius, transform: nil))
         ctx.setFillColor(skeletonFill)
         ctx.fillPath()
         ctx.restoreGState()
     }
+
+    /// A picture's corner in a card: concentric with the card's, one content inset inside it.
+    static let pictureRadius: CGFloat = HomeChatColumn.nestedRadius(inset: HomeChatColumn.contentInset)
 
     /// The skeleton's fill: the secondary text colour, faint, so it reads on the light and dark cards alike.
     static var skeletonFill: CGColor { Fixture.secondaryText.withAlphaComponent(0.14).cgColor }
@@ -484,7 +490,7 @@ enum HomeCardDraw {
     static func picture(_ ctx: CGContext, _ image: CGImage, in rect: CGRect) {
         guard rect.width > 0, rect.height > 0 else { return }
         ctx.saveGState()
-        let path = CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil)
+        let path = CGPath(roundedRect: rect, cornerWidth: pictureRadius, cornerHeight: pictureRadius, transform: nil)
         ctx.addPath(path)
         ctx.clip()
         // The row bitmap is y down: flip around the picture so it draws upright.

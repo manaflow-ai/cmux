@@ -98,11 +98,26 @@ pub const HANG: u16 = 599;
 /// The `status` at which the platform answers as for 200, two seconds late.
 pub const SLOW: u16 = 598;
 
-/// The platform's carrier route: checks the bearer, answers a Connect
-/// ticket for the open relay, a grant for the asked key, and the daemon key.
-/// `status` other than 200 (read at each request) refuses it; [`HANG`]
-/// answers nothing for a minute.
-// A stand-in's wiring: one argument per thing a test reads back.
+/// The platform's machine read (`POST /v1/read` `cloud.machine.get`): the
+/// status it answers, and how many reads it answered.
+pub struct MachineStub {
+    pub status: Mutex<&'static str>,
+    pub reads: AtomicUsize,
+}
+
+impl Default for MachineStub {
+    fn default() -> Self {
+        Self { status: Mutex::new("running"), reads: AtomicUsize::new(0) }
+    }
+}
+
+impl MachineStub {
+    pub fn set(&self, status: &'static str) {
+        *self.status.lock().unwrap() = status;
+    }
+}
+
+/// [`platform_with_machine`] with a machine that reads `running`.
 #[allow(clippy::too_many_arguments)]
 pub async fn platform(
     signer: Arc<Signer>,
@@ -114,6 +129,33 @@ pub async fn platform(
     keys: Keys,
     bearers: Bearers,
     ssh: Option<Arc<SshStub>>,
+) -> SocketAddr {
+    let machine = Arc::new(MachineStub::default());
+    platform_with_machine(
+        signer, relay, daemon_key, status, asked, teams, keys, bearers, ssh, machine,
+    )
+    .await
+}
+
+/// The platform's carrier route: checks the bearer, answers a Connect
+/// ticket for the open relay, a grant for the asked key, and the daemon key.
+/// `status` other than 200 (read at each request) refuses it; [`HANG`]
+/// answers nothing for a minute. The Cloud exec route (a parked dial's look
+/// at the machine) is always refused.
+/// The machine read answers `machine`'s status and is no carrier request.
+// A stand-in's wiring: one argument per thing a test reads back.
+#[allow(clippy::too_many_arguments)]
+pub async fn platform_with_machine(
+    signer: Arc<Signer>,
+    relay: SocketAddr,
+    daemon_key: Option<String>,
+    status: Arc<AtomicU16>,
+    asked: Arc<AtomicUsize>,
+    teams: Teams,
+    keys: Keys,
+    bearers: Bearers,
+    ssh: Option<Arc<SshStub>>,
+    machine: Arc<MachineStub>,
 ) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -127,6 +169,7 @@ pub async fn platform(
             let keys = keys.clone();
             let bearers = bearers.clone();
             let ssh = ssh.clone();
+            let machine = machine.clone();
             let status = status.load(Ordering::SeqCst);
             tokio::spawn(async move {
                 let mut reader = tokio::io::BufReader::new(&mut stream);
@@ -167,6 +210,44 @@ pub async fn platform(
                     let body = ssh.endpoint(&request).to_string();
                     let reply = format!(
                         "HTTP/1.1 200 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(reply.as_bytes()).await;
+                    return;
+                }
+                // The machine read: its status, never a wake. No carrier request.
+                if path == "/v1/read" {
+                    assert_eq!(request["op"], "cloud.machine.get", "{request}");
+                    assert_eq!(request["params"]["machine"], MACHINE, "{request}");
+                    assert!(authorized, "the machine read takes the person's credential");
+                    let state = *machine.status.lock().unwrap();
+                    machine.reads.fetch_add(1, Ordering::SeqCst);
+                    let body = json!({
+                        "op": "cloud.machine.get",
+                        "value": {"id": MACHINE, "status": state},
+                        "stream": "cloud",
+                        "revision": "1",
+                    })
+                    .to_string();
+                    let reply = format!(
+                        "HTTP/1.1 200 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(reply.as_bytes()).await;
+                    return;
+                }
+                // A dial that stays parked looks at the machine (carrier/adopt.rs): an
+                // exec. This stand-in runs no command, so it refuses the look, which the
+                // dial reads as `look_refused`. It is no carrier request: `asked`, `teams`
+                // and `keys` get nothing for it. Its bearer is in `bearers`, as every
+                // request's is (above).
+                if path.ends_with("/exec") {
+                    assert_eq!(path, format!("/v1/cloud/machines/{MACHINE}/exec"));
+                    let body =
+                        json!({"ok": false, "error": {"code": "auth.forbidden", "message": "no"}})
+                            .to_string();
+                    let reply = format!(
+                        "HTTP/1.1 403 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
                     );
                     let _ = stream.write_all(reply.as_bytes()).await;
@@ -329,12 +410,27 @@ pub struct World {
     /// What the platform answers next (200 grants, anything else refuses).
     pub status: Arc<AtomicU16>,
     pub dir: tempfile::TempDir,
+    /// What the parking proxy saw of the links it held ([`world_parked`];
+    /// nothing in every other world).
+    pub parked: Arc<Parked>,
+    /// The machine read's status and its count.
+    pub machine: Arc<MachineStub>,
     /// The daemon's registration (set late in [`world_parked`]).
     _registration: Registration,
     _runtime: tokio::runtime::Runtime,
 }
 
 type Registration = Arc<Mutex<Option<cmux_remote::provider::RelayDaemonRegistration>>>;
+
+/// The links the parking proxy held: each is one relay socket of a dial whose
+/// Connect waited for the daemon.
+#[derive(Default)]
+pub struct Parked {
+    /// The links held so far.
+    pub held: AtomicUsize,
+    /// The held links their client closed before the daemon registered.
+    pub closed: AtomicUsize,
+}
 
 /// A relay, a registered daemon with a grant verifier and a mux socket, and
 /// the platform route answering `status` with grants for `service`.
@@ -412,6 +508,9 @@ fn world_with(
     let bearers = Bearers::default();
     let shared_status = Arc::new(AtomicU16::new(status));
     let answered = shared_status.clone();
+    let parked = Arc::new(Parked::default());
+    let machine = Arc::new(MachineStub::default());
+    let machine_read = machine.clone();
     let (platform, registration, relay, signer, daemon_key) = runtime.block_on(async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let relay_address = listener.local_addr().unwrap();
@@ -458,7 +557,7 @@ fn world_with(
             Some(after) => {
                 let (registered, open) = watch::channel(false);
                 let held = Arc::new(Notify::new());
-                let proxy = parking_proxy(relay_address, open, held.clone()).await;
+                let proxy = parking_proxy(relay_address, open, held.clone(), parked.clone()).await;
                 let late = registration.clone();
                 tokio::spawn(async move {
                     held.notified().await;
@@ -482,7 +581,7 @@ fn world_with(
             DaemonKey::Malformed => Some("not-a-key".into()),
             DaemonKey::Other => Some(URL_SAFE_NO_PAD.encode([9_u8; 32])),
         };
-        let platform = platform(
+        let platform = platform_with_machine(
             signer,
             named_relay,
             daemon_key.clone(),
@@ -492,6 +591,7 @@ fn world_with(
             keys.clone(),
             bearers.clone(),
             None,
+            machine_read,
         )
         .await;
         (platform, registration, named_relay, answered_signer, daemon_key)
@@ -506,6 +606,8 @@ fn world_with(
         signer,
         status: shared_status,
         dir,
+        parked,
+        machine,
         _registration: registration,
         _runtime: runtime,
     }
@@ -513,18 +615,21 @@ fn world_with(
 
 /// A proxy to `relay` that holds each connection's client bytes after its
 /// WebSocket upgrade until `open` is true, and notifies `held` when it
-/// holds one. The relay's bytes to the client always flow.
+/// holds one. The relay's bytes to the client always flow. `parked` counts
+/// the links held and those of them their client closed while held; a closed
+/// link's held bytes never reach the relay: the client gave that link up.
 async fn parking_proxy(
     relay: SocketAddr,
     open: watch::Receiver<bool>,
     held: Arc<Notify>,
+    parked: Arc<Parked>,
 ) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     tokio::spawn(async move {
         loop {
             let Ok((client, _)) = listener.accept().await else { return };
-            let (mut open, held) = (open.clone(), held.clone());
+            let (mut open, held, parked) = (open.clone(), held.clone(), parked.clone());
             tokio::spawn(async move {
                 let Ok(upstream) = TcpStream::connect(relay).await else { return };
                 let (mut client_read, mut client_write) = client.into_split();
@@ -549,9 +654,27 @@ async fn parking_proxy(
                     return;
                 }
                 if !*open.borrow() {
+                    parked.held.fetch_add(1, Ordering::SeqCst);
                     held.notify_one();
-                    if open.wait_for(|open| *open).await.is_err() {
-                        return;
+                    let opened = async { open.wait_for(|open| *open).await.is_ok() };
+                    tokio::pin!(opened);
+                    loop {
+                        tokio::select! {
+                            is_open = &mut opened => {
+                                if !is_open {
+                                    return;
+                                }
+                                break;
+                            }
+                            read = client_read.read(&mut chunk) => match read {
+                                // The client closed the link it could not use.
+                                Ok(0) | Err(_) => {
+                                    parked.closed.fetch_add(1, Ordering::SeqCst);
+                                    return;
+                                }
+                                Ok(read) => request.extend(chunk.iter().take(read).copied()),
+                            },
+                        }
                     }
                 }
                 if upstream_write.write_all(&request[end..]).await.is_err() {
@@ -617,7 +740,8 @@ pub struct SshWorld {
     pub platform: SocketAddr,
     pub dir: tempfile::TempDir,
     pub ssh: Arc<SshStub>,
-    /// The tunnel hub's socket (a listener that only accepts).
+    /// The tunnel hub's socket: a listener that only accepts, or, in a
+    /// [`world_ssh_via_hub`], the stand-in hub at the default socket.
     pub hub: std::path::PathBuf,
     /// The fake ssh client, and the file it writes its arguments to.
     pub fake_ssh: std::path::PathBuf,
@@ -630,7 +754,12 @@ pub struct SshWorld {
     pub ssh_junk: std::path::PathBuf,
     /// Cuts every relay connection, and refuses new ones.
     pub cut: watch::Sender<bool>,
-    _hub: std::os::unix::net::UnixListener,
+    /// In a [`world_ssh_via_hub`]: while set, the stand-in hub ends every
+    /// tunneled connection and refuses new ones (the tunnel is down).
+    pub hub_cut: Arc<std::sync::atomic::AtomicBool>,
+    /// The `host:port` of each SOCKS5 CONNECT the stand-in hub took.
+    pub hub_dialed: Arc<Mutex<Vec<String>>>,
+    _hub: Option<std::os::unix::net::UnixListener>,
     _link: cmux_remote::daemon::UnixServer,
     _registration: Option<cmux_remote::provider::RelayDaemonRegistration>,
     _runtime: tokio::runtime::Runtime,
@@ -652,14 +781,48 @@ impl SshWorld {
 /// `relay_up`: the platform names a relay proxy the test can cut; else an
 /// address nothing listens on, so every relay connect is refused.
 pub fn world_ssh(relay_up: bool) -> SshWorld {
+    ssh_world(relay_up, false)
+}
+
+/// A machine whose ssh carrier goes the whole way the dial's ProxyCommand
+/// names: the fake ssh runs that ProxyCommand (the real `cmux-tui wg dial
+/// --hub <socket> %h %p`), whose SOCKS5 CONNECT reaches a stand-in tunnel
+/// hub on the default socket (`<state dir>/carrier/tunnel.sock`), which
+/// plays the machine's sshd: it runs the carrier key's forced command, the
+/// real `cmux-tui remote-link --stdio`, on the tunneled stream. Only the
+/// WireGuard tunnel and sshd's encryption are left out; [`SshWorld::hub_cut`]
+/// takes the tunnel down.
+pub fn world_ssh_via_hub() -> SshWorld {
+    ssh_world(true, true)
+}
+
+fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
     use std::os::unix::fs::PermissionsExt as _;
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mux = dir.path().join("mux.sock");
     let link = dir.path().join("link.sock");
     let state = dir.path().join("daemon");
-    let hub = dir.path().join("hub.sock");
-    let hub_listener = std::os::unix::net::UnixListener::bind(&hub).unwrap();
+    let hub_cut = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hub_dialed = Arc::new(Mutex::new(Vec::new()));
+    let (hub, hub_listener) = if via_hub {
+        let carrier = dir.path().join(".local/state/cmux-tui/sessions/carrier");
+        std::fs::create_dir_all(&carrier).unwrap();
+        let hub = carrier.join("tunnel.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&hub).unwrap();
+        stand_in_hub(
+            listener,
+            link.clone(),
+            dir.path().into(),
+            hub_cut.clone(),
+            hub_dialed.clone(),
+        );
+        (hub, None)
+    } else {
+        let hub = dir.path().join("hub.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&hub).unwrap();
+        (hub, Some(listener))
+    };
     let ssh_args = dir.path().join("ssh-args");
     let fake_ssh = dir.path().join("fake-ssh");
     let ssh_cut = dir.path().join("ssh-cut");
@@ -669,8 +832,9 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
     // link ends when `ssh_cut` appears (by SIGKILL, so it ends whatever
     // remote-link makes of a SIGTERM; stdin goes to the command through
     // fd 3: a background command's own stdin is /dev/null).
-    std::fs::write(
-        &fake_ssh,
+    let script = if via_hub {
+        PROXY_SSH.replace("{args}", &ssh_args.display().to_string())
+    } else {
         format!(
             "#!/bin/sh\n\
              printf '%s\\n' \"$@\" >> '{args}'\n\
@@ -689,9 +853,9 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
             cut = ssh_cut.display(),
             junk = ssh_junk.display(),
             link = link.display(),
-        ),
-    )
-    .unwrap();
+        )
+    };
+    std::fs::write(&fake_ssh, script).unwrap();
     std::fs::set_permissions(&fake_ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
     let ssh = Arc::new(SshStub::default());
     let (cut, cut_seen) = watch::channel(false);
@@ -760,11 +924,117 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
         ssh_cut,
         ssh_junk,
         cut,
+        hub_cut,
+        hub_dialed,
         _hub: hub_listener,
         _link: link_server,
         _registration: registration,
         _runtime: runtime,
     }
+}
+
+/// The fake ssh of a [`world_ssh_via_hub`]: it records its arguments, then
+/// becomes the ProxyCommand the dial gave it, with `%h`, `%p` and `%%`
+/// expanded as ssh does, so the link's bytes go through `wg dial`. (The
+/// real ssh would speak its protocol over that stream; the stand-in hub's
+/// "sshd" runs the forced command on it directly.)
+const PROXY_SSH: &str = r#"#!/bin/sh
+printf '%s\n' "$@" >> '{args}'
+port=22
+proxy=
+dest=
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -p) port=$2; shift 2 ;;
+        -o) case "$2" in ProxyCommand=*) proxy=${2#ProxyCommand=} ;; esac; shift 2 ;;
+        --) dest=$2; break ;;
+        *) shift ;;
+    esac
+done
+[ -n "$proxy" ] || { echo 'ssh: no ProxyCommand' >&2; exit 255; }
+host=${dest#*@}
+proxy=$(printf '%s' "$proxy" | sed -e "s/%h/$host/g" -e "s/%p/$port/g" -e 's/%%/%/g')
+exec /bin/sh -c "exec $proxy"
+"#;
+
+/// The stand-in tunnel hub on `listener`: SOCKS5 CONNECT without auth (what
+/// `wg dial` sends for port 22), recorded in `dialed`, then the machine's
+/// sshd with the carrier key's forced command: `cmux-tui remote-link
+/// --stdio` into the daemon's `link` socket, with the tunneled stream as its
+/// stdin and stdout. While `cut` is set every tunneled stream ends (the
+/// command is killed and the stream shut down) and new ones are dropped.
+fn stand_in_hub(
+    listener: std::os::unix::net::UnixListener,
+    link: std::path::PathBuf,
+    home: std::path::PathBuf,
+    cut: Arc<std::sync::atomic::AtomicBool>,
+    dialed: Arc<Mutex<Vec<String>>>,
+) {
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            if cut.load(Ordering::SeqCst) {
+                continue;
+            }
+            let (link, home, cut, dialed) =
+                (link.clone(), home.clone(), cut.clone(), dialed.clone());
+            std::thread::spawn(move || hub_stream(stream, &link, &home, &cut, &dialed));
+        }
+    });
+}
+
+fn hub_stream(
+    mut stream: std::os::unix::net::UnixStream,
+    link: &Path,
+    home: &Path,
+    cut: &std::sync::atomic::AtomicBool,
+    dialed: &Mutex<Vec<String>>,
+) {
+    use std::io::{Read as _, Write as _};
+    // The hub's own liveness check (`hub_up`) connects and closes: no greeting.
+    let mut greeting = [0_u8; 3];
+    if stream.read_exact(&mut greeting).is_err() || greeting != [5, 1, 0] {
+        return;
+    }
+    let mut head = [0_u8; 4];
+    if stream.write_all(&[5, 0]).is_err() || stream.read_exact(&mut head).is_err() {
+        return;
+    }
+    // CONNECT to a literal IPv4 address: the ssh candidate's mesh address.
+    let mut target = [0_u8; 6];
+    if head != [5, 1, 0, 1] || stream.read_exact(&mut target).is_err() {
+        let _ = stream.write_all(&[5, 7, 0, 1, 0, 0, 0, 0, 0, 0]);
+        return;
+    }
+    let ip = std::net::Ipv4Addr::new(target[0], target[1], target[2], target[3]);
+    let port = u16::from_be_bytes([target[4], target[5]]);
+    dialed.lock().unwrap().push(format!("{ip}:{port}"));
+    if stream.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).is_err() {
+        return;
+    }
+    // sshd hands the forced command the session's own descriptors: here the
+    // tunneled stream itself is its stdin and stdout, with nothing copying
+    // between them.
+    let (Ok(input), Ok(output)) = (stream.try_clone(), stream.try_clone()) else { return };
+    let mut child = std::process::Command::new(BIN)
+        .args(["remote-link", "--stdio", "--session", "carrier-ssh", "--link-socket"])
+        .arg(link)
+        .env_clear()
+        .env("HOME", home)
+        .stdin(std::process::Stdio::from(std::os::fd::OwnedFd::from(input)))
+        .stdout(std::process::Stdio::from(std::os::fd::OwnedFd::from(output)))
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    while child.try_wait().ok().flatten().is_none() {
+        if cut.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = stream.shutdown(std::net::Shutdown::Both);
 }
 
 /// A TCP proxy to `relay` whose connections all end, and whose new ones

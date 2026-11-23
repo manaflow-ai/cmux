@@ -212,7 +212,11 @@ pub(super) fn parse_terminal(
             if flags.boolean("unwrap") {
                 params.insert("unwrap".into(), Value::Bool(true));
             }
+            // Plain text, as `screen read` prints it, unless --details asks
+            // for the record's fields (W5-R, bench round 4 item 10).
+            let details = flags.boolean("details");
             request(ResourceOperation::TerminalCopy, selectors, flags, params)
+                .map(|plan| if details { plan } else { plan.screen_text() })
         }
         [selector, "process", "show"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -257,7 +261,12 @@ pub(super) fn parse_terminal(
         }
         [selector, "close"] => {
             selectors.insert("terminal", "term", selector)?;
-            request(ResourceOperation::TerminalClose, selectors, flags, Map::new())
+            let mut params = Map::new();
+            // Ends it only when nothing shows it (no tab, no keep mark, no attach stream).
+            if flags.boolean("if-unplaced") {
+                params.insert("if_unplaced".into(), Value::Bool(true));
+            }
+            request(ResourceOperation::TerminalClose, selectors, flags, params)
         }
         [selector, "keep", state] => {
             // `set-terminal-keep` resolves only exact terminal identities, so

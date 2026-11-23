@@ -243,8 +243,11 @@
   {
    "name": "agent.fork",
    "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
-   "sf": "arrow.triangle.branch",
-   "family": "agent"
+   "sf": "arrow.branch",
+   "family": "agent",
+   "overrides": [
+    "arrow.branch"
+   ]
   },
   {
    "name": "agent.handoff",
@@ -494,7 +497,7 @@
   },
   {
    "name": "browser.omnibox.search",
-   "meaning": "Address bar search (Chrome kSearchChromeRefreshOldIcon)",
+   "meaning": "Address bar and suggestion row search: the rounded loupe Helium draws (Chrome kSearchIcon, search.icon at tag 157.0.8103.79)",
    "sf": "magnifyingglass",
    "family": "browser.omnibox",
    "source": "chromium",
@@ -2245,7 +2248,10 @@
    "name": "workspace",
    "meaning": "Workspace",
    "sf": "rectangle.stack",
-   "family": "workspace"
+   "family": "workspace",
+   "overrides": [
+    "rectangle.stack"
+   ]
   },
   {
    "name": "workspace.new",

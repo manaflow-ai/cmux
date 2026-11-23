@@ -22,11 +22,12 @@
 //!   turn is theirs: none runs again on its own. The digest's own `queued` record is logged
 //!   first and names every original, so this holds whichever of the records after it a stop
 //!   cut off.
-//! - When the chat's turn runs, below its turn cap (`turn_cap.rs`), and its agent steers, the
-//!   digest goes into that turn as ONE steer (its queue entry is marked as a steer, as Send now
-//!   marks one, `queue.rs` `steer_queued`; past the cap by then, it waits as below); otherwise
-//!   it waits at the head of the agent messages in the queue, still behind the person's prompts
-//!   (held ones too), and runs as its own turn: no later agent message joins it.
+//! - When the chat's turn runs, below its turn cap (`turn_cap.rs`), with none of the person's
+//!   prompts waiting behind it, and its agent steers, the digest goes into that turn as ONE
+//!   steer (its queue entry is marked as a steer, as Send now marks one, `queue.rs`
+//!   `steer_queued`; past the cap by then, it waits as below); otherwise it waits at the head
+//!   of the agent messages in the queue, still behind the person's prompts (held ones too), and
+//!   runs as its own turn: no later agent message joins it.
 //! - `dryRun` returns the digest it would make and changes nothing.
 //!
 //! What stays queued: a message with anything but text (an image, an uploaded file, hidden
@@ -362,10 +363,13 @@ impl Hub {
             return Err(super::super::queue::closing_error());
         }
         if session.moving().is_some() {
-            return Err(super::super::queue::moving_error());
+            return Err(super::super::queue::moving_error(session));
         }
         if session.meta().watching.is_some() {
             return Err(super::super::watch::read_only());
+        }
+        if session.releasing.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(super::super::release_to_watch::releasing_error());
         }
         if super::super::inbox::review_box(session) {
             return Err(Self::inbox_digest_review_box());
@@ -418,7 +422,13 @@ impl Hub {
         // `hold_agent_messages`), their digest waits held in its place and steers into nothing;
         // read under the queue's lock, where the hold begins and ends.
         let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
-        let steer = steer && !stop_held;
+        // Nor does it steer while one of the person's prompts waits behind the running turn
+        // (`inbox.rs` `persons_prompt_waits`, read here under the queue's lock): it would keep
+        // that turn going past the person's prompt, as no other agent's steer may (`turns.rs`).
+        // It waits behind that prompt and runs as its own turn (Leo, 2026-11-21: "They have
+        // tons of helpers and they're not really responding to my messages").
+        let persons_wait = queue.iter().any(|q| !q.aside() && q.run.agent.is_none());
+        let steer = steer && !stop_held && !persons_wait;
         let blocks = vec![json!({"type": "text", "text": text})];
         let run = PromptRun {
             size: super::queue_admission::content_bytes(&blocks, None).into(),
@@ -449,6 +459,7 @@ impl Hub {
                 restored: false,
                 resume: false,
                 steer,
+                steer_on_start: false,
                 held: stop_held,
                 awaiting_owner: false,
                 revision: 0,
@@ -475,7 +486,6 @@ impl Hub {
             });
         }
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
-        drop(queue);
 
         // The digest is logged before the originals leave, so the log never loses them.
         // It holds the queue's new order too, so a stop before the `queue_order` record below keeps
@@ -496,6 +506,8 @@ impl Hub {
             // A stored permit: its waiting task answers from `joined` (`queue_slot`).
             q.withdraw.notify_one();
         }
+        // Its records went in under the lock that changed the queue (`queue.rs` `QUEUE_KINDS`).
+        drop(queue);
         session.queue_moved.notify_waiters();
 
         let (hub, s, who) = (self.clone(), session.clone(), client.to_owned());

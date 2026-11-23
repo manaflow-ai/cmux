@@ -23,6 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+#[path = "conversation_home_window.rs"]
+pub(crate) mod home_window;
 #[path = "conversation_import.rs"]
 mod import;
 #[path = "conversation_inbox.rs"]
@@ -32,6 +34,8 @@ pub(crate) use import::ImportedMessage;
 pub(crate) mod links;
 #[path = "conversation_runs.rs"]
 pub(crate) mod runs;
+#[path = "conversation_spill.rs"]
+pub(crate) mod spill;
 #[path = "conversation_threads.rs"]
 pub(crate) mod threads;
 
@@ -126,6 +130,8 @@ pub(crate) struct ConversationStore {
     connection: Connection,
     /// Attachment bytes (`attachments/` beside the store) and uploads in flight.
     attachments: attachments::Attachments,
+    /// The Home list order last read for a window (`home_window`).
+    home_order_cache: home_window::HomeOrderCache,
 }
 
 impl std::fmt::Debug for ConversationStore {
@@ -160,6 +166,7 @@ impl ConversationStore {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
+             PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -250,7 +257,7 @@ impl ConversationStore {
             params![SCHEMA_VERSION.to_string()],
         )?;
         transaction.commit()?;
-        Ok(Self { connection, attachments })
+        Ok(Self { connection, attachments, home_order_cache: Default::default() })
     }
 
     /// Mints the credential of `participant` (an agent, or a person other than
@@ -275,9 +282,19 @@ impl ConversationStore {
 
     /// Removes `participant`'s credential (`chief.profile.adopt`): no token
     /// issued for it before binds again; the next credential is minted anew.
+    /// `secure_delete` zeroes the row in the file and the WAL reset drops
+    /// its old page versions, so the digest is gone from disk too. This
+    /// connection is the store's only one, so nothing blocks the reset.
     pub(crate) fn revoke_agent_token(&mut self, participant: &str) -> anyhow::Result<()> {
-        self.connection
+        let removed = self
+            .connection
             .execute("DELETE FROM agent_token WHERE participant = ?1", params![participant])?;
+        if removed > 0 {
+            crate::workspace_registry::truncate_wal_after_delete(
+                &self.connection,
+                std::time::Duration::from_secs(5),
+            )?;
+        }
         Ok(())
     }
 
@@ -439,6 +456,9 @@ impl ConversationStore {
         actor: &str,
         op: &Op,
     ) -> anyhow::Result<OpOutcome> {
+        // A person's send past the text limit goes as a file (conversation_spill).
+        let spilled = self.spill_oversized_send(conversation, actor, op)?;
+        let op = spilled.as_ref().unwrap_or(op);
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let outcome = apply_op_in(&transaction, conversation, idempotency_key, actor, op)?;
@@ -948,6 +968,14 @@ pub(crate) struct ConversationHost {
     /// typing item can recover the state. Each typist keeps the connections
     /// that turned it on: it ends when the last of them closes (cmux#32727).
     pub(crate) typing: Mutex<TypingByConversation>,
+    /// `home-inbox` `since`: each caller's revisioned Home row changes, by
+    /// principal (memory only; a new daemon run starts new revisions).
+    pub(crate) home_changes:
+        Mutex<std::collections::HashMap<String, cmux_conversation::HomeChangeLog>>,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }
+
+#[cfg(test)]
+#[path = "conversation_spill_tests.rs"]
+mod spill_tests;

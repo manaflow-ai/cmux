@@ -80,9 +80,17 @@ copy_app() {
     log "could not copy the app out of $(basename "$dmg")"
     return 1
   fi
+  # Detach now: only the copy is diffed, and a run stopped mid-diff (background_build.py stop: SIGTERM, then
+  # SIGKILL 2 s later) must not leave images mounted for the EXIT trap to race.
+  if hdiutil detach "$mountpoint" -quiet >/dev/null 2>&1; then
+    local kept=() mount
+    for mount in "${mounts[@]}"; do [[ "$mount" == "$mountpoint" ]] || kept+=("$mount"); done
+    mounts=(${kept[@]+"${kept[@]}"})
+  fi
   APP="$dest"
 }
 
+# plist-exists: every caller accepts only a number (^[0-9]+$), so PlistBuddy's missing-file message is never a version
 plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null; }
 
 if ! copy_app "$NEW_ARCHIVE"; then
@@ -168,7 +176,7 @@ while IFS= read -r entry; do
   if [[ "${#pids[@]}" -ge "$jobs" ]]; then
     wait_started
   fi
-done < <(printf '%s\n' "${candidates[@]}" | sort -rn | awk '!seen[$1]++' | head -n "$MAX_DELTAS")
+done < <(printf '%s\n' ${candidates[@]+"${candidates[@]}"} | sort -rn | awk '!seen[$1]++' | head -n "$MAX_DELTAS")
 wait_started
 log "built ${built} delta(s) in $(( $(date +%s) - started ))s"
 exit 0

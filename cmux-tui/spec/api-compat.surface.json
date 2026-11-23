@@ -85,7 +85,77 @@
         "ty": "uint64",
         "required": true
       },
+      "/terminal_id": {
+        "ty": "string"
+      },
       "/updated_at_ms": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:agent-cli-frame": {
+      "/base": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/cols": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/cursor_visible": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/cursor_x": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/cursor_y": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-cli-frame\""
+        ]
+      },
+      "/frame": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/rows": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/stream": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:agent-cli-lean": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-cli-lean\""
+        ]
+      },
+      "/f": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
         "ty": "uint64",
         "required": true
       }
@@ -187,6 +257,19 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "event:agent-session-share-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-session-share-changed\""
+        ]
+      },
+      "/session": {
+        "ty": "string",
+        "required": true
       }
     },
     "event:bell": {
@@ -977,6 +1060,35 @@
         "ty": "string"
       }
     },
+    "event:device-setup-step": {
+      "/detail": {
+        "ty": "string",
+        "required": true
+      },
+      "/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"device-setup-step\""
+        ]
+      },
+      "/fix": {
+        "ty": "string",
+        "required": true
+      },
+      "/state": {
+        "ty": "string",
+        "required": true
+      },
+      "/step": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "event:empty": {
       "/event": {
         "ty": "literal",
@@ -984,6 +1096,39 @@
         "values": [
           "\"empty\""
         ]
+      }
+    },
+    "event:feed-reports-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"feed-reports-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:feed-view-changed": {
+      "/changed": {
+        "ty": "array",
+        "required": true
+      },
+      "/changed/*": {
+        "ty": "string"
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"feed-view-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "event:frame": {
@@ -1616,6 +1761,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1812,6 +1964,13 @@
       "/entity/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/tabs/*/title_text": {
+        "ty": "string"
       },
       "/event": {
         "ty": "literal",
@@ -2498,6 +2657,9 @@
           "\"resized\""
         ]
       },
+      "/history_rows_omitted": {
+        "ty": "uint64"
+      },
       "/kitty_graphics_state": {
         "ty": "object"
       },
@@ -2819,6 +2981,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/short_id": {
         "ty": "string"
       },
@@ -3102,6 +3271,13 @@
       "/entity/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/short_id": {
         "ty": "string"
@@ -3387,6 +3563,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/short_id": {
         "ty": "string"
       },
@@ -3413,6 +3596,20 @@
       "/workspace": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "event:screen-device-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"screen-device-changed\""
+        ]
+      },
+      "/screen_device_id": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
       }
     },
     "event:screen-renamed": {
@@ -3670,6 +3867,13 @@
       "/entity/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/short_id": {
         "ty": "string"
@@ -4223,6 +4427,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4245,6 +4456,10 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/transaction": {
+        "ty": "string",
+        "nullable": true
       },
       "/workspace": {
         "ty": "uint64",
@@ -4391,6 +4606,13 @@
       "/entity/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
       },
       "/event": {
         "ty": "literal",
@@ -4565,6 +4787,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4734,6 +4963,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4885,6 +5121,10 @@
       }
     },
     "event:title-changed": {
+      "/activity": {
+        "ty": "string",
+        "nullable": true
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4895,6 +5135,9 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/text": {
+        "ty": "string"
       },
       "/title": {
         "ty": "string"
@@ -5011,6 +5254,9 @@
         ]
       },
       "/history_rows_omitted": {
+        "ty": "uint64"
+      },
+      "/history_rows_skipped": {
         "ty": "uint64"
       },
       "/kitty_graphics_state": {
@@ -5376,6 +5622,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -5708,6 +5961,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -6042,6 +6302,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -6374,6 +6641,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -6708,6 +6982,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -7019,6 +7300,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -7190,6 +7478,14 @@
         "ty": "string",
         "nullable": true
       },
+      "/hybrid_frame": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/hybrid_stream": {
+        "ty": "string",
+        "nullable": true
+      },
       "/mode": {
         "ty": "enum",
         "nullable": true,
@@ -7198,8 +7494,16 @@
           "render"
         ]
       },
+      "/output_coalesce_ms": {
+        "ty": "uint32",
+        "nullable": true
+      },
       "/replay_history_rows": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/replay_history_start": {
+        "ty": "uint64",
         "nullable": true
       },
       "/rows": {
@@ -7474,6 +7778,12 @@
       },
       "/y_px": {
         "ty": "float64",
+        "required": true
+      }
+    },
+    "request:cancel-creating-input": {
+      "/terminal_id": {
+        "ty": "string",
         "required": true
       }
     },
@@ -8242,6 +8552,32 @@
       }
     },
     "request:cloud-session-status": {},
+    "request:computer-use-approvals": {
+      "/action": {
+        "ty": "string",
+        "required": true
+      },
+      "/answer": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/app_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/id": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:computer-use-config": {
+      "/config": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "request:computer-use-endpoint": {},
     "request:conversation-agent-token": {
       "/participant": {
         "ty": "string",
@@ -9091,6 +9427,9 @@
         "ty": "string",
         "nullable": true
       },
+      "/create_workspace": {
+        "ty": "boolean"
+      },
       "/cwd": {
         "ty": "string",
         "nullable": true
@@ -9150,6 +9489,10 @@
       "/workspace": {
         "ty": "uint64",
         "nullable": true
+      },
+      "/workspace_name": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:create-workspace": {
@@ -9160,6 +9503,59 @@
       "/expected_revision": {
         "ty": "uint64",
         "nullable": true
+      },
+      "/first_tab": {
+        "ty": "tagged_union|object",
+        "nullable": true,
+        "values": [
+          "browser"
+        ]
+      },
+      "/first_tab/activate": {
+        "ty": "boolean"
+      },
+      "/first_tab/cols": {
+        "ty": "uint16",
+        "nullable": true
+      },
+      "/first_tab/engine": {
+        "ty": "string",
+        "required": true
+      },
+      "/first_tab/favicon_url": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/idempotency_key": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"browser\""
+        ]
+      },
+      "/first_tab/owner": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/profile_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/rows": {
+        "ty": "uint16",
+        "nullable": true
+      },
+      "/first_tab/title": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/url": {
+        "ty": "string",
+        "required": true
       },
       "/key": {
         "ty": "string",
@@ -9309,6 +9705,22 @@
         "nullable": true
       }
     },
+    "request:device-setup": {
+      "/allow_agents": {
+        "ty": "boolean"
+      },
+      "/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/dry_run": {
+        "ty": "boolean"
+      },
+      "/verb": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:export-layout": {
       "/screen": {
         "ty": "uint64",
@@ -9357,6 +9769,36 @@
       },
       "/items/*": {
         "ty": "string"
+      }
+    },
+    "request:float-pane": {
+      "/h": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/mode": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/transaction": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/w": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/x": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/y": {
+        "ty": "float64",
+        "nullable": true
       }
     },
     "request:focus-direction": {
@@ -9447,12 +9889,35 @@
       }
     },
     "request:home-inbox": {
+      "/ids": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/ids/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/offset": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/owners": {
         "ty": "array",
         "nullable": true
       },
       "/owners/*": {
         "ty": "string"
+      },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/since": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:identify": {
@@ -9681,7 +10146,40 @@
     },
     "request:list-terminals": {},
     "request:list-workspace-groups": {},
-    "request:list-workspaces": {},
+    "request:list-workspaces": {
+      "/known": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/known/generation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/known/pane_revision": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/known/registry_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/known/terminal_revision": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/known/tree_revision": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/known/workspace_revision": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
     "request:machine-listening-tcp": {},
     "request:machine-usage": {},
     "request:mark-workspaces-provider-managed": {
@@ -10275,6 +10773,30 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/place": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/place/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/after_creation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/place/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/joins": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/place/start": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/route": {
         "ty": "string",
         "nullable": true
@@ -10285,6 +10807,10 @@
       },
       "/split": {
         "ty": "object",
+        "nullable": true
+      },
+      "/split/around": {
+        "ty": "uint64",
         "nullable": true
       },
       "/split/direction": {
@@ -10340,6 +10866,30 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/place": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/place/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/after_creation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/place/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/joins": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/place/start": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/profile_id": {
         "ty": "string",
         "nullable": true
@@ -10350,6 +10900,10 @@
       },
       "/split": {
         "ty": "object",
+        "nullable": true
+      },
+      "/split/around": {
+        "ty": "uint64",
         "nullable": true
       },
       "/split/direction": {
@@ -10368,9 +10922,17 @@
         "ty": "string",
         "nullable": true
       },
+      "/transaction": {
+        "ty": "string",
+        "nullable": true
+      },
       "/url": {
         "ty": "string",
         "required": true
+      },
+      "/workspace": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:new-pane": {
@@ -10659,6 +11221,30 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/place": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/place/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/after_creation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/place/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/joins": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/place/start": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -10671,6 +11257,10 @@
         "ty": "string"
       },
       "/terminal_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/transaction": {
         "ty": "string",
         "nullable": true
       }
@@ -10916,6 +11506,32 @@
         "nullable": true
       }
     },
+    "request:quick-terminal": {
+      "/h": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/mode": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/screen": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/w": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/x": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/y": {
+        "ty": "float64",
+        "nullable": true
+      }
+    },
     "request:read-screen": {
       "/surface": {
         "ty": "uint64",
@@ -11024,6 +11640,18 @@
       }
     },
     "request:remote-host-config": {
+      "/app_permissions": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/app_permissions/accessibility": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/app_permissions/screen_recording": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/computer_use": {
         "ty": "boolean",
         "nullable": true
@@ -11415,6 +12043,10 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/key": {
+        "ty": "string",
+        "nullable": true
+      },
       "/paste": {
         "ty": "boolean"
       },
@@ -11623,6 +12255,20 @@
       "/selection_fg": {
         "ty": "string",
         "nullable": true
+      }
+    },
+    "request:set-divider-visible": {
+      "/split": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/transaction": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/visible": {
+        "ty": "boolean",
+        "required": true
       }
     },
     "request:set-frontend-browser-history": {
@@ -12036,6 +12682,43 @@
         "nullable": true
       }
     },
+    "request:shell-read": {
+      "/after": {
+        "ty": "uint64"
+      },
+      "/run": {
+        "ty": "string",
+        "required": true
+      },
+      "/wait_ms": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:shell-run": {
+      "/command": {
+        "ty": "string",
+        "required": true
+      },
+      "/cwd": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/run": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:shell-stop": {
+      "/run": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:shutdown-daemon": {
       "/end_terminals": {
         "ty": "boolean"
@@ -12046,6 +12729,9 @@
       "/generation": {
         "ty": "string",
         "required": true
+      },
+      "/if_idle": {
+        "ty": "boolean"
       },
       "/keep_layout": {
         "ty": "boolean"
@@ -12103,6 +12789,10 @@
       }
     },
     "request:split": {
+      "/around": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/before": {
         "ty": "boolean"
       },
@@ -12228,6 +12918,19 @@
       },
       "/terminal_ids/*": {
         "ty": "string"
+      }
+    },
+    "request:terminal-command-context": {
+      "/intent": {
+        "ty": "enum",
+        "values": [
+          "context",
+          "fix"
+        ]
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "request:terminal-events": {
@@ -12838,6 +13541,12 @@
     "response:browser-reload": {},
     "response:browser-wheel": {},
     "response:browser-wheel-guarded": {},
+    "response:cancel-creating-input": {
+      "/data/cancelled": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "response:chief-inspect": {
       "/data/body": {
         "ty": "json",
@@ -13073,6 +13782,9 @@
       },
       "/data/closed_ids/*": {
         "ty": "string"
+      },
+      "/data/first_tab": {
+        "ty": "json"
       },
       "/data/generation": {
         "ty": "string",
@@ -13367,6 +14079,24 @@
       }
     },
     "response:cloud-session-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-approvals": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-config": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-endpoint": {
       "/data": {
         "ty": "json",
         "required": true
@@ -16415,6 +17145,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
@@ -16428,10 +17161,16 @@
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -16453,6 +17192,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:create-workspace": {
@@ -16464,6 +17206,9 @@
       },
       "/data/closed_ids/*": {
         "ty": "string"
+      },
+      "/data/first_tab": {
+        "ty": "json"
       },
       "/data/generation": {
         "ty": "string",
@@ -16571,6 +17316,12 @@
       }
     },
     "response:detach-client": {},
+    "response:device-setup": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:export-layout": {
       "/data/layout": {
         "ty": "tagged_union|object",
@@ -16674,6 +17425,12 @@
       }
     },
     "response:feed-local-read": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:float-pane": {
       "/data": {
         "ty": "json",
         "required": true
@@ -17054,9 +17811,27 @@
         "ty": "string",
         "required": true
       },
+      "/data/full": {
+        "ty": "boolean"
+      },
       "/data/me": {
         "ty": "string",
         "required": true
+      },
+      "/data/offset": {
+        "ty": "uint64"
+      },
+      "/data/order": {
+        "ty": "string"
+      },
+      "/data/removed": {
+        "ty": "array"
+      },
+      "/data/removed/*": {
+        "ty": "string"
+      },
+      "/data/revision": {
+        "ty": "uint64"
       },
       "/data/rows": {
         "ty": "array",
@@ -17083,6 +17858,9 @@
       "/data/rows/*/id": {
         "ty": "string",
         "required": true
+      },
+      "/data/rows/*/index": {
+        "ty": "uint64"
       },
       "/data/rows/*/kind": {
         "ty": "enum",
@@ -17126,6 +17904,12 @@
       "/data/rows/*/unread": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/total": {
+        "ty": "uint64"
+      },
+      "/data/window": {
+        "ty": "boolean"
       }
     },
     "response:identify": {
@@ -17198,6 +17982,9 @@
       "/data/machine_capabilities/*": {
         "ty": "string"
       },
+      "/data/machine_device": {
+        "ty": "string"
+      },
       "/data/machine_id": {
         "ty": "string"
       },
@@ -17215,6 +18002,9 @@
         "ty": "string",
         "required": true
       },
+      "/data/machine_symbol": {
+        "ty": "string"
+      },
       "/data/min_api_revision": {
         "ty": "uint32",
         "nullable": true
@@ -17230,6 +18020,10 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/screen_device_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/session": {
         "ty": "string",
@@ -17377,6 +18171,9 @@
       "/data/agents/*/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/agents/*/terminal_id": {
+        "ty": "string"
       },
       "/data/agents/*/updated_at_ms": {
         "ty": "uint64",
@@ -17806,6 +18603,15 @@
       "/data/terminal_revision": {
         "ty": "uint64"
       },
+      "/data/total": {
+        "ty": "uint64"
+      },
+      "/data/tree_revision": {
+        "ty": "string"
+      },
+      "/data/unchanged": {
+        "ty": "boolean"
+      },
       "/data/workspace_revision": {
         "ty": "uint64"
       },
@@ -18098,6 +18904,13 @@
       "/data/workspaces/*/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/data/workspaces/*/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/workspaces/*/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/data/workspaces/*/screens/*/short_id": {
         "ty": "string"
@@ -18530,6 +19343,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
@@ -18543,10 +19359,16 @@
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18557,6 +19379,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
@@ -18565,6 +19390,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       },
       "/data/workspace_key": {
         "ty": "string",
@@ -18580,6 +19408,9 @@
       },
       "/data/closed_ids/*": {
         "ty": "string"
+      },
+      "/data/first_tab": {
+        "ty": "json"
       },
       "/data/generation": {
         "ty": "string",
@@ -18623,9 +19454,20 @@
       }
     },
     "response:new-browser-tab": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18634,6 +19476,15 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/transaction": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-conversation-tab": {
@@ -18709,6 +19560,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18724,6 +19578,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-pane-right": {
@@ -18735,6 +19595,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18750,6 +19613,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-remote-terminal-tab": {
@@ -18766,6 +19635,9 @@
       "/data/pane_id": {
         "ty": "string"
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18781,14 +19653,31 @@
         "ty": "string",
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/transaction": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
         "ty": "string"
       }
     },
     "response:new-screen": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18797,12 +19686,32 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/transaction": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-tab": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18811,12 +19720,32 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/transaction": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-workspace": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18825,6 +19754,15 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/transaction": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:note-size-activity": {
@@ -18962,6 +19900,12 @@
       }
     },
     "response:put-session": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:quick-terminal": {
       "/data": {
         "ty": "json",
         "required": true
@@ -19347,6 +20291,9 @@
       "/data/closed_ids/*": {
         "ty": "string"
       },
+      "/data/first_tab": {
+        "ty": "json"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -19554,14 +20501,23 @@
           "tombstoned"
         ]
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
       },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -19572,9 +20528,15 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       },
       "/data/workspace_key": {
         "ty": "string",
@@ -19650,15 +20612,24 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/screen": {
         "ty": "uint64",
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -19669,6 +20640,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
@@ -19677,6 +20651,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:save-screen-group": {
@@ -19706,6 +20683,77 @@
     },
     "response:send-key": {},
     "response:server-stats": {
+      "/data/commands": {
+        "ty": "object"
+      },
+      "/data/commands/connections": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/connections/*": {
+        "ty": "object"
+      },
+      "/data/commands/connections/*/accepted": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/connections/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/connections/*/refused": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/hist_bounds_ns": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/hist_bounds_ns/*": {
+        "ty": "uint64"
+      },
+      "/data/commands/name_limit": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/names": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/rows/*": {
+        "ty": "object"
+      },
+      "/data/commands/rows/*/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows/*/hist": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/rows/*/hist/*": {
+        "ty": "uint64"
+      },
+      "/data/commands/rows/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/rows/*/max_ns": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/rows/*/total_ns": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/connections": {
         "ty": "object",
         "required": true
@@ -19730,6 +20778,193 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/disk": {
+        "ty": "object"
+      },
+      "/data/disk/error": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/files": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/files/*": {
+        "ty": "object"
+      },
+      "/data/disk/files/*/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/files/*/files": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/files/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/files_truncated": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/disk/files_unlisted": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/freelist_pages": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/journal/estimated_live_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/first_sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/head_sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*": {
+        "ty": "object"
+      },
+      "/data/disk/journal/kinds/*/budget_bytes_per_day": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/bytes_per_day": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/journal/kinds/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/over_budget": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/sample_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/sample_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/live_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_span_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/page_count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/page_size": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/registry_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/segments/by_codec": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*": {
+        "ty": "object"
+      },
+      "/data/disk/segments/by_codec/*/codec": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/compressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/records": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/uncompressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/compressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/segments/kinds/*": {
+        "ty": "object"
+      },
+      "/data/disk/segments/kinds/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/segments/kinds/*/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/records": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/uncompressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/shm_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/wal_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/hook_queue": {
         "ty": "object"
       },
@@ -19743,6 +20978,78 @@
       },
       "/data/hook_queue/undeliverable_events": {
         "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers": {
+        "ty": "object"
+      },
+      "/data/journal_followers/followers": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/journal_followers/followers/*": {
+        "ty": "object"
+      },
+      "/data/journal_followers/followers/*/client": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/connected_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/keeps_hook_rows": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/keeps_report_rows": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/kinds/*": {
+        "ty": "string"
+      },
+      "/data/journal_followers/followers/*/left_ms": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/followers/*/max_sensitivity": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/followers/*/remote": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/stream_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/journal_followers/grace_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/hook_rows_kept": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/journal_hook_keeps_rows": {
+        "ty": "boolean",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/keep_all_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/report_rows_kept": {
+        "ty": "boolean",
         "required": true
       },
       "/data/journal_writer": {
@@ -20803,6 +22110,7 @@
       }
     },
     "response:set-default-colors": {},
+    "response:set-divider-visible": {},
     "response:set-frontend-browser-history": {
       "/data": {
         "ty": "json",
@@ -21103,6 +22411,24 @@
         "required": true
       }
     },
+    "response:shell-read": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-run": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-stop": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:shutdown-daemon": {
       "/data/accepted": {
         "ty": "literal",
@@ -21177,6 +22503,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -21192,6 +22521,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:subscribe": {},
@@ -21232,6 +22567,40 @@
     },
     "response:terminal-clipboard-subscribe": {
       "/data/clipboard_read_ready": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:terminal-command-context": {
+      "/data/context": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/command": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/cwd": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/exit_code": {
+        "ty": "int32",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/output": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/context/text": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/context/truncated": {
         "ty": "boolean",
         "required": true
       }

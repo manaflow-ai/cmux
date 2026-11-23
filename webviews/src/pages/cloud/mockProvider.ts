@@ -3,7 +3,7 @@
 // the native confirmations. The mock answers like the server does today (`cmux.wire/1` records, the
 // same fields and error codes, the origin, key and argument guards of `ops/mod.rs`) and creates no
 // real resource.
-import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
+import { isPageError, pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { SAMPLE_FS_MACHINES, sampleAccount, sampleMachines, sampleSnapshots } from "./mockData";
 import { joinPath } from "./files";
 import { MockEdge, MockFiles, notFound, only } from "./mockEdge";
@@ -14,9 +14,11 @@ import {
   CloudActions,
   CloudOps,
   HostActions,
+  CONFIRMED_ACTIONS,
   NATIVE_ACTIONS,
   type CloudMachine,
   type CloudPlan,
+  type CloudRetention,
   type CloudSnapshot,
   type MachineEvent,
   type MachineResult,
@@ -59,6 +61,7 @@ const USER_ONLY = new Set<string>([
   CloudOps.machineCreate,
   CloudOps.machineResize,
   CloudOps.machineDelete,
+  CloudOps.machineArchiveDelete,
   CloudOps.machineUpgrade,
   CloudOps.snapshotCreate,
   CloudOps.snapshotRestore,
@@ -96,6 +99,7 @@ export interface MockOptions {
 }
 
 type Params = Record<string, unknown>;
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 export class MockCloudProvider implements PageClient {
   readonly calls: MockCall[] = [];
@@ -129,6 +133,32 @@ export class MockCloudProvider implements PageClient {
   liftingPlan: string | null = null;
   /** No machine image is configured yet: create and restore answer `no_snapshot_configured`. */
   noSnapshotConfigured = false;
+  /**
+   * The plan's machines cap (paused ones count), when set: a create past it answers `quota_exceeded`
+   * with `details.resource: "machines"` and `details.free_up` (`freeUp`, the platform's pick).
+   */
+  machinesCap?: number;
+  /**
+   * The running machines the platform's reports call idle. A create at the running-machines limit
+   * pauses the one used longest ago and goes on (cmux-platform Room.ts); with none, it is refused
+   * with the person's running machines in `details.busy`.
+   */
+  idle: string[] = [];
+  /** The machine the cap refusal names to free (`details.free_up`), or null for none. */
+  freeUp: { machine: string; name: string | null; reason: string } | null = null;
+  /** Automatic cleanup as `cloud.plan.get` answers it (`retention`); undefined: a server without it. */
+  retention?: CloudRetention;
+  /** `cloud.retention.set {settings}` answers `auth.forbidden` (the caller is not a team admin). */
+  retentionForbidden = false;
+  /** Archive and delete finishes at once (else the machine stays `requested` until `finishArchives()`). */
+  archiveAtOnce = true;
+  /**
+   * The team's spending cap as `cloud.plan.get` answers it (cmux-platform SpendCap.ts); at the cap, a start or
+   * create answers `spend_cap_reached`. Unset: a server without the cap.
+   */
+  spendCap?: NonNullable<CloudPlan["spend_cap"]>;
+  /** The member's own monthly budget is spent: a start or create answers `member_budget_reached`. */
+  memberBudget?: { spent_usd: number; limit_usd: number };
   holdTransfers: boolean;
   pageSize: number;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
@@ -143,7 +173,7 @@ export class MockCloudProvider implements PageClient {
   revision = 10;
   private nextId = 1;
   /** Idempotency ledger: key -> op, args and recorded result (a replay answers it and emits nothing). */
-  private readonly ledger = new Map<string, { op: string; args: string; result: unknown }>();
+  private readonly ledger = new Map<string, { op: string; args: string; result: unknown; error?: unknown }>();
   private readonly subs = new Map<
     number,
     { stream: string; listener: (data: unknown, seq: number) => void; seq: number }
@@ -227,7 +257,30 @@ export class MockCloudProvider implements PageClient {
         vm_hours_used: p.vm_hours_used,
         period_end: p.period_end,
       },
+      ...(this.retention ? { retention: structuredClone(this.retention) } : {}),
+      ...(this.spendCap ? { spend_cap: this.spendCap } : {}),
     };
+  }
+
+  /** The archives taken by archive and delete are ready: each machine is removed, its archive listed. */
+  finishArchives(): void {
+    for (const machine of this.machines.filter((m) => m.delete_reason === "requested")) {
+      const days = this.retention?.settings?.archive_days ?? 90;
+      this.snapshots = [
+        {
+          id: `snap_archive${this.nextId++}`,
+          machine: machine.id,
+          name: machine.name,
+          size_mb: machine.size.disk_mb ?? 16_384,
+          status: "ready",
+          created_at: Date.UTC(2026, 9, 2),
+          archive_of: { machine: machine.id, name: machine.name, until: Date.UTC(2026, 9, 2) + days * 86_400_000 },
+          revision: "1",
+        },
+        ...this.snapshots,
+      ];
+      this.emitRemoved(machine.id);
+    }
   }
 
   /** The running copies end now: one `file.transfer.changed` event each (the server's worker woke). */
@@ -330,7 +383,7 @@ export class MockCloudProvider implements PageClient {
   }
 
   /** The backend's plan checks before any provider call (contract 1.5). */
-  private checkPlan(memoryMb: unknown, activeDelta: number): void {
+  private checkPlan(memoryMb: unknown, activeDelta: number, room = false): CloudMachine | undefined {
     if (this.planRequired)
       throw pageError(CloudErrors.planRequired, "Cloud machines need a paid plan", false, { plan: "pro" });
     if (typeof memoryMb === "number" && this.account.plan.locked_memory_options_mb.includes(memoryMb))
@@ -338,13 +391,58 @@ export class MockCloudProvider implements PageClient {
         memory_mb: memoryMb,
         plan: this.liftingPlan,
       });
+    // The spending cap is checked before any provider call, like the plan (CloudCore.submit).
+    if (activeDelta > 0 && this.spendCap?.state === "at_cap") {
+      const cap = this.spendCap;
+      throw pageError(
+        CloudErrors.spendCapReached,
+        "this team has reached its spending cap; an admin can raise it",
+        false,
+        {
+          spent_usd: cap.spent_usd,
+          cap_usd: cap.cap_usd,
+          period_end: cap.period_end,
+          pause_at: cap.pause_at,
+        },
+      );
+    }
+    if (activeDelta > 0 && this.memberBudget)
+      throw pageError(
+        CloudErrors.memberBudgetReached,
+        "you have spent your monthly budget; a team admin can raise it",
+        false,
+        { ...this.memberBudget },
+      );
     const { limits, usage } = this.plan;
-    if (activeDelta > 0 && usage.active + activeDelta > limits.max_active)
+    if (activeDelta > 0 && this.machinesCap !== undefined && this.machines.length >= this.machinesCap)
+      throw pageError(CloudErrors.quotaExceeded, `this plan allows ${this.machinesCap} machines`, false, {
+        limit: this.machinesCap,
+        used: this.machines.length,
+        resource: "machines",
+        free_up: this.freeUp,
+        plan: this.liftingPlan,
+      });
+    if (activeDelta > 0 && usage.active + activeDelta > limits.max_active) {
+      const used = (machine: CloudMachine) => machine.last_active_at ?? machine.created_at;
+      const running = this.machines.filter((machine) => machine.status === "running").sort((a, b) => used(a) - used(b));
+      const idle = room ? running.find((machine) => this.idle.includes(machine.id)) : undefined;
+      if (idle) {
+        const paused: CloudMachine = { ...idle, status: "paused", revision: String(Number(idle.revision) + 1) };
+        this.emitUpsert(paused);
+        return paused;
+      }
       throw pageError(CloudErrors.quotaExceeded, `this plan allows ${limits.max_active} active machines`, false, {
         limit: limits.max_active,
         used: usage.active,
         plan: this.liftingPlan,
+        ...(room
+          ? {
+              resource: "active",
+              busy: running.map(({ id, name, last_active_at }) => ({ machine: id, name, last_active_at })),
+            }
+          : {}),
       });
+    }
   }
 
   private create(name: unknown, memoryMb: unknown): MachineResult {
@@ -385,9 +483,18 @@ export class MockCloudProvider implements PageClient {
     if (recorded) {
       if (recorded.op !== op || recorded.args !== JSON.stringify(args))
         throw pageError("cmux.cloud.idempotency_conflict", "this key was used for another request");
+      if (recorded.error) throw recorded.error;
       return recorded.result;
     }
-    const result = this.serveOp(op, args);
+    let result: unknown;
+    try {
+      result = this.serveOp(op, args);
+    } catch (error) {
+      // A definitive refusal is the key's answer too: the same key replays it (the backend's ledger).
+      if (key && isPageError(error) && error.code === CloudErrors.quotaExceeded)
+        this.ledger.set(key, { op, args: JSON.stringify(args), result: undefined, error });
+      throw error;
+    }
     if (this.goneNext === op) {
       this.goneNext = undefined;
       throw notFound("The Cloud service does not know this item.");
@@ -428,10 +535,11 @@ export class MockCloudProvider implements PageClient {
         if (typeof p.from_snapshot === "string" && !this.snapshots.some((s) => s.id === p.from_snapshot))
           throw notFound(`no snapshot ${p.from_snapshot}`);
         // The backend's order: the plan checks first, then the image.
-        this.checkPlan(size.memory_mb, 1);
+        const paused = this.checkPlan(size.memory_mb, 1, true);
         if (this.noSnapshotConfigured)
           throw pageError(CloudErrors.noSnapshotConfigured, "no machine image is configured yet", false);
-        return this.create(p.name, size.memory_mb);
+        const created = this.create(p.name, size.memory_mb);
+        return paused ? { ...created, made_room: { machine: paused } } : created;
       }
       case CloudOps.machineRename:
         only(p, ["machine", "name"]);
@@ -462,6 +570,46 @@ export class MockCloudProvider implements PageClient {
           host: `host_${machine.id}`,
           image: { id: "img_base1", daemon_version: "0.40.0" },
         });
+      }
+      case CloudOps.machineKeep: {
+        only(p, ["machine", "keep"]);
+        const keep = p.keep === true;
+        const machine = this.machine(p);
+        const settings = this.retention?.settings;
+        // A kept machine has no date; let go, the plan's retention dates it again (from its last use).
+        const evict =
+          !keep && settings?.worked_in_days && machine.status === "paused"
+            ? (machine.last_active_at ?? machine.created_at) + settings.worked_in_days * 86_400_000
+            : null;
+        return this.change(p, {
+          keep,
+          notice: null,
+          evict_at: keep ? null : evict,
+          delete_reason: keep || evict === null ? null : "unused",
+        });
+      }
+      case CloudOps.machineArchiveDelete: {
+        only(p, ["machine"]);
+        const machine = this.machine(p);
+        if (machine.status !== "paused" && machine.status !== "failed")
+          throw pageError("cmux.cloud.not_paused", `${machine.id} is not paused`, false);
+        const result = this.change(p, { delete_reason: "requested", evict_at: Date.UTC(2026, 9, 2), notice: null });
+        if (this.archiveAtOnce) queueMicrotask(() => this.finishArchives());
+        return result;
+      }
+      case CloudOps.retentionSet: {
+        only(p, ["settings", "email_heads_up"]);
+        const retention = this.retention as Mutable<CloudRetention> | undefined;
+        if (!retention) throw pageError("cmux.cloud.unknown_op", `${CloudOps.retentionSet} is not a Cloud op`);
+        if (p.settings !== undefined && this.retentionForbidden)
+          throw pageError("cmux.cloud.forbidden", "only a team admin can change the team's cleanup", false);
+        const before = JSON.stringify(retention);
+        if (typeof p.email_heads_up === "boolean") retention.email_heads_up = p.email_heads_up;
+        if (p.settings !== undefined) {
+          retention.team = p.settings ? structuredClone(p.settings as typeof retention.team) : {};
+          if (retention.settings) Object.assign(retention.settings, retention.team);
+        }
+        return { changed: JSON.stringify(retention) !== before };
       }
       case CloudOps.machineDelete:
         only(p, ["machine"]);
@@ -589,7 +737,10 @@ export class MockCloudProvider implements PageClient {
     // A transfer answers `running` at once; its end is a `file.transfer.changed` event.
     if ((action === CloudOps.filePush || action === CloudOps.filePull) && !this.holdTransfers)
       queueMicrotask(() => this.finishTransfers());
-    return { confirmed: true, ...(result as object) };
+    // A confirmed op answers under `value`, as the host's runConfirmed does; the others flat.
+    return CONFIRMED_ACTIONS.has(action)
+      ? { confirmed: true, value: result }
+      : { confirmed: true, ...(result as object) };
   }
 }
 

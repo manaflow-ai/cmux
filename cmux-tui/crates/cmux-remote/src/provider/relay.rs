@@ -11,11 +11,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use cmux_deadline::Deadline;
 use cmux_remote_protocol::{
     CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl, RelayRole,
+    RelayTicketClaims,
 };
 use futures_util::stream::{SplitSink, SplitStream};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, StreamExt};
 use http::StatusCode;
 use http::header::{AUTHORIZATION, HeaderValue};
 use tokio::io::AsyncReadExt;
@@ -25,16 +27,77 @@ use tokio::sync::{Mutex, mpsc, oneshot, watch};
 use tokio::task::{Id, JoinSet};
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::error::UrlError;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
+use tokio_tungstenite::{Connector, MaybeTlsStream, WebSocketStream, client_async_tls_with_config};
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
 
+#[path = "relay_credential_read.rs"]
+mod credential_read;
 #[path = "relay_liveness.rs"]
 mod liveness;
+use credential_read::*;
+
+/// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
+/// wrote to stderr, read while it runs so a full pipe never stalls it. The
+/// reader stops with the source: it is aborted on drop.
+struct StderrTail {
+    tail: Arc<std::sync::Mutex<VecDeque<u8>>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl StderrTail {
+    fn spawn(stderr: Option<tokio::process::ChildStderr>) -> Self {
+        let tail = Arc::new(std::sync::Mutex::new(VecDeque::new()));
+        let task = stderr.map(|mut stderr| {
+            let tail = tail.clone();
+            tokio::spawn(async move {
+                let mut chunk = [0_u8; 512];
+                while let Ok(read) = stderr.read(&mut chunk).await {
+                    if read == 0 {
+                        break;
+                    }
+                    let mut tail = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    tail.extend(chunk.get(..read).unwrap_or_default());
+                    let excess = tail.len().saturating_sub(CREDENTIAL_COMMAND_STDERR_TAIL_BYTES);
+                    tail.drain(..excess);
+                }
+            })
+        });
+        Self { tail, task }
+    }
+
+    /// `; stderr: …` with [`stderr_summary`] of the tail, or nothing when it
+    /// was empty. Waits briefly for the reader to drain what an exited
+    /// command wrote.
+    async fn describe(&mut self) -> String {
+        if let Some(task) = &mut self.task
+            && tokio::time::timeout(Duration::from_millis(100), task).await.is_ok()
+        {
+            // A finished handle must not be polled again.
+            self.task = None;
+        }
+        let bytes: Vec<u8> = {
+            let tail = self.tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            tail.iter().copied().collect()
+        };
+        stderr_summary(&bytes)
+    }
+}
+
+impl Drop for StderrTail {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+#[path = "relay_registration_state.rs"]
+mod registration_state;
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
@@ -44,6 +107,10 @@ use crate::provider::{
 use liveness::{
     CHECK_INTERVAL, CLOCK_JUMP, Check, ClockWatch, Ended, Liveness, Retry, random_unit,
 };
+pub use registration_state::RegistrationState;
+#[cfg(test)]
+pub(crate) use registration_state::test_wall;
+use registration_state::wall_now;
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type RelayCircuitSink = SplitSink<RelaySocket, Message>;
@@ -51,7 +118,21 @@ type RelayCircuitStream = SplitStream<RelaySocket>;
 
 const MAX_RELAY_CREDENTIAL_BYTES: usize = 4 * 1024;
 const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
+/// How long one relay WebSocket may take to open (TCP, TLS and the
+/// upgrade). The relay answers an upgrade in well under a second; a socket
+/// that dies silently mid-open (a Cloud machine whose network is settling
+/// just after a restore) would otherwise hold the caller forever. A daemon's
+/// registration held that way logs nothing and never retries, so every dial
+/// parks on the relay until the daemon restarts (65 s in one measured cold
+/// start). Past this, the open fails as a retryable transport error.
+pub(crate) const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// The bound on one callback credential fetch ([`RelayCredentialSource::callback`]). A
+/// callback asks a platform for a ticket (the hub carrier's `POST /v1/mesh/carrier`, itself
+/// bounded at 30 s); one that never answers (a mint that stalls) would hold a registration in
+/// `Registering` forever. Past this the fetch fails as a credential source failure, which the
+/// registration reports as [`RegistrationState::CredentialUnavailable`] and retries.
+pub const CREDENTIAL_CALLBACK_TIMEOUT: Duration = Duration::from_secs(35);
 /// A daemon's relay ticket command's timeout ([`RelayCredentialSource::daemon_command`]).
 /// A Cloud machine's command (`cmux host cloud carrier-ticket`) waits up to
 /// 30 s for the Cloud agent's answer and then exits with its own error code;
@@ -181,6 +262,12 @@ impl RelayCredentialSource {
         Self { inner: Arc::new(RelayCredentialSourceInner::Callback(callback)) }
     }
 
+    /// True when each fetch may return a new credential: a registration renews
+    /// its ticket before it expires only from such a source.
+    fn renews(&self) -> bool {
+        !matches!(&*self.inner, RelayCredentialSourceInner::Static(_))
+    }
+
     async fn fetch(&self) -> Result<RelayCredential, ProviderError> {
         let value = match &*self.inner {
             RelayCredentialSourceInner::Static(credential) => return Ok(credential.clone()),
@@ -188,9 +275,13 @@ impl RelayCredentialSource {
             RelayCredentialSourceInner::Command(command) => {
                 read_credential_command(command).await?
             }
-            RelayCredentialSourceInner::Callback(callback) => Zeroizing::new(
-                callback().await.map_err(|()| credential_source_error("callback failed"))?,
-            ),
+            RelayCredentialSourceInner::Callback(callback) => {
+                let deadline = Deadline::<Instant>::after(CREDENTIAL_CALLBACK_TIMEOUT);
+                let answer = tokio::time::timeout_at(deadline.end(), callback())
+                    .await
+                    .map_err(|_| credential_source_error("callback timed out"))?;
+                Zeroizing::new(answer.map_err(|()| credential_source_error("callback failed"))?)
+            }
         };
         RelayCredential::parse_secret(value)
             .map_err(|_| credential_source_error("returned invalid data"))
@@ -230,6 +321,24 @@ impl RelayCredential {
     fn expose(&self) -> &str {
         self.0.as_str()
     }
+
+    /// How long a signed ticket (`v2.<claims>.<signature>`) lives, read from its
+    /// claims, which are not secret: the relay checks the signature, this only
+    /// schedules the renewal. None for an opaque ticket.
+    fn lifetime(&self) -> Option<Duration> {
+        use base64::Engine as _;
+        let mut parts = self.expose().split('.');
+        let (Some("v2"), Some(claims), Some(_), None) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            return None;
+        };
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(claims).ok()?;
+        let claims: RelayTicketClaims = serde_json::from_slice(&claims).ok()?;
+        claims
+            .has_valid_lifetime()
+            .then(|| Duration::from_secs(claims.expires_at_unix - claims.issued_at_unix))
+    }
 }
 
 impl fmt::Debug for RelayCredential {
@@ -238,239 +347,51 @@ impl fmt::Debug for RelayCredential {
     }
 }
 
-async fn read_credential_file(path: &Path) -> Result<Zeroizing<String>, ProviderError> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        crate::secret_file::read_owner_only_string(&path, MAX_RELAY_CREDENTIAL_BYTES)
-    })
-    .await
-    .map_err(|_| credential_source_error("file could not be read"))?
-    .map_err(|_| credential_source_error("file could not be read"))
+/// The TLS trust a relay's `wss` and `relay+do` connections use. The default
+/// trusts the platform's roots (and `SSL_CERT_FILE`/`SSL_CERT_DIR`), as every
+/// relay connection did before; [`RelayTls::with_root_certificates`] trusts
+/// only the given roots, so a caller (a test's own CA) needs no process-wide
+/// environment.
+#[derive(Clone, Default)]
+pub struct RelayTls {
+    client_config: Option<Arc<rustls::ClientConfig>>,
 }
 
-async fn read_credential_command(
-    source: &CommandCredentialSource,
-) -> Result<Zeroizing<String>, ProviderError> {
-    if source.timeout.is_zero() {
-        return Err(credential_source_error("command timeout is invalid"));
-    }
-    let mut command = Command::new(&source.program);
-    command
-        .args(&source.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    let mut child =
-        command.spawn().map_err(|_| credential_source_error("command could not be started"))?;
-    let mut stderr = StderrTail::spawn(child.stderr.take());
-    let stdout = match child.stdout.take() {
-        Some(stdout) => stdout,
-        None => {
-            terminate_child(&mut child).await;
-            return Err(credential_source_error("command stdout was unavailable"));
+impl RelayTls {
+    /// Trust exactly these DER-encoded root certificates.
+    pub fn with_root_certificates<I, C>(certificates: I) -> Result<Self, ProviderError>
+    where
+        I: IntoIterator<Item = C>,
+        C: Into<Vec<u8>>,
+    {
+        let mut roots = rustls::RootCertStore::empty();
+        for certificate in certificates {
+            roots.add(rustls::pki_types::CertificateDer::from(certificate.into())).map_err(
+                |error| ProviderError::Configuration(format!("invalid relay TLS root: {error}")),
+            )?;
         }
-    };
-    let result = tokio::time::timeout(source.timeout, async {
-        let output = match read_limited_credential(stdout).await {
-            Ok(output) => output,
-            // An oversized or unreadable answer still names what stderr said.
-            Err(ProviderError::Transport(message)) => {
-                return Err(ProviderError::Transport(format!(
-                    "{message}{}",
-                    stderr.describe().await
-                )));
-            }
-            Err(error) => return Err(error),
-        };
-        let status = child
-            .wait()
-            .await
-            .map_err(|_| credential_source_error("command could not be completed"))?;
-        if !status.success() {
-            return Err(credential_source_error(&format!(
-                "command was unsuccessful ({status}){}",
-                stderr.describe().await
-            )));
-        }
-        Ok(output)
-    })
-    .await;
-    match result {
-        Ok(Ok(output)) => Ok(output),
-        Ok(Err(error)) => {
-            terminate_child(&mut child).await;
-            Err(error)
-        }
-        Err(_) => {
-            terminate_child(&mut child).await;
-            Err(credential_source_error(&format!(
-                "command timed out after {} ms{}",
-                source.timeout.as_millis(),
-                stderr.describe().await
-            )))
-        }
+        let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(|error| ProviderError::Configuration(format!("relay TLS: {error}")))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        Ok(Self { client_config: Some(Arc::new(config)) })
+    }
+
+    fn connector(&self) -> Option<Connector> {
+        self.client_config.clone().map(Connector::Rustls)
     }
 }
 
-/// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
-/// wrote to stderr, read while it runs so a full pipe never stalls it. The
-/// reader stops with the source: it is aborted on drop.
-struct StderrTail {
-    tail: Arc<std::sync::Mutex<VecDeque<u8>>>,
-    task: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl StderrTail {
-    fn spawn(stderr: Option<tokio::process::ChildStderr>) -> Self {
-        let tail = Arc::new(std::sync::Mutex::new(VecDeque::new()));
-        let task = stderr.map(|mut stderr| {
-            let tail = tail.clone();
-            tokio::spawn(async move {
-                let mut chunk = [0_u8; 512];
-                while let Ok(read) = stderr.read(&mut chunk).await {
-                    if read == 0 {
-                        break;
-                    }
-                    let mut tail = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                    tail.extend(chunk.get(..read).unwrap_or_default());
-                    let excess = tail.len().saturating_sub(CREDENTIAL_COMMAND_STDERR_TAIL_BYTES);
-                    tail.drain(..excess);
-                }
-            })
-        });
-        Self { tail, task }
+impl fmt::Debug for RelayTls {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RelayTls")
+            .field("custom_roots", &self.client_config.is_some())
+            .finish()
     }
-
-    /// `; stderr: …` with [`stderr_summary`] of the tail, or nothing when it
-    /// was empty. Waits briefly for the reader to drain what an exited
-    /// command wrote.
-    async fn describe(&mut self) -> String {
-        if let Some(task) = &mut self.task
-            && tokio::time::timeout(Duration::from_millis(100), task).await.is_ok()
-        {
-            // A finished handle must not be polled again.
-            self.task = None;
-        }
-        let bytes: Vec<u8> = {
-            let tail = self.tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            tail.iter().copied().collect()
-        };
-        stderr_summary(&bytes)
-    }
-}
-
-impl Drop for StderrTail {
-    fn drop(&mut self) {
-        if let Some(task) = self.task.take() {
-            task.abort();
-        }
-    }
-}
-
-/// The most error codes a summary names.
-const MAX_STDERR_CODES: usize = 4;
-
-/// What a failed credential command's stderr `tail` may add to its error:
-/// `; stderr: N bytes`, then `, codes …` naming up to [`MAX_STDERR_CODES`]
-/// distinct error codes and an `HTTP NNN` status found in it, or nothing
-/// when it is empty. Free text never reaches the log: stderr can hold a
-/// ticket, a header or a JSON body in any shape, and only these allowlisted
-/// forms can't be one.
-fn stderr_summary(tail: &[u8]) -> String {
-    if tail.is_empty() {
-        return String::new();
-    }
-    let text = String::from_utf8_lossy(tail);
-    let words: Vec<&str> = text.split_whitespace().collect();
-    let mut codes: Vec<String> = Vec::new();
-    for word in &words {
-        if codes.len() == MAX_STDERR_CODES {
-            break;
-        }
-        if let Some(code) = error_code(word)
-            && !codes.iter().any(|known| known == code)
-        {
-            codes.push(code.to_owned());
-        }
-    }
-    let http = words.windows(2).find_map(|pair| {
-        let [word, next] = pair else { return None };
-        let status = next.trim_end_matches([':', ',', ';', ')']);
-        let http = *word == "HTTP" || word.starts_with("HTTP/");
-        (http && status.len() == 3 && status.bytes().all(|byte| byte.is_ascii_digit()))
-            .then(|| format!("HTTP {status}"))
-    });
-    codes.extend(http);
-    if codes.is_empty() {
-        format!("; stderr: {} bytes", tail.len())
-    } else {
-        format!("; stderr: {} bytes, codes {}", tail.len(), codes.join(", "))
-    }
-}
-
-/// The error codes a relay ticket command may name in a log: the refusals
-/// `cmux host cloud carrier-ticket` prints (cmux-host `cloud/carrier_ticket.rs`)
-/// and the platform codes it passes on. Only these exact words are copied out
-/// of stderr; any other word, however code-shaped (`dead.beef`), is not.
-const KNOWN_ERROR_CODES: [&str; 14] = [
-    "auth.forbidden",
-    "auth.refused",
-    "carrier.bad_answer",
-    "carrier.busy",
-    "carrier.rate_limited",
-    "carrier.unavailable",
-    "carrier.unreachable",
-    "cloud.machine.not_found",
-    "owner.unreachable",
-    "validation.invalid",
-    "vm.agent_bad_answer",
-    "vm.agent_stopping",
-    "vm.agent_unreachable",
-    "vm.unbound",
-];
-
-/// `word` without a trailing `:` when it is one of [`KNOWN_ERROR_CODES`].
-fn error_code(word: &str) -> Option<&'static str> {
-    let code = word.strip_suffix(':').unwrap_or(word);
-    KNOWN_ERROR_CODES.iter().copied().find(|known| *known == code)
-}
-
-/// Kill and reap a credential command on every cancellation or failure path.
-/// `kill_on_drop` is best effort and does not guarantee prompt zombie cleanup.
-async fn terminate_child(child: &mut tokio::process::Child) {
-    let _ = child.kill().await;
-    let _ = child.wait().await;
-}
-
-async fn read_limited_credential(
-    reader: impl tokio::io::AsyncRead + Unpin,
-) -> Result<Zeroizing<String>, ProviderError> {
-    let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_RELAY_CREDENTIAL_BYTES.min(256)));
-    reader
-        .take((MAX_RELAY_CREDENTIAL_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .await
-        .map_err(|_| credential_source_error("could not be read"))?;
-    if bytes.len() > MAX_RELAY_CREDENTIAL_BYTES {
-        return Err(credential_source_error("was too large"));
-    }
-    let value = Zeroizing::new(
-        std::str::from_utf8(&bytes)
-            .map_err(|_| credential_source_error("was not UTF-8"))?
-            .to_owned(),
-    );
-    Ok(value)
-}
-
-fn credential_source_error(reason: &str) -> ProviderError {
-    ProviderError::Transport(format!("{CREDENTIAL_SOURCE_ERROR_PREFIX}{reason}"))
-}
-
-/// The credential source (a ticket command, file or callback) failed, as
-/// opposed to the relay.
-fn is_credential_source_error(error: &ProviderError) -> bool {
-    matches!(error, ProviderError::Transport(message) if message.starts_with(CREDENTIAL_SOURCE_ERROR_PREFIX))
 }
 
 #[derive(Clone)]
@@ -514,10 +435,15 @@ impl fmt::Debug for RelayClientConfig {
 pub struct RelayProvider {
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
     /// When set, a lane's allocation waits until this instant instead of
     /// `control_timeout`: a Connect the relay parks until the daemon
     /// registers then follows its caller's one deadline.
     allocation_deadline: Option<Instant>,
+    /// When set, a first connect's lane waits this long, not
+    /// `control_timeout`, for the daemon to join its circuit once the relay
+    /// allocated it ([`RelayProvider::with_peer_join_wait`]).
+    peer_join_wait: Option<Duration>,
 }
 
 impl RelayProvider {
@@ -536,7 +462,13 @@ impl RelayProvider {
     ) -> Result<Self, ProviderError> {
         config.ticket.zeroize();
         config.validate_common()?;
-        Ok(Self { config, credentials, allocation_deadline: None })
+        Ok(Self {
+            config,
+            credentials,
+            tls: RelayTls::default(),
+            allocation_deadline: None,
+            peer_join_wait: None,
+        })
     }
 
     /// Wait for each lane's allocation until `deadline` rather than for
@@ -547,6 +479,24 @@ impl RelayProvider {
     /// step, keeps `control_timeout`.
     pub fn with_allocation_deadline(mut self, deadline: Instant) -> Self {
         self.allocation_deadline = Some(deadline);
+        self
+    }
+
+    /// Wait `wait`, not `control_timeout`, for the daemon to join a circuit
+    /// the relay allocated, so a lane whose daemon never joins is given up
+    /// for a new allocation (a new circuit and a new `Incoming`) instead of
+    /// held to `control_timeout`. A daemon that joins does so in about a
+    /// second of its `Incoming`. It applies to the first connect (generation
+    /// 0) only, as [`Self::with_allocation_deadline`] does; connecting the
+    /// circuit's socket keeps its own bound.
+    pub fn with_peer_join_wait(mut self, wait: Duration) -> Self {
+        self.peer_join_wait = Some(wait);
+        self
+    }
+
+    /// Connect with this TLS trust instead of the platform's roots.
+    pub fn with_tls(mut self, tls: RelayTls) -> Self {
+        self.tls = tls;
         self
     }
 }
@@ -580,7 +530,7 @@ impl TransportProvider for RelayProvider {
         let framing = RelayCircuitFraming::for_route(&route);
         let endpoint =
             relay_websocket_url(&request.endpoint, &self.config.slot, RelayRole::Client)?;
-        let control = connect_provider_control(&endpoint, &self.credentials).await?;
+        let control = connect_provider_control(&endpoint, &self.credentials, &self.tls).await?;
         Ok(Arc::new(RelayLinkGroup {
             description: route.clone(),
             evidence: CarrierEvidence::Relay {
@@ -591,7 +541,9 @@ impl TransportProvider for RelayProvider {
             framing,
             config: self.config.clone(),
             credentials: self.credentials.clone(),
+            tls: self.tls.clone(),
             allocation_deadline: self.allocation_deadline,
+            peer_join_wait: self.peer_join_wait,
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
         }))
@@ -606,7 +558,9 @@ struct RelayLinkGroup {
     framing: RelayCircuitFraming,
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
     allocation_deadline: Option<Instant>,
+    peer_join_wait: Option<Duration>,
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
     // remains empty, so a later attempt cannot consume a stale response.
@@ -812,11 +766,13 @@ fn decode_relay_batch(encoded: Bytes, maximum: usize) -> Result<VecDeque<Bytes>,
     Ok(frames)
 }
 
-async fn run_batched_relay_sender(
-    mut socket: RelayCircuitSink,
+async fn run_batched_relay_sender<S>(
+    mut socket: S,
     mut commands: mpsc::Receiver<RelayCircuitCommand>,
     terminal: watch::Sender<Option<LinkError>>,
-) {
+) where
+    S: Sink<Message, Error = WebSocketError> + Unpin,
+{
     let mut deferred = None;
     let mut last_send_finished: Option<Instant> = None;
     let mut burst_sends = 0_usize;
@@ -1079,6 +1035,10 @@ impl LinkGroup for RelayLinkGroup {
         // The allocation deadline is the first connect's; a resume (a later
         // generation) waits `control_timeout` as any reconnect does.
         let wait_until = self.allocation_deadline.filter(|_| request.generation == 0);
+        let join_wait = self
+            .peer_join_wait
+            .filter(|_| request.generation == 0)
+            .unwrap_or(self.config.control_timeout);
         let allocation = {
             let mut stored_control = self.control.lock().await;
             if self.closed.load(Ordering::Acquire) {
@@ -1086,7 +1046,9 @@ impl LinkGroup for RelayLinkGroup {
             }
             let mut control = match stored_control.take() {
                 Some(control) => control,
-                None => connect_provider_control(&self.endpoint, &self.credentials).await?,
+                None => {
+                    connect_provider_control(&self.endpoint, &self.credentials, &self.tls).await?
+                }
             };
             match request_allocation(
                 &mut control,
@@ -1117,7 +1079,7 @@ impl LinkGroup for RelayLinkGroup {
                         ));
                     }
                     let mut replacement =
-                        connect_provider_control(&self.endpoint, &self.credentials)
+                        connect_provider_control(&self.endpoint, &self.credentials, &self.tls)
                             .await
                             .map_err(|error| relay_reconnect_error(&control_error, error))?;
                     match request_allocation(
@@ -1153,7 +1115,8 @@ impl LinkGroup for RelayLinkGroup {
             request.generation,
             allocation.1,
             self.config.maximum_frame_bytes,
-            self.config.control_timeout,
+            join_wait,
+            &self.tls,
         )
         .await
     }
@@ -1213,6 +1176,7 @@ async fn request_allocation(
             generation,
             // `read_until_allocation` reads past `Parked` to the answer.
             accepts_parked: true,
+            grant: None,
         },
     )
     .await
@@ -1271,6 +1235,7 @@ async fn join_circuit(
     ticket: String,
     maximum_frame_bytes: usize,
     timeout: Duration,
+    tls: &RelayTls,
 ) -> Result<Box<dyn FrameLink>, ProviderError> {
     let circuit_endpoint = relay_circuit_url(endpoint, &circuit)?;
     // The circuit starts with JSON Join/Ready messages before it becomes a
@@ -1280,7 +1245,8 @@ async fn join_circuit(
     // in RelayCircuitLink after the circuit is ready.
     let websocket_message_limit = framing.websocket_message_limit(maximum_frame_bytes);
     let mut socket =
-        connect_relay_socket(&circuit_endpoint, Some(&ticket), websocket_message_limit).await?;
+        connect_relay_socket(&circuit_endpoint, Some(&ticket), websocket_message_limit, tls)
+            .await?;
     send_control(
         &mut socket,
         &RelayControl::Join {
@@ -1381,6 +1347,7 @@ impl fmt::Debug for RelayDaemonConfig {
 pub struct RelayDaemonRegistration {
     shutdown: watch::Sender<bool>,
     task: Option<tokio::task::JoinHandle<()>>,
+    state: watch::Receiver<RegistrationState>,
 }
 
 impl fmt::Debug for RelayDaemonRegistration {
@@ -1416,10 +1383,33 @@ pub async fn register_relay_daemon(
     register_relay_daemon_with_credentials(daemon, config, credentials).await
 }
 
+/// [`register_relay_daemon`] with this TLS trust instead of the platform's roots.
+pub async fn register_relay_daemon_with_tls(
+    daemon: Arc<dyn RelayIncoming>,
+    mut config: RelayDaemonConfig,
+    tls: RelayTls,
+) -> Result<RelayDaemonRegistration, ProviderError> {
+    if let Err(error) = config.validate_common() {
+        config.ticket.zeroize();
+        return Err(error);
+    }
+    let credentials = RelayCredentialSource::static_ticket(std::mem::take(&mut config.ticket))?;
+    register_with_credentials_and_tls(daemon, config, credentials, tls).await
+}
+
 pub async fn register_relay_daemon_with_credentials(
+    daemon: Arc<dyn RelayIncoming>,
+    config: RelayDaemonConfig,
+    credentials: RelayCredentialSource,
+) -> Result<RelayDaemonRegistration, ProviderError> {
+    register_with_credentials_and_tls(daemon, config, credentials, RelayTls::default()).await
+}
+
+async fn register_with_credentials_and_tls(
     daemon: Arc<dyn RelayIncoming>,
     mut config: RelayDaemonConfig,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
 ) -> Result<RelayDaemonRegistration, ProviderError> {
     config.ticket.zeroize();
     config.validate_common()?;
@@ -1427,20 +1417,23 @@ pub async fn register_relay_daemon_with_credentials(
     let endpoint = relay_websocket_url(&config.endpoint, &config.slot, RelayRole::Daemon)?;
     let config = RelayDaemonConfig { endpoint, ..config };
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (state_tx, state) = watch::channel(RegistrationState::Registering);
     let (ready_tx, ready_rx) = oneshot::channel();
     let task = tokio::spawn(run_registration_loop(
         daemon,
         config,
         framing,
         credentials,
+        tls,
         shutdown_rx,
         Some(ready_tx),
         None,
+        state_tx,
     ));
     ready_rx.await.map_err(|_| {
         ProviderError::Transport("relay registration stopped before ready".into())
     })??;
-    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) })
+    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task), state })
 }
 
 /// Register on a relay in the background and return at once.
@@ -1449,11 +1442,15 @@ pub async fn register_relay_daemon_with_credentials(
 /// a credential source that fails (a ticket command that exits non-zero or
 /// hangs past its timeout) or a relay that refuses is retried until
 /// [`RelayDaemonRegistration::shutdown`] or drop. Each failed attempt is
-/// written to stderr once, prefixed by `log_label`, with its reason. The
+/// written to stderr once, prefixed by `log_label`, with its reason, and
+/// the registration's [`RelayDaemonRegistration::state`] says what the last
+/// attempt met (`CredentialUnavailable` for a ticket mint that is down). The
 /// wait between attempts is jittered and capped: 5 s after a relay failure,
 /// 60 s after a credential source failure. A resume (`relay_liveness.rs`)
 /// ends a registration from before the pause or a wait at once and
-/// registers again with no wait. Only an invalid configuration is
+/// registers again with no wait. A ticket that expires is renewed before it
+/// does, on a second control socket that replaces the first, and joined
+/// circuits outlive their control socket. Only an invalid configuration is
 /// an error here. A daemon uses this so that its local services start and
 /// stay up while the relay route is unavailable.
 pub fn spawn_relay_daemon_registration(
@@ -1469,26 +1466,67 @@ pub fn spawn_relay_daemon_registration(
     let endpoint = relay_websocket_url(&config.endpoint, &config.slot, RelayRole::Daemon)?;
     let config = RelayDaemonConfig { endpoint, ..config };
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (state_tx, state) = watch::channel(RegistrationState::Registering);
     let task = tokio::spawn(run_registration_loop(
         daemon,
         config,
         framing,
         credentials,
+        RelayTls::default(),
         shutdown_rx,
         None,
         Some(format!("{log_label}: relay registration on {route}")),
+        state_tx,
     ));
-    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) })
+    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task), state })
 }
 
+/// The registration's joined circuits belong to the registration, not to one
+/// control socket: each is its own relay socket, which the relay keeps open
+/// when the control socket closes, so a live session outlives a dropped or
+/// renewed registration. They end at shutdown, or after a pause the
+/// registration did not survive (their sockets died with it).
+#[allow(clippy::too_many_arguments)]
 async fn run_registration_loop(
     daemon: Arc<dyn RelayIncoming>,
     config: RelayDaemonConfig,
     framing: RelayCircuitFraming,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
+    shutdown: watch::Receiver<bool>,
+    first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
+    log: Option<String>,
+    state: watch::Sender<RegistrationState>,
+) {
+    let mut circuits = IncomingCircuitTasks::new(MAX_RELAY_INCOMING_TASKS);
+    run_registration_attempts(
+        daemon,
+        config,
+        framing,
+        credentials,
+        tls,
+        shutdown,
+        first_ready,
+        log,
+        &mut circuits,
+        &state,
+    )
+    .await;
+    circuits.shutdown().await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_registration_attempts(
+    daemon: Arc<dyn RelayIncoming>,
+    config: RelayDaemonConfig,
+    framing: RelayCircuitFraming,
+    credentials: RelayCredentialSource,
+    tls: RelayTls,
     mut shutdown: watch::Receiver<bool>,
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
     log: Option<String>,
+    circuits: &mut IncomingCircuitTasks,
+    state: &watch::Sender<RegistrationState>,
 ) {
     let mut retry = Retry::new();
     let mut log = RegisterLog::new(log, Instant::now());
@@ -1505,10 +1543,13 @@ async fn run_registration_loop(
             &config,
             framing,
             &credentials,
+            &tls,
             &mut shutdown,
             &mut first_ready,
+            circuits,
             &mut attempt,
             &log,
+            state,
         )
         .await;
         // A registration that got ready and later died (a pause, a relay
@@ -1516,6 +1557,20 @@ async fn run_registration_loop(
         if attempt.registered {
             retry.ready();
             log.dropped(Instant::now());
+        }
+        // What the attempt met, while the next one waits. A credential source
+        // that fails (the ticket mint is down, or did not answer in its
+        // bound) is a named state, not only a stderr line.
+        state.send_replace(match &result {
+            Ok(()) => RegistrationState::Registering,
+            Err(error) if is_credential_source_error(error) => {
+                RegistrationState::CredentialUnavailable { error: error.to_string() }
+            }
+            Err(error) => RegistrationState::RelayUnavailable { error: error.to_string() },
+        });
+        // A pause the registration did not survive outlived its circuits too.
+        if attempt.resumed {
+            circuits.shutdown().await;
         }
         let credential_failure = result.as_ref().is_err_and(is_credential_source_error);
         if first_ready.is_some()
@@ -1545,7 +1600,7 @@ async fn run_registration_loop(
                 wait.as_millis()
             );
         }
-        match back_off(&mut retry, wait, &mut shutdown, std::time::SystemTime::now).await {
+        match back_off(&mut retry, wait, &mut shutdown, wall_now).await {
             Waited::Elapsed => {}
             Waited::Resumed => {
                 if let Some(label) = &log.label {
@@ -1570,7 +1625,8 @@ struct Attempt {
 #[derive(Debug, PartialEq, Eq)]
 enum Waited {
     Elapsed,
-    /// The wall clock jumped past the monotonic one: the machine resumed.
+    /// The machine resumed: the wall clock jumped past the monotonic one, or
+    /// the monotonic clock moved past the relay's retirement between two looks.
     Resumed,
     Shutdown,
 }
@@ -1620,7 +1676,11 @@ async fn wait_unless_resumed(
             }
             _ = interval.tick() => false,
         };
-        if clocks.jump(Instant::now(), wall()) > CLOCK_JUMP {
+        // A wall-clock step past the monotonic one, or a monotonic gap past
+        // the relay's retirement between two looks a second apart (a pause
+        // where every guest clock kept running).
+        let look = clocks.look(Instant::now(), wall());
+        if look.wall_ahead > CLOCK_JUMP || look.outlived_relay() {
             return Waited::Resumed;
         }
         if elapsed {
@@ -1682,14 +1742,17 @@ async fn run_registration_once(
     config: &RelayDaemonConfig,
     framing: RelayCircuitFraming,
     credentials: &RelayCredentialSource,
+    tls: &RelayTls,
     shutdown: &mut watch::Receiver<bool>,
     first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
+    circuits: &mut IncomingCircuitTasks,
     attempt: &mut Attempt,
     log: &RegisterLog,
+    state: &watch::Sender<RegistrationState>,
 ) -> Result<(), ProviderError> {
-    let authentication = authenticate_daemon_control(config, credentials);
+    let authentication = authenticate_daemon_control(config, credentials, tls);
     tokio::pin!(authentication);
-    let (mut socket, lease_seconds) = tokio::select! {
+    let control = tokio::select! {
         result = &mut authentication => result?,
         changed = shutdown.changed() => {
             if changed.is_err() || *shutdown.borrow() {
@@ -1698,100 +1761,231 @@ async fn run_registration_once(
             authentication.await?
         }
     };
-    let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
     attempt.registered = true;
+    state.send_replace(RegistrationState::Registered);
     if let Some(line) = log.registered_line(&config.slot, Instant::now()) {
         eprintln!("{line}");
     }
     if let Some(sender) = first_ready.take() {
         let _ = sender.send(Ok(()));
     }
+    let mut socket = control.socket;
     // Checked every second (relay_liveness.rs): a ping unanswered for 3 s,
-    // or a resume's wall-clock jump, finds a dead registration in seconds.
-    let mut liveness = Liveness::new(heartbeat, Instant::now(), std::time::SystemTime::now());
+    // or a resume (a wall-clock jump, or a monotonic gap past the relay's
+    // 45 s between two checks), finds a dead registration in seconds.
+    let mut liveness = registration_liveness(control.lease_seconds);
+    let mut renew_at = control.renew_at;
+    // Make-before-break: before the ticket expires a second control socket
+    // registers with a fresh one. Every relay takes a Register on the slot as
+    // the current registration and retires the one it replaced, so dials go to
+    // the new socket from that moment; Incomings already sent on the old one
+    // are still read until the relay closes it (`retiring`).
+    let mut renewal: Option<Renewal<'_>> = None;
+    let mut retiring: Option<RelaySocket> = None;
+    let mut retire_until = Instant::now();
     let mut interval = tokio::time::interval(CHECK_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut nonce = 0_u64;
-    let mut incoming_tasks = IncomingCircuitTasks::new(MAX_RELAY_INCOMING_TASKS);
-    let result = loop {
-        tokio::select! {
-            _ = incoming_tasks.join_next(), if !incoming_tasks.is_empty() => {}
+    let far = || Instant::now() + Duration::from_secs(86_400);
+    loop {
+        let message = tokio::select! {
+            _ = circuits.join_next(), if !circuits.is_empty() => continue,
             changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() { break Ok(()) }
+                if changed.is_err() || *shutdown.borrow() { return Ok(()) }
+                continue;
+            }
+            _ = tokio::time::sleep_until(renew_at.unwrap_or_else(far)),
+                if renew_at.is_some() && renewal.is_none() =>
+            {
+                renew_at = None;
+                renewal = Some(Box::pin(authenticate_daemon_control(config, credentials, tls)));
+                continue;
+            }
+            renewed = poll_some(renewal.as_mut()) => {
+                renewal = None;
+                match renewed {
+                    Ok(control) => {
+                        let old = std::mem::replace(&mut socket, control.socket);
+                        retiring = Some(old);
+                        retire_until = Instant::now() + config.control_timeout;
+                        liveness = registration_liveness(control.lease_seconds);
+                        renew_at = control.renew_at;
+                    }
+                    Err(error) => {
+                        if let Some(label) = &log.label {
+                            eprintln!(
+                                "{label}: renewing the registration failed, retrying in {} ms: \
+                                 {error}",
+                                RENEWAL_RETRY.as_millis()
+                            );
+                        }
+                        renew_at = Some(Instant::now() + RENEWAL_RETRY);
+                    }
+                }
+                continue;
+            }
+            message = read_some(retiring.as_mut()) => {
+                match message {
+                    Ok(RelayControl::Incoming { circuit, lane, generation, join_ticket }) => {
+                        spawn_incoming(
+                            circuits, &daemon, config, framing, tls, circuit, lane, generation,
+                            join_ticket,
+                        );
+                    }
+                    Ok(_) => {}
+                    // Replaced: the relay closed it (after an Error), or it failed.
+                    Err(_) => retiring = None,
+                }
+                continue;
+            }
+            _ = tokio::time::sleep_until(retire_until), if retiring.is_some() =>
+            {
+                retiring = None;
+                continue;
             }
             _ = interval.tick() => {
-                match liveness.check(Instant::now(), std::time::SystemTime::now()) {
-                    Check::Idle => {}
+                match liveness.check(Instant::now(), wall_now()) {
+                    Check::Idle => continue,
                     Check::Ping => {
                         nonce = nonce.wrapping_add(1);
-                        if let Err(error) =
-                            send_control(&mut socket, &RelayControl::Ping { nonce }).await
-                        {
-                            break Err(error);
+                        match send_control(&mut socket, &RelayControl::Ping { nonce }).await {
+                            Ok(()) => continue,
+                            Err(error) => Err(error),
                         }
                     }
                     Check::Dead => {
-                        break Err(ProviderError::Transport(
+                        Err(ProviderError::Transport(
                             "relay registration stopped answering".into(),
-                        ));
+                        ))
                     }
                     Check::Resumed => {
                         attempt.resumed = true;
-                        break Err(ProviderError::Transport(
+                        return Err(ProviderError::Transport(
                             "relay registration did not survive a pause".into(),
                         ));
                     }
                 }
             }
-            message = read_control(&mut socket) => {
-                let message = match message {
-                    Ok(message) => message,
-                    Err(error) => break Err(error),
-                };
+            message = read_control(&mut socket) => message,
+        };
+        let failure = match message {
+            Ok(message) => {
                 liveness.on_inbound();
                 match message {
                     RelayControl::Incoming { circuit, lane, generation, join_ticket } => {
-                        let daemon = daemon.clone();
-                        let endpoint = config.endpoint.clone();
-                        let slot = config.slot.clone();
-                        let maximum = config.maximum_frame_bytes;
-                        let timeout = config.control_timeout;
-                        let task_circuit = circuit.clone();
-                        incoming_tasks.try_spawn(circuit, async move {
-                            if let Ok(link) = join_circuit(
-                                &endpoint,
-                                &slot,
-                                RelayRole::Daemon,
-                                framing,
-                                task_circuit,
-                                lane,
-                                generation,
-                                join_ticket,
-                                maximum,
-                                timeout,
-                            ).await {
-                                daemon.incoming(link).await;
-                            }
-                        });
+                        spawn_incoming(
+                            circuits,
+                            &daemon,
+                            config,
+                            framing,
+                            tls,
+                            circuit,
+                            lane,
+                            generation,
+                            join_ticket,
+                        );
+                        continue;
                     }
                     RelayControl::Ping { nonce } => {
                         send_control(&mut socket, &RelayControl::Pong { nonce }).await?;
+                        continue;
                     }
-                    RelayControl::Pong { .. } => {}
-                    RelayControl::Error { code, retryable, .. } => {
-                        break Err(relay_operation_rejection(
-                            &code,
-                            retryable,
-                            "relay registration is temporarily unavailable",
-                        ));
-                    }
-                    _ => {}
+                    RelayControl::Error { code, retryable, .. } => relay_operation_rejection(
+                        &code,
+                        retryable,
+                        "relay registration is temporarily unavailable",
+                    ),
+                    _ => continue,
                 }
             }
+            Err(error) => error,
+        };
+        // The current socket ended (the relay saw the renewal's Register before
+        // this socket's last read, or its ticket ran out) while a renewal is in
+        // flight: the renewal decides, and the registration continues on it.
+        let Some(pending) = renewal.take() else {
+            return Err(failure);
+        };
+        let renewed = tokio::select! {
+            renewed = pending => renewed,
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() {
+                    return Ok(());
+                }
+                return Err(failure);
+            }
+        };
+        let Ok(control) = renewed else {
+            return Err(failure);
+        };
+        socket = control.socket;
+        liveness = registration_liveness(control.lease_seconds);
+        renew_at = control.renew_at;
+    }
+}
+
+fn registration_liveness(lease_seconds: u32) -> Liveness {
+    let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
+    Liveness::new(heartbeat, Instant::now(), wall_now())
+}
+
+/// Polls `future` when there is one, else never completes (a `select!`
+/// branch's future is built even while its branch is off).
+async fn poll_some<F: Future + Unpin>(future: Option<&mut F>) -> F::Output {
+    match future {
+        Some(future) => future.await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Reads `socket`'s next control message when there is a socket, else never.
+async fn read_some(socket: Option<&mut RelaySocket>) -> Result<RelayControl, ProviderError> {
+    match socket {
+        Some(socket) => read_control(socket).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Joins the circuit an `Incoming` names and hands it to `daemon`, unless the
+/// circuit is already joined or the registration holds its most circuits.
+#[allow(clippy::too_many_arguments)]
+fn spawn_incoming(
+    circuits: &mut IncomingCircuitTasks,
+    daemon: &Arc<dyn RelayIncoming>,
+    config: &RelayDaemonConfig,
+    framing: RelayCircuitFraming,
+    tls: &RelayTls,
+    circuit: CircuitId,
+    lane: LaneToken,
+    generation: u64,
+    join_ticket: String,
+) {
+    let daemon = daemon.clone();
+    let endpoint = config.endpoint.clone();
+    let slot = config.slot.clone();
+    let maximum = config.maximum_frame_bytes;
+    let timeout = config.control_timeout;
+    let tls = tls.clone();
+    let task_circuit = circuit.clone();
+    circuits.try_spawn(circuit, async move {
+        if let Ok(link) = join_circuit(
+            &endpoint,
+            &slot,
+            RelayRole::Daemon,
+            framing,
+            task_circuit,
+            lane,
+            generation,
+            join_ticket,
+            maximum,
+            timeout,
+            &tls,
+        )
+        .await
+        {
+            daemon.incoming(link).await;
         }
-    };
-    incoming_tasks.shutdown().await;
-    result
+    });
 }
 
 struct IncomingCircuitTasks {
@@ -1846,17 +2040,56 @@ impl IncomingCircuitTasks {
     }
 }
 
+/// A second control socket's authentication, in flight while the first serves.
+type Renewal<'a> = Pin<Box<dyn Future<Output = Result<DaemonControl, ProviderError>> + Send + 'a>>;
+
+/// A daemon control socket the relay answered `Registered` on.
+struct DaemonControl {
+    socket: RelaySocket,
+    lease_seconds: u32,
+    /// When to register again with a fresh ticket, before this one expires:
+    /// [`RENEW_AT_LIFETIME_FRACTION`] of the ticket's lifetime after it was
+    /// fetched (on this machine's monotonic clock, so a skewed wall clock does
+    /// not move it). None when the source cannot give a new ticket or the
+    /// ticket's lifetime is not readable: such a registration lasts as before.
+    renew_at: Option<Instant>,
+}
+
+/// A registration renews when this share of its ticket's lifetime has passed
+/// (200 s of a platform ticket's 300 s), which leaves a third of it for a
+/// renewal that fails to be retried before the relay ends the registration.
+const RENEW_AT_LIFETIME_FRACTION: (u32, u32) = (2, 3);
+/// The wait before trying a failed renewal again.
+const RENEWAL_RETRY: Duration = Duration::from_secs(5);
+
+fn renewal_time(
+    credentials: &RelayCredentialSource,
+    credential: &RelayCredential,
+    fetched_at: Instant,
+) -> Option<Instant> {
+    if !credentials.renews() {
+        return None;
+    }
+    let (numerator, denominator) = RENEW_AT_LIFETIME_FRACTION;
+    let lifetime = credential.lifetime()?;
+    Some(fetched_at + lifetime * numerator / denominator)
+}
+
 async fn authenticate_daemon_control(
     config: &RelayDaemonConfig,
     credentials: &RelayCredentialSource,
-) -> Result<(RelaySocket, u32), ProviderError> {
+    tls: &RelayTls,
+) -> Result<DaemonControl, ProviderError> {
     let mut retried_authentication = false;
     loop {
+        let fetched_at = Instant::now();
         let credential = credentials.fetch().await?;
+        let renew_at = renewal_time(credentials, &credential, fetched_at);
         let mut socket = match connect_relay_socket_once(
             &config.endpoint,
             Some(&credential),
             MAX_RELAY_CONTROL_MESSAGE_BYTES,
+            tls,
         )
         .await
         {
@@ -1880,7 +2113,9 @@ async fn authenticate_daemon_control(
             .await
             .map_err(|_| relay_carrier_error("relay registration timed out"))??;
         match reply {
-            RelayControl::Registered { lease_seconds } => return Ok((socket, lease_seconds)),
+            RelayControl::Registered { lease_seconds } => {
+                return Ok(DaemonControl { socket, lease_seconds, renew_at });
+            }
             RelayControl::Error { code, .. }
                 if relay_authentication_error(&code) && !retried_authentication =>
             {
@@ -1905,6 +2140,7 @@ async fn authenticate_daemon_control(
 async fn connect_provider_control(
     endpoint: &Url,
     credentials: &RelayCredentialSource,
+    tls: &RelayTls,
 ) -> Result<RelaySocket, ProviderError> {
     let mut retried_authentication = false;
     loop {
@@ -1913,6 +2149,7 @@ async fn connect_provider_control(
             endpoint,
             Some(&credential),
             MAX_RELAY_CONTROL_MESSAGE_BYTES,
+            tls,
         )
         .await
         {
@@ -1945,10 +2182,11 @@ async fn connect_relay_socket(
     endpoint: &Url,
     authorization: Option<&str>,
     maximum_message_bytes: usize,
+    tls: &RelayTls,
 ) -> Result<RelaySocket, ProviderError> {
     let credential =
         authorization.map(|ticket| RelayCredential::parse(ticket.to_owned())).transpose()?;
-    connect_relay_socket_once(endpoint, credential.as_ref(), maximum_message_bytes)
+    connect_relay_socket_once(endpoint, credential.as_ref(), maximum_message_bytes, tls)
         .await
         .map_err(RelaySocketConnectError::into_provider_error)
 }
@@ -1957,6 +2195,7 @@ async fn connect_relay_socket_once(
     endpoint: &Url,
     authorization: Option<&RelayCredential>,
     maximum_message_bytes: usize,
+    tls: &RelayTls,
 ) -> Result<RelaySocket, RelaySocketConnectError> {
     let mut request = endpoint.as_str().into_client_request().map_err(|_| {
         RelaySocketConnectError::Provider(ProviderError::Transport(
@@ -1970,7 +2209,20 @@ async fn connect_relay_socket_once(
     let config = WebSocketConfig::default()
         .max_message_size(Some(maximum_message_bytes))
         .max_frame_size(Some(maximum_message_bytes));
-    match connect_async_with_config(request, Some(config), true).await {
+    let opened = tokio::time::timeout(RELAY_CONNECT_TIMEOUT, async {
+        // The TCP connect is hedged (`hedge`): a relay host's black-holed SYN gets a new socket
+        // in 400 ms instead of this whole budget. TLS and the upgrade run on the winner.
+        let socket = connect_relay_tcp(endpoint).await?;
+        client_async_tls_with_config(request, socket, Some(config), tls.connector()).await
+    })
+    .await
+    .map_err(|_| {
+        RelaySocketConnectError::Provider(ProviderError::Link(LinkError::Transport(format!(
+            "relay WebSocket connection failed: no answer within {} ms",
+            RELAY_CONNECT_TIMEOUT.as_millis()
+        ))))
+    })?;
+    match opened {
         Ok((socket, _)) => Ok(socket),
         Err(tokio_tungstenite::tungstenite::Error::Http(response))
             if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) =>
@@ -1979,6 +2231,23 @@ async fn connect_relay_socket_once(
         }
         Err(error) => Err(RelaySocketConnectError::Provider(relay_connect_error(error))),
     }
+}
+
+/// The relay endpoint's TCP stream, hedged over its addresses ([`super::hedge`]), Nagle off.
+async fn connect_relay_tcp(endpoint: &Url) -> Result<TcpStream, WebSocketError> {
+    let host = endpoint.host_str().ok_or(WebSocketError::Url(UrlError::NoHostName))?;
+    let port = endpoint
+        .port_or_known_default()
+        .ok_or(WebSocketError::Url(UrlError::UnsupportedUrlScheme))?;
+    let addresses = super::dial::resolve_dial_target(host, port)
+        .await
+        .map_err(|error| WebSocketError::Io(std::io::Error::other(error.to_string())))?;
+    let socket =
+        super::hedge::connect(&addresses, super::hedge::HedgePolicy::INTERNET, TcpStream::connect)
+            .await
+            .map_err(WebSocketError::Io)?;
+    let _ = socket.set_nodelay(true);
+    Ok(socket)
 }
 
 fn relay_connect_error(error: WebSocketError) -> ProviderError {
@@ -2044,9 +2313,22 @@ fn relay_reconnect_error(
     }
 }
 
+/// The relay's code for a slot whose daemon's ticket ran out with no renewal: the machine's
+/// relay credential is unavailable (its mint is down or stalled).
+const RELAY_CREDENTIAL_UNAVAILABLE: &str = "credential-unavailable";
+
 /// A retryable refusal, naming the relay's error code: a short word the
-/// relay sets (`slot-busy`), kept only when it looks like one.
+/// relay sets (`slot-busy`), kept only when it looks like one. A lapsed
+/// registration (`credential-unavailable`) leads with that reason, the words a
+/// link's offline reason is read from (acpmux `peer_carrier::reason`), so the
+/// dial says why the machine is offline instead of reading as still connecting.
 fn relay_unavailable(message: &str, code: &str) -> ProviderError {
+    if code == RELAY_CREDENTIAL_UNAVAILABLE {
+        return relay_carrier_error(format!(
+            "{RELAY_CREDENTIAL_UNAVAILABLE}: the machine's relay ticket expired and was not \
+             renewed (relay code {RELAY_CREDENTIAL_UNAVAILABLE})"
+        ));
+    }
     let word = code.len() <= 32
         && !code.is_empty()
         && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
@@ -2194,6 +2476,9 @@ fn random_capability() -> Result<String, ProviderError> {
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
+#[cfg(test)]
+#[path = "relay_registration_state_tests.rs"]
+mod registration_state_tests;
 #[cfg(test)]
 #[path = "relay_tests.rs"]
 mod tests;

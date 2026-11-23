@@ -15,6 +15,7 @@ import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
 import { backgroundTasksLook } from "./backgroundTasksLook.experiment";
 import { BACKGROUND_PANE } from "./backgroundPane";
+import { RUNNING_TRAY_LIST_LINE } from "../subagents/subagentSelectors";
 
 const fence = (lang: string, code: string) => "```" + lang + "\n" + code + "\n```";
 
@@ -199,9 +200,12 @@ const drill = async (ctx: PlayContext) => {
     throw new Error("the transcript draws on the click, from the snapshot");
   ctx.document.documentElement.dataset.bgDrillMs = String(Math.round((performance.now() - started) * 10) / 10);
 };
+/// Opens the folded Finished heading. Its own head, by its section: a button named /finished/ is
+/// also the panel's Clear finished, which took the finished agents away instead of showing them.
 const finishedOpen = async (ctx: PlayContext) => {
   await openPanel(ctx);
-  await ctx.click({ role: "button", name: /finished/ });
+  await ctx.click({ selector: '.acpmux-bg__section[data-section="finished"] .acpmux-bg__section-head' });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-bg__section[data-section="finished"] .acpmux-bg__group'));
 };
 
 export default agentPaneEntry({
@@ -231,7 +235,7 @@ export default agentPaneEntry({
         // A headed tray starts folded (cmux#28875): open it, as the person does.
         if (ctx.document.querySelector('.acpmux-running-tray__head[aria-expanded="false"]'))
           await ctx.click({ selector: ".acpmux-running-tray__head" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
+        await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LIST_LINE));
       },
     },
     docked: {
@@ -269,7 +273,8 @@ export default agentPaneEntry({
       note: "A finished agent opened from Finished: its transcript in place, with the back chevron to the list.",
       snapshot: snapshot(false),
       play: async (ctx) => {
-        await openPanel(ctx);
+        // Finished starts folded: open it, then the agent in it.
+        await finishedOpen(ctx);
         await ctx.click({ selector: `.acpmux-bg__group[data-group="agent:${AUDIT.id}"] .acpmux-bg__name` });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-bg__transcript [data-row-id]"));
       },

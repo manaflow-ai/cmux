@@ -7,7 +7,7 @@ import { watchedApp } from "./watchBannerModel";
 /// Continue in New Chat forks a Claude Code session into a new chat, and New Chat Here starts a
 /// Codex chat in its folder (a Codex session cannot be forked while another app runs it). It drops in
 /// from the top of the chat (ui/popupSurface.css `data-enter`).
-/// `bridged`: a Claude desktop session acpmux delivers replies into (`bridgedWatch`), so the hint
+/// `bridged`: a Claude or Codex desktop session acpmux delivers replies into (`bridgedWatch`), so the hint
 /// says where a reply goes instead of that it takes the session over.
 export function WatchBanner({
   family,

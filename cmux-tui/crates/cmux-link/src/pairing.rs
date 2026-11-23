@@ -57,6 +57,16 @@ impl PairingRecord {
 }
 
 /// Every paired peer, unique by install and by key.
+/// The held write lock of a pairing file ([`Pairings::lock`]); dropped, it is free.
+#[derive(Debug)]
+pub struct PairingsLock(std::fs::File);
+
+impl Drop for PairingsLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Pairings {
@@ -82,7 +92,48 @@ impl Pairings {
         Ok(pairings)
     }
 
-    /// Write the file at `path` with mode 0600, replacing it atomically.
+    /// Hold the pairing file's write lock: `flock` on `.<file>.lock` next to
+    /// it, shared by every process. Every read, change and save of the file
+    /// runs under it ([`Pairings::update`]), as does moving the file aside.
+    pub fn lock(path: &Path) -> io::Result<PairingsLock> {
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the pairing file has no name")
+        })?;
+        // Hidden, and outside the names install archives take (`peers.<install>.json`).
+        let mut lock_name = std::ffi::OsString::from(".");
+        lock_name.push(name);
+        lock_name.push(".lock");
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = options.open(path.with_file_name(lock_name))?;
+        file.lock()?;
+        Ok(PairingsLock(file))
+    }
+
+    /// Read the file at `path`, apply `change`, save it, all under
+    /// [`Pairings::lock`]: two writers never save over each other, in one
+    /// process or two. Nothing is saved when `change` fails.
+    pub fn update<T>(
+        path: &Path,
+        change: impl FnOnce(&mut Self) -> io::Result<T>,
+    ) -> io::Result<T> {
+        let _lock = Self::lock(path)?;
+        let mut pairings = Self::load(path)?;
+        let out = change(&mut pairings)?;
+        pairings.save(path)?;
+        Ok(out)
+    }
+
+    /// Write the file at `path` with mode 0600, replacing it atomically and
+    /// durably: the synced temporary file is renamed into place and then the
+    /// directory is synced, so once this returns the new file survives a
+    /// crash. A rekey is acknowledged on that (the peer then deletes its old
+    /// key), so a rename still only in the page cache is not enough.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let text = serde_json::to_string_pretty(self)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -92,7 +143,8 @@ impl Pairings {
         if result.is_err() {
             let _ = std::fs::remove_file(&temporary);
         }
-        result
+        result?;
+        sync_parent(path)
     }
 
     /// Add `record`, replacing a record with the same install or key.
@@ -104,6 +156,45 @@ impl Pairings {
         self.peers.retain(|existing| existing.install != record.install && existing.key() != key);
         self.peers.push(record);
         Ok(())
+    }
+
+    /// Move `install`'s record to `public_key`: its link adopted this machine's node key and
+    /// said so over its old key's session. Refused when `install` has no record or another
+    /// install's record holds the key (a peer never takes over another's pairing); false when
+    /// the record already holds it.
+    /// [`Pairings::rekey`] of `from`'s install, only while its stored record
+    /// is still the one that authenticated the request: the same key
+    /// (`from_key`) and the same identity (`from`). A record that `link peer
+    /// add` replaced or removed meanwhile is never written over.
+    pub fn rekey_from(
+        &mut self,
+        from: &LinkPeer,
+        from_key: &[u8; 32],
+        public_key: &[u8; 32],
+    ) -> io::Result<bool> {
+        let current = self
+            .by_install(&from.install)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not_paired"))?;
+        if current.key().as_ref() != Some(from_key) || current.peer() != *from {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "pairing_changed"));
+        }
+        self.rekey(&from.install, public_key)
+    }
+
+    pub fn rekey(&mut self, install: &str, public_key: &[u8; 32]) -> io::Result<bool> {
+        if self.by_key(public_key).is_some_and(|record| record.install != install) {
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, "key_in_use"));
+        }
+        let record = self
+            .peers
+            .iter_mut()
+            .find(|record| record.install == install)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not_paired"))?;
+        if record.key().as_ref() == Some(public_key) {
+            return Ok(false);
+        }
+        record.public_key = STANDARD.encode(public_key);
+        Ok(true)
     }
 
     /// Remove the record of `install`; true when one existed.
@@ -130,6 +221,21 @@ fn unique_temporary(path: &Path) -> std::path::PathBuf {
     let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
     let serial = NEXT.fetch_add(1, Ordering::Relaxed);
     path.with_file_name(format!(".{name}.{}.{serial}.tmp", std::process::id()))
+}
+
+/// Sync the directory holding `path`, so a rename or removal in it survives a crash.
+#[cfg(unix)]
+fn sync_parent(path: &Path) -> io::Result<()> {
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
+    std::fs::File::open(dir)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_path: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -190,5 +296,45 @@ mod tests {
         short.public_key = STANDARD.encode([1u8; 16]);
         assert!(pairings.upsert(short).is_err());
         assert!(pairings.upsert(record("../a", 1)).is_err());
+    }
+
+    #[test]
+    fn a_rekey_moves_only_its_own_record_and_never_takes_another_key() {
+        let mut pairings = Pairings::default();
+        pairings.upsert(record("inst_a", 1)).unwrap();
+        pairings.upsert(record("inst_b", 2)).unwrap();
+        assert!(pairings.rekey("inst_a", &[3; 32]).unwrap());
+        assert_eq!(pairings.by_install("inst_a").unwrap().key(), Some([3; 32]));
+        assert!(!pairings.rekey("inst_a", &[3; 32]).unwrap(), "already on that key");
+        let taken = pairings.rekey("inst_a", &[2; 32]).unwrap_err();
+        assert_eq!(taken.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(pairings.by_install("inst_b").unwrap().key(), Some([2; 32]));
+        assert_eq!(pairings.rekey("inst_c", &[4; 32]).unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
+
+    /// A save is durable only once its directory is synced: when the directory
+    /// cannot be opened to sync it, the save reports failure even though the
+    /// rename happened, so nothing is acknowledged on a rename a crash could undo.
+    #[cfg(unix)]
+    #[test]
+    fn a_save_whose_directory_cannot_be_synced_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        // SAFETY: geteuid has no preconditions.
+        if unsafe { libc::geteuid() } == 0 {
+            return; // root opens any directory; the failure cannot be staged.
+        }
+        let directory = cmux_unix_socket::short_test_dir("pairsync");
+        let dir = directory.path().join("d");
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("peers.json");
+        let mut pairings = Pairings::default();
+        pairings.upsert(record("inst_a", 1)).unwrap();
+        pairings.save(&path).unwrap();
+        // Writable and searchable, not readable: create and rename work, opening it does not.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o300)).unwrap();
+        pairings.upsert(record("inst_b", 2)).unwrap();
+        let saved = pairings.save(&path);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(saved.map_err(|error| error.kind()), Err(io::ErrorKind::PermissionDenied));
     }
 }

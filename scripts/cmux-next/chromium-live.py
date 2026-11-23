@@ -54,6 +54,8 @@ import signal
 import subprocess
 import sys
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 FRAMEWORK_REL = Path("Contents/Frameworks/Chromium Embedded Framework.framework")
 BINARY_NAME = "Chromium Embedded Framework"
@@ -574,11 +576,11 @@ def stop_locked(state: Path) -> int:
     if cfg_path.is_file():
         cfg = json.loads(cfg_path.read_text())
         n = Builder(cfg, state).restore()
-        print(f"Stopped. Put back {n} file(s) in the build host's tree; the app keeps the last build "
-              "until it restarts.")
+        safe_print(f"Stopped. Put back {n} file(s) in the build host's tree; the app keeps the last build "
+                   "until it restarts.")
         cfg_path.unlink()
     else:
-        print("Not watching.")
+        safe_print("Not watching.")
     return 0
 
 

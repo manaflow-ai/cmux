@@ -78,17 +78,12 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     }
 
     private func renderEnded() {
-        guard !closed else { return }
-        onEvent?(.ended)
+        guard !closed else { return }; onEvent?(tab.browserEndedForQuit ? .engineStopped : .ended) // quit: no crash
     }
 
-    func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
-        try await tab.devTools(method: method, params: params)
-    }
-
-    func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String {
-        try await tab.devTools(method: method, params: params, timeout: timeout)
-    }
+    func devTools(_ method: String, params: [String: any Sendable]) async throws -> String { try await tab.devTools(method: method, params: params) }
+    func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String { try await tab.devTools(method: method, params: params, timeout: timeout) }
+    func startDevTools(_ method: String, params: [String: any Sendable]) -> @MainActor () async throws -> String { tab.startDevTools(method: method, params: params) }
 
     #if DEBUG || CMUX_BENCH_HOOKS
     func debugPress(at point: NSPoint) -> Bool {
@@ -118,6 +113,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     func load(_ url: URL) { tab.load(url) }
 
     func reload() { tab.reload() }
+    var isUnresponsive: Bool { tab.state.isUnresponsive }
+    func restartRenderer() { if tab.state.isUnresponsive { tab.answerUnresponsivePage(terminate: true) } else { tab.reload() } }
 
     func setZoom(_ zoom: Double) { tab.setZoom(zoom) }
 

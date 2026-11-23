@@ -66,6 +66,9 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             return HomeLinkPreview(kind: .workspace, title: open.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
                                    status: HomeLinkPreviewStrings.open, statusTone: .success,
                                    lines: tabs.prefix(Self.maxLines).map { titles.title($0) })
+        case .cloudSession(_, _, let session, _):
+            // A team Cloud session's record is in cmux Cloud; opening the link reads it (CloudSessionLink).
+            return closed(kind, session)
         case .legacyWorkspace, .legacyPane, .legacySurface: return closed(kind, url.lastPathComponent)
         }
     }
@@ -172,9 +175,9 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
 
 /// The card's own words. Keys live in Resources/Localizable.xcstrings.
 enum HomeLinkPreviewStrings {
-    static var open: String { String(localized: "home.linkPreview.open", defaultValue: "Open", bundle: .module) }
-    static var closed: String { String(localized: "home.linkPreview.closed", defaultValue: "Closed", bundle: .module) }
+    static var open: String { String(localized: "home.linkPreview.open", defaultValue: "Open", bundle: .module.inAppLanguage) }
+    static var closed: String { String(localized: "home.linkPreview.closed", defaultValue: "Closed", bundle: .module.inAppLanguage) }
     static func tabCount(_ count: Int) -> String {
-        String(format: String(localized: "home.linkPreview.tabCount", defaultValue: "Tabs: %lld", bundle: .module), count)
+        String(format: String(localized: "home.linkPreview.tabCount", defaultValue: "Tabs: %lld", bundle: .module.inAppLanguage), count)
     }
 }

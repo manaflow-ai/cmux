@@ -22,6 +22,7 @@ import argparse, base64, functools, glob, http.server, json, os, plistlib, socke
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -190,7 +191,7 @@ app = subprocess.Popen([BINARY], env={
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **({"CMUX_NEXT_NO_ACTIVATE": "1"} if opts.background else {})},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), "app socket", 180)
     if not windows():

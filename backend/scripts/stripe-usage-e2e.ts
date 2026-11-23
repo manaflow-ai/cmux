@@ -4,8 +4,11 @@
 // - "seat" (per seat): the agent's shared e2e team (sign-in service team E2E_STACK_TEAM, cmuxPlan=team) on a
 //   Team plan item with 2 seats; the operator setting per_seat (POST /v1/internal/billing/team-mode) is made
 //   before the subscription starts, so it is in force from the first period; the flat price, 2 x 0.5 USD.
+// The e2e set bills by v2's rules (billing-catalog.ts billsLikeV2): model overage at list + 10%, machine time in the
+// pool, and the default spending cap at twice the pool (Pro: 2 USD), so a run proves what the go turns on.
 // Run on a Freestyle VM, one phase per call, in order: PHASE=a, PHASE=more (repeat until both levels pass
-// their included amounts), PHASE=b, PHASE=c, PHASE=cleanup.
+// their included amounts), PHASE=cap (the personal team runs to its cap: calls and machine starts refused),
+// PHASE=b, PHASE=c, PHASE=cleanup.
 // /root/.wt/secrets.json (written 0600 and shredded by the VM helper): { stripe, levels, project, publishable,
 // email, password }. Nothing here prints a secret; it prints ids and amounts only.
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
@@ -47,6 +50,14 @@ const signIn = async () => {
   return { token: b.access_token as string, stackUser: b.user_id as string }
 }
 const internal = async (path: string, body: unknown) => (await (await fetch(`${ORIGIN}${path}`, { method: "POST", headers: { authorization: `Bearer ${sec.levels}`, "content-type": "application/json" }, body: JSON.stringify(body) })).json()) as any
+const read = async (token: string, op: string) => {
+  const res = await fetch(`${ORIGIN}/v1/read`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ op, params: {} }) })
+  return { status: res.status, body: (await res.json().catch(() => null)) as any }
+}
+const submit = async (token: string, op: string, params: unknown) => {
+  const res = await fetch(`${ORIGIN}/v1/ops`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ op, params, idempotency_key: `usage-e2e-${crypto.randomUUID()}`, origin: "cli" }) })
+  return { status: res.status, body: (await res.json().catch(() => null)) as any }
+}
 const filler = "The quick brown fox jumps over the lazy dog. ".repeat(Number(process.env.E2E_REPEAT ?? "26000"))
 /** One AI call for the personal team, or (team set) for the shared team named in x-cmux-team. */
 const chat = async (token: string, team?: string) => {
@@ -146,6 +157,27 @@ if (phase === "more") {
   for (const side of (process.env.E2E_SIDE ? [process.env.E2E_SIDE as Side] : SIDES)) for (let i = 0; i < n; i++) log(`chat-${side}`, await call(side))
   await syncAndLevel("sync-more")
 }
+if (phase === "cap") {
+  // The personal team (Pro, 1 USD included) spends on to its default cap, 2 x the pool: the sync marks it, the level is
+  // billed (overage x 1.1), and the next call past the cap is refused for the team. Then a machine start is refused
+  // the same way (cmux-platform SpendCap.ts), and the plan read shows the cap and any pending pause.
+  const n = Number(process.env.E2E_CAP_CALLS ?? "40")
+  let refusal: string | null = null
+  for (let i = 0; i < n && refusal === null; i++) {
+    const r = await chat(token)
+    if (r !== 200) refusal = r
+    if (i % 4 === 3) await syncAndLevel("sync-cap")
+  }
+  log("cap_refusal", refusal)
+  log("level_at_cap", { billed_usd: st.team.level.micros / 1e6, cost_usd: st.team.level.cost_micros / 1e6, markup_bp: st.team.level.markup_bp })
+  log("plan_spend_cap", (await read(token, "cloud.plan.get")).body?.value?.spend_cap ?? null)
+  const create = await submit(token, "cloud.machine.create", { name: "usage-e2e-at-cap", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
+  const frame = (create.body?.frames ?? []).find((f: any) => f.t === "result" || f.t === "reject")
+  log("machine_create_at_cap", { status: create.status, t: frame?.t ?? null, code: frame?.code ?? create.body?.code ?? null })
+  // A create that was admitted (not at the cap on the platform's read) is deleted at once: nothing left running.
+  const made = frame?.t === "result" ? frame.value?.machine?.id : null
+  if (made) log("machine_cleanup", (await submit(token, "cloud.machine.delete", { machine: made })).status)
+}
 if (phase === "b") {
   for (const side of SIDES) log(`summary_before_end_${side}`, await settledSummary(side, st[side].level.micros / 1e6))
   const end = Math.min(st.team.end, st.seat.end)
@@ -171,7 +203,9 @@ if (phase === "c") {
     const usageCents = (renewal?.lines.data ?? []).filter((l: any) => /AI usage/i.test(l.description ?? "")).reduce((n: number, l: any) => n + l.amount, 0)
     const usd = st[side].level.micros / 1e6
     const expect = Math.round(Math.max(0, usd - INCLUDED[side]) * 100)
-    checks[side] = { level_usd: usd, included_usd: INCLUDED[side], meter_summary: summary.data.map((x: any) => x.aggregated_value), expected_usage_cents: expect, invoice_usage_cents: usageCents, invoice_total: renewal?.total ?? null, pass: usageCents > 0 && usageCents === expect && renewal?.total === st[side].plan_cents + expect }
+    // The billed level carries the model overage at list + 10%: above the pool it is more than the level at cost.
+    const cost = st[side].level.cost_micros / 1e6
+    checks[side] = { level_usd: usd, cost_usd: cost, markup_bp: st[side].level.markup_bp, marked_up: usd > INCLUDED[side] ? usd > cost : null, included_usd: INCLUDED[side], meter_summary: summary.data.map((x: any) => x.aggregated_value), expected_usage_cents: expect, invoice_usage_cents: usageCents, invoice_total: renewal?.total ?? null, pass: usageCents > 0 && usageCents === expect && renewal?.total === st[side].plan_cents + expect }
   }
   log("check", checks)
 }

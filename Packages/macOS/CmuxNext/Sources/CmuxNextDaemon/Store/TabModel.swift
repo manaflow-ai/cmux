@@ -21,11 +21,9 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalResourceID: ResourceID?
     public internal(set) var kind: TabKind { didSet { refreshUnread() } }
     public internal(set) var name: String?
-    /// The title as the program or page set it, raw (a terminal's OSC 0/2, a page's `<title>`).
-    /// Views show ``displayTitle``; reading this one redraws on every spinner frame.
-    public internal(set) var title: String
-    /// The title's text without a terminal's leading status glyphs (``TerminalTitle``);
-    /// a browser's title as is. Assigned only when the words change.
+    /// The title's text as the daemon split it: a terminal's without its leading status glyphs, a page's as is
+    /// (plans/cmux-next/main-thread-scheduling.md, D2). Assigned only when the words change. There is no raw title
+    /// here: a spinner frame changes nothing the app holds, and the daemon does not send it.
     public internal(set) var titleText: String
     /// What a terminal title's leading glyph said (a spinner: working); nil for none.
     public internal(set) var titleActivity: TerminalTitle.Activity?
@@ -56,6 +54,9 @@ public final class TabModel: Identifiable {
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
     public internal(set) var agent: AgentStatus?
+    /// ``agent``'s state alone, written only when it changes: a reader that needs only the state
+    /// (the backdrop's agent glow) is not told of every hook report's time or prompt.
+    public private(set) var agentState: AgentState?
     /// What the tab's agent is touching now; nil when it is not acting (`agent-presence-v1`).
     public internal(set) var presence: AgentPresence?
     /// Browser page zoom or terminal font scale saved on the tab record;
@@ -320,10 +321,8 @@ public final class TabModel: Identifiable {
         terminalResourceID = s.terminalResourceID
         kind = s.kind
         name = s.name
-        title = s.title
-        let parsed = Self.parsedTitle(s.title, kind: s.kind)
-        titleText = parsed.text
-        titleActivity = parsed.activity
+        titleText = s.title
+        titleActivity = s.titleActivity
         size = s.size
         dead = s.dead
         terminalState = s.terminalState
@@ -348,7 +347,8 @@ public final class TabModel: Identifiable {
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
         if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
-            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue,
+                                             terminalResourceID: s.terminalResourceID?.rawValue)
         }
         #endif
     }
@@ -367,7 +367,7 @@ public final class TabModel: Identifiable {
         if terminalResourceID != s.terminalResourceID { terminalResourceID = s.terminalResourceID }
         if kind != s.kind { kind = s.kind }
         if name != s.name { name = s.name }
-        applyTitle(s.title)
+        applyTitle(s.title, activity: s.titleActivity)
         if size != s.size { size = s.size }
         if dead != s.dead { dead = s.dead }
         if terminalState != s.terminalState { terminalState = s.terminalState }
@@ -389,6 +389,14 @@ public final class TabModel: Identifiable {
         if remote != s.remote { remote = s.remote }
         if conversation != s.conversation { conversation = s.conversation }
         if app != s.app { app = s.app }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // A provisional tab is patched in place when the daemon's real surface
+        // and resource id arrive. Keep the trace's identity aliases current.
+        if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue,
+                                             terminalResourceID: s.terminalResourceID?.rawValue)
+        }
+        #endif
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
@@ -435,27 +443,17 @@ public final class TabModel: Identifiable {
         timer.schedule(after: delay) { @MainActor [weak self] in self?.commandRecheck += 1 }
     }
 
-    /// Point updates from surface events (no full snapshot).
-    func setTitle(_ value: String) {
-        applyTitle(value)
-        snapshot.title = value
+    /// Point updates from surface events (no full snapshot): the text and activity the daemon split.
+    func setTitle(_ text: String, activity: TerminalTitle.Activity?) {
+        applyTitle(text, activity: activity)
+        snapshot.title = text
+        snapshot.titleActivity = activity
     }
 
-    /// Assigns the raw title, and its text and activity only when they changed, so a
-    /// spinner frame invalidates no view that reads ``displayTitle``.
-    private func applyTitle(_ value: String) {
-        if title != value { title = value }
-        let parsed = Self.parsedTitle(value, kind: kind)
-        if titleText != parsed.text { titleText = parsed.text }
-        if titleActivity != parsed.activity { titleActivity = parsed.activity }
-    }
-
-    /// A terminal's title loses its leading status glyphs; a page's stays as the page wrote it.
-    static func parsedTitle(_ raw: String, kind: TabKind) -> TerminalTitle {
-        switch kind {
-        case .pty, .remoteTerminal: TerminalTitle(raw: raw)
-        default: TerminalTitle(text: raw)
-        }
+    /// Assigns the text and the activity, each only when it changed.
+    private func applyTitle(_ text: String, activity: TerminalTitle.Activity?) {
+        if titleText != text { titleText = text }
+        if titleActivity != activity { titleActivity = activity }
     }
 
     func setSize(_ value: CellSize) {
@@ -465,6 +463,7 @@ public final class TabModel: Identifiable {
 
     func setAgent(_ value: AgentStatus?) {
         if agent != value { agent = value }
+        if agentState != value?.state { agentState = value?.state }
     }
 
     func setPresence(_ value: AgentPresence?) {

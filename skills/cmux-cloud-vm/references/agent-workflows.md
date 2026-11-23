@@ -7,7 +7,7 @@ pull, tree, open, fork with flags, `cloud domains`) were removed with the Swift 
 Every recipe below starts a terminal on the machine through the app, then works
 inside the machine with its own `cmux`. To run a one-off command or write a file,
 the app actions `cmux cloud exec` (returns the exit code and output), `cmux cloud file-write`
-and `cmux cloud file-read` also work from the Mac, each with `--target machine:vm-…` ([command reference](commands.md#shell-commands-and-files)).
+and `cmux vm file-read` also work from the Mac, each with `--target machine:vm-…` ([command reference](commands.md#shell-commands-and-files)).
 
 ## 0. Get a terminal on the machine
 
@@ -19,7 +19,7 @@ cmux cloud ssh --target machine:vm-…                       # another terminal 
 
 Creating a machine (`cmux machine new`) asks the person in the app first and
 needs the user's authorization; it answers with the new `machine_id`. Prefer an existing machine and another workspace on it:
-`cmux cloud list-machines --json` lists them (`machine_id`, `target`, `status`), so a
+`cmux vm ls --json` lists them (`machine_id`, `target`, `status`), so a
 setup script checks for its machine before it creates one. Create only on `loaded: true`
 with no match; `loaded: false` means the list is not known yet, so run it again.
 
@@ -52,7 +52,7 @@ credentials. `vm push` and `git bundle` transfer through cmux were removed.
 ```bash
 cmux workspace current run --name tests -- sh -c 'cd work/app && make test'
 cmux terminal list                                      # find the new term_… id
-cmux terminal term_… process wait --timeout-ms 900000   # exits 1 on timeout
+cmux terminal term_… process wait --timeout-ms 900000   # exits 124 (timed_out: true) if it still runs
 cmux terminal term_… output read > test.log             # the full output, not just the screen
 ```
 
@@ -69,8 +69,8 @@ cmux terminal term_… screen read
 cmux terminal term_… keys ctrl+c
 ```
 
-No pane is attached and no Mac focus moves. `screen wait` exits 1 on timeout with its
-result, so branch on it rather than sleeping.
+No pane is attached and no Mac focus moves. `screen wait` exits 124 on timeout with its
+result (`timed_out: true`), so branch on it rather than sleeping.
 
 ## 4. Agents on other machines
 

@@ -1,6 +1,5 @@
 public import CmuxNextApps
 public import CmuxNextDesign
-public import CmuxNextDictation
 
 /// The app-wide objects every agent pane view shares, built once in the composition root and handed to each
 /// ``AgentPaneView`` the agent tabs make, so the app holds one value for them, not one field per object.
@@ -13,25 +12,33 @@ public import CmuxNextDictation
 ///   app sections). Nil (tests): the page has no `cmux.apps.panels.*` ops.
 /// - `actAsMe`: the app's one "Computer use can act as me" grant (``AgentPaneActAsMe``); nil (tests) grants nothing.
 /// - `flickerLog`: the app run's flicker ring file (``AgentPageFlickerLog/forAppRun()``); nil (tests) writes none.
+/// - `focusLoss`: the app's focus log for a page's `focus-lost` events (``AgentPaneView/onPageFocusLost``); nil (tests) records none.
+/// - `newTabText`: the app's one maker and keeper of the JSON text of a New Tab context's shared part
+///   (``AgentPaneNewTabText``): each page's model gets it, so the pages of a held New Tab key cost one make.
+/// - `hostMarks`: the app's host marks (`AppServices.personInput.hostMarks`, ``AgentPaneHostMarks``); nil (tests): a key's mark is never taken back.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
     public let apps: AppsClient?
     public let actAsMe: AgentPaneActAsMe?
     public let flickerLog: AgentPageFlickerLog?
-    /// Another app's use of the microphone, for the composer's outside-dictation mark: one per
-    /// ``AgentPaneShared`` (the app's), listening only while one of its panes' composers has the keyboard.
-    public let microphone: MicrophoneActivity?
+    public let focusLoss: AgentPaneView.PageFocusLoss?
+    public let newTabText: AgentPaneNewTabText
+    public let hostMarks: AgentPaneHostMarks?
 
-    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant and no flicker log.
+    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log, no focus log,
+    /// a New Tab text of this value's own and no host marks.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
-                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, microphone: MicrophoneActivity? = MicrophoneActivity()) {
+                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil,
+                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(), hostMarks: AgentPaneHostMarks? = nil) {
+        self.hostMarks = hostMarks
         self.openPanel = openPanel
         self.eventSources = eventSources
         self.apps = apps
         self.actAsMe = actAsMe
         self.flickerLog = flickerLog
-        self.microphone = microphone
+        self.focusLoss = focusLoss
+        self.newTabText = newTabText
     }
 }
 
@@ -42,7 +49,9 @@ extension AgentPaneView {
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, panelProvider: shared.apps.map(AppsPanelsPageProvider.init(client:)),
                   openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
         model.transport.gestures.actAsMe = shared.actAsMe
+        model.hostTouch.marks = shared.hostMarks
+        model.newTabText = shared.newTabText // before the page's first request: a new view's document has no shared text
+        onPageFocusLost = shared.focusLoss
         showActAsMe(shared.actAsMe)
-        microphoneActivity = shared.microphone
     }
 }

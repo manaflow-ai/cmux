@@ -92,7 +92,7 @@ mod tests {
             let generation = peer.generation;
             hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
             let rows = (0..ROWS_PER_PEER).map(|s| row(peer_no, s)).collect();
-            hub.apply_peer_notice(&name, generation, PeerNotice::Sessions(rows));
+            hub.apply_peer_notice(&name, generation, PeerNotice::sessions_from_values(rows));
             peers.push((name, generation, peer));
         }
         // Drop setup announcements before measuring flaps.
@@ -124,14 +124,11 @@ mod tests {
             tokio::time::sleep(return_after).await;
             for (peer_no, (name, generation, _)) in peers.iter().enumerate() {
                 let rows = (0..ROWS_PER_PEER).map(|s| row(peer_no, s)).collect();
-                hub.peer_notices
-                    .send((name.clone(), *generation, PeerNotice::Sessions(rows)))
-                    .await
-                    .unwrap();
-                hub.peer_notices
-                    .send((name.clone(), *generation, PeerNotice::Connected))
-                    .await
-                    .unwrap();
+                // As a link sends them: its list, `Listed`, then `Connected`.
+                let list = PeerNotice::sessions_from_values(rows);
+                for notice in [list, PeerNotice::Listed, PeerNotice::Connected] {
+                    hub.peer_notices.send((name.clone(), *generation, notice)).await.unwrap();
+                }
             }
             for rx in &mut settled {
                 rx.changed().await.unwrap();

@@ -35,6 +35,9 @@ final class PageFloatingOverlays {
         case bottomCenter
         /// At the left edge (the link status bubble, as Chrome places it).
         case bottomLeading
+        /// Its top left at `topLeft` in the page (points from the page's top left corner), kept
+        /// inside the page's insets (the verification code suggestion under its field).
+        case anchored(topLeft: CGPoint)
     }
 
     private struct Card {
@@ -160,15 +163,13 @@ final class PageFloatingOverlays {
                 handle.update(paneClip: clip)
             } else {
                 dismiss(index)
-                // The host shows what it presents at full opacity; a card keeps its own (the cookie
-                // import card waits clear until its page measured itself, then fades in).
-                let alpha = view.alphaValue
-                let handle = WindowOverlayHost.host(for: window).present(
-                    view, options: OverlayOptions(kind: .attached, anchor: NSRect(origin: clip.origin, size: .zero),
-                                                  passesThroughClicks: cards[index].isReleased || cards[index].passesThroughClicks,
-                                                  layer: .pane(clip: clip))
-                )
-                view.alphaValue = alpha
+                // A card keeps its own opacity (the cookie import card waits clear until its page
+                // measured itself, then fades in); the host leaves it as it is from the first frame.
+                var options = OverlayOptions(kind: .attached, anchor: NSRect(origin: clip.origin, size: .zero),
+                                             passesThroughClicks: cards[index].isReleased || cards[index].passesThroughClicks,
+                                             layer: .pane(clip: clip))
+                options.keepsContentAlpha = true
+                let handle = WindowOverlayHost.host(for: window).present(view, options: options)
                 cards[index].handle = handle
                 cards[index].isWaiting = false
                 if let holder = view.superview {
@@ -255,9 +256,25 @@ final class PageFloatingOverlays {
         let x = switch card.placement {
         case .bottomCenter: clip.midX - width / 2
         case .bottomLeading: clip.minX + inset
+        case .anchored(let topLeft): min(max(clip.minX + topLeft.x, clip.minX + inset), clip.maxX - inset - width)
+        }
+        if case .anchored(let topLeft) = card.placement {
+            return CGRect(x: x, y: clip.maxY - topLeft.y - size.height, width: width, height: size.height).intersection(clip)
         }
         // A card taller than a short page shows cut by it, as before: only what of it the page holds counts.
         return CGRect(x: x, y: clip.minY + inset + card.lift, width: width, height: size.height).intersection(clip)
+    }
+
+    /// Moves an anchored card to `topLeft` in the page (its field moved: a scroll, a resize).
+    func move(_ view: NSView, to topLeft: CGPoint) {
+        guard let index = cards.firstIndex(where: { $0.view === view }), case .anchored(let old) = cards[index].placement, old != topLeft else { return }
+        cards[index].placement = .anchored(topLeft: topLeft)
+        if let holder = view.superview, cards[index].handle != nil {
+            cards[index].bottom?.constant = topLeft.y
+            for constraint in holder.constraints where constraint.firstItem === view && constraint.firstAttribute == .leading
+                && constraint.relation == .equal { constraint.constant = topLeft.x }
+        }
+        sync()
     }
 
     /// Raises `view` to `lift` over the page's bottom inset where it is, with no new present (the cookie
@@ -265,6 +282,7 @@ final class PageFloatingOverlays {
     func setLift(_ lift: CGFloat, for view: NSView) {
         guard let index = cards.firstIndex(where: { $0.view === view }), cards[index].lift != lift else { return }
         cards[index].lift = lift
+        if case .anchored = cards[index].placement { return }
         cards[index].bottom?.constant = -BrowserMetrics.overlayInset - lift
         sync()
     }
@@ -275,9 +293,21 @@ final class PageFloatingOverlays {
     /// The card's place in its overlay clip, as it was in the chrome; answers its bottom constraint.
     private func pin(_ view: NSView, in holder: NSView, lift: CGFloat, placement: Placement) -> NSLayoutConstraint {
         let inset = BrowserMetrics.overlayInset
+        if case .anchored(let topLeft) = placement {
+            // Under its field; the insets win when the field is near an edge.
+            let top = view.topAnchor.constraint(equalTo: holder.topAnchor, constant: topLeft.y)
+            NSLayoutConstraint.activate([
+                top,
+                view.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: topLeft.x).prioritized(.defaultHigh),
+                view.leadingAnchor.constraint(greaterThanOrEqualTo: holder.leadingAnchor, constant: inset),
+                view.trailingAnchor.constraint(lessThanOrEqualTo: holder.trailingAnchor, constant: -inset),
+            ])
+            return top
+        }
         let horizontal = switch placement {
         case .bottomCenter: view.centerXAnchor.constraint(equalTo: holder.centerXAnchor)
         case .bottomLeading: view.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: inset)
+        case .anchored: view.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: inset)
         }
         let bottom = view.bottomAnchor.constraint(equalTo: holder.bottomAnchor, constant: -inset - lift)
         NSLayoutConstraint.activate([

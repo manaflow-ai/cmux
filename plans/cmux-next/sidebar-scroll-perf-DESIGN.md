@@ -48,8 +48,12 @@ walks more than the rows on screen.
    (glyph images) in the frame: ~0.3 ms a row. Bounded by rows on screen; not changed here.
 3. **Move-to-top while scrolling.** A notification that moves a workspace is a structural
    change: the whole list is laid out again (`SidebarLayout.make` over every row), 20-70 ms on
-   a 500-row list. Next fix: a move patches the layout in place instead of a full reload
-   (owned with the ordering work, a131).
+   a 500-row list. Fixed (2026-11-10, Leo: interaction cost stays constant as workspaces grow):
+   a set that only closes or moves one loose workspace takes its row out of the shown layout
+   (`SidebarLayout.removeLoose`) and, for a move, splices it back (`insertLoose`, as a create
+   does): two rows laid out per move at any count, the rows below moved by one vector add. Any
+   other change (a group's member, a filter, a drag, Done rows) still lays out in full.
+   Detector: `SidebarLongListScaleTests.aMoveWhileScrollingLaysOutTheSameRowsAtEverySize`.
 
 Not causes (checked): no SwiftUI in the row path; no timers or per-frame timestamp updates in
 rows (a194 hides times); spinners are layer animations; no shadows, blur or offscreen masks on

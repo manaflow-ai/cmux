@@ -20,9 +20,11 @@ and a stale entry is harmless). The other branch is read with `git show` at orig
 fetched fresh on every run into a private ref (refs/cmux-owned-pool-sources/<branch>), never from
 a remote-tracking ref a reused checkout may hold from an earlier fetch: a cmux-ci fast-checks run
 read a stale origin/main from its warm disk and failed with "owned_pool_rescue.py defines no
-WATCHED_WORKFLOW_PATHS". Under GitHub Actions the fetch is one shallow, blob-less fetch, then the
-files it reads, and the test fails if it still cannot read the branch. Off CI it is a plain fetch
-of that branch, and a fetch that fails (offline, no origin) only skips that branch.
+WATCHED_WORKFLOW_PATHS". Under GitHub Actions, in a checkout that is already shallow and blob-less,
+the fetch is one shallow, blob-less fetch, then the files it reads, and the test fails if it still
+cannot read the branch. Any other checkout (a full-history CI checkout too: other tests clone it)
+gets a plain fetch of that branch, never made shallow or partial by it, and off CI a fetch that
+fails (offline, no origin) only skips that branch.
 
 Which branch the tree is: CMUX_OWNED_POOL_BRANCH when set; under Actions the
 branch the event targets (GITHUB_BASE_REF for a pull request, else
@@ -53,14 +55,25 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import owned_pool_sources as sources  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 FEAT = "feat-cmux-next"
 BRANCHES = {"main": "origin/main", FEAT: "origin/feat-cmux-next"}
 ON_CI = os.environ.get("GITHUB_ACTIONS") == "true"
 
 
+# The checkout every git() call runs in; FetchLeavesTheCheckoutAlone points it at a fixture.
+REPO = ROOT
+
+
 def git(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(ROOT), *args], input=stdin, capture_output=True, text=True)
+    return subprocess.run(["git", "-C", str(REPO), *args], input=stdin, capture_output=True, text=True)
 
 
 def event_describes_tree() -> bool:
@@ -127,16 +140,39 @@ PRIVATE_REFS = "refs/cmux-owned-pool-sources/"
 
 
 @functools.cache
+def is_shallow() -> bool:
+    return git("rev-parse", "--is-shallow-repository").stdout.strip() == "true"
+
+
+@functools.cache
+def is_partial() -> bool:
+    """Whether this checkout is a partial clone (actions/checkout's filter: blob:none), whose blobs come on demand."""
+    if git("config", "--get", "extensions.partialClone").stdout.strip():
+        return True
+    promisors = git("config", "--get-regexp", r"^remote\..*\.promisor$").stdout.splitlines()
+    return any(line.split()[-1] == "true" for line in promisors if line.split())
+
+
+def already_shallow_and_partial() -> bool:
+    """Whether a shallow blob-less fetch leaves this checkout as it was: already shallow and a partial clone."""
+    return is_shallow() and is_partial()
+
+
+@functools.cache
 def fetch_tip(name: str) -> str | None:
     """origin's current tip of branch name, as a private ref; None when it cannot be fetched. Once per run.
 
-    Under Actions the tip comes with no blobs (fetch() adds the ones the test reads). Off CI it is a
-    plain fetch of that one branch: no --depth, which would make a full clone shallow, and no
-    --filter, which would make it a partial clone.
+    Under Actions, in a checkout that is already shallow and blob-less, the tip comes at depth 1 with
+    no blobs (fetch() adds the ones the test reads). Anywhere else it is a plain fetch of that one
+    branch: --depth would make a full checkout shallow, and --filter would make it a partial clone.
+    The checkout is the job's own, shared with every test running beside this one: a --depth=1
+    fetch into car guards' full blob-less checkout wrote .git/shallow under
+    test_cmux_next_guards_notices_pair.py, whose `git clone --shared` of it then fell back to
+    upload-pack and died on a missing blob ("could not fetch ... from promisor remote", cmux#40871).
     """
     private = PRIVATE_REFS + name
     git("update-ref", "-d", private)
-    if ON_CI:
+    if ON_CI and already_shallow_and_partial():
         git("fetch", "--no-tags", "--depth=1", "--filter=blob:none", "origin", f"+refs/heads/{name}:{private}")
     else:
         git("fetch", "--no-tags", "origin", f"+refs/heads/{name}:{private}")
@@ -152,7 +188,7 @@ def fetch(ref: str) -> str | None:
     private = fetch_tip(name)
     if private is None:
         return None
-    if ON_CI:
+    if ON_CI and is_partial():
         # A tip whose files cannot all be read is no tip: a missing blob would read as a missing file.
         listing = git("ls-tree", private, f"{sources.WORKFLOWS_DIR}/", "scripts/ci/")
         if listing.returncode != 0:
@@ -390,6 +426,57 @@ class OwnedPoolSources(unittest.TestCase):
         if feat is None:
             self.skipTest("feat-cmux-next's workflows are not readable here")
         self.assertIn(".github/workflows/cmux-next-base-autofix.yml", self.owned[str(feat)])
+
+
+class FetchLeavesTheCheckoutAlone(unittest.TestCase):
+    """Under Actions, fetch() never makes the job's checkout shallow (cmux#40871).
+
+    Every test in a car guards run shares the job's full-history, blob-less checkout. fetch_tip's
+    --depth=1 fetch wrote .git/shallow there, and test_cmux_next_guards_notices_pair.py's clone of
+    the checkout, running beside it, failed on a blob the now-shallow source could not send.
+    """
+
+    def setUp(self) -> None:
+        global REPO, ON_CI
+        saved = REPO, ON_CI
+        self.addCleanup(self.restore, saved)
+        for cached in (fetch_tip, fetch, is_shallow, is_partial):
+            cached.cache_clear()
+            self.addCleanup(cached.cache_clear)
+        ON_CI = True
+        self.tmp = Path(tempfile.mkdtemp(prefix="owned-pool-fetch-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        work = git_fixture_env.init_repo(self.tmp / "work", "-b", "main")
+        ident = ["-c", "user.name=t", "-c", "user.email=t@example.com"]
+        for number in range(3):
+            (work / sources.WORKFLOWS_DIR).mkdir(parents=True, exist_ok=True)
+            (work / sources.WORKFLOWS_DIR / "ci.yml").write_text(f"name: ci {number}\n")
+            subprocess.run(["git", "-C", str(work), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(work), *ident, "commit", "-q", "-m", f"c{number}"], check=True)
+        self.origin = git_fixture_env.clone_repo(work, self.tmp / "origin.git", "--bare")
+        subprocess.run(["git", "-C", str(self.origin), "config", "uploadpack.allowFilter", "true"], check=True)
+
+    @staticmethod
+    def restore(saved: tuple[Path, bool]) -> None:
+        global REPO, ON_CI
+        REPO, ON_CI = saved
+
+    def checkout(self, *args: str) -> Path:
+        global REPO
+        REPO = git_fixture_env.clone_repo(self.origin.as_uri(), self.tmp / "checkout", "--filter=blob:none", *args)
+        return REPO
+
+    def test_a_full_history_blobless_checkout_stays_unshallow(self) -> None:
+        checkout = self.checkout()
+        self.assertEqual(fetch("origin/main"), PRIVATE_REFS + "main")
+        self.assertFalse((checkout / ".git" / "shallow").exists(), "fetch() made the job's checkout shallow")
+        self.assertEqual(git("rev-parse", "--is-shallow-repository").stdout.strip(), "false")
+
+    def test_a_shallow_blobless_checkout_still_gets_the_tip(self) -> None:
+        self.checkout("--depth=1")
+        self.assertEqual(fetch("origin/main"), PRIVATE_REFS + "main")
+        self.assertEqual(git("show", f"{PRIVATE_REFS}main:{sources.WORKFLOWS_DIR}/ci.yml").stdout, "name: ci 2\n")
+
 
 if __name__ == "__main__":
     unittest.main()

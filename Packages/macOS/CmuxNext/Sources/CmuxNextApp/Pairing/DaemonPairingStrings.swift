@@ -8,36 +8,36 @@ enum DaemonPairingStrings {
 
     static var title: String {
         String(localized: "daemonPairing.title", defaultValue: "Allow a browser to control cmux?",
-               table: "DaemonPairing", bundle: .module)
+               table: "DaemonPairing", bundle: .module.inAppLanguage)
     }
 
     static func message(code: String) -> String {
         String(localized: "daemonPairing.message",
                defaultValue: "A browser page asked to connect to this cmux. Approve only if it shows the code \(code).",
-               table: "DaemonPairing", bundle: .module)
+               table: "DaemonPairing", bundle: .module.inAppLanguage)
     }
 
     static func peer(_ peer: String) -> String {
-        String(localized: "daemonPairing.peer", defaultValue: "From: \(peer)", table: "DaemonPairing", bundle: .module)
+        String(localized: "daemonPairing.peer", defaultValue: "From: \(peer)", table: "DaemonPairing", bundle: .module.inAppLanguage)
     }
 
     static var detail: String {
         String(localized: "daemonPairing.detail",
                defaultValue: "It can then read and send your messages, open workspaces and type in terminals for 8 hours.",
-               table: "DaemonPairing", bundle: .module)
+               table: "DaemonPairing", bundle: .module.inAppLanguage)
     }
 
     static var approve: String {
-        String(localized: "daemonPairing.approve", defaultValue: "Approve", table: "DaemonPairing", bundle: .module)
+        String(localized: "daemonPairing.approve", defaultValue: "Approve", table: "DaemonPairing", bundle: .module.inAppLanguage)
     }
 
     static var deny: String {
-        String(localized: "daemonPairing.deny", defaultValue: "Deny", table: "DaemonPairing", bundle: .module)
+        String(localized: "daemonPairing.deny", defaultValue: "Deny", table: "DaemonPairing", bundle: .module.inAppLanguage)
     }
 
     /// Deny on Escape. Approve has no key.
     static func spec(code: String, peer: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(
+        CmuxDialogSpec(usesTransientMaterial: true,
             title: title, lines: [message(code: code)] + (peer.isEmpty ? [] : [Self.peer(peer)]) + [detail],
             buttons: [
                 CmuxDialogButton(id: denyID, title: deny, role: .cancel),

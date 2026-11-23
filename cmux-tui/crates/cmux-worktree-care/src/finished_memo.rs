@@ -31,7 +31,9 @@ pub struct FinishedMemo {
     path: Option<PathBuf>,
     answers: Mutex<Answers>,
     pending: AtomicUsize,
-    _writer: Option<std::fs::File>,
+    /// The writer lock; its drop unlocks before it closes, so a child the daemon forked
+    /// meanwhile keeps no lock and the next pass's memo writes.
+    _writer: Option<cmux_file_lock::FileLock>,
 }
 
 impl FinishedMemo {
@@ -52,8 +54,7 @@ impl FinishedMemo {
                 options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
             }
             let file = options.open(path.with_extension("lock")).ok()?;
-            file.try_lock().ok()?;
-            Some(file)
+            cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).ok()
         })();
         let answers = read_memo(&path)
             .map(|entries| {
@@ -212,6 +213,25 @@ mod tests {
         assert!(reader._writer.is_none(), "a second writer cannot overwrite progress");
         drop(reader);
         drop(memo);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A memo that drops lets go of its writer lock, also while a child the daemon forked
+    /// meanwhile has the descriptor: else the next pass's memo gets no writer and never saves
+    /// its answers.
+    #[cfg(unix)]
+    #[test]
+    fn a_dropped_memo_frees_its_writer_lock_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::store::care_tests::scratch("forked-memo");
+        let path = dir.join("memo.json");
+        let memo = FinishedMemo::load(path.clone());
+        assert!(memo._writer.is_some(), "the first memo writes");
+        let keeper = crate::test_fork::Keeper::fork();
+        drop(memo);
+        let next = FinishedMemo::load(path);
+        drop(keeper);
+        assert!(next._writer.is_some(), "a dropped memo left its writer lock held");
+        drop(next);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

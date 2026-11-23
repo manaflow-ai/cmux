@@ -1710,137 +1710,6 @@
         }
       }
     },
-    "confirm.button.delete": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حذف"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obriši"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Löschen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elimina"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "삭제"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slett"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usuń"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Excluir"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ลบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sil"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Видалити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Xóa"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删除"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "刪除"
-          }
-        }
-      }
-    },
     "confirm.closeWorkspace.title": {
       "extractionState": "manual",
       "localizations": {
@@ -2361,268 +2230,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "要關閉這個無痕式視窗嗎？"
-          }
-        }
-      }
-    },
-    "confirm.quitIncognito.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quit and close incognito windows?"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "هل تريد الإنهاء وإغلاق نوافذ التصفح المتخفي؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Izaći i zatvoriti anonimne prozore?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vil du afslutte og lukke inkognitovinduer?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Beenden und Inkognitofenster schließen?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "¿Salir y cerrar las ventanas de incógnito?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quitter et fermer les fenêtres de navigation privée ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uscire e chiudere le finestre in incognito?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "終了してシークレット ウィンドウを閉じますか？"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ចាកចេញ ហើយបិទបង្អួចអនាមិកឬ?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "종료하고 시크릿 창을 닫을까요?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vil du avslutte og lukke inkognitovinduer?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zakończyć i zamknąć okna incognito?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sair e fechar as janelas anônimas?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выйти и закрыть окна инкогнито?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ออกและปิดหน้าต่างที่ไม่ระบุตัวตนหรือไม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Çıkılsın ve gizli pencereler kapatılsın mı?"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вийти й закрити анонімні вікна?"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thoát và đóng các cửa sổ ẩn danh?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "要退出并关闭无痕式窗口吗？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "要結束並關閉無痕式視窗嗎？"
-          }
-        }
-      }
-    },
-    "confirm.button.quit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quit"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إنهاء"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Izađi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afslut"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Beenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Salir"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quitter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esci"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "終了"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ចាកចេញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "종료"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Avslutt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zakończ"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sair"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выйти"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ออก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Çık"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вийти"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thoát"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "退出"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "結束"
           }
         }
       }
@@ -3809,130 +3416,130 @@
     "confirm.userOnlySetting.body": {
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A command wants to set %1$@ to %2$@."
+          }
+        },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "يطلب أمر تعيين %1$@ إلى %2$@. يمكنك وحدك تغيير هذا الإعداد، لذا يسألك cmux أولاً."
+            "state": "translated",
+            "value": "يريد أمر تعيين %1$@ إلى %2$@."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Naredba traži da se %1$@ postavi na %2$@. Samo vi možete promijeniti ovu postavku, pa vas cmux prvo pita."
+            "state": "translated",
+            "value": "Naredba želi postaviti %1$@ na %2$@."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En kommando vil sætte %1$@ til %2$@. Kun du kan ændre denne indstilling, så cmux spørger dig først."
+            "state": "translated",
+            "value": "En kommando vil sætte %1$@ til %2$@."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ein Befehl möchte %1$@ auf %2$@ setzen. Nur du kannst diese Einstellung ändern, daher fragt cmux zuerst."
-          }
-        },
-        "en": {
-          "stringUnit": {
             "state": "translated",
-            "value": "A command asks to set %1$@ to %2$@. Only you can change this setting, so cmux asks you first."
+            "value": "Ein Befehl möchte %1$@ auf %2$@ setzen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un comando pide poner %1$@ en %2$@. Solo tú puedes cambiar este ajuste, así que cmux te pregunta primero."
+            "state": "translated",
+            "value": "Un comando quiere cambiar %1$@ a %2$@."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Une commande demande de régler %1$@ sur %2$@. Vous seul pouvez modifier ce réglage, cmux vous le demande donc d'abord."
+            "state": "translated",
+            "value": "Une commande veut régler %1$@ sur %2$@."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un comando chiede di impostare %1$@ su %2$@. Solo tu puoi modificare questa impostazione, quindi cmux te lo chiede prima."
+            "state": "translated",
+            "value": "Un comando vuole impostare %1$@ su %2$@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドが %1$@ を %2$@ に設定しようとしています。この設定はあなただけが変更できるため、cmux が先に確認します。"
+            "value": "コマンドが %1$@ を %2$@ に設定しようとしています。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ពាក្យបញ្ជាមួយស្នើកំណត់ %1$@ ទៅ %2$@។ មានតែអ្នកទេដែលអាចប្ដូរការកំណត់នេះ ដូច្នេះ cmux សួរអ្នកជាមុនសិន។"
+            "state": "translated",
+            "value": "ពាក្យបញ្ជាមួយចង់កំណត់ %1$@ ទៅ %2$@។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "명령이 %1$@을(를) %2$@(으)로 설정하려고 합니다. 이 설정은 사용자만 변경할 수 있으므로 cmux가 먼저 확인합니다."
+            "state": "translated",
+            "value": "명령이 %1$@을(를) %2$@(으)로 설정하려고 합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En kommando vil sette %1$@ til %2$@. Bare du kan endre denne innstillingen, så cmux spør deg først."
+            "state": "translated",
+            "value": "En kommando vil sette %1$@ til %2$@."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Polecenie chce ustawić %1$@ na %2$@. Tylko Ty możesz zmienić to ustawienie, więc cmux najpierw pyta."
+            "state": "translated",
+            "value": "Polecenie chce ustawić %1$@ na %2$@."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Um comando pede para definir %1$@ como %2$@. Só você pode alterar este ajuste, então o cmux pergunta antes."
+            "state": "translated",
+            "value": "Um comando quer definir %1$@ como %2$@."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Команда хочет установить %1$@ в значение %2$@. Эту настройку можете изменить только вы, поэтому cmux сначала спрашивает."
+            "state": "translated",
+            "value": "Команда хочет установить %1$@ в %2$@."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "คำสั่งหนึ่งขอตั้งค่า %1$@ เป็น %2$@ มีเพียงคุณที่เปลี่ยนการตั้งค่านี้ได้ cmux จึงถามคุณก่อน"
+            "state": "translated",
+            "value": "คำสั่งต้องการตั้งค่า %1$@ เป็น %2$@"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir komut %1$@ ayarını %2$@ yapmak istiyor. Bu ayarı yalnızca siz değiştirebilirsiniz, bu yüzden cmux önce size soruyor."
+            "state": "translated",
+            "value": "Bir komut %1$@ değerini %2$@ yapmak istiyor."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Команда хоче встановити %1$@ у значення %2$@. Це налаштування можете змінити лише ви, тому cmux спершу питає."
+            "state": "translated",
+            "value": "Команда хоче встановити %1$@ на %2$@."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Một lệnh yêu cầu đặt %1$@ thành %2$@. Chỉ bạn mới có thể thay đổi cài đặt này, nên cmux hỏi bạn trước."
+            "state": "translated",
+            "value": "Một lệnh muốn đặt %1$@ thành %2$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "有命令请求将 %1$@ 设为 %2$@。此设置只能由你更改，因此 cmux 会先询问你。"
+            "state": "translated",
+            "value": "一个命令想将 %1$@ 设为 %2$@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "有指令要求將 %1$@ 設為 %2$@。此設定只能由你變更，因此 cmux 會先詢問你。"
+            "state": "translated",
+            "value": "一個指令想將 %1$@ 設為 %2$@。"
           }
         }
       }
@@ -4203,130 +3810,130 @@
       "comment": "Close question line for closing terminals that gave no answer to the app's check. %@ is their tab titles, comma separated.",
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ may still be running a program."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد إجابة من: %@. قد يكون هناك برنامج لا يزال قيد التشغيل."
+            "value": "قد يكون %@ لا يزال يشغّل برنامجًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nema odgovora od: %@. Možda neki program još radi."
+            "value": "%@ možda još pokreće program."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intet svar fra: %@. Et program kører måske stadig."
+            "value": "%@ kører muligvis stadig et program."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine Antwort von: %@. Möglicherweise läuft noch ein Programm."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No answer from: %@. A program may still be running."
+            "value": "In %@ läuft möglicherweise noch ein Programm."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin respuesta de: %@. Puede que aún haya un programa en ejecución."
+            "value": "Puede que %@ siga ejecutando un programa."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune réponse de : %@. Un programme est peut-être encore en cours."
+            "value": "%@ exécute peut-être encore un programme."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessuna risposta da: %@. Un programma potrebbe essere ancora in esecuzione."
+            "value": "%@ potrebbe ancora eseguire un programma."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "応答なし: %@。プログラムがまだ実行中の可能性があります。"
+            "value": "%@ でまだプログラムが実行中の可能性があります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មានចម្លើយពី៖ %@។ កម្មវិធីអាចនៅតែដំណើរការ។"
+            "value": "%@ ប្រហែលជានៅតែដំណើរការកម្មវិធី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "응답 없음: %@. 프로그램이 아직 실행 중일 수 있습니다."
+            "value": "%@에서 아직 프로그램이 실행 중일 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ikke noe svar fra: %@. Et program kjører kanskje fortsatt."
+            "value": "%@ kjører kanskje fortsatt et program."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brak odpowiedzi od: %@. Jakiś program może nadal działać."
+            "value": "W %@ może nadal działać program."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sem resposta de: %@. Um programa ainda pode estar em execução."
+            "value": "%@ ainda pode estar executando um programa."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет ответа от: %@. Возможно, программа ещё работает."
+            "value": "В %@, возможно, ещё работает программа."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มีการตอบกลับจาก: %@ อาจมีโปรแกรมที่ยังทำงานอยู่"
+            "value": "%@ อาจยังเรียกใช้โปรแกรมอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yanıt yok: %@. Bir program hâlâ çalışıyor olabilir."
+            "value": "%@ hâlâ bir program çalıştırıyor olabilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Немає відповіді від: %@. Можливо, програма ще працює."
+            "value": "У %@, можливо, ще працює програма."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không có phản hồi từ: %@. Có thể một chương trình vẫn đang chạy."
+            "value": "%@ có thể vẫn đang chạy một chương trình."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未收到回应：%@。可能仍有程序在运行。"
+            "value": "%@ 可能仍在运行程序。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未收到回應：%@。可能仍有程式在執行。"
+            "value": "%@ 可能仍在執行程式。"
           }
         }
       }
@@ -8395,137 +8002,6 @@
         }
       }
     },
-    "fileTree.notRepository": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعرض «الملفات» المجلدات الموجودة في مستودع git. هذا المجلد ليس في مستودع."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Datoteke prikazuju mape u git repozitoriju. Ova mapa nije u njemu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Filer viser mapper i et git-repository. Denne mappe er ikke i et."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„Dateien“ zeigt Ordner in einem Git-Repository. Dieser Ordner liegt in keinem."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Files shows folders in a git repository. This folder is not in one."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archivos muestra carpetas de un repositorio git. Esta carpeta no está en ninguno."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fichiers affiche les dossiers d’un dépôt git. Ce dossier n’en fait pas partie."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File mostra le cartelle di un repository git. Questa cartella non è in un repository."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「ファイル」は git リポジトリ内のフォルダを表示します。このフォルダはリポジトリ内にありません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ឯកសារ បង្ហាញថតនៅក្នុងឃ្លាំង git។ ថតនេះមិននៅក្នុងឃ្លាំងទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "파일은 git 저장소의 폴더를 표시합니다. 이 폴더는 저장소에 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Filer viser mapper i et git-depot. Denne mappen er ikke i et."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pliki pokazują foldery w repozytorium git. Ten folder nie jest w żadnym."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arquivos mostra pastas em um repositório git. Esta pasta não está em um."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Файлы» показывает папки в репозитории git. Эта папка не находится в репозитории."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไฟล์ แสดงโฟลเดอร์ในที่เก็บ git โฟลเดอร์นี้ไม่ได้อยู่ในที่เก็บ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dosyalar, git deposundaki klasörleri gösterir. Bu klasör bir depoda değil."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Файли» показує папки в репозиторії git. Ця папка не в репозиторії."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tệp hiển thị các thư mục trong kho git. Thư mục này không nằm trong kho nào."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“文件”显示 git 仓库中的文件夹。此文件夹不在仓库中。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「檔案」顯示 git 儲存庫中的檔案夾。此檔案夾不在儲存庫中。"
-          }
-        }
-      }
-    },
     "fileTree.unavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -10499,127 +9975,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This version of acpmux has no subagent limit. Update cmux to set one."
+            "value": "This version of cmux has no subagent limit. Update cmux to set one."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese acpmux-Version hat kein Subagenten-Limit. Aktualisiere cmux, um eines festzulegen."
+            "value": "Diese cmux-Version hat kein Subagenten-Limit. Aktualisiere cmux, um eines festzulegen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette version d’acpmux n’a pas de limite de sous-agents. Mettez cmux à jour pour en définir une."
+            "value": "Cette version d’cmux n’a pas de limite de sous-agents. Mettez cmux à jour pour en définir une."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يتضمن هذا الإصدار من acpmux حدًّا للوكلاء الفرعيين. حدّث cmux لتعيين حدّ."
+            "value": "لا يتضمن هذا الإصدار من cmux حدًّا للوكلاء الفرعيين. حدّث cmux لتعيين حدّ."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta versión de acpmux no tiene límite de subagentes. Actualiza cmux para establecer uno."
+            "value": "Esta versión de cmux no tiene límite de subagentes. Actualiza cmux para establecer uno."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此版本的 acpmux 沒有子代理上限。請更新 cmux 後再設定。"
+            "value": "此版本的 cmux 沒有子代理上限。請更新 cmux 後再設定。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此版本的 acpmux 没有子代理上限。请更新 cmux 后再设置。"
+            "value": "此版本的 cmux 没有子代理上限。请更新 cmux 后再设置。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 버전의 acpmux에는 하위 에이전트 제한이 없습니다. 설정하려면 cmux를 업데이트하세요."
+            "value": "이 버전의 cmux에는 하위 에이전트 제한이 없습니다. 설정하려면 cmux를 업데이트하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このバージョンの acpmux にはサブエージェント上限がありません。設定するには cmux をアップデートしてください。"
+            "value": "このバージョンの cmux にはサブエージェント上限がありません。設定するには cmux をアップデートしてください。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ova verzija acpmux nema ograničenje podagenata. Ažurirajte cmux da ga postavite."
+            "value": "Ova verzija cmux nema ograničenje podagenata. Ažurirajte cmux da ga postavite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne version af acpmux har ingen grænse for underagenter. Opdater cmux for at angive en."
+            "value": "Denne version af cmux har ingen grænse for underagenter. Opdater cmux for at angive en."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questa versione di acpmux non ha un limite di subagenti. Aggiorna cmux per impostarne uno."
+            "value": "Questa versione di cmux non ha un limite di subagenti. Aggiorna cmux per impostarne uno."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណែ acpmux នេះគ្មានដែនកំណត់ភ្នាក់ងាររងទេ។ ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីកំណត់វា។"
+            "value": "កំណែ cmux នេះគ្មានដែនកំណត់ភ្នាក់ងាររងទេ។ ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីកំណត់វា។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne versjonen av acpmux har ingen grense for underagenter. Oppdater cmux for å angi en."
+            "value": "Denne versjonen av cmux har ingen grense for underagenter. Oppdater cmux for å angi en."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ta wersja acpmux nie ma limitu podagentów. Zaktualizuj cmux, aby go ustawić."
+            "value": "Ta wersja cmux nie ma limitu podagentów. Zaktualizuj cmux, aby go ustawić."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta versão do acpmux não tem limite de subagentes. Atualize o cmux para definir um."
+            "value": "Esta versão do cmux não tem limite de subagentes. Atualize o cmux para definir um."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В этой версии acpmux нет лимита субагентов. Обновите cmux, чтобы задать его."
+            "value": "В этой версии cmux нет лимита субагентов. Обновите cmux, чтобы задать его."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux รุ่นนี้ไม่มีขีดจำกัดเอเจนต์ย่อย อัปเดต cmux เพื่อตั้งค่า"
+            "value": "cmux รุ่นนี้ไม่มีขีดจำกัดเอเจนต์ย่อย อัปเดต cmux เพื่อตั้งค่า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux'un bu sürümünde alt ajan sınırı yok. Ayarlamak için cmux'u güncelleyin."
+            "value": "cmux'un bu sürümünde alt ajan sınırı yok. Ayarlamak için cmux'u güncelleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ця версія acpmux не має ліміту субагентів. Оновіть cmux, щоб задати його."
+            "value": "Ця версія cmux не має ліміту субагентів. Оновіть cmux, щоб задати його."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Phiên bản acpmux này không có giới hạn tác tử phụ. Hãy cập nhật cmux để đặt giới hạn."
+            "value": "Phiên bản cmux này không có giới hạn tác tử phụ. Hãy cập nhật cmux để đặt giới hạn."
           }
         }
       }
@@ -10892,127 +10368,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A command asks to set localhost for %1$@ to %2$@. Only you can change this, so cmux asks you first."
+            "value": "A command wants to set localhost for %1$@ to %2$@."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يطلب أمر تعيين localhost لـ %1$@ إلى %2$@. أنت وحدك من يمكنه تغيير ذلك، لذا يسألك cmux أولًا."
+            "value": "يريد أمر تعيين localhost لـ %1$@ إلى %2$@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naredba traži da se localhost za %1$@ postavi na %2$@. Samo vi ovo možete promijeniti, pa vas cmux prvo pita."
+            "value": "Naredba želi postaviti localhost za %1$@ na %2$@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En kommando beder om at sætte localhost for %1$@ til %2$@. Kun du kan ændre dette, så cmux spørger dig først."
+            "value": "En kommando vil sætte localhost for %1$@ til %2$@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Befehl möchte Localhost für %1$@ auf %2$@ setzen. Nur du kannst das ändern, daher fragt cmux zuerst nach."
+            "value": "Ein Befehl möchte localhost für %1$@ auf %2$@ setzen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un comando pide definir el localhost de %1$@ como %2$@. Solo tú puedes cambiarlo, así que cmux te lo pregunta primero."
+            "value": "Un comando quiere cambiar localhost de %1$@ a %2$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Une commande demande de définir le localhost de %1$@ sur %2$@. Vous seul pouvez le modifier, donc cmux vous le demande d’abord."
+            "value": "Une commande veut régler localhost de %1$@ sur %2$@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un comando chiede di impostare il localhost di %1$@ su %2$@. Solo tu puoi cambiarlo, quindi cmux te lo chiede prima."
+            "value": "Un comando vuole impostare localhost di %1$@ su %2$@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドが %1$@ の localhost を %2$@ に設定しようとしています。これを変更できるのはあなただけなので、cmux が先に確認します。"
+            "value": "コマンドが %1$@ の localhost を %2$@ に設定しようとしています。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ពាក្យបញ្ជាមួយស្នើកំណត់ localhost សម្រាប់ %1$@ ទៅ %2$@។ មានតែអ្នកទេដែលអាចប្តូរវាបាន ដូច្នេះ cmux សួរអ្នកជាមុន។"
+            "value": "ពាក្យបញ្ជាមួយចង់កំណត់ localhost សម្រាប់ %1$@ ទៅ %2$@។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "명령이 %1$@의 localhost를 %2$@(으)로 설정하려고 합니다. 이 항목은 사용자만 변경할 수 있으므로 cmux가 먼저 확인합니다."
+            "value": "명령이 %1$@의 localhost를 %2$@(으)로 설정하려고 합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En kommando ber om å sette localhost for %1$@ til %2$@. Bare du kan endre dette, så cmux spør deg først."
+            "value": "En kommando vil sette localhost for %1$@ til %2$@."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Polecenie chce ustawić localhost dla %1$@ na %2$@. Tylko Ty możesz to zmienić, więc cmux najpierw pyta."
+            "value": "Polecenie chce ustawić localhost dla %1$@ na %2$@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um comando pede para definir o localhost de %1$@ como %2$@. Só você pode alterar isso, então o cmux pergunta primeiro."
+            "value": "Um comando quer definir o localhost de %1$@ como %2$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Команда хочет задать localhost для %1$@: %2$@. Изменить это можете только вы, поэтому cmux сначала спрашивает."
+            "value": "Команда хочет установить localhost для %1$@ в %2$@."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คำสั่งหนึ่งขอตั้งค่า localhost ของ %1$@ เป็น %2$@ มีเพียงคุณที่เปลี่ยนค่านี้ได้ cmux จึงถามคุณก่อน"
+            "value": "คำสั่งต้องการตั้งค่า localhost ของ %1$@ เป็น %2$@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir komut %1$@ için localhost’u %2$@ olarak ayarlamak istiyor. Bunu yalnızca siz değiştirebilirsiniz, bu yüzden cmux önce size soruyor."
+            "value": "Bir komut %1$@ için localhost değerini %2$@ yapmak istiyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Команда хоче задати localhost для %1$@: %2$@. Змінити це можете лише ви, тому cmux спершу питає."
+            "value": "Команда хоче встановити localhost для %1$@ на %2$@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Một lệnh yêu cầu đặt localhost cho %1$@ thành %2$@. Chỉ bạn mới có thể thay đổi điều này nên cmux hỏi bạn trước."
+            "value": "Một lệnh muốn đặt localhost của %1$@ thành %2$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "有命令请求将 %1$@ 的 localhost 设为 %2$@。只有你可以更改此项，因此 cmux 会先询问你。"
+            "value": "一个命令想将 %1$@ 的 localhost 设为 %2$@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "有指令要求將 %1$@ 的 localhost 設為 %2$@。只有你可以變更此項，因此 cmux 會先詢問你。"
+            "value": "一個指令想將 %1$@ 的 localhost 設為 %2$@。"
           }
         }
       }
@@ -11413,7 +10889,12 @@
     "agentChat.copy.notAChat": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Focus a started agent chat first."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus a started agent chat first."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -11539,7 +11020,12 @@
     "agentChat.copyName.noName": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The focused chat has no agent name yet."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused chat has no agent name yet."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -11665,7 +11151,12 @@
     "agentChat.copyHarnessSessionID.noSession": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The focused chat has no harness session ID yet."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused chat has no harness session ID yet."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -11791,7 +11282,12 @@
     "agentChat.copyConversation.noConversation": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The focused chat has no conversation to copy yet."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused chat has no conversation to copy yet."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -11917,7 +11413,12 @@
     "agentChat.copyConversation.failed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The focused chat could not provide its conversation."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused chat could not provide its conversation."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -12043,7 +11544,12 @@
     "agentChat.copySessionDetails.noDetails": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The focused chat has no session details to copy yet."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused chat has no session details to copy yet."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -12169,7 +11675,12 @@
     "agentChat.copyWorkingDirectory.noCWD": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The focused chat has no working directory yet."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused chat has no working directory yet."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -12295,7 +11806,12 @@
     "agentChat.copyHost.noHost": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The focused chat has no host name yet."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused chat has no host name yet."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -12421,7 +11937,12 @@
     "agentChat.copySessionFilePaths.noFiles": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The focused chat has no session files on this Mac."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused chat has no session files on this Mac."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -12547,7 +12068,12 @@
     "agentChat.copySessionFile.noFile": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The focused chat has no such file on this Mac."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused chat has no such file on this Mac."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -12673,7 +12199,12 @@
     "agentChat.copySessionFile.unreadable": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The file could not be read as text."}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file could not be read as text."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -12933,127 +12464,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No window stays open to undo this. Incognito workspaces cannot be reopened."
+            "value": "Incognito workspaces can’t be reopened."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن إعادة فتح مساحات العمل الخفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonimni radni prostori se ne mogu ponovo otvoriti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inkognito-arbejdsområder kan ikke åbnes igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inkognito-Workspaces lassen sich nicht wieder öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo de incógnito no se pueden reabrir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail de navigation privée ne peuvent pas être rouverts."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli spazi di lavoro in incognito non si possono riaprire."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元に戻すためのウィンドウは残りません。シークレットのワークスペースは再度開けません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لن تبقى أي نافذة مفتوحة للتراجع عن ذلك. لا يمكن إعادة فتح مساحات العمل المتخفية."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nijedan prozor neće ostati otvoren za poništavanje. Anonimni radni prostori ne mogu se ponovo otvoriti."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Intet vindue forbliver åbent til at fortryde dette. Inkognito-arbejdsområder kan ikke genåbnes."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kein Fenster bleibt offen, um dies rückgängig zu machen. Inkognito-Arbeitsbereiche lassen sich nicht wieder öffnen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No queda ninguna ventana abierta para deshacerlo. Los espacios de trabajo de incógnito no se pueden reabrir."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucune fenêtre ne reste ouverte pour annuler. Les espaces de travail de navigation privée ne peuvent pas être rouverts."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessuna finestra resta aperta per annullare. Le aree di lavoro in incognito non si possono riaprire."
+            "value": "シークレットワークスペースは再度開けません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានបង្អួចណានៅបើកដើម្បីមិនធ្វើវិញទេ។ កន្លែងធ្វើការអនាមិកមិនអាចបើកឡើងវិញបានទេ។"
+            "state": "translated",
+            "value": "កន្លែងធ្វើការអនាមិកមិនអាចបើកឡើងវិញបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "이 작업을 실행 취소할 윈도우가 남지 않습니다. 시크릿 작업 공간은 다시 열 수 없습니다."
+            "state": "translated",
+            "value": "시크릿 워크스페이스는 다시 열 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen vinduer forblir åpne for å angre dette. Inkognito-arbeidsområder kan ikke åpnes på nytt."
+            "state": "translated",
+            "value": "Inkognito-arbeidsområder kan ikke åpnes igjen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Żadne okno nie zostanie otwarte, aby to cofnąć. Przestrzeni roboczych incognito nie można ponownie otworzyć."
+            "state": "translated",
+            "value": "Obszarów roboczych incognito nie można ponownie otworzyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhuma janela fica aberta para desfazer isso. Áreas de trabalho anônimas não podem ser reabertas."
+            "state": "translated",
+            "value": "Espaços de trabalho anônimos não podem ser reabertos."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Не останется окна, чтобы отменить это. Рабочие пространства в режиме инкогнито нельзя открыть снова."
+            "state": "translated",
+            "value": "Рабочие области инкогнито нельзя открыть снова."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "จะไม่มีหน้าต่างเปิดค้างไว้ให้เลิกทำ เวิร์กสเปซแบบไม่ระบุตัวตนเปิดใหม่ไม่ได้"
+            "state": "translated",
+            "value": "เปิดเวิร์กสเปซแบบไม่ระบุตัวตนอีกครั้งไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bunu geri almak için açık pencere kalmaz. Gizli çalışma alanları yeniden açılamaz."
+            "state": "translated",
+            "value": "Gizli çalışma alanları yeniden açılamaz."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Не залишиться вікна, щоб скасувати це. Робочі області інкогніто не можна відкрити знову."
+            "state": "translated",
+            "value": "Робочі простори інкогніто не можна відкрити знову."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Không còn cửa sổ nào mở để hoàn tác. Không thể mở lại không gian làm việc ẩn danh."
+            "state": "translated",
+            "value": "Không thể mở lại không gian làm việc ẩn danh."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "不会留下可撤销此操作的窗口。无痕工作区无法重新打开。"
+            "state": "translated",
+            "value": "无痕工作区无法重新打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "不會留下可復原此操作的視窗。無痕工作區無法重新開啟。"
+            "state": "translated",
+            "value": "無痕工作區無法重新開啟。"
           }
         }
       }

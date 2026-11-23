@@ -20,7 +20,7 @@ struct HomeTurnFailure: Equatable, Sendable {
     init?(text: String) {
         let tail = #/(?s)(?:\A|\n\n)\((turn failed(?: on [^:\n()]+(?: \(fallback for [^)\n]+\))?)?): (.+)\)\s*\z/#
         guard let match = text.firstMatch(of: tail) else { return nil }
-        lead = String(text[..<match.range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        lead = String(text.prefix(upTo: match.range.lowerBound)).trimmingCharacters(in: .whitespacesAndNewlines)
         let error = String(match.output.2)
         detail = "\(match.output.1): \(error)"
         title = Self.title(error)

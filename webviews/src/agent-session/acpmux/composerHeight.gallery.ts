@@ -4,6 +4,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
+import { COMPOSER_MD_FIELD } from "./composerSelectors";
 
 const DRAFT = [
   "Find the smallest safe change for the composer height and explain the tradeoffs.",
@@ -22,7 +23,7 @@ const DRAFT = [
 ].join("\n");
 
 const ALT_ID = "composer-height-candidate";
-const FIELD = ".acpmux-composer-box .acpmux-md-field";
+const FIELD = COMPOSER_MD_FIELD;
 const LINE_HEIGHT = "var(--text-content--line-height)";
 const CONTROL_HEIGHT = "var(--cmux-control-height, 23px)";
 const rules: Record<string, string> = {

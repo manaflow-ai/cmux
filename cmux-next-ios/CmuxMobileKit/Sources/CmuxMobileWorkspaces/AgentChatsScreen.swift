@@ -23,12 +23,28 @@ public final class AgentChatsModel {
     public private(set) var chats: [AgentChatListing] = []
     public private(set) var nextCursor: String?
     public private(set) var loadingMore = false
+    /// The first page is being read again over the rows shown (the ones this run kept): the
+    /// list shows that it is updating. A pull to refresh shows its own progress instead.
+    public private(set) var refreshing = false
     public var scope: AgentChatScope = .chats
     public var query = ""
     /// The chat being opened or archived (its row shows progress; others wait).
     public private(set) var busyID: String?
     /// A refusal to show (an alert).
     public var failure: String?
+    /// The connection to the Mac dropped or went quiet (``ConnectionInterrupted``): the list keeps
+    /// its rows (or its loading state), says it is reconnecting, and asks again on its own. Past
+    /// ``ConnectionPatience/giveUpAfter`` an empty list says what to do; a list with rows keeps
+    /// them, says they are from earlier (``stale``), and keeps asking.
+    public private(set) var reconnecting = false
+    /// The rows shown are the last ones read: the Mac stayed unreachable past the bound.
+    public private(set) var stale = false
+    @ObservationIgnored private var interruptedSince: ContinuousClock.Instant?
+    @ObservationIgnored private var retryAttempt = 0
+    @ObservationIgnored private var retryTask: Task<Void, Never>?
+    /// The clock the quiet retries read and wait on (tests pass their own).
+    @ObservationIgnored var now: @Sendable () -> ContinuousClock.Instant = { .now }
+    @ObservationIgnored var pause: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     @ObservationIgnored private let macID: String
     /// Moves on each first-page load: a page asked for before it is dropped (a pull to refresh
@@ -38,17 +54,42 @@ public final class AgentChatsModel {
     /// append a page after the new first page and skip the ones between).
     @ObservationIgnored private var loadingFirstPage = false
     @ObservationIgnored private weak var backend: (any AgentChatsBackend)?
+    /// Each Mac's chats as this run last listed them: a list opened again starts from them.
+    @ObservationIgnored private let memory: AgentChatsMemory?
 
-    public init(macID: String, backend: (any AgentChatsBackend)?) {
+    /// Starts from the chats `memory` kept for the Mac (shown at once, then read again by
+    /// ``load()``), else from the loading state.
+    public init(macID: String, backend: (any AgentChatsBackend)?, memory: AgentChatsMemory? = .shared) {
         self.macID = macID
         self.backend = backend
+        self.memory = memory
+        if !macID.isEmpty, let kept = memory?.page(for: macID) {
+            chats = kept.chats
+            nextCursor = kept.nextCursor
+            phase = .loaded
+        }
+    }
+
+    /// The chats listed now are what a list opened again starts from.
+    private func remember() {
+        guard !macID.isEmpty, phase == .loaded else { return }
+        memory?.keep(AgentChatPage(chats: chats, nextCursor: nextCursor), for: macID)
     }
 
     /// The rows the list shows now.
     public var visible: [AgentChatListing] { AgentChatListing.filter(chats, scope: scope, query: query) }
 
-    /// The first page (again, for pull to refresh).
-    public func load() async {
+    /// The first page (again, for pull to refresh: `pulled`, whose own control shows progress).
+    public func load(pulled: Bool = false) async {
+        // Asked for by the person (or the screen opening): the patience starts over.
+        retryTask?.cancel()
+        retryTask = nil
+        interruptedSince = nil
+        retryAttempt = 0
+        await loadFirstPage(pulled: pulled)
+    }
+
+    private func loadFirstPage(pulled: Bool) async {
         guard let backend else {
             phase = .failed("Not connected to the Mac.")
             return
@@ -57,17 +98,58 @@ public final class AgentChatsModel {
         listGeneration &+= 1
         let generation = listGeneration
         loadingFirstPage = true
-        defer { if generation == listGeneration { loadingFirstPage = false } }
+        refreshing = !chats.isEmpty && !pulled
+        defer {
+            if generation == listGeneration {
+                loadingFirstPage = false
+                refreshing = false
+            }
+        }
         do {
             let page = try await backend.agentChats(on: macID, cursor: nil)
             guard generation == listGeneration else { return }
             chats = page.chats
             nextCursor = page.nextCursor
             phase = .loaded
+            reconnecting = false
+            stale = false
+            interruptedSince = nil
+            retryAttempt = 0
+            remember()
+        } catch is CancellationError {
+        } catch let error as ConnectionInterrupted {
+            guard generation == listGeneration else { return }
+            interrupted(error)
         } catch {
             guard generation == listGeneration else { return }
+            reconnecting = false
             let message = Self.message(error)
             if chats.isEmpty { phase = .failed(message) } else { failure = message }
+        }
+    }
+
+    /// The connection is coming back: no alert, no failure page; the list asks again on its
+    /// own, quickly at first. Only past the bound does an empty list say so.
+    private func interrupted(_ error: ConnectionInterrupted) {
+        let at = now()
+        let since = interruptedSince ?? at
+        interruptedSince = since
+        let patient = since.duration(to: at) < ConnectionPatience.giveUpAfter
+        if !patient, chats.isEmpty {
+            reconnecting = false
+            phase = .failed(Self.message(error))
+            return
+        }
+        // Nothing shows for a blip shorter than the shared notice bound; the rows stay as they were.
+        reconnecting = since.duration(to: at) >= ConnectionPatience.quietFor
+        stale = !patient
+        let delay = ConnectionPatience.delay(attempt: retryAttempt)
+        retryAttempt += 1
+        let pause = self.pause
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            do { try await pause(delay) } catch { return }
+            await self?.loadFirstPage(pulled: false)
         }
     }
 
@@ -83,6 +165,9 @@ public final class AgentChatsModel {
             let known = Set(chats.map(\.id))
             chats += page.chats.filter { !known.contains($0.id) }
             nextCursor = page.nextCursor
+            remember()
+        } catch is ConnectionInterrupted {
+            // The connection is coming back: Show Older Chats can be tapped again, no alert.
         } catch {
             guard generation == listGeneration else { return }
             failure = Self.message(error)
@@ -115,6 +200,7 @@ public final class AgentChatsModel {
         do {
             let now = try await backend.setAgentChatArchived(chat, archived: archived, on: macID)
             if let index = chats.firstIndex(where: { $0.id == chat.id }) { chats[index] = now }
+            remember()
             theme.haptics.success()
         } catch {
             failure = Self.message(error)
@@ -131,7 +217,7 @@ public final class AgentChatsModel {
     }
 
     static func message(_ error: any Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        UserFacingError.message(error)
     }
 }
 
@@ -143,6 +229,7 @@ struct AgentChatsScreen: View {
     let source: WorkspaceTabsSource
     @State private var model: AgentChatsModel
     @State private var confirmingStopAll = false
+    @State private var showsUpdating = false
 
     private var stopAllTitle: String {
         let count = model.activeChats.count
@@ -158,6 +245,17 @@ struct AgentChatsScreen: View {
         @Bindable var model = model
         content
             .navigationTitle(model.scope == .archived ? "Archived Chats" : "Agent Chats")
+            // Like the Workspaces list: a reopen's refresh of the kept rows says "Updating…" here,
+            // and only once it is slow, instead of a row that pushes every chat down and back up.
+            .navigationSubtitle(showsUpdating && model.refreshing && !model.reconnecting ? "Updating…" : "")
+            .task(id: model.refreshing) {
+                guard model.refreshing else {
+                    showsUpdating = false
+                    return
+                }
+                try? await Task.sleep(for: .seconds(1.5))
+                if !Task.isCancelled { showsUpdating = true }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
@@ -181,7 +279,7 @@ struct AgentChatsScreen: View {
                     .accessibilityIdentifier("agentChats.filter")
                 }
             }
-            .refreshable { await model.load() }
+            .refreshable { await model.load(pulled: true) }
             .task { await model.load() }
             .confirmationDialog(stopAllTitle, isPresented: $confirmingStopAll, titleVisibility: .visible) {
                 Button("Stop All Agents", role: .destructive) { Task { await model.stopAll() } }
@@ -206,7 +304,7 @@ struct AgentChatsScreen: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            CmuxSpinner(label: Text("Loading chats…"))
+            CmuxSpinner(label: Text(model.reconnecting ? "Connecting to your Mac…" : "Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
         case .failed(let message):
@@ -225,9 +323,28 @@ struct AgentChatsScreen: View {
         }
     }
 
+    /// A dropped or quiet link (``AgentChatsModel/reconnecting``, already past the quiet gate):
+    /// a chip floating over the top of the list, never a row in it (Leo, 2026-11-21: "these
+    /// messages should not be pushing up the text ... a symbol or short thing, not a sentence.
+    /// stop layout shifting").
+    private var linkChip: some View {
+        Group {
+            if model.reconnecting {
+                ConnectionChip((model.stale ? ListStatusRow.State.stale : .reconnecting).chip)
+                    .padding(.top, 8)
+                    .accessibilityIdentifier("agentChats.reconnecting")
+                    .transition(.opacity)
+            }
+        }
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: model.reconnecting)
+    }
+
     private var list: some View {
         let rows = model.visible
         return List {
+            // The kept rows show while the Mac's newest page loads; "Updating…" is the nav bar
+            // subtitle (see body) and a dropped link is a chip over the list (``linkChip``), so
+            // no row is inserted above them and nothing shifts.
             ForEach(rows) { chat in
                 row(chat)
             }
@@ -250,6 +367,7 @@ struct AgentChatsScreen: View {
             }
         }
         .listStyle(.insetGrouped)
+        .overlay(alignment: .top) { linkChip }
         .overlay {
             if rows.isEmpty, model.nextCursor == nil {
                 emptyState
@@ -329,6 +447,13 @@ struct AgentChatRow: View {
                     .font(.body)
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(1)
+                // Where the chat stands and its next action (the Mac's acpmux rolling summary).
+                if let line = chat.summaryLine {
+                    Text(line)
+                        .font(.footnote)
+                        .foregroundStyle(theme.colors.label.color.opacity(0.8))
+                        .lineLimit(2)
+                }
                 // No blank line under the title when there is nothing to say (no status, no folder).
                 if chat.isActive || !subtitle.isEmpty {
                     HStack(spacing: 6) {

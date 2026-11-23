@@ -159,6 +159,75 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
     assert!(draft["draft"].is_null(), "the source keeps no draft: {draft}");
 }
 
+/// A running turn moves with its chat (Leo, 2026-11-21: "you're supposed to be able to move shit
+/// while it's running"): `atToolBoundary` refuses while a tool call runs, so its work is never
+/// cut, and once the call's result is in the chat it stops the turn and the turn goes on there.
+#[tokio::test]
+async fn a_running_turn_moves_between_its_tool_calls_and_goes_on_there() {
+    let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let dir = tempfile::tempdir().unwrap();
+    let gate = dir.path().join("gate");
+    assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let turn = format!("tool-then-cancel: {}", gate.display());
+    src.send(method::SESSION_PROMPT, prompt(&id, "p-turn", &turn)).await;
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["toolCallId"] == "tc-1").await;
+
+    // The build runs: the move waits for it, and the chat stays as it was.
+    let live = json!({"sessionId": id, "atToolBoundary": true});
+    let wait = src.request("_acpmux/transfer_begin", live.clone()).await;
+    assert!(wait.as_ref().is_err_and(|e| e.contains("transfer.tool_in_flight")), "{wait:?}");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "{info}");
+    assert!(info["turn"]["turnId"].is_string(), "the turn still runs: {info}");
+
+    // Its result comes in; the model goes on, and the move takes the turn along.
+    let open = gate.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(open, "go").unwrap()).await.unwrap();
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    let begin = src.request("_acpmux/transfer_begin", live).await.unwrap();
+    assert_eq!(begin["continues"], "p-turn~resume-1", "{begin}");
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
+    src.request(
+        "_acpmux/transfer_commit",
+        json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
+
+    // There: the tool call's result is in its history, and the turn goes on, once.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while texts(&mut dst, &id, "user_message").await.len() < 2 {
+        assert!(tokio::time::Instant::now() < deadline, "the turn never went on there");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let ran = texts(&mut dst, &id, "user_message").await;
+    assert_eq!(ran.len(), 2, "{ran:?}");
+    assert_eq!(ran[0], turn, "{ran:?}");
+    assert!(ran[1].starts_with("This chat moved to another machine"), "{ran:?}");
+    let done = records(&mut dst, &id, "tool_call_update").await;
+    assert!(
+        done.iter().any(|u| u.pointer("/params/update/toolCallId") == Some(&json!("tc-1"))
+            && u.pointer("/params/update/status") == Some(&json!("completed"))),
+        "the tool call's result moved with the chat: {done:?}"
+    );
+    let scheduled = records(&mut dst, &id, "auto_resume_scheduled").await;
+    assert_eq!(scheduled.len(), 1, "{scheduled:?}");
+    assert_eq!(scheduled[0]["reason"], "moved", "{scheduled:?}");
+}
+
 #[tokio::test]
 async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() {
     let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
@@ -211,6 +280,83 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
     assert_eq!(edits[0]["_meta"]["provenance"]["reason"], "moved", "{edits:?}");
 }
 
+/// A move that waits for the running turn (`afterTurn`) stops nothing and freezes nothing while
+/// the turn runs: a prompt sent meanwhile queues as usual (no `transfer.moving`), the turn ends
+/// on its own with no continuation, and the queued prompt moves with the chat and runs there
+/// once. Leo, 2026-11-20: "no like pausing or whatever of agents".
+#[tokio::test]
+async fn a_move_after_the_turn_lets_it_finish_and_takes_the_prompts_sent_meanwhile_along() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let dir = tempfile::tempdir().unwrap();
+    let gate = dir.path().join("gate");
+    assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let gated = format!("gate: {}", gate.display());
+    src.send(method::SESSION_PROMPT, prompt(&id, "p-turn", &gated)).await;
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+
+    // The move's client asks on a connection of its own and waits there for the turn's end.
+    let mut mover = {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection(a.clone(), in_rx, out_tx));
+        let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+        c.become_person().await;
+        c
+    };
+    let begin_id = id.clone();
+    let begin = tokio::spawn(async move {
+        mover
+            .request("_acpmux/transfer_begin", json!({"sessionId": begin_id, "afterTurn": true}))
+            .await
+            .map(|begin| (begin, mover))
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!begin.is_finished(), "the move waits for the turn");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "nothing is frozen while the turn runs: {info}");
+    // Sent while the move waits: queued, never refused.
+    src.send(method::SESSION_PROMPT, prompt(&id, "p-mid", "mid")).await;
+    src.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-mid" && p["queued"] == true)
+        .await;
+
+    // The turn ends on its own; the move freezes the chat at its end, ahead of the queue.
+    std::fs::write(&gate, "go").unwrap();
+    let (begin, mut mover) = tokio::time::timeout(Duration::from_secs(20), begin)
+        .await
+        .expect("the move began once the turn ended")
+        .unwrap()
+        .unwrap();
+    assert!(begin.get("continues").is_none(), "no turn was cut: {begin}");
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut mover, &mut dst, &begin, &receive_id).await;
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
+    let commit = json!({"sessionId": id, "transferId": begin["transferId"],
+                        "to": {"sessionId": id}, "epoch": begin["epoch"]});
+    src.request("_acpmux/transfer_commit", commit).await.unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !texts(&mut dst, &id, "user_message").await.contains(&"mid".to_owned()) {
+        assert!(tokio::time::Instant::now() < deadline, "the prompt sent meanwhile never ran");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ran_there = texts(&mut dst, &id, "user_message").await;
+    assert_eq!(ran_there, [gated.as_str(), "mid"], "the whole turn, then the prompt once");
+    assert!(records(&mut dst, &id, "auto_resume_scheduled").await.is_empty());
+    assert_eq!(texts(&mut src, &id, "user_message").await, [gated.as_str()]);
+}
+
 /// The continuation of a move that did not happen: it says the chat stayed and quotes the cut
 /// prompt.
 fn assert_stayed_continuation(text: &str) {
@@ -234,8 +380,18 @@ async fn records(c: &mut TestClient, id: &str, kind: &str) -> Vec<Value> {
     page["events"].as_array().unwrap().iter().map(|e| e["msg"].clone()).collect()
 }
 
-/// `hub` on a unix socket of its own, as a sibling build's daemon listens; its path.
-async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
+/// A test's own socket path, unlinked when the test ends (each run left one
+/// in `/tmp` before: 101 on gcp-agent-lane-2, 2026-11-12).
+struct Socket(std::path::PathBuf);
+
+impl Drop for Socket {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// `hub` on a unix socket of its own, as a sibling build's daemon listens.
+async fn listen(hub: &Arc<Hub>) -> Socket {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
@@ -243,7 +399,7 @@ async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
         .join(format!("acpmux-move-{}-{n}.sock", std::process::id()));
     let listener = acpmux::server::bind_unix(&path).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
-    path
+    Socket(path)
 }
 
 /// Waits until `id`'s status on `c` is `status`.
@@ -296,7 +452,7 @@ async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on
     let begin = src
         .request(
             "_acpmux/transfer_begin",
-            json!({"sessionId": id, "interrupt": true, "to": {"socket": socket}}),
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": &socket.0}}),
         )
         .await
         .unwrap();
@@ -335,7 +491,7 @@ async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_the
     let begin = src
         .request(
             "_acpmux/transfer_begin",
-            json!({"sessionId": id, "interrupt": true, "to": {"socket": socket}}),
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": &socket.0}}),
         )
         .await
         .unwrap();
@@ -475,6 +631,58 @@ async fn a_stopped_chat_moves_and_never_runs_or_moves_on_the_source_again() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(texts(&mut src, &id, "user_message").await, ["hi"], "nothing ran here");
     assert!(records(&mut src, &id, "reopened").await.is_empty(), "never reopened here");
+}
+
+/// A chat that moves A to B and comes back to A (`session move --machine B`, then `--from B
+/// --machine local`) is the same chat: its moved-away copy on A gives way, so it keeps its name,
+/// that name reaches it and it takes a prompt. The copy left on B says it moved, never that a
+/// move is still under way. A different chat that comes with a name A has still gets a suffix.
+#[tokio::test]
+async fn a_chat_that_moves_away_and_comes_back_keeps_its_name_and_takes_prompts_by_it() {
+    // Each on a local store, as a daemon keeps it: the copy that comes back replaces the
+    // moved-away one's folder.
+    let dirs = ["a", "b"]
+        .map(|n| std::env::temp_dir().join(format!("acpmux-home-{n}-{}", uuid::Uuid::now_v7())));
+    let (hub_a, hub_b) = (local_hub(&dirs[0]), local_hub(&dirs[1]));
+    let (mut a, mut b) = (connect(&hub_a).await, connect(&hub_b).await);
+    let s = a.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    a.request(method::MUX_RENAME, json!({"sessionId": id, "newName": "movetest"})).await.unwrap();
+    a.request(method::SESSION_PROMPT, prompt(&id, "p-hi", "hi")).await.unwrap();
+
+    move_whole(&mut a, &mut b, &id, json!({"host": "b", "sessionId": id})).await;
+    let there = b.request(method::MUX_INFO, json!({"sessionId": "movetest"})).await.unwrap();
+    assert_eq!(there["sessionId"], id.as_str(), "{there}");
+
+    move_whole(&mut b, &mut a, &id, json!({"host": "a", "sessionId": id})).await;
+    let home = a.request(method::MUX_INFO, json!({"sessionId": "movetest"})).await.unwrap();
+    assert_eq!(home["sessionId"], id.as_str(), "its name reaches it: {home}");
+    assert_eq!(home["name"], "movetest", "it keeps its name: {home}");
+    assert!(home["movedTo"].is_null(), "the live copy, not the moved-away one: {home}");
+    assert_eq!(home["moving"], false, "{home}");
+    let back = a.request(method::SESSION_PROMPT, prompt(&id, "p-back", "back")).await;
+    assert!(back.is_ok(), "a chat that came home takes prompts: {back:?}");
+    assert_eq!(texts(&mut a, &id, "user_message").await, ["hi", "back"]);
+
+    // B's copy moved, and says so: no move of it is under way.
+    let stale = b.request(method::SESSION_PROMPT, prompt(&id, "p-stale", "stale")).await;
+    assert!(stale.as_ref().is_err_and(|e| e.contains("transfer.moved")), "{stale:?}");
+
+    // A different chat named like one here is not it: it comes with a suffix.
+    let (_c, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let other = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::MUX_RENAME, json!({"sessionId": other, "newName": "movetest"}))
+        .await
+        .unwrap();
+    move_whole(&mut c, &mut a, &other, json!({"host": "a", "sessionId": other})).await;
+    let came = a.request(method::MUX_INFO, json!({"sessionId": other})).await.unwrap();
+    assert_eq!(came["name"], "movetest-1", "{came}");
+    let mine = a.request(method::MUX_INFO, json!({"sessionId": "movetest"})).await.unwrap();
+    assert_eq!(mine["sessionId"], id.as_str(), "{mine}");
+    for dir in dirs {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 /// A daemon on a local store, as a restart sees it: the same folder opened again.

@@ -8,7 +8,9 @@ export type DocBlock =
   | { p: string }
   | { ul: string[] }
   | { code: string; lang?: string }
-  | { note: string };
+  | { note: string }
+  /** Places in the repository, each linked to its source; a test checks each path exists and is that kind. */
+  | { files: { path: string; kind: "file" | "folder"; what: string }[] };
 
 export interface NextDocPage {
   slug: string;
@@ -31,6 +33,10 @@ export const nextDocPages: NextDocPage[] = [
     body: [
       { p: "cmux-next is the rewrite of cmux: a Swift app shell, a Rust core, and web views for chat, diffs, Markdown, and Settings. It runs your terminals, browsers, and coding agents in one window, with Chief on the Home screen." },
       { note: "cmux-next is in preview. It changes every day. This page is built from the main branch, so it may be ahead of the build you run." },
+      { h2: "Paste this into your agent" },
+      { p: "Copy this into Claude Code, Codex or any coding agent on your Mac. It installs cmux NEXT DEV, signs you in, makes a Cloud machine if you have none, and starts an agent there on the folder you are in. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine." },
+      { code: "Set up cmux NEXT on this Mac and get me working in cmux Cloud. If ~/Applications/cmux NEXT DEV.app is missing, download https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/scripts/cmux-next/update-dev-daily.sh to /tmp, run it with bash, then open the app. Run every cmux command below with the CLI inside that app, \"$HOME/Applications/cmux NEXT DEV.app/Contents/Resources/bin/cmux\", not another cmux on PATH. Run `cmux setup local` and `cmux setup harness`, and start any sign-in they name. Run `cmux cloud diagnostics`; if I am signed out, run `cmux login` and tell me to finish it in the browser. Run `cmux cloud list-machines`; if I have none, run `cmux setup cloud-machine` and tell me which card to click (it costs money every hour it runs). Then run `cmux cloud start-session --target machine:<id> --agent claude --from-folder .` with that machine's id from the list (or the one you just made), and give me the chat it opens. A chat I already have moves over with `cmux cloud move` and comes back with `cmux cloud bring-back`. If a step fails, show me its error and the command to retry; never guess. Tell me only what I must do myself.", lang: "text" },
+      { p: "Already have cmux? Run cmux setup list in a cmux terminal: it lists every setup task, each with a prompt to paste." },
       { h2: "Install" },
       { p: "Two builds exist. Pick one." },
       { ul: [
@@ -50,7 +56,7 @@ export const nextDocPages: NextDocPage[] = [
       { ul: [
         "Press Cmd+Shift+P for the command palette. Every action in the app is there, with its shortcut.",
         "Open Home and ask Chief for what you want in plain words.",
-        "Press Cmd+, for Settings. Every setting is also a key in ~/.config/cmux/cmux.json.",
+        "Press Cmd+, for Settings. Every setting is also a key in ~/.config/cmux/cmux-next.json.",
         "Run cmux --help in a cmux terminal. The CLI can do everything the palette can.",
       ] },
       { h2: "Next" },
@@ -83,6 +89,9 @@ export const nextDocPages: NextDocPage[] = [
     body: [
       { p: "Home is the first screen. It looks like a messages app. Each row is a conversation: a Chief, a person on your team, or a group chat." },
       { p: "Chief is your assistant. You ask in plain words. Chief starts agents, opens panes, and reports back in the same thread." },
+      { h2: "First run" },
+      { p: "A fresh install opens on Meet Chief, three short steps on the Chief chat: who Chief is and what it does for you, how often it checks with you before it runs a command (Bypass, Auto, or Manual), and the density and text size of cmux. Skip ends it at any step, and your first message ends it too. Meet Chief in the command palette shows it again." },
+      { p: "Change the permission mode later in Settings > Home, and the look in Settings > Appearance. Chief is told to ask you before money, deleting data, or a sign-in, and never to type passwords. Bypass does not enforce this: it runs every command without a check." },
       { h2: "Commands" },
       { code: "cmux home open-chief      # open Chief\ncmux home tab             # open Home in a tab\ncmux home new-chief       # make another Chief\ncmux home send            # send a message", lang: "bash" },
       { h2: "Teammates" },
@@ -312,6 +321,9 @@ export const nextDocPages: NextDocPage[] = [
     description: "Run workspaces on cloud machines.",
     body: [
       { p: "A cloud machine is a remote computer that cmux sets up for you. Run a workspace there, or move one over and bring it back." },
+      { h2: "Paste this into your agent" },
+      { p: "Copy this into any agent chat in cmux, opened on the folder you want to work on. It signs you in, makes a machine if you have none, and starts an agent there. New to cmux? The prompt on Getting started installs it first." },
+      { code: "Get me working in cmux Cloud from this folder: run `cmux cloud diagnostics`; if it says I am signed out, run `cmux login` and tell me to finish it in the browser. Run `cmux cloud list-machines`; if I have none, run `cmux setup cloud-machine` and tell me which card to click (it costs money every hour it runs). Then run `cmux cloud start-session --target machine:<id> --agent claude --from-folder .` with that machine's id from the list (or the one you just made), and give me the chat it opens. To move a chat I already have, run `cmux cloud move` in it; to bring it back to this Mac, `cmux cloud bring-back`. If a step fails, show me its error and the command to retry; never guess.", lang: "text" },
       { code: "cmux cloud new-machine\ncmux cloud new-workspace\ncmux cloud ssh\ncmux cloud exec\ncmux cloud move\ncmux cloud bring-back", lang: "bash" },
       { h2: "Terminals" },
       { p: "Open a terminal on a machine with ssh, or make a new workspace there. Pass --workspace with a workspace id to add a terminal tab to that workspace instead. When the terminal is open, both answer machine_id and workspace_id, plus the new terminal's surface_id when cmux knows it. A paused machine resumes first: if that takes longer than about 30 seconds the answer is pending (machine_id, resuming, pending) and the terminal still opens." },
@@ -360,6 +372,59 @@ export const nextDocPages: NextDocPage[] = [
     links: ["cloud"],
   },
   {
+    slug: "server",
+    navKey: "nextServer",
+    title: "cmux server",
+    description: "Keep cmux sessions running on a Linux box or Mac, and install it there with one command.",
+    body: [
+      { p: "cmux server keeps one cmux session running on a machine as a service: your terminals and agents there keep running when you log out, when the network drops, and after a reboot. Your cmux reaches it over SSH, with your own keys and SSH config. Nothing listens on the network but sshd." },
+      { h2: "Install on another machine" },
+      { p: "From cmux on your Mac, give the machine as an ssh:// address. cmux prints each step before it runs it and asks first, unless you pass --yes:" },
+      { code: "cmux server install ssh://alice@build.example.com\ncmux server install ssh://alice@build.example.com:2222 --yes", lang: "bash" },
+      { ul: [
+        "it installs cmux on the machine, in ~/.local/bin, with no sudo. The download is the same build as your cmux, checked against its SHA-256;",
+        "it runs cmux server install there, which starts the session as a service;",
+        "it checks that the session answers, then adds the machine to your sidebar (Connect to Machine).",
+      ] },
+      { p: "The machine must accept your SSH key, and its host key must already be in your known_hosts. A new host key or a password prompt goes to your terminal, as ssh always does. cmux never accepts a host key for you, and it turns off agent, X11 and port forwarding for these commands. Without a terminal (with --yes in a script), ssh never prompts: an unknown host key stops the install." },
+      { h2: "Install on this machine" },
+      { p: "On the Linux box or Mac itself, one line installs cmux and starts the service:" },
+      { code: "curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server", lang: "bash" },
+      { p: "To see what it would do first, add --dry-run. To install one exact build, add --commit SHA; --channel stable or --channel nightly picks the latest build of that channel. With cmux already installed, run cmux server install." },
+      { p: "The installer checks the download against the SHA-256 in the build's manifest, over HTTPS only. The script is one block that the shell reads to its end before it runs, so a download cut short runs nothing." },
+      { h2: "What the service is" },
+      { ul: [
+        "Linux: the systemd user unit cmux-server.service. cmux server install turns on lingering for your account (loginctl enable-linger), so the session starts at boot and keeps running while you are logged out. If lingering is not allowed, it says which one command an administrator runs.",
+        "macOS: the LaunchAgent com.cmux.server. It runs while you are logged in.",
+        "The service runs ~/.local/bin/cmux-tui daemon start --session main. That is the path cmux uses over SSH, so when cmux upgrades the machine's binary, the service runs the new one at its next start.",
+        "A restart stops only the session daemon. Terminals keep running and the new daemon takes them back.",
+      ] },
+      { h2: "Manage it" },
+      { code: "cmux server status\ncmux server logs --follow\ncmux server down\ncmux server up\ncmux server uninstall\ncmux server uninstall ssh://alice@build.example.com", lang: "bash" },
+      { p: "logs shows the service's log (the last 100 lines; --lines N or -n N for more, --follow or -f to keep reading). down stops the service and keeps it stopped across reboots; up starts it again. uninstall removes the service and keeps cmux and your settings, and says how to remove the rest: the cmux binary, and lingering, which stays on. cmux daemon stop --if-idle stops the running server only when nothing uses it (no terminal is starting, being reattached or running, and no other client is connected); otherwise it keeps running, says what uses it and exits 1. Every command takes --json." },
+      { p: "cmux server install prints each file it writes and each command it runs. It does not touch a cmux-server.service or com.cmux.server plist that cmux did not write, or that was changed after cmux wrote it, or that systemd loads from another place (a package, /etc, a transient unit): install stops with an error and uninstall leaves it as it is. When it cannot ask systemd where the unit comes from, it changes nothing. On macOS the service log folder and file are readable only by you. It also stops when ~/.local/bin or the service folder can be written by other accounts." },
+      { h2: "Options" },
+      { ul: [
+        "--session-name NAME: run another session than main.",
+        "--user: start the service when you log in and stop it when you log out. Lingering stays as it is.",
+        "--channel stable or --channel nightly (with ssh://): install the latest build of that channel there instead of your own build. --nightly is the same as --channel nightly.",
+        "--label NAME (with ssh://): the machine's name in the cmux sidebar here, instead of its host name.",
+        "--yes: run every step without asking. It is required when there is no terminal to ask on.",
+        "--json: one JSON result on stdout, with each step and its exit status.",
+      ] },
+      { h2: "For agents" },
+      { p: "Inside the machine, cmux is on PATH in every terminal the session starts, so an agent there can run cmux identify, cmux tab list or cmux skill show to drive the session." },
+      { h2: "When it does not work" },
+      { ul: [
+        "Make sure ssh HOST works in a terminal without a password.",
+        "Run cmux server status on the machine: it shows the service state and the session.",
+        "Read the log with cmux server logs.",
+        "If the service stops at logout, lingering is off: run sudo loginctl enable-linger $USER once.",
+      ] },
+    ],
+    links: ["remote", "cli"],
+  },
+  {
     slug: "plans",
     navKey: "nextPlans",
     title: "Plans and credits",
@@ -389,7 +454,7 @@ export const nextDocPages: NextDocPage[] = [
     description: "Default keyboard shortcuts in cmux-next.",
     body: [
       { p: "These are the default shortcuts. The list is generated from the action catalog, so it matches the app. Your own bindings are in Settings > Keyboard Shortcuts." },
-      { p: "Rebind any action by id in cmux.json under shortcuts.bindings:" },
+      { p: "Rebind any action by id in ~/.config/cmux/cmux-next.json under shortcuts.bindings:" },
       { code: "{\n  \"shortcuts\": { \"bindings\": { \"commandPalette\": \"cmd+shift+p\" } }\n}", lang: "json" },
     ],
     generated: "shortcuts",
@@ -414,15 +479,18 @@ export const nextDocPages: NextDocPage[] = [
     title: "MCP server",
     description: "Give Claude Code, Codex, or any MCP client control of cmux.",
     body: [
-      { p: "cmux mcp serve gives an MCP client the same control of cmux that the CLI has. It talks JSON-RPC on stdin and stdout; nothing listens on the network. Agent chats inside cmux have it already." },
+      { p: "cmux mcp serve gives an MCP client the same control of cmux that the CLI has. It talks JSON-RPC on stdin and stdout; nothing listens on the network." },
       { h2: "Turn it on" },
-      { p: "For clients outside cmux, the server is off until you turn it on:" },
-      { code: "cmux settings set mcp.enabled true\ncmux mcp tools", lang: "bash" },
-      { h2: "Claude Code" },
-      { code: "claude mcp add cmux -- cmux mcp serve", lang: "bash" },
-      { h2: "Codex" },
-      { code: "# ~/.codex/config.toml\n[mcp_servers.cmux]\ncommand = \"cmux\"\nargs = [\"mcp\", \"serve\"]", lang: "toml" },
-      { p: "When cmux is not on the client's PATH, use the one in the app: /Applications/cmux.app/Contents/Resources/bin/cmux." },
+      { p: "Agents you start in cmux get it once you turn on cmux Tools for Agents in cmux in Settings > Agents: Claude Code and Codex in cmux's terminals and its agent chats. cmux gives it to them when it starts them and never changes their own settings. Or run:" },
+      { code: "cmux settings set agents.cmuxMcp on --confirm\ncmux setup mcp", lang: "bash" },
+      { p: "A chat cmux starts on another machine (a linked Mac, a Cloud VM, a headless cmux) follows the answer of the Mac that started it. That machine's own setting applies only to chats started there. A chat started from your phone or the web gets none of cmux's tools, and a cmux server in that agent's own settings answers as if the setting were off." },
+      { p: "When cmux cannot be sure which cmux server a Codex launch will load, it gives that launch none and leaves Codex's settings as they are, so Codex starts as it would outside cmux, without cmux's tools. That happens when your own cmux entry is an HTTP server, when a project folder's Codex settings define cmux and Codex has not trusted that folder yet (you may trust it at Codex's prompt), when you resume or fork a session, and when you start Codex with --trust, --worktree, --ignore-user-config or --remote." },
+      { p: "This setting is your consent for the agents cmux starts, not a security boundary: a program that runs as you can still run the cmux CLI itself." },
+      { h2: "Outside cmux (manual)" },
+      { p: "To use it in an agent you start somewhere else, add it to that agent's own settings yourself. cmux never does this for you; cmux setup mcp prints these lines with the path of your cmux." },
+      { code: "claude mcp add --scope user cmux -- cmux mcp serve\ncodex mcp add cmux -- cmux mcp serve", lang: "bash" },
+      { p: "When cmux is not on the client's PATH, use the one in the app: /Applications/cmux.app/Contents/Resources/bin/cmux. Each agent's own mcp remove cmux takes it out again. Settings > Agents lists any other cmux entry in an agent's own settings, with a Remove button that runs that line. An entry with settings cmux could not put back, such as a token, stays, and Settings says why." },
+      { p: "Only two cmux commands write an agent's own settings, and only when you run them: cmux acp desktop link (gives Claude desktop, Claude Code and Codex this Mac's sessions) and cmux acp bridge connect (connects Claude desktop and Codex desktop to cmux). Turning cmux Tools on writes nothing." },
       { h2: "Tools" },
       { p: "By default the server offers two tools: cmux_docs searches every cmux tool, and cmux_exec runs a short script that calls them. This keeps the client's tool list small. With --all-tools it offers every tool directly:" },
       { ul: [
@@ -442,10 +510,71 @@ export const nextDocPages: NextDocPage[] = [
     description: "Every setting, its key, and its default.",
     generated: "settings",
     body: [
-      { p: "Open Settings with Cmd+, or edit ~/.config/cmux/cmux.json. The key below is the path in that file: dots go one level down." },
+      { p: "Open Settings with Cmd+, or edit ~/.config/cmux/cmux-next.json. The key below is the path in that file: dots go one level down." },
       { code: "{\n  \"history\": { \"commandRetentionDays\": 30 }\n}", lang: "json" },
       { p: "This page is generated from the settings schema, so it matches the app." },
     ],
+  },
+  {
+    slug: "architecture",
+    navKey: "nextArchitecture",
+    title: "Architecture",
+    description: "How cmux-next fits together, and where each part lives in the code.",
+    body: [
+      { p: "cmux-next has three layers: a Swift app for macOS, a Rust core, and web views. The Rust core runs as daemons, so terminals and agents keep running when the app quits, updates, or crashes. Each section below links to the code and to the longer docs next to it." },
+      { h2: "The app" },
+      { p: "The macOS app is a Swift package with one module per feature: terminal, browser, Home, Settings, and so on. It draws windows, panes, and tabs, and draws terminals with libghostty from the ghostty-next fork. Rust code that runs inside the app is linked in as one static library." },
+      { files: [
+        { path: "Packages/macOS/CmuxNext", kind: "folder", what: "The app, one module per feature" },
+        { path: "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal", kind: "folder", what: "Terminal views on libghostty" },
+        { path: "cmux-tui/crates/cmux-app-ffi", kind: "folder", what: "The Rust library inside the app" },
+        { path: "ghostty-next", kind: "folder", what: "The Ghostty fork that renders terminals" },
+        { path: "skills/cmux-architecture/SKILL.md", kind: "file", what: "Layering and package rules for Swift code" },
+      ] },
+      { h2: "The core: cmux-tui" },
+      { p: "cmux-tui is the Rust core and the cmux command. Its daemon keeps the tree of machines, workspaces, panes, tabs, terminals, and browsers, and owns every shell. The app, the CLI, the terminal UI, and remote clients all talk to it over the same socket protocol. A new app build takes over the running daemon, which is why an update keeps your shells and scrollback." },
+      { files: [
+        { path: "cmux-tui", kind: "folder", what: "The Rust workspace: core, CLI, and daemons" },
+        { path: "cmux-tui/crates/cmux-tui", kind: "folder", what: "The cmux command and its daemon" },
+        { path: "cmux-tui/crates/cmux-tui-core", kind: "folder", what: "The workspace tree and the resources in it" },
+        { path: "cmux-tui/spec/resource-api-v2.md", kind: "file", what: "The socket protocol (cmux.protocol/2)" },
+        { path: "cmux-tui/docs", kind: "folder", what: "cmux-tui docs: concepts, remote, protocol" },
+      ] },
+      { h2: "Agents: acpmux" },
+      { p: "acpmux is a daemon that keeps coding agents alive as named sessions: Claude Code, Codex, OpenCode, Pi, and any agent that speaks the Agent Client Protocol (ACP). It records every message, so any number of clients can attach to a session, and it adds up what each turn cost. A chat tab in the app is one of those clients." },
+      { files: [
+        { path: "cmux-tui/crates/acpmux", kind: "folder", what: "The agent daemon and its CLI" },
+        { path: "webviews/src/agent-session/acpmux", kind: "folder", what: "The chat pane, a client of acpmux" },
+      ] },
+      { h2: "Web views" },
+      { p: "Chat, diffs, Markdown, Settings, Home, and the other pages are React, built from one source tree. The app serves each page from its own cmux-page:// origin, and the page talks to the app only over a small bridge. A dev server can feed them to a running app with hot reload." },
+      { files: [
+        { path: "webviews", kind: "folder", what: "The React source and its dev server" },
+        { path: "webviews/src/pages", kind: "folder", what: "Pages the app hosts: Settings, Home, history, and more" },
+      ] },
+      { h2: "One catalog for every action" },
+      { p: "Every action is declared once in a Rust catalog: its title, shortcut, arguments, and where it shows up. The command palette, the menus, the cmux command, and the MCP tools are all built from it, and so are the CLI, palette, and keyboard shortcut pages of these docs. Settings work the same way, from one schema." },
+      { files: [
+        { path: "cmux-tui/crates/cmux-action-catalog", kind: "folder", what: "The action catalog" },
+        { path: "plans/cmux-next/action-surfaces.json", kind: "file", what: "The catalog exported as JSON" },
+        { path: "schemas/settings/settings-schema.json", kind: "file", what: "The settings schema" },
+        { path: "cmux-tui/crates/cmux-tui/src/cli/mcp", kind: "folder", what: "The MCP server (cmux mcp serve)" },
+      ] },
+      { h2: "Other machines" },
+      { p: "A remote machine runs the same cmux-tui and acpmux, so its workspaces and agents work like local ones. Cloud machines are remote machines that cmux sets up for you." },
+      { files: [
+        { path: "cmux-tui/crates/cmux-remote", kind: "folder", what: "The remote runtime: daemon, client, and connection" },
+        { path: "cmux-tui/docs/remote.md", kind: "file", what: "How the remote daemon and clients connect" },
+      ] },
+      { h2: "Design docs" },
+      { p: "Longer docs live next to the code. Design notes for each feature are in plans/cmux-next, and how-to guides for running and building cmux-next are in docs/cmux-next." },
+      { files: [
+        { path: "plans/cmux-next", kind: "folder", what: "Design notes, one per feature" },
+        { path: "docs/cmux-next", kind: "folder", what: "Guides: install, dev builds, hot reload, dotfiles" },
+        { path: "plans/cmux-next/docs-DESIGN.md", kind: "file", what: "How these docs are built" },
+      ] },
+    ],
+    links: ["cli", "mcp", "settings"],
   },
 ];
 
@@ -459,6 +588,11 @@ export function headingId(text: string): string {
 }
 
 /** The docs path of a cmux-next page; Getting started is the track's index. */
+/** Where a repository path of a `files` block opens on GitHub: a file under blob, a folder under tree. */
+export function repoSourceHref(path: string, kind: "file" | "folder"): string {
+  return `https://github.com/manaflow-ai/cmux/${kind === "file" ? "blob" : "tree"}/feat-cmux-next/${path}`;
+}
+
 export function nextDocHref(slug: string): string {
   return slug === "getting-started" ? "/docs/next" : `/docs/next/${slug}`;
 }

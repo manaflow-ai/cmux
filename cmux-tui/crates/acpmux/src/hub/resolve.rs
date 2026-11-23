@@ -56,7 +56,16 @@ impl Hub {
             }
             None => {
                 let resolved = cfg.resolve_harness(&head).map_err(|e| {
-                    RpcError::invalid_params(self.with_model_hint(cfg, &head, model, e))
+                    let mut text = self.with_model_hint(cfg, &head, model, e);
+                    // A harness discovery adds from PATH was looked for again at this start
+                    // (`rediscover_head`): say when the login PATH, where a profile puts its
+                    // CLI, was never read, not only how to configure it.
+                    if crate::config::discoverable(&head)
+                        && let Some(note) = self.login_path_note()
+                    {
+                        text.push_str(&format!(". Also, {note}"));
+                    }
+                    RpcError::invalid_params(text)
                 })?;
                 if let Some(reason) = cfg.unavailable.get(&resolved) {
                     return Err(RpcError::invalid_params(format!(
@@ -84,11 +93,15 @@ impl Hub {
                 ..Default::default()
             });
         }
+        // The entry's launch as it is written, before a remote start resolves its program
+        // (`admit_remote_profile`): what the session's start records (`Resolved::launch_digest`).
+        let launch_digest = profile.launch_digest();
         if remote {
             admit_remote_profile(cfg, &resolved, &mut profile, &d.env)?;
         }
         Ok(Resolved {
             agent: resolved,
+            launch_digest,
             profile,
             defaults: d,
             head,
@@ -99,21 +112,25 @@ impl Hub {
     }
 
     /// Resolve exactly what `new_session` will run while the remote request
-    /// is still in admission, before a session or child process exists.
+    /// is still in admission, before a session or child process exists, and
+    /// judge it by the one remote start rule (`web_modes::remote_start_for_config`,
+    /// which `session_profile_checked` also applies): the modes a Web start runs
+    /// in, or why it may not start (a refused family by its derived family; a
+    /// launcher profile of Claude Code by Claude's row).
     pub(crate) async fn preflight_remote_new(
         &self,
         harness: Option<String>,
         preset: Option<String>,
         model: Option<String>,
         cwd: Option<PathBuf>,
-    ) -> Result<(String, bool), RpcError> {
-        self.wait_startup().await;
+    ) -> Result<Result<Vec<String>, String>, RpcError> {
+        // As `session/new`: the catalog and launcher checks, not every chat's adoption.
+        self.wait_spawn_ready().await;
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         let cfg = self.config.read().await;
         let resolved =
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), true, cwd.as_deref())?;
-        let family = crate::config::derive_family(&resolved.agent, &resolved.profile);
-        let any_mode = crate::codex_app_server::is_profile_launch(&resolved.profile.argv);
-        Ok((family, any_mode))
+        Ok(crate::web_modes::remote_start_for_config(&cfg, &resolved.agent, &resolved.profile))
     }
 }
 
@@ -262,6 +279,12 @@ fn folder_refusal(refusal: folder_profiles::FolderRefusal) -> RpcError {
 pub(super) struct Resolved {
     pub(super) agent: String,
     pub(super) profile: HarnessProfile,
+    /// `HarnessProfile::launch_digest` of the entry as the catalog or folder holds it, before a
+    /// remote start's admission resolves its program to a canonical path: the launch the
+    /// session's agent is recorded as starting from (`Spawn::launch_digest`), which a later
+    /// start, a profile reload (`profile_respawn.rs`) and an `asksBeforeTools` claim
+    /// (`policy_mode.rs` `claim_distrust`) compare with the entry.
+    pub(super) launch_digest: String,
     pub(super) defaults: crate::config::SessionDefaults,
     pub(super) head: String,
     pub(super) preset_name: Option<String>,
@@ -292,7 +315,9 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         schema: META_SCHEMA.into(),
         id: d.id,
         name: String::new(),
+        handle: None,
         name_given: false,
+        former_names: Vec::new(),
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
@@ -300,8 +325,12 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         family: Some(d.family.to_owned()),
         preset: d.preset,
         model_request: d.model_request,
+        effort_request: None,
         cwd: d.cwd,
         additional_directories: Vec::new(),
+        stop_condition: None,
+        stop_condition_sent: false,
+        restricted: false,
         agent_session_id: d.agent_session_id,
         previous_agent_session_ids: Vec::new(),
         retired_agent_session_ids: Vec::new(),
@@ -311,6 +340,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         updated_at: now,
         last_seq: 0,
         transcript_seq: 0,
+        recovered_after: None,
         parent_id: None,
         fork_seq: None,
         fork_before: None,
@@ -343,20 +373,30 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         cmux_context: None,
         cmux_preset_prompt: None,
         cmux_context_delivered: false,
+        cmux_rules_in_transcript: false,
+        cmux_rules_seq: None,
         usage_limits: None,
         available_commands: None,
         goal: None,
+        task_list: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,
         seen_seq: None,
         unread_turns: 0,
         last_return: None,
+        away_recap: None,
+        rolling_summary: None,
+        read_through: Default::default(),
         claude_unstored: false,
+        claude_unstored_work: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
         wait_start: false,
+        throwaway: false,
+        agent_behind_seq: None,
         hibernated_ms: 0,
         idle_launch: None,
+        start_level: None,
         moved_to: None,
         claude_profile: None,
         last_turn: None,
@@ -380,6 +420,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_cost_usd: None,
         pull_requests: vec![],
         pull_request_times: Default::default(),
+        closed_pull_requests: vec![],
         touched_files: vec![],
         git_branch: None,
         git_head: None,
@@ -394,6 +435,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_cap_ms: None,
         turn_cap_noticed: None,
         delegator: None,
+        cold: None,
     }
 }
 

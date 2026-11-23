@@ -11,20 +11,6 @@
   --tasks-success: var(--cmux-app-success, #3fa34d);
 }
 
-.tasks-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  font-size: var(--text-caption);
-  color: var(--page-text-2);
-  background: color-mix(in srgb, var(--tasks-attention) 8%, transparent);
-}
-
-.tasks-banner .tasks-dot {
-  color: var(--tasks-attention);
-}
-
 .tasks-scope-bar {
   display: flex;
   align-items: center;
@@ -51,7 +37,7 @@
   background: transparent;
   color: var(--page-text-2);
   padding: 0 4px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
   font-size: var(--text-caption);
   font-weight: var(--weight-regular);

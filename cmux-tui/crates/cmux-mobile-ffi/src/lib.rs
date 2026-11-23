@@ -63,7 +63,7 @@ pub struct TerminalSizingParticipant {
     pub counts_override: Option<bool>,
 }
 
-/// How the host picks the grid. `Smallest` ("fit everyone") is the default.
+/// How the host picks the grid. `Latest` ("last active") is the default.
 #[uniffi::remote(Enum)]
 pub enum TerminalSizingMode {
     Latest,

@@ -48,7 +48,7 @@ pub static ACTIONS: &[Action] = &[
         description: Some("Ends a guest link (--share-id from `cmux share list`): it stops working and every guest on it leaves at once. Returns share_id and state."),
         keywords: &["share", "guest", "link", "revoke", "end", "stop"],
         category: "agents",
-        symbol: "link.badge.minus",
+        symbol: "minus.circle",
         surface_plan: SurfacePlan { palette: Decision::Exempt("familyMember"), cli: Some(Decision::Offered), context_menu_exemption: Some("familyMember"), ..SurfacePlan::DEFAULT },
         arguments: &[args::SHARE_ID],
         cli_name: "share revoke",

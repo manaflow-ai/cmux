@@ -29,15 +29,21 @@
 //!   that opens the new registry. A start that swaps used to build the whole
 //!   journal here and took minutes on a large registry.
 //!
+//! The same pass drops the `personal.session.put` records a later put of
+//! the same session superseded ([`session_puts`] says which and why no
+//! reader needs them): a loop that re-put one session every few
+//! milliseconds left 11.5M of them in one registry. The pack records their
+//! runs in `journal_pruned_ranges` like removed output.
+//!
 //! Sequences never change: cursors, checkpoints and hook deliveries keep
 //! pointing at the same records. The journal readers accept a missing run of
 //! sequences exactly when one pruned range covers it ([`pruned_gap`]).
 //!
 //! The cleanup copies every kept record (in the background; Phase B did it
-//! inside the open before). That is cheap only while output is most of the
-//! journal; a registry whose journal is mostly other records (one held 12M
-//! rows, 96.6% of them session records) staged 38 GB and would have spent
-//! hours of a start copying it. So
+//! inside the open before). That is cheap only while output and superseded
+//! session puts are most of the journal; a registry whose journal is mostly
+//! other records (one held 12M rows, 96.6% of them session records) staged
+//! 38 GB and would have spent hours of a start copying it. So
 //! the cleanup runs only while the kept records stay under
 //! [`MAX_KEPT_RECORDS`] and at most half of the journal, and the staging file
 //! under [`MAX_STAGED_BYTES`]: Phase A checks an estimate before it stages and
@@ -46,13 +52,28 @@
 //! catches up; Phase B the staged size before it copies anything, and it
 //! copies at most a bounded tail of the journal. Past a bound the staging
 //! file is deleted and the registry stays as it is; the next start
-//! estimates again.
+//! estimates again. A refusal after staging is recorded
+//! (`.output-cleanup-refused`, with the journal head), and no start stages
+//! again until the journal has doubled.
+//!
+//! The cleanup runs once per registry ([`DONE_META_KEY`], version 2). A
+//! registry the version 1 cleanup finished or found without output runs it
+//! once more when its journal holds enough session puts to compact.
+//!
+//! The same pipeline runs a second, opt-in transformation
+//! ([`CleanupMode::Compact`], `journal_compact.rs`): it drops nothing and
+//! rewrites the resource records that restate the whole session. It has its
+//! own bounds and its own done marker.
 
 mod build;
 mod chunks;
 mod codec;
+pub(crate) mod journal_compact;
+mod mode;
 mod pruned;
+mod session_puts;
 mod stage;
+mod stated_fold;
 mod swap;
 
 use std::path::{Path, PathBuf};
@@ -62,8 +83,11 @@ use rusqlite::{Connection, params};
 use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
 
+pub(crate) use mode::CleanupMode;
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
-pub(crate) use stage::{StageControl, StageOutcome, stage_registry};
+#[cfg(test)]
+pub(crate) use stage::stage_registry;
+pub(crate) use stage::{StageControl, StageOutcome, stage_registry_in};
 pub(super) use swap::{
     finish_pending_rollback, note_full_start, refuse_open_beside_backup,
     remove_previous_registry_when_started, restore_interrupted_swap, roll_back_swap,
@@ -72,7 +96,12 @@ pub(super) use swap::{
 
 /// Registry meta key set once the cleanup is done (or was not needed). The
 /// cleanup is one-time: a registry with this key is never staged again.
-pub(crate) const DONE_META_KEY: &str = "output_cleanup_v1";
+/// Version 2 also drops superseded session puts (`session_puts.rs`), so a
+/// registry the version 1 cleanup finished or found clean runs it once more.
+pub(crate) const DONE_META_KEY: &str = "output_cleanup_v2";
+/// The version 1 key: a swap of that version wrote it (its backup is still
+/// recognized), but it no longer marks the cleanup done.
+pub(crate) const V1_DONE_META_KEY: &str = "output_cleanup_v1";
 const STAGING_SUFFIX: &str = ".output-cleanup";
 const PREVIOUS_SUFFIX: &str = ".pre-output-cleanup";
 /// Written when a swap failed for a reason other than free space; no later
@@ -82,6 +111,10 @@ const FAILED_SUFFIX: &str = ".output-cleanup-failed";
 /// still held open, e.g. on Windows): no open uses the swapped registry
 /// until a later start finishes the rollback.
 const ROLLBACK_PENDING_SUFFIX: &str = ".output-cleanup-rollback";
+/// Written when staging finished and the result passed a bound
+/// (`stage.rs` `refusal_memo`): no start stages again until the journal
+/// has doubled or the staging format changed.
+const REFUSED_SUFFIX: &str = ".output-cleanup-refused";
 /// Free space beyond the staged file that both phases require.
 const DISK_MARGIN_BYTES: u64 = 1 << 30;
 const OUTPUT_KIND: &str = "terminal.output";
@@ -122,6 +155,10 @@ pub(crate) fn failed_path(db_path: &Path) -> PathBuf {
 
 pub(crate) fn rollback_pending_path(db_path: &Path) -> PathBuf {
     sidecar_path(db_path, ROLLBACK_PENDING_SUFFIX)
+}
+
+pub(crate) fn refused_path(db_path: &Path) -> PathBuf {
+    sidecar_path(db_path, REFUSED_SUFFIX)
 }
 
 fn disk_margin() -> u64 {
@@ -189,22 +226,48 @@ fn copied_bytes(source: &Connection) -> anyhow::Result<u64> {
 
 /// `Some(reason)` when a cleanup that keeps `kept` of `total` journal
 /// records would copy too much: over [`MAX_KEPT_RECORDS`], or over half of
-/// the journal (output is not what fills it).
+/// the journal (output and superseded puts are not what fills it).
 fn kept_refusal(kept: u64, total: u64) -> Option<String> {
     if kept > MAX_KEPT_RECORDS {
         Some(format!(
             "{kept} of {total} journal records would be kept, over the bound of {MAX_KEPT_RECORDS}"
         ))
     } else if kept.saturating_mul(2) > total {
-        Some(format!("{kept} of {total} journal records are not terminal output"))
+        Some(format!(
+            "{kept} of {total} journal records are neither terminal output nor superseded \
+             session puts"
+        ))
     } else {
         None
     }
 }
 
-/// `Some(reason)` when the staging database is over [`MAX_STAGED_BYTES`].
+/// [`kept_refusal`] for a staging file of `mode`: a compaction copies every
+/// record by design, so only its own record bound applies.
+fn kept_refusal_in(mode: CleanupMode, kept: u64, total: u64) -> Option<String> {
+    match mode {
+        CleanupMode::Output => kept_refusal(kept, total),
+        CleanupMode::Compact => journal_compact::kept_refusal(kept, total),
+    }
+}
+
+/// The kept records past which a staging file of `mode` is abandoned.
+fn max_kept_records(mode: CleanupMode) -> u64 {
+    match mode {
+        CleanupMode::Output => MAX_KEPT_RECORDS,
+        CleanupMode::Compact => journal_compact::MAX_KEPT_RECORDS,
+    }
+}
+
+/// `Some(reason)` when the staging database is over its size bound:
+/// [`MAX_STAGED_BYTES`], or the bound a compaction recorded when it created
+/// the file (the registry's size plus the margin).
 fn staged_bytes_refusal(staging: &Connection) -> anyhow::Result<Option<String>> {
-    staged_bytes_over(staging, max_staged_bytes())
+    let limit = match CleanupMode::of(staging)? {
+        CleanupMode::Output => max_staged_bytes(),
+        CleanupMode::Compact => stage::state_u64(staging, "compact_staged_limit")?,
+    };
+    staged_bytes_over(staging, limit)
 }
 
 /// The staging database's logical size (its pages, read through
@@ -224,11 +287,26 @@ fn staged_bytes_over(staging: &Connection, limit: u64) -> anyhow::Result<Option<
     }))
 }
 
-/// (non-output, all) live journal rows after the sealed segments. The
-/// non-output count (two index ranges on either side of the output kind)
-/// stops one past [`MAX_KEPT_RECORDS`], so it reads at most that many index
-/// entries; the total is the sequence range (two index seeks).
-fn live_records(source: &Connection) -> anyhow::Result<(u64, u64)> {
+/// (kept, all) live journal rows after the sealed segments. The kept count
+/// (index ranges on either side of the output and session put kinds) stops
+/// one past [`MAX_KEPT_RECORDS`], so it reads at most that many index
+/// entries; the total is the sequence range (two index seeks). Session puts
+/// count with `puts`: the ones its read kept that are still live, and every
+/// live put after its bound. Without it (before the read) no put counts.
+#[cfg(test)]
+fn live_records(
+    source: &Connection,
+    puts: Option<&session_puts::SessionPuts>,
+) -> anyhow::Result<(u64, u64)> {
+    live_records_within(source, puts, MAX_KEPT_RECORDS)
+}
+
+/// [`live_records`] whose kept count stops one past `max_kept`.
+fn live_records_within(
+    source: &Connection,
+    puts: Option<&session_puts::SessionPuts>,
+    max_kept: u64,
+) -> anyhow::Result<(u64, u64)> {
     let archive_end: i64 = source.query_row(
         "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
         [],
@@ -239,19 +317,29 @@ fn live_records(source: &Connection) -> anyhow::Result<(u64, u64)> {
         [archive_end],
         |row| row.get(0),
     )?;
+    // `personal.session.put` sorts before `terminal.output`. Every range
+    // names ?4 and ?1 binds by index, so an unused one is fine.
     let mut kept = 0_u64;
-    for range in ["kind < ?1", "kind > ?1"] {
-        let limit = i64::try_from((MAX_KEPT_RECORDS + 1).saturating_sub(kept))?;
+    let ranges = ["kind < ?4", "kind > ?4 AND kind < ?1", "kind > ?1 AND kind > ?4"];
+    let put_range = format!("kind = ?4 AND sequence > {}", puts.map_or(0, |puts| puts.bound()));
+    let ranges = ranges.iter().copied().chain(puts.map(|_| put_range.as_str()));
+    for range in ranges {
+        let limit = i64::try_from((max_kept + 1).saturating_sub(kept))?;
         let rows: i64 = source.query_row(
             &format!(
                 "SELECT COUNT(*) FROM (
                    SELECT 1 FROM session_journal INDEXED BY session_journal_by_kind_sequence
                    WHERE {range} AND sequence > ?2 LIMIT ?3)"
             ),
-            params![OUTPUT_KIND, archive_end, limit],
+            params![OUTPUT_KIND, archive_end, limit, session_puts::SESSION_PUT_KIND],
             |row| row.get(0),
         )?;
         kept = kept.saturating_add(u64::try_from(rows)?);
+    }
+    if let Some(puts) = puts {
+        // Only the read puts still live: the ones sealed since are counted
+        // with their segments.
+        kept = kept.saturating_add(puts.live_kept_after(source, u64::try_from(archive_end)?)?);
     }
     Ok((kept, u64::try_from((head - archive_end).max(0))?))
 }
@@ -347,6 +435,14 @@ fn is_temporary(error: &anyhow::Error) -> bool {
 /// The message of an error that makes the staged work unusable.
 const STAGED_WORK_CHANGED: &str = "the registry's sealed segments changed after staging";
 
+/// The registry meta key that marks the cleanup of `mode` done.
+fn done_meta_key(mode: CleanupMode) -> &'static str {
+    match mode {
+        CleanupMode::Output => DONE_META_KEY,
+        CleanupMode::Compact => journal_compact::DONE_META_KEY,
+    }
+}
+
 fn file_len(path: &Path) -> u64 {
     std::fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0)
 }
@@ -377,18 +473,28 @@ fn mebibytes(bytes: u64) -> String {
 #[path = "output_cleanup/guard_tests.rs"]
 mod guard_tests;
 
+#[cfg(test)]
+#[path = "output_cleanup/journal_compact_tests.rs"]
+mod journal_compact_tests;
+
 impl WorkspaceRegistry {
     /// The cleanup ran (or found no output) for this registry.
     pub(crate) fn output_cleanup_done(&self) -> anyhow::Result<bool> {
         Ok(meta_value(&self.connection.get(), DONE_META_KEY)?.is_some())
     }
 
-    /// Records that this registry holds no stored terminal output.
-    pub(crate) fn mark_output_cleanup_done(&self, value: &str) -> anyhow::Result<()> {
+    /// The cleanup of `mode` ran (or was not needed) for this registry.
+    pub(crate) fn cleanup_done(&self, mode: CleanupMode) -> anyhow::Result<bool> {
+        Ok(meta_value(&self.connection.get(), done_meta_key(mode))?.is_some())
+    }
+
+    /// Records that the cleanup of `mode` has nothing to do in this registry
+    /// (for the output cleanup: it holds no stored terminal output).
+    pub(crate) fn mark_cleanup_done(&self, mode: CleanupMode, value: &str) -> anyhow::Result<()> {
         self.connection.get().execute(
             "INSERT INTO meta(key, value) VALUES(?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            [DONE_META_KEY, value],
+            [done_meta_key(mode), value],
         )?;
         Ok(())
     }

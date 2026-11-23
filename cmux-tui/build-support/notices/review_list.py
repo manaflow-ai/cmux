@@ -18,6 +18,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import python_floor  # noqa: F401  first: one clear line under a python3 older than 3.11.4
 import tomllib
 
 HERE = Path(__file__).resolve().parent

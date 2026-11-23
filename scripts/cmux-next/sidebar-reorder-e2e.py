@@ -9,6 +9,8 @@ snapshots again. Run on cmux-lawrence-2, never the laptop.
 Usage: sidebar-reorder-e2e.py --tag <tag> [--out DIR]
 """
 import argparse, glob, json, os, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -108,7 +110,7 @@ def record_spaces():
     print("pin:", cli("room", "Work", "pin", "--workspace", str(delta)), flush=True)
     time.sleep(1)  # test harness: let the rooms settle
     print("space.next:", cli("action", "run", "space.next"), flush=True)
-    print("paging at slide:", [w.get("paging") for w in (rpc("debug.sidebar_rows") or {}).get("windows", [])], flush=True)
+    print("paging after space.next:", [w.get("paging") for w in (rpc("debug.sidebar_rows") or {}).get("windows", [])], flush=True)
     frames("next", 1.0)
     print("space.previous:", cli("action", "run", "space.previous"), flush=True)
     frames("previous", 1.0)
@@ -143,21 +145,21 @@ app = launch()
 find_session()
 try:
     raw = cli("--json", "workspace", "list")
-    print("raw list:", raw[:800], flush=True)
+    safe_print("raw list:", raw[:800], flush=True)
     try:
         listed = json.loads(raw.splitlines()[-1]) if raw else {}
     except ValueError:
         listed = {}
     if not listed:
-        print("plain list:", cli("workspace", "list")[:800], flush=True)
-    print("workspaces before:", json.dumps(listed)[:600], flush=True)
+        safe_print("plain list:", cli("workspace", "list")[:800], flush=True)
+    safe_print("workspaces before:", json.dumps(listed)[:600], flush=True)
     # A clean list: close every workspace but Home (state survives runs on one tag).
     for item in listed if isinstance(listed, list) else []:
         if (item.get("extra") or {}).get("kind") != "home":
             cli("workspace", item["id"], "close")
     time.sleep(1)  # test harness: let the closes land
     for name in ("Alpha", "Beta", "Gamma"):
-        print(cli("workspace", "create", "--name", name), flush=True)
+        safe_print(cli("workspace", "create", "--name", name), flush=True)
     time.sleep(2)  # test harness: let the rows appear
     shot("r77-0-start")
     rows = {r["title"]: r["window_frame"] for w in (rpc("debug.sidebar_rows") or {}).get("windows", []) for r in w["rows"] if r.get("title")}
@@ -171,15 +173,15 @@ try:
     rpc("debug.mouse", {"x": gx, "y": ty, "action": "up"})
     time.sleep(1.5)  # test harness: let the drop land
     shot("r77-4-dropped")
-    print("daemon order after drop:", cli("workspace", "list"), flush=True)
-    print("personal placements after drop:", cli("workspace", "placement", "list"), flush=True)
+    safe_print("daemon order after drop:", cli("workspace", "list"), flush=True)
+    safe_print("personal placements after drop:", cli("workspace", "placement", "list"), flush=True)
     if opts.spaces:
         record_spaces()
     app.terminate()
     app.wait(timeout=30)
     app = launch()
     shot("r77-5-relaunched")
-    print("personal placements after relaunch:", cli("workspace", "placement", "list"), flush=True)
+    safe_print("personal placements after relaunch:", cli("workspace", "placement", "list"), flush=True)
 finally:
     if app and app.poll() is None:
         app.terminate()

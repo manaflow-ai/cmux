@@ -45,11 +45,11 @@ import Testing
     @Test func aRowWithoutAnIconStartsItsTitleAtTheLeadingInset() throws {
         let sidebar = Self.sidebar()
         let plain = try Self.row(sidebar, Self.plainID)
-        #expect(Self.textX(plain) == SidebarStyle.horizontalInset,
-                "title at \(Self.textX(plain)) pt, inset \(SidebarStyle.horizontalInset) pt: an empty icon slot pushes it right")
+        #expect(Self.textX(plain) == SidebarStyle.contentInset,
+                "title at \(Self.textX(plain)) pt, inset \(SidebarStyle.contentInset) pt: an empty icon slot pushes it right")
         // A row with an icon keeps the icon at the inset and the text after it.
         let icon = try Self.row(sidebar, Self.iconID)
-        #expect(icon.icon.frame.minX == SidebarStyle.horizontalInset)
+        #expect(icon.icon.frame.minX == SidebarStyle.contentInset)
         #expect(Self.textX(icon) > icon.icon.frame.minX + SidebarStyle.kindGlyphSize, "the title clears the icon")
     }
 

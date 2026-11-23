@@ -51,14 +51,21 @@ pub(super) async fn run(
     }
     let mut spawn = profile.clone();
     spawn.env = env;
-    let mut cmd =
-        match crate::agent::harness_command(id, &spawn, &temp.path, Some((program, args)), None) {
-            Ok(cmd) => cmd,
-            Err(e) => {
-                r.push("prompt", StepStatus::Fail, &e.to_string(), None);
-                return;
-            }
-        };
+    let mut cmd = match crate::agent::harness_command_ready(
+        id,
+        &spawn,
+        &temp.path,
+        Some((program, args)),
+        None,
+    )
+    .await
+    {
+        Ok(cmd) => cmd,
+        Err(e) => {
+            r.push("prompt", StepStatus::Fail, &e.to_string(), None);
+            return;
+        }
+    };
     cmd.stdin(std::process::Stdio::null());
     let limit = opts.timeout.max(TURN_LIMIT);
     let outcome = match turn(cmd, limit).await {

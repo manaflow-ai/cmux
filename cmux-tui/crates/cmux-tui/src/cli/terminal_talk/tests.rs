@@ -336,6 +336,21 @@ impl Daemon for FakeDaemon {
     }
 }
 
+/// [`send::run_on`] on a fake clock: each sleep moves `now` on, so a stall
+/// limit passes with no real wait.
+fn send_on_fake_clock(
+    daemon: &FakeDaemon,
+    request: &SendRequest,
+) -> Result<Value, send::SendFailure> {
+    let start = Instant::now();
+    let elapsed = Cell::new(Duration::ZERO);
+    let now = || start + elapsed.get();
+    let mut sleep = |step: Duration| elapsed.set(elapsed.get() + step);
+    let mut clock =
+        super::super::agent_start::Clock { now: &now, sleep: &mut sleep, now_ms: 1_000 };
+    send::run_on(daemon, None, request, &mut clock)
+}
+
 fn quick(text: &str) -> SendRequest {
     SendRequest {
         settle: Duration::from_millis(40),
@@ -1232,5 +1247,235 @@ fn w5q_terminal_list_agents_lists_only_terminals_whose_lifecycle_says_they_run()
     }
     for not_live in [Some("exited"), Some("tombstoned"), Some("suspended"), Some(""), None] {
         assert!(!listed(not_live), "lifecycle {not_live:?}");
+    }
+}
+
+/// Claude Code's input box after a resume, empty, and then holding a typed
+/// message that Enter did not submit (bench round 4, A6: 2 of 2).
+const RESUMED_EMPTY: &str = "⏺ P1_FIRST_OK\n\n\
+────────────────────────────────────────────────────────────────────────────────\n\
+❯\u{a0}\n\
+────────────────────────────────────────────────────────────────────────────────\n\
+  ⏵⏵ bypass permissions on (shift+tab to cycle)               ● high · /effort";
+const RESUMED_UNSENT: &str = "⏺ P1_FIRST_OK\n\n\
+────────────────────────────────────────────────────────────────────────────────\n\
+❯\u{a0}Reply with exactly P1_RESUMED_OK\n\
+────────────────────────────────────────────────────────────────────────────────\n\
+  ⏵⏵ bypass permissions on (shift+tab to cycle)               ● high · /effort";
+
+/// Bench round 4 (A6): the first send after `agent resume` typed the message
+/// but Enter did not submit it; send answered rc 0, `state idle`, empty
+/// output. A message that still sits in the input box once the screen is
+/// still, with no report from the agent since Enter, was not submitted:
+/// send says so with a typed error, and the caller can press Enter.
+#[test]
+fn w5r_send_fails_when_enter_left_the_message_in_the_input_box() {
+    let mut daemon = FakeDaemon::new(snapshot(), &[(1, RESUMED_EMPTY), (2, RESUMED_UNSENT)]);
+    // Only the screen-detection plugin wrote a record after Enter.
+    daemon.agents = json!([{"terminal_id": "term_c1a0de00000000000000000000000001",
+                            "state": "idle", "source": "plugin",
+                            "updated_at_ms": u64::MAX.to_string()}]);
+    let failure = send::run(&daemon, None, &quick("Reply with exactly P1_RESUMED_OK"))
+        .expect_err("a message left in the input box is no successful send");
+    assert_eq!(failure.failure.error["code"], "send.not_submitted", "{:?}", failure.failure.error);
+    assert_eq!(failure.exit, 1);
+    let details = &failure.failure.error["details"];
+    assert_eq!(details["terminal"], "term_c1a0de00000000000000000000000001", "{details}");
+    let message = failure.failure.error["message"].as_str().unwrap_or_default();
+    assert!(message.contains("keys enter"), "the error says how to submit it: {message}");
+    assert_eq!(daemon.writes().len(), 2, "the paste and one Enter, nothing more");
+}
+
+/// The same screen after a submit the agent reported (its UserPromptSubmit
+/// hook, `working`, then idle): a turn ran, so the send is no failure even
+/// when the input box shows text again.
+#[test]
+fn w5r_send_with_a_reported_turn_is_submitted() {
+    let mut daemon = FakeDaemon::new(snapshot(), &[(1, RESUMED_EMPTY), (2, RESUMED_UNSENT)]);
+    daemon.agents = json!([{"terminal_id": "term_c1a0de00000000000000000000000001",
+                            "state": "idle", "source": "hook",
+                            "updated_at_ms": u64::MAX.to_string()}]);
+    let receipt = send::run(&daemon, None, &quick("Reply with exactly P1_RESUMED_OK"))
+        .expect("an agent-reported turn is a submitted message");
+    assert_eq!(receipt["state"], "idle");
+}
+
+/// An empty input box after the send is a submitted message.
+#[test]
+fn w5r_send_with_an_empty_input_box_is_submitted() {
+    let daemon = FakeDaemon::new(snapshot(), &[(1, RESUMED_EMPTY), (2, RESUMED_EMPTY)]);
+    let receipt =
+        send::run(&daemon, None, &quick("Reply with exactly P1_RESUMED_OK")).expect("submitted");
+    assert_eq!(receipt["state"], "idle");
+}
+
+/// Lead scope (herdr `agent_prompt_stalled`): any send to an agent that
+/// reports through hooks must see the agent leave idle after the submit.
+/// Here the terminal's agent is a hook agent (the snapshot's record), the
+/// screen settles with an empty input box, and no record comes after Enter:
+/// the prompt did not start a turn, so the send fails with the typed error
+/// once the stall limit passed, never an empty success.
+#[test]
+fn w5r_send_to_a_hook_agent_that_never_leaves_idle_is_stalled() {
+    // The hooks reported this terminal's agent session (W3-H keeps it on the
+    // terminal): its agent reports every turn.
+    let mut hooked = snapshot();
+    if let Some(terminal) = hooked.pointer_mut("/terminals/0") {
+        terminal["extra"] = json!({"agent": "claude", "agent_session_id": "5b0e7c1e-0d6c"});
+    }
+    let daemon = FakeDaemon::new(hooked, &[(1, RESUMED_EMPTY), (2, RESUMED_EMPTY)]);
+    // The default 10 s limit, on a fake clock.
+    let request = SendRequest {
+        timeout: Duration::from_secs(60),
+        poll: Duration::from_millis(500),
+        ..quick("Reply with exactly P1_RESUMED_OK")
+    };
+    let failure = send_on_fake_clock(&daemon, &request).expect_err("no turn started");
+    assert_eq!(failure.failure.error["code"], "send.not_submitted", "{:?}", failure.failure.error);
+    assert_eq!(failure.failure.error["details"]["reason"], "no_agent_report");
+}
+
+/// The stall rule on a fake clock: a hook agent's idle screen is no turn's
+/// end before it reported the prompt; at the limit with no report it is
+/// stalled; one report (the prompt submit hook) lets the screen decide again.
+#[test]
+fn w5r_settle_stalls_a_silent_hook_agent_at_the_limit_only() {
+    let start = Instant::now();
+    let at = |ms| start + Duration::from_millis(ms);
+    let stall = Duration::from_secs(10);
+    let mut settle =
+        Settle::new(Wait::Idle, Duration::from_millis(100), start).expecting_report(stall);
+    assert_eq!(settle.observe(&idle_sample("1"), at(0)), Verdict::Pending);
+    assert_eq!(
+        settle.observe(&idle_sample("1"), at(3_000)),
+        Verdict::Pending,
+        "silent, before the limit"
+    );
+    assert_eq!(settle.observe(&idle_sample("1"), at(10_000)), Verdict::Stalled);
+
+    let mut settle =
+        Settle::new(Wait::Idle, Duration::from_millis(100), start).expecting_report(stall);
+    let reported = Sample { agent_reported: true, busy: true, ..idle_sample("2") };
+    assert_eq!(settle.observe(&reported, at(900)), Verdict::Pending, "working");
+    assert_eq!(settle.observe(&idle_sample("3"), at(4_000)), Verdict::Pending);
+    assert_eq!(settle.observe(&idle_sample("3"), at(12_000)), Verdict::Done(AgentState::Idle));
+    assert!(settle.reported());
+
+    // A dialog and an exit still end the wait at once.
+    let mut settle =
+        Settle::new(Wait::Idle, Duration::from_millis(100), start).expecting_report(stall);
+    let dialog = Sample { waiting_for_input: true, ..idle_sample("4") };
+    assert_eq!(settle.observe(&dialog, at(200)), Verdict::Done(AgentState::Blocked));
+    let exited = Sample { exited: true, ..idle_sample("4") };
+    assert_eq!(settle.observe(&exited, at(300)), Verdict::Exited);
+}
+
+/// A local command of the harness (`/cost`) runs no hook: it is no stall.
+#[test]
+fn w5r_send_of_a_slash_command_to_a_hook_agent_is_not_stalled() {
+    let mut hooked = snapshot();
+    if let Some(terminal) = hooked.pointer_mut("/terminals/0") {
+        terminal["extra"] = json!({"agent": "claude", "agent_session_id": "5b0e7c1e-0d6c"});
+    }
+    let daemon = FakeDaemon::new(hooked, &[(1, RESUMED_EMPTY), (2, RESUMED_EMPTY)]);
+    let request = SendRequest {
+        stall: Duration::from_millis(50),
+        timeout: Duration::from_secs(5),
+        ..quick("/cost")
+    };
+    let receipt = send::run(&daemon, None, &request).expect("a local command is sent");
+    assert_eq!(receipt["state"], "idle");
+}
+
+/// The terminal keeps its agent's session id after the agent quit (W3-H, for
+/// resume); a send to the shell there is no hook agent's prompt.
+#[test]
+fn w5r_send_after_the_agent_quit_is_not_stalled() {
+    let mut quit = snapshot();
+    if let Some(terminal) = quit.pointer_mut("/terminals/0") {
+        terminal["extra"] = json!({"agent": "claude", "agent_session_id": "5b0e7c1e-0d6c"});
+    }
+    if let Some(agents) = quit.pointer_mut("/agents") {
+        *agents = json!([]);
+    }
+    let daemon = FakeDaemon::new(quit, &[(1, "$ "), (2, "$ echo hi\nhi\n$ ")]);
+    let request = SendRequest {
+        stall: Duration::from_millis(50),
+        timeout: Duration::from_secs(5),
+        ..quick("echo hi")
+    };
+    let receipt = send::run(&daemon, None, &request).expect("a shell send");
+    assert_eq!(receipt["state"], "idle");
+}
+
+/// A hooked terminal whose agent's own newest record is `state`, reported by
+/// harness `harness` before the send.
+fn hooked_with(harness: &str, state: &str) -> Value {
+    let mut hooked = snapshot();
+    if let Some(terminal) = hooked.pointer_mut("/terminals/0") {
+        terminal["extra"] = json!({"agent": harness, "agent_session_id": "5b0e7c1e-0d6c"});
+    }
+    if let Some(record) = hooked.pointer_mut("/agents/0") {
+        record["state"] = json!(state);
+        record["extra"] = json!({"agent": harness});
+    }
+    hooked
+}
+
+/// Review B2 (W5-R): a message sent to an agent that works queues; no hook
+/// reports it until the running turn ends, so a busy agent is no stall.
+#[test]
+fn w5r_send_to_a_working_hook_agent_is_not_stalled() {
+    let daemon = FakeDaemon::new(hooked_with("claude", "working"), &[(1, RESUMED_EMPTY)]);
+    let request = SendRequest {
+        timeout: Duration::from_secs(60),
+        poll: Duration::from_millis(500),
+        ..quick("Also check the tests")
+    };
+    let outcome = send_on_fake_clock(&daemon, &request);
+    assert!(
+        outcome.as_ref().is_ok_and(|receipt| receipt["sent"] == true),
+        "a queued message to a working agent is sent, not stalled: {:?}",
+        outcome.err().map(|failure| failure.failure.error)
+    );
+}
+
+/// Review M2 (W5-R): a harness with no prompt-submit hook (Copilot,
+/// CodeBuddy, Factory, Qoder) reports no turn start, so silence is no stall.
+#[test]
+fn w5r_send_to_a_harness_without_a_prompt_submit_hook_is_not_stalled() {
+    for harness in ["copilot", "codebuddy", "factory", "qoder"] {
+        let daemon = FakeDaemon::new(hooked_with(harness, "idle"), &[(1, RESUMED_EMPTY)]);
+        let request = SendRequest {
+            timeout: Duration::from_secs(60),
+            poll: Duration::from_millis(500),
+            ..quick("Reply with exactly OK")
+        };
+        let outcome = send_on_fake_clock(&daemon, &request);
+        assert!(
+            outcome.is_ok(),
+            "{harness}: {:?}",
+            outcome.err().map(|failure| failure.failure.error)
+        );
+    }
+}
+
+/// Review (W5-R): Claude Code's `!` (shell) and `#` (memory) input runs no
+/// prompt hook, like a `/` command.
+#[test]
+fn w5r_send_of_bang_and_hash_input_to_a_hook_agent_is_not_stalled() {
+    for text in ["!git status", "# always run the linter"] {
+        let daemon = FakeDaemon::new(hooked_with("claude", "idle"), &[(1, RESUMED_EMPTY)]);
+        let request = SendRequest {
+            timeout: Duration::from_secs(60),
+            poll: Duration::from_millis(500),
+            ..quick(text)
+        };
+        let outcome = send_on_fake_clock(&daemon, &request);
+        assert!(
+            outcome.is_ok(),
+            "{text}: {:?}",
+            outcome.err().map(|failure| failure.failure.error)
+        );
     }
 }

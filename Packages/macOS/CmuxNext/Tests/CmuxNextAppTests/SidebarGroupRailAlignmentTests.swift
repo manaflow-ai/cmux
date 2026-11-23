@@ -74,7 +74,7 @@ import Testing
                 offByDepth[line.level, default: []].insert(line.frame.minX - bar.minX)
             }
             for (depth, offs) in offByDepth.sorted(by: { $0.key < $1.key }) {
-                #expect(offs == [0], "\(c.testDescription): depth \(depth) rail starts \(offs.sorted()) pt from its header bar's left edge")
+                #expect(offs == [SidebarStyle.groupRailInset], "\(c.testDescription): depth \(depth) rail starts \(offs.sorted()) pt from its header bar's left edge")
             }
         }
     }
@@ -94,7 +94,7 @@ import Testing
             header.needsLayout = true
             header.layoutSubtreeIfNeeded()
             let mark = list.convert(header.leadingMarkFrame, from: header)
-            #expect(line.frame.minX == mark.minX, "\(style.rawValue) depth \(line.level): rail \(line.frame.minX), mark \(mark.minX)")
+            #expect(line.frame.minX == mark.minX + SidebarStyle.groupRailInset, "\(style.rawValue) depth \(line.level): rail \(line.frame.minX), mark \(mark.minX)")
         }
     }
 
@@ -108,7 +108,7 @@ import Testing
                 guard case let .group(id) = row.key, let header = list.rowViews[row.key] as? GroupHeaderRowView else { continue }
                 let name = list.convert(header.titleFrame, from: header).minX
                 let membersX = list.frame(for: row).minX + list.railReach(for: row)
-                #expect(name == membersX + SidebarStyle.horizontalInset - Metrics.space1,
+                #expect(name == membersX + SidebarStyle.contentInset - Metrics.space1,
                         "\(density.rawValue) \(id.rawValue): name at \(name), members at \(membersX)")
             }
         }

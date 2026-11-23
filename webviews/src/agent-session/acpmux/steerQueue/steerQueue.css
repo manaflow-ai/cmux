@@ -222,7 +222,7 @@
   color: var(--agent-text);
   font: inherit;
 }
-.acpmux-steer-field:focus {
+.acpmux-steer-field:focus-visible {
   border-color: var(--agent-accent);
 }
 

@@ -8,6 +8,8 @@ import { decodeFrame, withPeer, type FrameError } from "./frame.ts"
  * - a host frame goes only to the client it names, with `peer` rewritten to the host id;
  * - a client whose install is not in the host's compiled reachability is refused;
  * - nothing is forwarded while the destination is not connected; malformed frames are dropped.
+ * A frame not forwarded says why (`reason`, and for a host frame the client it named in `peer`);
+ * HostDO tells the sender (`relay.dropped`), so nothing vanishes without a word.
  */
 /**
  * A relay peer id is 16 bytes: the first 16 bytes of SHA-256 over the public install or host id
@@ -28,7 +30,7 @@ export interface RelayView {
 
 export type Route =
   | { readonly forward: true; readonly to: Endpoint; readonly bytes: Uint8Array; readonly kind: string }
-  | { readonly forward: false; readonly reason: FrameError | "not_reachable" | "host_offline" | "client_offline" }
+  | { readonly forward: false; readonly reason: FrameError | "not_reachable" | "host_offline" | "client_offline"; readonly peer?: string }
 
 export const hexId = (id: Uint8Array): string => Array.from(id, (b) => b.toString(16).padStart(2, "0")).join("")
 export const idFromHex = (hex: string): Uint8Array => Uint8Array.from(hex.match(/../g) ?? [], (h) => Number.parseInt(h, 16))
@@ -42,8 +44,8 @@ export const route = (view: RelayView, from: Endpoint, bytes: Uint8Array): Route
     return { forward: true, to: { role: "host" }, bytes: withPeer(bytes, idFromHex(from.peer)), kind: decoded.frame.kind }
   }
   const target = hexId(decoded.frame.peer)
-  if (!view.reachable.has(target)) return { forward: false, reason: "not_reachable" }
-  if (!view.connectedClients.has(target)) return { forward: false, reason: "client_offline" }
+  if (!view.reachable.has(target)) return { forward: false, reason: "not_reachable", peer: target }
+  if (!view.connectedClients.has(target)) return { forward: false, reason: "client_offline", peer: target }
   return { forward: true, to: { role: "client", peer: target }, bytes: withPeer(bytes, view.hostPeer), kind: decoded.frame.kind }
 }
 

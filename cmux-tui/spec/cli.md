@@ -20,7 +20,7 @@ cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-
 cmux wg dial --hub <unix socket> <host> <port>
 cmux carrier dial --machine <vm_id> [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]
 cmux carrier key --public
-cmux carrier capabilities [--json]
+cmux carrier capabilities [--json] [--wg-hub PATH]
 cmux carrier serve --machine <vm_id> --socket <absolute path> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
 cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop|acpmux] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
@@ -96,21 +96,34 @@ dropped and the attempt asks; any line that is not an answer is `bad_request` (6
 
 `carrier key --public` prints this device's carrier Noise static public key on stdout as
 one line of unpadded base64url (43 characters), the `carrier.noise_key` of a create
-request, and exits 0. It is the key dial and serve use: on a Mac the login Keychain item
-`com.cmuxterm.app.next.carrier-noise-key` (account `device`), made the same way when
-missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
+request, and exits 0. It is the key dial and serve use: on a Mac, for a Team-signed build,
+the login Keychain item `com.cmuxterm.app.next.carrier-noise-key` (account `device`, read
+with prompts off, so a locked or foreign item fails at once); for a build with no Team ID
+(an ad-hoc DEV build), never the Keychain but the 0600 file
+`~/Library/Application Support/cmux-next/builds/<build key>/carrier/noise-key`, one per
+build and tag. Either is made the same way when missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
 nothing and writes the dial's failure line (`handshake`, exit 5); other arguments are
 `bad_request` (64).
 
 `carrier capabilities` prints one JSON object on stdout and exits 0, with no network,
-sign-in or app: `routes` (the carriers this build can carry a Cloud session over, today
-`["relay"]`), `faults` (the faults a probe can inject, `["kill-route"]`), and `carriers.relay`
-and `carriers.ssh`, each `{available, probe, faults, reason?}`. ssh is `available: false`
-until the build has an ssh route to a Cloud machine. The probe account's fault drill,
+sign-in or app: `routes` (the carriers this device can carry a Cloud session over,
+`["relay"]` or `["relay", "ssh"]`), `faults` (the faults a probe can inject, `["kill-route"]`),
+and `carriers.relay` and `carriers.ssh`, each `{available, probe, faults, code?, reason?}`.
+ssh is available exactly when the dial's own check of this device passes: the tunnel hub
+answers at `--wg-hub` (else `<state dir>/carrier/tunnel.sock`) and the carrier key is there
+(made the first time, as a dial makes it). When it is not, `code` is the connect log's `ssh=`
+word (`no_tunnel`, `no_key`) and `reason` says it in words. The machine's own `ssh` candidate
+is per answer, so only the dial's `carrier.routes` line reports it. The probe account's fault drill,
 `cmux cloud start-chat … --carrier-fault kill-route=relay,after-events=N`, is refused unless
 `CMUX_CARRIER_PROBE_FAULTS=1` is set and the app is signed in to a probe account; a fault
 that leaves no other carrier is `carrier_fault.no_other_route` before anything starts, with
 the drill record (`capabilities`, `fault`, `kill`, `events`, `resumes`) in `error.details`.
+Once the gates pass, the drill starts the chat without its prompt (a promptless `start-chat`
+answer carries `daemon_tab`, the chat tab's number on the machine's daemon), dials the machine
+once over the Cloud carrier, attaches to that tab's event stream on the relay, sends the prompt,
+kills the relay inside that session after N events and resumes the stream over ssh after the
+last seq it had, all inside one `--timeout`. A drill that reached the turn's last event answers
+the record under `drill`.
 
 `carrier serve` serves the same stream on a Unix socket, for callers that hand a
 daemon socket path on: each accepted connection is its own dial (a fresh grant,
@@ -303,7 +316,7 @@ cmux daemon start [START OPTIONS]
 cmux daemon status [--session <name>] [--socket <path>]
 cmux daemon stats [--session <name>] [--socket <path>] [--json]
 cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]
-  [--restore-wait-seconds <n>]
+  [--if-idle] [--restore-wait-seconds <n>]
 cmux daemon reload-config [--session <name>] [--socket <path>]
 ```
 
@@ -332,13 +345,42 @@ bound it fails with `server.stop_restoring` (exit 3, retryable; `details`:
 `reason`, `phase`, `pid`, `waited_ms`, and `retry`, the stop command with a
 longer wait, also named in the message) and leaves the owner running. Other
 lifecycle commands fail fast while `lifecycle_ready` is `false` and can be
-retried after the owner is ready. `server ensure` waits for a restoring
+retried after the owner is ready. `daemon stop --if-idle` stops the owner only
+while no other client is connected (the owner's own journal plugin aside) and
+no terminal is launching, adopting or running; otherwise it fails with
+`server.in_use` (exit 1; `details`: `clients`, each `client`, `name` and
+`kind`, and `terminals`, the live count), names them in the message and leaves
+the owner running. A client that connects meanwhile is refused, and no
+terminal may start between the check and the stop. An owner without
+`daemon-stop-if-idle-v1` (an older build) is left running: the stop fails with
+`server.if_idle_unsupported` (exit 4). `server ensure` waits for a restoring
 owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
-another. An owner at its connection limit refuses each new connection with a
+another. Its `status` is `started` only for an owner this call
+spawned, that announced itself on its ready pipe (Unix) and that answers with
+the pid this call spawned (a DEV build that runs the owner under its launcher
+checks only the announcement). When that owner lost the bind to a racing
+ensure's owner, or a successor replaced it, the owner that answers is reported
+as `running` (this call started none). An owner at its connection limit refuses each new connection with a
 `type: "refused"`, `code: "server.busy"` line; `server ensure` waits for
 capacity instead of starting another owner and fails with `server.busy` after
 10 seconds of continuous refusals. `server ensure --replace-unresponsive` replaces an
-owner that refuses every connection for that long.
+owner that refuses every connection for that long. This is the explicit **Restart
+cmux-tui** action, including when healthy clients hold every connection: it closes
+their live connections. Terminal hosts survive and the new owner adopts them;
+clients must reconnect. To keep those connections, release an unused client and
+retry normal ensure instead.
+
+The refusal is emitted before reading any request, so neither `identify` nor
+`server-stats` can check a full owner's health through a new connection. The
+accept loop can keep refusing while request workers are wedged; conversely,
+healthy idle clients need not make progress or release a permit. CPU or I/O
+activity also does not prove those workers can serve requests. There is no
+reliable bounded progress signal in this protocol that distinguishes both cases,
+so explicit Restart retains recovery of a wedged full owner. Automatic ensure
+keeps reporting `server.busy` without replacing it. The
+`replace_unresponsive_owner` integration tests cover both healthy and wedged
+saturation and normal ensure adopting the original owner once capacity is available.
+
 `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
 contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
 extra page origins, a comma-separated list: the app passes every first-party page origin
@@ -366,7 +408,7 @@ is idempotent and reports `not_running` as success for an absent socket. JSON
 errors use stable lifecycle codes and do not include raw transport, server, or
 filesystem error text.
 
-Authenticated network operations use `remote connect|ssh|forward|rpc`,
+Authenticated network operations use `remote connect|ssh|exec|cp|forward|rpc`,
 `remote enroll`, and `remote known-daemons`; they cannot accept local server
 targeting. `remote connect --carrier` dials a `ws`/`wss` route with carrier
 authentication and no enrollment; only a daemon started with
@@ -470,9 +512,26 @@ screen inside the selected session's workspace.
 An instance selector accepts:
 
 - a typed opaque ID such as `ws_…`, `pane_…`, or `term_…`;
+- a unique prefix of such an ID with at least 4 hex digits (`pane_3f0a`), for
+  a workspace, screen, pane, tab, terminal or browser: two or more objects
+  with that prefix return `selector.ambiguous` with every candidate id, and a
+  shorter prefix (`pane_3f`) is `validation.invalid`;
+- a bare ID, the 32 hex digits without the prefix; for a terminal also its
+  host id (the raw protocol's `terminal_id`, as `run` and `create-terminal`
+  return it), and a tab or pane id (the terminal that tab shows, or the
+  pane's selected tab's terminal);
 - `caller`, for a workspace, screen, pane, tab or terminal;
-- `current`;
+- `current`, and `focused` (the session's focused object);
 - an exact name.
+
+The daemon resolves every form (one resolver for the CLI, MCP, the SDKs and
+the app), so one selector selects one object in every command. JSON replies
+name objects by their full public ids. These forms are additions to
+`cmux.protocol/2`: a selector that resolved before selects the same object. A
+prefix is expanded first (the parser refused it before, and `name:` still
+selects a name that looks like one). A full id and a name are resolved next,
+as before; a bare id, a host id and `focused` apply only when no object has
+that name (a tab named `focused` is still that tab).
 
 `caller` is the object the command runs in: the caller's terminal
 (`CMUX_TUI_TERMINAL_ID`) and the tab, pane, screen and workspace that hold it,
@@ -498,22 +557,28 @@ use `focused` for the object the person looks at, and do not take `caller`.
 An agent name (`cmux agent start NAME`) and any tab name that is unique in the
 session select that tab's terminal, tab or pane wherever such a selector goes:
 the word after `terminal`, `tab` or `pane`, and the `--terminal`, `--tab` and
-`--pane` values of those scopes and of `agent` and `notification`. Before it
-parses the command, the CLI reads one `session.snapshot` and puts the id in
-place of the name: a tab with that name whose terminal runs (with an agent or
-not), else one whose terminal exited (so `terminal NAME resume` finds it). Two
-tabs at the first step that has any return `selector.ambiguous` with their tab
-ids, also an agent tab and a shell tab with one name (the daemon's tab-name
-scope does not prefer the agent tab either). A name only fills a gap: when a name
-matches, the CLI first asks the daemon to resolve the word with the rules below
-(the current scope, terminal titles, names under a parent), and a word that
-resolves stays as it is, so a selector that worked before selects the same
-object. A word that matches no tab, an id, `current`, `caller`, `focused`,
-command words and the parser's subcommand words (such as `group` in
-`tab group list`, which no agent can take as its name) are left to the rules
-below. A terminal title, and a pane's own name for a pane selector, win over a
-tab name. The scan reads flag values as the parser does: every flag that is not
-a boolean flag takes the next word.
+`--pane` values of those scopes and of `agent` and `notification`. The daemon
+looks a name under `current` parents up where it always did first (a screen
+name in the current workspace, a pane name in the current screen, a tab name in
+the current pane, the current tab's terminal title). A name it does not find
+there is looked up further, with the rules every client had before. A tab name
+is looked up in the current screen, then the current workspace, then the
+session; the first level with a match decides. A screen or pane name, or a
+terminal title, is looked up in the whole session, and then (for a pane or a
+terminal) the tab name in the whole session. In each step a tab whose terminal
+runs (with an agent or not) wins over one whose terminal exited (so
+`terminal NAME resume` finds it), and two at one step return
+`selector.ambiguous` with their ids, also an agent tab and a shell tab with one
+name. Under an explicit parent (an id or a name) only that parent's scope is
+read. Before it parses a command, the CLI
+asks the daemon to resolve each such word (`<scope> <word> show`) and puts the
+id it answers in place of the word, so a flag that takes a full id
+(`notification create --terminal`, `agent report --terminal`) also takes a
+name, a prefix or a bare id. A word the daemon does not find stays as it is.
+An id, `current`, `caller`, `focused`, command words and the parser's
+subcommand words (such as `group` in `tab group list`, which no agent can take
+as its name) are not asked about. The scan reads flag values as the parser
+does: every flag that is not a boolean flag takes the next word.
 
 Names may be empty, contain Unicode or whitespace, and need not be unique.
 `name:<value>` forces name interpretation and is required for names equal to
@@ -697,7 +762,7 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended] [--terminal <selector>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
 agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
@@ -708,13 +773,25 @@ agent report --terminal <selector> --state working|blocked|idle|ended|unknown --
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
 
+agent ls [--all] [--json]
+agent send [--no-wait] SESSION MESSAGE
+agent history SESSION [-n COUNT]
+agent search QUERY... [-n COUNT]
+agent resolve NAME|ID|LINK
+agent register NAME [--code CODE]
+agent open SESSION_ID
+agent open-tab SESSION_ID [--target PANE_OR_TAB]
+agent bg start [--cwd DIR] [--description TEXT] COMMAND
+agent bg list [--all]
+agent notices [SESSION] [--thread THREAD [--mark-read]]
+
 client list
 client <selector> show|detach
 client <selector> metadata set
 client <selector> sizing set|release
 client <selector> cell pixels set
 
-workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+workspace list [--order session|personal] [--name <name>] [--cwd <path>] [--id <id,...>] [--tree]
 workspace create
 workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
 workspace <selector> show|rename|move|focus|close|run
@@ -732,7 +809,7 @@ screen <selector> pane ...
 pane list [--name <name>] [--cwd <path>]
 pane create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
-pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--focus]
+pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--index <n>] [--to-screen <selector>] [--focus]
 pane <selector> focus direction <left|right|up|down>
 pane <selector> split ratio set
 pane <selector> viewport width set
@@ -745,12 +822,13 @@ tab <selector> terminal|browser ...
 
 terminal list [--cwd <path>]
 terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
+terminal <selector> close [--if-unplaced]
 terminal <term_id> keep on|off
 terminal <term_id>|current pin-tail on|off
 terminal <selector> focus <in|out>
 terminal <selector> screen read [--unwrap] [--lines <n>]
 terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
-terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
+terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap] [--details]
 terminal <selector> send --text <message|-> [--wait idle|prompt|none] [--pattern <regex>]
   [--timeout <d>] [--settle <d>] [--force] [--exit-with-status]
 terminal <selector> run [--pattern <regex>] [--timeout <d>] [--force] -- <command...>
@@ -774,6 +852,8 @@ notification list
 notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
 notification clear [--terminal <term_id> | --workspace <ws_id> | --notification <notification_id>]
 notification ack --client <id> <notification-id>...
+notification banners
+notification open <banner-id>
 attention request --tab <tab_…> --reason <text>
 attention clear --tab <tab_…>
 attention next [--after <tab_…>] [--focus]
@@ -782,6 +862,7 @@ git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch | --scope commits --base <commit> --head <commit>] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
   [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
+git fingerprint [TARGET] [--scope uncommitted|unstaged|staged|branch]
 git branches [TARGET] [--limit <n>]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
@@ -859,6 +940,20 @@ unchanged by an acknowledgement. Ids the bounded ledger no longer retains are
 returned under `unknown`, not rejected, so a late acknowledgement after
 eviction is complete.
 
+`notification banners` and `notification open <banner-id>` ask the cmux app
+(its `notifications.banners` and `notifications.open` methods), not the
+daemon. `banners` lists the macOS banners the app asked for, newest last and
+bounded: `{banners: [{id, title, subtitle, body, reply, approval, category,
+…}], authorization}`, each with the app's number for the tab it opens (none
+for an incognito window's banner, listed as it showed). It moves no focus.
+`open` shows that banner's own tab (never a caller-chosen one), as a click on
+it does, so it moves the app's focus there, and answers `{opened, …}`; an id
+the app does not list is `not_found` and opens nothing. Only a tab's banner
+opens, and a web page's banner runs none of the page's click handler: a
+passkey, pairing, attention or Run banner acts on the person's own click, so
+opening one is `person_required`. Release
+builds serve both, so a probe can check a Nightly's banners from outside the app.
+
 `terminal <selector> output read` returns a bounded plain-text window of the
 terminal's journaled output stream: `{text, start_offset, next_offset,
 complete}`. Offsets are `terminal.output` stream byte offsets; pass a previous
@@ -913,26 +1008,26 @@ Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
 `'^READY$'` matches a line that is only `READY`. Start the pattern with
 `(?-m)` to anchor at the start and end of the whole text.
 
-`pane <p> move` moves a whole pane: every tab in it, in order, with one
-`tab.move` each (the daemon has no pane move), and the emptied pane closes.
-`--to-pane <q>` appends the tabs to pane q; with `--split right|down|left|up`
-they go into a new pane split off q. `--to-tab <t>` puts them after tab t in
-its pane. `--to-workspace <w>` and `--new-screen` (alias `--new-tab`, the
-pane's own workspace) put them into a new screen there, named `--name`. A new
-pane's shell ends once the tabs are in (`terminal <t> close`, which takes
-its tab; a tab close alone left the shell running with no tab), and the new
-pane takes the moved pane's name. `tab.move` focuses what it moved, so afterwards the command
-focuses the pane that had the focus before (`--focus`: the destination pane);
-when the moved pane had the focus, the focus stays with its tabs. A
-destination in the pane itself is a usage error. The result is `{pane,
-moved_tabs, destination: {workspace, screen, pane, index}, created,
-focused_pane}`, `created` being `{screen, pane}`, `{pane}` or null. The
-command resolves every selector (ids, unique id prefixes, `name:` and exact
-names, `focused`, `current`, `caller`) against one `session.snapshot` and
-sends ids only. Each step is its own request. A failed step names itself and
-what already moved in `details.step` and `details.made`; running the command
-again does not resume it (`details.retry`), so move the remaining tabs with
-`tab move`.
+`pane <p> move` moves a whole pane: every tab in it, in order, in one
+`pane.move` request, which the daemon commits as one journaled change (a crash
+leaves the pane before or after the move; a retry with the same key replays
+the result). `--to-pane <q> --split right|down|left|up` puts the pane beside
+pane q, and `--to-workspace <w>` or `--new-screen` (alias `--new-tab`, the
+pane's own workspace) makes it the only pane of a new screen there, named
+`--name`: in these the pane keeps its id. `--to-pane <q>` without `--split`
+appends the tabs to pane q (at `--index <n>` if given), and `--to-tab <t>` puts
+them after tab t; the tabs keep their ids and the moved pane closes. With
+`--to-pane` or `--to-tab`, `--to-workspace <w>` and `--to-screen <s>` are that
+selector's workspace and screen. A screen
+that the move empties closes. The focus stays where it was, unless `--focus`
+(the moved tabs' pane) or the moved pane had it (the focus stays with it). A
+destination in the pane itself is `validation.invalid`. The result is
+`{pane_id, moved_pane_id, pane_kept, workspace_id, screen_id, tab_ids, index,
+created_screen_id?, closed_screen_id?, focused_pane_id?}`: `pane_id` is where
+the tabs are now (the moved pane's own id unless the tabs merged), `index` the
+first tab's position there. The daemon resolves every selector, the
+destination's too (ids, unique id prefixes, bare ids, `name:` and exact names,
+`focused`, `current`; `caller` is resolved by the CLI for `<p>` only).
 
 `workspace create --worktree <name>` runs `git worktree create --name <name>`
 in the repository `--repo` names (default: the current directory), with
@@ -969,6 +1064,9 @@ Workspace creation starts with one terminal unless `--empty` is present.
 `--pane`, and `--index` values and creates an unfocused tab placement. Tab,
 pane, screen, and workspace closes detach PTY views; only `terminal close`
 ends the session-owned process and removes all of its placements.
+`terminal <selector> close --if-unplaced` sends `if_unplaced: true`: it ends
+the terminal only when it has no tab, no `keep` mark and no attach stream, and
+otherwise fails and changes nothing.
 `tab`, `pane`, `screen` and `workspace <selector> close` with `--others`,
 `--to-right`, `--to-left` or `--all` (panes: `--others` or `--all`) send one
 `layout.bulk` close: the selected object's siblings in its pane, screen,
@@ -1017,6 +1115,19 @@ one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
 default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
 linked worktree `git status` adds `worktree.main_root`, its main checkout.
+`git fingerprint` (`git.fingerprint`, capability `git-fingerprint-v1`) prints
+64 hex digits that stay equal while the scope's `git diff` stays equal, for a
+view that asks often if its diff is still current. It runs no patch: the
+digits come from the work tree's top folder, HEAD, the merge base (the
+`branch` scope), the `core`, `diff` and `filter` settings (as one constant
+above 1 MiB) and, for each file `git status` lists, its modes, blob ids and a
+hash of its work tree content. A file's hash is kept by its stat
+entry, so a work tree at rest costs no file read (`files_read` and
+`bytes_read` say what one read cost), and a file whose time stamp alone moved
+gives the same digits. One read hashes at most 8192 files and 256 MiB and no
+file above 64 MiB; a file past a bound counts by its stat entry. Compare two
+replies of one running session host: the digits hold random bytes of its
+process, and are not equal across a restart or a version.
 `git branches` (`git.branches`, capability `git-branches-v1`) lists at most
 `--limit` (200, up to 1000) branches: local ones, then remote-tracking ones,
 each by newest tip commit. Each carries its full ref, commit and whether HEAD
@@ -1036,7 +1147,9 @@ for a file explorer: each candidate `git files` would rank folds into its
 first path component, a `directory` when paths sit below it or it is a
 submodule, else a `file`. Directories come first, then names
 case-insensitively. It prints at most `--limit` (2000, up to 5000) entries
-and sets `truncated` when more exist.
+and sets `truncated` when more exist. A folder in no repository lists too, from
+one read of the folder on disk: its children only, names
+that start with `.` left out, a symlink a `file`.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
 
@@ -1258,6 +1371,11 @@ cmux agents events --until agent.state --match state=idle --match terminal_id=te
   `null`). Every condition must hold. Either flag alone starts a wait.
 - `--timeout DURATION` takes `30s`, `5m`, `2h`, `1500ms` or plain seconds.
 
+A change to one tab's record (`tab.update`: an unread mark, an attention
+mark, a zoom, an icon; `browser.tab.emulate`) is one `tab.changed` event for
+that tab and no `workspace.changed` event, so a wait for `workspace.changed`
+does not end on it; wait for `tab.changed` with `--match id=TAB`.
+
 A wait prints only the matching event and exits 0. When the time runs out it
 exits 124: `cmux events` prints a last line `{"type": "timeout", "timed_out":
 true, "waited_ms": "30000", "until": {...}}` with `--json` or `--jsonl` (a
@@ -1281,11 +1399,33 @@ takes `until` and `match` (an object of path to value) within its 60 s bound.
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
 
+## Agent sessions
+
+`cmux agent ls` lists named sessions on this host and its peers. Use a session
+name or `HOST/NAME` with `cmux agent history` to read its turns or with
+`cmux agent send` to message it. `cmux agent resolve` accepts a name, an ID or
+a session link.
+
+`cmux agent search "failing test"` finds prompts and replies in the session
+history on this host and its peers. Results include the session, host, UTC turn
+time ending in `Z`, and a one-line preview. Open a result by passing its session
+ID to `cmux agent open` or `cmux agent open-tab`. Include `--host HOST` for
+a session on a peer.
+
+From inside a session, `cmux agent bg start 'make test'` starts a background
+shell command owned by that session. `cmux agent bg list` shows its tasks.
+`cmux agent notices` shows the session's inbox threads. Pass a thread ID
+with `--thread` to read its messages.
+
+The engine, acpmux, also accepts its existing standalone commands.
+
 ## Agent list
 
 `agent list` is one `agent.list` read; the CLI ranks, limits and counts its
 rows, so the wire value is unchanged. `--state` and `--terminal` are the
-read's own filters. Every row has `status`, one of the words `terminal list
+read's own filters. `--terminal` takes any terminal selector: the `term_` id,
+the host id that `run` returns, a bare id, a unique prefix, a tab or pane id,
+or a name; the daemon resolves it (the read's `terminal` field). Every row has `status`, one of the words `terminal list
 --agents` and `agent wait` use: `blocked`, `done` (idle with an unread
 notification on its terminal), `working`, `idle` or `unknown`, and `ended` for
 an agent whose session ended (the word the `send` receipt says; it was
@@ -1294,8 +1434,12 @@ deprecated alias of `status`. The daemon's wire does not change: `agent.list` an
 `session.snapshot` still say `state: done` for an ended session, and the CLI
 maps that `done` to `ended` in every output (`agent list`, `agent report`,
 `terminal list --agents`, the `send` receipt). In the CLI, `done` means only a
-finished turn that nobody viewed yet. The CLI leaves out the ended agents of
-terminals that closed (the snapshot has no such terminal); `--state ended`
+finished turn that nobody viewed yet. A terminal that closed has no agent: the
+daemon deletes the agent record with the terminal (`resource-api-v2.md`,
+"Agent"), so no output lists it, `--state ended` included; the ended chat, with
+its provider and session id, stays in `cmux history list --kind agent`. The CLI still
+leaves out an ended agent whose terminal the snapshot does not have (a daemon
+of an older build kept the records of closed terminals); `--state ended`
 shows them. `hidden_ended` (in `--json --counts`) counts the rows it left out,
 and the text output ends with a line that says how many (localized).
 `--state` takes
@@ -1416,10 +1560,12 @@ the terminal itself: an agent that quit leaves the roster, and the daemon keeps
 its last harness session id and harness on the terminal's snapshot value
 (`extra.agent_session_id`, `extra.agent`; memory only, a daemon restart forgets
 it). With neither, the error is `agent.no_session`. They take the launcher
-from `terminal <t> process show`, drop a resume tail an earlier resume added, and append the harness's own resume
-arguments as separate argv words: `claude --resume <id>`, `codex resume <id>`,
-`gemini --resume <id>`, `opencode --session <id>`, `amp threads continue
-<id>`. `--cmd` replaces the recorded launcher; `--harness` names the harness
+from `terminal <t> process show`, but not the extra arguments the start
+passed (`-- ARGS` may hold the first prompt, which a resume must not send
+again; put launcher flags in `--cmd`), add this command's own `-- ARGS`, and
+append the harness's own resume arguments as separate argv words: `claude
+--resume <id>`, `codex resume <id>`, `gemini --resume <id>`, `opencode
+--session <id>`, `amp threads continue <id>`. `--cmd` replaces the recorded launcher; `--harness` names the harness
 when no record does. The agent reopens in the exited tab's pane unless `--pane`
 or `--split` say otherwise, with the old tab's name and folder; the exited tab
 is closed. The output adds `resumed: {terminal_id, tab_id, agent_session_id,

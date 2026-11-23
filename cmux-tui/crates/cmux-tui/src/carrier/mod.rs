@@ -32,6 +32,16 @@
 //!   file (never to stderr): how long the attempt spent on the ticket, the
 //!   relay, the park, the handshake and the mux open
 //!   ([`contract::phases_line`]).
+//! - A relay attempt whose first link stays parked for 8 s looks at the
+//!   machine over the Cloud exec route and, when its software predates the
+//!   self-update (it never registers on the relay), has it adopt the signed
+//!   channel's build once, inside the same deadline ([`adopt`],
+//!   cmuxterm-hq#7086). That writes one `carrier.adopt machine=<vm_id>
+//!   outcome=<code> ms=<n>` line to the connect log, never to stderr.
+//! - With `CMUX_CARRIER_PROGRESS=1`, progress lines
+//!   (`{"progress":{"stage","text","eta_ms","deadline_ms"}}`) come before the
+//!   reply line, about once a second: the step the dial waits on and how
+//!   long is left ([`progress`]). Without it the reply line stays first.
 //! - `--service desktop` carries the machine's desktop instead: raw
 //!   `cmux.rd/1` bytes on stdin and stdout, through cmux-remote's
 //!   `local-socket` to `/run/cmux-rd/desktop.sock`. The daemon opens it only
@@ -72,26 +82,38 @@
 //! `cmux carrier key --public` prints this device's carrier Noise static
 //! public key on stdout as one line of unpadded base64url (32 bytes, 43
 //! characters), the `carrier.noise_key` a create request carries, and exits
-//! 0. The key is the one dial and serve use: on a Mac the login Keychain
-//! item `com.cmuxterm.app.next.carrier-noise-key` (account `device`), made
-//! the same way when it does not exist yet. Nothing private is printed.
-//! Elsewhere no key lasts past one dial, so it prints nothing on stdout and
-//! writes dial's failure line (`handshake`, exit 5), as it does when the
-//! Keychain refuses. Any other arguments are `bad_request`, exit 64.
+//! 0. The key is the one dial and serve use: on a Mac, for a Team-signed
+//! build, the login Keychain item `com.cmuxterm.app.next.carrier-noise-key`
+//! (account `device`, read with prompts off), and for a build with no Team
+//! ID (an ad-hoc DEV build) the 0600 file
+//! `~/Library/Application Support/cmux-next/builds/<build key>/carrier/noise-key`
+//! ([`noise_key`]); either is made the same way when it does not exist yet.
+//! Nothing private is printed. Elsewhere no key lasts past one dial, so it
+//! prints nothing on stdout and writes dial's failure line (`handshake`,
+//! exit 5), as it does when the store refuses. Any other arguments are
+//! `bad_request`, exit 64.
 //!
 //! `cmux carrier serve --machine <vm_id> --socket <path>` takes the same
 //! flags and environment and serves the same stream on a Unix socket: one
 //! session per machine, dialed by the first accepted connection, and a mux
 //! control stream on it for each connection ([`serve`]).
 //!
-//! `cmux carrier capabilities [--json]` prints one JSON object on stdout and
-//! exits 0: the routes this build can carry a Cloud session over
-//! (`routes`), the faults a probe can inject (`faults`), and per carrier
-//! (`carriers.relay`, `carriers.ssh`) whether it is available (with a
-//! `reason` when not), can be probed, and which faults it takes
-//! ([`fault::capabilities`]). It needs no network, sign-in or app. The probe
-//! account's fault switch, `cmux cloud start-chat --carrier-fault`, is
-//! [`fault`]'s.
+//! `cmux carrier supervise --machine <vm_id> --socket <path>` runs one app
+//! session's `carrier serve` child for its whole life (launch, token
+//! refresh, park, stop, the account fence) as one state machine
+//! ([`serve_machine`]), talking to the app in JSON lines ([`supervise`]).
+//!
+//! `cmux carrier capabilities [--json] [--wg-hub PATH]` prints one JSON
+//! object on stdout and exits 0: the routes this device can carry a Cloud
+//! session over (`routes`), the faults a probe can inject (`faults`), and
+//! per carrier (`carriers.relay`, `carriers.ssh`) whether it is available
+//! (with a `code` and a `reason` when not), can be probed, and which faults
+//! it takes ([`fault::capabilities`]). ssh is available when the dial's own
+//! check of this device passes ([`ssh::ssh_ready`]: the tunnel hub at
+//! `--wg-hub` or the default socket answers, and the carrier key is there,
+//! made the first time as a dial makes it). It needs no network, sign-in or
+//! app. The probe account's fault switch, `cmux cloud start-chat
+//! --carrier-fault`, is [`fault`]'s.
 //!
 //! `cmux carrier tunnel --machine-id machine_… --name NAME --socket PATH`
 //! keeps this Mac's tunnel into the team's provider Cloud mesh up (attach,
@@ -107,21 +129,31 @@
 //! after its phases line, naming the ssh route's state and the carrier that
 //! carried it ([`contract::routes_line`]).
 
+mod adopt;
 mod answer;
 mod client;
 mod contract;
 pub(crate) mod drill;
+pub(crate) mod drill_dial;
 pub(crate) mod fault;
 mod held;
 mod noise_key;
+mod progress;
 mod rd_link;
 mod route_log;
 mod secrets;
 mod serve;
+mod serve_machine;
+mod serve_policy;
+mod serve_quiet;
 mod source;
 mod ssh;
+mod state_root;
+mod supervise;
+mod supervise_wire;
 pub(crate) mod tunnel;
 mod tunnel_cli;
+pub(crate) mod tunnel_keeper;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -449,21 +481,34 @@ fn key(args: &[String]) -> i32 {
     }
 }
 
-/// `capabilities` or `capabilities --json`, exactly (the answer is JSON either way).
-pub(crate) fn parse_capabilities(args: &[String]) -> bool {
-    match args {
-        [verb] => verb == "capabilities",
-        [verb, flag] => verb == "capabilities" && flag == "--json",
-        _ => false,
+/// `capabilities [--json] [--wg-hub PATH]`, each once (the answer is JSON
+/// either way): `Some(hub)`, the dial's `--wg-hub` checked the same way.
+pub(crate) fn parse_capabilities(args: &[String]) -> Option<Option<PathBuf>> {
+    let (verb, rest) = args.split_first()?;
+    if verb != "capabilities" {
+        return None;
+    }
+    let rest = match rest {
+        [flag, tail @ ..] if flag == "--json" => tail,
+        _ => rest,
+    };
+    match rest {
+        [] => Some(None),
+        [flag, hub] if flag == "--wg-hub" => {
+            let hub = PathBuf::from(hub);
+            (hub.is_absolute() && cmux_unix_socket::fits(&hub)).then_some(Some(hub))
+        }
+        _ => None,
     }
 }
 
-/// `cmux carrier capabilities [--json]`: this build's carriers on stdout.
+/// `cmux carrier capabilities [--json] [--wg-hub PATH]`: this device's
+/// carriers on stdout.
 fn capabilities(args: &[String]) -> i32 {
-    if !parse_capabilities(args) {
-        return usage("usage: cmux carrier capabilities [--json]");
-    }
-    let line = format!("{}\n", fault::capabilities(&fault::this_build()));
+    let Some(hub) = parse_capabilities(args) else {
+        return usage("usage: cmux carrier capabilities [--json] [--wg-hub PATH]");
+    };
+    let line = format!("{}\n", fault::capabilities(&fault::this_device(hub)));
     let mut stdout = std::io::stdout().lock();
     let _ = stdout.write_all(line.as_bytes());
     let _ = stdout.flush();
@@ -474,6 +519,9 @@ fn capabilities(args: &[String]) -> i32 {
 pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "serve") {
         return serve::run(args);
+    }
+    if args.first().is_some_and(|verb| verb == "supervise") {
+        return supervise::run(args);
     }
     if args.first().is_some_and(|verb| verb == "secrets") {
         return secrets::run(args);
@@ -509,11 +557,23 @@ pub(crate) fn run(args: &[String]) -> i32 {
         let (lines, mut queued) = tokio::sync::mpsc::unbounded_channel::<String>();
         let connect_log = route_log::default_path();
         let phases_log = connect_log.clone();
+        let deadline = tokio::time::Instant::now() + args.deadline;
+        // Progress lines go out before the reply line, so only for a caller
+        // that asked for them (`CMUX_CARRIER_PROGRESS=1`).
+        let progress = std::env::var(progress::ENV).is_ok_and(|v| v == "1").then(|| {
+            progress::Reporter::new(
+                progress::Expected::read(connect_log.as_deref()),
+                deadline,
+                args.service == DialService::Desktop,
+                reply,
+            )
+        });
+        let ticker = progress.as_ref().map(progress::Reporter::spawn);
         let plan = client::DialPlan {
             machine: args.machine.clone(),
             source,
             identity,
-            deadline: tokio::time::Instant::now() + args.deadline,
+            deadline,
             prefetched,
             log: Arc::new(move |line| {
                 if let Some(path) = &connect_log {
@@ -527,8 +587,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 }
             }),
             fresh_sessions: contract::FreshSessions::default(),
+            progress: progress.clone(),
             ssh: Arc::new(ssh::SshSetup::from_env(args.wg_hub.clone())),
             ssh_refusal: ssh::SshRefusal::default(),
+            drill: false,
         };
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The
@@ -539,6 +601,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
             let dialed = client::dial(&plan).await;
             match (dialed, args.service) {
                 (Ok(dialed), DialService::Desktop) => {
+                    if let Some(progress) = &progress {
+                        progress.desktop();
+                    }
                     match open_desktop(&dialed.multiplexer, plan.deadline).await {
                         Ok(stream) => break (Ok(dialed), Some(stream)),
                         Err(failure) => {
@@ -554,6 +619,13 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 (dialed, _) => break (dialed, None),
             }
         };
+        // No progress line after the reply line.
+        if let Some(progress) = &progress {
+            progress.stop();
+        }
+        if let Some(ticker) = ticker {
+            ticker.abort();
+        }
         let code = match &dialed {
             Ok(dialed) => {
                 reply(&contract::connected_line(dialed.vmk));

@@ -8,8 +8,9 @@ installs without your click on that card.
 
 ## 1. Open the App Store
 
-In this build the App Store is a preview feature. Turn it on first: Settings > Labs > Preview
-features, or `cmux settings set labs.previewFeatures true`.
+The App Store is hidden until it is ready: it is a preview feature, off by default. Turn it on
+first: Settings > Experimental > Labs > Show Preview Features (search Settings for "App Store"),
+or `cmux settings set labs.previewFeatures true`.
 
 Then use one of these:
 
@@ -105,7 +106,7 @@ no key for the machine. Nothing in this path calls cmux Cloud.
 ### Your cmux Cloud machine
 
 ```sh
-cmux cloud list-machines         # find the machine id
+cmux vm ls         # find the machine id
 cmux apps install manaflow-ai/hello-deploy --deploy cloud-vm:<machine id>
 ```
 

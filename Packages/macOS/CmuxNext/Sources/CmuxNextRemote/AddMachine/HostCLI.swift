@@ -134,12 +134,23 @@ public struct HostCLI: Sendable {
             case .end: handle.readabilityHandler = nil
             }
         }
+        // Both readers stop and both read ends close once the run is over. End of file alone does
+        // not do it: an ssh the run left behind with the pipes open (a ControlPersist master) never
+        // ends them, and each run would keep two pipes and two readers for as long as it lives.
+        let readers = [stdout.fileHandleForReading, stderr.fileHandleForReading]
+        let closeOutput: @Sendable () -> Void = {
+            for reader in readers {
+                reader.readabilityHandler = nil
+                try? reader.close()
+            }
+        }
         process.terminationHandler = { finished in
             let status = finished.terminationStatus
             // task-owner: one wait for stdout's last bytes after the exit, bounded
             Task {
                 // Output can trail the exit; never wait for it unbounded.
                 _ = try? await withDeadline(.milliseconds(500), label: "host output") { await stdoutEnded.awaitValue() }
+                closeOutput()
                 if status == 0 {
                     continuation.finish()
                 } else {
@@ -153,8 +164,11 @@ public struct HostCLI: Sendable {
         do {
             try gate.start { try process.run() }
         } catch is CancellationError {
+            // No process, so no exit to close the pipes at.
+            closeOutput()
             continuation.finish(throwing: CancellationError())
         } catch {
+            closeOutput()
             continuation.finish(throwing: HostCLIStop(status: nil, message: error.localizedDescription))
         }
     }

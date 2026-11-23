@@ -8,7 +8,6 @@ back to actions/download-artifact's single connection and spent 611 s fetching t
 import email.message
 import email.utils
 import importlib.util
-import io
 import json
 from pathlib import Path
 import unittest
@@ -76,6 +75,26 @@ class RetryTests(unittest.TestCase):
             download.with_retries(always, "lookup")
         self.assertEqual(len(calls), download.MAX_ATTEMPTS)
 
+    def test_a_long_budget_is_not_cut_short_by_the_attempt_cap(self) -> None:
+        # The sign stage's restore sets a 1800 s budget; a headerless 403 that clears after 600 s must
+        # still be retried (2026-11-12: 8 attempts gave up at 510 s).
+        with mock.patch.object(download, "RETRY_BUDGET_SECONDS", 1800.0), \
+                mock.patch.object(download, "MAX_ATTEMPTS", max(8, int(1800.0 // 120) + 5)):
+            start = self.now[0]
+
+            def refused_for_600_s():
+                if self.now[0] - start < 600:
+                    raise refused(403)
+                return "ok"
+
+            self.assertEqual(download.with_retries(refused_for_600_s, "lookup"), "ok")
+        self.assertGreaterEqual(sum(self.slept), 600)
+
+    def test_the_default_budget_keeps_eight_attempts(self) -> None:
+        self.assertEqual(max(8, int(240.0 // 120) + 5), 8)
+        if download.RETRY_BUDGET_SECONDS == 240.0:
+            self.assertEqual(download.MAX_ATTEMPTS, 8)
+
     def test_slow_calls_count_against_the_wall_clock_deadline(self) -> None:
         def slow_refusal():
             self.now[0] += 100  # each refused call itself takes 100 s
@@ -112,19 +131,16 @@ class CallSiteTests(unittest.TestCase):
 
     def test_the_lookup_retries_a_403_then_returns_the_listing(self) -> None:
         body = json.dumps({"artifacts": [{"name": "app", "expired": False, "created_at": "1"}]}).encode()
-        responses = [refused(403), io.BytesIO(body)]
+        responses = [refused(403), body]
 
-        class Response(io.BytesIO):
-            def __enter__(self): return self
-            def __exit__(self, *exc): return False
-
-        def urlopen(req, timeout):
+        def request(req, seconds, *, raise_errors=False):
+            self.assertTrue(raise_errors, "with_retries retries on the HTTPError a refusal raises")
             item = responses.pop(0)
             if isinstance(item, Exception):
                 raise item
-            return Response(item.getvalue())
+            return 200, item, {}
 
-        with mock.patch.object(download.urllib.request, "urlopen", urlopen):
+        with mock.patch.object(download.deadline_http, "request", request):
             artifact = download.find_artifact("o/r", "1", "app", "token")
         self.assertEqual(artifact["name"], "app")
         self.assertEqual(self.slept, [10.0])
@@ -164,6 +180,20 @@ class CallSiteTests(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError):
                 download.blob_url({"archive_download_url": "https://api.invalid/zip"}, "t")
         self.assertEqual(self.slept, [], "the redirect retried after the lookup spent the deadline")
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_every_ranged_download_with_a_fallback_has_its_own_step_timeout(self) -> None:
+        # A range that trickles under the stall bound could hold the step past the job's timeout; the job is then
+        # cancelled and the download-artifact fallback (no always()) never runs (Codex review of #42332).
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
+        steps = [(job, step) for job, spec in jobs.items() for step in spec.get("steps") or []
+                 if "download-run-artifact.py" in str(step.get("run", ""))]
+        self.assertGreaterEqual(len(steps), 6)
+        unbounded = [f"{job}: {step.get('name')}" for job, step in steps
+                     if step.get("continue-on-error") and not step.get("timeout-minutes")]
+        self.assertEqual(unbounded, [])
 
 
 if __name__ == "__main__":

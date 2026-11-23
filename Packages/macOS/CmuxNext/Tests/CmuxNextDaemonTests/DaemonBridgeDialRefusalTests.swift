@@ -29,4 +29,13 @@ import Testing
         let reason = try #require(Self.refusal(#"{"ok":false,"error_code":"handshake","error_detail":"\#(detail)"}"#))
         #expect(reason == "the link refused the dial: handshake: " + String(repeating: "x", count: DaemonBridge.maxDetailCharacters))
     }
+
+    /// A progress line before the dial line gives its text; the dial line and any other line give none.
+    @Test func aProgressLineGivesItsTextAndTheDialLineNone() {
+        let line = #"{"progress":{"stage":"waking","text":"Waking up the machine, about 25 s left","eta_ms":25000}}"#
+        #expect(DaemonBridge.progressText(Data(line.utf8)) == "Waking up the machine, about 25 s left")
+        #expect(DaemonBridge.progressText(Data(#"{"ok":true,"route":"carrier"}"#.utf8)) == nil)
+        #expect(DaemonBridge.progressText(Data(#"{"progress":{"text":""}}"#.utf8)) == nil)
+        #expect(DaemonBridge.progressText(Data("not json".utf8)) == nil)
+    }
 }

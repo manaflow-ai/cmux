@@ -44,6 +44,7 @@ export function sampleMachines(): CloudMachine[] {
       last_active_at: T0 - DAY,
       idle_policy: { idle_seconds: 900 },
       hourly_rate_usd: 0.1322,
+      paused_hourly_rate_usd: 0.0014,
       running_since: null,
       revision: "4",
     },

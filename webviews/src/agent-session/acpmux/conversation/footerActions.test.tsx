@@ -31,7 +31,7 @@ test("a reply's action row starts with its buttons and draws the same whatever t
   expect(named.replace(/>[^<]*</g, "><")).toBe(plain.replace(/>[^<]*</g, "><"));
 });
 
-test("the latest completed turn keeps Retry beside its reply", () => {
+test("the latest completed turn keeps resend out of its inline actions", () => {
   const row: AcpmuxRow = {
     ...summary,
     text: "Done.",
@@ -45,10 +45,10 @@ test("the latest completed turn keeps Retry beside its reply", () => {
       <TurnFooter row={row} />
     </TurnActionsContext.Provider>,
   );
-  expect(markup).toContain(`aria-label="${translate("turn.retry")}"`);
+  expect(markup).not.toContain(`aria-label="${translate("turn.retry")}"`);
 });
 
-test("Retry calls out a known file change without changing the action", () => {
+test("failed recovery calls out a known file change without changing the action", () => {
   const row: AcpmuxRow = {
     ...summary,
     text: "Done.",
@@ -57,6 +57,8 @@ test("Retry calls out a known file change without changing the action", () => {
     retryable: true,
     retryTarget: true,
     changedFiles: true,
+    status: "failed",
+    error: "The request failed",
   };
   const markup = renderToStaticMarkup(
     <TurnActionsContext.Provider value={{ retry: () => undefined }}>

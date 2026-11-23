@@ -52,6 +52,7 @@ extension ControlRouter {
             }
             request.background = value
         }
+        request.besideTargetChat = params["beside_chat"]?.boolValue ?? false
         if let rawTarget = params["target"], !rawTarget.isNull {
             request.target = try target(from: rawTarget, allowedKinds: action.targets, knownKinds: knownKinds, action: action.id)
         }
@@ -89,7 +90,7 @@ extension ControlRouter {
             request.arguments.updateValue(try value(raw, for: argument, action: action.id, knownKinds: knownKinds), forKey: name)
         }
         let interactive = params["interactive"]?.boolValue ?? false
-        let missing = action.arguments.filter { $0.isRequired && request.arguments.index(forKey: $0.name) == nil }.map(\.name)
+        let missing = action.arguments.filter { $0.isRequired && request.arguments.index(forKey: $0.name) == nil && !$0.isSupplied(by: request.target) }.map(\.name)
         if !missing.isEmpty, !interactive {
             throw ControlError.invalidParams(
                 ControlStrings.format("control.error.missingArguments", "%1$@ requires %2$@", action.id, missing.map { "--\($0)" }.joined(separator: ", ")),

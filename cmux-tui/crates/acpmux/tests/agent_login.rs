@@ -1,5 +1,5 @@
 //! `_acpmux/agent_login/*` (`agent_login.rs`, `server/agent_login.rs`) end to
-//! end over a connection, with stand-in `claude` and `codex` scripts that
+//! end over a connection, with stand-in `claude`, `codex` and `grok` scripts that
 //! print what the real CLIs print and read the code or key the way they do.
 //! They check the env they got (no model-plane values, no browser) and write
 //! their sign-in where the real CLIs do.
@@ -83,6 +83,28 @@ case "$*" in
 esac
 "#;
 
+/// `grok login --device-auth` (alias `--device-code`) as the grok CLI may print it: a link on
+/// accounts.x.ai and a code, then the sign-in in `$GROK_HOME/auth.json` once the person approved
+/// (a moment later here). Its exact words are not pinned (`parse::grok_code`).
+const FAKE_GROK: &str = r#"#!/bin/sh
+for v in XAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY OPENAI_API_KEY DISPLAY; do
+  eval "x=\${$v-}"; [ -z "$x" ] || { echo "leaked $v" >&2; exit 65; }
+done
+[ "$BROWSER" = true ] || exit 66
+[ "$CMUX_GROK_AUTH" = own ] || exit 67
+[ -d "$GROK_HOME" ] || exit 68
+case "$*" in
+  "login --device-auth"|"login --device-code")
+    # grok 1.0.77's own words on Linux.
+    printf 'To sign in, open this URL in your browser:\n  https://accounts.x.ai/oauth2/device?user_code=WDJB-MJHT\nConfirm this code in your browser:\n  WDJB-MJHT\n\033[90mOnly continue with a code you requested. Don'"'"'t share it with anyone.\033[0m\nWaiting for authorization...\n'
+    sleep 1
+    printf '{"access_token":"t","refresh_token":"r"}' > "$GROK_HOME/auth.json"
+    echo 'Logged in.'
+    ;;
+  *) exit 64 ;;
+esac
+"#;
+
 fn dir(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("agent-login-it-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
@@ -105,6 +127,9 @@ fn hub(d: &Path) -> Arc<Hub> {
     let bin = d.join("bin");
     script(&bin.join("claude"), FAKE_CLAUDE);
     script(&bin.join("codex"), FAKE_CODEX);
+    script(&bin.join("grok"), FAKE_GROK);
+    // Gemini signs in here with a key only: its CLI never runs, it only has to be configured.
+    script(&bin.join("gemini"), "#!/bin/sh\nexit 70\n");
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "claude": {
@@ -115,6 +140,14 @@ fn hub(d: &Path) -> Arc<Hub> {
             "codex": {
                 "argv": [bin.join("codex"), "app-server"],
                 "env": {"CODEX_HOME": d.join("codex-home")},
+            },
+            "grok": {
+                "argv": [bin.join("grok"), "agent", "stdio"],
+                "env": {"GROK_HOME": d.join("grok-home"), "XAI_API_KEY": "xai-team-key"},
+            },
+            "gemini": {
+                "argv": [bin.join("gemini"), "--experimental-acp"],
+                "env": {"GEMINI_CLI_HOME": d.join("gemini-user"), "GEMINI_API_KEY": "team-key"},
             },
         },
     }))
@@ -180,7 +213,7 @@ async fn agent_login_over_the_wire() {
     assert!(caps.contains(&json!("agent-login-v1")), "{caps:?}");
 
     // An agent this does not sign in.
-    let e = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "gemini"})).await.unwrap_err();
+    let e = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "opencode"})).await.unwrap_err();
     assert_eq!(reason(&e), "unsupported_agent");
 
     // Claude: the link from the OSC-8 hyperlink, and the automatic link its
@@ -244,6 +277,20 @@ async fn agent_login_over_the_wire() {
         json!({})
     );
 
+    // cmux's gateway, the card's third way in: refused where the machine is no cmux Cloud image,
+    // and nothing recorded.
+    let e = c
+        .call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude@gateway"}))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&e), "no_gateway", "{e}");
+    assert!(!home.join(".config/cmux/agent-auth/claude").exists());
+    let e = c
+        .call(method::MUX_AGENT_LOGIN_START, json!({"agent": "gemini@gateway"}))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&e), "unsupported_agent", "{e}");
+
     // A cmux Cloud owner machine: the image's launcher is told to use the own sign-in.
     std::fs::create_dir_all(d.join("root/etc/cmux")).unwrap();
     std::fs::write(d.join("root/etc/cmux/agent-auth.sh"), "# image\n").unwrap();
@@ -286,6 +333,22 @@ async fn agent_login_over_the_wire() {
         serde_json::from_slice(&std::fs::read(d.join("claude-home/settings.json")).unwrap())
             .unwrap();
     assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], "sk-ant-test-1");
+    // Write-only: the reply above never carries the key, the file is the agent user's alone, and
+    // it reaches the agent: Claude's own sign-in check finds it in the env Claude starts with.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode =
+            std::fs::metadata(d.join("claude-home/settings.json")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "{mode:o}");
+    }
+    let env = std::collections::BTreeMap::from([(
+        "CLAUDE_CONFIG_DIR".to_owned(),
+        d.join("claude-home").display().to_string(),
+    )]);
+    let found = acpmux::claude_auth::find(&env);
+    assert!(found.signed_in(), "{found:?}");
+    assert!(found.sources.iter().any(|s| s.contains("ANTHROPIC_API_KEY")), "{:?}", found.sources);
     // The Claude profile also uses an alternate account home, so its API key
     // save must leave the canonical machine choice untouched.
     assert!(!home.join(".config/cmux/agent-auth/claude").exists());
@@ -304,6 +367,85 @@ async fn agent_login_over_the_wire() {
     let (mut web, _) = C::new(hub.clone(), Origin::Web).await;
     web.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap_err();
 
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Gemini (an API key into `.gemini/.env` and `settings.json`) and Grok (its device flow) over the
+/// wire, with the ways each does not sign in answered `unsupported`, and a team machine refusing.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn gemini_and_grok_login_over_the_wire() {
+    let d = dir("gemini-grok");
+    let hub = hub(&d);
+    let (mut c, _) = C::new(hub.clone(), Origin::Local).await;
+
+    // Gemini: no browser start; the key is saved where Gemini CLI reads it with no shell env.
+    let e = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "gemini"})).await.unwrap_err();
+    assert_eq!(reason(&e), "unsupported", "{e}");
+    let gemini = d.join("gemini-user/.gemini");
+    std::fs::create_dir_all(&gemini).unwrap();
+    std::fs::write(gemini.join(".env"), "GOOGLE_CLOUD_PROJECT=p\nGEMINI_API_KEY=old\n").unwrap();
+    std::fs::write(gemini.join("settings.json"), r#"{"theme":"Dracula"}"#).unwrap();
+    let r = c
+        .call(method::MUX_AGENT_LOGIN_API_KEY, json!({"agent": "gemini", "key": "AIzaTest123"}))
+        .await
+        .unwrap();
+    assert_eq!(r, json!({"saved": true, "restarted": false}));
+    assert_eq!(
+        std::fs::read_to_string(gemini.join(".env")).unwrap(),
+        "GOOGLE_CLOUD_PROJECT=p\nGEMINI_API_KEY=AIzaTest123\n"
+    );
+    let settings: Value =
+        serde_json::from_slice(&std::fs::read(gemini.join("settings.json")).unwrap()).unwrap();
+    assert_eq!(
+        settings,
+        json!({"theme": "Dracula", "security": {"auth": {"selectedType": "gemini-api-key"}}})
+    );
+    let e = c
+        .call(method::MUX_AGENT_LOGIN_API_KEY, json!({"agent": "gemini", "key": "bad key"}))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&e), "bad_code");
+
+    // Grok: the device link and code; finish waits for the CLI to save its sign-in.
+    let e = c
+        .call(method::MUX_AGENT_LOGIN_API_KEY, json!({"agent": "grok", "key": "xai-test-1"}))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&e), "unsupported", "{e}");
+    let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "grok"})).await.unwrap();
+    assert_eq!(s["url"], "https://accounts.x.ai/oauth2/device?user_code=WDJB-MJHT");
+    assert_eq!(s["userCode"], "WDJB-MJHT");
+    assert_eq!(s["needsCode"], false);
+    assert!(s.get("autoUrl").is_none());
+    let r = c.call(method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": s["loginId"]})).await.unwrap();
+    assert_eq!(r, json!({"signedIn": true, "restarted": false}));
+    assert!(d.join("grok-home/auth.json").is_file());
+    // A new start stops the one before it.
+    let first = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "grok"})).await.unwrap();
+    let again = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "grok"})).await.unwrap();
+    let e = c
+        .call(method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": first["loginId"]}))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&e), "unknown_login");
+    c.call(method::MUX_AGENT_LOGIN_CANCEL, json!({"loginId": again["loginId"]})).await.unwrap();
+
+    // A team machine: refused before anything runs.
+    std::fs::create_dir_all(d.join("root/etc/cmux")).unwrap();
+    std::fs::write(d.join("root/etc/cmux/vm-kind"), "team\n").unwrap();
+    let e = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "grok"})).await.unwrap_err();
+    assert_eq!(reason(&e), "shared_machine");
+    let e = c
+        .call(method::MUX_AGENT_LOGIN_API_KEY, json!({"agent": "gemini", "key": "AIzaTeam"}))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&e), "shared_machine");
+    assert!(!std::fs::read_to_string(gemini.join(".env")).unwrap().contains("AIzaTeam"));
+
+    // A remote WebSocket page never runs one.
+    let (mut web, _) = C::new(hub.clone(), Origin::Web).await;
+    web.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "grok"})).await.unwrap_err();
     let _ = std::fs::remove_dir_all(&d);
 }
 

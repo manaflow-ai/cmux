@@ -1,11 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import cliGenerated from "../data/next-docs/cli-reference.generated.json";
-import paletteGenerated from "../data/next-docs/palette-reference.generated.json";
-import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
-import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
+import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath, repoSourceHref } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
 import { sitemapEntries } from "../app/sitemap";
 import {
@@ -16,25 +13,25 @@ import {
   mcpToolName,
 } from "../scripts/export-next-docs";
 import { docsChannelUrl, docsPathAvailableInChannel } from "../app/lib/docs-channel";
-import { docsContentLang, flatNavItems, navItemsForLocale } from "../app/[locale]/components/docs-nav-items";
+import {
+  docsContentLang,
+  docsContentLangAttributes,
+  flatNavItems,
+  navItemsForLocale,
+} from "../app/[locale]/components/docs-nav-items";
 
 // The cmux-next docs reference pages are generated from the action catalog and
 // the settings schema (plans/cmux-next/docs-DESIGN.md). web/ never reads those
-// at build time, so these tests read them and require the copies to match.
+// at build time; the pages render copies in web/data/next-docs that only the
+// base autofix writes (RFD 0048), so a pull request's copy may lag its inputs by
+// one autofix run. These tests build the data from the catalog and the schema
+// at the head and judge that, never the copies.
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const surfaces = JSON.parse(readFileSync(join(repo, "plans/cmux-next/action-surfaces.json"), "utf8"));
 const schema = JSON.parse(readFileSync(join(repo, "schemas/settings/settings-schema.json"), "utf8"));
 
 describe("cmux-next docs", () => {
-  test("the CLI and MCP reference is fresh against the action catalog", () => {
-    expect(buildCliReference(surfaces)).toEqual(cliGenerated as never);
-  });
-
-  test("the command palette and shortcuts reference is fresh against the action catalog", () => {
-    expect(buildPaletteReference(surfaces)).toEqual(paletteGenerated as never);
-  });
-
   test("MCP tool names follow the server's rule", () => {
     // cmux-tui/crates/cmux-tui/src/cli/mcp/action_tools.rs `tool_name` and its tests.
     expect(mcpToolName("workspace rename")).toBe("app_workspace_rename");
@@ -61,8 +58,19 @@ describe("cmux-next docs", () => {
     expect(nextDocHref("getting-started")).toBe("/docs/next");
   });
 
-  test("the settings reference is fresh against the settings schema", () => {
-    expect(buildSettingsReference(schema)).toEqual(settingsGenerated as never);
+  // The architecture page points at folders and files; a move or rename must not leave it
+  // linking to nothing, and a file links under blob, a folder under tree.
+  test("every repository path a page links to exists and is the kind it says", () => {
+    const wrong = nextDocPages.flatMap((page) =>
+      page.body.flatMap((block) => ("files" in block ? block.files : []))
+        .filter((file) => {
+          const full = join(repo, file.path);
+          return !existsSync(full) || statSync(full).isDirectory() !== (file.kind === "folder");
+        })
+        .map((file) => `${page.slug}: ${file.path} (${file.kind})`));
+    expect(wrong).toEqual([]);
+    expect(repoSourceHref("cmux-tui/docs", "folder")).toBe("https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/docs");
+    expect(repoSourceHref("cmux-tui/spec/resource-api-v2.md", "file")).toBe("https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/spec/resource-api-v2.md");
   });
 
   // docs/configuration.md is written by hand, while the settings schema is the
@@ -79,7 +87,7 @@ describe("cmux-next docs", () => {
     expect(sections.size).toBe(headings.length);
     const shortcut = /Cmd-(?:Shift-|Opt-|Ctrl-)*[A-Z0-9]/g;
     const missing: string[] = [];
-    for (const section of settingsGenerated.sections) {
+    for (const section of buildSettingsReference(schema).sections) {
       for (const row of section.rows) {
         const written = sections.get(row.key);
         if (!written) continue; // a setting the page does not cover at all
@@ -93,16 +101,31 @@ describe("cmux-next docs", () => {
     expect(missing).toEqual([]);
   });
 
+  // One prompt, not copies that drift: the Cloud page's "Paste this into your agent" block is
+  // the cloud_session prompt of `cmux setup` (cmux-tui/.../cli/setup.rs), as generated into
+  // docs/chief-setup-prompts.md.
+  test("the Cloud page's agent prompt is cmux setup's cloud_session prompt", () => {
+    const generated = readFileSync(join(repo, "docs/chief-setup-prompts.md"), "utf8");
+    const section = generated.split("\n## ").find((part) => part.startsWith("Work in cmux Cloud"));
+    const prompt = section?.match(/```text\n([^\n]+)\n```/)?.[1]?.replace("--agent AGENT", "--agent claude");
+    const blocks = nextDocPage("cloud")!.body.flatMap((block) => ("code" in block && block.lang === "text" ? [block.code] : []));
+    expect(prompt).toBeDefined();
+    expect(blocks).toEqual([prompt!]);
+  });
+
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
     const verbs = new Set(buildCliReference(surfaces).nouns.flatMap((noun) => noun.verbs.map((verb) => verb.command)));
     // Commands of the Rust CLI itself, not app actions (cmux --help). `cmux harness` and
     // `cmux acp` are acpmux's CLI (cmux-tui/crates/acpmux/src/cli/harness.rs, ledger.rs,
     // host_enroll.rs); `cloud secret` and `machine vault` are cmux-tui's
-    // (src/cli/cloud_secret.rs, src/cli/machine_join/vault.rs).
+    // (src/cli/cloud_secret.rs, src/cli/machine_join/vault.rs, src/cli/setup.rs); `server …` is
+    // cmux-server's (cmux-tui/crates/cmux-server/src/cli/args.rs).
     const allowed = new Set([
       "cmux action list", "cmux action run", "cmux <noun> <verb>", "cmux mcp serve", "cmux mcp tools",
       "cmux settings set", "cmux version", "cmux harness add", "cmux harness secret", "cmux harness doctor",
-      "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault",
+      "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault", "cmux setup mcp",
+      "cmux server install", "cmux server uninstall", "cmux server status", "cmux server up",
+      "cmux server down", "cmux server logs",
     ]);
     const unknown: string[] = [];
     for (const page of nextDocPages) {
@@ -198,7 +221,19 @@ describe("cmux-next docs", () => {
     }
     expect(docsContentLang("/docs/getting-started", "ja")).toBe("ja");
     const layout = readFileSync(join(repo, "web/app/[locale]/(landing)/docs/docs-nav.tsx"), "utf8");
-    expect(layout).toMatch(/className="docs-content[^"]*"\s+lang=\{/);
+    expect(layout).toMatch(/className="docs-content[^"]*"\s+\{\.\.\.docsContentLangAttributes\(contentLang, locale\)\}/);
+  });
+
+  // Under Arabic the root is dir="rtl" and lang="en" does not change direction, so the English
+  // body of a cmux-next page laid out its text and tables right to left.
+  test("an English body under a right-to-left locale is marked left to right", () => {
+    const attributes = (path: string, locale: string) =>
+      docsContentLangAttributes(docsContentLang(path, locale), locale);
+    expect(attributes("/docs/next/own-keys", "ar")).toEqual({ lang: "en", dir: "ltr" });
+    expect(attributes("/docs/base", "ar")).toEqual({ lang: "en", dir: "ltr" });
+    expect(attributes("/docs/next/own-keys", "ja")).toEqual({ lang: "en" });
+    expect(attributes("/docs/next/own-keys", "en")).toEqual({});
+    expect(attributes("/docs/getting-started", "ar")).toEqual({});
   });
 
   test("release docs fall back to Getting Started for a next page", () => {

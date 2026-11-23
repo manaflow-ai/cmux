@@ -176,3 +176,30 @@ fn a_registry_copied_without_its_pepper_opens_once_rebound() {
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(copy_root);
 }
+
+/// A chosen number of sealed segments, as a long-lived registry has (about
+/// 7,000 at 58.7 GB on 2026-11-09, where half of a synthetic journal of that
+/// size seals into about 4,700): the generator seals that many full segments
+/// and leaves the rest live.
+#[test]
+fn the_generator_seals_the_segments_asked_for() {
+    let root = temp_root("seal-segments");
+    let options = SynthOptions {
+        session: "synth-segments".into(),
+        session_puts: 4_000,
+        agent_events: 100,
+        workspaces: 1,
+        payload_bytes: 256,
+        batch_rows: 1_000,
+        seal_segments: Some(3),
+        ..SynthOptions::default()
+    };
+    let report = generate(&root, &options).unwrap();
+    assert!((3..=4).contains(&report.segments), "sealed {} segments", report.segments);
+    let live = Connection::open(&report.registry_path)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert!(live > 0, "the rest of the journal stays live");
+    let _ = std::fs::remove_dir_all(root);
+}

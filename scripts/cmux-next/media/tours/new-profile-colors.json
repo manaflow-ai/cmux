@@ -1,0 +1,142 @@
+{
+  "title": "New spaces and browser profiles each take a color far from the others: five of each made in a row (the spaces' colors show in the sidebar's space bar), then Settings' Browser Profiles card, light and dark. Record it with: cmux-ci capture SHA --state tour:new-profile-colors",
+  "settings": {},
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "New space Work",
+      "cmux": [
+        "action",
+        "run",
+        "space.new",
+        "--name",
+        "Work"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New space Side project",
+      "cmux": [
+        "action",
+        "run",
+        "space.new",
+        "--name",
+        "Side project"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New space Research",
+      "cmux": [
+        "action",
+        "run",
+        "space.new",
+        "--name",
+        "Research"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New space Clients",
+      "cmux": [
+        "action",
+        "run",
+        "space.new",
+        "--name",
+        "Clients"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New space Personal",
+      "cmux": [
+        "action",
+        "run",
+        "space.new",
+        "--name",
+        "Personal"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New browser profile Work",
+      "cmux": [
+        "action",
+        "run",
+        "browserProfile.new",
+        "--name",
+        "Work"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "New browser profile Shopping",
+      "cmux": [
+        "action",
+        "run",
+        "browserProfile.new",
+        "--name",
+        "Shopping"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "New browser profile Banking",
+      "cmux": [
+        "action",
+        "run",
+        "browserProfile.new",
+        "--name",
+        "Banking"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "New browser profile Testing",
+      "cmux": [
+        "action",
+        "run",
+        "browserProfile.new",
+        "--name",
+        "Testing"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "New browser profile Social",
+      "cmux": [
+        "action",
+        "run",
+        "browserProfile.new",
+        "--name",
+        "Social"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Settings, Browser Profiles card: five new browser profiles, each a color far from the others",
+      "cmux": [
+        "action",
+        "run",
+        "openSettings",
+        "--arg",
+        "setting=browserProfiles"
+      ],
+      "wait": 4
+    }
+  ]
+}

@@ -85,8 +85,10 @@ export function slashTriggerAt(state: EditorState): SlashTrigger | undefined {
 }
 
 /// The edit that writes `/name ` over the `/word` the caret ends (and the rest of that word after
-/// it), the caret after the space: its own undo step. Undefined with no `/word` at the caret.
-export function commandEdit(state: EditorState, name: string): Transaction | undefined {
+/// it), the caret after the space: its own undo step. With `insert` (an extension's command,
+/// slashCommands.ts `insertsText`) the word becomes that text, each line break a hard break, the
+/// caret after it. Undefined with no `/word` at the caret.
+export function commandEdit(state: EditorState, name: string, insert?: string): Transaction | undefined {
   const trigger = slashTriggerAt(state);
   if (!trigger) return undefined;
   const { $from } = state.selection;
@@ -94,11 +96,23 @@ export function commandEdit(state: EditorState, name: string): Transaction | und
   const offset = $from.parentOffset;
   const hi = Math.min(block.content.size, offset + SLASH_WORD_MAX + 1);
   const after = blockText(state.doc, block, $from.start(), offset, hi);
-  const splice = commandSplice(after, trigger, name, hi < block.content.size);
+  const splice = commandSplice(after, trigger, name, hi < block.content.size, insert);
   const from = $from.pos - splice.back;
+  const to = $from.pos + splice.forward;
   // A new undo step, not merged into the letters typed just before it.
-  const tr = closeHistory(state.tr).insertText(splice.text, from, $from.pos + splice.forward);
-  return tr.setSelection(TextSelection.create(tr.doc, from + splice.text.length)).scrollIntoView();
+  const tr = closeHistory(state.tr);
+  const hardbreak = state.schema.nodes.hardbreak;
+  if (splice.text.includes("\n") && hardbreak) {
+    const nodes = splice.text
+      .split("\n")
+      .flatMap((line, index) => [...(index ? [hardbreak.create()] : []), ...(line ? [state.schema.text(line)] : [])]);
+    tr.replaceWith(from, to, nodes);
+    const size = nodes.reduce((sum, node) => sum + node.nodeSize, 0);
+    return tr.setSelection(TextSelection.create(tr.doc, from + size)).scrollIntoView();
+  }
+  const text = splice.text.replace(/\n/g, " ");
+  tr.insertText(text, from, to);
+  return tr.setSelection(TextSelection.create(tr.doc, from + text.length)).scrollIntoView();
 }
 
 type Meta = { names: SlashNames };

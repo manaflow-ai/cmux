@@ -22,7 +22,7 @@ need one, take the first row that covers the change:
 Only a change none of these takes (a new stored property or type in existing Swift, a resource, a
 manifest, Rust the app links through FFI) needs the dev build. `scripts/cmux-next/live_apply.py
 BASE HEAD` sorts a change the same way try-pr does. Of the last 1,000 NEXT pull requests that touch
-the app, about 42% go into a nightly this way with no build.
+the app, about 42% went into a nightly this way with no build; of the newest 300 merged (2026-11-15), 70% of the Mac-app ones.
 
 `cmux live start` runs a cmux checkout's webviews dev server (Vite) and points the running
 cmux at it. From then on, a saved edit under `webviews/` shows in every open page and agent
@@ -32,7 +32,7 @@ state; React components hot reload in place.
 ```bash
 cmux live start                      # the checkout around the current folder
 cmux live start --worktree ~/src/wt  # another checkout (a worktree for one change)
-cmux live status                     # what cmux loads its web UI from
+cmux live status                     # what cmux loads its web UI from, and why
 cmux live stop                       # back to the web UI cmux shipped with
 ```
 
@@ -79,8 +79,9 @@ Swift outside function bodies still needs a build; edits inside them take a live
 
 ## When it does not change
 
-- `cmux live status` shows `web-dev.json` and the Live Web Reload setting. The switch is
-  `updates.liveWebReload` (on by default); `cmux settings set updates.liveWebReload true` turns it
+- `cmux live status` starts with what the app loads its web UI from and why (the cmux Live
+  setting, `web-dev.json`, whether its server answers with its token, when it stopped on its own),
+  then the details. The switch is Settings > General > cmux Live, `updates.liveWebReload` (on by default); `cmux settings set updates.liveWebReload true` turns it
   back on.
 - The dev server's log is in the status output's state folder (`dev-server.log`).
 - cmux loads only a dev server that proves it holds the token `start` wrote; one started some

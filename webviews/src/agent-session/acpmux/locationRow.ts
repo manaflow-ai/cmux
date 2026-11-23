@@ -49,3 +49,22 @@ export function showsLocationRow(state: LocationState, known = true): boolean {
   if (state.sessionId && state.summary?.turnCount === undefined && !state.switching) return false;
   return !chatHasFirstSend(state);
 }
+
+/// The strip's kept slot (Composer.tsx): once a new chat has shown its strip, its 46px stays as an
+/// unpainted slot through the first send, so the bottom-anchored controls do not move by it while the
+/// first rows mount (cx-ncc.58). `session` is the chat the strip was seen for: a reopened or other
+/// chat never inherits it. A queue takes the slot's place. A part of the bottom stack standing right
+/// over the composer (`stackAbove`: the hat with its plan, subagents or commands, its pull tab, the
+/// goal, a question) ends the slot for good: it stood as a 46px gap between that part and the card
+/// (Lucas, 2026-11-12: "its completely detached"), and the part's arrival moves the rows anyway.
+export type StripSlot = { session?: string };
+
+export function stripSlot(
+  slot: StripSlot,
+  now: { visible: boolean; session?: string; queued: boolean; stackAbove: boolean },
+): { slot: StripSlot; keep: boolean } {
+  if (now.visible && now.session !== undefined) return { slot: { session: now.session }, keep: false };
+  const held = !now.stackAbove && now.session !== undefined && slot.session === now.session;
+  if (!held) return { slot: {}, keep: false };
+  return { slot, keep: !now.visible && !now.queued };
+}

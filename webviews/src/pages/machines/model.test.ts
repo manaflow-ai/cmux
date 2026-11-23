@@ -218,3 +218,20 @@ describe("shown lines", () => {
     expect(sectionItems(snapshot("flat", sampleRows), strings).at(-1)).toEqual({ type: "add", key: "add", gap: false });
   });
 });
+
+describe("the Cloud header says only Cloud (https://github.com/manaflow-ai/cmux/issues/45695)", () => {
+  test("a snapshot naming the active team still heads the Cloud group with only its title", () => {
+    const team = { cloudTeam: { name: "AUSTIN", personal: false } };
+    const items = sectionItems({ rows, style: "compact", ...team }, strings);
+    const cloud = items.find((item) => item.type === "header" && item.key === "h:cloud");
+    expect(cloud).toEqual({
+      type: "header",
+      key: "h:cloud",
+      title: t("machines.group.cloud"),
+      first: expect.any(Boolean),
+    });
+    expect(shownLines({ rows, style: "compact", busy: [], failed: {}, ...team }, strings).join("\n")).not.toContain(
+      "AUSTIN",
+    );
+  });
+});

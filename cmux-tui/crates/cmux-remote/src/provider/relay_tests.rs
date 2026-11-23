@@ -61,7 +61,84 @@ async fn a_pause_longer_than_the_backoff_resets_the_counters_whichever_wakeup_fi
     }
 }
 
-async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
+/// The wall clock of [`a_pause_whose_clocks_all_kept_running_resets_the_counters`]: its own, so the test above
+/// moving its clock never makes this one pass.
+static STEADY_WALL_AHEAD_S: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn steady_test_wall() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH
+        + Duration::from_secs(1_800_000_000 + STEADY_WALL_AHEAD_S.load(AtomicOrdering::SeqCst))
+}
+
+/// A pause longer than the backoff on a VM provider that keeps every guest
+/// clock running: the wall clock moves exactly as far as the monotonic one, so
+/// it never steps past it. The wait still sees the pause (the monotonic clock
+/// moved past the relay's retirement between two looks a second apart), the
+/// counters start over and the next failure waits the first backoff.
+#[tokio::test(start_paused = true)]
+async fn a_pause_whose_clocks_all_kept_running_resets_the_counters() {
+    use super::liveness::{FIRST_CREDENTIAL_BACKOFF, MAX_CREDENTIAL_BACKOFF};
+    for round in 0..32 {
+        let mut retry = Retry::new();
+        let mut wait = Duration::ZERO;
+        while wait < MAX_CREDENTIAL_BACKOFF {
+            wait = retry.wait(Ended::Credential, 1.0);
+        }
+        let (_shutdown_tx, mut shutdown) = watch::channel(false);
+        let task = tokio::spawn(async move {
+            let waited = back_off(&mut retry, wait, &mut shutdown, steady_test_wall).await;
+            (waited, retry)
+        });
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        // Ten minutes paused: both clocks move ten minutes.
+        let paused = Duration::from_secs(600);
+        STEADY_WALL_AHEAD_S.fetch_add(paused.as_secs(), AtomicOrdering::SeqCst);
+        tokio::time::advance(paused).await;
+        let (waited, mut retry) = task.await.unwrap();
+        assert_eq!(waited, Waited::Resumed, "round {round}");
+        assert_eq!(
+            retry.wait(Ended::Credential, 1.0),
+            FIRST_CREDENTIAL_BACKOFF,
+            "round {round}: the next failure waits the first backoff"
+        );
+    }
+}
+
+/// The wall clock of [`a_wall_clock_step_alone_ends_the_wait_as_a_resume`]: its own, as above.
+static FROZEN_WALL_AHEAD_S: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn frozen_test_wall() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH
+        + Duration::from_secs(1_800_000_000 + FROZEN_WALL_AHEAD_S.load(AtomicOrdering::SeqCst))
+}
+
+/// The wall-clock path on its own: the monotonic clock moves 10 s (well
+/// inside the relay's 45 s and the 60 s backoff) while the wall clock moves
+/// ten minutes, so only the wall step can end the wait as a resume.
+#[tokio::test(start_paused = true)]
+async fn a_wall_clock_step_alone_ends_the_wait_as_a_resume() {
+    use super::liveness::MAX_CREDENTIAL_BACKOFF;
+    let mut retry = Retry::new();
+    let mut wait = Duration::ZERO;
+    while wait < MAX_CREDENTIAL_BACKOFF {
+        wait = retry.wait(Ended::Credential, 1.0);
+    }
+    let (_shutdown_tx, mut shutdown) = watch::channel(false);
+    let task =
+        tokio::spawn(
+            async move { back_off(&mut retry, wait, &mut shutdown, frozen_test_wall).await },
+        );
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    FROZEN_WALL_AHEAD_S.fetch_add(600, AtomicOrdering::SeqCst);
+    tokio::time::advance(Duration::from_secs(10)).await;
+    assert_eq!(task.await.unwrap(), Waited::Resumed);
+}
+
+pub async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
     let message = socket.next().await.unwrap().unwrap();
     let Message::Text(text) = message else {
         panic!("expected relay control text, got {message:?}");
@@ -69,12 +146,12 @@ async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayC
     serde_json::from_str(&text).unwrap()
 }
 
-async fn send_test_control(socket: &mut WebSocketStream<TcpStream>, control: &RelayControl) {
-    socket.send(Message::Text(serde_json::to_string(control).unwrap().into())).await.unwrap();
+pub async fn send_test_control(ws: &mut WebSocketStream<TcpStream>, control: &RelayControl) {
+    ws.send(Message::Text(serde_json::to_string(control).unwrap().into())).await.unwrap();
 }
 
 #[allow(clippy::result_large_err)] // Required by tungstenite's handshake callback signature.
-async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStream>, String) {
+pub async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStream>, String) {
     let authorization = Arc::new(StdMutex::new(None));
     let observed = authorization.clone();
     let socket = accept_hdr_async(stream, move |request: &Request, response| {
@@ -90,6 +167,41 @@ async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStr
     .unwrap();
     let authorization = authorization.lock().unwrap().take().unwrap();
     (socket, authorization)
+}
+
+/// A relay that takes the TCP connection and never answers the upgrade (a
+/// socket that died silently mid-open): the open fails within
+/// [`RELAY_CONNECT_TIMEOUT`] as a retryable carrier failure, so a daemon's
+/// registration logs it and registers again instead of waiting forever.
+#[tokio::test(start_paused = true)]
+async fn a_relay_open_with_no_answer_fails_retryably_within_the_connect_timeout() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
+    let (held_tx, held_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        // Hold the stream open, unanswered, until the test ends.
+        let _ = held_rx.await;
+        drop(stream);
+    });
+
+    let started = Instant::now();
+    let error = match connect_relay_socket_once(
+        &endpoint,
+        None,
+        MAX_RELAY_CONTROL_MESSAGE_BYTES,
+        &RelayTls::default(),
+    )
+    .await
+    {
+        Ok(_) => panic!("an unanswered relay upgrade opened"),
+        Err(error) => error.into_provider_error(),
+    };
+    assert!(started.elapsed() <= RELAY_CONNECT_TIMEOUT + Duration::from_millis(100));
+    assert!(error.to_string().contains("no answer within 10000 ms"), "{error}");
+    assert!(error.is_retryable_carrier_failure(), "{error}");
+    let _ = held_tx.send(());
+    server.await.unwrap();
 }
 
 #[tokio::test]
@@ -119,10 +231,11 @@ async fn relay_dial_bounds_fragmented_messages_and_disables_nagle() {
             .unwrap();
     });
 
-    let mut socket = match connect_relay_socket_once(&endpoint, None, MAXIMUM).await {
-        Ok(socket) => socket,
-        Err(_) => panic!("bounded relay WebSocket dial failed"),
-    };
+    let mut socket =
+        match connect_relay_socket_once(&endpoint, None, MAXIMUM, &RelayTls::default()).await {
+            Ok(socket) => socket,
+            Err(_) => panic!("bounded relay WebSocket dial failed"),
+        };
     let MaybeTlsStream::Plain(stream) = socket.get_ref() else {
         panic!("test relay did not use a plain TCP stream");
     };
@@ -190,6 +303,7 @@ async fn established_relay_circuit_treats_retryable_error_as_carrier_loss() {
         "join-ticket".into(),
         64,
         Duration::from_secs(1),
+        &RelayTls::default(),
     )
     .await
     .unwrap();
@@ -235,6 +349,7 @@ async fn relay_circuit_join_timeout_is_retryable_carrier_failure() {
         "join-ticket".into(),
         64,
         Duration::from_millis(20),
+        &RelayTls::default(),
     )
     .await;
     let error = match result {
@@ -280,6 +395,7 @@ async fn retryable_relay_circuit_rejection_is_retryable_carrier_failure() {
         "join-ticket".into(),
         64,
         Duration::from_secs(1),
+        &RelayTls::default(),
     )
     .await;
     let error = match result {
@@ -308,8 +424,14 @@ async fn retryable_allocation_rejection_is_retryable_carrier_failure() {
         .await;
     });
 
-    let mut socket =
-        connect_relay_socket(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await.unwrap();
+    let mut socket = connect_relay_socket(
+        &endpoint,
+        None,
+        MAX_RELAY_CONTROL_MESSAGE_BYTES,
+        &RelayTls::default(),
+    )
+    .await
+    .unwrap();
     let lane = LaneToken("allocation-rejection-lane".into());
     let error = match read_until_allocation(&mut socket, &lane, 7).await {
         Ok(_) => panic!("relay allocation unexpectedly succeeded"),
@@ -339,7 +461,7 @@ async fn relay_registration_timeout_is_retryable_carrier_failure() {
     };
     let credentials = RelayCredentialSource::static_ticket("registration-ticket").unwrap();
 
-    let result = authenticate_daemon_control(&config, &credentials).await;
+    let result = authenticate_daemon_control(&config, &credentials, &RelayTls::default()).await;
     let error = match result {
         Ok(_) => panic!("relay registration unexpectedly succeeded"),
         Err(error) => error,
@@ -358,8 +480,14 @@ async fn closed_relay_control_socket_is_retryable_carrier_failure() {
         socket.close(None).await.unwrap();
     });
 
-    let mut socket =
-        connect_relay_socket(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await.unwrap();
+    let mut socket = connect_relay_socket(
+        &endpoint,
+        None,
+        MAX_RELAY_CONTROL_MESSAGE_BYTES,
+        &RelayTls::default(),
+    )
+    .await
+    .unwrap();
     let error = read_control(&mut socket).await.unwrap_err();
     assert!(error.is_retryable_carrier_failure(), "{error}");
     server.await.unwrap();
@@ -825,7 +953,8 @@ async fn daemon_registration_refreshes_after_authentication_rejection() {
         maximum_frame_bytes: 64,
         control_timeout: Duration::from_secs(2),
     };
-    let (mut socket, lease) = authenticate_daemon_control(&config, &credentials).await.unwrap();
+    let DaemonControl { mut socket, lease_seconds: lease, .. } =
+        authenticate_daemon_control(&config, &credentials, &RelayTls::default()).await.unwrap();
     assert_eq!(lease, 30);
     assert_eq!(calls.load(AtomicOrdering::SeqCst), 2);
     let _ = socket.close(None).await;
@@ -1243,4 +1372,306 @@ async fn a_parked_allocation_waits_until_the_allocation_deadline() {
     assert!(waited < Duration::from_secs(5), "waited {waited:?}, past the deadline");
     let _ = group.close().await;
     server.abort();
+}
+
+/// A relay that allocates a Connect at once and accepts its circuit's Join
+/// but never answers Ready: the daemon never joins (a fresh machine's daemon
+/// paired the moment it registered, as production saw).
+async fn allocate_but_never_join() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let RelayControl::Connect { lane, generation, .. } =
+            receive_test_control(&mut control).await
+        else {
+            panic!("expected client connect");
+        };
+        send_test_control(
+            &mut control,
+            &RelayControl::Allocated {
+                circuit: CircuitId("unjoined-circuit".into()),
+                lane,
+                generation,
+                join_ticket: "join-ticket".into(),
+            },
+        )
+        .await;
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut circuit_socket, _) = accept_with_authorization(stream).await;
+        assert!(matches!(
+            receive_test_control(&mut circuit_socket).await,
+            RelayControl::Join { .. }
+        ));
+        while circuit_socket.next().await.is_some() {}
+    });
+    (address, server)
+}
+
+/// A first connect's lane whose daemon never joins the allocated circuit is
+/// given up after the provider's peer join wait, not held to
+/// `control_timeout`, so the dial redials a new circuit in seconds. Without a
+/// wait, and for a resume (a later generation), `control_timeout` holds.
+#[tokio::test]
+async fn a_circuit_the_daemon_never_joins_is_given_up_after_the_peer_join_wait() {
+    let config = RelayClientConfig {
+        slot: "test-slot".into(),
+        ticket: "client-ticket".into(),
+        maximum_frame_bytes: 64,
+        control_timeout: Duration::from_secs(3),
+    };
+    let open = |generation: u64, wait: Option<Duration>| {
+        let config = config.clone();
+        async move {
+            let (address, server) = allocate_but_never_join().await;
+            let mut provider = RelayProvider::new(config).unwrap();
+            if let Some(wait) = wait {
+                provider = provider.with_peer_join_wait(wait);
+            }
+            let group = provider
+                .connect(ConnectRequest {
+                    endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+                    session: SessionId::ZERO,
+                    lane_policy: LanePolicy::Isolated,
+                    routing: BTreeMap::new(),
+                })
+                .await
+                .unwrap();
+            let started = Instant::now();
+            let error = group
+                .open(LinkRequest { lane: Lane::Interactive, generation })
+                .await
+                .err()
+                .expect("a circuit nobody joins never connects");
+            let waited = started.elapsed();
+            let _ = group.close().await;
+            server.abort();
+            (error.to_string(), waited)
+        }
+    };
+
+    let (error, waited) = open(0, Some(Duration::from_millis(300))).await;
+    eprintln!("first connect, 300 ms peer join wait: gave up after {waited:?}");
+    assert!(error.contains("join timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(250), "gave up after {waited:?}, before the wait");
+    assert!(waited < Duration::from_millis(2_000), "held {waited:?}, toward control_timeout");
+
+    let (error, waited) = open(0, None).await;
+    eprintln!("first connect, no peer join wait: gave up after {waited:?}");
+    assert!(error.contains("join timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(2_900), "no wait keeps control_timeout: {waited:?}");
+
+    let (error, waited) = open(1, Some(Duration::from_millis(300))).await;
+    eprintln!("resume, 300 ms peer join wait: gave up after {waited:?}");
+    assert!(error.contains("join timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(2_900), "a resume keeps control_timeout: {waited:?}");
+}
+
+/// A WebSocket sink that hands each message, with the (virtual) instant it was
+/// sent, to the test: the batched sender's socket with no host in the way.
+struct RecordingSink {
+    sent: mpsc::UnboundedSender<(Instant, Message)>,
+}
+
+impl Sink<Message> for RecordingSink {
+    type Error = WebSocketError;
+
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, message: Message) -> Result<(), Self::Error> {
+        let _ = self.sent.send((Instant::now(), message));
+        Ok(())
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(
+        self: Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+fn spawn_batched_sender(
+    commands: mpsc::Receiver<RelayCircuitCommand>,
+) -> (mpsc::UnboundedReceiver<(Instant, Message)>, tokio::task::JoinHandle<()>) {
+    let (sent, messages) = mpsc::unbounded_channel();
+    let (terminal, _) = watch::channel(None);
+    let task = tokio::spawn(run_batched_relay_sender(RecordingSink { sent }, commands, terminal));
+    (messages, task)
+}
+
+fn numbered_frame(index: usize) -> Bytes {
+    Bytes::copy_from_slice(&(index as u64).to_be_bytes())
+}
+
+fn batch_frames(message: &Message) -> VecDeque<Bytes> {
+    match message {
+        Message::Binary(batch) => decode_relay_batch(batch.clone(), 1024).unwrap(),
+        other => panic!("the batched sender sent a non-batch message: {other:?}"),
+    }
+}
+
+const TYPING_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Types `2 * RELAY_BURST_SENDS` keystrokes at a typist's pace and checks each
+/// leaves alone, at the virtual instant it was queued.
+async fn type_keystrokes(
+    commands: &mpsc::Sender<RelayCircuitCommand>,
+    sent: &mut mpsc::UnboundedReceiver<(Instant, Message)>,
+    phase: &str,
+    next: &mut usize,
+) {
+    for _ in 0..2 * RELAY_BURST_SENDS {
+        tokio::time::sleep(TYPING_INTERVAL).await;
+        let queued = Instant::now();
+        commands.send(RelayCircuitCommand::Frame(numbered_frame(*next))).await.unwrap();
+        let (sent_at, message) = sent.recv().await.unwrap();
+        assert_eq!(
+            sent_at - queued,
+            Duration::ZERO,
+            "{phase}: keystroke {next} waited {:?} on the burst timer",
+            sent_at - queued
+        );
+        assert_eq!(batch_frames(&message), [numbered_frame(*next)]);
+        *next += 1;
+    }
+}
+
+/// Typed input leaves the batched sender at once: no keystroke waits on the
+/// burst timer, before a flood or after one. The clock is tokio's paused one,
+/// so any wait on `RELAY_BURST_LINGER` shows up as virtual time between the
+/// keystroke's queueing and its send, however fast or loaded the host is.
+#[tokio::test(start_paused = true)]
+async fn a_lone_keystroke_leaves_the_batched_sender_without_waiting_on_the_burst_timer() {
+    let (commands, receiver) = mpsc::channel(RELAY_BATCH_QUEUE_FRAMES);
+    let (mut sent, sender) = spawn_batched_sender(receiver);
+    let mut next = 0;
+    type_keystrokes(&commands, &mut sent, "before a flood", &mut next).await;
+
+    // A flood builds the burst streak and lingers to fill its batches...
+    const FLOOD_FRAMES: usize = 1024;
+    let flood = tokio::spawn({
+        let commands = commands.clone();
+        let first = next;
+        async move {
+            for index in first..first + FLOOD_FRAMES {
+                commands.send(RelayCircuitCommand::Frame(numbered_frame(index))).await.unwrap();
+            }
+        }
+    });
+    let mut received = 0;
+    while received < FLOOD_FRAMES {
+        let (_, message) = sent.recv().await.unwrap();
+        for frame in batch_frames(&message) {
+            assert_eq!(frame, numbered_frame(next));
+            next += 1;
+            received += 1;
+        }
+    }
+    flood.await.unwrap();
+
+    // ...and once typing resumes, the keystrokes leave at once again.
+    type_keystrokes(&commands, &mut sent, "after a flood", &mut next).await;
+    drop(commands);
+    sender.await.unwrap();
+}
+
+/// Frames queued behind the sender share relay messages: a full queue leaves
+/// in batches of `MAX_RELAY_BATCH_FRAMES`, in order. Nothing here depends on
+/// timing; the frames are queued before the sender runs.
+#[tokio::test(start_paused = true)]
+async fn queued_frames_leave_the_batched_sender_in_shared_messages() {
+    let (commands, receiver) = mpsc::channel(RELAY_BATCH_QUEUE_FRAMES);
+    for index in 0..RELAY_BATCH_QUEUE_FRAMES {
+        commands.try_send(RelayCircuitCommand::Frame(numbered_frame(index))).unwrap();
+    }
+    drop(commands);
+    let (mut sent, sender) = spawn_batched_sender(receiver);
+    sender.await.unwrap();
+    let mut messages = 0;
+    let mut frames = Vec::new();
+    while let Ok((_, message)) = sent.try_recv() {
+        messages += 1;
+        frames.extend(batch_frames(&message));
+    }
+    assert_eq!(frames, (0..RELAY_BATCH_QUEUE_FRAMES).map(numbered_frame).collect::<Vec<_>>());
+    assert_eq!(
+        messages,
+        RELAY_BATCH_QUEUE_FRAMES.div_ceil(MAX_RELAY_BATCH_FRAMES),
+        "{RELAY_BATCH_QUEUE_FRAMES} queued frames left in {messages} messages"
+    );
+}
+
+/// A flood written while the sender runs shares relay messages too: the burst
+/// detector lingers on the paused clock, so the count is the code's, not the
+/// scheduler's.
+#[tokio::test(start_paused = true)]
+async fn a_flood_leaves_the_batched_sender_in_shared_messages() {
+    const FLOOD_FRAMES: usize = 4096;
+    let (commands, receiver) = mpsc::channel(RELAY_BATCH_QUEUE_FRAMES);
+    let (mut sent, sender) = spawn_batched_sender(receiver);
+    for index in 0..FLOOD_FRAMES {
+        commands.send(RelayCircuitCommand::Frame(numbered_frame(index))).await.unwrap();
+    }
+    drop(commands);
+    sender.await.unwrap();
+    let mut messages = 0;
+    let mut frames = Vec::new();
+    while let Ok((_, message)) = sent.try_recv() {
+        messages += 1;
+        frames.extend(batch_frames(&message));
+    }
+    assert_eq!(frames, (0..FLOOD_FRAMES).map(numbered_frame).collect::<Vec<_>>());
+    eprintln!("flood: {FLOOD_FRAMES} frames in {messages} messages");
+    assert!(
+        messages * (MAX_RELAY_BATCH_FRAMES / 2) <= FLOOD_FRAMES,
+        "a flood of {FLOOD_FRAMES} frames left in {messages} messages"
+    );
+}
+
+/// A signed ticket's lifetime is read from its claims, and only a source that
+/// can give a new ticket schedules a renewal: at two thirds of the lifetime.
+#[test]
+fn a_signed_ticket_renews_at_two_thirds_of_its_lifetime_and_an_opaque_one_never() {
+    use base64::Engine as _;
+    let claims = serde_json::json!({
+        "version": 2,
+        "issuer": "relay.test",
+        "permission": "register",
+        "role": "daemon",
+        "slot": "slot-a",
+        "circuit": null,
+        "lane": null,
+        "generation": null,
+        "issued_at_unix": 1_000,
+        "expires_at_unix": 1_300,
+    });
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(&claims).unwrap());
+    let signed = RelayCredential::parse(format!("v2.{payload}.signature")).unwrap();
+    assert_eq!(signed.lifetime(), Some(Duration::from_secs(300)));
+    let callback = RelayCredentialSource::callback(|| async { Ok::<_, ()>(String::new()) });
+    let now = Instant::now();
+    assert_eq!(renewal_time(&callback, &signed, now), Some(now + Duration::from_secs(200)));
+    // The same ticket from a static source cannot be renewed.
+    let fixed = RelayCredentialSource::static_ticket(format!("v2.{payload}.signature")).unwrap();
+    assert_eq!(renewal_time(&fixed, &signed, now), None);
+    // Opaque or malformed tickets keep a registration as before.
+    for opaque in ["o2.abc.def", "registration-ticket", "v2.not-base64!.sig", "v2.e30.sig"] {
+        let credential = RelayCredential::parse(opaque.to_owned()).unwrap();
+        assert_eq!(renewal_time(&callback, &credential, now), None, "{opaque}");
+    }
 }

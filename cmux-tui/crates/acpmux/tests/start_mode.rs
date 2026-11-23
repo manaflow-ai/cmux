@@ -56,10 +56,10 @@ fn home(name: &str, extra: Value) -> PathBuf {
         "harnesses": {
             "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "codex": {"argv": [codex, "app-server"]},
-            // Says nothing about asking (`FAKE_NO_ASK_CLAIM`): it cannot keep a policy.
-            "plain": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_ASK_CLAIM": "1"}},
-            // The same agent, which says it asks before every tool call
-            // (`agentCapabilities._meta.acpmux.asksBeforeTools`).
+            // Says nothing about asking (`FAKE_ASK_CLAIM=0`): it cannot keep a policy.
+            "plain": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_ASK_CLAIM": "0"}},
+            // The same agent, which says it asks before every tool call (the fake's default,
+            // `agentCapabilities._meta.acpmux.asksBeforeTools`).
             "asker": {"argv": ["python3", FAKE_AGENT]},
         },
         "defaultHarness": "codex",
@@ -508,6 +508,7 @@ fn folder_profile(dir: &Path) -> (PathBuf, acpmux::config::folder_profiles::Fold
             record: dir.join("records").join("trust.json"),
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         },
     };
     (repo, gate)
@@ -898,6 +899,39 @@ async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness". A Cloud
+/// start reaches the machine's acpmux over its unix socket, never as the person, and a Claude chat
+/// picked into Auto there was refused (`permission.person_required`): only the full-access mode a
+/// start with no mode gets passed the gate. Claude Code's own Auto asks more than that mode, and a
+/// running chat already moves to it without the person under a full-access or `standard` start
+/// level (`may_move_without_person`), so a start may name it under the same levels. Under `ask` it
+/// stays the person's, and so does any other mode that does not ask (Accept edits).
+#[tokio::test]
+async fn the_unix_socket_starts_claude_in_auto_under_a_level_that_covers_it() {
+    let start = |dir: &Path, mode: &str| {
+        json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "claude", "mode": mode}}})
+    };
+    for level in ["fullAccess", "standard"] {
+        let dir = home(&format!("auto-start-{level}"), json!({"defaultPermissionMode": level}));
+        let daemon = hub(&dir);
+        let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+        let r = agent.call("session/new", start(&dir, "auto")).await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{level}: {r}"));
+        let id = id.to_owned();
+        assert_eq!(agent.mode(&id).await, "auto", "{level}");
+        let r = agent.call("session/new", start(&dir, "acceptEdits")).await;
+        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{level}: {r}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    let dir = home("auto-start-ask", json!({"defaultPermissionMode": "ask"}));
+    let daemon = hub(&dir);
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = agent.call("session/new", start(&dir, "auto")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "ask: {r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The reviewer of cmux#(this PR), 2026-10-25: "creation-time argv can authorize a different
 /// harness after adoption/respawn". An adopt may find a session already running, created on
 /// another profile than the one it names now, so it never takes the Codex bridge's `read-only`
@@ -1237,6 +1271,112 @@ async fn a_policy_that_cannot_hold_never_runs_however_the_chat_gets_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+impl Client {
+    /// The records of kind `kind` in chat `id`'s log.
+    async fn records(&mut self, id: &str, kind: &str) -> Vec<Value> {
+        let r = self.call("_acpmux/events", json!({"sessionId": id, "kinds": [kind]})).await;
+        r["result"]["events"].as_array().cloned().unwrap_or_else(|| panic!("{r}"))
+    }
+}
+
+/// acpmux believes an agent's `asksBeforeTools` claim only from an agent it started from a
+/// harness entry of its own config that still launches what it started from, and logs every
+/// claim (`asks_before_tools_claim`; lead, 2026-11-09). A folder profile (the repository's
+/// `.cmux/harnesses`) that claims is not believed, so a narrow policy on it does not run; nor is
+/// an entry changed while its agent runs, so a narrower policy then stops that agent.
+#[tokio::test]
+async fn a_policy_holds_on_an_asks_before_tools_claim_only_from_an_unchanged_config_entry() {
+    use acpmux::config::folder_profiles;
+    let dir = home("asks-claim-trust", json!({}));
+    let (repo, gate) = folder_profile(&dir);
+    // The folder profile `acme` runs the fake, which claims.
+    acpmux::trust::set(&gate.trust, &repo.to_string_lossy(), "trusted").unwrap();
+    let enabled = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let sha = folder_profiles::load_one(&enabled, &gate, &repo, "acme")
+        .and_then(|fp| fp.sha256)
+        .expect("sha256");
+    folder_profiles::enable(&enabled, &gate, &repo, "acme", &sha).unwrap();
+    let daemon = hub_with(&dir, |cfg| cfg.folder_gate = Some(gate));
+    let mut app = Client::app(&daemon).await;
+
+    // A config entry that claims: believed, and logged.
+    let (id, _) = app.chat_with_policy(&dir, "asker", "ask").await;
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["harness"], "asker", "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "{claims:?}");
+    // An agent that makes no claim: none is logged.
+    let (id, _) = app.chat_with_policy(&dir, "plain", "approve-all").await;
+    assert!(app.records(&id, "asks_before_tools_claim").await.is_empty());
+
+    // A folder profile that claims: not believed, so a narrow policy on it does not run.
+    let folder_chat = |policy: &str| {
+        json!({"cwd": repo, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "acme", "policy": policy}}})
+    };
+    let r = app.call("session/new", folder_chat("ask")).await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{r}");
+    let why = r["error"]["data"]["why"].as_str().unwrap_or_default();
+    assert!(why.contains("not_a_config_entry"), "{r}");
+    // Under approve-all it runs; its claim is logged as not believed, and a narrower policy
+    // then stops its agent.
+    let r = app.call("session/new", folder_chat("approve-all")).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], false, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["reason"], "not_a_config_entry", "{claims:?}");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.records(&id, "policy_refused").await.len(), 1, "folder agent stopped");
+
+    // A config entry changed while its agent runs: it no longer launches what the agent started
+    // from, so the claim is not believed, and a narrower policy stops the agent.
+    let (id, _) = app.chat_with_policy(&dir, "asker", "approve-all").await;
+    let mut cfg = daemon.config.write().await;
+    let asker = cfg.harnesses.get_mut("asker").expect("asker");
+    asker.env.insert("FAKE_CHANGED".to_owned(), "1".to_owned());
+    drop(cfg);
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let refused = app.records(&id, "policy_refused").await;
+    assert_eq!(refused.len(), 1, "changed entry's agent stopped: {refused:?}");
+    let why = refused[0]["msg"]["why"].as_str().unwrap_or_default();
+    assert!(why.contains("entry_changed"), "{refused:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The Cloud carrier drill's no-model agent (cmuxterm-hq run 43973035740): a config harness that
+/// runs `cli-agent` on a program that only prints. Every remote start asks for `ask`, which a plain
+/// `cli-agent` cannot keep (`policy_unenforceable`, the machine's bare `agent_session.refused`);
+/// with `--prints-only` it says it asks before every tool call (it makes none), acpmux believes
+/// it from its own config entry, and the chat starts and answers.
+#[tokio::test]
+async fn a_prints_only_cli_agent_starts_under_ask() {
+    let agent = |extra: &[&str]| {
+        let mut argv = vec![daemon_env::bin().to_string_lossy().into_owned(), "cli-agent".into()];
+        argv.extend(extra.iter().map(|s| s.to_string()));
+        argv.extend(["--", "/bin/echo", "drill"].map(str::to_owned));
+        json!({"argv": argv})
+    };
+    let dir = home(
+        "prints-only",
+        json!({"harnesses": {"drill": agent(&[]), "drill-prints": agent(&["--prints-only"])}}),
+    );
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let r = app.new_chat_with_policy(&dir, "drill", "ask").await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{r}");
+    // No `chat_with_policy`: a `cli-agent` offers no modes to read.
+    let r = app.new_chat_with_policy(&dir, "drill-prints", "ask").await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(r["result"]["_meta"]["acpmux"]["policy"], "ask", "{r}");
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "{claims:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The median, the 95th percentile and the largest of `ms`, sorted in place.
 fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
     ms.sort_by(f64::total_cmp);
@@ -1422,5 +1562,309 @@ async fn a_narrow_policy_holds_on_a_claude_launcher_that_runs_tools_without_aski
         assert_eq!(r["error"]["data"]["policy"], policy, "{r}");
         assert!(r["error"]["data"]["hint"].as_str().is_some_and(|h| !h.is_empty()), "{r}");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A remote chat records the launch of its config entry as the entry is written, not the
+/// canonical program path its remote start resolves (lead, 2026-11-09): a catalog reload that
+/// changes nothing never marks it for a respawn, as it never marks a local chat. `asker`'s
+/// program is the bare `python3`, which a remote start resolves to a path. The reload also
+/// changes the entry of a local control chat, `ctl`: once that one's agent started again, the
+/// sweep that judged every chat is done.
+#[tokio::test]
+async fn a_remote_chat_keeps_its_entrys_launch_through_an_unchanged_reload() {
+    let ctl = |flag: &str| json!({"argv": ["python3", FAKE_AGENT], "env": {"CTL": flag}});
+    let dir = home("remote-respawn", json!({"webAskingModes": {"asker": ["normal"]}}));
+    let config_path = dir.join("config.json");
+    let write_ctl = |flag: &str| {
+        let mut config: Value =
+            serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+        config["harnesses"]["ctl"] = ctl(flag);
+        std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    };
+    write_ctl("1");
+    let daemon = hub(&dir);
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    let (remote, _) = web.chat(&dir, "asker").await;
+    let mut app = Client::app(&daemon).await;
+    let claims = app.records(&remote, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "the remote chat's claim: {claims:?}");
+    let (control, _) = app.chat(&dir, "ctl").await;
+
+    let mut events = daemon.subscribe();
+    write_ctl("2");
+    daemon.reload_catalog().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while app.records(&control, "asks_before_tools_claim").await.len() < 2 {
+            if let Err(tokio::sync::broadcast::error::RecvError::Closed) = events.recv().await {
+                panic!("the hub ended");
+            }
+        }
+    })
+    .await
+    .expect("the control chat's agent started again on its changed entry");
+    let marked = app.records(&remote, "respawn_pending").await;
+    assert!(marked.is_empty(), "an unchanged entry respawns no remote chat: {marked:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A switch onto another harness (`session/fork` with `_meta.acpmux.harness`, `hub/fork.rs`
+/// `Retarget`) starts in the mode a new chat of that harness would, and never over a profile that
+/// pins its mode: a profile pinned to `--permission-mode default` keeps asking, even under the full
+/// access default (review of cmux#41030, F1).
+#[tokio::test]
+async fn a_switch_keeps_a_pinned_mode_and_takes_the_start_mode_otherwise() {
+    let dir = home("switch-pinned", json!({"defaultPermissionMode": "fullAccess"}));
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["pinned"] = json!({"argv": ["python3", FAKE_CLAUDE, "--permission-mode", "default"], "kind": "claude-stdio"});
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (source, _) = app.chat(&dir, "codex").await;
+    let switch = |harness: &str| {
+        json!({"sessionId": source, "cwd": dir.join("work"), "mcpServers": [],
+               "_meta": {"acpmux": {"harness": harness}}})
+    };
+    let r = app.call("session/fork", switch("pinned")).await;
+    let pinned = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&pinned).await, "default", "a pinned profile keeps its mode");
+    let r = app.call("session/fork", switch("claude")).await;
+    let open = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&open).await, "bypassPermissions", "an unpinned one takes the start mode");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A profile that pins `--permission-mode default` runs its Claude Code in Manual, and the chat
+/// says so from its first answer: a new chat and a switch onto it report Manual before Claude
+/// Code's `system/init` (which Claude Code sends only when a turn starts, here
+/// `FAKE_CLAUDE_INIT_ON_TURN`) could correct it. The translator started in Claude Code's own Auto
+/// instead, so `a_switch_keeps_a_pinned_mode_and_takes_the_start_mode_otherwise` failed whenever
+/// the mode was read before init came.
+#[tokio::test]
+async fn a_pinned_profile_reports_its_own_mode_before_claude_code_says_it() {
+    let dir = home("pinned-first", json!({"defaultPermissionMode": "fullAccess"}));
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["pinned"] = json!({
+        "argv": ["python3", FAKE_CLAUDE, "--permission-mode", "default"],
+        "kind": "claude-stdio",
+        "env": {"FAKE_CLAUDE_INIT_ON_TURN": "1"},
+    });
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    let r = app.new_chat(&dir, "pinned").await;
+    assert_eq!(r["result"]["modes"]["currentModeId"], "default", "the session/new answer: {r}");
+    let fresh = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&fresh).await, "default", "a new pinned chat");
+
+    let (source, _) = app.chat(&dir, "codex").await;
+    let switch = json!({"sessionId": source, "cwd": dir.join("work"), "mcpServers": [],
+                        "_meta": {"acpmux": {"harness": "pinned"}}});
+    let r = app.call("session/fork", switch).await;
+    let switched = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&switched).await, "default", "a switch onto the pinned profile");
+
+    // The first turn brings Claude Code's init, which says the same.
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": fresh, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&fresh).await, "default", "after Claude Code's init");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A remote device's switch of a chat this Mac started (`session/fork` with
+/// `_meta.acpmux.harness` from the Web) is that device's new chat: it starts in the target's
+/// reviewed asking mode, never in this Mac's full-access start mode, so its first remote send runs
+/// (review of cmux#41030 at eee5f8d9, F1: it started in `full-access` and the send was refused
+/// `remote.mode_not_asking`). The app's own switch onto the same harness keeps the start mode.
+#[tokio::test]
+async fn a_web_switch_of_a_mac_chat_starts_asking_and_its_send_runs() {
+    let dir = home(
+        "switch-web",
+        json!({"defaultPermissionMode": "fullAccess", "webAskingModes": {"loose": ["normal"]}}),
+    );
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["loose"] =
+        json!({"argv": ["python3", FAKE_AGENT], "env": {"FAKE_FULL_ACCESS": "1"}});
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (source, _) = app.chat(&dir, "codex").await;
+    let switch = json!({"sessionId": source, "cwd": dir.join("work"), "mcpServers": [],
+                        "_meta": {"acpmux": {"harness": "loose"}}});
+    let r = app.call("session/fork", switch.clone()).await;
+    let local = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&local).await, "full-access", "the app's switch takes the start mode");
+
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    let r = web.call("session/fork", switch).await;
+    let remote = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&remote).await, "normal", "a Web switch starts in the asking mode");
+    let r = web
+        .call(
+            "session/prompt",
+            json!({"sessionId": remote, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "the Web switch's first send runs: {r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `_acpmux/harnesses` tells every client, the Web included (the phone's New Task), the modes
+/// and options a new chat on each agent has, as its newest chat reported them: names and
+/// choices, never a chat's current values. Before any chat, Claude Code's own modes.
+#[tokio::test]
+async fn harnesses_report_each_agents_modes_and_options_for_a_new_chat() {
+    let dir = home("reported", json!({}));
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    // The stand-in agent's chats report modes Normal and Strict and a Model option on m1.
+    config["harnesses"]["picker"] = json!({"argv": ["python3", FAKE_AGENT]});
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    let rows = |r: &Value| r["result"]["harnesses"].clone();
+    let before = rows(&app.call("_acpmux/harnesses", json!({})).await);
+    let claude = &before["claude"]["reported"]["modes"];
+    assert_eq!(claude[1]["id"], "default", "{before}");
+    assert_eq!(claude[1]["name"], "Manual", "{before}");
+    assert!(claude[1]["description"].is_string(), "{before}");
+    assert!(before["picker"].get("reported").is_none(), "no chat yet: {before}");
+
+    let (_, _) = app.chat(&dir, "picker").await;
+    for mut client in
+        [Client::app(&daemon).await, Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken)]
+    {
+        let r = client.call("_acpmux/harnesses", json!({})).await;
+        assert!(r.get("error").is_none(), "{r}");
+        let reported = &rows(&r)["picker"]["reported"];
+        let ids: Vec<&str> =
+            reported["modes"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+        assert_eq!(ids, ["normal", "strict"], "{reported}");
+        assert_eq!(reported["modes"][1]["name"], "Strict", "{reported}");
+        let model = reported["configOptions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["id"] == "model")
+            .unwrap_or_else(|| panic!("{reported}"));
+        assert_eq!(model["options"].as_array().map(Vec::len), Some(2), "{reported}");
+        assert!(model.get("currentValue").is_none(), "a chat's value stays with it: {reported}");
+        // A phone may set the model (a free option); it is told so.
+        assert_eq!(model["remoteSettable"], true, "{reported}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Before any chat of an agent runs here, `_acpmux/harnesses` `reported` is what the agent's
+/// startup model probe answered `session/new` with (Lawrence 2026-11-19, a first New Tab on Pi:
+/// "pi should not have a "mode""): the pane learns Pi reports options and no permission modes
+/// before its first chat, instead of holding a Mode chip for it.
+#[tokio::test]
+async fn harnesses_report_the_startup_probes_choices_before_any_chat() {
+    let dir = home("probed", json!({}));
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["harnesses"]["picker"] = json!({"argv": ["python3", FAKE_AGENT]});
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    daemon.set_probe_only(Some(["picker".to_owned()].into_iter().collect()));
+    daemon.refresh_models().await;
+    let mut app = Client::app(&daemon).await;
+    let r = app.call("_acpmux/harnesses", json!({})).await;
+    let reported = &r["result"]["harnesses"]["picker"]["reported"];
+    let ids: Vec<&str> = reported["modes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{r}"))
+        .iter()
+        .filter_map(|m| m["id"].as_str())
+        .collect();
+    assert_eq!(ids, ["normal", "strict"], "the probe's answer, with no chat yet: {reported}");
+    let model = reported["configOptions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["id"] == "model")
+        .unwrap_or_else(|| panic!("{reported}"));
+    assert!(model.get("currentValue").is_none(), "definitions only: {reported}");
+    assert!(
+        app.call("session/list", json!({})).await["result"]["sessions"]
+            .as_array()
+            .is_none_or(|s| s.iter().all(|s| s["harness"] != "picker")),
+        "the probe left no chat behind"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Pi has no permission mode (Lawrence 2026-11-19: "pi should not have a "mode""). pi-acp 0.0.33
+/// answers `session/new` with its thinking levels twice: its `thought_level` config option, and
+/// again as ACP `modes` ("Thinking: off" … "Thinking: xhigh") for clients older than config
+/// options. acpmux keeps no modes for it, so every client (the Mac's panes, the phone's chat and
+/// New Task, acpmux's own start mode) sees none: not in the new chat's answer, not in its info, not
+/// in the harness list's `reported` (from its startup probe or from a chat), and its thinking
+/// levels stay as the option they are.
+#[tokio::test]
+async fn pi_keeps_no_modes_that_only_copy_its_thinking_option() {
+    let dir = home("pi-modes", json!({}));
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["harnesses"]["pi"] =
+        json!({"argv": ["python3", FAKE_AGENT], "family": "pi", "env": {"FAKE_PI_MODES": "1"}});
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let reported_modes = |r: &Value| -> Vec<String> {
+        r["result"]["harnesses"]["pi"]["reported"]["modes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|m| m["id"].as_str().map(str::to_owned))
+            .collect()
+    };
+    let option_ids = |options: &Value| -> Vec<String> {
+        options
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|o| o["id"].as_str().map(str::to_owned))
+            .collect()
+    };
+
+    // Its startup probe's answer, before any chat of it.
+    daemon.set_probe_only(Some(["pi".to_owned()].into_iter().collect()));
+    daemon.refresh_models().await;
+    let r = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(reported_modes(&r), Vec::<String>::new(), "probed: {r}");
+    assert!(
+        option_ids(&r["result"]["harnesses"]["pi"]["reported"]["configOptions"])
+            .contains(&"thought_level".to_owned()),
+        "probed, its thinking option stays: {r}"
+    );
+
+    // A chat of it.
+    let r = app.new_chat(&dir, "pi").await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert!(r["result"]["modes"].is_null(), "session/new: {r}");
+    assert_eq!(option_ids(&r["result"]["configOptions"]), ["model", "thought_level"], "{r}");
+    let info = app.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert!(info["result"]["modes"].is_null(), "_acpmux/info (the phone's chat): {info}");
+    let load = app
+        .call("session/load", json!({"sessionId": id, "cwd": dir.join("work"), "mcpServers": []}))
+        .await;
+    assert!(load["result"]["modes"].is_null(), "session/load: {load}");
+    let r = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(reported_modes(&r), Vec::<String>::new(), "from its chat: {r}");
+    let start = start_mode(&mut app, &dir, "pi").await;
+    assert!(start["modeId"].is_null(), "no start mode: {start}");
     let _ = std::fs::remove_dir_all(&dir);
 }

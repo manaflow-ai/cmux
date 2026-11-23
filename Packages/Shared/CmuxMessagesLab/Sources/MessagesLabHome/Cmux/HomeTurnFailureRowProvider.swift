@@ -45,7 +45,7 @@ final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
 
     static let buttonGap: CGFloat = 14
     static let rowGap: CGFloat = 4
-    static var detailFont: NSFont { .monospacedSystemFont(ofSize: 11, weight: .regular) }
+    static var detailFont: NSFont { HomeFonts.monospaced(ofSize: 11) } // HomeFonts (cx-qpqs)
 
     struct Layout {
         let title: TextLayout

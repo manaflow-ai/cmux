@@ -67,6 +67,12 @@ pub(super) fn packs_dir(local: &Path, remote_root: &str) -> anyhow::Result<PathB
     Ok(path_of(local, remote_root)?.with_extension("packs"))
 }
 
+/// Whether a push from this Mac left `local` at `remote_root` before (a base is kept for it): a
+/// copy then is a re-push, never a fresh one. No state folder reads as kept, the safe side.
+pub(super) fn kept(local: &Path, remote_root: &str) -> bool {
+    path_of(local, remote_root).map_or(true, |path| path.exists())
+}
+
 /// Keeps `manifest` as the base of `local` synced to `remote_root`.
 pub(super) fn save(local: &Path, remote_root: &str, manifest: &Manifest) -> anyhow::Result<()> {
     let path = path_of(local, remote_root)?;
@@ -90,6 +96,22 @@ pub(super) fn save(local: &Path, remote_root: &str, manifest: &Manifest) -> anyh
     std::fs::rename(&part, &path).with_context(|| format!("cannot write {}", path.display()))
 }
 
+/// A folder that moved machine to machine (`cmux link sync relay`, which copies the machine's own
+/// record with it): the base kept for `from_root` is the base for `to_root` too. Nothing when no
+/// push left one.
+pub(super) fn carry(local: &Path, from_root: &str, to_root: &str) -> anyhow::Result<bool> {
+    let path = path_of(local, from_root)?;
+    let kept = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
+    };
+    let kept: Manifest = serde_json::from_slice(&kept)
+        .with_context(|| format!("{} is not a sync record", path.display()))?;
+    save(local, to_root, &kept)?;
+    Ok(true)
+}
+
 /// The base of `local` synced to `remote_root`, checked against the
 /// machine's own record (`machine`, None when it has none).
 pub(super) fn trusted(
@@ -105,9 +127,57 @@ pub(super) fn trusted(
     };
     let kept: Manifest = serde_json::from_slice(&kept)
         .with_context(|| format!("{} is not a sync record", path.display()))?;
+    // A projected folder's base was made here when it was projected: the machine has no record of
+    // it until its first Bring Back writes one there.
+    if machine.is_none() && kept.projected {
+        return Ok(kept);
+    }
     let machine: Option<Manifest> = machine.and_then(|bytes| serde_json::from_slice(bytes).ok());
     if machine.as_ref() != Some(&kept) {
         return Err(Mismatch.into());
     }
     Ok(kept)
+}
+
+/// The machine's record of the push a pull merges against: its path, the record, and whether it is
+/// the plain record (`.cmux-sync.json`) of a git folder here. A git folder's push records in
+/// `.git/cmux-sync.json`, except a first pass of one past the copy's limits (`size_cap`), which
+/// sends no history and records as a plain copy: with no `.git` record on the machine, the plain
+/// one is read (cmuxterm-hq#11697: Bring Back Local after a first pass stopped on a record
+/// mismatch, and the chat's edits never came back). Either is trusted only as this Mac kept it
+/// ([`trusted`]). A plain record of a git folder brings back files only: no branch or index, and
+/// one this Mac kept with git state is a mismatch.
+pub(super) fn machine_record(
+    remote: &mut super::remote::Remote,
+    local: &Path,
+    remote_root: &str,
+    in_git: bool,
+) -> anyhow::Result<(String, Manifest, bool)> {
+    let (path, record, plain_in_git) = record_of(remote, remote_root, in_git)?;
+    let manifest = trusted(local, remote_root, record.as_deref())?;
+    if plain_in_git && manifest.git.is_some() {
+        return Err(Mismatch.into());
+    }
+    Ok((path, manifest, plain_in_git))
+}
+
+/// [`machine_record`]'s read: the record's path and bytes, and whether it is the plain one in git.
+fn record_of(
+    remote: &mut super::remote::Remote,
+    remote_root: &str,
+    in_git: bool,
+) -> anyhow::Result<(String, Option<Vec<u8>>, bool)> {
+    let plain = format!("{remote_root}/.cmux-sync.json");
+    if !in_git {
+        let record = remote.read(&plain)?;
+        return Ok((plain, record, false));
+    }
+    let git = format!("{remote_root}/.git/cmux-sync.json");
+    if let Some(record) = remote.read(&git)? {
+        return Ok((git, Some(record), false));
+    }
+    match remote.read(&plain)? {
+        Some(record) => Ok((plain, Some(record), true)),
+        None => Ok((git, None, false)),
+    }
 }

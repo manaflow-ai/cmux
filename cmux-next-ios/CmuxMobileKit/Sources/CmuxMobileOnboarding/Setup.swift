@@ -32,6 +32,11 @@ public struct SetupFlow: View {
     let signOut: () -> Void
     let finish: () -> Void
     @State private var path: [Step] = []
+    /// `steps` as of the latest update. A page's `next` can run on a copy of
+    /// this view from before the plan was fixed (the fleet's push probe: plan
+    /// [team, pairMac, notifications] logged, yet Connect your Mac ended setup
+    /// on the default [team, pairMac]); state reads the current value.
+    @State private var plan: [Step]?
     @State private var confirmsSignOut = false
 
     public init(
@@ -75,6 +80,7 @@ public struct SetupFlow: View {
             }
         }
         .tint(theme.colors.label.color)
+        .onChange(of: steps, initial: true) { _, steps in plan = steps }
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) {
             switch DemoDirector.shared.command {
@@ -101,6 +107,7 @@ public struct SetupFlow: View {
                 theme.haptics.warning()
                 signOut()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("You can sign in again with this or another account.")
         }
@@ -151,6 +158,7 @@ public struct SetupFlow: View {
     }
 
     private func advance(from step: Step) {
+        let steps = plan ?? self.steps
         let next = Self.step(after: step, in: steps)
         let said = "setup: after \(step), \(next.map { "\($0)" } ?? "done") (plan \(steps))"
         log.info("\(said, privacy: .public)")
@@ -223,6 +231,7 @@ private struct SetupSymbol: View {
         Image(systemName: name)
             .font(.system(size: 40, weight: .regular))
             .foregroundStyle(theme.colors.label)
+            .accessibilityHidden(true)
     }
 }
 
@@ -236,6 +245,7 @@ private struct ExplainerRow: View {
                 .font(.system(size: 17))
                 .frame(width: 22)
                 .foregroundStyle(theme.colors.label)
+                .accessibilityHidden(true)
             Text(text)
                 .font(theme.type.body)
                 .foregroundStyle(theme.colors.label)
@@ -349,7 +359,7 @@ private struct TeamStep: View {
 
     private func row<Label: View>(action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
         Button(action: action, label: label)
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .padding(.horizontal, theme.metrics.selectedRowInset)
     }
 
@@ -619,18 +629,16 @@ private struct PairMacCTAStyle: ButtonStyle {
         let pressed = configuration.isPressed
         configuration.label
             .font(theme.type.cta)
-            .foregroundStyle(primary ? theme.colors.onAccent : theme.colors.label)
+            .foregroundStyle(primary ? theme.colors.neutralOnAccent : theme.colors.label)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, theme.metrics.ctaInlinePadding)
             // Grows with Dynamic Type instead of clipping its label.
             .padding(.vertical, 12)
             .frame(minHeight: CmuxMobileCapsuleSize.large.height)
-            .background(theme.colors.accent.color.opacity(primary ? 1 : 0), in: .capsule)
+            // Held: the pressed wash over the fill; the label never dims or shrinks.
+            .cmuxMobilePressFill(pressed, rest: AnyShapeStyle(theme.colors.neutralAccent.color.opacity(primary ? 1 : 0)), in: Capsule())
             .contentShape(.rect)
-            .opacity(pressed ? 0.85 : 1)
-            .scaleEffect(primary && pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation.unlessReduceMotion, value: pressed)
     }
 }
 

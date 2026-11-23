@@ -1,0 +1,51 @@
+{
+  "name": "cmux.composer.command/1",
+  "version": 1,
+  "docs": "Slash commands in the agent chat composer. Each command is a row in the composer's / menu, beside the agent's and cmux's own; picking it writes its insert text over the typed /word. The daemon lists them (apps.composer.list) from the manifest, so no script runs and a save of the manifest updates the menu.",
+  "props": {
+    "commands": "ComposerCommand[]"
+  },
+  "methods": {},
+  "events": [],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["commands"],
+    "properties": {
+      "commands": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 32,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "insert"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+              "description": "What the person types after /: lowercase letters, digits, - and _."
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "The menu row's sentence."
+            },
+            "hint": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "What follows the command, shown after its name (<ticket>)."
+            },
+            "insert": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8000,
+              "description": "The text written over the typed /word when the command is picked."
+            }
+          }
+        }
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

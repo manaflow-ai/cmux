@@ -2,7 +2,7 @@ public import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
 
-/// The palette's git worktree and checkpoint actions (GitActionCatalog): each sends the session
+/// The palette's git worktree and checkpoint actions (cmux-action-catalog, catalog/git.rs): each sends the session
 /// host the operation its `cmux git` verb sends, in the folder of the invocation's tab, on that
 /// machine's ``AgentPaneGitLink``. The session host does the work and says why it refuses; this
 /// only names the folder, mints the idempotency key and reports the outcome. Worktree writes run
@@ -120,6 +120,13 @@ public struct GitRepositoryActions {
                     }
                 }
             })
+            // A tab with no folder, or a worktree write on another machine's tab: the row leaves the menus and the
+            // palette row is disabled, from the same place the run looks up (never a toast; a CLI run is told why).
+            ActionTargetVisibility.gate(id, in: registry) { invocation in
+                guard let request = Request.make(id, arguments: invocation.arguments) else { return nil }
+                guard let found = place(invocation), found.cwd.hasPrefix("/") else { return GitRepositoryStrings.noFolder }
+                return found.link.isLocal || !request.localOnly ? nil : GitRepositoryStrings.thisMacOnly
+            }
         }
     }
 }
@@ -168,6 +175,6 @@ nonisolated enum GitRepositoryStrings {
     }
 
     static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "GitActions", bundle: .module)
+        String(localized: key, defaultValue: english, table: "GitActions", bundle: .localizedModule)
     }
 }

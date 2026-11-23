@@ -4,6 +4,7 @@
 import type { Strings } from "../shared/i18n";
 import type {
   JoinedMachine,
+  JoinedDialPhase,
   JoinedMachineChange,
   MachineKind,
   MachineRow,
@@ -146,11 +147,42 @@ export function joinedCaption(
  * reached through the mesh alone. */
 export const isLinked = (row: MachineRow) => !row.joined || row.id !== `joined:${row.joined.id}`;
 
+/** Whether New Workspace on the row asks the other Mac first (`openJoined`): a joined Mac the app
+ * reaches only through the hub, online. Its person allows it there, once, on the consent card
+ * (Leo, 2026-11-14, hq#11046). A Linux machine has no card to answer, so it keeps needing a link. */
+export const asksFirst = (row: MachineRow) =>
+  !isLinked(row) &&
+  row.joined?.state === "online" &&
+  ["macos", "darwin"].includes(row.joined.platform?.toLowerCase() ?? "");
+
+/** The words a row shows instead of its caption while its New Workspace on the other Mac is under way
+ * or stopped (`name`: that Mac). */
+export function dialText(phase: JoinedDialPhase, name: string, strings: Strings): string {
+  return strings.format(`machines.dial.${phase}`, name);
+}
+
+/** Whether the row offers Retry: the ask stopped and nothing asks again by itself. */
+export const dialStopped = (phase: JoinedDialPhase | undefined) =>
+  phase === "declined" || phase === "unanswered" || phase === "update" || phase === "failed";
+
 /** One line of the section, top to bottom. */
 export type SectionItem =
   | { type: "header"; key: string; title: string; first: boolean }
   | { type: "row"; key: string; row: MachineRow; afterHeader: boolean }
   | { type: "add"; key: string; gap: boolean };
+
+/** A new snapshot with each row that did not change kept as the previous object. */
+export function keptSnapshot(previous: MachinesSnapshot | undefined, next: MachinesSnapshot): MachinesSnapshot {
+  if (!previous) return next;
+  const rows = new Map(previous.rows.map((row) => [row.id, row]));
+  return {
+    ...next,
+    rows: next.rows.map((row) => {
+      const old = rows.get(row.id);
+      return old && JSON.stringify(old) === JSON.stringify(row) ? old : row;
+    }),
+  };
+}
 
 /** The section's lines: each group's header, then its rows, then Add Machine…. */
 export function sectionItems(
@@ -163,6 +195,8 @@ export function sectionItems(
   const rows = removed.size ? snapshot.rows.filter((row) => !removed.has(row.id)) : snapshot.rows;
   for (const group of groups(rows, snapshot.style)) {
     const title = groupTitle(group.kind, strings);
+    // The Cloud header says only Cloud, never the active team the snapshot names
+    // (https://github.com/manaflow-ai/cmux/issues/45695).
     if (title) items.push({ type: "header", key: `h:${group.id}`, title, first: items.length === 0 });
     group.rows.forEach((row, index) => {
       items.push({ type: "row", key: `r:${row.id}`, row, afterHeader: index === 0 && !!title });

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { emulateMedia } from "../src/gallery/frame/media";
+import { settleReact } from "./support/domTeardown";
 
 const overrides = {
   "prefers-color-scheme": "dark",
@@ -21,7 +22,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await settleReact();
   dom.window.close();
   keys.forEach((key, index) => {
     if (saved[index] === undefined) delete globals[key];

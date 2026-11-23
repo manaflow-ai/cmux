@@ -23,6 +23,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -100,6 +101,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     height = 560,
   ): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width, height } });
+    // Claude's look, whose strip is text over the card: Codex's (the default since #42247) tucks it
+    // as a tray under the card's top edge (composerLook.css).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     if (init) await page.addInitScript(init);
     await page.goto(stageURL(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
@@ -138,9 +142,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       variant: "no-project",
       card: ".acpmux-composer-box",
     },
-    // The strip heads the New Tab card in the Default template with Claude's quiet row: Cards draws it
-    // under its pill field, and since #24519 (2026-10-27, one quiet row) every other template with
-    // Claude's plain footer draws it in the quiet row under the box (NewTabScreen.tsx locationInFooter).
+    // The strip heads the New Tab card on Minimal with Claude's quiet row: since #24519 (2026-10-27, one
+    // quiet row) it draws in the quiet row under the box (NewTabScreen.tsx locationInFooter).
     {
       name: "the New Tab composer",
       entry: "agent-pane.new-tab",
@@ -329,51 +332,28 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.close();
   });
 
-  for (const variant of ["folder-short-note", "folder-short-note-de", "folder-short-note-fr"]) {
-    test(`${variant} leaves a visible project row in a short pane`, async () => {
-      const page = await open("agent-pane.composer-context", variant, 720, undefined, 180);
-      const popup = page.locator(".acpmux-folder-popover");
-      const viewport = page.locator(".ui-combobox-viewport");
-      const note = page.locator(".acpmux-location-note");
-      const project = page.locator(".acpmux-location-row").first();
-      const [popupRect, viewportRect, noteRect, projectRect] = await Promise.all([
-        popup.boundingBox(),
-        viewport.boundingBox(),
-        note.boundingBox(),
-        project.boundingBox(),
-      ]);
-      expect(popupRect).not.toBeNull();
-      expect(viewportRect).not.toBeNull();
-      expect(noteRect).not.toBeNull();
-      expect(projectRect).not.toBeNull();
-      expect(noteRect!.height).toBeLessThanOrEqual(16);
-      const noteVisibility = await note.evaluate((element) => {
-        const style = getComputedStyle(element);
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        const text = range.getBoundingClientRect();
-        const box = element.getBoundingClientRect();
-        return {
-          lineHeight: parseFloat(style.lineHeight),
-          paddingTop: parseFloat(style.paddingTop),
-          paddingBottom: parseFloat(style.paddingBottom),
-          borderTop: parseFloat(style.borderTopWidth),
-          textTop: text.top,
-          textBottom: text.bottom,
-          boxTop: box.top,
-          boxBottom: box.bottom,
-        };
-      });
-      expect(noteVisibility.paddingTop + noteVisibility.paddingBottom + noteVisibility.borderTop).toBe(0);
-      expect(noteVisibility.textTop).toBeGreaterThanOrEqual(noteVisibility.boxTop - 1);
-      expect(noteVisibility.textBottom).toBeLessThanOrEqual(noteVisibility.boxBottom + 1);
-      expect(noteRect!.height).toBeGreaterThanOrEqual(noteVisibility.lineHeight);
-      expect(projectRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
-      expect(projectRect!.y + projectRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
-      expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(popupRect!.y + popupRect!.height);
-      await page.close();
-    });
-  }
+  test("a tall pane gives the folder menu's extra height to its list, and its width follows the names", async () => {
+    const page = await open("agent-pane.composer-context", "folder-long-list", 720, undefined, 900);
+    const popup = page.locator(".acpmux-folder-popover");
+    const viewport = page.locator(".ui-combobox-viewport");
+    const [popupRect, viewportRect] = await Promise.all([popup.boundingBox(), viewport.boundingBox()]);
+    expect(popupRect).not.toBeNull();
+    expect(viewportRect).not.toBeNull();
+    // The list is no longer held at the shared 260 px location-list cap.
+    expect(viewportRect!.height).toBeGreaterThan(260);
+    expect(popupRect!.height).toBeLessThanOrEqual(560);
+    // As wide as its fullest listed row needs, between the old 240 px floor and 560: no name in view is cut.
+    expect(popupRect!.width).toBeGreaterThanOrEqual(240 - 1);
+    expect(popupRect!.width).toBeLessThanOrEqual(560 + 1);
+    const cut = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".acpmux-folder-popover [role='option'] .acpmux-location-name")]
+        .filter((name) => name.scrollWidth > name.clientWidth + 1)
+        .map((name) => name.textContent),
+    );
+    expect(cut).toEqual([]);
+    expect(await page.locator(".acpmux-location-note").count()).toBe(0);
+    await page.close();
+  });
 
   test("a normal pane scrolls the last long-list project fully inside the popup", async () => {
     const page = await open("agent-pane.composer-context", "folder-long-list", 720);
@@ -625,10 +605,10 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     ["strip-where-machine-cloud", 430, "Cloud", null],
     ["strip-where-machine-cloud", 244, "Cloud", null],
     ["strip-where-machine-cloud", 243, false, null],
-    ["strip-where-machine-machine-picked", 430, "Remote", "gpu-box"],
-    ["strip-where-machine-machine-picked", 402, "Remote", "gpu-box"],
-    ["strip-where-machine-machine-picked", 401, "Remote", false],
-    ["strip-where-machine-machine-picked", 346, "Remote", false],
+    ["strip-where-machine-machine-picked", 430, "Other devices", "gpu-box"],
+    ["strip-where-machine-machine-picked", 402, "Other devices", "gpu-box"],
+    ["strip-where-machine-machine-picked", 401, "Other devices", false],
+    ["strip-where-machine-machine-picked", 346, "Other devices", false],
     ["strip-where-machine-machine-picked", 345, false, false],
     ["strip-combined", 244, "This Mac", null],
     ["strip-combined", 243, false, null],
@@ -700,7 +680,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   });
 
   // Focus draws no ring (Leo 2026-10-19): a focused strip control keeps the strip's geometry, and its
-  // edge takes the composer's focused tone, as the card's does (#21241; #23745: a step brighter).
+  // edge takes the composer's focused tone, as the card's does (#21241; #23745: a step brighter), when
+  // a key moved the focus; code focus leaves the edge at rest (FOCUS-RING, src/ui/focusModality.ts).
   test("focusing a strip control steps the strip's edge tone and keeps its geometry", async () => {
     const page = await open("agent-pane.composer-strip", "project", 420);
     await installPaintedFrames(page);
@@ -714,7 +695,17 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
       };
     });
+    const edgeNow = () =>
+      page.evaluate(() =>
+        getComputedStyle(document.querySelector<HTMLElement>(".acpmux-composer-strip")!).getPropertyValue(
+          "--acpmux-strip-edge",
+        ),
+      );
+    // Code focus earns no ring: the edge stays at rest.
     await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-strip button")!.focus());
+    await page.evaluate(() => window.cmuxPaintFrame());
+    expect(await edgeNow(), "code focus leaves the strip's edge at rest").toBe(before.edge);
+    await focusByKey(page, ".acpmux-composer-strip button");
     await page.evaluate(() => window.cmuxPaintFrame());
     const after = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;

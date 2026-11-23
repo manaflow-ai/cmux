@@ -11,6 +11,7 @@ import {
   nextDocHref,
   nextDocPage,
   nextDocPublicPath,
+  repoSourceHref,
   type DocBlock,
   type NextDocPage,
 } from "@/data/next-docs/pages";
@@ -43,6 +44,23 @@ function Block({ block }: { block: DocBlock }) {
   if ("p" in block) return <p>{block.p}</p>;
   if ("ul" in block) return <ul>{block.ul.map((item) => <li key={item}>{item}</li>)}</ul>;
   if ("code" in block) return <CodeBlock lang={block.lang ?? "bash"}>{block.code}</CodeBlock>;
+  if ("files" in block) {
+    return (
+      <table>
+        <thead>
+          <tr><th>Where</th><th>What</th></tr>
+        </thead>
+        <tbody>
+          {block.files.map((file) => (
+            <tr key={file.path}>
+              <td><a href={repoSourceHref(file.path, file.kind)}><code>{file.path}</code></a></td>
+              <td>{file.what}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
   return <Callout type="info">{block.note}</Callout>;
 }
 

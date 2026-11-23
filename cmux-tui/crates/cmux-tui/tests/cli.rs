@@ -816,7 +816,7 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert_success(&remote_help);
     let remote_help = String::from_utf8(remote_help.stdout).unwrap();
     assert!(
-        remote_help.contains("USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]"),
+        remote_help.contains("USAGE: cmux remote connect|ssh|exec|cp|forward|rpc [OPTIONS]"),
         "{remote_help}"
     );
     assert!(remote_help.contains("cmux remote enroll <ACTION> [OPTIONS]"), "{remote_help}");
@@ -844,7 +844,7 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert!(typo_help.contains("cmux remote connect"), "{typo_help}");
 
     let unknown_remote_action = lifecycle_cli(&["remote", "frobnicate"]);
-    assert_eq!(unknown_remote_action.status.code(), Some(1));
+    assert_eq!(unknown_remote_action.status.code(), Some(2));
     let error = String::from_utf8(unknown_remote_action.stderr).unwrap();
     assert!(error.contains("unknown remote action \"frobnicate\""), "{error}");
 
@@ -3041,6 +3041,14 @@ mod session_shutdown;
 mod apps_store;
 
 #[cfg(unix)]
+#[path = "cli/apps_external_server.rs"]
+mod apps_external_server;
+
+#[cfg(unix)]
+#[path = "cli/apps_store_sections.rs"]
+mod apps_store_sections;
+
+#[cfg(unix)]
 #[path = "cli/stop_start_lock.rs"]
 mod stop_start_lock;
 
@@ -3765,6 +3773,9 @@ mod closed_ids;
 #[cfg(unix)]
 #[path = "cli/cloud_lease_gate.rs"]
 mod cloud_lease_gate;
+#[cfg(unix)]
+#[path = "cli/cloud_runs_app_route.rs"]
+mod cloud_runs_app_route;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]
@@ -3837,6 +3848,9 @@ mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/tabless_terminals.rs"]
 mod tabless_terminals;
+#[cfg(unix)]
+#[path = "cli/terminal_copy_text.rs"]
+mod terminal_copy_text;
 #[cfg(unix)]
 #[path = "cli/terminal_paste.rs"]
 mod terminal_paste;

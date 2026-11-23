@@ -41,7 +41,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from github_token_polling import (  # noqa: E402
     JS_API, OWN_TOKEN, Scripts, api_url_names, api_url_pattern, calls_with_own_token, heredoc_effects, js_code,
-    python_aliases, python_effects, script_paths, shell_api, shell_words,
+    python_aliases, python_effects, python_http_call, script_paths, shell_api, shell_words,
 )
 
 API_HELPERS = ("gh_json", "gh_api", "gh_run", "gh_items")
@@ -97,7 +97,7 @@ def python_calls(text: str) -> bool:
         aliases = python_aliases(ast.parse(text))
     except SyntaxError:
         return False
-    return any(t.endswith("urlopen") or t.split(".")[-1] in API_HELPERS for ts in aliases.values() for t in ts)
+    return any(python_http_call(t) or t.split(".")[-1] in API_HELPERS for ts in aliases.values() for t in ts)
 
 
 def action_spends(step: dict, job: dict, workflow: dict) -> bool:

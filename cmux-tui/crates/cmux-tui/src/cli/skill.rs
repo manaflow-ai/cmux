@@ -69,7 +69,8 @@ pub(super) const RECIPES: &[Recipe] = &[
         ],
         read: "run opens a new tab in your pane that runs the command as its own process \
                (`value.terminal_id`). process wait prints `outcome.code` (and \
-               `outcome.kind`: exit or signal) once it ends. `--on-exit keep` keeps the \
+               `outcome.kind`: exit or signal) once it ends; `timed_out: true` (exit 124, \
+               `state: pending`) means it still runs. `--on-exit keep` keeps the \
                output readable after the exit.",
     },
     Recipe {
@@ -83,7 +84,7 @@ pub(super) const RECIPES: &[Recipe] = &[
                `matched: false` (exit 1) when the command ended first, `timed_out: true` \
                (exit 124) when the time passed. For a command already running, `screen wait \
                --pattern RE --new` waits in the daemon for output printed after the wait \
-               starts.",
+               starts (`timed_out: true`, exit 124, when it never shows).",
     },
     Recipe {
         ask: "What does the pane on the right show?",
@@ -208,10 +209,10 @@ pub(super) const RECIPES: &[Recipe] = &[
             "cmux --json pane <pane> move --to-pane <other-pane> --split right",
             "cmux --json pane <pane> move --to-workspace <ws>",
         ],
-        read: "move takes every tab of the pane, in order, and the emptied pane closes: \
-               `moved_tabs`, `destination.pane` (where they are now), `created` (the new \
-               screen or pane, else null). --to-tab <tab> puts them after that tab. The \
-               focus stays unless --focus.",
+        read: "move is one change. Beside a pane or to a new screen the pane keeps its id \
+               (`pane_kept`); --to-pane <pane> without --split or --to-tab <tab> merges the tabs \
+               into that pane and the moved pane closes. `pane_id` is where the tabs are now, \
+               `tab_ids` their ids. The focus stays unless --focus.",
     },
     Recipe {
         ask: "Tell me when you need me.",
@@ -263,7 +264,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     match rest.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         [] | ["show"] => Some(show(&global)),
         ["--help" | "-h"] | ["show", "--help" | "-h"] => Some(usage(0)),
-        _ => Some(usage(2)),
+        _ => Some(super::scope_usage_failure(
+            global.output,
+            "skill",
+            &super::unknown_words("skill", rest),
+            messages.skill_usage,
+        )),
     }
 }
 
@@ -391,8 +397,9 @@ const RULES: &str = "\
 - **Check first.** `cmux --json identify` prints where you run. In a cmux-tui pane it \
 answers from the pane's session (`kind: \"cmux-tui\"`), even when that cmux-tui runs inside \
 the cmux app; `cmux app identify` asks the app around it (`outer_app`).
-- **Targets.** A selector is an id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), \
-`current`, `caller`, or an exact name (`name:` forces a name). Inside a cmux terminal \
+- **Targets.** A selector is an id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), a \
+unique id prefix of 4 or more hex digits (`pane_3f0a`; a shorter one is refused), the bare 32 \
+hex digits (for a terminal also the host `terminal_id` that `run` prints), `current`, `caller`, `focused`, or an exact name (`name:` forces a name). Inside a cmux terminal \
 `current` and `caller` are your own workspace, screen, pane, tab and terminal, not the one the \
 person looks at. For the person's focused pane, name the session: \
 `cmux --session <session.name> pane current show` (an explicit route makes `current` the \
@@ -419,21 +426,24 @@ const WAITS_AND_ERRORS: &str = "
 | `terminal <term> send --text T --wait none` | at once, after typing T and Enter | - |
 | `terminal <term> run -- CMD` | the shell's next prompt; exits with CMD's `exit_status` | `--timeout 5m`, exit 124 (125: no status) |
 | `terminal <term> send --text T --pattern RE` | output after T matches RE (or T ends: exit 1) | `--timeout`, exit 124 |
-| `terminal <term> screen wait --pattern RE` | RE matches the screen | `--timeout-ms N`, exit 1 |
-| `terminal <term> screen wait --pattern RE --new` | RE matches output printed after the wait starts | `--timeout-ms N`, exit 1 |
+| `terminal <term> screen wait --pattern RE` | RE matches the screen | `--timeout-ms N`, exit 124 |
+| `terminal <term> screen wait --pattern RE --new` | RE matches output printed after the wait starts | `--timeout-ms N`, exit 124 |
 | `terminal <term> wait --until prompt\\|idle` | the terminal is at a prompt / idle | `--timeout 30s`, exit 124 |
-| `terminal <term> process wait` | the terminal's process exits (`outcome.code`) | `--timeout-ms N` |
+| `terminal <term> process wait` | the terminal's process exits (`outcome.code`) | `--timeout-ms N`, exit 124 (`state: pending`) |
+| `agents wait --until idle\\|dialog\\|text` | another agent stops, a dialog is pending, text shows | `--timeout S`, exit 124 |
 
 `--wait prompt` and `wait --until` need shell integration (OSC 133), which cmux shells have.
-A timeout does not stop the command; read the screen before you send more.
+Every wait whose time ran out prints `timed_out: true` and exits 124; exit 0 means the wait \
+ended for its own reason. A timeout does not stop the command; read the screen before you \
+send more.
 A `--pattern` RE is matched line by line: `^` and `$` match at the start and end of each line \
 (`--pattern '^BENCH_OK$'`), as in grep. Start it with `(?-m)` to match the whole text.
 
 ## Errors and exit codes
 
 Errors are one JSON object on stderr with `--json`: `{\"code\", \"message\", \"details\", \
-\"retryable\"}`. Exit codes: 0 done, 1 the operation failed (or `screen wait` found no \
-match), 2 usage error (fix the command), 3 cannot reach the session, 124 a wait timed out.
+\"retryable\"}`. Exit codes: 0 done, 1 the operation failed, 2 usage error (fix the \
+command), 3 cannot reach the session, 124 a wait timed out (`timed_out: true`).
 A change that failed with `retryable: true` prints an idempotency key: run it again with \
 `--idempotency-key <key>`, which never applies it twice. Before you retry a timed-out \
 create, list first: it may have run.

@@ -1,5 +1,7 @@
-// A sub-session's transcript row is its chat's button (subagents/AgentCard.tsx over the shared
-// subagents/DisclosureRow.tsx), with no "Open chat" word beside it, and it reads as the rows it sits
+// A sub-session's transcript row names its chat with a link chip, the one part that opens it
+// (subagents/AgentCard.tsx over the shared subagents/DisclosureRow.tsx; Leo, 2026-11-05: "subagents
+// need to have their clickable bit be highlighted instead of the whole line click sending me to the
+// subagent righ split"), with no "Open chat" word beside it, and it reads as the rows it sits
 // among: regular weight, on the tool rows' line height, with no outer margin of its own (a gap
 // belongs to its container, as the layout grid has it since #27580) (Leo, 2026-10-29: "why is
 // one of these bold? And why is there space, a fucking gap in between them? And why do you have the
@@ -11,6 +13,9 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { setPaneLanguage, translatorFor } from "../src/agent-session/acpmux/i18n";
+import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
+import { TaskLines } from "../src/agent-session/acpmux/conversation/TaskLine";
+import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
 import { AgentCard } from "../src/agent-session/acpmux/subagents/AgentCard";
 import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
@@ -49,7 +54,7 @@ afterEach(async () => {
   saved.clear();
 });
 
-test("a click on a sub-session's row opens its chat; its chevron alone opens the prompt", async () => {
+test("a click on a sub-session's name chip opens its chat; the rest of its line opens the prompt", async () => {
   const opened: string[] = [];
   const container = await render(
     <AgentCard
@@ -66,22 +71,27 @@ test("a click on a sub-session's row opens its chat; its chevron alone opens the
     </AgentCard>,
   );
   expect(container.textContent).not.toContain(t("subsession.openChat"));
-  const line = container.querySelector<HTMLButtonElement>("button.cv-disclosure__open")!;
+  expect(container.querySelector("button.cv-disclosure__open")).toBeNull();
+  const line = container.querySelector<HTMLElement>(".cv-disclosure__open")!;
+  const chip = line.querySelector<HTMLButtonElement>("button.cv-agent-tag.is-open")!;
   const chevron = container.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!;
-  // The line is the button: its label, model and state, and nothing after it but the chevron.
-  expect(line.querySelector(".cv-disclosure__label")?.textContent).toBe("Started sub-session fleet-mesh");
+  // The label is the chip; the model and state follow it, and nothing after them but the chevron.
+  expect(chip.textContent).toBe("Started sub-session fleet-mesh");
   expect(line.textContent).toContain("gpt-6.1-sol");
-  expect(line.title).toBe(t("subagents.open", { name: "fleet-mesh" }));
-  expect(line.hasAttribute("aria-expanded")).toBe(false);
+  expect(chip.title).toBe(t("subagents.open", { name: "fleet-mesh" }));
+  expect(chip.hasAttribute("aria-expanded")).toBe(false);
   expect(chevron.getAttribute("aria-expanded")).toBe("false");
   expect(chevron.getAttribute("aria-label")).toBe(t("message.details"));
-  await act(async () => line.click());
+  await act(async () => chip.click());
   expect(opened).toEqual(["fleet-mesh"]);
   expect(container.querySelector(".prompt")).toBeNull();
-  await act(async () => chevron.click());
+  // The line's model opens the panel, not the chat.
+  await act(async () => line.querySelector<HTMLElement>(".cv-disclosure__meta")!.click());
   expect(chevron.getAttribute("aria-expanded")).toBe("true");
   expect(container.querySelector(".prompt")?.textContent).toBe("Mesh the fleet.");
   expect(opened).toEqual(["fleet-mesh"]);
+  await act(async () => chevron.click());
+  expect(chevron.getAttribute("aria-expanded")).toBe("false");
 });
 
 test("a row with no chat to open keeps its whole line as the disclosure", async () => {
@@ -97,15 +107,19 @@ test("a row with no chat to open keeps its whole line as the disclosure", async 
   expect(container.querySelector(".prompt")?.textContent).toBe("Gone.");
 });
 
-test("a sub-session's card is its chat's button, with no Open chat word", async () => {
+test("a sub-session's card opens its chat from its name chip alone, with no Open chat word", async () => {
   const opened: string[] = [];
   const container = await render(
     <AgentCard name="fleet-mesh" model="gpt-6.1-sol" state="done" onOpen={() => void opened.push("fleet-mesh")} />,
   );
   expect(container.textContent).not.toContain(t("subsession.openChat"));
-  const head = container.querySelector<HTMLButtonElement>("button.cv-agent-card__head")!;
-  expect(head.textContent).toContain("fleet-mesh");
+  expect(container.querySelector("button.cv-agent-card__head")).toBeNull();
+  const head = container.querySelector<HTMLElement>(".cv-agent-card__head")!;
   await act(async () => head.click());
+  expect(opened).toEqual([]);
+  const chip = head.querySelector<HTMLButtonElement>("button.cv-agent-tag.is-open")!;
+  expect(chip.textContent).toBe("fleet-mesh");
+  await act(async () => chip.click());
   expect(opened).toEqual(["fleet-mesh"]);
 });
 
@@ -124,4 +138,67 @@ test("the row family is regular weight on the tool rows' line, with no outer mar
   expect(conversation).toMatch(/--cv-disclosure-line-height:\s*var\(--cv-tool-row-height\);/);
   expect(rule(".cv-disclosure__label")).toMatch(/font-weight:\s*400;/);
   expect(css).not.toMatch(/font-weight:\s*(500|600|bold)/);
+});
+
+test("a started agent keeps its icon and name link, with visible status controlling prompt details", async () => {
+  const opened: string[] = [];
+  const container = await render(
+    <SubsessionContext.Provider value={{ store: new SubsessionStore(), open: (id) => void opened.push(id) }}>
+      <SubsessionCallCard
+        call={{ tool: "start", running: true, sessionId: "review-id", name: "Review", prompt: "Review spacing." }}
+        tool={{ id: "start-review", title: "Start agent", status: "running" }}
+      />
+    </SubsessionContext.Provider>,
+  );
+  const line = container.querySelector(".cv-disclosure__line")!;
+  expect(line.querySelector(".cv-disclosure__icon svg")).not.toBeNull();
+  expect(line.querySelector(".cv-rotor")).toBeNull();
+  expect(line.querySelector(".is-chevron")).toBeNull();
+  const name = line.querySelector<HTMLButtonElement>("button.cv-agent-tag")!;
+  const status = line.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle.is-status")!;
+  expect(status.textContent).toBe("Working");
+  expect(status.hasAttribute("aria-label")).toBe(false);
+  expect(status.getAttribute("aria-expanded")).toBe("false");
+  expect(status.tabIndex).toBe(0);
+  await act(async () => name.click());
+  expect(opened).toEqual(["review-id"]);
+  expect(container.querySelector(".cv-subsession__markdown")).toBeNull();
+  status.focus();
+  expect(dom!.window.document.activeElement).toBe(status);
+  await act(async () => status.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true, detail: 0 })));
+  expect(status.getAttribute("aria-expanded")).toBe("true");
+  const panel = container.querySelector(".cv-disclosure__panel")!;
+  expect(panel.textContent).toContain("Review spacing.");
+  expect(panel.querySelector(".cv-card-copy")).not.toBeNull();
+  expect(panel.querySelector(".cv-subsession__raw")).not.toBeNull();
+  expect(opened).toEqual(["review-id"]);
+});
+
+test("a folded started task keeps only its icon, state and name navigation", async () => {
+  const opened: string[] = [];
+  const container = await render(
+    <SubsessionContext.Provider value={{ store: new SubsessionStore(), open: (id) => void opened.push(id) }}>
+      <TaskLines tasks={[{ sessionId: "review-id", name: "Review", harness: "codex" }]} />
+    </SubsessionContext.Provider>,
+  );
+  const line = container.querySelector('[data-task-line="done"]')!;
+  expect(line.querySelector(".cv-tool__icon svg")).not.toBeNull();
+  expect(line.querySelector(".cv-task-line__state svg")).not.toBeNull();
+  expect(line.querySelector(".cv-tool__chevron")).toBeNull();
+  await act(async () => line.querySelector<HTMLButtonElement>("button.cv-agent-tag")!.click());
+  expect(opened).toEqual(["review-id"]);
+});
+
+test("a chevron-free Done button takes its accessible name from its visible status", async () => {
+  const container = await render(
+    <AgentCard name="Review" state="done" disclosure disclosureChevron={false} onOpen={() => {}}>
+      <p>Review complete.</p>
+    </AgentCard>,
+  );
+  const status = container.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle.is-status")!;
+  expect(status.textContent).toBe("Done");
+  expect(status.hasAttribute("aria-label")).toBe(false);
+  expect(status.querySelector(".cv-rotor")).toBeNull();
+  await act(async () => status.click());
+  expect(container.querySelector(".cv-disclosure__panel")?.textContent).toBe("Review complete.");
 });

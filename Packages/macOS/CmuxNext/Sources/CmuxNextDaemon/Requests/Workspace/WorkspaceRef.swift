@@ -28,6 +28,8 @@ public struct WorkspaceMutationResult: Decodable, Sendable, Equatable {
     public var replayed: Bool
     public var registryID: String?
     public var generation: DaemonGeneration?
+    /// The first tab a `create-workspace {first_tab}` made with the workspace (`workspace-first-tab-v1`).
+    public var firstTab: NewFrontendBrowserTabRequest.Response?
 
     /// The `mutation_id` of this new workspace's first chat tab (`agent.openSessionWorkspace`). Its key is the
     /// caller's, or derived from the run's idempotency key (`WorkspaceKey.generate()` in a ``DaemonCommandScope``),
@@ -39,5 +41,6 @@ public struct WorkspaceMutationResult: Decodable, Sendable, Equatable {
         case workspace, key, index, changed, replayed, generation
         case workspaceRevision = "workspace_revision"
         case registryID = "registry_id"
+        case firstTab = "first_tab"
     }
 }

@@ -86,6 +86,34 @@ names) with `tab`, `url`, `confirm` (the tab still asks for Connect),
 stream's state, mode and frame counts). It carries no credential and no
 screen content. Connect and Take over stay the person's clicks in the pane.
 
+`app mac-screens [--tab <tab>]` works with every build: it reads the app's
+`mac_screen.state`, one row per Mac Screen tab showing one of your devices
+(or the one `--tab` names) with `tab`, `device_id`, `device`, `phase`
+(`connecting`, `connected`, `failed`, `ended`, null with no session),
+`connected`, `has_frame`, `path`, `connect_started_at` (ISO 8601) and
+`first_frame_ms` (connect start to the first decoded frame on screen), `fps`,
+`target_fps`, `rtt_ms`, `frames_decoded`, `frames_dropped` (frames the other
+Mac numbered that never showed), `frame`, and `rtt_ms_window`,
+`frame_interval_ms` and `present_ms` (decoded to shown) as `{count, p50, p95,
+max}` over the last 60 round trips and 120 frames. It is read-only: it never
+connects, disconnects or sends input, and carries no credential or screen
+content.
+
+`app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
+app's `agent.chat.perf` runs the chat page's own capture for that many
+seconds (default 5) and returns `{tab, seconds, duration_ms, measured,
+unmeasured_reason, visibility, frames, long_tasks, layout_shift, records}`:
+frame intervals (p50/p95/p99/max, frames over 33 and 50 ms), long animation
+frames (or long tasks) with their top scripts' invoker and URL, non-input
+layout shift, and for each record the selected chat receives, its time from
+arrival to the first painted frame and its apply time, by kind (`tool_call`,
+`tool_call_update`, `agent_message_chunk`, `other`, `all`). It never focuses,
+selects, shows or un-occludes the tab; a hidden or covered page draws no
+frames, so `measured` is false with `unmeasured_reason` `page_hidden` or
+`no_frames`. Nothing in the page measures outside a capture. A tab that is
+not an agent chat is `invalid_params`; a chat whose page this launch never
+made is `unavailable`.
+
 `app machines [--no-refresh]` works with every build: it reads the app's
 `machine.list`, the right sidebar's Machines section as the person sees it,
 `{machines: [{id, name, kind, isLocal, linkState, online, serverState,
@@ -149,9 +177,10 @@ English only). Results go to stdout and diagnostics to stderr.
 | Exit | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | Operation failure (the request ran and failed, or `screen wait` or `agents wait` timed out). |
+| 1 | Operation failure (the request ran and failed). |
 | 2 | Usage error (`usage.invalid`). |
 | 3 | Transport failure (no session or app socket, unreachable, broken reply). |
+| 124 | A wait timed out: `screen wait`, `process wait`, `wait --until`, `send --wait`, `run`, `agents wait`, `status wait`. Its result says `timed_out: true`. On a Cloud machine, a timed-out `process wait` exits 124 only for a caller that sets `CMUX_CALLER_READS_WAIT_124=1` (the current guest adapter does); for any other it still exits 0 and says `timed_out: true`, so an older adapter keeps working. |
 
 `cmux acp` keeps acpmux's own exit codes (for example `acp wait` exits 2 when a
 permission is waiting and 3 on timeout).
@@ -180,7 +209,7 @@ daemon inject, so no flags are needed.
 | `CMUX_BUNDLE_ID` | App bundle id; derives the app socket and daemon session. |
 | `CMUX_TAG` | Tagged dev build; derives `~/.local/state/cmux/cmux-debug-<tag>.sock`, session `cmux-app-<tag>` and, with the bundle id, the acpmux home `~/.acpmux/builds/<build key>`. |
 | `CMUX_TUI_SOCKET` | Daemon session socket. |
-| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it. `current` selectors do not use it. |
+| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it, and `current` selectors resolve to its tab, pane, screen and workspace. |
 | `ACPMUX_HOME` | acpmux state directory. Wins over the tag rule. |
 
 App socket order: `--app-socket`, then `CMUX_SOCKET_PATH`/`CMUX_BUNDLE_ID`/`CMUX_TAG`,
@@ -209,14 +238,24 @@ Every instance selector accepts:
 1. a public id: `ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`, `browser_…`,
    `split_…`, `notification_…`, `agent_…`. Ids are persisted and survive app and
    daemon restarts;
-2. `current`;
+2. `caller` or `current`, the caller's own object, or `focused`, the one the
+   person looks at;
 3. an exact name. `name:<value>` forces name interpretation and is required for
    names equal to `current`, names shaped like ids, and names containing `_`.
 
-For a `current` or name selector, missing structural ancestors default to
-`current`, so `cmux pane current split --right` means the session's active
-workspace, screen and pane (what the user sees), not the caller's. To act on
-the caller's own terminal, pass `$CMUX_TUI_TERMINAL_ID`. An id selector needs no ancestors. Nested forms name the chain
+For a `caller`, `current` or name selector, missing structural ancestors
+default to `current` (for `focused`, to `focused`). `caller` and `current` are
+the caller's own place: from a cmux terminal (`$CMUX_TUI_TERMINAL_ID`) the CLI
+reads the tab, pane, screen and workspace that hold it; from an agent chat
+(`$CMUX_AGENT_SESSION`) or a Chief turn it asks the app that owns the daemon
+where the chat is. So `cmux pane current split --right` splits the caller's
+own pane even while the person looks at another workspace, and
+`cmux tab create terminal` from a terminal with no `--workspace`, `--screen` or
+`--pane` opens in the caller's pane. `caller` fails without a caller; `current`
+is then the session's active object, as it is outside cmux and with
+`--socket`, `--session` or `--machine`. `focused` is the app's focused
+workspace, screen and pane, and the daemon's active ones without an app that
+owns the daemon. An id selector needs no ancestors. Nested forms name the chain
 explicitly: `cmux workspace api screen current pane current split --down`.
 
 A selector id, or an id given to `--workspace`, `--screen`, `--pane`, `--tab`,
@@ -428,9 +467,14 @@ modifiers `ctrl`, `alt` (or `option`), `shift`; keys `enter`, `tab`, `backtab`,
 `home`, `end`, `pageup`, `pagedown`, `space`, `f1` to `f24`, or one character.
 Example: `cmux terminal current keys ctrl+c enter`.
 
-`screen wait` prints its result either way and exits 1 when the timeout passes
-without a match. `cmux agents wait` does the same: it prints its receipt
-(`matched: false`) and exits 1 when its timeout passes.
+Every wait prints its result either way, and a wait whose timeout passed says
+`timed_out: true` and exits 124, as timeout(1) does; exit 0 means the wait
+ended for its own reason. `screen wait` answers `matched: false`, `timed_out:
+true` and `waited_ms` when the timeout passes without a match. `process wait`
+answers `outcome` once the process ends (exit 0, whatever the process's own
+code), and `state: "pending"`, `timed_out: true` and `waited_ms` when it still
+runs at the timeout. `cmux agents wait` prints its receipt (`matched: false`,
+`timed_out: true`) and exits 124 when its timeout passes.
 
 `wait --until prompt` returns when the shell sits at its prompt (`extra.prompt`,
 from OSC 133 shell integration); `--until idle` when no plain command runs, no
@@ -548,16 +592,20 @@ chat on the machine). Each row's `status` is the word `terminal list --agents`
 uses: `blocked`, `done` (idle with an unread notification), `working`, `idle`,
 `unknown`, or `ended` for an ended session (as in the `send` receipt; it was
 null); `state` is a deprecated alias with the same word, and an acpmux chat's
-own status is `acp_status`. The CLI does not list an ended agent of a terminal
-that closed; `--state ended` shows those rows too, and the text output ends
-with a line that says how many rows it left out. `--state` takes those words and
+own status is `acp_status`. A terminal that closed has no agent: the daemon
+deletes the agent record with the terminal, so no output lists it, `--state
+ended` included (the ended chat stays in `cmux history list --kind agent`).
+The CLI still leaves out an ended agent whose terminal the snapshot does not
+have (a daemon of an older build kept the records of closed terminals);
+`--state ended` shows those rows too, and the text output ends with a line
+that says how many rows it left out. `--state` takes those words and
 `ended` (`--state done` selected ended sessions before; that is `--state ended`
 now). It puts blocked agents first, then done, working, idle, unknown and
 ended (`--sort recent|none` for recency or the daemon's order). `agent report --state ended` reports a session
 that ended (`--state done` is an old alias of it), and its record says
 `ended`. `--json` stays
 a bare array of agents; `--json --counts` adds the counts by status, `ended` and
-`total`, and `hidden_ended`, the ended agents of closed terminals it left out
+`total`, and `hidden_ended`, the ended agents it left out
 (`{"agents": [...], "counts": {...}, "hidden_ended": 0}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`

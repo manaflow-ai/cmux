@@ -13,6 +13,8 @@ impl HostedReader {
         journal_update: &mut Option<TerminalJournalUpdateGuard<'_>>,
     ) -> Flow {
         let mux = self.mux.clone();
+        // A terminal's output allocates too: its pages go back once it stops (malloc_quiet_trim.rs).
+        cmux_tui_platform::malloc_quiet_trim::note_activity();
         if let Some(delay) = self.output_apply_delay {
             std::thread::sleep(delay);
         }
@@ -39,16 +41,29 @@ impl HostedReader {
             }
             let journal_enabled = journal_update.is_some();
             let before = terminal_scroll_position(&term);
-            let normalized =
-                crate::prompt_mode_reset::write_output(&mut term, &output, &mut self.shell_marks);
-            terminal_notifications = pty.observe_terminal_output(&output);
+            // One walk of the chunk reads its metadata and rewrites its titles.
+            let (rewritten, notifications) = pty
+                .observe_terminal_output_rewriting_titles(self.shell_marks.titles_mut(), &output);
+            terminal_notifications = notifications;
+            let normalized = crate::prompt_mode_reset::write_rewritten_output(
+                &mut term,
+                rewritten,
+                &mut self.shell_marks,
+            );
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade()
                     .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())
             });
+            // Borrowed bytes are `output` itself, or its start when the end
+            // of a possible prompt mark waits for the next chunk.
             let output = match normalized {
-                Cow::Borrowed(_) => output,
-                Cow::Owned(normalized) => normalized,
+                Cow::Borrowed(parsed) if parsed.as_ptr() == output.as_ptr() => {
+                    let parsed = parsed.len();
+                    let mut output = output;
+                    output.truncate(parsed);
+                    output
+                }
+                normalized => normalized.into_owned(),
             };
             if let Some(colors) = colors.as_ref() {
                 let delta = terminal_color_override_delta(&self.applied_color_overrides, colors);
@@ -93,16 +108,16 @@ impl HostedReader {
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {
-                // A program that rewrites the same title (a spinner's
-                // resting frame, a prompt redraw) announces nothing.
+                // A program that rewrites the same title (a prompt redraw)
+                // or only steps its spinner announces nothing (D2).
                 let title = crate::terminal_title::read(&term);
-                let mut stored = pty.title.lock().unwrap();
-                if *stored != title {
-                    *stored = title.clone();
+                if let Some(title) =
+                    crate::terminal_title::store(&mut pty.title.lock().unwrap(), title)
+                {
                     title_update = Some(title);
                 }
             }
-            pty.record_directory(term.pwd());
+            pty.record_terminal_directory(&term);
             if before != after {
                 scroll_changed = Some(after);
                 broadcast_render_scroll_locked(pty, after);

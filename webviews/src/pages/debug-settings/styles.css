@@ -53,7 +53,7 @@
   user-select: text;
 }
 
-.ds-search:focus {
+.ds-search:focus-visible {
   border-color: var(--page-text-3);
 }
 
@@ -171,7 +171,7 @@
 .ds-button {
   padding: 3px 10px;
   border: 1px solid var(--page-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: var(--page-hover);
   color: inherit;
   font: inherit;

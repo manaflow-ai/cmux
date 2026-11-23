@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { DrillList } from "./DrillList";
+import { settleReact } from "../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -60,9 +61,10 @@ function mount(moved: number[], activated: string[]) {
   return dom.window.document.querySelectorAll<HTMLElement>('[role="option"]')[1]!;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = null;
+  await settleReact();
   dom?.window.close();
   dom = null;
   for (const [key, value] of saved) {

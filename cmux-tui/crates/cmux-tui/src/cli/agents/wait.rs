@@ -2,7 +2,8 @@
 //! agent stops working (`idle`), a permission or question dialog is pending
 //! (`dialog`), or text reaches a terminal's screen (`text`), then answer a
 //! receipt with a fresh composed snapshot. A timeout is an answer
-//! (`matched: false`), not an error, so an agent never polls snapshots.
+//! (`matched: false`, `timed_out: true`; the CLI exits 124), not an error,
+//! so an agent never polls snapshots.
 //!
 //! Waits wake on events. `text` is the daemon's own `terminal.wait`, which
 //! wakes on terminal output. `idle` and `dialog` hold the daemon's
@@ -169,7 +170,7 @@ pub(super) fn parse(args: &[&str], max_seconds: u64) -> Result<WaitRequest, Usag
 }
 
 /// Waits as `request` says and answers the receipt `{until, matched,
-/// waited_seconds, match, state}`. Only a request that names nothing, or an
+/// timed_out, waited_seconds, match, state}`. Only a request that names nothing, or an
 /// owner that refuses the first read, fails.
 pub(in crate::cli) fn run<B: Backend>(
     backend: &B,
@@ -194,10 +195,45 @@ pub(in crate::cli) fn run<B: Backend>(
         "schema_version": 1,
         "until": request.until.name(),
         "matched": found.is_some(),
+        // Only the deadline ends a wait without a match, as for `terminal send`.
+        "timed_out": found.is_none(),
         "waited_seconds": waited,
         "match": found.unwrap_or(Value::Null),
         "state": fresh_state(backend, session),
     }))
+}
+
+/// When [`wait_for`] checks: on an event at least [`MIN_CHECK_GAP`] after the last check, else
+/// owed and run on the stream's next wake once the gap passed (it wakes every gap with no event),
+/// and every [`RECHECK`] regardless. Before, an event inside the gap was dropped, so a turn's
+/// end that came in a burst waited for the next event or the 1 s recheck (goal
+/// local-instant-start).
+pub(in crate::cli) struct CheckGate {
+    last: Instant,
+    owed: bool,
+}
+
+impl CheckGate {
+    pub(in crate::cli) fn new(now: Instant) -> Self {
+        Self { last: now, owed: false }
+    }
+
+    /// Whether to check now, on an event (`event`) or a wake with none.
+    pub(in crate::cli) fn due(&mut self, event: bool, now: Instant) -> bool {
+        let gap = now.saturating_duration_since(self.last);
+        let due = if event {
+            gap >= MIN_CHECK_GAP
+        } else {
+            (self.owed && gap >= MIN_CHECK_GAP) || gap >= RECHECK
+        };
+        if due {
+            self.owed = false;
+            self.last = now;
+        } else {
+            self.owed |= event;
+        }
+        due
+    }
 }
 
 /// Checks once, then on each daemon event and every [`RECHECK`] until the
@@ -213,12 +249,11 @@ fn wait_for<B: Backend>(
         return Ok(Some(found));
     }
     let mut outcome = None;
-    let mut last = Instant::now();
-    let _ = backend.session_events(session, None, deadline, RECHECK, &mut |item| {
-        if item.is_some() && last.elapsed() < MIN_CHECK_GAP {
+    let mut gate = CheckGate::new(Instant::now());
+    let _ = backend.session_events(session, None, deadline, MIN_CHECK_GAP, &mut |item| {
+        if !gate.due(item.is_some(), Instant::now()) {
             return false;
         }
-        last = Instant::now();
         match check(false) {
             Ok(None) => false,
             other => {

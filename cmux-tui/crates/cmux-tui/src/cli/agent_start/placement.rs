@@ -99,15 +99,6 @@ impl Placeholder {
         Self { tab: created.tab.clone(), terminal: Some(created.terminal.clone()) }
     }
 
-    /// The shell tab a split or `screen create` result names (`tab_id`,
-    /// `terminal_id`).
-    pub(in crate::cli) fn from_path(path: &Value) -> Self {
-        Self {
-            tab: path.get("tab_id").and_then(Value::as_str).unwrap_or_default().to_owned(),
-            terminal: path.get("terminal_id").and_then(Value::as_str).map(str::to_owned),
-        }
-    }
-
     /// The command that ends it: `terminal <t> close` ends the shell and its
     /// tab. Without a terminal id it is `tab <t> close`, and the session's
     /// reaper ends the shell after its grace.

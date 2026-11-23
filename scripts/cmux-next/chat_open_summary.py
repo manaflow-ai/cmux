@@ -12,18 +12,23 @@ first content and 7 timed out. The reason comes from what the open drew, not fro
 """
 import statistics
 
+import bench_page_engine
+
 
 def _number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def invalid_reason(record):
-    """Why an open is not a valid measurement, or None when it is: `error`, `timed_out`, `no_content`
-    (no first-content frame, whatever ended the wait), `no_frames` (a trace that saw no frame at all)
-    or `no_empty_time`. A trace that timed out or errored can still carry numbers (the time it waited,
-    a first frame it saw before the wait gave up); they are not an open's times."""
+    """Why an open is not a valid measurement, or None when it is: `error`, `other_engine` (its page ran in
+    another engine than the asked one, `judge_engine`), `timed_out`, `no_content` (no first-content frame,
+    whatever ended the wait), `no_frames` (a trace that saw no frame at all) or `no_empty_time`. A trace
+    that timed out or errored can still carry numbers (the time it waited, a first frame it saw before the
+    wait gave up); they are not an open's times."""
     if record.get("error"):
         return "error"
+    if record.get("engine_fault"):
+        return "other_engine"
     if record.get("timed_out"):
         return "timed_out"
     if not _number(record.get("first_content_ms")):
@@ -84,3 +89,75 @@ def cell(summary, case):
     flashes = summary["flashes"]
     return (f"{summary['first_content_ms']['median']}{extra}, empty {summary['longest_empty_ms']}, "
             f"{flashes} flash{'es' if flashes != 1 else ''}")
+
+
+SPARE_MARKS = ("spare_adopted", "spare_empty", "spare_unready", "spare_refused")
+
+
+def engine_of(record):
+    """The engine of an open's page (`cef`, or `webkit:<reason>`), or None when nothing said it: the engine of
+    the open's trace (a click keeps its trace under `trace`), else the one the bench read from the app after a
+    click with no trace (`engine` of the record, where a traced open's own trace has it too)."""
+    trace = record.get("trace")
+    for source in (trace if isinstance(trace, dict) else {}, record):
+        name = source.get("engine")
+        if isinstance(name, str) and name:
+            return name
+    return None
+
+
+def judge_engine(record, wanted):
+    """`record`, with `engine_fault` (the reason) when the open is no number for the asked engine (`cef` or
+    `webkit`; `any` judges no open). The rule is the New Tab bench's (bench_page_engine.fault): an open in
+    another engine, or one that showed content with no engine said. An open that showed no content has no
+    time to refuse and keeps its own reason. `invalid_reason` then says `other_engine`, so the open's case
+    is not complete: it reads FAILED and gives no median (decision 2026-11-16)."""
+    why = bench_page_engine.fault({"page_engine": engine_of(record) or "unknown: not said",
+                                   "ready_ms": record.get("first_content_ms")}, wanted)
+    if why:
+        record["engine_fault"] = why
+    return record
+
+
+def page_engines(records):
+    """The page engine of a case's opens (`engine_of`), as `cef 5/6, not said 1/6`, or None when no open ran.
+    Decision 2026-11-16: a measure says its engine. A build with no Chromium shows each chat in WebKit, and
+    with no asked engine only this line says so."""
+    counts = {}
+    for record in records:
+        trace = record.get("trace") if isinstance(record.get("trace"), dict) else record
+        name = engine_of(record)
+        if name is None and not any(key in trace for key in ("engine", "marks_ms", "frames", "first_content_ms")):
+            continue  # an open that never ran (an error before the trace)
+        name = name or "not said"
+        counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return None
+    total = sum(counts.values())
+    return ", ".join(f"{name} {n}/{total}" for name, n in sorted(counts.items(), key=lambda item: (item[0] == "not said", item[0])))
+
+
+def spare_pool(records):
+    """What a case's opens found in the prewarmed page pool (AgentPaneSpareAdoption.swift's trace marks),
+    as `adopted 4/6, refused 2/6 (touched by featureTips)`, or None when no open's trace has a pool mark
+    (a case that never asks the pool). A refused or empty spare is a cold page for that open: every
+    subagent open made one for as long as a page's boot read of its tip records marked the spare touched,
+    and no number but the open's own time said so."""
+    counts, notes = {}, {}
+    for record in records:
+        marks = record.get("marks_ms") or {}
+        mark = next((m for m in SPARE_MARKS if m in marks), None)
+        if mark is None:
+            continue
+        counts[mark] = counts.get(mark, 0) + 1
+        if mark != "spare_adopted" and record.get("note"):
+            notes.setdefault(mark, set()).add(str(record["note"]))
+    if not counts:
+        return None
+    total = len(records)
+    parts = []
+    for mark in SPARE_MARKS:
+        if mark in counts:
+            why = f" ({', '.join(sorted(notes[mark]))})" if mark in notes else ""
+            parts.append(f"{mark.removeprefix('spare_')} {counts[mark]}/{total}{why}")
+    return ", ".join(parts)

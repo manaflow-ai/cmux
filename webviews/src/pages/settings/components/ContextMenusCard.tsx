@@ -41,10 +41,10 @@ import {
   type Path,
   type VisibleRow,
 } from "../menuLayouts";
-import type { ContextMenuState, MenuLayout, MenuNode, MenuRow } from "../ops";
+import { SETTINGS_SENTENCES, type ContextMenuState, type MenuLayout, type MenuNode, type MenuRow } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { sectionHref } from "../router";
 import { t } from "../strings";
-import { ResetSpacer } from "./ResetButton";
 
 const AREAS = ["workspace", "tabs", "terminal", "browser", "other"] as const;
 
@@ -170,7 +170,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     setFailure(null);
     store
       .setContextMenuLayout(menu.id, isGenerated(menu, next) ? null : next)
-      .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)))
+      .catch((error: unknown) => setFailure(userMessage(error, SETTINGS_SENTENCES)))
       .finally(() => setPending((current) => (current === write ? null : current)));
   };
   const openFolder = (key: string) => setOpen((current) => new Set([...current, key]));
@@ -539,10 +539,9 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
                     setFailure(null);
                     store
                       .setShowCustomizeMenuItem(next)
-                      .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)));
+                      .catch((error: unknown) => setFailure(userMessage(error, SETTINGS_SENTENCES)));
                   }}
                 />
-                <ResetSpacer />
               </div>
             </div>
           </div>
@@ -624,7 +623,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             </p>
           ) : null}
           <ol
-            className="menu-preview"
+            className="menu-preview ui-popup ui-menu ui-glass"
             data-menu-preview=""
             data-reordering={dragging?.active ? "" : undefined}
             ref={list}
@@ -632,7 +631,12 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             {shown.map((row, flat) => drawRow(row, flat))}
           </ol>
           {picker ? (
-            <div className="menus-move-picker" role="menu" aria-label={t("settingsWindow.menus.moveTo")} data-picker="">
+            <div
+              className="menus-move-picker ui-popup ui-menu ui-glass"
+              role="menu"
+              aria-label={t("settingsWindow.menus.moveTo")}
+              data-picker=""
+            >
               {moveChoices(picker.path).map((choice) => (
                 <button
                   key={choice.id}

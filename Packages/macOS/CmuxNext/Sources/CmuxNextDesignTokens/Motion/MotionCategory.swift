@@ -19,7 +19,7 @@ public nonisolated enum MotionCategory: String, Sendable, CaseIterable, Codable 
     /// collapsing and expanding, strip scrolling, the tab title marquee.
     case tabs
     /// Panes and windows: split, close, zoom (Cmd-Shift-Enter), dividers,
-    /// column and screen switches, drop zones, the focus ring and inactive
+    /// column reveals, drop zones, the focus ring and inactive
     /// dim, window and popup-window open and close, the launch mark.
     case panes
     /// Menus, popovers, the command palette, sheets, toasts, notices, find

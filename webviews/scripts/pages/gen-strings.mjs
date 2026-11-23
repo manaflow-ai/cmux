@@ -15,6 +15,7 @@
 //   node scripts/pages/gen-strings.mjs --if-stale     # only pages whose inputs are newer (test preload)
 //   node scripts/pages/gen-strings.mjs --check        # fail when a written table differs
 //   node scripts/pages/gen-strings.mjs settings       # only the named pages
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,10 +70,6 @@ export function schemaKeys(schemaFile) {
 
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
 export const PAGES = {
-  "import-history": {
-    out: "webviews/src/pages/import-history/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/import-history/Localizable.xcstrings" }],
-  },
   // The onboarding tool window (Agents, Import from Browsers, Computer Use): the page's own table,
   // its keys and translations the Swift steps' (CmuxNextOnboarding) it replaces.
   onboarding: {
@@ -95,10 +92,22 @@ export const PAGES = {
           all.filter(
             (key) =>
               key.startsWith("git.") ||
-              ["changes.stageFile", "changes.unstageFile", "changes.stageFailed"].includes(key),
+              [
+                "changes.stageFile",
+                "changes.unstageFile",
+                "changes.stageFailed",
+                "changes.createPullRequest",
+                "changes.pullRequestFailed",
+              ].includes(key),
           ),
       },
     ],
+  },
+  // The sentences every page shows for a failure it has no sentence of its own for
+  // (pages/shared/userMessage.ts): never the error's own text.
+  pageErrors: {
+    out: "webviews/src/pages/shared/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/shared/Localizable.xcstrings" }],
   },
   variantPick: {
     out: "webviews/src/ui/variant-pick/generated/strings.json",
@@ -141,6 +150,10 @@ export const PAGES = {
         keys: () => ["action.reloadConfiguration"],
       },
       {
+        file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
+        keys: () => ["action.remote.newGroup"],
+      },
+      {
         // Agents > Chiefs (u2586) draws the channels Home's Chief editor (ChiefPage.tsx).
         file: "webviews/src/pages/home-channels/Localizable.xcstrings",
         keys: (all) =>
@@ -170,6 +183,12 @@ export const PAGES = {
   stash: {
     out: "webviews/src/pages/stash/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
+  },
+  // The Feed page (plans/cmux-next/feed-page.md): its table moved next to it when the Swift Feed
+  // module was deleted (the same keys and values), with the refusal toast's `toast.dismiss`.
+  feed: {
+    out: "webviews/src/pages/feed/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/feed/Localizable.xcstrings" }],
   },
   // The App Store page reads the `store.` keys of the app platform's table until the Swift store
   // is deleted (react-pages.md A3); then the table moves next to the page.
@@ -212,6 +231,21 @@ export const PAGES = {
     out: "webviews/src/pages/bookmarks/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings` }],
   },
+  // The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost): the sidebar's own keys.
+  "sidebar-chats": {
+    out: "webviews/src/pages/sidebar-chats/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextSidebar/Resources/Localizable.xcstrings`,
+        keys: () => [
+          "sidebar.section.pinned",
+          "sidebar.chatHistory.earlier",
+          "sidebar.chatHistory.showMore",
+          "sidebar.chatHistory.loading",
+        ],
+      },
+    ],
+  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",
@@ -243,25 +277,17 @@ export const PAGES = {
       },
     ],
   },
-  // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced:
-  // Pair Another Machine's own, and the server surfaces' (which Pair Another Machine reuses).
+  // The server page (cmux-page://cmux.server-cards/): the menu bar popover's routes. Every card (Add Server, Pair
+  // Another Machine, Add Machine, app health) is native (AddServerDialog, PairInviteDialog, AddMachineDialog).
   "server-cards": {
     out: "webviews/src/pages/server-cards/generated/strings.json",
     catalogs: [
-      { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
-      // Add Machine's card shares its table with the Machines section (`addMachine.` keys only).
-      {
-        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("addMachine.")),
-      },
-      // The server surfaces' own table (the menu bar panel, Health, pairing, Add Server); the app's
-      // refusals (`refusal.*`) stay native.
+      // The server surfaces' own table (the menu bar panel, Health, pairing); the app's refusals (`refusal.*`) and
+      // Add Server's words (`approver.*`) stay native.
       {
         file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
-        keys: (all) => all.filter((key) => !key.startsWith("refusal.")),
+        keys: (all) => all.filter((key) => !key.startsWith("refusal.") && !key.startsWith("approver.")),
       },
-      // App health's popover (`#/app-health`, webviews/src/app-health), hosted as Health is.
-      { file: "webviews/src/app-health/Localizable.xcstrings" },
     ],
   },
   // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
@@ -280,11 +306,6 @@ export const PAGES = {
     out: "webviews/src/pages/artifacts/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/artifacts/Localizable.xcstrings" }],
   },
-  // The overlay page's toast stack (cmux-page://cmux.overlay/, route /toasts); its table lives next to it.
-  "overlay-toasts": {
-    out: "webviews/src/pages/overlay/toasts/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/overlay/toasts/Localizable.xcstrings" }],
-  },
   // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
   stats: {
     out: "webviews/src/pages/stats/generated/strings.json",
@@ -295,13 +316,26 @@ export const PAGES = {
     out: "webviews/src/pages/github/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/github/Localizable.xcstrings" }],
   },
+  // The Task Manager page (cmux-page://cmux.task-manager/): its own words next to it (the columns,
+  // the empty list, the total, moved from the SwiftUI table it replaced), and the tab title and Kill
+  // Process, which the Swift kill question says too, from CmuxNextResources' catalog.
+  "task-manager": {
+    out: "webviews/src/pages/task-manager/generated/strings.json",
+    catalogs: [
+      { file: "webviews/src/pages/task-manager/Localizable.xcstrings" },
+      {
+        file: `${sources}/CmuxNextResources/Resources/Localizable.xcstrings`,
+        keys: () => ["taskManager.title", "taskManager.kill.button"],
+      },
+    ],
+  },
   // The Tasks page (cmux-page://cmux.tasks/); its table lives next to it (the Swift pane is gone).
   tasks: {
     out: "webviews/src/pages/tasks/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/tasks/Localizable.xcstrings" }],
   },
-  // The browser's Page Info bubble (cmux-page://cmux.page-info/); its table lives next to its
-  // component in webviews/src/browser-chrome/page-info.
+  // The browser's Page Info windows (site settings, site data, the certificate viewer); their table
+  // lives next to their components in webviews/src/browser-chrome/page-info.
   "browser-chrome-page-info": {
     out: "webviews/src/browser-chrome/page-info/generated/strings.json",
     catalogs: [{ file: "webviews/src/browser-chrome/page-info/Localizable.xcstrings" }],
@@ -420,12 +454,6 @@ export const PAGES = {
     out: "webviews/src/pages/icon-picker/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/icon-picker/Localizable.xcstrings" }],
   },
-  // Chat Colors (cmux-page://cmux.home-chat-colors/): the `home.chatColors.*` keys moved here from
-  // CmuxNextHome's catalog with the AppKit panel; its table lives next to it.
-  "home-chat-colors": {
-    out: "webviews/src/pages/home-chat-colors/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-chat-colors/Localizable.xcstrings" }],
-  },
   // The markdown editor (cmux-page://cmux.markdown/) has no Swift page; its table lives next to it.
   markdown: {
     out: "webviews/src/pages/markdown/generated/strings.json",
@@ -440,7 +468,18 @@ export const PAGES = {
   // next to it. The pane's build splits it into locales/<code>.js (build-agent-pane-web.sh).
   agentPane: {
     out: "webviews/src/agent-session/acpmux/generated/strings.json",
-    catalogs: [{ file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" },
+      // An app section's failure row (apps/scene/SceneFailure.tsx) says what the native
+      // AppFailureNSView says: the app platform's own `apps.failure.` and Reload keys.
+      {
+        file: `${sources}/CmuxNextApps/Resources/Localizable.xcstrings`,
+        keys: (all) =>
+          all.filter(
+            (key) => key.startsWith("apps.failure.") || key === "apps.mount.reload" || key === "apps.mount.reload.help",
+          ),
+      },
+    ],
   },
   // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
   viewerEmpty: {
@@ -564,18 +603,23 @@ const mtime = (file) => {
  * branch carries a copy that a merge can make stale. `bestEffort` still writes a page whose
  * catalogs miss translations (install must not fail on a half-translated branch; the tests and the
  * builds run strict). `ifStale` skips a page whose outputs are all newer than its inputs.
+ * `ifUnchanged` skips a page whose stamp (stampFile) says its outputs on disk are the ones this
+ * script made from these exact inputs, by content, not by time: a restored output cache can leave
+ * an old table newer than its inputs, which `ifStale` would keep.
  * Returns the number of failed pages.
  */
 export function writeStrings({
   check = false,
   bestEffort = false,
   ifStale = false,
+  ifUnchanged = false,
   only = [],
   log = console.error,
 } = {}) {
   let failed = 0;
   for (const [name, page] of Object.entries(PAGES)) {
     if (only.length && !only.includes(name)) continue;
+    if (ifUnchanged && !check && stampCurrent(name, page)) continue;
     if (ifStale && !check) {
       const target = path.join(repo, page.out);
       const outs = page.splitLocales
@@ -604,7 +648,8 @@ export function writeStrings({
       failed++;
       if (!bestEffort || check) continue;
     }
-    for (const [file, content] of outputsOf(page, json)) {
+    const outputs = outputsOf(page, json);
+    for (const [file, content] of outputs) {
       if (check) {
         const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
         if (current !== content) {
@@ -627,6 +672,83 @@ export function writeStrings({
         fs.utimesSync(file, now, now);
       }
     }
+    if (!check) writeStamp(name, page, outputs);
+  }
+  return failed;
+}
+
+/**
+ * Where writeStrings records what a page's outputs were made from: webviews/node_modules/.cache,
+ * outside src/ so no dev server watches it. No node_modules (before an install): no stamp, and
+ * `ifUnchanged` writes the page as before.
+ */
+const stampFile = (name) => path.join(webviews, "node_modules", ".cache", "gen-strings", `${name}.json`);
+
+/** sha256 over each file's path and bytes; null when one is missing. */
+function digest(files, read = (file) => fs.readFileSync(file)) {
+  const hash = crypto.createHash("sha256");
+  try {
+    for (const file of files)
+      hash
+        .update(`${path.relative(repo, file)}\0`)
+        .update(read(file))
+        .update("\0");
+  } catch {
+    return null;
+  }
+  return hash.digest("hex");
+}
+
+/** Whether `page`'s stamp names these inputs and the outputs now on disk. */
+function stampCurrent(name, page) {
+  let stamp;
+  try {
+    stamp = JSON.parse(fs.readFileSync(stampFile(name), "utf8"));
+  } catch {
+    return false;
+  }
+  if (!stamp?.inputs || !Array.isArray(stamp.outputs) || stamp.inputs !== digest(inputsOf(page))) return false;
+  const outputs = digest(stamp.outputs.map((file) => path.join(repo, file)));
+  return outputs !== null && outputs === stamp.digest;
+}
+
+/** Records that `outputs` (file -> content, now on disk) are what this script makes from `page`'s inputs. */
+function writeStamp(name, page, outputs) {
+  if (!fs.existsSync(path.join(webviews, "node_modules"))) return;
+  const inputs = digest(inputsOf(page));
+  if (!inputs) return;
+  const files = [...outputs.keys()];
+  const stamp = {
+    inputs,
+    outputs: files.map((file) => path.relative(repo, file)),
+    digest: digest(files, (file) => outputs.get(file)),
+  };
+  // Written then renamed, as the tables are: test processes run the preload in parallel.
+  try {
+    const file = stampFile(name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const temp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(temp, `${JSON.stringify(stamp)}\n`);
+    fs.renameSync(temp, file);
+  } catch {}
+}
+
+/** Writes the pane and acpmux protocol types; true when a generator failed. */
+async function writeProtocols() {
+  const scripts = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  if (process.versions.bun) {
+    const { writePaneProtocol } = await import("../pane-protocol-codegen.ts");
+    const { writeAcpmuxProtocol } = await import("../acpmux-protocol-codegen.ts");
+    writePaneProtocol({ log: () => {} });
+    writeAcpmuxProtocol({ log: () => {} });
+    return false;
+  }
+  const { spawnSync } = await import("node:child_process");
+  let failed = false;
+  for (const script of ["pane-protocol-codegen.ts", "acpmux-protocol-codegen.ts"]) {
+    const run = spawnSync("bun", [path.join(scripts, script)], { stdio: ["ignore", "ignore", "inherit"] });
+    if (run.error?.code === "ENOENT") return false;
+    failed ||= run.status !== 0;
   }
   return failed;
 }
@@ -640,6 +762,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // The design scale's Tailwind theme and token list are build output too (gen-design-scale.mjs).
   const { writeDesignScale } = await import("./gen-design-scale.mjs");
   const scaleFailed = writeDesignScale({ check, log: () => {} });
+  // The pane and acpmux protocol types are build output too (pane-protocol-codegen.ts,
+  // acpmux-protocol-codegen.ts), written only where they changed. Bun imports them; under node
+  // (their imports carry no extension) bun runs them, skipped when no bun is installed.
+  const protocolFailed = check ? false : await writeProtocols();
   const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
     check,
@@ -647,5 +773,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),
   });
-  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed ? 1 : 0);
+  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed || protocolFailed ? 1 : 0);
 }

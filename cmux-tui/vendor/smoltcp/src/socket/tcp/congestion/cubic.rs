@@ -16,7 +16,7 @@ fn initial_window(mss: usize) -> usize {
     (10 * mss).min((2 * mss).max(14600))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Cubic {
     w_max: usize, // window size prior to loss
@@ -116,11 +116,7 @@ impl Controller for Cubic {
             return;
         } else if self.cwnd < self.ssthresh {
             // Slow start: increase `cwnd` by 1 MSS per ACK.
-            self.cwnd = self
-                .cwnd
-                .saturating_add(segment)
-                .min(self.rwnd)
-                .max(self.mss);
+            self.cwnd = self.cwnd.saturating_add(segment).min(self.rwnd).max(self.mss);
             return;
         }
 
@@ -152,13 +148,13 @@ impl Controller for Cubic {
         // RFC 9438 §4.3: advance our reno-like suggested cwnd.
         // When cwnd exceeds prior cwnd, change α_cubic to match Reno's AIMD.
         let w_est = {
-            let alpha = if self.w_est >= self.cwnd_prior as f64 {
-                1.0
-            } else {
-                ALPHA_CUBIC
-            };
+            let alpha = if self.w_est >= self.cwnd_prior as f64 { 1.0 } else { ALPHA_CUBIC };
 
-            self.w_est += alpha * self.mss as f64 * segment as f64 / self.cwnd as f64;
+            // cmux patch: RFC 9438 counts all newly acknowledged bytes in
+            // congestion avoidance. The one-MSS cap belongs to slow start;
+            // using it here penalizes delayed ACKs and cumulative ACKs after
+            // a repaired hole, starving a busy stream of window growth.
+            self.w_est += alpha * self.mss as f64 * len as f64 / self.cwnd as f64;
             self.w_est
         };
 
@@ -180,7 +176,7 @@ impl Controller for Cubic {
 
         // TODO: clamps to 0 on small w_cubic_target (i.e. close to plateau)
         // add additional counter (linux `cwnd_cnt`?) to track "lost" bytes
-        let increment = (w_cubic_target as usize).saturating_sub(self.cwnd) * segment / self.cwnd;
+        let increment = (w_cubic_target as usize).saturating_sub(self.cwnd) * len / self.cwnd;
         self.cwnd = (self.cwnd + increment).min(self.rwnd).max(self.mss);
     }
 
@@ -358,6 +354,36 @@ mod test {
 
     fn ack(cubic: &mut Cubic, len: usize, now: Instant) {
         cubic.on_ack(now, len, cubic.window().saturating_sub(MSS), &rtte())
+    }
+
+    #[test]
+    fn congestion_avoidance_credits_bytes_in_delayed_acks() {
+        fn recovered() -> Cubic {
+            let mut cubic = Cubic::new();
+            cubic.set_mss(MSS);
+            cubic.cwnd = 32 * MSS;
+            cubic.on_sack_loss(Instant::from_millis(0), cubic.cwnd);
+            ack(&mut cubic, MSS, Instant::from_millis(1));
+            cubic
+        }
+
+        let mut individual = recovered();
+        let mut delayed = recovered();
+        let start = individual.window();
+        // The receiver delivered exactly the same twenty segments in both
+        // cases. Delayed/cumulative ACKs must not halve window recovery.
+        for _ in 0..20 {
+            ack(&mut individual, MSS, Instant::from_millis(2));
+        }
+        for _ in 0..10 {
+            ack(&mut delayed, 2 * MSS, Instant::from_millis(2));
+        }
+        let individual_growth = individual.window() - start;
+        let delayed_growth = delayed.window() - start;
+        assert!(
+            delayed_growth >= individual_growth * 95 / 100,
+            "same delivered bytes: individual ACKs grew {individual_growth}, delayed ACKs {delayed_growth}"
+        );
     }
 
     fn rtte() -> RttEstimator {

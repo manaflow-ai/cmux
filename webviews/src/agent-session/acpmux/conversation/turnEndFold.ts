@@ -19,9 +19,13 @@
 // Animations: the swap applies at once and nothing here runs. The work is bounded by the rows
 // mounted now (the view's window), never the whole chat.
 import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
+import { bezierAt, cssBezier, parseBezier, type CubicBezier } from "../../../ui/cubicBezier";
+import { currentChatMetrics } from "../chatDisplay";
+import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
-import { ghostOf } from "./turnFold";
-import { LIVE_THINKING } from "./turns";
+import { ARRIVAL_FRAME_LINES } from "./followChase";
+import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath } from "./turnFold";
+import { ACTIVITY_LINE, LIVE_THINKING, WORKED, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
@@ -47,7 +51,7 @@ const LIVE_LINE = LIVE_THINKING;
 /// Whether `rows` holds a running turn's line near its end.
 export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
   for (let index = rows.length - 1; index >= 0 && index >= rows.length - LINE_TAIL; index -= 1)
-    if (rows[index]!.id === LIVE_LINE) return true;
+    if (rows[index]!.id === LIVE_LINE || rows[index]!.kind === ACTIVITY_LINE) return true;
   return false;
 }
 
@@ -57,7 +61,22 @@ export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
 /// nothing folds (a fold there left copies of the rows that went, the edited prompt's among them,
 /// over the new transcript).
 export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readonly AcpmuxRow[]): boolean {
-  if (before === undefined || before === after || !hasLiveLine(before) || hasLiveLine(after)) return false;
+  if (before === undefined || before === after || !hasLiveLine(before)) return false;
+  if (hasLiveLine(after)) {
+    let worked: string | undefined;
+    for (let index = after.length - 1; index >= 0 && index >= after.length - LINE_TAIL; index -= 1) {
+      if (after[index]!.kind === "user" && !isLineRow(after[index]!)) break;
+      if (after[index]!.kind === WORKED) {
+        worked = after[index]!.id;
+        break;
+      }
+    }
+    if (worked === undefined) return false;
+    for (let index = before.length - 1; index >= 0 && index >= before.length - LINE_TAIL; index -= 1)
+      if (before[index]!.id === worked) return false;
+    const working = `${WORKING}-${worked.slice(WORKED.length + 1)}`;
+    if (!before.some((row) => row.kind === WORKING && row.id === working)) return false;
+  }
   let prompt: string | undefined;
   for (let index = before.length - 1; index >= 0 && prompt === undefined; index -= 1)
     // The prompt, not a line another agent's message or the inbox drew (model.ts `isLineRow`): such a
@@ -67,7 +86,20 @@ export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readon
 }
 
 /// A row drawn at the swap: where its top was in the view, and its copy when the swap takes it away.
-type Drawn = { id: string; top: number; copy?: HTMLElement };
+/// `clip`: how much of its bottom a clip hid then (tailGlide.ts clips the row above a row gliding down
+/// under it at that row's drawn top), with `shown`, the bottom of what it drew.
+type Drawn = {
+  id: string;
+  top: number;
+  height?: number;
+  replacesHeader?: boolean;
+  copy?: HTMLElement;
+  clip?: number;
+  shown?: number;
+};
+
+/// A clip that hides `bottom` px of a row's bottom and nothing past its other edges (tailGlide.ts's).
+const clipBottom = (bottom: number) => `inset(-4096px -4096px ${bottom}px -4096px)`;
 
 /// The rows drawn when the turn ended, read before the swap renders.
 export type TurnEndCapture = {
@@ -87,18 +119,41 @@ export type TurnEndFold = {
 };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
+const heightOf = (node: HTMLElement) => node.offsetHeight;
+
+/// What the fold's passes cost, counted for tests and benches (turn-end-fold-restyle.browser.test.ts):
+/// passes run, rows and copies each pass read, the events that asked for a pass (a row placed again,
+/// the view's scroll) and the passes that ran in a frame that had already run one.
+export const turnEndFoldPerf = {
+  passes: 0,
+  rowsRead: 0,
+  mostRowsRead: 0,
+  mutationEvents: 0,
+  scrollEvents: 0,
+  sameFramePasses: 0,
+};
+export function resetTurnEndFoldPerf(): void {
+  for (const key of Object.keys(turnEndFoldPerf) as (keyof typeof turnEndFoldPerf)[]) turnEndFoldPerf[key] = 0;
+}
 
 /// Reads the rows `thread` draws now, before `after` replaces them: undefined when the fold would
 /// not show (no motion, or the running turn's line is not drawn, the turn's end out of view).
+/// `held`: the swap closes an ended turn's Worked for that was held open while the reader was
+/// scrolled up (App.tsx `heldWorked`), which has no live line left to look for.
 export function captureTurnEnd(
   thread: HTMLElement | null,
   scroller: HTMLElement | null,
   after: readonly AcpmuxRow[],
   sessionId: string | undefined,
+  held = false,
 ): TurnEndCapture | undefined {
   if (!thread || !scroller || foldMs(thread) <= 0) return undefined;
   const nodes = [...mounted(thread)];
-  if (!nodes.some((node) => node.dataset.rowId === LIVE_LINE)) return undefined;
+  if (
+    !held &&
+    !nodes.some((node) => node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`))
+  )
+    return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
   const first = Math.max(
     0,
@@ -111,8 +166,23 @@ export function captureTurnEnd(
     if (!after[index]!.merged) kept.add(after[index]!.id);
   const rows = nodes.map((node) => {
     const box = node.getBoundingClientRect();
-    const id = node.dataset.rowId!;
-    return { id, top: box.top, ...(!kept.has(id) && { copy: ghostOf(node) }) };
+    const priorId = node.dataset.rowId!;
+    // The live header becomes the ended header in the same slot, rather than leaving a second clock.
+    const workedId = node.classList.contains(`acpmux-${WORKING}`)
+      ? `${WORKED}-${priorId.slice(WORKING.length + 1)}`
+      : undefined;
+    const id = workedId && kept.has(workedId) ? workedId : priorId;
+    // A row clipped over the row gliding under it (tailGlide.ts) draws only down to that row's top:
+    // the fold goes on from what it drew, never from its whole box (one read, only while clipped).
+    const clip = clippedBottom(node);
+    return {
+      id,
+      top: box.top,
+      height: box.height,
+      ...(id !== priorId && { replacesHeader: true }),
+      ...(clip > 0 && { clip, shown: box.bottom - clip }),
+      ...(!kept.has(id) && { copy: ghostOf(node) }),
+    };
   });
   return { rows, scrollTop: scroller.scrollTop, sessionId };
 }
@@ -129,6 +199,134 @@ function settle(thread: HTMLElement): { ms: number; easing: string } {
   const easing = style?.getPropertyValue("--cmux-ease-settle").trim() || SETTLE_FALLBACK_EASE;
   return { ms, easing };
 }
+
+/// One 120 Hz frame (ms), the frame turn-transition-jumps.test.ts reads each move in.
+const FRAME_MS = 1000 / 120;
+
+/// The most a fold moves in one 120 Hz frame (px): ARRIVAL_FRAME_LINES of a line, as the arrival
+/// step keeps to (followChase.ts `arrivalStepMs`), under the two thirds of a line no transition's frame
+/// may move (turn-transition-jumps.test.ts).
+const foldFrameBound = () => ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight;
+
+/// The most a move of `px` over `ms` on `curve` moves in any one 120 Hz frame: every frame-long
+/// window, read at quarter-frame offsets, since a fold's first frame may land anywhere on the grid.
+/// A window's ends are four quarter frames apart, so each step reads the curve once. It stops at the
+/// first window past `over` (the caller only asks whether the move fits). The straight line is read
+/// as it is: each frame moves the frame's share of the move.
+function longestFoldFrame(px: number, ms: number, curve: CubicBezier, over = Infinity): number {
+  if (curve[0] === curve[1] && curve[2] === curve[3]) return px * Math.min(1, FRAME_MS / ms);
+  const quarter = FRAME_MS / 4;
+  const ring = [0, 1, 2, 3].map((index) => bezierAt(curve, (index * quarter) / ms));
+  let longest = 0;
+  for (let index = 0; index * quarter < ms; index += 1) {
+    const end = bezierAt(curve, ((index + 4) * quarter) / ms);
+    longest = Math.max(longest, px * (end - ring[index % 4]!));
+    if (longest > over) return longest;
+    ring[index % 4] = end;
+  }
+  return longest;
+}
+
+/// Whether a fold of `px` on `ms` and `easing` keeps every frame under the bound. Curves that are not a
+/// cubic-bezier() are not read, and fit.
+function foldFits(px: number, ms: number, easing: string): boolean {
+  const curve = parseBezier(easing);
+  const move = Math.abs(px);
+  const most = foldFrameBound() + 1e-9;
+  return !curve || ms <= 0 || move <= foldFrameBound() || longestFoldFrame(move, ms, curve, most) <= most;
+}
+
+/// The first of `count` candidates that `fits`, or undefined: candidates that fit only follow ones
+/// that do not (a longer fold, or a curve leaned further toward the straight line, only slows its
+/// fastest frame), so it bisects, reading about log2(count) of them. The first is read first: most
+/// folds that need a search fit there.
+function firstFit(count: number, fits: (index: number) => boolean): number | undefined {
+  if (count <= 0) return undefined;
+  if (fits(0)) return 0;
+  if (!fits(count - 1)) return undefined;
+  let low = 1;
+  let high = count - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (fits(middle)) high = middle;
+    else low = middle + 1;
+  }
+  return low;
+}
+
+/// The straight line, as a cubic-bezier(): its frames are all the same, the move over its frames.
+const LINEAR_BEZIER: CubicBezier = [1 / 3, 1 / 3, 2 / 3, 2 / 3];
+/// How finely the curve leans toward the straight line at the cap: 1/32 of the way a step.
+const LEAN_STEPS = 32;
+/// The timings found, by move (whole pixels, rounded up), settle and bound: a fold's passes ask again
+/// for the same moves. Kept to the latest few, so it stays small.
+const TIMINGS_KEPT = 64;
+const timings = new Map<string, { ms: number; easing: string }>();
+
+/// Forgets the timings found (the bench and tests time a search from cold).
+export function clearTurnEndFoldMemo(): void {
+  timings.clear();
+}
+
+/// The fold's curve for a move of `px`: the settle's (`ms` on `easing`), its curve changed only as a
+/// long move needs, and never its length. The settle runs 180 ms since #39380 ("the animations end to
+/// end need to just resolve faster"). #40350 and #40627 ran a long fold longer to keep each 120 Hz
+/// frame under ARRIVAL_FRAME_LINES of a line (100 px: 372 ms, 274 px: 720 ms, 2000 px: 1222 ms), and
+/// a long reply then crept up its whole move (Leo, 2026-11-11: "It looks like the f***ing Star Wars
+/// scroll-up animation ... It should just be there, because it already was there. Now all you're
+/// doing is just moving s*** around. So, like, it should not be slow."). In order:
+/// - a fold under about 45 px keeps the settle as it is;
+/// - a longer one keeps the settle's 180 ms, and its curve leans from the settle's toward a straight
+///   line just as far as the frames need, so its first frame, the settle's fastest, is flatter
+///   (100 px: cubic-bezier(0.236, 0.708, 0.46, 0.854); 274 px: cubic-bezier(0.328, 0.354, 0.655, 0.677));
+/// - past about 295 px even the straight line moves more than the bound in a frame, and the fold still
+///   ends with the settle, on the straight line: a long move resolves as fast as a short one.
+/// Curves that are not a cubic-bezier() keep `ms` and `easing`.
+export function turnEndFoldTiming(px: number, ms: number, easing: string): { ms: number; easing: string } {
+  const curve = parseBezier(easing);
+  const most = foldFrameBound();
+  if (!curve || ms <= 0 || Math.abs(px) <= most) return { ms, easing };
+  // Read for the whole pixels over the move: what fits them fits the move.
+  const move = Math.ceil(Math.abs(px));
+  const key = `${move} ${ms} ${easing} ${most}`;
+  const known = timings.get(key);
+  if (known) {
+    timings.delete(key);
+    timings.set(key, known);
+    return known;
+  }
+  const found = searchFoldTiming(move, ms, easing, curve, most);
+  timings.set(key, found);
+  if (timings.size > TIMINGS_KEPT) timings.delete(timings.keys().next().value!);
+  return found;
+}
+
+/// turnEndFoldTiming's search, for a move past the bound: it bisects the leans (`firstFit`), and each
+/// candidate stops at its first frame past the bound, so a move of any length reads a few hundred
+/// points of the curve, never tens of thousands (review of #40627: 9.6 ms for 274 px).
+function searchFoldTiming(
+  move: number,
+  ms: number,
+  easing: string,
+  curve: CubicBezier,
+  most: number,
+): { ms: number; easing: string } {
+  const over = most + 1e-9;
+  const fits = (on: CubicBezier) => longestFoldFrame(move, ms, on, over) <= over;
+  // The curve the browser plays is the CSS text's, so each lean is read back from it.
+  const leanText = (step: number) => {
+    if (step === 0) return easing;
+    const lean = curve.map((value, index) => value + ((LINEAR_BEZIER[index]! - value) * step) / LEAN_STEPS);
+    return cssBezier(lean as unknown as CubicBezier);
+  };
+  const lean = firstFit(LEAN_STEPS + 1, (step) => fits(parseBezier(leanText(step))!));
+  return { ms, easing: lean !== undefined ? leanText(lean) : cssBezier(LINEAR_BEZIER) };
+}
+/// How long after its first painted frame a fold's curve may still flatten: three 120 Hz frames (two at
+/// 60 Hz), the frames in which the virtualizer mounts the rows above the swap. A pass later in the
+/// fold (a row unmounted far above, the pinned bottom's scroll) keeps the clock: a retarget then
+/// moved the rows 35 px in one frame (turn-transition-jumps `text-tool`, end step, 208 ms in).
+const GROW_WINDOW_MS = 3 * FRAME_MS;
 
 /// Ends `fold` at once, drawn where it lands: its animations finish and its copies go.
 export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | undefined): void {
@@ -159,7 +357,18 @@ function layoutTops(nodes: readonly HTMLElement[]): number[] {
 }
 
 /// What one row of the fold plays now: how far from its place it started, and its animations.
-type Moving = { delta: number; fades: boolean; animations: Animation[] };
+/// `covered`: a copy's clip under the rows that come over it (`coverClip`), as its keyframes' text.
+type Moving = {
+  delta: number;
+  fades: boolean;
+  animations: Animation[];
+  clip?: number;
+  /// An arriving row's hold: how long into the move its fade starts (when no kept row crosses it).
+  hold?: number;
+  end?: number;
+  covered?: string;
+  crop?: string;
+};
 
 /// Plays the fold the swap after `capture` makes, from the pass that placed the new rows. Each row
 /// drawn then and drawn now slides from where it was to its place, a copy of each row the swap took
@@ -175,7 +384,16 @@ export function playTurnEnd(
   scroller?: HTMLElement | null,
 ): TurnEndFold | undefined {
   if (capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
-  const { ms, easing } = settle(thread);
+  const { ms: settleMs, easing: settleEasing } = settle(thread);
+  // The fold's one clock: the settle's length, its curve flattened as a pass finds a longer move
+  // (turnEndFoldTiming). Rows the virtualizer mounts above after the swap move the rows under them
+  // again, so the first pass's moves are not the longest (turn-transition-jumps `tool-group`: 2 px at
+  // the first pass, 77 px at the next). When the curve changes the clock starts again from that pass,
+  // and every row and copy goes on from where it was drawn in the last painted frame (its place and
+  // ink then), never from the swap's: nothing is drawn back and no fading copy comes back up.
+  const ms = settleMs;
+  let easing = settleEasing;
+  let grew = false;
   const look = turnEndLook(thread);
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
   // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
@@ -184,12 +402,66 @@ export function playTurnEnd(
   const View = thread.ownerDocument.defaultView;
   const timeline = thread.ownerDocument.timeline;
   const now = () => (typeof timeline?.currentTime === "number" ? timeline.currentTime : performance.now());
+  // Exit before move (exitLead.ts): the copies of the rows the swap took away fade out over the exit
+  // lead, from the first painted frame, and every move (the rows that stay, the copies, their clips, the
+  // rows that come in) starts when it ends, held at its start until then. A fold that takes nothing
+  // away has no lead. Leo, 2026-11-21: "that text hiding as it travels so it doesnt show weird overlays
+  // is the big one ... we must hide text faster and sooner".
+  const lead = capture.rows.some((row) => row.copy) ? exitLeadMs(ms, 1, thread) : 0;
+  /// The first painted frame (the exit's clock), and when the move's clock starts.
   let startedAt: number | undefined;
-  const firstFrame = View?.requestAnimationFrame(() => (startedAt = now()));
+  let movesAt: number | undefined;
+  const firstFrame = View?.requestAnimationFrame(() => {
+    startedAt = now();
+    movesAt = startedAt + lead;
+    // The fold's clock starts here, so its backstop does too: armed only at the swap, a first frame
+    // that came late (a busy main thread, 130 ms and more: entranceClock.ts) left the timer to finish
+    // the fold part way, its rest in one jump (Leo, 2026-11-21: "sometimes animations sprint for no
+    // reason"). A hidden page paints no frame and keeps the swap's timer.
+    if (fold.timer !== undefined) arm(lead);
+  });
+  /// How long until the move starts (negative once it runs).
+  const toMove = () => (movesAt === undefined ? lead : movesAt - now());
+  /// How long past the move's end the fold runs: the latest hold of a row that arrives, whose fade
+  /// starts when the kept rows have cleared its box and takes the move's length from there. The
+  /// backstop waits for it: armed at the move's end alone, it finished a held fade part way, the
+  /// reply from 28% ink to full in one step (cmux#48689 F2).
+  let tail = 0;
+  /// A row arrived playing its own entrance, so the fold drew nothing on it. The fold still runs:
+  /// later passes ease that row to its place as the rows above settle (a turn of words alone has no
+  /// other animation at its first pass, and a fold dropped there let the reply step 35 px in a frame).
+  let entering = false;
+  // `wait`: until the move starts, negative once it runs, so a pass mid-move arms what is left.
+  const arm = (wait = toMove()) => {
+    clearTimeout(fold.timer);
+    fold.timer = setTimeout(() => settleTurnEnd(thread, fold), Math.max(0, wait + ms + tail + 50));
+  };
   const play = (node: HTMLElement, keyframes: Keyframe[], timing: KeyframeAnimationOptions = {}) => {
     // On the fold's clock: a pass after its first frame starts each animation part way, in step.
-    const delay = (timing.delay ?? 0) - (startedAt === undefined ? 0 : Math.max(0, now() - startedAt));
-    const animation = node.animate(keyframes, { duration: ms, easing, ...timing, delay });
+    const delay = (timing.delay ?? 0) + toMove();
+    const fill: FillMode | undefined =
+      lead > 0 ? (timing.fill === "forwards" || timing.fill === "both" ? "both" : "backwards") : timing.fill;
+    const animation = node.animate(keyframes, { duration: ms, easing, ...timing, delay, ...(fill && { fill }) });
+    fold.animations.add(animation);
+    return animation;
+  };
+  /// A copy's ink going to 0 on the exit's clock, `offset` ms into it (a stagger's step). A copy whose
+  /// clock started again (`starts` has its drawn ink) goes on from that ink over the exit left.
+  // With no lead (the gallery's `none` arm, the look before) the copy fades on the move's own clock,
+  // gone by 60% of it, as #41078 had it.
+  const exitMs = lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
+  const exit = (copy: HTMLElement, offset: number) => {
+    const drawn = starts.get(copy)?.opacity;
+    const since = startedAt === undefined ? 0 : now() - startedAt;
+    const timing: KeyframeAnimationOptions =
+      drawn === undefined
+        ? { duration: Math.max(1, exitMs - offset), delay: offset - since }
+        : { duration: Math.max(1, exitMs - Math.max(offset, since)), delay: 0 };
+    const animation = copy.animate([{ opacity: drawn ?? 1 }, { opacity: 0 }], {
+      ...timing,
+      easing: EXIT_EASING,
+      fill: "both",
+    });
     fold.animations.add(animation);
     return animation;
   };
@@ -197,11 +469,19 @@ export function playTurnEnd(
   // a new row (the edits card), which comes in as one.
   const was = new Map(capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]));
   const gone = capture.rows.filter((row) => row.copy);
+  const goneByCopy = new Map(gone.map((row) => [row.copy!, row]));
   const moving = new Map<HTMLElement, Moving>();
   const copyMoves = new Map<HTMLElement, Moving>();
+  /// Where each row's or copy's motion on the current clock starts (a top in the view, as `tops`),
+  /// and its ink then: the swap's for the first clock, the drawn ones when the curve changes.
+  const starts = new Map<HTMLElement, { top?: number; opacity?: number; shown?: number }>();
+  /// Each row's and copy's laid-out top at the last pass: with its translate then, where it was drawn.
+  const laid = new Map<HTMLElement, number>();
+  /// The copies taken out before the fold ended (a row came in under them, below).
+  const dropped = new Set<HTMLElement>();
   const pass = () => {
     const nodes = [...mounted(thread)];
-    if (gone.length > 0 && fold.copies.size === 0 && copyMoves.size === 0) {
+    if (gone.length > 0 && fold.copies.size === 0 && copyMoves.size === 0 && dropped.size === 0) {
       // The rows that went: each copy goes in before the rows that stay, so they draw over it.
       const below = nodes[0] ?? null;
       for (const row of gone) {
@@ -209,99 +489,384 @@ export function playTurnEnd(
         fold.copies.add(row.copy!);
       }
     }
-    const copies = gone.map((row) => row.copy!).filter((copy) => fold.copies.has(copy));
     // Every place is read before anything plays, so a pass lays the page out once.
     const tops = layoutTops(nodes);
+    // The lowest row the swap kept, where it was drawn then, and how far from its place it starts. A
+    // row that comes in under it (the next turn's prompt, its live line and reply, arriving while the
+    // fold plays) moves with it: placed where it lands and drawn there at once, it sat over the kept
+    // row still sliding into place, by as much as that row's move (Leo, 2026-11-18, a coordinator's
+    // chat: "not sure if we've fixed this doubled up looking ass text fixed yet";
+    // agent-pane-stream-row-overlap, the replayed coordinator chat: a reply 242 px from its place over
+    // the next turn's first tool row, 158 px).
+    let lowest = -Infinity;
+    let lowestWas = -Infinity;
+    nodes.forEach((node, index) => {
+      const before = was.get(node.dataset.rowId!);
+      if (before && tops[index]! > lowest) {
+        lowest = tops[index]!;
+        lowestWas = before.top;
+      }
+    });
+    const arrives = (node: HTMLElement, index: number) => !was.has(node.dataset.rowId!) && tops[index]! > lowest;
+    // The copies of what the ended turn drew under its last kept row (its live line) go once the next
+    // turn's rows come in there: those rows take that place, and a copy fading under them drew its
+    // text through theirs (the same replay: the new tool row over the old "Thinking" line, 107 px).
+    if (Number.isFinite(lowest) && nodes.some(arrives))
+      for (const row of gone)
+        if (row.top > lowestWas && fold.copies.has(row.copy!)) {
+          for (const animation of copyMoves.get(row.copy!)?.animations ?? []) {
+            animation.cancel();
+            fold.animations.delete(animation);
+          }
+          copyMoves.delete(row.copy!);
+          fold.copies.delete(row.copy!);
+          dropped.add(row.copy!);
+          row.copy!.remove();
+        }
+    const copies = gone.map((row) => row.copy!).filter((copy) => fold.copies.has(copy));
     const copyTops = layoutTops(copies);
+    // Each box's height and paddings, read with the places (only while a copy shows): where each row's
+    // and copy's text draws (`coverClip`).
+    const boxes = copies.length ? [...nodes, ...copies].map(boxOf) : [];
+    // Each row's and copy's height, read with the places: the writes below (each `animate()`) dirty
+    // style, so a height read between them forced a style pass per row (chat-render-pipeline R2).
+    // Translate, clip and opacity never change a height, so these are the heights the loop read.
+    const heights = boxes.length ? boxes.slice(0, nodes.length).map((box) => box.height) : nodes.map(heightOf);
+    const copyHeights = boxes.length ? boxes.slice(nodes.length).map((box) => box.height) : copies.map(heightOf);
+    turnEndFoldPerf.passes += 1;
+    turnEndFoldPerf.rowsRead += nodes.length + copies.length;
+    turnEndFoldPerf.mostRowsRead = Math.max(turnEndFoldPerf.mostRowsRead, nodes.length + copies.length);
+    /// Each row's path on this clock, for the copies under or over it.
+    const paths: CoverPath[] = [];
     // The folded line: the first row the swap added (the turn's "Worked for"). Copies tuck under it.
-    const line = tops.find((_, index) => !was.has(nodes[index]!.dataset.rowId!));
+    const line =
+      tops.find((_, index) => was.get(nodes[index]!.dataset.rowId!)?.replacesHeader) ??
+      tops.find((_, index) => !was.has(nodes[index]!.dataset.rowId!));
+    const startTop = (node: HTMLElement, fallback: number) => starts.get(node)?.top ?? fallback;
+    const longestMove = () => {
+      let longest = 0;
+      nodes.forEach((node, index) => {
+        const before = was.get(node.dataset.rowId!);
+        if (before) longest = Math.max(longest, Math.abs(startTop(node, before.top) - tops[index]!));
+      });
+      if (look === "tuck" && line !== undefined)
+        copies.forEach((copy) => {
+          const row = goneByCopy.get(copy)!;
+          longest = Math.max(longest, Math.abs(line - startTop(copy, row.top)));
+        });
+      return longest;
+    };
+    // From where each row now starts: a move too fast for the clock's curve flattens it, in the fold's
+    // first frames only. A move past what the straight line fits keeps it: the curve is already
+    // as flat as it goes, and the clock never starts again for it.
+    const early = movesAt === undefined || now() - movesAt <= GROW_WINDOW_MS;
+    const longest = early ? longestMove() : 0;
+    const timing =
+      early && !foldFits(longest, ms, easing) ? turnEndFoldTiming(longest, settleMs, settleEasing) : undefined;
+    grew = timing !== undefined && timing.easing !== easing;
+    if (grew) {
+      if (startedAt !== undefined) {
+        // A frame has painted: each row and copy goes on from where it was drawn. All reads first.
+        const drawn = [...moving.keys(), ...copyMoves.keys()].flatMap((node) => {
+          const top = laid.get(node);
+          if (top === undefined) return [];
+          const style = (View ?? window).getComputedStyle(node);
+          const y = style.translate === "none" ? 0 : Number.parseFloat(style.translate.split(" ")[1] ?? "") || 0;
+          const clip = moving.get(node)?.clip ? clippedBottom(node) : 0;
+          const shown = clip > 0 ? top + y + node.offsetHeight - clip : undefined;
+          return [{ node, top: top + y, opacity: Number.parseFloat(style.opacity), shown }];
+        });
+        for (const { node, top, opacity, shown } of drawn)
+          starts.set(node, { top, opacity: Number.isFinite(opacity) ? opacity : undefined, shown });
+        // The move's clock starts again from this pass, or where the exit ends if it has not yet.
+        movesAt = Math.max(now(), movesAt ?? 0);
+      }
+      // The clock starts again from this pass: its end moves out with it.
+      easing = timing!.easing;
+      if (fold.timer !== undefined) arm();
+    }
     const restart = (
       node: HTMLElement,
       store: Map<HTMLElement, Moving>,
       next: Moving,
       keyframes: () => Keyframe[][],
+      timing: KeyframeAnimationOptions = {},
     ) => {
       const last = store.get(node);
-      if (last && Math.abs(last.delta - next.delta) < 0.5 && last.fades === next.fades) return;
+      if (
+        !grew &&
+        last &&
+        Math.abs(last.delta - next.delta) < 0.5 &&
+        last.fades === next.fades &&
+        Math.abs((last.clip ?? 0) - (next.clip ?? 0)) < 0.5 &&
+        Math.abs((last.hold ?? 0) - (next.hold ?? 0)) < FRAME_MS
+      )
+        return;
       for (const animation of last?.animations ?? []) {
         animation.cancel();
         fold.animations.delete(animation);
       }
-      next.animations = keyframes().map((frames) => play(node, frames));
+      next.animations = keyframes().map((frames) => play(node, frames, timing));
       store.set(node, next);
     };
+    /// The rows that start clipped this pass: where each starts, the bottom it draws, its bottom at rest.
+    const covers: { top: number; bottom: number }[] = [];
+    /// Where each copy starts drawn (a top in the view, as `tops`).
+    const copyStarts = copies.map((copy) => startTop(copy, goneByCopy.get(copy)!.top));
+    // How far each kept row starts from its place (its move's distance), and the settle curve's
+    // progress at a time fraction. A row that arrives holds at its place until no kept row's drawn box
+    // overlaps it (sampled along the move), then fades in: the reply's ink starts there, not at the
+    // move's end.
+    const drift = nodes.map((node, index) => {
+      const before = was.get(node.dataset.rowId!);
+      return before && !arrives(node, index) ? startTop(node, before.top) - tops[index]! : 0;
+    });
+    const curve = parseBezier(easing);
+    const clearFraction = (index: number) => {
+      if (!curve) return 1;
+      const top = tops[index]!;
+      const bottom = top + nodes[index]!.offsetHeight;
+      let last = -1;
+      for (let step = 0; step <= 200; step++) {
+        const progress = bezierAt(curve, step / 200);
+        const overlaps = nodes.some((other, k) => {
+          if (k === index || drift[k] === 0 || arrives(other, k)) return false;
+          const drawn = tops[k]! + drift[k]! * (1 - progress);
+          return Math.min(bottom, drawn + other.offsetHeight) - Math.max(top, drawn) > 0.5;
+        });
+        if (overlaps) last = step;
+      }
+      return Math.min(1, (last + 1) / 200);
+    };
+    /// How far into the move this pass runs, and the latest hold it gives a row that arrives.
+    const elapsed = Math.max(0, -toMove());
+    let holds = 0;
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
+      // Its path, for the copies under or over it (`coverClip`), with the clip it starts under (below).
+      const path = boxes.length ? { from: tops[index]!, to: tops[index]!, ...boxes[index]! } : undefined;
+      if (path) paths.push(path);
+      if (arrives(node, index)) {
+        // A row first mounted in the settle snapshot has its final layout top, so it is placed there
+        // at once. The kept rows above it still slide into their places, and drawn over them it
+        // doubled its text (Leo, 2026-11-18: "doubled up looking ass text"; agent-pane-stream-row-
+        // overlap). Carrying it with them flew it in from hundreds of pixels away. So it holds at no
+        // ink until the move has landed (the move's delay, then its length), and fades in there. This
+        // covers a renamed streaming reply, a reply outside the warm window, and rows that arrive with
+        // the next turn.
+        // The hold is read again on every pass (cmux#48689 F1): a row above measured shorter, or the
+        // view scrolled, and a kept row now crosses a box it did not at the first pass. The reply then
+        // goes back to no ink until that row has passed. A hold that ends before this pass (nothing
+        // crosses any more) starts the fade now, and a fade already running is left to run.
+        const clear = ms * clearFraction(index);
+        const last = moving.get(node);
+        // Nothing crosses a row that plays its own entrance: that entrance is its only fade.
+        if (clear === 0 && !last && node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) {
+          entering = true;
+          return;
+        }
+        const running = !grew && last?.fades && (last.hold ?? 0) <= elapsed;
+        const hold = clear > elapsed ? clear : running ? (last.hold ?? 0) : elapsed;
+        holds = Math.max(holds, hold);
+        const from = hold > elapsed ? 0 : (starts.get(node)?.opacity ?? 0);
+        restart(
+          node,
+          moving,
+          { delta: 0, fades: true, animations: [], hold },
+          () => [[{ opacity: from }, { opacity: 1 }]],
+          { delay: hold, fill: "backwards" },
+        );
+        return;
+      }
       if (!before) {
         // A row the swap added fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
-        restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: 0 }, { opacity: 1 }]]);
+        const from = starts.get(node)?.opacity ?? 0;
+        restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: from }, { opacity: 1 }]]);
         return;
       }
-      const delta = before.top - tops[index]!;
-      if (Math.abs(delta) < 0.5 && !moving.has(node)) return;
-      restart(node, moving, { delta, fades: false, animations: [] }, () => [
+      const delta = startTop(node, before.top) - tops[index]!;
+      // A row the tail glide clipped over the row gliding under it, when the turn ended (a reply's
+      // newest lines over the live line under lag, 117 px): its clip went with the glide, so its whole
+      // box drew at once over the live line's copy, fading where the line was drawn (agent-pane-
+      // stream-row-overlap: 103 px of the reply over "Writing"; Leo, 2026-11-11: "esp when it's
+      // lagging, there's a breif moment where ther'es overlapping text between the sent out text (from
+      // you) and the subequent tool calls/thinking"). It starts clipped where it drew then and opens on
+      // the fold's clock, and each copy it covers goes down out from under it on the same clock (below).
+      // It never starts drawn past the top of a copy under it either: the swap's own render can grow
+      // it (the reply's last lines revealed as the turn ends, 91 px), and the clip read at the swap
+      // came from the pass before that growth, so a clip from it alone left the row's newest line over
+      // the copy in the fold's first frame (agent-pane-stream-row-overlap, chromium lagging: 14 px).
+      const from = startTop(node, before.top);
+      const shown = starts.get(node)?.shown ?? before.shown;
+      const height = heights[index]!;
+      let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
+      for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
+      if (path) Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
+      // Work stays below the header as it moves into the closed turn's place. Both share this
+      // clock, so keeping their start and end ordered keeps every frame ordered too.
+      if (clip >= 0.5 || node.classList.contains(`acpmux-${WORKED}`))
+        covers.push({ top: from, bottom: tops[index]! + height });
+      if (Math.abs(delta) < 0.5 && clip < 0.5 && !moving.has(node)) return;
+      restart(node, moving, { delta, fades: false, animations: [], clip }, () => [
         [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
+        ...(clip >= 0.5 ? [[{ clipPath: clipBottom(Math.ceil(clip)) }, { clipPath: clipBottom(0) }]] : []),
       ]);
     });
+    if (Math.abs(holds - tail) >= 1) {
+      tail = holds;
+      if (fold.timer !== undefined) arm();
+    }
+    const placedById = new Map(nodes.map((node, index) => [node.dataset.rowId!, { node, index }]));
+    type Boundary = { row: Drawn; node: HTMLElement; index: number };
+    const boundaries = new Map<HTMLElement, { above?: Boundary; below?: Boundary }>();
+    for (const step of [1, -1]) {
+      let boundary: Boundary | undefined;
+      for (let at = step === 1 ? 0 : capture.rows.length - 1; at >= 0 && at < capture.rows.length; at += step) {
+        const row = capture.rows[at]!;
+        if (row.copy) {
+          const pair = boundaries.get(row.copy) ?? {};
+          if (step === 1) pair.above = boundary;
+          else pair.below = boundary;
+          boundaries.set(row.copy, pair);
+        } else {
+          const placed = placedById.get(row.id);
+          if (placed) boundary = { row, ...placed };
+        }
+      }
+    }
     copies.forEach((copy, order) => {
-      const row = gone.find((entry) => entry.copy === copy)!;
-      const at = row.top - copyTops[order]!;
-      const end = look === "tuck" && line !== undefined ? at + (line - row.top) : at;
+      const from = copyStarts[order]!;
+      const at = from - copyTops[order]!;
+      let end = look === "tuck" && line !== undefined ? line - copyTops[order]! : at;
+      // Under a clipped row (above): it ends no higher than that row's bottom at rest, so with the clip
+      // opening on the same clock, the row's drawn bottom never passes the copy's drawn top. The move
+      // is linear in the fold's progress on both, so where it holds at the first and last frame it
+      // holds on every frame between.
+      for (const cover of covers) if (cover.top < from) end = Math.max(end, cover.bottom - copyTops[order]!);
+      // The work fades only between the surviving rows that surrounded it. Those rows can
+      // move over its former place, so crop the copy on their shared clock rather than drawing
+      // its text through the header or the final answer.
+      const { above, below } = boundaries.get(copy) ?? {};
+      const height = copyHeights[order]!;
+      const topFrom = above
+        ? Math.max(0, startTop(above.node, above.row.top) + (above.row.height ?? heights[above.index]!) - from)
+        : 0;
+      const topTo = above ? Math.max(0, tops[above.index]! + heights[above.index]! - (copyTops[order]! + end)) : 0;
+      const bottomFrom = Math.max(
+        goneByCopy.get(copy)!.clip ?? 0,
+        below ? from + height - startTop(below.node, below.row.top) : 0,
+      );
+      const bottomTo = below ? Math.max(0, copyTops[order]! + end + height - tops[below.index]!) : 0;
+      const cropFrom = `inset(${topFrom}px -4096px ${Math.max(0, bottomFrom)}px -4096px)`;
+      const cropTo = `inset(${topTo}px -4096px ${bottomTo}px -4096px)`;
+      const crop = [topFrom, topTo, bottomFrom, bottomTo].some((value) => value >= 0.5)
+        ? `${cropFrom}|${cropTo}`
+        : undefined;
+      const box = boxes[nodes.length + order]!;
+      const cover = coverClip({ from, to: copyTops[order]! + end, ...box }, paths, clippedBottomOf(copy));
+      const covered = cover ? JSON.stringify(cover) : undefined;
       const last = copyMoves.get(copy);
-      if (last && Math.abs(last.delta - at) < 0.5) return;
+      if (
+        !grew &&
+        last &&
+        Math.abs(last.delta - at) < 0.5 &&
+        Math.abs((last.end ?? at) - end) < 0.5 &&
+        last.covered === covered &&
+        last.crop === crop
+      )
+        return;
       for (const animation of last?.animations ?? []) {
         animation.cancel();
         fold.animations.delete(animation);
       }
-      const timing: KeyframeAnimationOptions = { fill: "forwards" };
-      if (look === "stagger") {
-        // The last row first, each a step after the one under it, inside the fold's own length.
-        const step = Math.min(40, ms / Math.max(2, copies.length * 2)); // motion-allow: a share of the settle
-        timing.delay = (copies.length - 1 - order) * step;
-        timing.duration = Math.max(ms / 2, ms - timing.delay);
-      }
+      // Held at its start until the move, so a copy that has faded never shows full again.
+      const timing: KeyframeAnimationOptions = { fill: "both" };
+      // The last row first, each a step after the one under it, inside the exit lead.
+      const step = look === "stagger" ? exitMs / Math.max(2, copies.length * 2) : 0;
+      // The copy's text is gone when the exit lead ends, before it or anything over it moves: faded on
+      // the move's clock (by 60% of it, #41078), its text still travelled, faint, while the rows
+      // slid over its place (agent-pane-stream-row-overlap: 5.5 px under the reply at 94%).
+      const faded = exit(copy, (copies.length - 1 - order) * step);
       const motion = play(
         copy,
         [
-          { translate: `0 ${at}px`, opacity: 1 },
-          { translate: `0 ${end}px`, opacity: 0 },
+          { translate: `0 ${at}px`, ...(crop && { clipPath: cropFrom }) },
+          { translate: `0 ${end}px`, ...(crop && { clipPath: cropTo }) },
         ],
         timing,
       );
-      copyMoves.set(copy, { delta: at, fades: true, animations: [motion] });
+      // The clip on the rows' own clock (a stagger's delay is the copy's fade alone), held at its end.
+      const clipped = cover ? play(copy, cover, { fill: "both" }) : undefined;
+      copyMoves.set(copy, {
+        delta: at,
+        fades: true,
+        animations: clipped ? [faded, motion, clipped] : [faded, motion],
+        end,
+        covered,
+        crop,
+      });
     });
+    nodes.forEach((node, index) => laid.set(node, tops[index]!));
+    copies.forEach((copy, order) => laid.set(copy, copyTops[order]!));
   };
   pass();
-  if (fold.animations.size === 0) {
+  if (fold.animations.size === 0 && !entering) {
     settleTurnEnd(thread, fold);
     return undefined;
   }
   thread.setAttribute(TURN_END_ATTR, look);
   // Each time the rows are placed again (a row mounts or leaves, a row's offset changes) or the
-  // view's offset moves (the bottom kept pinned), the next pass reads them again.
+  // view's offset moves (the bottom kept pinned), the next pass reads them again, at once: a pass
+  // put off to the next animation frame left a row placed after that frame's callbacks one frame
+  // off its path (agent-pane-stream-jitter, WebKit, a queued prompt sent as the turn ends: the reply
+  // drawn 35 px back up). A mutation batch already comes once per microtask checkpoint and a scroll
+  // once per frame; `sameFramePasses` counts the passes that still share a frame.
+  let lastFrame: number | null | undefined;
+  const passAgain = () => {
+    const frame = typeof timeline?.currentTime === "number" ? timeline.currentTime : null;
+    if (frame !== null && frame === lastFrame) turnEndFoldPerf.sameFramePasses += 1;
+    lastFrame = frame;
+    pass();
+  };
+  // The observer watches the thread's own children (a row mounts or leaves) and each row's own
+  // `style` and `aria-posinset` (its offset), never the rows' subtrees: a write deep in a row (a
+  // roll-out's width, a reply's text) never wakes it (chat-render-pipeline R9). A row that mounts
+  // during the fold is watched from its mount on. All of it stops with the fold.
+  const watched = new WeakSet<Element>();
+  const watchRows = (observer: MutationObserver) => {
+    for (const row of mounted(thread)) {
+      if (watched.has(row)) continue;
+      watched.add(row);
+      observer.observe(row, { attributes: true, attributeFilter: ["style", "aria-posinset"] });
+    }
+  };
   const observer = View?.MutationObserver
-    ? new View.MutationObserver((records) => {
+    ? new View.MutationObserver((records, self) => {
+        turnEndFoldPerf.mutationEvents += 1;
         const placed = (record: MutationRecord) =>
           record.type === "childList"
             ? record.target === thread
             : record.target.parentNode === thread && (record.target as Element).hasAttribute("data-row-id");
-        if (records.some(placed)) pass();
+        if (records.some((record) => record.type === "childList")) watchRows(self);
+        if (records.some(placed)) passAgain();
       })
     : undefined;
-  observer?.observe(thread, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["style", "aria-posinset"],
-  });
-  scroller?.addEventListener("scroll", pass, { passive: true });
+  if (observer) {
+    observer.observe(thread, { childList: true });
+    watchRows(observer);
+  }
+  const onScroll = () => {
+    turnEndFoldPerf.scrollEvents += 1;
+    passAgain();
+  };
+  scroller?.addEventListener("scroll", onScroll, { passive: true });
   fold.stop = () => {
     if (firstFrame !== undefined) View?.cancelAnimationFrame(firstFrame);
     observer?.disconnect();
-    scroller?.removeEventListener("scroll", pass);
+    scroller?.removeEventListener("scroll", onScroll);
   };
   // A hidden page suspends its animations: nothing of the fold outlasts its length.
-  fold.timer = setTimeout(() => settleTurnEnd(thread, fold), ms + 50);
+  arm(lead);
   return fold;
 }

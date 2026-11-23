@@ -33,12 +33,12 @@
    veil's 42%). It was the text at 13%, a gray over any theme (Leo 2026-11-02: "why is the update
    thing unthemed"). Reduce Transparency still makes it opaque (glass.css's surface): the same
    selector again, later, so it outranks the plain fill. */
-:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card:not(.wn-updated) {
+:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency], [data-glass="off"]) .wn-card:not(.wn-updated) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) 42%, transparent);
   --glass-backdrop: none;
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card:not(.wn-updated) {
+  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency], [data-glass="off"]) .wn-card:not(.wn-updated) {
     --glass-tint: var(--glass-surface);
   }
 }
@@ -87,16 +87,22 @@
   .wn-copy-version { transition: none; }
 }
 .wn-card-close {
+  /* In the card's corner, concentric with it (Lawrence 2026-11-15: the x was not concentric with the card's
+     corner): its center on the corner's center, the same inset from the top and the side (at least 2px), its hover
+     the card's corner less that inset. */
+  --wn-close-half: 9px; /* half the x's side */
+  --wn-card-corner: var(--cmux-sidebar-card-radius, 10px);
+  --concentric-padding: max(2px, calc(var(--wn-card-corner) - var(--wn-close-half)));
   position: absolute;
-  top: 7px;
-  right: 8px;
+  top: var(--concentric-padding);
+  right: var(--concentric-padding);
   display: grid;
   place-items: center;
   width: 18px;
   height: 18px;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: min(var(--wn-close-half), calc(var(--wn-card-corner) - var(--concentric-padding)));
   background: transparent;
   color: var(--page-text-3);
   cursor: default;
@@ -105,7 +111,7 @@
   opacity: 0;
   transition: opacity 0.12s ease-out;
 }
-.wn-card:is(:hover, :focus-within) .wn-card-close { opacity: 1; }
+.wn-card:is(:hover, :has(:focus-visible)) .wn-card-close { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .wn-card-close { transition: none; }
 }
@@ -342,13 +348,19 @@
   background: var(--composer-material-tint);
   box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
+/* The doodle card's change line keeps two lines' room (its longest; the line stops at two), so the
+   loading line and the words that replace it, one line or two, stand at one height (review F1 of
+   #39934; Leo 2026-11-09: no blank stage and no jump when the notes load). */
+.wn-card[data-decoration="doodle"] .wn-card-note {
+  min-height: 2.6em;
+}
 .wn-card[data-decoration="doodle"][data-glass] {
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
 }
 /* Reduce Transparency: the composer's solid surface, as the composer's. */
 /* glass-opaque-allow: the Reduce Transparency fill only */
-:root[data-reduce-transparency] :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
+:root:is([data-reduce-transparency], [data-glass="off"]) :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
   background: var(--composer-material-solid);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -435,6 +447,55 @@
   text-overflow: ellipsis;
 }
 .wn-updated[data-placement="button"] .wn-card-note { margin-top: var(--wn-gap); }
+
+/* The change line while the update's notes load (UpdateSurfaces.tsx NoteLoading; Leo 2026-11-09: "it
+   should have the updated to Nightly already loaded in, instead of just having a blank glass bit ...
+   should have a loading indicator, like an ellipsis-type thing"). It is the note's own box, and its
+   marks are inline on the note's baseline, no taller than its capitals: the line keeps the note's
+   strut, so its trimmed box (cap to baseline, above) is the words' and they swap in with no jump. The
+   shipped look is three still dots in the note's quiet color: no loop, since a dot that breathes or
+   blinks forever is the look Leo had removed (2026-10-21, test/no-breathing-dots.test.ts), and the
+   line lasts at most the 1.5 s settle. Gallery looks: the ellipsis glyph, a bar one line tall that a
+   light crosses, the words.
+   The label is for VoiceOver: clipped to nothing and out of the line. */
+.wn-card-note-loading { position: relative; }
+.wn-note-label {
+  position: absolute;
+  inset-inline-start: 0;
+  white-space: nowrap;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+.wn-note-dots > span {
+  display: inline-block;
+  width: 0.24em;
+  height: 0.24em;
+  margin-inline-end: 0.2em;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+  vertical-align: baseline;
+}
+.wn-note-bar {
+  display: inline-block;
+  width: 9em;
+  max-width: 70%;
+  height: 0.7em;
+  border-radius: 0.35em;
+  vertical-align: baseline;
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, currentColor 18%, transparent) 50%, transparent 100%) 0 0 / 200% 100%,
+    color-mix(in srgb, currentColor 12%, transparent);
+}
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-note-bar {
+  animation: wn-note-bar var(--cmux-shimmer-period, 2.8s) linear infinite;
+}
+@keyframes wn-note-bar {
+  from { background-position: 100% 0, 0 0; }
+  to { background-position: -100% 0, 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-note-bar { animation: none !important; }
+}
 
 /* The hover preview (UpdatedCardPreview): above the card's two lines, in the same glass, with the
    composer's hairline between them as its stack draws one between parts. Closed it is clipped to
@@ -705,13 +766,24 @@
 /* The changes under What's New's areas (Leo 2026-11-08: "the sections should be more obvious what's
    what"): each area's glyph, name and count as What's New heads it (SheetPage's cls-area-head), so a
    click that opens the page lands under a header that reads the same. */
+/* Leo 2026-11-14 ("theese are kinda crappy looking icons and stuff"): the header, its count and the
+   changes share one grid. The symbol takes a 16 px column (its 1:1 size, crisp at 1x and 2x), the
+   name and its count follow it as What's New heads an area (styles.css .cls-area-head), and each
+   change's text starts on the name's line, so nothing floats. */
+.wn-notes-list { --wn-notes-symbol: 16px; }
 .wn-notes-section + .wn-notes-section { margin-top: var(--ds-space-2); }
 .wn-notes-area {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--wn-notes-symbol) auto auto;
+  justify-content: start;
   align-items: center;
-  gap: var(--ds-space-2);
+  column-gap: var(--ds-space-2);
+  width: 100%;
   margin: 0;
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1);
+  border: 0;
+  background: transparent;
+  text-align: start;
   color: var(--page-text-2);
   font-size: var(--text-detail);
   font-weight: var(--weight-emphasis);
@@ -719,12 +791,14 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .wn-notes-area-icon {
-  display: inline-flex;
-  color: var(--cmux-accent, currentColor);
+  display: grid;
+  place-items: center;
+  width: var(--wn-notes-symbol);
+  height: var(--wn-notes-symbol);
+  color: var(--page-text-2);
 }
-.wn-notes-area-icon svg { width: 14px; height: 14px; }
+.wn-notes-list[data-head="accent"] .wn-notes-area-icon { color: var(--cmux-accent, var(--page-text-2)); }
 .wn-notes-area-name {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -746,6 +820,72 @@
   list-style: none;
 }
 .wn-notes-row { padding-block: var(--ds-space-2); }
+/* A change's text on the name's line: the symbol's column and its gap in front of the row. */
+.wn-notes-list:is([data-look="sections"], [data-look="divided"]) .wn-notes-rows {
+  margin-inline-start: calc(var(--wn-notes-symbol) + var(--ds-space-2));
+}
+/* What no person sees, folded into one header-shaped line under the areas; a click opens What's New. */
+.wn-notes-maintenance { cursor: default; border-radius: var(--radius-md); }
+.wn-notes-maintenance:hover { background: var(--page-hover); }
+/* `release` (ships; Leo's Claude Code reference, 2026-11-14): small-capital kind labels, one bullet
+   sentence per change, the version a quiet mono chip, then "Maintenance and fixes" with its count. */
+.wn-notes[data-look="release"] .wn-notes-version .wn-copy-version {
+  padding: calc(var(--grid-base, 4px) / 2) var(--ds-space-2);
+  border-radius: var(--radius-md);
+  background: var(--page-hover);
+  font-family: var(--font-mono, ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.wn-notes-list[data-look="release"] { display: flex; flex-direction: column; gap: var(--ds-space-3); margin-top: var(--ds-space-2); }
+.wn-notes-kind-label {
+  margin: 0;
+  padding: 0 var(--ds-space-2) var(--ds-space-1);
+  color: var(--page-text-3, var(--page-text-2));
+  font-size: var(--text-caption);
+  font-weight: var(--weight-regular);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.wn-notes-list[data-look="release"] .wn-notes-rows { gap: 0; }
+.wn-notes-list[data-look="release"] .wn-notes-row {
+  position: relative;
+  padding-block: var(--ds-space-1);
+  padding-inline-start: calc(var(--ds-space-2) + var(--wn-notes-symbol));
+  color: var(--page-text-2);
+}
+.wn-notes-list[data-look="release"] .wn-notes-row:hover { color: var(--page-text); }
+/* The bullet: centered in the symbol column, on the first line's middle. */
+.wn-notes-list[data-look="release"] .wn-notes-row::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(var(--ds-space-2) + var(--wn-notes-symbol) / 2 - var(--ds-space-1) / 2);
+  top: calc(var(--ds-space-1) + var(--text-body--line-height, 1.4em) / 2 - var(--ds-space-1) / 2);
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+.wn-notes-maintenance-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  width: 100%;
+  padding: var(--ds-space-2);
+  border: 0;
+  border-top: 1px solid var(--page-separator);
+  border-radius: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  text-align: start;
+  cursor: default;
+}
+.wn-notes-maintenance-line:hover { color: var(--page-text); background: var(--page-hover); }
 /* Rows divided by hairlines instead of gaps (gallery variant). */
 .wn-notes-list[data-look="divided"] .wn-notes-rows { gap: 0; }
 .wn-notes-list[data-look="divided"] .wn-notes-rows > li + li { border-top: 1px solid var(--page-separator); }
@@ -770,7 +910,123 @@
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
-:is(.wn-notes-whatsnew, .wn-notes-row, .wn-card-seenew):focus-visible {
+/* The Debug looks of the changes (UpdatedNotesLooks.tsx; Lawrence 2026-11-09, "make and show me more
+   versions of this ui"). `sections` above ships until one is picked. */
+/* `digest`: one line per area; open, its pills under it. */
+.wn-notes-list[data-look="digest"] { display: flex; flex-direction: column; gap: calc(var(--grid-base, 4px) / 2); }
+.wn-notes-digest-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--ds-space-2);
+  width: 100%;
+  padding: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-notes-digest-head:hover { background: var(--page-hover); }
+.wn-notes-digest-head .wn-notes-area-icon { padding-top: calc(var(--grid-base, 4px) / 2); }
+.wn-notes-digest-text { display: grid; min-width: 0; }
+.wn-notes-digest-name { display: flex; gap: var(--ds-space-2); align-items: baseline; font-weight: var(--weight-emphasis); }
+.wn-notes-digest-peek {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.wn-notes-digest-chevron { margin-top: calc(var(--grid-base, 4px) / 2); color: var(--page-text-3, var(--page-text-2)); transition: transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out); }
+.wn-notes-digest[data-open] .wn-notes-digest-chevron { transform: rotate(90deg); }
+.wn-notes-digest[data-open] .wn-notes-rows { padding-left: var(--ds-space-5); }
+@media (prefers-reduced-motion: reduce) { .wn-notes-digest-chevron { transition: none; } }
+/* `chips`: the areas as filter chips, held at the top while the list scrolls under them. */
+.wn-notes-chips {
+  position: sticky;
+  top: calc(-1 * var(--ds-space-1));
+  z-index: var(--layer-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  background: var(--composer-material-tint, var(--page-bg));
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
+.wn-notes-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: calc(var(--grid-base, 4px) / 2) var(--ds-space-2);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  cursor: default;
+}
+.wn-notes-chip:hover { background: var(--page-hover); color: var(--page-text); }
+.wn-notes-chip[aria-pressed="true"] { background: var(--page-selection, var(--page-hover)); color: var(--page-text); box-shadow: none; }
+.wn-notes-chip .wn-notes-area-icon { --wn-notes-symbol: 16px; }
+/* `headline`: the first changes at full size, their details whole; then See all changes. */
+.wn-notes-list[data-look="headline"] { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+.wn-notes-list[data-look="headline"] .wn-notes-row { gap: calc(var(--grid-base, 4px) / 2); padding-block: var(--ds-space-3); }
+.wn-notes-list[data-look="headline"] .wn-notes-row-title { font-size: var(--text-title); line-height: var(--text-title--line-height); font-weight: var(--weight-emphasis); }
+.wn-notes-headline-area {
+  color: var(--cmux-accent, var(--page-text-2));
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: var(--weight-emphasis);
+}
+.wn-notes-headline-detail {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.wn-notes-seeall {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  width: 100%;
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  border: 0;
+  border-top: 1px solid var(--page-separator);
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-notes-seeall:hover { background: var(--page-hover); }
+/* `ledger`: one line per change, the area a quiet label in its own column. */
+.wn-notes-list[data-look="ledger"] .wn-notes-row {
+  grid-template-columns: 84px minmax(0, 1fr);
+  column-gap: var(--ds-space-3);
+  padding-block: var(--ds-space-1);
+}
+.wn-notes-list[data-look="ledger"] li + li .wn-notes-row:has(.wn-notes-ledger-area:not(:empty)) {
+  margin-top: var(--ds-space-2);
+}
+.wn-notes-ledger-area {
+  color: var(--page-text-3, var(--page-text-2));
+  font-size: var(--text-detail);
+  line-height: var(--text-body--line-height);
+  overflow-wrap: anywhere;
+}
+:is(.wn-notes-whatsnew, .wn-notes-row, .wn-notes-maintenance, .wn-notes-maintenance-line, .wn-card-seenew, .wn-notes-digest-head, .wn-notes-chip, .wn-notes-seeall):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }

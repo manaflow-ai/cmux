@@ -3,11 +3,13 @@
 # on the process environment, so a resolve that leaks per-run variables never
 # hits the cache it restored; and the key must follow the manifests it covers.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$ROOT/scripts/ci/swiftpm-manifest-cache.sh"
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+git_fixture_trap_exit 'rm -rf "$TMP_DIR"'
 
 mkdir -p "$TMP_DIR/bin" "$TMP_DIR/home"
 cat > "$TMP_DIR/bin/xcodebuild" <<'STUB'

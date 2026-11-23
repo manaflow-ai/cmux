@@ -62,6 +62,11 @@ impl Unstarted {
                 let (Some(t), Some(p)) = (turn, prompt) else { return };
                 // Run again under another turn id: that copy is the prompt's.
                 self.by_turn.retain(|other, q| other == t || field(q, "promptId") != Some(p));
+                // A throwaway session's long prompt kept only a preview: never run again
+                // (`hub/ephemeral.rs`).
+                if crate::hub::ephemeral::body_left_out(&e.msg) {
+                    return;
+                }
                 if self.queued_turns.contains(t) || self.started_turns.contains(t) {
                     return;
                 }

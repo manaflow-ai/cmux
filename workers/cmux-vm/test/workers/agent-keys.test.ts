@@ -172,6 +172,65 @@ describe("an agent's sandboxes", () => {
     await created(agent.key);
   });
 
+  it("admits concurrent creates at the live-VM budget atomically, one slot each", async () => {
+    // The team's own VM count no longer bounds an agent key (a paid team has no machine count), so its budget does.
+    const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    const agent = await issue(issuer, { maxVms: 2 });
+    await created(agent.key);
+    const racing = await Promise.all([createVm(agent.key), createVm(agent.key), createVm(agent.key)]);
+    expect(racing.map((response) => response.status).sort()).toEqual([201, 429, 429]);
+    for (const response of racing) if (response.status === 429) expect(await response.json()).toMatchObject({ budget: "agent_vms" });
+  });
+
+  it("keeps the slot of a create whose ownership write failed, so only its own retry fits the budget", async () => {
+    const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    const agent = await issue(issuer, { maxVms: 1 });
+    const keyed = (idempotency: string) =>
+      h.request("/v1/vms", { ...bearer(agent.key), "idempotency-key": idempotency }, { method: "POST", body: {} });
+    h.recordFault.before = 1;
+    expect((await keyed("agent-create-a")).status).toBe(503);
+    // A may exist upstream unrecorded: its slot is held, so another create is refused at the budget.
+    const other = await keyed("agent-create-b");
+    expect(other.status).toBe(429);
+    expect(await other.json()).toMatchObject({ budget: "agent_vms" });
+    // A's own retry records the one VM, and the budget stays full.
+    expect((await keyed("agent-create-a")).status).toBe(201);
+    expect(h.upstream.vms.size).toBe(1);
+    expect((await keyed("agent-create-c")).status).toBe(429);
+  });
+
+  it.each([429, 400])("gives the slot back when the provider definitely rejects an agent's create (%i)", async (status) => {
+    const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    const agent = await issue(issuer, { maxVms: 1 });
+    const keyed = (idempotency: string) =>
+      h.request("/v1/vms", { ...bearer(agent.key), "idempotency-key": idempotency }, { method: "POST", body: {} });
+    h.upstream.fail("create", status);
+    expect((await keyed("agent-rejected")).status).toBe(status);
+    expect(h.upstream.vms.size).toBe(0);
+    // Nothing was made, so the budget has room for another create.
+    expect((await keyed("agent-after-rejection")).status).toBe(201);
+    // The rejected key's retry is admitted again and finds the budget full.
+    const retry = await keyed("agent-rejected");
+    expect(retry.status).toBe(429);
+    expect(await retry.json()).toMatchObject({ budget: "agent_vms" });
+    expect(h.upstream.vms.size).toBe(1);
+  });
+
+  it("gives the slot back when an agent cancels a create whose ownership write failed, so a replacement fits", async () => {
+    const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    const agent = await issue(issuer, { maxVms: 1 });
+    const keyed = (idempotency: string) =>
+      h.request("/v1/vms", { ...bearer(agent.key), "idempotency-key": idempotency }, { method: "POST", body: {} });
+    h.recordFault.before = 1;
+    expect((await keyed("agent-cancelled")).status).toBe(503);
+    expect((await keyed("agent-replacement")).status).toBe(429);
+    const cancelled = await h.request("/v1/vm-creations/by-key/cancel", { ...bearer(agent.key), "idempotency-key": "agent-cancelled" }, { method: "POST" });
+    expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toMatchObject({ state: "cancelled" });
+    expect(h.upstream.vms.size).toBe(0);
+    expect((await keyed("agent-replacement-2")).status).toBe(201);
+  });
+
   it("stops at the $/h budget, counting the requested size", async () => {
     const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
     // The default 4 vCPU / 8 GiB VM is estimated at 0.26 USD/h.

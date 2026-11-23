@@ -4,6 +4,7 @@
 //! renderer grants. Each function is one `Command` arm of
 //! `handle_command_with_cancellation`.
 
+use super::Command;
 use super::MutationRequest;
 use super::frontend_shell;
 use super::get_surface;
@@ -19,6 +20,7 @@ use crate::Mux;
 use crate::SurfaceId;
 use crate::WorkspaceId;
 use crate::platform;
+use crate::resource::ContentPublicId;
 use crate::workspace_registry::TerminalLifecycle;
 use serde_json::Value;
 use serde_json::json;
@@ -208,6 +210,19 @@ pub(super) fn terminal_last_command(
     Ok(json!({ "terminal_id": terminal_id, "last_command": last }))
 }
 
+/// `terminal-command-context`: the newest command the PTY `surface`'s shell
+/// finished, read from its screen now, or null.
+pub(super) fn terminal_command_context(
+    mux: &Arc<Mux>,
+    surface: SurfaceId,
+    intent: crate::command_context::Intent,
+) -> anyhow::Result<Value> {
+    let surface = get_surface(mux, surface)?;
+    require_pty(&surface)?;
+    let context = surface.terminal_command_context().map(|context| context.to_json(intent));
+    Ok(json!({ "context": context }))
+}
+
 /// `terminal-resume-command`: an absent `command` reads, a string sets and
 /// null clears the terminal's resume command (`resume-command`).
 pub(super) fn terminal_resume_command(
@@ -282,6 +297,7 @@ pub(super) fn create_terminal(
     env: Option<BTreeMap<String, String>>,
     keep: bool,
     detached: bool,
+    new_workspace: Option<Option<String>>,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     let mut env =
@@ -311,7 +327,14 @@ pub(super) fn create_terminal(
             "bad request: a detached terminal takes no workspace or key"
         );
         let request = super::detached_terminals::DetachedCreate { argv, cwd, name, size, env };
+        anyhow::ensure!(
+            new_workspace.is_none(),
+            "bad request: a detached terminal takes no create_workspace"
+        );
         return super::detached_terminals::create(mux, client, request, terminal_id, mutation);
+    }
+    if let Some(workspace_name) = new_workspace {
+        ensure_workspace(mux, client, workspace, key.as_deref(), workspace_name, &mutation)?;
     }
     let resolved = resolve_workspace(mux, workspace, key.as_deref());
     let (registry_id, generation) = mux.registry_identity();
@@ -518,11 +541,131 @@ pub(super) fn placed_terminal_result(
     }))
 }
 
+/// `reply` with the public ids of its terminal and view (W5-P, for W5-N),
+/// for a client that declared `terminal-public-ids-v1` (command_dispatch.rs):
+/// `terminal_resource_id` is the `term_` id that the CLI, the agent roster
+/// and every resource selector take, so no client maps the host
+/// `terminal_id` with a second request. `tab_id`, `pane_id`, `screen_id` and
+/// `workspace_id` name the view of the reply's `surface`. A field the daemon
+/// cannot name (a detached terminal has no view) is absent.
+pub(super) fn with_public_ids(mux: &Mux, mut reply: Value) -> Value {
+    let surface = reply.get("surface").and_then(Value::as_u64);
+    let host = reply.get("terminal_id").and_then(Value::as_str).map(str::to_owned);
+    let ids = mux.with_state(|state| {
+        let indexes = &state.resource_indexes;
+        let mut ids = serde_json::Map::new();
+        let terminal = host
+            .as_deref()
+            .and_then(|host| state.terminal_catalog_by_host.get(host).cloned())
+            .or_else(|| match indexes.content_ids.get(&surface?)? {
+                ContentPublicId::Terminal(id) => Some(id.clone()),
+                ContentPublicId::Browser(_) => None,
+            });
+        if let Some(terminal) = terminal {
+            ids.insert("terminal_resource_id".into(), json!(terminal));
+        }
+        let Some(surface) = surface else { return ids };
+        let pane = indexes.tab_pane.get(&surface).copied();
+        let screen = pane.and_then(|pane| indexes.pane_screen.get(&pane).copied());
+        let workspace = screen.and_then(|screen| indexes.screen_workspace.get(&screen).copied());
+        let named = [
+            ("tab_id", indexes.tab_ids.get(&surface).map(|id| json!(id))),
+            ("pane_id", pane.and_then(|pane| indexes.pane_ids.get(&pane)).map(|id| json!(id))),
+            (
+                "screen_id",
+                screen.and_then(|screen| indexes.screen_ids.get(&screen)).map(|id| json!(id)),
+            ),
+            (
+                "workspace_id",
+                workspace
+                    .and_then(|workspace| indexes.workspace_ids.get(&workspace))
+                    .map(|id| json!(id)),
+            ),
+        ];
+        for (field, id) in named {
+            if let Some(id) = id {
+                ids.insert(field.into(), id);
+            }
+        }
+        ids
+    });
+    if let Some(object) = reply.as_object_mut() {
+        object.extend(ids);
+    }
+    reply
+}
+
 /// Apply `keep: true` from a creating command. A terminal without a durable
 /// host (an in-process test surface) has nothing to reap.
 pub(super) fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result<()> {
     match terminal_id {
         Some(terminal_id) => mux.set_terminal_keep(terminal_id, true),
         None => Ok(()),
+    }
+}
+
+/// `create-terminal {create_workspace}`: one request makes a workspace and
+/// its first terminal. It takes `key` (the new workspace's) and a mutation
+/// id; the workspace is made under that mutation id with `:workspace`
+/// appended, so a retry makes it once. A workspace that already has the key
+/// is left as it is. A terminal that then fails to start leaves the
+/// workspace: the same request sent again makes (or replays) the terminal.
+pub(crate) const CREATE_TERMINAL_WORKSPACE_CAPABILITY: &str = "create-terminal-workspace-v1";
+
+fn ensure_workspace(
+    mux: &Arc<Mux>,
+    client: u64,
+    workspace: Option<WorkspaceId>,
+    key: Option<&str>,
+    name: Option<String>,
+    mutation: &MutationRequest,
+) -> anyhow::Result<()> {
+    let (Some(key), Some(mutation_id), None) = (key, mutation.mutation_id.as_deref(), workspace)
+    else {
+        anyhow::bail!("bad request: create_workspace takes key and mutation_id, and no workspace");
+    };
+    if mux.with_state(|state| state.workspace_by_key(key).is_some()) {
+        return Ok(());
+    }
+    let request = MutationRequest {
+        origin: mutation.origin.clone(),
+        mutation_id: Some(format!("{mutation_id}:workspace")),
+        expected_generation: None,
+        expected_revision: None,
+    };
+    let workspace_mutation = workspace_mutation(mux, client, &request)?;
+    mux.create_empty_workspace_with_mutation(
+        name,
+        Some(key.to_string()),
+        None,
+        None,
+        &workspace_mutation,
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "create_terminal_workspace_tests.rs"]
+mod create_terminal_workspace_tests;
+
+impl Command {
+    /// The commands whose reply names one terminal or view by `surface` and
+    /// `terminal_id`: with `terminal-public-ids-v1` they carry its public ids.
+    pub(super) fn names_a_terminal_view(&self) -> bool {
+        matches!(
+            self,
+            Self::Run { .. }
+                | Self::ResolveTerminal { .. }
+                | Self::NewTab { .. }
+                | Self::NewBrowserTab { .. }
+                | Self::NewWorkspace { .. }
+                | Self::CreateTerminal { .. }
+                | Self::NewScreen(_)
+                | Self::NewPane { .. }
+                | Self::NewPaneRight(_)
+                | Self::Split(_)
+                | Self::MoveTerminal { .. }
+                | Self::NewRow(_)
+        )
     }
 }

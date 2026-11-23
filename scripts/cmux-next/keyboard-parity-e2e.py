@@ -33,6 +33,8 @@ Usage: CMUX_SOCKET_PATH=... APP_PID=... keyboard-parity-e2e.py [--foci terminal,
        [--keys "Cmd-T,Cmd-W"] [--debug-key] [--out DIR]
 """
 import argparse, http.server, json, os, socket, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", default=os.environ.get("CMUX_SOCKET_PATH"))
@@ -450,7 +452,7 @@ def main():
             ctx = setup(focus) or setup(focus)
             if ctx is None:
                 results[(name, focus)] = (False, label)
-                print(f"FAIL | {focus:8} | {name:11} | {label} | setup failed (focus {state().get('resolved')}; {' / '.join(SETUP_WHY[-2:])})", flush=True)
+                safe_print(f"FAIL | {focus:8} | {name:11} | {label} | setup failed (focus {state().get('resolved')}; {' / '.join(SETUP_WHY[-2:])})", flush=True)
                 continue
             prepare(name, focus, ctx)
             routed = decision(key, modifiers)
@@ -466,7 +468,7 @@ def main():
             except Exception as error:  # report, don't stop the matrix
                 ok, note = False, f"check raised {error!r}"
             results[(name, focus)] = (ok, label)
-            print(f"{'PASS' if ok else 'FAIL'} | {focus:8} | {name:11} | {label} | router={routed} | {note} | {sent}", flush=True)
+            safe_print(f"{'PASS' if ok else 'FAIL'} | {focus:8} | {name:11} | {label} | router={routed} | {note} | {sent}", flush=True)
             if name == "Cmd-Shift-N" and post["windows"] > pre["windows"]:
                 run("closeWindow")
                 wait(lambda: state()["windows"] == pre["windows"] or None, 8)
@@ -477,11 +479,11 @@ def main():
     for name, *_ in keys:
         lines.append(f"| {name} | " + " | ".join(("✅" if results[(name, f)][0] else "❌") for f in foci) + " |")
     matrix = "\n".join(lines)
-    print(matrix, flush=True)
+    safe_print(matrix, flush=True)
     with open(os.path.join(opts.out, "matrix.md"), "w") as out:
         out.write(matrix + "\n")
     passed = sum(ok for ok, _ in results.values())
-    print(f"RESULT {passed}/{len(results)}", flush=True)
+    safe_print(f"RESULT {passed}/{len(results)}", flush=True)
     SERVER.shutdown()
 
 

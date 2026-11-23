@@ -223,3 +223,135 @@ fn shared_sizing_focus_keeps_a_counts_choice_made_elsewhere() {
     assert_eq!(tui().counts_override, Some(false));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A remote-terminal tab (`remote-terminal-tabs-v1`) of an in-process daemon,
+/// made and retitled over the daemon's socket, as the app does it.
+#[cfg(unix)]
+struct RemoteTerminalTab {
+    mux: std::sync::Arc<Mux>,
+    dir: std::path::PathBuf,
+    surface: cmux_tui_core::SurfaceId,
+}
+
+#[cfg(unix)]
+impl RemoteTerminalTab {
+    fn open(label: &str) -> Self {
+        let mux = Mux::new(format!("remote-terminal-title-{label}"), SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let dir = std::path::PathBuf::from(format!("/tmp/cmux-rtt-{label}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        cmux_tui_core::server::serve(mux.clone(), Some(dir.join("mux.sock"))).unwrap();
+        let mut tab = Self { mux, dir, surface: 0 };
+        let created = tab.request(serde_json::json!({
+            "id": 1, "cmd": "new-remote-terminal-tab",
+            "session_id": "0b7f2c1e-4d3a-4f6b-9c8d-1a2b3c4d5e6f",
+            "terminal_id": "5f0c3a9e2b7d4c1a8e6f0b3d2c1a9e8f",
+            "session_name": "build-box",
+        }));
+        tab.surface = created["surface"].as_u64().expect("the daemon names the new tab's surface");
+        tab
+    }
+
+    fn request(&self, command: serde_json::Value) -> serde_json::Value {
+        use std::io::{BufRead as _, Write as _};
+        let stream = std::os::unix::net::UnixStream::connect(self.dir.join("mux.sock")).unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        writeln!(writer, "{command}").unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(stream).read_line(&mut line).unwrap();
+        let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(response["ok"], true, "{command} failed: {response}");
+        response["data"].clone()
+    }
+
+    /// The terminal on the other session reports `title`; the daemon stores it.
+    fn retitle(&self, title: &str) {
+        let updated = self.request(serde_json::json!({
+            "id": 2, "cmd": "update-remote-terminal-tab", "surface": self.surface, "title": title,
+        }));
+        assert_eq!(updated["changed"], true, "the daemon stores {title:?}: {updated}");
+    }
+
+    /// The tab as `list-workspaces` reports it.
+    fn wire(&self) -> serde_json::Value {
+        let tree = self.request(serde_json::json!({"id": 3, "cmd": "list-workspaces"}));
+        tree["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|workspace| workspace["screens"].as_array().cloned().unwrap_or_default())
+            .flat_map(|screen| screen["panes"].as_array().cloned().unwrap_or_default())
+            .flat_map(|pane| pane["tabs"].as_array().cloned().unwrap_or_default())
+            .find(|tab| tab["surface"] == serde_json::json!(self.surface))
+            .unwrap_or_else(|| panic!("surface {} is not in the tree: {tree}", self.surface))
+    }
+}
+
+#[cfg(unix)]
+impl Drop for RemoteTerminalTab {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// A remote terminal's spinner only animates, as a local terminal's does
+/// (plans/cmux-next/main-thread-scheduling.md, D2): 20 frames of one working
+/// title change what the tab shows once, so the daemon announces one
+/// `title-changed` and one `tab-changed`, not one of each per frame. Each
+/// frame's raw title is still stored.
+#[cfg(unix)]
+#[test]
+fn remote_terminal_tab_title_spinner_frames_announce_one_title() {
+    use cmux_tui_core::{MuxEvent, TreeDeltaKind};
+
+    let tab = RemoteTerminalTab::open("spinner");
+    let events = tab.mux.subscribe();
+    let mut titles: Vec<String> = Vec::new();
+    let mut tab_changes = 0usize;
+    for frame in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋⠙⠹⠸⠼⠴⠦⠧⠇⠿".chars() {
+        tab.retitle(&format!("{frame} Fix the login bug"));
+        // A mailbox keeps one unread title per surface, so read after every
+        // frame: the daemon publishes before it answers the request.
+        for event in events.try_iter() {
+            match event {
+                MuxEvent::TitleChanged { surface, title, .. } if surface == tab.surface => {
+                    titles.push(title.to_string());
+                }
+                MuxEvent::TreeDelta(delta)
+                    if delta.kind == TreeDeltaKind::TabChanged
+                        && delta.surface == Some(tab.surface) =>
+                {
+                    tab_changes += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(
+        (titles.len(), tab_changes),
+        (1, 1),
+        "(title-changed, tab-changed) for 20 spinner frames of one text; titles {titles:?}"
+    );
+    let wire = tab.wire();
+    assert_eq!(wire["title"], "⠿ Fix the login bug", "the last raw title is stored: {wire}");
+    assert_eq!(wire["title_text"], "Fix the login bug", "{wire}");
+}
+
+/// The in-process TUI builds its tree from the daemon's state, not from
+/// `list-workspaces`. A remote-terminal tab is a terminal there too: its tab
+/// shows the title without the status glyph, as the wire tree's `title_text`
+/// does and as a local terminal's tab does.
+#[cfg(unix)]
+#[test]
+fn remote_terminal_tab_title_in_the_local_tree_has_no_status_glyph() {
+    let tab = RemoteTerminalTab::open("tree");
+    tab.retitle("⠋ Fix the login bug");
+    let wire = tab.wire();
+    assert_eq!(wire["kind"], "remote-terminal", "{wire}");
+    assert_eq!(wire["title_text"], "Fix the login bug", "{wire}");
+
+    let tree = Session::Local(tab.mux.clone()).tree();
+    let shown = tree.surface(tab.surface).map(|view| view.title.clone());
+    assert_eq!(shown.as_deref(), Some("Fix the login bug"), "the local tree's tab title");
+}

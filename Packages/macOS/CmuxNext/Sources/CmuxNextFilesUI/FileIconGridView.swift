@@ -16,7 +16,7 @@ final class FileIconGridView: NSObject, FileContentView, NSCollectionViewDataSou
             collection.reloadData()
         }
     }
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let collection = FileCollectionView()
     private let layout = NSCollectionViewFlowLayout()
     private let actions: FilesPaneActions

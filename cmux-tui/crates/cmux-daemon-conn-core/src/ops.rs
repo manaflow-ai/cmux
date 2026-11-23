@@ -9,7 +9,7 @@ use crate::identity::Identity;
 use crate::idle::{self, Clients};
 use crate::latency;
 use crate::offline::{self, Held};
-use crate::retry::{BUSY_RETRY_CAP_NS, Preset};
+use crate::retry::{BUSY_RETRY_CAP_NS, CmuxRetryPacer, CmuxRetryPolicy, Preset};
 use crate::scope::{self, Created, Failure, Scope};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
@@ -97,6 +97,24 @@ pub fn call(op: &str, request: &Value) -> OpResult {
                 );
             }
             Ok(json!({"presets": presets, "busy_retry_cap_ns": BUSY_RETRY_CAP_NS}))
+        }
+        "retry_wait" => {
+            // The pacer's counters as the app keeps them (`RetryPacer`):
+            // what its loop reports while it waits.
+            let signed =
+                |key: &str| request.get(key).and_then(Value::as_i64).ok_or_else(|| invalid(key));
+            let mut pacer = CmuxRetryPacer::new(CmuxRetryPolicy::new(
+                1,
+                1,
+                signed("timed_retries")?,
+                signed("socket_retries")?,
+                flag(request, "keeps_trying"),
+            ));
+            pacer.failures = signed("failures")?;
+            pacer.socket_failures = signed("socket_failures")?;
+            pacer.busy_refusal = flag(request, "busy_refusal");
+            let wait = pacer.wait();
+            Ok(json!({"state": wait.state(), "reason": wait.reason()}))
         }
         "handshake_verdict" => {
             let identity = identity(request, "identity")?;
@@ -230,6 +248,12 @@ pub fn call(op: &str, request: &Value) -> OpResult {
                 request.get("bound_ms").and_then(Value::as_u64).unwrap_or(offline::HOLD_BOUND_MS);
             let now_ms = number(request, "now_ms")?;
             to_value(offline::sweep(&held, now_ms, flag(request, "reachable"), bound_ms))
+        }
+        "offline_intent_requeue" => {
+            let entry: Held =
+                serde_json::from_value(request.get("held").cloned().unwrap_or_default())
+                    .map_err(|_| invalid("held"))?;
+            to_value(offline::requeue(&entry, text(request, "kind")?))
         }
         "offline_intent_text" => to_value(offline::text(
             text(request, "action")?,

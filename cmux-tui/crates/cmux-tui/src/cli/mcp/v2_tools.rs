@@ -18,9 +18,6 @@ use super::Exclusion;
 use super::schema::{self, Generator};
 use super::transport::{self, Prefix};
 
-pub(super) const CATALOG_JSON: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
-
 /// A read with an array result and no `limit` of its own answers one page:
 /// `limit` items (default, maximum) from `offset`.
 pub(super) const DEFAULT_PAGE: usize = 100;
@@ -79,6 +76,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("settings.set", SETTINGS_REASON),
     ("settings.reset", SETTINGS_REASON),
     ("settings.reset_all", SETTINGS_REASON),
+    ("settings.edit", SETTINGS_REASON),
     ("keybindings.get", KEYBINDINGS_REASON),
     ("keybindings.set", KEYBINDINGS_REASON),
     ("keybindings.remove", KEYBINDINGS_REASON),
@@ -178,6 +176,12 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette_usage.hide", PALETTE_USAGE_REASON),
     ("palette_usage.forget", PALETTE_USAGE_REASON),
     ("palette.rank", PALETTE_RANK_REASON),
+    ("chat.list", CHAT_REASON),
+    ("chat.mark_read", CHAT_REASON),
+    ("chat.pin", CHAT_REASON),
+    ("theme.scheme.convert", THEME_SCHEME_REASON),
+    ("theme.scheme.export", THEME_SCHEME_REASON),
+    ("theme.scheme.from_image", THEME_SCHEME_REASON),
     ("stash.create", STASH_REASON),
     ("stash.list", STASH_REASON),
     ("stash.restore", STASH_REASON),
@@ -187,16 +191,26 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("classic_import.record", CLASSIC_IMPORT_REASON),
     ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
     ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
+    ("browser_import.read", BROWSER_IMPORT_REASON),
+    ("language_packs.ensure", LANGUAGE_PACKS_REASON),
+    ("cloud.machine.chat_access", CLOUD_API_REASON),
     ("cloud.machine.io", CLOUD_API_REASON),
+    ("cloud.machine.share_chat", CLOUD_API_REASON),
+    ("cloud.machine.chief_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_keyed_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
     ("cloud.owner.fork_run", CLOUD_API_REASON),
     ("cloud.owner.github_app", CLOUD_API_REASON),
+    ("cloud.owner.github_connect", CLOUD_API_REASON),
+    ("cloud.owner.github_repos", CLOUD_API_REASON),
     ("cloud.owner.handoff_begin_turn", CLOUD_API_REASON),
     ("cloud.owner.handoff_open", CLOUD_API_REASON),
     ("cloud.owner.handoff_wait", CLOUD_API_REASON),
     ("cloud.owner.handoffs", CLOUD_API_REASON),
     ("cloud.owner.harness_login_copy", CLOUD_API_REASON),
+    ("cloud.owner.turn_checkpoint", CLOUD_API_REASON),
+    ("cloud.owner.turn_rewind", CLOUD_API_REASON),
+    ("cloud.owner.turns", CLOUD_API_REASON),
     ("cloud.previews.create_link", CLOUD_API_REASON),
     ("cloud.previews.refresh", CLOUD_API_REASON),
     ("cloud.previews.revoke_link", CLOUD_API_REASON),
@@ -288,14 +302,23 @@ const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that
      window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
      app's sidebar actions (action tools), which keep the app's intent log.";
+const CHAT_REASON: &str = "The person's chats as their Priority view ranks them, and what they have \
+     seen or pinned: App Store apps (with a grant and a tap) and the person's own scripts read and \
+     mark them; an agent already lists sessions with acpmux's own tools.";
 const PALETTE_RANK_REASON: &str = "Ranks palette rows a page sends for its own palette \
      (the Channels page); an agent has no palette to rank, and its tools already search.";
+const THEME_SCHEME_REASON: &str = "Scheme conversion for pages and extensions; an agent runs \
+     `cmux theme import|export|from-image`, which reads and writes files the tools cannot pass.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
      list; agents close and open tabs through the tab and browser tools, never the stash.";
 const CLASSIC_IMPORT_REASON: &str = "The app's move from classic cmux drives these: it reads \
      the plan and records what it made; agents never import.";
+const BROWSER_IMPORT_REASON: &str = "The app's browser import reads another browser's \
+     bookmarks, history and tabs by path; only the verified app sends it, agents never read them.";
+const LANGUAGE_PACKS_REASON: &str = "The app downloads the language it shows on first use, \
+     with its own bundle's manifest; only the verified app sends it, agents never do.";
 const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
      the dry-run plan and records what it made; agents never import.";
 const CLOUD_API_REASON: &str = "The app's Cloud code and `cmux cloud` call these with the \
@@ -321,8 +344,8 @@ const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user
 const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
      chat opens; an agent already runs in its folder (cx-9aps).";
 
-/// The v2 catalog as an index of raw JSON slices of [`CATALOG_JSON`], which is
-/// embedded in the binary: parsed into one tree, its ~1 MB took ~17 MB of heap,
+/// The v2 catalog as an index of raw JSON slices of the catalog text (plain in the binary,
+/// 1.3 MB, shared by every server): parsed into one tree, its ~1 MB took ~17 MB of heap,
 /// held by every agent's `cmux mcp serve` for its whole life. An operation's
 /// descriptor or a type definition is parsed only while a tool is listed or
 /// called, and dropped after.
@@ -342,7 +365,8 @@ pub(super) fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<Catalog> = OnceLock::new();
     CATALOG.get_or_init(|| {
         let index: Index<'static> =
-            serde_json::from_str(CATALOG_JSON).expect("the checked-in catalog");
+            serde_json::from_str(cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2)
+                .expect("the checked-in catalog");
         Catalog { types: index.types, operations: index.operations }
     })
 }
@@ -527,7 +551,9 @@ impl V2Tool {
         }
         if self.waits() {
             text.push_str(&format!(
-                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}."
+                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}. \
+                 An answer whose time ran out (no match, or a process still running) has \
+                 timed_out true and waited_ms."
             ));
         }
         if self.paginated {

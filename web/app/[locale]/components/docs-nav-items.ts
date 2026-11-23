@@ -1,4 +1,4 @@
-import type { Locale } from "@/i18n/routing";
+import { localeDirection, type Locale } from "@/i18n/routing";
 import {
   docsPathAvailableInChannel,
   type DocsChannel,
@@ -71,6 +71,20 @@ export function docsContentLang(path: string, locale: string): Locale {
   const item = flatNavItems(navItems).find((each) => each.href === path);
   if (item?.locales && !item.locales.includes(locale as Locale)) return item.locales[0]!;
   return locale as Locale;
+}
+
+/**
+ * The attributes `.docs-content` carries when its body is in `contentLang` rather than the
+ * reader's `locale`: the language, and the direction whenever it differs from the locale's,
+ * which the root element sets (English under Arabic is ltr, not the inherited rtl).
+ */
+export function docsContentLangAttributes(
+  contentLang: string,
+  locale: string,
+): { lang?: string; dir?: "ltr" | "rtl" } {
+  if (contentLang === locale) return {};
+  const dir = localeDirection(contentLang);
+  return dir === localeDirection(locale) ? { lang: contentLang } : { lang: contentLang, dir };
 }
 
 export function hasNavItemContent(item: NavLink, locale: string): boolean {
@@ -194,12 +208,14 @@ export const navItems: NavEntry[] = [
       { titleKey: "nextBrowser", href: "/docs/next/browser", locales: baseDocsLocales },
       { titleKey: "nextMarkdown", href: "/docs/next/markdown", locales: baseDocsLocales },
       { titleKey: "nextRemote", href: "/docs/next/remote", locales: baseDocsLocales },
+      { titleKey: "nextServer", href: "/docs/next/server", locales: baseDocsLocales },
       { titleKey: "nextCloud", href: "/docs/next/cloud", locales: baseDocsLocales },
       { titleKey: "nextPlans", href: "/docs/next/plans", locales: baseDocsLocales },
       { titleKey: "nextShortcuts", href: "/docs/next/keyboard-shortcuts", locales: baseDocsLocales },
       { titleKey: "nextCli", href: "/docs/next/cli", locales: baseDocsLocales },
       { titleKey: "nextMcp", href: "/docs/next/mcp", locales: baseDocsLocales },
       { titleKey: "nextSettings", href: "/docs/next/settings", locales: baseDocsLocales },
+      { titleKey: "nextArchitecture", href: "/docs/next/architecture", locales: baseDocsLocales },
     ],
   },
   { titleKey: "changelog", href: "/docs/changelog" },

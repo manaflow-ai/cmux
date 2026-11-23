@@ -83,6 +83,16 @@ struct PanesScreen: View {
                                 Text("No tabs the iPhone shows").foregroundStyle(theme.colors.label2.color)
                             }
                             ForEach(tabs) { tab in row(tab, in: pane, layout: layout) }
+                                // One gesture moves a tab: a long press lifts its row and the
+                                // same touch drags it, in this pane or into another one; the rows
+                                // make room as it passes, and the drop settles in one motion.
+                                .dropDestination(for: String.self) { ids, offset in
+                                    guard source.canEditPanes, let id = ids.first else { return }
+                                    theme.haptics.selection()
+                                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) {
+                                        _ = source.dropTab(id, into: pane, at: offset)
+                                    }
+                                }
                         } header: {
                             header(pane, screen: screen, layout: layout)
                         }
@@ -91,6 +101,11 @@ struct PanesScreen: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
+        } else if source.awaitsMacList {
+            // The Mac's list is on its way: loading, never "No Panes Yet".
+            CmuxSpinner(label: Text("Loading panes from \(source.macName)…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("panes.loading")
         } else {
             ContentUnavailableView("No Panes Yet", systemImage: "rectangle.split.2x1",
                                    description: Text("\(source.macName) hasn't listed this workspace's panes."))
@@ -217,10 +232,11 @@ struct PanesScreen: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityIdentifier("panes.tab.\(tab.id)")
-        .accessibilityHint("Opens the tab")
+        .accessibilityHint("Opens the tab. Touch and hold, then drag to move it.")
         .contextMenu { tabMenu(tab, in: pane, layout: layout) }
+        .draggable(tab.id)
     }
 
     @ViewBuilder private func tabMenu(_ tab: WorkspaceTab, in pane: WorkspaceLayout.Pane, layout: WorkspaceLayout) -> some View {

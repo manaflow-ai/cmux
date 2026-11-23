@@ -9,6 +9,7 @@ export type FailureKind =
   | "trust-untrusted"
   | "no-team-account"
   | "needs-credits"
+  | "team-cap"
   | "no-credit"
   | "cloud-auth-expired"
   | "rate-limited"
@@ -52,6 +53,11 @@ const ADD_COMMAND = /\bcr add (?:codex|claude|opencode)\b/;
 /// signal; any other text that merely mentions cmux credits is not.
 const NEEDS_CREDITS =
   /AI models need cmux credits, your own API key, or a paid plan|Not enough cmux credits for this call|\binference\.plan_required\b|\bcredits\.insufficient\b/i;
+/// The cmux model router refused the call because the team reached its spending cap for the billing
+/// period (backend inference/route.ts: 402 `team.cap_reached`, typed `insufficient_quota`; cmux#39915).
+/// Neither waiting nor the person's own credit helps: an admin raises the cap, or a model on the
+/// person's own account goes on. Before every quota and credit rule, which its type would match.
+const TEAM_CAP = /\bteam\.cap_reached\b|team reached its (?:spending|monthly usage) cap/i;
 /// The account behind the chat's own API key has no credit left: Anthropic's "credit balance is too
 /// low", OpenAI's `insufficient_quota` ("You exceeded your current quota") and
 /// `billing_hard_limit_reached`, a gateway's "insufficient credits". Not a rate limit: waiting does not
@@ -108,8 +114,11 @@ const UNREACHABLE =
 /// they count only when no sign-in or key is named beside them. Not "broken pipe": an agent that quit.
 const DROPPED =
   /stream disconnected|error sending request|connection (?:aborted|lost)|upstream connect error|premature close|other side closed|gateway timeout/i;
+/// A key the provider no longer accepts, including one it expired (OpenCode Go: "This API key has
+/// expired … Signing in again will not renew this key", `api_key_expired`): a new key fixes it, a
+/// sign-in does not.
 const INVALID_KEY =
-  /invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:is )?(?:missing|not set|not found|invalid)|no api key|(?:ANTHROPIC|OPENAI)_API_KEY/i;
+  /invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:is )?(?:missing|not set|not found|invalid)|no api key|(?:ANTHROPIC|OPENAI)_API_KEY|api[ _-]?key (?:has |is )?(?:expired|revoked)|expired api[ _-]?key|api_key_expired/i;
 const SUBSCRIPTION =
   /not logged in|login required|please (?:run )?\/login|(?:claude|codex) (?:auth )?login|oauth token (?:has )?expired|session (?:has )?expired|refresh token|invalid_grant|invalid_rapt|sign(?:ed)? ?in again/i;
 const AUTH = /\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b/i;
@@ -120,9 +129,6 @@ const MISSING_CREDENTIAL =
   /(?:provider )?credentials? (?:is |are )?(?:missing|not configured|not set)|no provider credentials?/i;
 const EXPIRED_CREDENTIAL =
   /(?:credential|token|session).{0,24}(?:expired|revoked)|(?:expired|revoked).{0,24}(?:credential|token|session)/i;
-/// The Cloud machine's provider answered that the stored Claude login is no longer accepted.
-/// This exact family is the only auth failure eligible for silent cached-login recovery.
-const CLOUD_REJECTED_CREDENTIAL = /provider rejected Claude Code[’']s credentials on this Cloud machine/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
 /// write, a socket, the agent) reads as that kind too.
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
@@ -195,10 +201,6 @@ export function isTeamMachineSignIn(kind: FailureKind, route?: FailureRoute): bo
   );
 }
 
-export function isCloudRejectedCredential(message: string | undefined, route?: FailureRoute): boolean {
-  return route?.hostKind === "cloud" && CLOUD_REJECTED_CREDENTIAL.test(message ?? "");
-}
-
 /// The proxy or endpoint a failure names: a host in the message that is not the provider's, else the
 /// profile's known proxy. Undefined for a direct route.
 export function failureVia(message: string | undefined, route?: FailureRoute): string | undefined {
@@ -209,6 +211,7 @@ export function failureVia(message: string | undefined, route?: FailureRoute): s
 
 /// `code`: acpmux's typed reason for the failure (the turn's `errorCode`), when it gives one.
 export function failureKind(message: string | undefined, route?: FailureRoute, code?: string): FailureKind {
+  if (TEAM_CAP.test(message ?? "") || TEAM_CAP.test(code ?? "")) return "team-cap";
   const typed = code ? TYPED.find(([words]) => words.test(code))?.[1] : undefined;
   // The router types its own limits `insufficient_quota` too: its code in the text makes it a limit.
   if (typed === "no-credit" && message && ROUTER_CODE.test(message)) return "rate-limited";
@@ -310,6 +313,9 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
     case "invalid-key":
     case "proxy-auth":
     case "no-credit":
+    // At the team's cap every cmux-routed call is refused until an admin raises it: a model on the
+    // person's own account is the way on.
+    case "team-cap":
       return "switch-model";
     case "trust-pending":
     case "trust-untrusted":
@@ -344,6 +350,8 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.noTeamAccount", { harness, command: (message && ADD_COMMAND.exec(message)?.[0]) ?? "" });
     case "needs-credits":
       return t("turn.failure.needsCredits", { harness });
+    case "team-cap":
+      return t("turn.failure.teamCap", { harness });
     case "no-credit":
       return t("turn.failure.noCredit", { harness });
     case "cloud-auth-expired": {

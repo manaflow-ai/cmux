@@ -1,10 +1,11 @@
 //! Subagent attribution for session updates.
 //!
-//! Harnesses report subagents three ways: native ACP subagent sessions
+//! Harnesses report subagents four ways: native ACP subagent sessions
 //! (draft agentclientprotocol/agent-client-protocol#1992: `subagent_spawned`,
 //! `subagent_state_update`, and the child's updates under its own session
-//! id), Codex's legacy `spawnAgent` collaboration calls, and Codex's legacy
-//! subagent activity items. The hub forwards every update under its own
+//! id), Codex's legacy `spawnAgent` collaboration calls, Codex's legacy
+//! subagent activity items, and OpenCode's `task` tool calls
+//! (`subagents_opencode.rs`). The hub forwards every update under its own
 //! session id, so the child's id would be lost; this module writes one model
 //! into each update's `_meta.acpmux` instead:
 //!
@@ -32,9 +33,11 @@
 //!   agent its `agentId` (what SendMessage resumes it by; a resume reports it `running`
 //!   again).
 //!   `background: true` marks one that outlives its parent's turn (every
-//!   Codex child, which runs in its own thread).
+//!   Codex child, which runs in its own thread), on every event of it, and on
+//!   every subagent below it: a client never waits on one for the turn's end.
 
-use crate::hub::merge_mux_meta;
+use crate::protocol::merge_mux_meta;
+use expiry::Expiry;
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 
@@ -84,6 +87,8 @@ pub struct SubagentTree {
     /// conversation names a new root, so every root learned is kept: replayed
     /// history still names the earlier ones.
     root_threads: HashSet<String>,
+    /// What ends a subagent its harness never said ended (`expiry.rs`).
+    expiry: Expiry,
 }
 
 #[derive(Debug, Default)]
@@ -161,6 +166,14 @@ impl SubagentTree {
         }
     }
 
+    /// Whether a `SendMessage` to `to` names one of this session's subagents: its name, its id, or
+    /// the agent id an event of it gave (`hub/native_messaging.rs`).
+    pub fn answers_to(&self, to: &str) -> bool {
+        self.names.values().any(|name| name == to)
+            || self.parents.contains_key(to)
+            || self.previews.values().any(|p| p.agent_id.as_deref() == Some(to))
+    }
+
     /// Whether `session_id` is one of this session's subagents.
     pub fn owns(&self, session_id: &str) -> bool {
         self.own.as_deref() != Some(session_id) && self.parents.contains_key(session_id)
@@ -226,6 +239,8 @@ impl SubagentTree {
             params.get("update").map(|u| self.events(u, owner.as_deref())).unwrap_or_default();
         for event in &mut events {
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
+            self.mark_background_work(id.to_owned(), event);
+            let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
             self.name_event(id.to_owned(), event);
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
             let preview = self.previews.entry(id.to_owned()).or_default();
@@ -260,6 +275,8 @@ impl SubagentTree {
             }
             let state = event.get("state").and_then(Value::as_str);
             let ended = matches!(state, Some("completed" | "failed" | "cancelled"));
+            // A replayed `running` is history, not news of it.
+            let running = state == Some("running");
             if state == Some("completed")
                 && event.get("result").is_none()
                 && !preview.result_cut
@@ -270,6 +287,11 @@ impl SubagentTree {
             }
             if ended {
                 preview.free_result();
+            }
+            if (live || !running)
+                && let Some(id) = event.get("id").and_then(Value::as_str).map(str::to_owned)
+            {
+                self.expiry_event(&id, running);
             }
         }
         let mut fields = Map::new();
@@ -327,6 +349,7 @@ impl SubagentTree {
             }
         }
         self.root_threads.extend(log.root_threads);
+        self.adopt_expiry(log.expiry, &known);
     }
 
     /// Learns `id`'s name from `event` when it names it, or gives `event` the name learned before
@@ -367,6 +390,7 @@ impl SubagentTree {
 
     /// The harness is gone, and its background subagents with it.
     pub fn end_background(&mut self) {
+        self.expiry_harness_exit();
         self.background.clear();
         self.running.clear();
     }
@@ -436,6 +460,39 @@ impl SubagentTree {
     /// marked `background` that runs is added (a later event of it need not
     /// repeat the mark), any that ends leaves, and one that ended runs again as
     /// background work (`was_background`).
+    /// Whether `id` is work that outlives the chat's turn: a subagent marked background, or one
+    /// below such a subagent at any depth (a background helper's own Agent calls run in the
+    /// helper's turn, never the chat's).
+    fn is_background_work(&self, id: &str) -> bool {
+        let mut at = Some(id);
+        // The tree has no loops (``spawn``), but a bound costs nothing.
+        for _ in 0..=self.parents.len() {
+            match at {
+                Some(node) if self.was_background.contains(node) => return true,
+                Some(node) => at = self.parents.get(node).and_then(Option::as_deref),
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// Every event of background work says so (`background: true`), not only the spawn that
+    /// marked it: a progress or state update, and a subagent spawned below a background one. A
+    /// client that never read the spawn (a page after it), or that sees a background helper's
+    /// own subagent, then never counts it as one the chat's turn waits on (Leo, 2026-11-12, on
+    /// "Waiting on 16 subagents 14m 24s" while every helper ran in the background: "this is
+    /// taking a REALLY long time? shouldn't this have backgrounded?"). Replayed events are
+    /// marked too: being background is what the subagent is, not whether it runs now.
+    fn mark_background_work(&mut self, id: String, event: &mut Value) {
+        if event.get("background") == Some(&Value::Bool(true)) {
+            self.was_background.insert(id);
+        } else if self.is_background_work(&id)
+            && let Some(object) = event.as_object_mut()
+        {
+            object.insert("background".into(), json!(true));
+        }
+    }
+
     fn note_background(&mut self, events: &[Value]) {
         for event in events {
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
@@ -571,7 +628,10 @@ impl SubagentTree {
                 self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
-            Some("tool_call" | "tool_call_update") => self.codex_legacy(update, owner),
+            Some("tool_call" | "tool_call_update") => match self.opencode_task(update, owner) {
+                Some(events) => events,
+                None => self.codex_legacy(update, owner),
+            },
             _ => vec![],
         }
     }
@@ -735,6 +795,7 @@ impl SubagentTree {
         }
         if let Some(v) = text("agentId") {
             self.previews.entry(id.to_owned()).or_default().agent_id = Some(v.to_owned());
+            self.expiry_agent(id, v);
         }
     }
 
@@ -924,6 +985,9 @@ fn truncate_last_message(text: &str) -> String {
         value
     }
 }
+
+#[path = "subagent_expiry.rs"]
+pub mod expiry;
 
 #[cfg(test)]
 mod codex_tests {
@@ -1743,3 +1807,6 @@ mod codex_tests {
 #[cfg(test)]
 #[path = "subagents_background_tests.rs"]
 mod background_tests;
+
+#[path = "subagents_opencode.rs"]
+mod opencode;

@@ -88,10 +88,11 @@ STORM_START_DEADLINE_S = 20.0
 STORM_DRAIN_DEADLINE_S = 30.0
 # perf-signposts.py stops `log stream` (up to 10 s) and joins its reader (up to 10 s) after SIGINT.
 SIGNPOSTS_STOP_DEADLINE_S = 30.0
-# The probe column reported as key_to_contents_ms: the first `setContents:` on a terminal IOSurfaceLayer after the
-# echo's parse (TypingFrameProbe). It is not bound to the typed surface and is set before Core Animation commits that
-# run-loop turn: work later in the same turn (the storm's snapshot and sidebar work) is not in it, so it is not a
-# committed frame and is never compared with the 10 ms target. A surface-bound mark at the CA commit after contents
+# The probe column reported as key_to_contents_ms: the first frame Ghostty's present callback reports on the layer
+# the echo's output lane names, after the echo's parse (TerminalPresents). A frame at the shown size is marked after
+# its own off-main commit; a frame shown on main is marked before main's commit that run-loop turn: work later in the
+# same turn (the storm's snapshot and sidebar work) is not in it, so it is not a committed frame and is never compared
+# with the 10 ms target. A surface-bound mark at the CA commit after contents
 # needs the probe change (TypingLatencyProbe); debug.frames' missed vsyncs and main-thread busy are the frame evidence.
 KEY_COLUMN = "contents_ms"
 SESSION_SHAPE = {"light": "light", "stress": "STRESS-busy-elsewhere"}

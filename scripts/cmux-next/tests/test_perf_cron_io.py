@@ -7,6 +7,16 @@ fetch_state paging and download_redirected (a local HTTP server), github_busy, a
 import argparse, datetime, http.server, importlib.util, io, json, os, stat, subprocess, sys, tempfile, threading
 import unittest, zipfile
 from unittest import mock
+import importlib.util  # noqa: E402
+import os  # noqa: E402
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("perf_cron", os.path.join(HERE, "..", "perf-cron.py"))
@@ -105,10 +115,12 @@ class ReferenceTests(unittest.TestCase):
             self.assertEqual(measure_tip(state, sha(100 + k), {name: row(45.0)}, at(12 * (i - 3 + k))), "still")
         self.assertEqual([r["name"] for r in state["regressions"]], [name])
         self.assertEqual([e["p95"] for e in state["row_history"][name]], history, "no closing value entered the baseline")
-        state["current"] = cron.new_measurement(sha(12), "bisect", ["motion"], at(12 * (i + 2)), bisect_range=rng)
-        state["current"]["parts"] = {"motion": {"state": "done"}}
-        self.assertEqual(cron.finish_measurement(state, {name: row(45.0)}, 8.33, "bench", "u", at(12 * (i + 2)), budgets_mod),
-                         "narrowed")
+        # A bisect commit is decided by BISECT_RUNS agreeing runs (test_perf_bisect.py).
+        for k in range(cron.BISECT_RUNS):
+            state["current"] = cron.new_measurement(sha(12), "bisect", ["motion"], at(12 * (i + 2) + k), bisect_range=rng)
+            state["current"]["parts"] = {"motion": {"state": "done"}}
+            event = cron.finish_measurement(state, {name: row(45.0)}, 8.33, "bench", "u", at(12 * (i + 2) + k), budgets_mod)
+        self.assertEqual(event, "narrowed")
         self.assertEqual(state["regressions"][0]["range"]["bad"], sha(12), "45.0 is bad against the confirmed reference")
 
     def test_a_step_on_a_flat_row_starts_at_row_ok_even_when_the_week_old_median_is_a_little_lower(self):

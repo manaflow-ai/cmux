@@ -267,6 +267,100 @@ fn an_approved_no_prompt_preset_starts_unattended_chats_on_another_machine() {
     });
 }
 
+/// The lines of the unattended runs log (`<acpmux home>/unattended-presets.jsonl`) about chat
+/// `id`: those it started or asked from, and the approvals its card sent.
+fn logged(id: &str) -> Vec<Value> {
+    let path = acpmux::config::home().join("unattended-presets.jsonl");
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|l| l["caller"] == id || l["sessionId"] == id)
+        .collect()
+}
+
+/// #39876 (from #39318): what ran with no one watching can be read afterwards. Every start that
+/// asked, every approval and withdrawal, and every start an approval let run unattended is one
+/// line in the owner-only log.
+#[test]
+fn every_unattended_start_and_approval_is_logged() {
+    big_stack(async {
+        let (a, _b) = with_peer("log", true).await;
+        let mut app = Client::person(&a).await;
+        app.ok(
+            "_acpmux/presets",
+            json!({"name": PRESET, "set": {"harness": "fake", "policy": "approve-all"}}),
+        )
+        .await;
+        let asking = starter(&mut app, "ask", "strict").await;
+        let mut agent = Client::as_session(&a, &asking).await;
+        let r = agent.call("session/new", on_b(json!({"preset": PRESET}))).await;
+        assert_eq!(r["error"]["data"]["reason"], "preset.approval_required", "{r}");
+        let digest =
+            record(&mut app, &asking, "preset_approval_request").await.expect("a card")["digest"]
+                .as_str()
+                .expect("a digest")
+                .to_owned();
+        app.ok(
+            "_acpmux/presets",
+            json!({"name": PRESET, "approveMode": true, "approveDigest": digest, "sessionId": asking}),
+        )
+        .await;
+        let child = id(&agent.ok("session/new", on_b(json!({"preset": PRESET}))).await);
+        app.ok(
+            "_acpmux/presets",
+            json!({"name": PRESET, "approveMode": false, "approveDigest": digest, "sessionId": asking}),
+        )
+        .await;
+        let lines = logged(&asking);
+        let events: Vec<&str> = lines.iter().filter_map(|l| l["event"].as_str()).collect();
+        assert_eq!(events, ["asked", "approved", "started", "withdrawn"], "{lines:?}");
+        assert_eq!(lines[0]["host"], "b", "{lines:?}");
+        assert_eq!(lines[1]["person"], true, "{lines:?}");
+        assert_eq!(lines[2]["sessionId"], child, "{lines:?}");
+        assert_eq!(lines[2]["digest"], digest, "{lines:?}");
+        assert!(
+            lines.iter().all(|l| l["preset"] == PRESET && l["at"].as_u64().is_some()),
+            "{lines:?}"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let path = acpmux::config::home().join("unattended-presets.jsonl");
+            let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "the log is owner-only");
+        }
+    });
+}
+
+/// #39916 (F1 of #39884's review): an approval whose config save fails changed nothing, so the
+/// log says nothing about it.
+#[test]
+fn an_approval_that_is_not_saved_is_not_logged() {
+    big_stack(async {
+        let (a, _b) = with_peer("unsaved", true).await;
+        let mut app = Client::person(&a).await;
+        app.ok(
+            "_acpmux/presets",
+            json!({"name": PRESET, "set": {"harness": "fake", "policy": "approve-all"}}),
+        )
+        .await;
+        // The log's home exists, as a daemon's does; the config file is a directory, so the
+        // save's rename onto it fails.
+        std::fs::create_dir_all(acpmux::config::home()).unwrap();
+        let dir = std::env::temp_dir().join(format!("acpmux-unsaved-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("config.json")).unwrap();
+        a.config.write().await.path = Some(dir.join("config.json"));
+        let id = "unsaved-approval";
+        let r = app
+            .call("_acpmux/presets", json!({"name": PRESET, "approveMode": true, "sessionId": id}))
+            .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(r["error"]["message"].as_str().unwrap_or("").contains("save config"), "{r}");
+        assert_eq!(logged(id), Vec::<Value>::new());
+    });
+}
+
 #[test]
 fn an_approved_preset_with_an_env_is_refused_on_another_machine() {
     big_stack(async {

@@ -13,7 +13,6 @@ layout so a single table compares builds:
   column / column-close         newColumn, then its closePane
   ws-switch / ws-back           goToWorkspace to a 4-pane workspace and back
   sidebar-hide / sidebar-show   toggleSidebar twice
-  right-open / right-close      toggleRightSidebar twice
   group-collapse / -expand      toggleFocusedWorkspaceGroupCollapsed twice (a sidebar group of 3 workspaces)
   home-show / home-leave        home.show, then goToWorkspace back
   chat-open / -next / -prev     home.openConversation of the first of 4 seeded chats (the bench's own Chief home),
@@ -33,6 +32,7 @@ import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import LaunchError, launch_app  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
@@ -291,8 +291,6 @@ def anims():
         ("ws-back", None, lambda: go(state["a"])),
         ("sidebar-hide", lambda: at_a(1), run("toggleSidebar")),
         ("sidebar-show", None, run("toggleSidebar")),
-        ("right-open", lambda: at_a(1), run("toggleRightSidebar")),
-        ("right-close", None, run("toggleRightSidebar")),
         ("group-collapse", lambda: go(state["group_ws"]), run("toggleFocusedWorkspaceGroupCollapsed")),
         ("group-expand", None, run("toggleFocusedWorkspaceGroupCollapsed")),
         ("home-show", lambda: at_a(1), run("home.show")),
@@ -495,7 +493,7 @@ def main():
         if error.reason == "no-gui-session":
             sys.exit(1)
         # macOS 27 minis: a first launch can stall before its socket (NSXPCSharedListener interrupted); one relaunch.
-        print("the tagged app did not come up in 120 s; relaunching once", flush=True)
+        safe_print("the tagged app did not come up in 120 s; relaunching once", flush=True)
         if app and app.poll() is None:
             app.kill()  # the pid this script started
             app.wait(timeout=30)
@@ -503,7 +501,7 @@ def main():
             app, SOCKET = launch_app(APP, env, log_path, timeout=120, on_start=started)
         except LaunchError:
             sys.exit(1)
-    print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
+    safe_print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
     time.sleep(5)  # test harness: launch work settles
     setup()
     wanted = set(filter(None, opts.anims.split(",")))
@@ -522,7 +520,7 @@ def main():
             time.sleep(0.3)  # test harness: idle between runs
     by_name = {n: (p, f) for n, p, f in anims()}
     undo_of = {"tab-new": "tab-close", "tab-move": "tab-move-back", "split-right": "split-close", "column": "column-close",
-            "ws-switch": "ws-back", "sidebar-hide": "sidebar-show", "right-open": "right-close", "group-collapse": "group-expand",
+            "ws-switch": "ws-back", "sidebar-hide": "sidebar-show", "group-collapse": "group-expand",
             "palette-open": "palette-close", "tab-to-pane": "tab-back", "split-down": "split-down-close"}
     for name in filter(None, opts.sample.split(",")):
         if name in by_name:
@@ -536,8 +534,8 @@ def main():
     def worst(runs, key):
         values = [v for v in (r.get(key) for r in runs) if v is not None]
         return max(values) if values else None
-    print("\n== summary (median over rounds; max is the worst round)")
-    print(f"  {'anim':<17} {'p50':>6} {'p95':>6} {'max':>6} {'drop':>5} {'>8.3':>5} {'mainp95':>7} {'mainmx':>7} {'maintot':>7} {'err'}")
+    safe_print("\n== summary (median over rounds; max is the worst round)")
+    safe_print(f"  {'anim':<17} {'p50':>6} {'p95':>6} {'max':>6} {'drop':>5} {'>8.3':>5} {'mainp95':>7} {'mainmx':>7} {'maintot':>7} {'err'}")
     for name, _, _ in plan:
         runs = [r for r in report["runs"] if r["anim"] == name]
         summary = {"anim": name, **{k: med(runs, k) for k in ("p50_ms", "p95_ms", "dropped", "over_8_33", "main_ms_p95",
@@ -545,9 +543,9 @@ def main():
                    "max_ms": worst(runs, "max_ms"), "main_ms_max": worst(runs, "main_ms_max"),
                    "errors": sorted({r["error"] for r in runs if r["error"]})}
         report.setdefault("summary", []).append(summary)
-        print(f"  {name:<17} {fmt(summary['p50_ms']):>6} {fmt(summary['p95_ms']):>6} {fmt(summary['max_ms']):>6} "
-              f"{fmt(summary['dropped']):>5} {fmt(summary['over_8_33']):>5} {fmt(summary['main_ms_p95']):>7} "
-              f"{fmt(summary['main_ms_max']):>7} {fmt(summary['main_ms_total']):>7} {'; '.join(summary['errors'])[:60]}", flush=True)
+        safe_print(f"  {name:<17} {fmt(summary['p50_ms']):>6} {fmt(summary['p95_ms']):>6} {fmt(summary['max_ms']):>6} "
+                   f"{fmt(summary['dropped']):>5} {fmt(summary['over_8_33']):>5} {fmt(summary['main_ms_p95']):>7} "
+                   f"{fmt(summary['main_ms_max']):>7} {fmt(summary['main_ms_total']):>7} {'; '.join(summary['errors'])[:60]}", flush=True)
         row(f"{name}: ran", "no error", "; ".join(summary["errors"]) or "None", not summary["errors"] or False)
     for budget in budgets():
         anim, key, limit = budget.get("anim"), budget.get("metric"), budget.get("limit")

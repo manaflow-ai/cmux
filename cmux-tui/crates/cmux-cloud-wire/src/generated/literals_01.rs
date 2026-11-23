@@ -125,6 +125,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitSpendCap = "spend_cap"
+}
+
+wire_literal! {
     LitSteps = "steps"
 }
 

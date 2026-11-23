@@ -90,6 +90,8 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("bookmark", "create", 1)], ..SurfacePlan::DEFAULT },
         arguments: &[args::BOOKMARK.optional()],
+        palette_target: Some("bookmark"),
+        palette_target_source: Some("bookmarks"),
         targets: &["bookmark"],
         cli_name: "bookmark open-in-new-tab",
         ..Action::DEFAULT
@@ -104,6 +106,8 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("bookmark", "create", 2)], ..SurfacePlan::DEFAULT },
         arguments: &[args::BOOKMARK.optional()],
+        palette_target: Some("bookmark"),
+        palette_target_source: Some("bookmarks"),
         targets: &["bookmark"],
         cli_name: "bookmark open-in-background-tab",
         ..Action::DEFAULT
@@ -118,6 +122,8 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("bookmark", "create", 3)], ..SurfacePlan::DEFAULT },
         arguments: &[args::BOOKMARK.optional()],
+        palette_target: Some("bookmark"),
+        palette_target_source: Some("bookmarkFolders"),
         targets: &["bookmark"],
         cli_name: "bookmark open-all",
         ..Action::DEFAULT
@@ -132,6 +138,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("bookmark", "identity", 100)], ..SurfacePlan::DEFAULT },
         arguments: &[args::BOOKMARK.optional(), args::TITLE_3.optional(), args::URL_4.optional()],
+        palette_target: Some("bookmark"),
         targets: &["bookmark"],
         cli_name: "bookmark edit",
         ..Action::DEFAULT
@@ -146,6 +153,8 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("clipboard")), context_menus: &[Placement::at("bookmark", "inspect", 150)], ..SurfacePlan::DEFAULT },
         arguments: &[args::BOOKMARK.optional()],
+        palette_target: Some("bookmark"),
+        palette_target_source: Some("bookmarks"),
         targets: &["bookmark"],
         cli_name: "action bookmark-copy-link",
         ..Action::DEFAULT
@@ -160,6 +169,8 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("bookmark", "identity", 101).folder("appearance").label(t("Localizable", "menu.icon.set", "Set Icon…"))], ..SurfacePlan::DEFAULT },
         arguments: &[args::BOOKMARK.optional(), args::ICON.optional()],
+        palette_target: Some("bookmark"),
+        palette_target_source: Some("bookmarkFolders"),
         targets: &["bookmark"],
         cli_name: "bookmark set-icon",
         ..Action::DEFAULT
@@ -174,6 +185,8 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("bookmark", "identity", 102).folder("appearance").label(t("Localizable", "menu.icon.remove", "Remove Icon"))], ..SurfacePlan::DEFAULT },
         arguments: &[args::BOOKMARK.optional()],
+        palette_target: Some("bookmark"),
+        palette_target_source: Some("bookmarkFolders"),
         targets: &["bookmark"],
         cli_name: "bookmark clear-icon",
         ..Action::DEFAULT
@@ -187,6 +200,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.up.arrow.down",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         arguments: &[args::BOOKMARK.optional(), args::FOLDER.optional(), args::INDEX_5.optional()],
+        palette_target: Some("bookmark"),
         targets: &["bookmark"],
         cli_name: "bookmark move",
         ..Action::DEFAULT
@@ -201,6 +215,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("bookmark", "close", 101)], ..SurfacePlan::DEFAULT },
         arguments: &[args::BOOKMARK.optional()],
+        palette_target: Some("bookmark"),
         targets: &["bookmark"],
         cli_name: "bookmark remove",
         ..Action::DEFAULT

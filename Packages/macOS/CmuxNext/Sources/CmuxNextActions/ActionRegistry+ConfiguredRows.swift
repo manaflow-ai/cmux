@@ -13,7 +13,7 @@ extension ActionRegistry {
         guard let item = makeMenuItem(for: id) else { return nil }
         let invocation = ActionInvocation(target: target)
         item.representedObject = ActionMenuPayload(id: canonicalID(for: id), target: target)
-        item.image = descriptor(for: id).flatMap { Self.menuIcon($0.symbol) }
+        item.image = descriptor(for: id).flatMap { rowIcon($0.symbol) }
         ActionTargetTitles.decorate(item, id: canonicalID(for: id), invocation: invocation, in: self)
         if let title { item.title = title }
         return item

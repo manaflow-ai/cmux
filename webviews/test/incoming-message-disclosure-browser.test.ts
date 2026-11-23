@@ -444,6 +444,66 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
+  // The case above scrolls after two round trips to the page, so the frame of the open its scroll
+  // lands in changes from run to run. Here the page scrolls itself, armed before the click: in the
+  // click's own task once the row is drawn open, or in the 1st to 4th frame after it, one fresh chat
+  // each (lawrencecchen's cmux#42677). A scroll before the hold's first pass, while the view still
+  // follows the latest row, was put back (hq#10958).
+  test("a scroll from code in the click's task or in one of the 4 frames after it stays where it was put", async () => {
+    const seen: string[] = [];
+    const moved: string[] = [];
+    for (const frames of [0, 1, 2, 3, 4]) {
+      const page = await openChat(
+        [
+          ...Array.from({ length: 6 }, (_, index) => turn(index)).flat(),
+          fromAgent(LONG, "Grid fix", "child-3", "m-end"),
+        ],
+        "Paragraph 1 of the landing report",
+      );
+      try {
+        const toggle = page.locator(".cv-received .cv-agentmsg__toggle");
+        await toggle.waitFor({ timeout: 10_000 });
+        await rest(page);
+        expect(await atLatest(page)).toBe(true);
+        // The toggle saying it is open is the row's commit: its observer runs in that same task.
+        await toggle.evaluate((control, count) => {
+          const scroller = control.closest<HTMLElement>(".acpmux-scroll")!;
+          const put = () => {
+            scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight * 2;
+            scroller.dataset.codeScrollPut = String(scroller.scrollTop);
+          };
+          const step = (left: number) => {
+            if (left === 0) put();
+            else requestAnimationFrame(() => step(left - 1));
+          };
+          const opened = new MutationObserver(() => {
+            if (control.getAttribute("aria-expanded") !== "true") return;
+            opened.disconnect();
+            step(count);
+          });
+          opened.observe(control, { attributes: true, attributeFilter: ["aria-expanded"] });
+        }, frames);
+        await toggle.click();
+        expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+        // fixed-wait: waiting past the hold is the behavior under test
+        await page.waitForTimeout(600);
+        await rest(page);
+        const at = await page.locator(".acpmux-scroll").evaluate((el) => ({
+          put: Number(el.dataset.codeScrollPut ?? Number.NaN),
+          after: el.scrollTop,
+          end: el.scrollHeight - el.clientHeight,
+        }));
+        const line = `${frames} frames: put ${at.put} -> ${at.after} (end ${at.end})`;
+        seen.push(line);
+        if (!(Math.abs(at.after - at.put) < 2)) moved.push(line);
+      } finally {
+        await page.close();
+      }
+    }
+    console.log(`code scroll by frame after open: ${seen.join("; ")}`);
+    expect(moved).toEqual([]);
+  });
+
   test("three messages from three senders between two replies are three rows, in order, where they arrived", async () => {
     const page = await openChat(
       [

@@ -24,6 +24,7 @@ import argparse, glob, json, os, plistlib, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -183,7 +184,7 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", 
                                       # The default Ghostty theme follows light and dark (no host config).
                                       "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY},
                        stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT)
-print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
     if opts.launch_backdrop:
@@ -203,7 +204,7 @@ try:
     check(not state.get("dismissed") and not state.get("imported"), f"fresh state: {state}")
     rpc("debug.appearance", {"mode": "light"})
     # A browser workspace gives the window a pane with a tab, so openBrowser has a target.
-    print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
+    safe_print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
     settle(3.0)
     # A window toast (here the pin undo toast) at the bottom: the card still shows, lifted above it.
     rpc("action.run", {"action": "palette.toggleTabPin"})
@@ -213,11 +214,11 @@ try:
         toasts = rpc("debug.filepages").get("toasts")
         time.sleep(0.2)
     if not toasts:
-        print("SKIP toast lift: the pin made no toast", flush=True)
+        safe_print("SKIP toast lift: the pin made no toast", flush=True)
     # The person's path: a URL typed into the omnibar of their own tab. (A tab an agent opens
     # through openBrowser is agent-driven and never shows the card.)
     typed = rpc("debug.omnibar_type", {"text": "https://example.com/"})
-    print("omnibar_type:", json.dumps(typed)[:300], flush=True)
+    safe_print("omnibar_type:", json.dumps(typed)[:300], flush=True)
     if toasts:
         settle(1.5)
         capture("browser-card-over-toast")
@@ -268,16 +269,16 @@ try:
           f"Don't Show Again: dismissed in cmux.json: {open(CONFIG).read().strip()} {prompt()}")
     # Show Import Cookies Banner from the CLI turns it on again; it imports nothing.
     r = cli("browser", "show-cookie-banner")
-    print("cmux browser show-cookie-banner:", r.returncode, (r.stdout + r.stderr).strip()[:300], flush=True)
+    safe_print("cmux browser show-cookie-banner:", r.returncode, (r.stdout + r.stderr).strip()[:300], flush=True)
     if r.returncode != 0:
-        print("show-cookie-banner verb:", json.dumps(rpc("action.run", {"action": "browser.showCookieImportBanner"}))[:300], flush=True)
+        safe_print("show-cookie-banner verb:", json.dumps(rpc("action.run", {"action": "browser.showCookieImportBanner"}))[:300], flush=True)
     wait_for(lambda: prompt().get("dismissed") is False, "Show Import Cookies Banner turns it back on", 10)
     check(rpc("debug.onboarding", {"action": "state"}).get("step") != "importData", "showing the banner opens no import")
     prompt("reset")
     shown_tab = (wait_for(lambda: prompt("show").get("shown_on"), "the card again for Import", 10) or [None])[0]
     state = prompt("answer", choice="import")
     onboarding = rpc("debug.onboarding", {"action": "state"})
-    print("onboarding after Import:", json.dumps(onboarding)[:600], flush=True)
+    safe_print("onboarding after Import:", json.dumps(onboarding)[:600], flush=True)
     check(onboarding.get("step") == "importData", f"Import opens the import step: {onboarding.get('step')}")
     kinds = onboarding.get("import", {}).get("kinds") or onboarding.get("kinds")
     check(sorted(kinds or []) == ["cookies"], f"cookies checked: {kinds}")

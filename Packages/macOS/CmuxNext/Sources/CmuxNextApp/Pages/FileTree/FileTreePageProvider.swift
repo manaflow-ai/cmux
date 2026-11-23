@@ -5,8 +5,8 @@ import CmuxNextSettings
 import Foundation
 
 /// The owner side of the Files page (`cmux.files.*`, cx-p4rt), for one tab's folder: `root` (the
-/// folder), `list {path}` (one folder's children through the session host's `git.files.list`, so
-/// ignored files never show) and `open {path}` (a file in the file pages). `path` is relative to the
+/// folder), `list {path}` (one folder's children through the session host's `git.files.list`: in a
+/// repository ignored files never show; any other folder lists from the disk) and `open {path}` (a file in the file pages). `path` is relative to the
 /// tab's folder; the page never names a file outside it, and a machine's folder (`onMachine`) is never looked up here.
 @MainActor
 final class FileTreePageProvider: PageProvider {
@@ -39,8 +39,8 @@ final class FileTreePageProvider: PageProvider {
         do {
             let reply = try await CmuxNextSettings.JSONValue.parse(link.read("git.files.list", params: ["path": .string(directory.path)]))
             return ["entries": reply["entries"] ?? .array([]), "truncated": reply["truncated"] ?? .bool(false)]
-        } catch let failure as AgentPaneGitFailure {
-            throw PageError(code: "cmux.files.unavailable", message: FileTreeStrings.message(for: failure), retryable: true)
+        } catch is AgentPaneGitFailure {
+            throw PageError(code: "cmux.files.unavailable", message: FileTreeStrings.unavailable, retryable: true)
         }
     }
 

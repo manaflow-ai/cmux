@@ -7,9 +7,8 @@ import PackageDescription
 // transport-telemetry layer. `CmuxSentryScrubbing` is the pure-Foundation
 // value scrubber (no Sentry dependency) so it stays testable without linking
 // the SDK; `CmuxSentryReporting` is the glue that routes Sentry `Event` /
-// `Breadcrumb` / `Span` / `SentryLog` fields through that scrubber and bridges
-// the CMUXMobileCore transport diagnostic stream into Sentry, so it links the
-// Sentry SDK.
+// `Breadcrumb` / `Span` / `SentryLog` fields through that scrubber, so it
+// links the Sentry SDK.
 let package = Package(
     name: "CmuxSentryTelemetry",
     platforms: [
@@ -27,7 +26,6 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../CMUXMobileCore"),
         .package(
             // sentry-cocoa 9.29.0 removed PrivateSentrySDKOnly, which the cmux
             // CLI uses to store envelopes (CLI/CLISocketSentryTelemetry.swift).
@@ -49,7 +47,6 @@ let package = Package(
             name: "CmuxSentryReporting",
             dependencies: [
                 "CmuxSentryScrubbing",
-                "CMUXMobileCore",
                 // macOS links the dynamic SDK: a static Sentry adds the
                 // Objective-C personality routine to the cmux-next app image,
                 // one more than compact unwind encodes (C++, iroh-ffi and
@@ -86,7 +83,7 @@ let package = Package(
 
 #if os(Linux)
 // sentry-cocoa is Apple-only: a build for Linux builds the scrubber and its tests alone. Only the Linux
-// package jobs (swift-packages-linux.yml) set CMUX_SWIFTPM_TARGET_LINUX: the fleet's app compile also
+// package jobs (swift-linux-packages.yml) set CMUX_SWIFTPM_TARGET_LINUX: the fleet's app compile also
 // reads this manifest on a Linux host, but builds for macOS and needs CmuxSentryReporting.
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     package.products.removeAll { $0.name == "CmuxSentryReporting" }

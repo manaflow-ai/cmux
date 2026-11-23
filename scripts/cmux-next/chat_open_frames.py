@@ -108,7 +108,8 @@ def transcript_ms(watch, watch_started_ms, strip_ms):
 
 
 def valid(record):
-    return not record.get("error") and record.get("settled") and _number(record.get("first_content_ms")) \
+    # `engine_fault`: the click's page ran in another engine than the asked one (chat_open_summary.judge_engine).
+    return not record.get("error") and not record.get("engine_fault") and record.get("settled") and _number(record.get("first_content_ms")) \
         and _number(record.get("final_frame_ms")) and _number(record.get("transcript_ms"))
 
 
@@ -128,12 +129,14 @@ def summarize(records):
             "first_is_final": sum(1 for r in good if r.get("first_is_final")),
             "between_frames": sum(r.get("between_frames") or 0 for r in good),
             "blank_frames": sum(r.get("blank_frames") or 0 for r in records),
-            "max_row_drift_px": max(drifts) if drifts else None}
+            "max_row_drift_px": max(drifts) if drifts else None,
+            "other_engine": sum(1 for r in records if r.get("engine_fault"))}
 
 
 def cell(summary):
     if not summary.get("complete"):
-        return f"FAILED ({summary.get('ok', 0)}/{summary.get('n', 0)} settled)"
+        other = f"; other_engine {summary['other_engine']}" if summary.get("other_engine") else ""
+        return f"FAILED ({summary.get('ok', 0)}/{summary.get('n', 0)} settled{other})"
     drift = summary["max_row_drift_px"]
     return (f"content {summary['first_content_ms']}, final {summary['final_frame_ms']} (max {summary['max_final_frame_ms']}), "
             f"first=final {summary['first_is_final']}/{summary['n']}, between {summary['between_frames']}, "

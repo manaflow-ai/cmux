@@ -19,6 +19,8 @@ Usage: chief-one-history-preflight.py --app-a APP --tag-a TAG --app-b APP --tag-
 Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, json, os, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--app-a", required=True)
@@ -145,9 +147,9 @@ def kill_pid(pid, what):
         return
     try:
         os.kill(pid, signal.SIGTERM)
-        print(f"stopped {what} pid {pid}", flush=True)
+        safe_print(f"stopped {what} pid {pid}", flush=True)
     except OSError as error:
-        print(f"{what} pid {pid}: {error}", flush=True)
+        safe_print(f"{what} pid {pid}: {error}", flush=True)
     wait(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, 20)
 
 

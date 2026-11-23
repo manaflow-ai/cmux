@@ -16,7 +16,7 @@ struct AgentPaneAccessActionTests {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
         var arguments: [[String: String]] = []
-        model.onRunAction = { id, args in ran.append(id); arguments.append(args); return true }
+        model.onRunAction = { id, args in ran.append(id); arguments.append(args); return .ran }
         #expect(await model.respond(to: .runAction("palette.pro.upgrade"))["ok"] as? Bool != true)
         #expect(ran.isEmpty, "no gesture, no Checkout")
         model.transport.gestures.record()
@@ -28,7 +28,7 @@ struct AgentPaneAccessActionTests {
     @Test func accountsAndOtherAppActionsStayOutOfReach() async {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
-        model.onRunAction = { id, _ in ran.append(id); return true }
+        model.onRunAction = { id, _ in ran.append(id); return .ran }
         for id in ["accounts.show", "accounts.remove"] {
             model.transport.gestures.record()
             #expect(await model.respond(to: .runAction(id))["ok"] as? Bool != true, "\(id)")

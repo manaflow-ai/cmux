@@ -108,6 +108,13 @@ import CmuxNextCompat
         return now() - lastScope <= Self.lifetime
     }
 
+    /// An upload credit alone, for files another app sent to the chat (``AgentPaneDroppedPaths/Kind/external``):
+    /// the person's act there (the service, Open With, a Dock drop) is the gesture, and it grants
+    /// nothing else.
+    public func recordUpload() {
+        lastUpload = now()
+    }
+
     /// Uses the gesture's upload credit (one batch of the person's files, ``AgentPaneUpload``): true
     /// once per recorded gesture within ``lifetime``; the grant and scope-add credits stay.
     public func consumeUpload() -> Bool {
@@ -431,6 +438,15 @@ import CmuxNextCompat
     }
 
     private var seedTicket: SeedTicket?
+
+    /// A prompt the CLI, MCP or a script seeded gets no seed ticket: it waits in the composer for
+    /// the person's own Send, though a typed Send needs no gesture. Set when the handshake hands
+    /// such a prompt out; the first prompt the person sends ends it.
+    public private(set) var automationSeedWaits = false
+
+    public func holdAutomationSeed() { automationSeedWaits = true }
+
+    func releaseAutomationSeed() { automationSeedWaits = false }
 
     /// Issues the seeded prompt's ticket and its promptId (a new one replaces an older one).
     /// Takes no live gesture: the person's action that seeded the prompt is the gesture.

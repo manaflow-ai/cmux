@@ -425,7 +425,11 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.tour.write_text(json.dumps({"title": "Demo", "env": {"CMUX_NEXT_BROWSER_IMPORT_HOME": "{repo}/fixtures/home"},
                                          "steps": [{"title": "Launch"}]}), encoding="utf-8")
         self.assertEqual(tour.load_tour(self.tour)["env"], {"CMUX_NEXT_BROWSER_IMPORT_HOME": f"{ROOT}/fixtures/home"})
-        for env in ({"PATH": "/x"}, {"CMUX_NEXT_X": 1}, ["CMUX_NEXT_X"]):
+        # A fixture store the app's terminals see too; {workdir} is filled in at run time.
+        self.tour.write_text(json.dumps({"title": "Demo", "env": {"CMUX_AUTOMATIONS_DIR": "{workdir}/automations"},
+                                         "steps": [{"title": "Launch"}]}), encoding="utf-8")
+        self.assertEqual(tour.load_tour(self.tour)["env"], {"CMUX_AUTOMATIONS_DIR": "{workdir}/automations"})
+        for env in ({"PATH": "/x"}, {"CMUX_NEXT_X": 1}, ["CMUX_NEXT_X"], {"CMUX_SOCKET_PATH": "/x"}):
             with self.subTest(env=env):
                 self.tour.write_text(json.dumps({"title": "Demo", "env": env, "steps": [{"title": "Launch"}]}), encoding="utf-8")
                 with self.assertRaisesRegex(tour.TourError, "`env` maps"):
@@ -483,6 +487,29 @@ class AppWindowCaptureTests(unittest.TestCase):
         for text in ("cp \"{repo}\"/a .", "cp '{repo}'/a ."):
             with self.assertRaisesRegex(tour.TourError, "drop the quotes"):
                 tour.fill_repo(["terminal", "write", "--text", text], "/tmp/checkout", "t")
+
+    def test_a_capture_shot_object_is_a_named_shot(self) -> None:
+        # new-tab-resume.json carries `cmux-ci capture` shot objects; tour.py rejected them, so every nightly tour
+        # failed its --check and no What's New clip recorded (2026-11-21).
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 1.2, "shot": {"name": "light-resume-id", "with_popups": True, "dismiss": False}},
+            {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 1.2},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual([step["shot"] for step in manifest["steps"]],
+                         ["shots/01-light-resume-id.png", "shots/02-split-right.png"])
+
+    def test_a_shot_object_needs_a_slug_name_and_known_keys(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        for shot in ({"name": "../x"}, {"name": "ok", "zoom": 2}, {"dismiss": False}, {"name": "ok", "dismiss": "no"},
+                     "yes"):
+            with self.subTest(shot=shot):
+                self.tour.write_text(json.dumps({"title": "Demo", "steps": [{"title": "Launch", "shot": shot}]}),
+                                     encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, "`shot` is true, false or a capture shot object"):
+                    tour.load_tour(self.tour)
 
     def test_display_must_be_true_or_false(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
@@ -1001,6 +1028,52 @@ class WindowVideoTests(unittest.TestCase):
             self.assertEqual(events, ["video-stop", "app-stop"])
             stills.assert_not_called()
 
+    def test_menus_asks_the_recorder_for_the_apps_menus_and_only_then(self):
+        # A native menu is its own window, which a recording of the main window alone leaves out
+        # (What's New customizations-menu); a tour's `menus` asks record-window for every app window.
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        for menus, flagged in ((False, False), (True, True)):
+            with tempfile.TemporaryDirectory() as root:
+                session = mock.Mock(capture_routes=[("console", [])])
+                recording = tour.WindowVideo(session, 123, Path(root), Path(root), menus=menus)
+                with mock.patch.object(tour.sys, "platform", "darwin"), \
+                        mock.patch.object(tour.subprocess, "run", return_value=mock.Mock(returncode=0)), \
+                        mock.patch.object(tour.subprocess, "Popen", side_effect=OSError("stop here")) as popen:
+                    self.assertFalse(recording.start())
+                argv = popen.call_args.args[0]
+                self.assertEqual(argv[1:3], ["123", str(Path(root) / "capture.mov")])
+                self.assertEqual("--menus" in argv, flagged)
+
+    def test_a_tours_menus_reaches_its_window_video(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root, "t.json")
+            path.write_text(json.dumps({"title": "T", "menus": True, "steps": [{"title": "Open"}]}))
+            self.assertIs(tour.load_tour(path)["menus"], True)
+            path.write_text(json.dumps({"title": "T", "steps": [{"title": "Open"}]}))
+            self.assertIs(tour.load_tour(path)["menus"], False)
+            path.write_text(json.dumps({"title": "T", "menus": "yes", "steps": [{"title": "Open"}]}))
+            with self.assertRaises(tour.TourError):
+                tour.load_tour(path)
+            session = mock.Mock(prefix=[], capture_prefix=[], user="test")
+            session.shareable.side_effect = lambda path: (path.mkdir(parents=True, exist_ok=True) or path)
+            app = mock.Mock(identity={}, log_path=Path(root) / "absent")
+            app.main_window_frame.return_value = [0, 0, 800, 600]
+            native = mock.Mock(reason="", menus=True)
+            native.start.return_value = True
+            native.stop.return_value = True
+            with mock.patch.object(tour, "App", return_value=app), \
+                    mock.patch.object(tour, "WindowVideo", return_value=native) as video, \
+                    mock.patch.object(tour.Screen, "capture", return_value=None), \
+                    mock.patch.object(tour, "run_step", return_value={"status": "ok"}), \
+                    mock.patch.object(tour.signal, "signal"):
+                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "menus": True,
+                                                      "steps": [{"title": "Open"}]}, Path(root), session)
+            self.assertIs(video.call_args.kwargs["menus"], True)
+            self.assertIn("menus", manifest["video_mode"])
+
     def test_stop_times_out_and_kills_only_the_owned_recorder(self):
         sys.path.insert(0, str(SCRIPT.parent))
         import tour as video
@@ -1034,9 +1107,63 @@ class CustomizeTemplatesTourTests(unittest.TestCase):
                     for folder in templates.iterdir() if folder.is_dir() for file in ("cmux-app.json", "main.js")}
         probe = ROOT / "scripts/cmux-next/media/fixtures/customize-reload-latency.py"
         expected[probe.name] = probe.read_text(encoding="utf-8")
-        self.assertEqual(sorted(written), sorted(expected))
+        sync = "run scripts/cmux-next/media/tours/sync_customize_templates.py"
+        self.assertEqual(sorted(written), sorted(expected), f"the tour and the template folders differ: {sync}")
         for key, text in expected.items():
-            self.assertEqual(written[key], text, f"{key}: regenerate the tour's payload from the file")
+            self.assertEqual(written[key], text, f"{key}: the tour types a stale copy: {sync}")
+        self.assertTrue(all(text.endswith("\r") for text in texts if "echo saved " in text),
+                        f"every template step presses Return after typing: {sync}")
+
+
+class ConsoleUser(unittest.TestCase):
+    """The session hops only to the user on the display (IOConsoleUsers kCGSSessionOnConsoleKey), never to
+    /dev/console's owner, which names the last Screen Sharing login (cmuxci-gui-03 on the GUI minis since
+    2026-11-18): that hop needed sudo and failed every What's New clip at launch."""
+
+    def setUp(self) -> None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("tour_console_test", SCRIPT)
+        self.tour = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(SCRIPT.parent))
+        self.addCleanup(sys.path.remove, str(SCRIPT.parent))
+        spec.loader.exec_module(self.tour)
+
+    def session(self, console_users: list[dict] | None) -> object:
+        def run(argv, **kwargs):
+            if argv[0] == "ioreg":
+                if console_users is None:
+                    raise FileNotFoundError("ioreg")
+                return subprocess.CompletedProcess(argv, 0, plistlib.dumps({"IOConsoleUsers": console_users}), b"")
+            if argv[0] == "stat":
+                return subprocess.CompletedProcess(argv, 0, "cmuxci-gui-03\n", "")
+            if argv[0] == "id":
+                return subprocess.CompletedProcess(argv, 0, "5103\n", "")
+            raise AssertionError(f"unexpected command {argv}")
+        with mock.patch.object(self.tour.subprocess, "run", side_effect=run), \
+                mock.patch.object(self.tour.getpass, "getuser", return_value="cmux"):
+            return self.tour.Session()
+
+    def test_the_runner_on_the_display_needs_no_hop(self) -> None:
+        session = self.session([
+            {"kCGSSessionUserNameKey": "cmuxci-gui-01", "kCGSSessionUserIDKey": 5101, "kCGSSessionOnConsoleKey": False},
+            {"kCGSSessionUserNameKey": "cmux", "kCGSSessionUserIDKey": 501, "kCGSSessionOnConsoleKey": True},
+            {"kCGSSessionUserNameKey": "cmuxci-gui-03", "kCGSSessionUserIDKey": 5103, "kCGSSessionOnConsoleKey": False},
+        ])
+        self.assertEqual(session.prefix, [])
+        self.assertEqual(session.user, "cmux")
+
+    def test_another_user_on_the_display_is_reached_by_its_uid(self) -> None:
+        session = self.session([
+            {"kCGSSessionUserNameKey": "cmux", "kCGSSessionUserIDKey": 501, "kCGSSessionOnConsoleKey": False},
+            {"kCGSSessionUserNameKey": "desk", "kCGSSessionUserIDKey": 502, "kCGSSessionOnConsoleKey": True},
+        ])
+        self.assertEqual(session.prefix, ["sudo", "-n", "launchctl", "asuser", "502", "sudo", "-n", "-H", "-u", "desk"])
+        self.assertEqual(session.user, "desk")
+
+    def test_without_the_registry_it_reads_dev_console_as_before(self) -> None:
+        session = self.session(None)
+        self.assertEqual(session.prefix[:5], ["sudo", "-n", "launchctl", "asuser", "5103"])
+        self.assertEqual(session.user, "cmuxci-gui-03")
 
 
 if __name__ == "__main__":

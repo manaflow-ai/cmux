@@ -41,6 +41,22 @@ fn client_session_commands_pass_through_to_cmux_vm() {
 }
 
 #[test]
+fn saved_file_commands_use_the_vm_api_without_the_app_carrier() {
+    for verb in ["read", "ls", "stat"] {
+        let words = args(&["vm", "file", verb, "vm_1", "/workspace"]);
+        assert!(cloud_alias(&words).is_none());
+        assert_eq!(
+            planned(&["vm", "file", verb, "vm_1", "/workspace"]).unwrap(),
+            args(&["file", verb, "vm_1", "/workspace"])
+        );
+    }
+    assert_eq!(
+        planned(&["vm", "file", "read", "vm_1", "/log", "--range", "bytes=4-"]).unwrap(),
+        args(&["file", "read", "vm_1", "/log", "--range", "bytes=4-"])
+    );
+}
+
+#[test]
 fn exec_keeps_everything_after_the_double_dash() {
     assert_eq!(
         planned(&["vm", "exec", "vm_1", "--", "acpmux", "run", "-m", "claude", "hi"]).unwrap(),
@@ -575,19 +591,17 @@ fn a_created_cloud_machine_prints_its_target_and_next_steps() {
         "machine_id": "vm-abc", "title": "api-dev", "status": "running", "target": "machine:vm-abc",
     }});
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
-    assert!(text.starts_with("Created Cloud machine api-dev (vm-abc): running."), "{text}");
+    assert!(text.starts_with("Created Cloud VM api-dev (vm-abc): running."), "{text}");
     for next in [
-        "cmux vm ssh --target machine:vm-abc",
-        "cmux vm start-session --target machine:vm-abc",
-        "cmux vm exec --target machine:vm-abc",
+        "cmux vm ssh vm-abc",
+        "cmux chat --on vm:vm-abc 'PROMPT'",
+        "cmux vm exec vm-abc -- uname -a",
     ] {
         assert!(text.contains(next), "{next} missing: {text}");
     }
     let pending = json!({ "result": { "pending": true, "status": "creating" } });
     assert!(
-        created_line(&params, &pending, &GlobalArgs::default())
-            .unwrap()
-            .contains("cmux vm list-machines")
+        created_line(&params, &pending, &GlobalArgs::default()).unwrap().contains("cmux vm ls")
     );
     assert!(
         created_line(&json!({ "action": "share chat" }), &created, &GlobalArgs::default())
@@ -632,14 +646,14 @@ fn the_next_steps_keep_the_socket_the_create_used() {
     };
     let text = created_line(&params, &created, &global).unwrap();
     let cmux = "cmux --socket=/tmp/d.sock '--app-socket=/tmp/my app.sock'";
-    for verb in ["vm ssh", "vm start-session", "vm exec"] {
-        assert!(text.contains(&format!("{cmux} {verb} --target machine:vm-abc")), "{verb}: {text}");
+    for next in ["vm ssh vm-abc", "chat --on vm:vm-abc", "vm exec vm-abc --"] {
+        assert!(text.contains(&format!("{cmux} {next}")), "{next}: {text}");
     }
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
-    assert!(text.contains("  cmux vm ssh --target machine:vm-abc"), "{text}");
+    assert!(text.contains("  cmux vm ssh vm-abc"), "{text}");
     let pending = json!({ "result": { "pending": true, "status": "creating" } });
     let text = created_line(&params, &pending, &global).unwrap();
-    assert!(text.contains(&format!("`{cmux} vm list-machines`")), "{text}");
+    assert!(text.contains(&format!("`{cmux} vm ls`")), "{text}");
 }
 
 /// #32227 (3): `--help` with other options prints help, never asks the app.
@@ -657,12 +671,15 @@ fn machine_new_help_with_other_options_prints_help() {
     assert!(!NEW_HELP.contains("cmux machine new ["), "{NEW_HELP}");
 }
 
-/// #32227 (4): a machine made with no flags does not pause when idle (the
-/// backend default is off), so the help must not say it does.
+/// A machine made with no flags pauses when idle: cmux Cloud gives it an idle
+/// policy (cmux-platform `DEFAULT_IDLE_SECONDS`) and production pauses an idle one
+/// after 2 minutes (`CLOUD_IDLE_PAUSE_SECONDS`). #32227's "keeps running when idle"
+/// sent people prepping a machine to find it paused; --persistent is the way to keep one.
 #[test]
-fn machine_new_help_does_not_say_a_default_machine_pauses() {
-    assert!(!NEW_HELP.contains("pauses when idle"), "{NEW_HELP}");
-    assert!(NEW_HELP.contains("keeps running when idle"), "{NEW_HELP}");
+fn machine_new_help_says_a_default_machine_pauses_and_persistent_keeps_it() {
+    assert!(!NEW_HELP.contains("keeps running when idle"), "{NEW_HELP}");
+    assert!(NEW_HELP.contains("pauses once idle"), "{NEW_HELP}");
+    assert!(NEW_HELP.contains("--persistent keeps it running"), "{NEW_HELP}");
 }
 
 /// A `--socket` that is a daemon's, not the app's, is no app for `machine new`: it takes the VM API
@@ -687,6 +704,15 @@ fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
             &["vm", "kill-machine", "--target", "machine:m", "--confirm"],
             &["cloud", "kill-machine", "--target", "machine:m", "--confirm"],
         ),
+        (
+            &["vm", "kill-machine", "--target", "machine:m", "--yes"],
+            &["cloud", "kill-machine", "--target", "machine:m", "--confirm"],
+        ),
+        // Only a verb that deletes reads `--yes` as its yes; anywhere else it is a value.
+        (
+            &["vm", "exec", "--target", "machine:m", "--command", "--yes"],
+            &["cloud", "exec", "--target", "machine:m", "--command", "--yes"],
+        ),
         (&["vm", "secret", "ls"], &["cloud", "secret", "ls"]),
         (&["vm", "env", "get"], &["cloud", "env", "get"]),
         // The Cloud forms of `exec` and `client-session` name a target.
@@ -707,6 +733,8 @@ fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
         &["vm", "new", "--size", "small"],
         &["vm", "exec", "vm_1", "--", "uname"],
         &["vm", "add", "box"],
+        &["vm", "runner", "new", "--wait"],
+        &["vm", "pool", "status"],
         &["vm", "--help"],
         &["vm"],
         &["cloud", "list-machines"],
@@ -714,6 +742,15 @@ fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
     ] {
         assert_eq!(cloud_alias(&args(typed)), None, "{typed:?}");
     }
+}
+
+/// `cmux cloud … --yes` is the app's `--confirm` only on a verb that deletes.
+#[test]
+fn a_yes_that_is_a_value_stays_as_typed() {
+    let typed = args(&["cloud", "start-chat", "--target", "vm:m", "--prompt", "--yes"]);
+    assert_eq!(cloud_yes(&typed), None);
+    let rm = args(&["cloud", "file-remove", "--target", "vm:m", "--path", "/f", "-y"]);
+    assert_eq!(cloud_yes(&rm).unwrap().last().map(String::as_str), Some("--confirm"));
 }
 
 /// No `vm chat`: a Cloud chat is `cmux chat --on vm:…`.
@@ -728,7 +765,7 @@ fn vm_has_no_chat_verb() {
 
 #[test]
 fn cloud_names_its_new_spelling() {
-    assert!(rename_note(Some("list-machines"), false).contains("`cmux vm list-machines`"));
+    assert!(rename_note(Some("list-machines"), false).contains("`cmux vm ls`"));
     assert!(rename_note(Some("start-chat"), false).contains("cmux chat --on vm:"));
     assert!(rename_note(None, false).contains("`cmux vm`"));
     assert!(rename_note(Some("list-machines"), true).contains("cmux vm"));
@@ -830,7 +867,7 @@ fn machine_vm_verbs_still_run_and_name_vm_only_at_a_terminal() {
     assert_eq!(route(&["machine", "new"], true), NewRoute::App);
     assert_eq!(
         machine_note(Some("new"), true, false).as_deref(),
-        Some("cmux: `cmux machine new` is now `cmux vm new`; both work.")
+        Some("cmux: VMs are `cmux vm` now: `cmux vm new`.")
     );
     assert!(machine_note(Some("pause"), true, true).unwrap().contains("`cmux vm pause`"));
     assert_eq!(machine_note(Some("new"), false, false), None, "a script reads nothing new");
@@ -853,4 +890,27 @@ fn vm_help_teaches_vm_and_machine_help_points_at_it() {
     assert!(!super::super::surface::VM_VERBS_HELP.contains("cmux machine new ("));
     assert!(super::super::surface::VM_POINTER.contains("cmux vm --help"));
     assert!(super::super::surface::MACHINE_CATALOG_HELP.contains("cmux device"));
+}
+
+/// A DEV build names its own `vm.json` (`CMUX_VM_DEFAULT_CONFIG`, BuildStatePaths): the person's
+/// `~/.config/cmux/vm.json` is NIGHTLY's and stable's, never a DEV build's credential.
+#[test]
+fn dev_build_own_vm_config_is_the_one_counted() {
+    let base = std::env::temp_dir().join(format!("cmux-vm-dev-config-{}", std::process::id()));
+    std::fs::create_dir_all(base.join("home/.config/cmux")).unwrap();
+    std::fs::create_dir_all(base.join("build")).unwrap();
+    std::fs::write(base.join("home/.config/cmux/vm.json"), r#"{"apiKey":"cmuxvm_sk_person"}"#)
+        .unwrap();
+    let own = base.join("build/vm.json");
+    let home = base.join("home").to_string_lossy().into_owned();
+    let own_text = own.to_string_lossy().into_owned();
+    let env = |name: &str| match name {
+        "HOME" => Some(home.clone()),
+        "CMUX_VM_DEFAULT_CONFIG" => Some(own_text.clone()),
+        _ => None,
+    };
+    assert!(!has_own_credential(&env), "the person's vm.json counted in a DEV build");
+    std::fs::write(&own, r#"{"apiKey":"cmuxvm_sk_dev"}"#).unwrap();
+    assert!(has_own_credential(&env), "the DEV build's own vm.json did not count");
+    let _ = std::fs::remove_dir_all(&base);
 }

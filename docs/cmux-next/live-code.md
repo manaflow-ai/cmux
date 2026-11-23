@@ -168,8 +168,15 @@ a save while on, and a stop into the optimized build, counted in pixels.
 
 ## What a NIGHTLY can and can't do
 
-- Can: Live Web Reload (`cmux live start`), and a pull request's Swift in a copy
+- Can: cmux Live for the web UI (`cmux live start`), and a pull request's Swift in a copy
   (`scripts/cmux-next/try-pr.sh <PR> --live-code <log>`).
+- Can: a commit's Swift, optimized, in a copy of the NIGHTLY that stays on disk and launches cold, with no
+  dev build: `scripts/cmux-next/swap-binary.sh build <sha> OUT` on a fleet Mac (the app's executable and its
+  packages' resource bundles, built Release as the nightly builds them), then
+  `scripts/cmux-next/side-instance.sh make NAME --from "/Applications/cmux NIGHTLY.app" --swap OUT`.
+  Remove the copy to take the change out. `swap-binary.sh check <nightly commit> <sha>` says whether the
+  commit's diff is one a swap carries (not Info.plist, entitlements, the project, helpers or web bundles).
+  Launch A/Bs use it as `scripts/measure/launch-ready.sh dmg=swap`.
 - Can't: live mode. `cmux live start --swift` refuses a NIGHTLY, and so do the palette and Settings
   buttons: no live code build of its commit is built or signed for it to restart into, and a
   Release build may load only patches signed by the app's own team (cmux#13742), which a person's

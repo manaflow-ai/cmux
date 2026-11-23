@@ -1,0 +1,20 @@
+{
+  "jobs": {
+    "cmux-next checks (god files, concurrency, crash safety, l10n)": {
+      "job": "checks",
+      "workflow": "cmux-next.yml"
+    },
+    "cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files": {
+      "job": "own-change-checks",
+      "workflow": "cmux-next-guards.yml"
+    },
+    "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page stri...": {
+      "job": "static-checks",
+      "workflow": "cmux-next-guards.yml"
+    },
+    "tooling-tests": {
+      "job": "tooling-tests",
+      "workflow": "cmux-next-guards.yml"
+    }
+  }
+}

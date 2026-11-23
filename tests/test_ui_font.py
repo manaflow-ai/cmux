@@ -16,7 +16,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import git_fixture_env  # disables git auto maintenance  # noqa: F401
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SOURCE = Path(__file__).resolve().parents[1]
 CHECK = SOURCE / "scripts/cmux-next/check-ui-font.py"
@@ -132,6 +138,46 @@ class UIFontTests(unittest.TestCase):
         self.commit("move the pin\n\nFont-order: use this stack")
         result = self.check("--rev", "HEAD", "--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_every_file_whose_change_moves_a_finding_is_in_its_inputs(self):
+        # prepush-gate.py skips this check on a push that changes none of the paths `--inputs` prints (2026-11-09,
+        # #39765). A file that moves a finding but is not in them would let such a push through unchecked.
+        result = self.check("--inputs")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        inputs = tuple(line for line in result.stdout.splitlines() if line)
+        self.assertTrue(inputs, "--inputs printed nothing")
+        mutations = {
+            "schemas/type-scale/type-scale.json": json.dumps(type_scale(stack=['"Inter"'] + STACK)),
+            "schemas/type-scale/ui-font-pin.json": json.dumps(pin(note="moved")),
+            "webviews/src/pages/shared/desktop.css": desktop_css(stack='"Inter", ' + ", ".join(STACK)),
+            FONTS + "InterVariable.woff2": b"wOF2fake",
+            "webviews/src/agent/row.css": '.row { font-family: "Inter", system-ui; }\n',
+            "Native/OptChat/optchat-chief/inspector/index.html": 'body { font: 13px "Inter", system-ui; }\n',
+        }
+        for path, content in mutations.items():
+            with self.subTest(path=path):
+                self.write(path, content)
+                self.commit(f"change {path}")
+                moved = self.check("--rev", "HEAD", "--base", self.base)
+                self.git("reset", "-q", "--hard", self.base)
+                self.assertEqual(moved.returncode, 1, f"{path}: the change must move a finding\n{moved.stdout}")
+                self.assertTrue(path.startswith(inputs), f"{path} moves a finding but --inputs is {inputs}")
+
+    def test_a_read_outside_its_inputs_stops_the_check(self):
+        # A new read must join INPUTS, or the gate would skip a push that changes only that file.
+        copy = self.repo / "copy" / "check-ui-font.py"
+        copy.parent.mkdir()
+        entry = "def check_tree(tree: Tree) -> list[str]:\n"
+        text = CHECK.read_text(encoding="utf-8")
+        self.assertIn(entry, text)
+        copy.write_text(text.replace(entry, entry + "    tree.read(\"README.md\")\n", 1), encoding="utf-8")
+        for args in ((), ("--rev", "HEAD")):
+            with self.subTest(args=args):
+                result = subprocess.run([sys.executable, "-I", str(copy), "--repo", str(self.repo), *args],
+                                        capture_output=True, text=True, timeout=60)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("README.md", result.stdout + result.stderr)
+                self.assertIn("INPUTS", result.stdout + result.stderr)
 
     def test_the_repository_keeps_the_system_font(self):
         result = subprocess.run([sys.executable, "-I", str(CHECK), "--repo", str(SOURCE)], capture_output=True,

@@ -305,6 +305,18 @@ public final class FeedStore {
 
     // MARK: Spill
 
+    /// What this Feed holds in memory, in bytes of its rows as JSON: the window, the spill's
+    /// rows short of a page, and the ids of the events on disk. One store's own bytes, whatever
+    /// else the process holds (tests and measurements). A new place the Feed keeps rows in memory
+    /// must be counted here, or the memory checks stop seeing it.
+    func residentBytes() -> Int {
+        let encoder = JSONEncoder()
+        let window = (try? encoder.encode(items))?.count ?? 0
+        let waiting = spill.flatMap { try? encoder.encode($0.rowsInMemory()) }?.count ?? 0
+        let ids = spilledIDs.union(removedWhileSpilled).reduce(0) { $0 + $1.utf8.count }
+        return window + waiting + ids
+    }
+
     /// Spills events that leave the window to `spill` (the account's, in Caches), starting
     /// empty: the spill only lives as long as this run of the Feed. Nil stops spilling.
     public func useSpill(_ spill: RowSpill<FeedItem>?) {

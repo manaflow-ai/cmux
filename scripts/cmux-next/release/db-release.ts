@@ -3,7 +3,7 @@
  *
  *   bun db-release.ts plan     --tree T --target X [--url-env VAR]
  *   bun db-release.ts rehearse --tree T --target X [--url-env VAR] [--adopt-through NNNN] [--allow-contract F]... [--root DIR]
- *   bun db-release.ts apply    --tree T --target X --url-env VAR [--staging-url-env VAR] [--confirm-production] [--allow-contract F]...
+ *   bun db-release.ts apply    --tree T --target X --url-env VAR [--staging-url-env VAR] [--confirm-production] [--allow-contract F]... [--set-role] [--skip-rehearsal]
  *   bun db-release.ts adopt    --tree cmux-vm --target X --url-env VAR --through NNNN [--confirm-production]
  *   bun db-release.ts gate     --tree T --target X --url-env VAR      (deploy ordering gate; read-only)
  *   bun db-release.ts cleanup  [--tree T]                              (delete stranded rehearsal branches by exact name)
@@ -28,6 +28,11 @@
  * also needs a clean checkout landed on feat-cmux-next, the cmux-old compat
  * receipts, and staging to have every pending file with the same checksum.
  * Idempotent: nothing pending is a no-op pass.
+ *
+ * --set-role (apply, staging and development only, a SQL owner role from trees.ts): the login is
+ * a member of the owner (staging-owner.ts: a short-lived admin role granted the owner), and this
+ * session runs SET ROLE to the owner before the lock, so everything is created and recorded as
+ * the owner without its password. Refused on production.
  */
 import { execFileSync, spawnSync } from "node:child_process"
 import { mkdtempSync } from "node:fs"
@@ -295,6 +300,8 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
 
       case "apply":
         return await withLocalLock(dir, `apply-${tree.name}-${target}`, async () => {
+          const setRole = flag("--set-role")
+          if (setRole && target === "production") throw new Refused("--set-role is refused on production: log in as the owner itself")
           const realRoot = deps.root
           let base: string | undefined
           let verifiedHead: string | undefined
@@ -313,12 +320,17 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
           }
           await lintOrRefuse(deps, tree, base, realRoot)
           if (!urlVar) throw new Refused("apply needs --url-env with the owner's credentials for the target")
+          // The rehearsal copy restores logins from 6 minutes back, and a short-lived role is younger than that.
+          if (setRole && !flag("--skip-rehearsal")) throw new Refused("--set-role needs --skip-rehearsal: the rehearsal copy would not have the short-lived login")
+          if (setRole && !ownerPgRole) throw new Refused(`--set-role needs a SQL owner role for ${tree.name}/${target} (trees.ts ownerPgRole)`)
           const db = await open(deps, tree, target, urlVar, "admin")
           try {
+            if (setRole) await db.sql.query(`SET ROLE "${ownerPgRole!.replace(/"/g, '""')}"`)
             // The lock comes first: the plan, the rehearsal and the apply all see one state.
             return await withLock(db.sql, tree, async () => {
-              await requireOwner(deps.provider, tree, target, db.sql, deps.log, ownerPgRole)
+              await requireOwner(deps.provider, tree, target, db.sql, deps.log, ownerPgRole, setRole)
               const warnings: Array<string> = []
+              if (setRole) warnings.push(`applied as ${ownerPgRole} through SET ROLE (--set-role)`)
               const broad = tree.name === "cmux-vm" ? await broadPrivileges(db.sql, tree.schema) : []
               if (broad.length) {
                 const what = `the owner role ${broad.join(", ")} (cmux-old shares this database)`
@@ -377,6 +389,11 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
               const sha = gitSha(deps)
               if (verifiedHead) stillAt(realRoot, tree, verifiedHead)
               const result = await applyPending(db.sql, tree, files, { by, allowContract, target })
+              if (setRole) {
+                // Migrations cannot RESET or SET (lint); still, the owner must have made every object.
+                const still = (await db.sql.query<{ u: string }>("SELECT current_user AS u"))[0]?.u
+                if (still !== ownerPgRole) throw new Refused(`after the apply the session acts as ${still}, not the owner ${ownerPgRole}`)
+              }
               const errors = (await schemaProblems(db.sql, await requirementsOf(tree, deps.root))).filter((p) => !p.includes(" privilege")).map((p) => `after apply: ${p}`)
               for (const e of errors) deps.error(e)
               const afterPlan = await planOf(db.sql, tree, files)

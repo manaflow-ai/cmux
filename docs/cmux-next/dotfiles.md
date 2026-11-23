@@ -100,7 +100,7 @@ and `validate` still work offline.
 ```jsonc
 [
   { "key": "cmd+k cmd+p", "command": "palette.open" },
-  { "key": "cmd+alt+right", "command": "toggleRightSidebar" },
+  { "key": "cmd+alt+right", "command": "toggleSplitZoom" },
   // A leading "-" removes a default binding.
   { "key": "cmd+shift+p", "command": "-palette.open" },
 ]

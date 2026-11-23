@@ -82,13 +82,23 @@ public nonisolated struct CustomDensitiesSetting: Sendable {
         return .object(members)
     }
 
-    /// A new custom density made from `base`: named `name`, with an id made from the name that
+    /// The cmux.json writes that select `active` (a built-in sets `appearance.density` and clears
+    /// `appearance.customDensity`; a custom one sets `appearance.customDensity`), saving `customs` first when given.
+    public static func writes(customs: [DensityTokens]?, active: DensityTokens) -> [([String], JSONValue?)] {
+        var edits = customs.map { [(configPath, JSONValue.array($0.map(json)))] } ?? []
+        let custom = CustomDensitySelectionSetting.configPath
+        edits += active.isBuiltIn ? [(DensitySetting.configPath, .string(active.id)), (custom, nil)] : [(custom, .string(active.id))]
+        return edits
+    }
+
+    /// A new custom density made from `base`: named `name` (with `fontSize` when given), with an id made from the name that
     /// none of `existing` uses (`my-tight`, then `my-tight-2`).
-    public static func duplicate(_ base: DensityTokens, name: String, existing: [DensityTokens]) -> DensityTokens {
+    public static func duplicate(_ base: DensityTokens, name: String, fontSize: Double? = nil, existing: [DensityTokens]) -> DensityTokens {
         var copy = base
         copy.name = name
         copy.basedOn = base.isBuiltIn ? base.id : base.basedOn
         copy.id = uniqueID(for: name, existing: existing)
+        if let fontSize { copy.fontSize = min(max(fontSize, DensityTokens.fontSizeRange.lowerBound), DensityTokens.fontSizeRange.upperBound) }
         return copy
     }
 

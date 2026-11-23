@@ -18,6 +18,14 @@ controller of the same kind, so a reused socket gets the initial window again.
 A listening socket that an RST sends from SYN-RECEIVED back to LISTEN drops
 that peer's MSS and window the same way.
 
+In congestion avoidance, both the Reno-friendly estimate and the cubic target
+credit every newly acknowledged byte (RFC 9438 sections 4.2 and 4.3). Capping
+that credit at one MSS made delayed ACKs and cumulative ACKs after a repaired
+hole recover the window more slowly despite delivering the same bytes. The
+one-MSS growth cap still applies in slow start. The detector is
+`congestion_avoidance_credits_bytes_in_delayed_acks`, which compares equal
+delivery with individual and delayed ACKs after a loss.
+
 The patch also adds tail-loss probes (RFC 8985 section 7), off by default:
 `Socket::set_tail_loss_probe(Some(max_ack_delay))`. With no selective ACKs, a
 segment lost at the end of a burst draws no duplicate ACKs, so only the RTO
@@ -36,7 +44,8 @@ repeated loss it found one hole per round trip and cut the window again at each
 one. With recovery on, and only when the peer permitted SACK, the socket keeps a
 scoreboard of up to 16 SACKed ranges and, in one recovery episode, resends only
 the holes it deems lost (three segments' worth, in the segments this socket sends, min(local, remote)
-MSS, or three ranges SACKed above a hole, or everything sent after it SACKed, or three duplicate ACKs for the head),
+MSS, or three ranges SACKed above a hole, or everything sent after it SACKed with fewer than four
+segments outstanding from the hole on, or three duplicate ACKs for the head),
 several per round trip when the window has room. An episode cuts the window
 once, to ssthresh with no inflation for the duplicate ACKs (the pipe already
 leaves the SACKed segments out), and only when a hole is lost by the duplicate threshold: a hole lost only
@@ -60,6 +69,18 @@ resends from the oldest unacknowledged byte at its next poll, as an RTO would,
 slow start included, but its RTO returns to the RTT estimate's value instead of
 doubling: the losses were the old route's. With nothing in flight it does
 nothing.
+
+`Socket::link_repairs_losses()` is for a tunnel that starts repairing its own
+losses below TCP (cmux-wg's ultra mode, which "Auto" turns on at the first
+loss). The losses that turned it on, and any other loss of data already in
+flight at the call, were the unrepaired link's: they are still resent, but they
+cut no congestion window, and a cut one of them already made (SACK recovery,
+fast retransmit or RTO) is undone by restoring the controller saved just before
+it, as long as that cut's episode is still open. Data sent after the call cuts
+the window as usual. Without it, a loss early in slow start at a 300 ms round
+trip cut the window of a stream that needed it, and the stream ran seconds
+behind for the rest of the session; a tunnel that had repair on from the start
+never saw the loss at all. The controllers derive `Clone` for the saved copy.
 
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;

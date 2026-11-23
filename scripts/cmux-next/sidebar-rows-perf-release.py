@@ -19,6 +19,8 @@ $NX_ARTIFACTS) and quits the app with $NX_APP_STOP.
 """
 import argparse, json, os, re, shutil, statistics, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--label", default="run")
@@ -54,6 +56,8 @@ parser.add_argument("--variants", default="",
 parser.add_argument("--floor-frames", default="",
                     help="--clean: extra frames for the plain floor (a window position probe), separated by ';'")
 opts = parser.parse_args()
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("sidebar-rows-perf-release")  # it posts real input (CGEventPost): never on a person's Mac
 if opts.b_app and not opts.b_tag:
     parser.error("--b-app needs --b-tag")
 
@@ -519,7 +523,7 @@ def record(name, ticks, terms, profile):
     shutil.rmtree(xct_tmp, ignore_errors=True)
     if tick_end:
         time.sleep(max(0.0, tick_end - time.monotonic()) + 1)  # harness: the tick programs end before the next run
-    print(f"{name}: {json.dumps({k: v for k, v in result.items() if k != 'profile'})}", flush=True)
+    safe_print(f"{name}: {json.dumps({k: v for k, v in result.items() if k != 'profile'})}", flush=True)
     return result
 
 

@@ -585,3 +585,58 @@ fn an_output_cleanup_swap_drops_the_kept_reducer_records_and_the_backfill_rebuil
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
+
+/// A registry with `count` active agent records and a reader on it; the
+/// reader's next read meets a seal of all of them between its sealed part
+/// and its active rows, as a concurrent maintenance seal would.
+fn reader_raced_by_a_seal(label: &str, count: usize) -> (PathBuf, SessionJournalReader) {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-journal-read-race-{label}-{}", new_uuid_v4().replace('-', "")));
+    let mut registry = WorkspaceRegistry::open(&root, label).unwrap();
+    registry
+        .append_journal_records_for_test(&(0..count).map(sealed_agent_record).collect::<Vec<_>>());
+    let reader =
+        SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
+    let key = label.to_string();
+    BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            registry.seal_journal_for_test(&key);
+            assert!(registry.journal_segments_end().unwrap() > 0, "the hook sealed the journal");
+        }));
+    });
+    (root, reader)
+}
+
+/// A page reads from one snapshot: a seal that commits between the page's
+/// sealed read and its active read (moving records from the active table
+/// into a segment) must not show as a gap.
+#[test]
+fn a_journal_page_read_during_a_seal_sees_every_record() {
+    let (root, reader) = reader_raced_by_a_seal("after", 8);
+    let page = reader.after(0, 64);
+    let ran = BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| slot.borrow().is_none());
+    assert!(ran, "the seal ran inside the read");
+    let page = page.expect("a seal during the read is not a gap");
+    assert_eq!(
+        page.records.iter().map(|record| record.sequence).collect::<Vec<_>>(),
+        (1..=8).collect::<Vec<_>>()
+    );
+    drop(reader);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The same for a subject-filtered page, which reads the records it found
+/// in the subject index from the segments, then from the active table.
+#[test]
+fn a_subject_page_read_during_a_seal_sees_every_record() {
+    let (root, reader) = reader_raced_by_a_seal("subjects", 8);
+    let subject = JournalSubject { kind: "terminal".into(), id: format!("term_{:032x}", 3) };
+    let page = reader.after_subjects(0, 64, std::slice::from_ref(&subject));
+    let ran = BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| slot.borrow().is_none());
+    assert!(ran, "the seal ran inside the read");
+    let page = page.expect("a seal during the read loses no record");
+    assert_eq!(page.records.len(), 1);
+    assert_eq!(page.records[0].subjects, vec![subject]);
+    drop(reader);
+    fs::remove_dir_all(root).unwrap();
+}

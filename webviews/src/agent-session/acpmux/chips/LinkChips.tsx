@@ -16,13 +16,12 @@ import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
 import { Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { FileKindIcon } from "./FileKindIcon";
-import { usePathInfo, useSiteInfo } from "./linkStore";
+import { askSiteAgain, usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName } from "./paths";
 import { useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { githubItemRef } from "./pullRequestCardModel";
-import { usePullRequestState } from "./pullRequestStore";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { useAgentLinkClick } from "../conversation/sessionRefModel";
@@ -32,7 +31,8 @@ import { SubsessionContext } from "../subagents/subsessions";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
-export function PathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+type PathChipProps = { path: string; line?: number; label?: ReactNode; written?: string };
+export function PathChip({ path, line, label, written }: PathChipProps) {
   const scope = useMessageScope();
   const readOnly = useTranscriptReadOnly();
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
@@ -40,10 +40,10 @@ export function PathChip({ path, label, written }: { path: string; label?: React
   // reader's every path is on the owner's machine.
   if (scope?.host !== undefined || readOnly)
     return <ElsewhereChip path={path} host={scope?.host ?? ""} label={label} />;
-  return <HostPathChip path={path} label={label} written={written} />;
+  return <HostPathChip path={path} line={line} label={label} written={written} />;
 }
 
-function HostPathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+function HostPathChip({ path, line, label, written }: PathChipProps) {
   const t = useT();
   const { info, policy } = usePathInfo(path);
   const plain =
@@ -62,7 +62,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       title={outside ? `${t("chip.outsideProject")}\n${path}` : path}
       /* It drags out as the file itself (conversation/dragOut.ts). */
       draggable
-      onClick={() => void callChipHost("link.openPath", { path })}
+      onClick={() => void callChipHost("link.openPath", policy.supportsFileLine && line ? { path, line } : { path })}
     >
       {folder ? <Folder size={16} className="cv-chip__icon" /> : <FileKindIcon path={path} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
@@ -133,8 +133,22 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
 
 /// A web link: its text and `icon` (GitHub, arXiv) when given, both known before any lookup. The
 /// hover card names the site, shows its favicon and title, and offers Open and Open in. The anchor
-/// keeps the host's link-click path.
-export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
+/// keeps the host's link-click path. `reference`: it draws as a reference chip (whole on one line,
+/// its mark centred) though its address is no pull request's, as a nightly build's or a run's does.
+export function UrlChip({
+  href,
+  target,
+  icon,
+  reference = false,
+  children,
+}: {
+  href: string;
+  /** Run-step links keep opening a new browsing context while sharing the preview card. */
+  target?: "_blank";
+  icon?: ReactNode;
+  reference?: boolean;
+  children: ReactNode;
+}) {
   const privateHost = isPrivateUrl(href);
   const known = useSiteInfo(href);
   // A dev server's or a device's page is never dressed as a site, whatever cmux browsed there.
@@ -153,12 +167,10 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const cardMark = mark ?? favicon ?? <Globe size={16} className="cv-chip__icon" />;
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
-  // A pull request or an issue: both get the card and the state's colour (Leo 2026-11-08).
+  // A pull request or an issue gets the card (Leo 2026-11-08). Its mark keeps the link's colour,
+  // as any link does: no state colour that turned it purple once a hover read the pull request
+  // (Lucas, 2026-11-11: "we'll just keep it blue since its a link"). The card's glyph says its state.
   const pullRequest = githubItemRef(href);
-  // A pull request's mark takes its state's colour once the host knows it, as GitHub draws a
-  // reference and as the card's glyph does: merged purple (Leo 2026-10-23, of a merged #23835's
-  // blue chip: "I feel like this should be purple"). Colour only, so the chip never reflows.
-  const state = usePullRequestState(pullRequest?.url);
   // An agent link (`cmux.com/deeplink/agent?...`) opens the reader's own session's chat
   // (conversation/SessionRef.tsx); its web page otherwise.
   const agent = useAgentLinkClick(href);
@@ -208,21 +220,22 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
     <>
       <a
         ref={setAnchor}
-        className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
-        data-pr-state={state}
-        data-pr-kind={pullRequest?.kind === "issue" ? "issue" : undefined}
+        className={`cv-link cv-chip is-web${ref || reference ? " is-ref" : ""}`}
         data-session-ref={agent["data-session-ref"]}
         // A link to one of the reader's chats right-clicks as that chat (menuParts.ts `session`).
         data-open-session={agent["data-open-session"]}
         data-open-session-sender={agent["data-open-session-sender"]}
         href={href}
+        target={target}
         rel="noreferrer"
         {...trigger}
         onPointerEnter={(event) => {
+          if (!privateHost) askSiteAgain(href);
           agent.onPointerEnter?.();
           enter().onPointerEnter?.(event);
         }}
         onFocus={(event) => {
+          if (!privateHost) askSiteAgain(href);
           agent.onFocus?.();
           enter().onFocus?.(event);
         }}
@@ -237,6 +250,9 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         <LinkHoverCard
           href={href}
           anchor={anchor}
+          // Preserve the page's link-click route for links with an explicit browsing target.
+          // Channels has no agent browser.openIn host; clicking its anchor lets the app handle it.
+          onOpenLink={target === "_blank" ? () => anchor?.click() : undefined}
           hover={hover}
           mark={cardMark}
           siteTitle={site?.title}

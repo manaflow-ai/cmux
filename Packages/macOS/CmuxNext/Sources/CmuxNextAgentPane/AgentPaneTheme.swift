@@ -15,7 +15,7 @@ import Foundation
 enum AgentPaneTheme {
     /// `motion` is the web category's policy without live resize: the page keeps these tokens
     /// after a drag ends.
-    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policyIgnoringLiveResize,
+    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policy,
                        surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
         AgentPaneTunables.followTurnActionsPlacement()
         let page = pageColor(tokens, surface: surface)

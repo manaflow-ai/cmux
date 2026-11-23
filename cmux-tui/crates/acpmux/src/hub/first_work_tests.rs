@@ -87,7 +87,7 @@ async fn a_message_the_inbox_takes_before_the_first_work_starts_is_not_the_deleg
     // Another agent's message while the first work waits to start goes to the inbox.
     let other = send(&hub, &s, "s-other", "p-other", "and this", true);
     let inboxed = async {
-        while s.inbox.lock().unwrap().items.is_empty() {
+        while s.inbox().items.is_empty() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -110,16 +110,20 @@ async fn a_message_that_joins_the_first_works_turn_is_not_the_delegator() {
     // Two more agents' messages that queue while the first work holds the turn's lock, its turn
     // not shown yet: both wait in the queue behind it (`queue.rs` `turn_claimed`, fuzz g1) and
     // join the first work's turn as a digest (`digest.rs` `take_joined`).
+    // Each message is waited for by its own prompt id: the queue is not empty once the second
+    // one is in it, so a wait for "not empty" could release the first work before the third
+    // message queued, and the third would then run its own turn.
+    let in_queue = |id: &str| s.queue().iter().any(|q| q.prompt_id == id);
     let waits = send(&hub, &s, "s-other", "p-other", "and this", false);
     let waiting = async {
-        while s.queued() == 0 {
+        while !in_queue("p-other") {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
     tokio::time::timeout(WAIT, waiting).await.expect("the second message waits");
     let joins = send(&hub, &s, "s-third", "p-third", "and that", false);
     let queued = async {
-        while s.queue.lock().unwrap().is_empty() {
+        while !in_queue("p-third") {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -146,7 +150,7 @@ async fn a_blocker_that_comes_before_the_first_work_queues_waits_for_it() {
     // A blocker goes to the inbox; past the wake's debounce no notice has taken the chat's turn.
     let other = send(&hub, &s, "s-other", "p-other", "stuck on this", true);
     let inboxed = async {
-        while s.inbox.lock().unwrap().items.is_empty() {
+        while s.inbox().items.is_empty() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -255,7 +259,7 @@ async fn a_first_work_a_restart_rebuilt_keeps_notices_behind_it() {
     // A blocker goes to the inbox; then the daemon restarts.
     let _blocker = send(&hub, &s, "s-other", "p-blocker", "stuck on this", true);
     let inboxed = async {
-        while s.inbox.lock().unwrap().items.is_empty() {
+        while s.inbox().items.is_empty() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -267,7 +271,7 @@ async fn a_first_work_a_restart_rebuilt_keeps_notices_behind_it() {
 
     let hub = hub_in(Some(&dir));
     let s = hub.resolve(&id).expect("the chat is restored");
-    assert!(s.inbox.lock().unwrap().first.is_none(), "a restart rebuilds no hold");
+    assert!(s.inbox().first.is_none(), "a restart rebuilds no hold");
     assert!(s.turn().is_none());
     // Past the blocker's wake debounce, a review sends no notice ahead of the first work.
     tokio::time::sleep(Duration::from_millis(inbox::WAKE_DEBOUNCE_MS + 500)).await;
@@ -280,7 +284,7 @@ async fn a_first_work_a_restart_rebuilt_keeps_notices_behind_it() {
         .filter(notice)
         .collect();
     assert!(sent.is_empty(), "a notice went ahead of the first work: {sent:?}");
-    assert!(s.inbox.lock().unwrap().in_flight.is_none());
+    assert!(s.inbox().in_flight.is_none());
     hub.shutdown_all().await;
     let _ = std::fs::remove_file(gate);
     let _ = std::fs::remove_dir_all(&dir);

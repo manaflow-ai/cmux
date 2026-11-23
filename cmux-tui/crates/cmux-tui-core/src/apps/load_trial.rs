@@ -31,8 +31,8 @@ pub(super) fn init_message(package: &Package, main: String, grant: &Grant) -> To
         api_version: "1.0.0".into(),
         ops: Some(table.allowed_ops(grant)),
         known_ops: Some(table.known_ops()),
-        locale: Some("en".into()),
-        strings: package.strings("en"),
+        locale: Some(super::locale::current().into()),
+        strings: package.strings(super::locale::current()),
         main,
         main_name: package.main_name(),
     }
@@ -60,6 +60,7 @@ impl Supervisor {
             move |_| drop(exited.send(None)),
         )
         .ok()?;
+        self.host_spawns.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         process.send(&init_message(package, main, grant));
         // A bounded deadline, not a poll: a script that never answers must not hold the reload thread.
         let error = answers.recv_timeout(TRIAL_DEADLINE).ok().flatten();

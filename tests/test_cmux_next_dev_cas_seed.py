@@ -33,6 +33,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 SPEC = importlib.util.spec_from_file_location("dev_cas_seed", ROOT / "scripts/cmux-next/dev_cas_seed.py")
 seed = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(seed)
@@ -354,7 +356,8 @@ class SeedTests(unittest.TestCase):
                     users.setdefault(name, []).append(step.get("name"))
         self.assertEqual(list(users), ["dev-landing-compile"])
         job = workflow["jobs"]["dev-landing-compile"]
-        self.assertEqual(job["environment"], "${{ vars.CMUX_NEXT_DEV_CAS_URL != '' && 'next-dev-cas' || '' }}")
+        self.assertEqual(workflow_jobs.resolve(job).environment,
+                         {"name": "${{ vars.CMUX_NEXT_DEV_CAS_URL != '' && 'next-dev-cas' || '' }}"})
         self.assertIn("refs/heads/feat-cmux-next", workflow["jobs"]["dev-landing-place"]["if"])
 
 

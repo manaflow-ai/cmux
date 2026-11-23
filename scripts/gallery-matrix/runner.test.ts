@@ -110,6 +110,157 @@ test("a hash-route case keeps its route; params go only into a stage's query", a
   expect(stageUrlForTest("index.html#/a.b/c?theme=Nord", { width: 1600 })).toBe("/index.html#/a.b/c?theme=Nord");
 });
 
+/** The browser-context double's CDP session: Performance metrics with this renderer ThreadTime (s). */
+function cdpSession(threadTimeS: number) {
+  return async () => ({
+    send: async (method: string) =>
+      method === "Performance.getMetrics" ? { metrics: [{ name: "ThreadTime", value: threadTimeS }] } : {},
+  });
+}
+
+/** One ready case, stamped ready 3000 ms after navigation, in a context with or without CDP. */
+async function renderReadyCase(context: Record<string, unknown>) {
+  const { runLocal } = await import("./runner");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-ready-cpu-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([{ id: "ready", path_or_url: "https://example.test/", params: { entry: "e", variant: "v" } }]));
+  const browserTypes = { chromium: { launch: async () => ({
+    newContext: async () => ({
+      newPage: async () => ({
+        exposeFunction: async () => {}, addInitScript: async () => {}, goto: async () => {}, waitForFunction: async () => {},
+        evaluate: async (fn: unknown) => {
+          const source = String(fn);
+          if (source.includes("cmuxGalleryReadyMs")) return 3000;
+          if (source.includes("galleryReady ??")) return "1";
+          return null;
+        },
+        screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+      }),
+      close: async () => {},
+      ...context,
+    }),
+    close: async () => {},
+  }) } };
+  const exitCode = process.exitCode;
+  try {
+    return (await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never))[0]!;
+  } finally {
+    process.exitCode = exitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("a ready case records the renderer's CPU time, and its budget is held to it", async () => {
+  const { readyTimes } = await import("./ready-budgets");
+  const result = await renderReadyCase({ newCDPSession: cdpSession(0.75) });
+  expect([result.ready, result.readyMs, result.readyCpuMs]).toEqual(["1", 3000, 750]);
+  expect(readyTimes([result as never])).toEqual(new Map([["e#v", 750]]));
+});
+
+test("a context with no CDP, or one that refuses it, falls back to wall time instead of failing the case", async () => {
+  const { readyTimes } = await import("./ready-budgets");
+  const refuse = () => { throw new Error("CDP session is only available in Chromium"); };
+  for (const context of [{}, { newCDPSession: refuse }, { newCDPSession: async () => ({ send: refuse }) }]) {
+    const result = await renderReadyCase(context);
+    expect([result.ready, result.readyMs, result.readyCpuMs, result.error]).toEqual(["1", 3000, null, undefined]);
+    expect(readyTimes([result as never])).toEqual(new Map([["e#v", 3000]]));
+  }
+});
+
+/** One ready case whose play takes `stills` step stills, each costing the renderer 200 ms of CPU, around 750 ms of its own work. */
+async function renderCapturingCase(stills: number) {
+  const { runLocal } = await import("./runner");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-capture-cpu-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([{ id: "captures", path_or_url: "https://example.test/", params: { entry: "e", variant: "v" } }]));
+  let threadTime = 0;
+  let step: ((step: { index: number; step: string }) => Promise<void>) | undefined;
+  const browserTypes = { chromium: { launch: async () => ({
+    newContext: async () => ({
+      newPage: async () => ({
+        exposeFunction: async (name: string, callback: typeof step) => { if (name === "cmuxGalleryStep") step = callback; },
+        addInitScript: async () => {},
+        goto: async () => {
+          threadTime += 0.75;
+          for (let index = 0; index < stills; index++) await step?.({ index, step: `still ${index}` });
+        },
+        waitForFunction: async () => {},
+        evaluate: async (fn: unknown) => {
+          const source = String(fn);
+          if (source.includes("cmuxGalleryReadyMs")) return 3000;
+          if (source.includes("galleryReady ??")) return "1";
+          return null;
+        },
+        screenshot: async ({ path }: { path: string }) => { threadTime += 0.2; writeFileSync(path, "fixture screenshot"); },
+      }),
+      newCDPSession: async () => ({
+        send: async (method: string) => method === "Performance.getMetrics" ? { metrics: [{ name: "ThreadTime", value: threadTime }] } : {},
+      }),
+      close: async () => {},
+    }),
+    close: async () => {},
+  }) } };
+  const exitCode = process.exitCode;
+  try {
+    return (await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never))[0]!;
+  } finally {
+    process.exitCode = exitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("the CPU a play's step stills cost is taken out of its ready CPU time", async () => {
+  const one = await renderCapturingCase(1);
+  const five = await renderCapturingCase(5);
+  expect([one.readyCpuMs, one.readyCaptureCpuMs]).toEqual([750, 200]);
+  expect([five.readyCpuMs, five.readyCaptureCpuMs]).toEqual([750, 1000]);
+});
+
+test("in Chromium, a state's ready CPU time stays flat as its play takes more stills", async () => {
+  const { runLocal } = await import("./runner");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-capture-cpu-chromium-"));
+  // A dense stage, so a full-page still costs the renderer real work, and a fixed 150 ms of its own.
+  writeFileSync(join(dir, "gallery-frame-stub.js"), "");
+  writeFileSync(join(dir, "stage.html"), `<!doctype html><html><body style="margin:0">
+<script src="gallery-frame-stub.js"></script>
+<div id="grid" style="display:grid;grid-template-columns:repeat(40,1fr)"></div>
+<script>
+const grid = document.getElementById("grid");
+for (let i = 0; i < 6000; i++) { const cell = document.createElement("div"); cell.textContent = "cell " + i; cell.style.cssText = "font:11px sans-serif;padding:2px;border:1px solid hsl(" + (i % 360) + ",60%,50%);border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,.3)"; grid.appendChild(cell); }
+const stills = Number(new URLSearchParams(location.search).get("stills"));
+(async () => {
+  for (let index = 0; index < stills; index++) await window.cmuxGalleryStep({ index, step: "still " + index });
+  const until = performance.now() + 150; while (performance.now() < until) {}
+  document.documentElement.dataset.galleryReady = "1";
+})();
+</script></body></html>`);
+  const exitCode = process.exitCode;
+  try {
+    const render = async (stills: number) => {
+      const manifest = join(dir, `manifest-${stills}.json`);
+      writeFileSync(manifest, JSON.stringify([{ id: `stills-${stills}`, path_or_url: "stage.html", params: { stills, width: 1600, height: 1200 } }]));
+      return (await runLocal({ manifest, galleryDir: dir, outputDir: join(dir, `out-${stills}`), threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }))[0]!;
+    };
+    // Each count is rendered three times and its fastest kept, as gallery health keeps a state's fastest run.
+    const fastest = async (stills: number) => {
+      const runs = [await render(stills), await render(stills), await render(stills)];
+      for (const run of runs) expect(run.ready).toBe("1");
+      return runs.reduce((best, run) => (Number(run.readyCpuMs) < Number(best.readyCpuMs) ? run : best));
+    };
+    const one = await fastest(1);
+    const five = await fastest(5);
+    console.log(`ready CPU: 1 still ${one.readyCpuMs} ms (captures ${one.readyCaptureCpuMs} ms), 5 stills ${five.readyCpuMs} ms (captures ${five.readyCaptureCpuMs} ms)`);
+    // Four more stills cost the renderer real CPU, and none of it reaches the ready time.
+    expect(Number(five.readyCaptureCpuMs) - Number(one.readyCaptureCpuMs)).toBeGreaterThan(40);
+    expect(Math.abs(Number(five.readyCpuMs) - Number(one.readyCpuMs))).toBeLessThan(
+      Math.max(30, (Number(five.readyCaptureCpuMs) - Number(one.readyCaptureCpuMs)) / 2),
+    );
+  } finally {
+    process.exitCode = exitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test("a matrix reuses its browser while isolating and closing every case context", async () => {
   const { runLocal } = await import("./runner");
   const { writeFileSync } = await import("node:fs");
@@ -134,6 +285,7 @@ test("a matrix reuses its browser while isolating and closing every case context
             evaluate: async () => null,
             screenshot: async ({ path, ...options }: { path: string; fullPage?: boolean; clip?: unknown }) => { screenshots.push(options); writeFileSync(path, "fixture screenshot"); },
           }),
+          newCDPSession: cdpSession(0.5),
           close: async () => { closedContexts++; },
         };
       },
@@ -170,6 +322,7 @@ test("recycles a crashed renderer and keeps the matrix moving", async () => {
             evaluate: async () => { if (attempt === 1) throw new Error("Target crashed"); return null; },
             screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
           }),
+          newCDPSession: cdpSession(0.5),
           close: async () => {},
         }),
         close: async () => { closedBrowsers++; },
@@ -206,6 +359,7 @@ test("records a hung case after both bounded attempts and captures later cases",
               evaluate: async () => target.includes("hung") ? new Promise(() => {}) : null,
               screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
             }),
+            newCDPSession: cdpSession(0.5),
             close: async () => {},
           };
         },
@@ -243,6 +397,7 @@ test("records a navigation failure and continues the matrix", async () => {
         evaluate: async () => null,
         screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
       }),
+      newCDPSession: cdpSession(0.5),
       close: async () => {},
     }),
     close: async () => {},
@@ -255,6 +410,52 @@ test("records a navigation failure and continues the matrix", async () => {
     expect(existsSync(join(dir, "fine-chromium.png"))).toBe(true);
     expect(JSON.parse(readFileSync(join(dir, "results.json"), "utf8"))).toHaveLength(2);
     expect(existsSync(join(dir, "index.html"))).toBe(true);
+  } finally {
+    process.exitCode = exitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("renders cases concurrently, one browser per worker, and keeps manifest order", async () => {
+  const { runLocal } = await import("./runner");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-concurrency-"));
+  const manifest = join(dir, "manifest.json");
+  // The first case is the slowest, so a worker that took a later case finishes first.
+  const ids = ["a", "b", "c", "d", "e", "f", "g"];
+  writeFileSync(manifest, JSON.stringify(ids.map((id) => ({ id, path_or_url: `https://example.test/${id}` }))));
+  let launches = 0; let inFlight = 0; let most = 0;
+  const browserTypes = { chromium: { launch: async () => {
+    launches++;
+    return {
+      newContext: async () => {
+        let target = "";
+        return {
+          newPage: async () => ({
+            exposeFunction: async () => {}, addInitScript: async () => {}, waitForFunction: async () => {},
+            goto: async (url: string) => {
+              target = url;
+              inFlight++; most = Math.max(most, inFlight);
+              await new Promise((done) => setTimeout(done, url.endsWith("/a") ? 40 : 5));
+              inFlight--;
+            },
+            evaluate: async () => null,
+            screenshot: async ({ path }: { path: string }) => writeFileSync(path, target),
+          }),
+          newCDPSession: cdpSession(0.5),
+          close: async () => {},
+        };
+      },
+      close: async () => {},
+    };
+  } } };
+  const exitCode = process.exitCode;
+  try {
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0, concurrency: 3 }, browserTypes as never);
+    expect(results.map((r) => r.id)).toEqual(ids);
+    expect(most).toBe(3);
+    expect(launches).toBe(3);
+    expect(readFileSync(join(dir, "e-chromium.png"), "utf8")).toBe("https://example.test/e");
+    await expect(runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0, concurrency: 0 }, browserTypes as never)).rejects.toThrow("concurrency");
   } finally {
     process.exitCode = exitCode;
     rmSync(dir, { recursive: true, force: true });

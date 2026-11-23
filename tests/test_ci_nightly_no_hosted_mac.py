@@ -26,11 +26,17 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 HOSTED_MAC = re.compile(r"(?<![\w.-])macos-(?:latest|\d+)(?:-[a-z0-9]+)*(?![\w.-])")
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && 'macos-(?:latest|\d+)'")
+# The operator's hosted signing switch (Leo, 2026-11-10: "It's fine to sign on GitHub hosted tonight"): the
+# variable is compared with macos-26, never used as the label; unset, the signing jobs keep the trusted signer.
+HOSTED_SIGNING_SWITCH = re.compile(r"vars\.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26'")
 # A comparison against a label (matrix.pool == 'macos-15') reads a route, it does not pick one.
 COMPARISON = re.compile(r"== 'macos-(?:latest|\d+)'")
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.\w+")
@@ -48,10 +54,24 @@ def hosted_mentions(path: Path, *, comment: str) -> list[str]:
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if line.lstrip().startswith(comment):
             continue
-        code = COMPARISON.sub("", FORK_BRANCH.sub("", line.split(f" {comment} ", 1)[0]))
+        code = COMPARISON.sub("", HOSTED_SIGNING_SWITCH.sub("", FORK_BRANCH.sub("", line.split(f" {comment} ", 1)[0])))
         if HOSTED_MAC.search(code):
             hits.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()}")
     return hits
+
+
+def runs_on_text(job: dict, workflow: str, job_id: str) -> str:
+    """The job's runs-on as each matrix cell writes it. A matrix value nothing resolves (a fromJSON matrix) fails,
+    unless workflow_jobs.audited_matrix names why; then the matrix as written is read, so a picker that feeds it
+    is still read."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is not None:
+        return "\n".join(cells)
+    if not workflow_jobs.audited_matrix(workflow, job_id):
+        raise AssertionError(f"{workflow} job {job_id}: its runs-on matrix resolves to no runner, so its picker "
+                             "cannot be read; resolve the matrix or audit it in workflow_jobs.UNRESOLVED_MATRICES")
+    strategy = job.get("strategy")
+    return str(strategy.get("matrix", "") if isinstance(strategy, dict) else strategy)
 
 
 def picker_scripts() -> set[Path]:
@@ -59,8 +79,8 @@ def picker_scripts() -> set[Path]:
     scripts = set()
     for path in scoped_workflows():
         jobs = (yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}).get("jobs") or {}
-        for job in jobs.values():
-            for picker in NEEDS_OUTPUT.findall(str(job.get("runs-on", ""))):
+        for job_id, job in jobs.items():
+            for picker in NEEDS_OUTPUT.findall(runs_on_text(job, path.name, job_id)):
                 for script in SCRIPT.findall(str(jobs.get(picker, {}).get("steps", ""))):
                     if (ROOT / script).is_file():
                         scripts.add(ROOT / script)
@@ -111,10 +131,10 @@ class NoHostedMacInNightlies(unittest.TestCase):
 
     def test_the_sign_picker_answers_blacksmith_even_when_every_label_is_stalled(self) -> None:
         path = ROOT / "scripts/ci/nightly_sign_runner.py"
-        sys.path.insert(0, str(path.parent))
-        spec = importlib.util.spec_from_file_location("nightly_sign_runner_no_hosted", path)
-        picker = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(picker)
+        if str(path.parent) not in sys.path:
+            sys.path.insert(0, str(path.parent))
+        # Imported by name: the one module object other tests import.
+        import nightly_sign_runner as picker
         now = dt.datetime(2026, 10, 27, 3, 0, tzinfo=dt.timezone.utc)
         stalled = {
             "generated_at": now.isoformat().replace("+00:00", "Z"),

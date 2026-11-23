@@ -217,17 +217,19 @@ fn terminal_output_read(
     let after = optional_decimal(&request.fields, "after")?;
     // The catalog injects the default and enforces the 1..=4 MiB bounds.
     let max_bytes = required_u64(&request.fields, "max_bytes")?;
-    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(|error| {
-        // Journal failures can contain SQLite paths, trigger text, and other
-        // host diagnostics. Keep those details in daemon logs; this resource
-        // is user-facing and must return a stable, non-sensitive error.
-        eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
-        ResourceError::operation_failed(
-            "terminal.output_read",
-            "could not read terminal output",
-            json!({}),
-        )
-    })
+    let recovery = super::optional_string(&request.fields, "recovery")?;
+    mux.terminal_output_read_with_recovery(&terminal_id, after, max_bytes, recovery.as_deref())
+        .map_err(|error| {
+            // Journal failures can contain SQLite paths, trigger text, and other
+            // host diagnostics. Keep those details in daemon logs; this resource
+            // is user-facing and must return a stable, non-sensitive error.
+            eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
+            ResourceError::operation_failed(
+                "terminal.output_read",
+                "could not read terminal output",
+                json!({}),
+            )
+        })
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -487,6 +489,10 @@ fn execute_terminal_effect(
     };
     if let Err(failure) = action {
         return finish_action_failure(mux, prepared, failure);
+    }
+    // The input's sequence point for `terminal wait --until idle`.
+    if matches!(prepared.operation.as_str(), "terminal.input.write" | "terminal.input.keys") {
+        surface.note_terminal_input();
     }
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));

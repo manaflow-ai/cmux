@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// View or control (the toolbar toggle). Control sends input; view only
@@ -35,8 +36,18 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     /// Connecting again after a session that showed frames: the card says "Reconnecting" over
     /// the last frame. Cleared by the next frame shown.
     public var reconnecting = false
+    /// When the current reconnect started (nil while not reconnecting): under
+    /// ``reconnectNoticeDelay`` the last frame stays and no card shows.
+    public var reconnectingSince: ContinuousClock.Instant?
+    /// The reconnect has run for ``reconnectNoticeDelay``: the "Reconnecting" card shows now.
+    public var reconnectNoticeDue = false
+    /// How long a reconnect over the last frame stays silent (the conn-quiet bound for an
+    /// open view, ``QuietHold/connectionDelay``): a reconnect, Take over or Hand back usually lands well under it.
+    public static let reconnectNoticeDelay: Duration = QuietHold.connectionDelay
     /// The toggle, or Take over / Hand back.
     public var modeControl = RemoteModeControl.toggle
+    /// Whether the path counts as high latency, held so one sample does not flip it.
+    public var latency = RemoteLatencyHold()
 
     public init(hostName: String, requestedMode: RemoteControlMode = .control, interactiveMaxRttMs: Int = 80) {
         self.hostName = hostName
@@ -46,8 +57,12 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
 
     public var sessionState: RemoteSessionState { status?.state ?? .connecting }
 
-    /// The path's RTT is above the interactive limit (section 2.1).
-    public var isHighLatency: Bool {
+    /// The path's RTT has stayed above the interactive limit (section 2.1) for
+    /// ``RemoteLatencyHold/sustain``; it counts as low again only after as long under it.
+    public var isHighLatency: Bool { latency.high }
+
+    /// The latest RTT sample is above the interactive limit (``latency`` holds it over time).
+    public var sampleOverLimit: Bool {
         guard let rtt = status?.rttMs else { return false }
         return rtt > interactiveMaxRttMs
     }
@@ -62,12 +77,15 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     /// The centered card over the pane, if any.
     public var overlay: RemotePaneOverlay? {
         switch sessionState {
-        case .connecting: .connecting
+        case .connecting: quietReconnect ? nil : .connecting
         case .waitingForConsent: .waitingForConsent
-        case .streaming: hasFrame ? nil : .connecting
+        case .streaming: hasFrame || quietReconnect ? nil : .connecting
         case let .ended(reason): .ended(reason)
         }
     }
+
+    /// Reconnecting over the last frame, under the notice bound: nothing to say yet.
+    public var quietReconnect: Bool { reconnecting && !reconnectNoticeDue }
 
     /// The "View only: high latency" banner with "Control Anyway".
     public var showsLatencyBanner: Bool {

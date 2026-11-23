@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
 use super::{
-    Found, Place, Scope, Target, args_with_words, lookup, replace, resolve, rewrite_words, targets,
+    Found, Place, Scope, Target, args_with_words, replace, resolve, rewrite_words, targets,
     valid_agent_name,
 };
 
@@ -142,84 +142,107 @@ fn w3h_selector_words_and_flags_that_may_be_names_are_found_and_replaced() {
         ]
     );
 
-    let snapshot = snapshot();
     let mut words = strings(&["terminal", "alpha", "send", "--text", "alpha"]);
     let found = targets(&words);
     let target = &found[0];
-    let id = lookup(&snapshot, target).unwrap().unwrap();
-    replace(&mut words, target, &id);
+    replace(&mut words, target, ALPHA);
     assert_eq!(words, strings(&["terminal", ALPHA, "send", "--text", "alpha"]));
-
-    let tab = strings(&["tab", "alpha", "focus"]);
-    let found = targets(&tab);
-    let target = &found[0];
-    assert_eq!(lookup(&snapshot, target).unwrap().as_deref(), Some("tab_alpha"));
     let mut flagged = strings(&["agent", "list", "--terminal=beta"]);
     let found = targets(&flagged);
     let target = &found[0];
-    let id = lookup(&snapshot, target).unwrap().unwrap();
-    replace(&mut flagged, target, &id);
+    replace(&mut flagged, target, BETA);
     assert_eq!(flagged, strings(&["agent", "list", &format!("--terminal={BETA}")]));
-    // A pane with the name keeps its own name; a missing name stays as it is.
-    let pane = positional(Scope::Pane, "left", 1);
-    assert_eq!(lookup(&snapshot, &pane).unwrap(), None);
-    let terminal = positional(Scope::Terminal, "left", 1);
-    assert_eq!(lookup(&snapshot, &terminal).unwrap().as_deref(), Some(SHELL));
-    let missing = positional(Scope::Terminal, "nobody", 1);
-    assert_eq!(lookup(&snapshot, &missing).unwrap(), None);
-    let ambiguous = positional(Scope::Terminal, "dup", 1);
-    let error = lookup(&snapshot, &ambiguous).unwrap_err();
-    assert_eq!(error["code"], "selector.ambiguous");
-    assert_eq!(error["details"]["candidates"], json!(["tab_dup1", "tab_dup2"]));
 }
 
-/// W3-H review: a word the daemon's own selector rules find (here: in the
-/// caller's current tab or pane) stays as it is, also when a tab elsewhere
-/// has that name or the name is shared (no new `selector.ambiguous`). The
-/// rules are asked only for a word that a name matches.
-#[test]
-fn w3h_a_selector_the_daemon_finds_is_never_rewritten() {
-    let snapshot = snapshot();
-    let words = strings(&["terminal", "alpha", "send", "--text", "hi"]);
-    let mut asked = Vec::new();
-    let mut finds = |target: &Target| {
-        asked.push(target.word.clone());
-        true
+/// The daemon's answer for a `<scope> <word> show` probe, as the W5-P
+/// resolver gives it for [`snapshot`]'s session.
+fn daemon(target: &Target) -> Result<Option<String>, Value> {
+    let id = match (target.scope, target.word.as_str()) {
+        (Scope::Terminal, "alpha" | "term_a1a1") => ALPHA,
+        (Scope::Terminal, "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2") => BETA,
+        (Scope::Tab, "alpha") => "tab_alpha",
+        (Scope::Pane, "alpha") => "pane_1",
+        (_, "dup") => {
+            return Err(json!({"code": "selector.ambiguous",
+                              "details": {"candidates": ["tab_dup1", "tab_dup2"]}}));
+        }
+        _ => return Ok(None),
     };
-    assert_eq!(rewrite_words(&words, &snapshot, &mut finds).unwrap(), None);
-    let shared = strings(&["tab", "dup", "focus"]);
-    assert_eq!(rewrite_words(&shared, &snapshot, &mut finds).unwrap(), None);
-    let unnamed = strings(&["tab", "nobody", "focus"]);
-    assert_eq!(rewrite_words(&unnamed, &snapshot, &mut finds).unwrap(), None);
-    assert_eq!(asked, ["alpha", "dup"]);
+    Ok(Some(id.to_owned()))
+}
 
-    // Only a word the rules do not find becomes the named tab's id.
-    let mut not_found = |_: &Target| false;
+/// W5-P: the daemon is the one resolver. Each selector word that may be a
+/// name, an id prefix or a bare (or host) id becomes the id the daemon
+/// resolves it to, so `--terminal alpha` gives the full `term_` id that
+/// `notification create` and `agent report` need, and a word the daemon
+/// does not find stays for the command to report.
+#[test]
+fn w5p_the_daemon_resolves_every_selector_word_the_cli_rewrites() {
+    let mut asked = Vec::new();
+    let mut resolve = |target: &Target| {
+        asked.push(target.word.clone());
+        daemon(target)
+    };
+    let words = strings(&["terminal", "alpha", "send", "--text", "hi"]);
     assert_eq!(
-        rewrite_words(&words, &snapshot, &mut not_found).unwrap(),
+        rewrite_words(&words, &mut resolve).unwrap(),
         Some(strings(&["terminal", ALPHA, "send", "--text", "hi"]))
     );
-    let error = rewrite_words(&shared, &snapshot, &mut not_found).unwrap_err();
+    let notify = strings(&["notification", "create", "--terminal", "alpha", "--title", "t"]);
+    assert_eq!(
+        rewrite_words(&notify, &mut resolve).unwrap(),
+        Some(strings(&["notification", "create", "--terminal", ALPHA, "--title", "t"]))
+    );
+    let prefix = strings(&["agent", "report", "--terminal=term_a1a1", "--state", "idle"]);
+    assert_eq!(
+        rewrite_words(&prefix, &mut resolve).unwrap(),
+        Some(strings(&["agent", "report", &format!("--terminal={ALPHA}"), "--state", "idle"]))
+    );
+    let host = strings(&["terminal", "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2", "screen", "read"]);
+    assert_eq!(
+        rewrite_words(&host, &mut resolve).unwrap(),
+        Some(strings(&["terminal", BETA, "screen", "read"]))
+    );
+    // `tab alpha` and `pane alpha` select alpha's tab and pane.
+    let tab = strings(&["tab", "alpha", "focus"]);
+    assert_eq!(
+        rewrite_words(&tab, &mut resolve).unwrap(),
+        Some(strings(&["tab", "tab_alpha", "focus"]))
+    );
+    let pane = strings(&["pane", "alpha", "split"]);
+    assert_eq!(
+        rewrite_words(&pane, &mut resolve).unwrap(),
+        Some(strings(&["pane", "pane_1", "split"]))
+    );
+    // Not found: the word stays. A full id is never asked about.
+    let unnamed = strings(&["tab", "nobody", "focus"]);
+    assert_eq!(rewrite_words(&unnamed, &mut resolve).unwrap(), None);
+    let full = strings(&["terminal", ALPHA, "send", "--text", "hi"]);
+    assert_eq!(rewrite_words(&full, &mut resolve).unwrap(), None);
+    // The daemon's ambiguity is the CLI's error.
+    let shared = strings(&["tab", "dup", "focus"]);
+    let error = rewrite_words(&shared, &mut resolve).unwrap_err();
     assert_eq!(error["code"], "selector.ambiguous");
+    assert_eq!(error["details"]["candidates"], json!(["tab_dup1", "tab_dup2"]));
+    assert!(!asked.contains(&ALPHA.to_owned()), "{asked:?}");
 }
 
-/// W3-H review: a terminal title wins over a tab name, in the rewrite and in
-/// `terminal … send` (send.rs), as titles did before names existed.
+/// W3-H review: a terminal title wins over a tab name in `terminal … send`
+/// (send.rs), as titles did before names existed. (The daemon's resolver has
+/// the same order; see cmux-tui-core `resource_selector/name_scope.rs`.)
 #[test]
 fn w3h_a_terminal_title_wins_over_a_tab_name() {
+    use super::super::terminal_talk::send::find_terminal;
     let mut snapshot = snapshot();
     snapshot["terminals"][2]["title"] = json!("alpha");
-    let terminal = positional(Scope::Terminal, "alpha", 1);
-    assert_eq!(lookup(&snapshot, &terminal).unwrap(), None);
-    let found = super::send::find_terminal(&snapshot, "alpha").ok().map(|t| t["id"].clone());
+    let found = find_terminal(&snapshot, "alpha").ok().map(|t| t["id"].clone());
     assert_eq!(found, Some(json!(BETA)));
     // Two terminals with the title stay ambiguous, as before.
     snapshot["terminals"][3]["title"] = json!("alpha");
-    let error = super::send::find_terminal(&snapshot, "alpha").expect_err("ambiguous title");
+    let error = find_terminal(&snapshot, "alpha").expect_err("ambiguous title");
     assert!(format!("{error:?}").contains("selector.ambiguous"), "{error:?}");
     // With no title, the name still selects its terminal.
-    let found =
-        super::send::find_terminal(&self::snapshot(), "alpha").ok().map(|t| t["id"].clone());
+    let found = find_terminal(&self::snapshot(), "alpha").ok().map(|t| t["id"].clone());
     assert_eq!(found, Some(json!(ALPHA)));
 }
 

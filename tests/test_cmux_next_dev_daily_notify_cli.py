@@ -30,7 +30,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith("/repos/o/r/actions/artifacts?"):
-            body = json.dumps({"artifacts": [{"id": 4, "workflow_run": {"id": 7},
+            body = json.dumps({"artifacts": [{"id": 4, "workflow_run": {"id": 7, "repository_id": 1, "head_repository_id": 1},
                 "archive_download_url": self.server.url + "/marker.zip"}]}).encode()
         elif self.path == "/marker.zip":
             body = archive.getvalue()

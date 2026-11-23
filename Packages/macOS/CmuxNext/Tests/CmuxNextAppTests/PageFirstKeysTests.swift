@@ -4,11 +4,12 @@ import CmuxNextActions
 import CmuxNextFocus
 import Testing
 
-/// A web page keeps the shortcuts it handles (Lawrence 2026-10-23: "in google sheet if i do cmd f,
-/// it opens cmux cmd f instead of the one inside google sheet, need to fix in general"). In a
-/// Chromium tab, Find, Find Next / Previous and the page's content shortcuts go to the page first;
-/// cmux runs its action only when Chromium reports that the page did not handle the key (no
-/// `preventDefault`). Window-level keys (Cmd-T, Cmd-W, Cmd-N, Cmd-1 to Cmd-9) stay with cmux.
+/// cmux shortcuts win over a web page unless browser focus mode is on (Lawrence 2026-11-11: "im in linear
+/// and cmd b goes to linear itself instead of toggling left sidebar ... we should only direct keyboard
+/// shortcuts into the website itself if focus mode for website is on, else all keyboard shortcuts should go
+/// to cmux itself"). Only Find and its neighbors stay page-first in a Chromium tab (Lawrence 2026-10-23,
+/// Google Sheets' own Cmd-F): cmux runs Find only when Chromium reports that the page did not handle the
+/// key (no `preventDefault`). Every other cmux shortcut (Cmd-B, Cmd-I, Cmd-R, Cmd-T, Cmd-1...) runs first.
 @MainActor @Suite struct PageFirstKeysTests {
     nonisolated struct Key: CustomStringConvertible, Sendable {
         var name: String
@@ -25,12 +26,15 @@ import Testing
         Key(name: "Opt-Cmd-G", characters: "g", keyCode: 5, modifiers: [.command, .option]),
     ]
 
-    /// Rich-text editing chords bound to a cmux navigation action (Cmd-B Toggle Sidebar, Cmd-I Open
-    /// Chief Dock, Shift-Cmd-E Focus Right Sidebar): Bold, Italic and Center in Google Docs (#27619).
-    nonisolated static let editingKeys: [Key] = [
+    /// Chords a page also uses (Cmd-B Bold and Linear's own Cmd-B, Cmd-I Italic) bound to a cmux
+    /// navigation action, and the browser's
+    /// content chords (Reload, Zoom In, Back): cmux runs them before the page sees them.
+    nonisolated static let cmuxKeys: [Key] = [
         Key(name: "Cmd-B", characters: "b", keyCode: 11),
         Key(name: "Cmd-I", characters: "i", keyCode: 34),
-        Key(name: "Shift-Cmd-E", characters: "E", keyCode: 14, modifiers: [.command, .shift]),
+        Key(name: "Cmd-R", characters: "r", keyCode: 15),
+        Key(name: "Cmd-=", characters: "=", keyCode: 24),
+        Key(name: "Cmd-[", characters: "[", keyCode: 33),
     ]
 
     /// Window-level keys: cmux runs them before any page.
@@ -86,38 +90,29 @@ import Testing
         #expect(["find", "findNext", "findPrevious"].contains(candidate.id.rawValue))
     }
 
-    /// Cmd-B in a Chromium page is the page's Bold first; cmux toggles the sidebar only if the page
-    /// leaves the key unhandled (#27619).
-    @Test(arguments: editingKeys) func chromiumPageGetsEditingChordsFirst(_ key: Key) throws {
-        guard case .offerToPage = try Self.decision(key, facts: Self.chromium) else {
-            Issue.record("\(key) ran a cmux action before the page saw it")
+    /// Cmd-B in a Chromium page toggles the cmux sidebar at once (Linear takes Cmd-B for itself with
+    /// `preventDefault`, so a page-first offer never ran Toggle Sidebar there); the other cmux chords too.
+    @Test(arguments: cmuxKeys) func cmuxShortcutsRunBeforeAChromiumPage(_ key: Key) throws {
+        guard case .run = try Self.decision(key, facts: Self.chromium) else {
+            Issue.record("\(key) went to the page before cmux ran its action")
             return
         }
     }
 
-    /// The page left Cmd-B unhandled (a page with no Bold): cmux's Toggle Sidebar runs, once.
-    @Test func unhandledEditingChordRunsTheCmuxAction() throws {
-        let ran = Ran()
-        let registry = Self.registry(recording: ran)
-        let router = KeyRouter(registry: registry) // the router holds its registry unowned
-        defer { withExtendedLifetime(registry) {} }
-        let key = try Self.event(Self.editingKeys[0])
-        guard case .offerToPage(let candidate) = router.decide(key, focus: Self.pageFocus, keyWindow: .content, facts: Self.chromium) else {
-            Issue.record("Cmd-B was not offered to the page")
+    /// Cmd-B runs Toggle Sidebar, nothing else.
+    @Test func cmdBTogglesTheSidebarInAChromiumPage() throws {
+        guard case .run(let candidate) = try Self.decision(Self.cmuxKeys[0], facts: Self.chromium) else {
+            Issue.record("Cmd-B did not run a cmux action in a Chromium page")
             return
         }
-        let tab = ObjectIdentifier(Self.tab)
-        router.offerToPage(key, candidate: candidate, context: router.keyContext(for: Self.pageFocus, facts: Self.chromium), window: "win", tab: tab)
-        #expect(ran.ids.isEmpty, "Toggle Sidebar ran before the page answered")
-        #expect(router.runUnhandledPageKey(key, from: tab))
-        #expect(ran.ids == ["toggleSidebar"])
+        #expect(candidate.id == "toggleSidebar")
     }
 
     /// Outside a page (a terminal has the keyboard), Cmd-B still toggles the sidebar at once.
     @Test func editingChordOutsideAPageRunsAtOnce() throws {
         var focus = FocusState()
         focus.resolved = .terminal(pane: "pane_term", tab: "tab_term")
-        let decision = KeyRouter(registry: Self.sharedRegistry).decide(try Self.event(Self.editingKeys[0]), focus: focus,
+        let decision = KeyRouter(registry: Self.sharedRegistry).decide(try Self.event(Self.cmuxKeys[0]), focus: focus,
                                                                        keyWindow: .content, facts: Self.chromium)
         guard case .run(let candidate) = decision else {
             Issue.record("Cmd-B did not run Toggle Sidebar from a terminal")

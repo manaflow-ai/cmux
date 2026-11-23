@@ -151,6 +151,34 @@ impl Hub {
         });
     }
 
+    /// The live-list harnesses whose last probe started `LIVE_MAX_AGE` or more
+    /// before `now`, claimed so concurrent reads start one probe each.
+    pub(super) async fn stale_live_probes(
+        &self,
+        now: std::time::Instant,
+    ) -> std::collections::BTreeSet<String> {
+        let names: Vec<String> = {
+            let cfg = self.config.read().await;
+            targets(&cfg.harnesses).into_iter().map(|target| target.harness).collect()
+        };
+        let names = names.iter().filter(|name| self.probes(name)).map(String::as_str);
+        self.live_ages.lock().unwrap_or_else(PoisonError::into_inner).claim_due(names, now)
+    }
+
+    /// Stale while revalidating, by age: a read of `_acpmux/models` probes each
+    /// live list `LIVE_MAX_AGE` old again in the background. A model the CLI
+    /// learned since (a new release on the account or the gateway) reaches
+    /// open pickers through `_acpmux/harnesses_changed`, with no daemon restart.
+    pub(crate) async fn revalidate_live_models(self: &Arc<Self>) {
+        let due = self.stale_live_probes(std::time::Instant::now()).await;
+        if due.is_empty() {
+            return;
+        }
+        tracing::info!(agents = ?due, "live model lists are old; probing again");
+        let hub = self.clone();
+        tokio::spawn(async move { hub.probe_live_models(false, Some(due)).await });
+    }
+
     /// Serves the cached lists whose programs are unchanged. Daemon start,
     /// before the login environment and the probes.
     pub(super) async fn load_live_cache(&self) {
@@ -210,6 +238,10 @@ impl Hub {
         // The CLIs need the login environment (PATH, API keys).
         self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
+        self.live_ages
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .started(&target.harness, std::time::Instant::now());
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await

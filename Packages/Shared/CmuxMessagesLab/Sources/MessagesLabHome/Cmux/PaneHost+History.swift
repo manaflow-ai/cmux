@@ -51,6 +51,8 @@ extension ChatController {
     /// text selection (the person holds it to copy). Home's transcript has no
     /// arrow-key scrolling, so nothing else in the pane loses its arrows.
     func historyTakesArrowKeys(from responder: NSResponder?) -> Bool {
+        // The open picture viewer's Up and Down switch its comparison's rows.
+        if openPictureViewer != nil { return false }
         if responder is NSText || responder is NSTextField { return false }
         if let doc = responder as? TranscriptDocumentView, doc === host.scrollView.document,
            selection.dragging || !selection.isEmpty {
@@ -100,6 +102,7 @@ extension FieldTextView {
 
     /// The vertical middle of the caret's line at UTF-16 offset `index`.
     private func lineY(at index: Int) -> CGFloat? {
+        if textLayoutManager == nil { return textKit1CaretSegment(at: index, upstream: false)?.midY }  // the composer field
         guard let tlm = textLayoutManager, let tcm = tlm.textContentManager,
               let loc = tcm.location(tcm.documentRange.location, offsetBy: index) else { return nil }
         tlm.ensureLayout(for: NSTextRange(location: loc))

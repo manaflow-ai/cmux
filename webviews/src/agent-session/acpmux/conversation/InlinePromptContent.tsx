@@ -26,12 +26,14 @@ import { sentUIPick } from "./sentUIPickModel";
  * file too) keeps its chip. */
 export const InlinePromptContent = memo(function InlinePromptContent({
   rowId,
+  messageAt,
   parts,
   show,
   renderImage,
   renderFile,
 }: {
   rowId: string;
+  messageAt?: number;
   parts: readonly PromptContentPart[];
   show(text: string): string;
   renderImage(image: PromptImage): ReactNode;
@@ -41,9 +43,16 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   const join = experimentArm(sentPasteJoin);
   // The words between two pastes are the draft's own runs, so as typed the runs join with nothing.
   const body = useMemo(() => drawnBody(parts, join), [parts, join]);
+  // The typed part the prompt starts with, past attachments placed before it (as send reads the
+  // prompt's first word): its first word draws as a command when it names one (PromptTyped `lead`).
+  const firstWords = body.findIndex(
+    (part) => part.kind === "pasted" || (part.kind === "text" && part.text.trim() !== ""),
+  );
+  const firstTyped = body[firstWords]?.kind === "text" ? firstWords : -1;
   return (
     <PromptText
       rowId={rowId}
+      messageAt={messageAt}
       // What the fold measures: the words the bubble draws, from the same join.
       text={bodyText(body)}
       // What Find searches (chatFind.ts `drawnPromptText`, the same text): those words and each text
@@ -77,10 +86,12 @@ export const InlinePromptContent = memo(function InlinePromptContent({
       return (
         <PromptTyped
           key={`text-${index}`}
+          messageAt={messageAt}
           text={part.text}
           show={show}
           plain={"huge" in part && part.huge === true}
           slot={`typed:${index}`}
+          lead={index === firstTyped}
         />
       );
     if (part.kind === "image")

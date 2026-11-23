@@ -2,9 +2,10 @@
 // Opening a tool group at the very bottom of a running turn while the agent goes on (Leo,
 // 2026-11-06, on a recording under heavy load: "the entire tool call expansion apparatus is borked",
 // "way too discontinuous"). In his recording a row opened while the list reflowed under it, rows
-// regrouped mid-motion and the view jumped. A running turn's run stays open while it runs, so the
-// reader has shut it (ExpandAtBottom.gallery.ts "under-load"). Here a third command joins the opened group on the fold's
-// third frame, with frames coming steadily and with the main thread held in every frame. An open at
+// regrouped mid-motion and the view jumped. An ended stretch's run stays open while the chat works,
+// so the reader has shut it (ExpandAtBottom.gallery.ts "under-load"); a stretch still running draws
+// no run under the live-turn-work `line`. Here the agent's next command lands on the live
+// line on the fold's third frame, with frames coming steadily and with the main thread held in every frame. An open at
 // the very bottom grows down (Lucas, 2026-11-06; transcript-expand-at-bottom.test.ts),
 // so on every painted frame the clicked line and the view's offset stay on their pixels, no row is
 // drawn over the next and the opened row only grows. Under load the fold still ends in bounded time.
@@ -248,10 +249,16 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
         }),
         ROW,
       );
-      expect(after.label).toMatch(/3/);
-      expect(after.commands).toBeGreaterThanOrEqual(3);
+      expect(after.label).toMatch(/2/);
+      expect(after.commands).toBeGreaterThanOrEqual(2);
+      // The next command reads on the live line, never as a row of the opened run.
+      expect(
+        await page.evaluate(() =>
+          document.querySelector('[data-row-id="thinking-live"]')?.textContent?.includes("slow"),
+        ),
+      ).toBe(true);
       // Bounded: with frames coming steadily, the opened row stops growing within the fold's time and
-      // a few frames. Under jank the third command lands when the page gets to it, so there the
+      // a few frames. Under jank the next command lands when the page gets to it, so there the
       // bound is the one-step rule below.
       if (load === "light") {
         const last = frames.at(-1)!;

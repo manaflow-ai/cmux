@@ -1,29 +1,43 @@
 import { acpmuxPerf } from "./perf";
+import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
 import { useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
-import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  useInsertionEffect,
+  useId,
+} from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
-import type { ConnectKind, OffloadKind } from "./environments";
+import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
-import { useEscapingList } from "../../ui/popupHost";
-import { useScrollEdges } from "../../ui/scrollEdges";
-import { Listbox } from "../../ui/Listbox";
 import { ComposerListLayer } from "./backdropLayer";
-import { useComposerListBox } from "./backdropLayerModel";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   bindMarks,
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
+  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
-  type LinkItem,
+  type KnownPaths,
 } from "./attachments";
+import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
+import { canResumeFromComposer } from "./composer/resumeControl";
+import { useTranscriptReadOnly } from "./conversation/readOnly";
+import { useTurnHandover } from "./composer/turnHandover";
+import { glideComposerFromHeld } from "./composer/composerHandover";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -31,7 +45,7 @@ import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
-import { showsLocationRow } from "./locationRow";
+import { chatHasFirstSend, showsLocationRow, stripSlot, type StripSlot } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
@@ -44,10 +58,12 @@ import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
 import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
-import { PromptFocus } from "./promptFocus";
+import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
-import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
+import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
+import { markdownOffset, mentionResults, useMentionSearch } from "./mentionMenuModel";
+import { wantAllSessions } from "./sessionPages";
 import {
   hasOtherChats,
   loadRecentMentionPaths,
@@ -69,23 +85,25 @@ import {
   type CmuxCommand,
   type CmuxCommandResult,
 } from "./cmuxCommands";
+import { customizeMessage } from "./customizeCommand";
 import {
   applyCommand,
   fastModeState,
-  isFastCommand,
   returnPicks,
   shownName,
   slashMatches,
   useSlashNames,
+  insertsText,
   pickedSkillsOf,
   withSkillDollars,
   withoutSkillDollars,
   type SlashCommand,
-  type SlashMatch,
   type SlashTrigger,
 } from "./slashCommands";
 import { commandWaitsForTurn } from "./cliOnlyCommands";
-import { BoltIcon } from "./BoltIcon";
+import { localCommand, type LocalCommand } from "./localCommands";
+import { HelpSheet } from "./HelpSheet";
+import { SlashMenu } from "./SlashMenu";
 import {
   cachePersistedDraft,
   draftHistory,
@@ -100,6 +118,7 @@ import {
   noteDraftHeld,
   noteDraftSent,
   readDurableDraftState,
+  readsDurableDrafts,
   readPersistedDraft,
   settlePendingDraftWrites,
   useDraftActionsVersion,
@@ -107,16 +126,18 @@ import {
 } from "./composerDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { useT } from "./i18n";
+import { sendsHeldForHost } from "./sendWhenReady";
 import { remoteComposer } from "./remoteEditing";
 import { UsageRingMenu } from "./composerChrome";
 import { useComposerChrome } from "./composerChromeModel";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
-import { useComposerLook } from "./composerLook";
-import { LookSwitch } from "./LookSwitch";
+import { lookRowInBox } from "./composerLook";
+import { useComposerLookWithV2 } from "./composerV2";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
+import { PromptText, usePromptFacts } from "./composer/promptText";
 import {
   appendAttachments,
   useAttachmentIntake,
@@ -133,21 +154,25 @@ import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion }
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
-import { composerPlusRegistry, type ComposerPlusExtension } from "./composerPlusRegistry";
+import {
+  CAPTURE_MODES,
+  composerPlusRegistry,
+  type CaptureMode,
+  type ComposerPlusExtension,
+} from "./composerPlusRegistry";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
-import {
-  SLASH_MAX_VIEWPORT_PX,
-  SLASH_ROW_PX,
-  slashActiveAfterScroll,
-  slashScrollForActive,
-  slashViewport,
-} from "./slashViewport";
 import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
+import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
+import { composerShellLook } from "./composer/shellLook.experiment";
+import { composerFooterControls } from "./composer/footerControls.experiment";
+import { composerEmptyHeight } from "./composer/emptyHeight.experiment";
+// The composer look climbs' arms (composer/*.experiment.ts): gallery-only; the default arms add nothing.
+import "./composerClimbs.css";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
@@ -155,10 +180,8 @@ import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
-import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
-  emojiTrigger,
   loadEmojiShortcodes,
   loadRecentEmoji,
   rememberEmoji,
@@ -166,6 +189,11 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
+import { attachmentViewMenu } from "./composer/attachmentViewMenu";
+import { focusRoute } from "../../ui/focusRoute";
+import { outcomeAsk } from "./outcomeAsk.experiment";
+import { withOutcomeAsk } from "./outcomeAsk";
+import type { ComposerEditCommand } from "./composerEditCommand";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -200,12 +228,15 @@ const NOT_AN_EDIT_KEY = new Set([
   "CapsLock",
 ]);
 
-export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
+export type { ComposerEditCommand };
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
   /// Reads the current prompt and attachments before the composer is swapped out.
   draft(): { text: string; attachments: ComposerAttachment[] };
+  /// Takes the prompt and its chips out, leaving the composer empty (a failed Cloud start's Retry
+  /// sends its prompt alone and puts back what was typed during the start: App.tsx `sendStartPrompt`).
+  take(): { text: string; attachments: ComposerAttachment[] };
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest
   /// (`behind`: after them, for prompts sent after one already given back).
   restore(text: string, attachments: ComposerAttachment[], behind?: boolean): void;
@@ -217,6 +248,10 @@ export type ComposerHandle = {
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
+  /// Reads `files` into chips as files of gesture `kind` (`external`: files another app sent to the
+  /// chat, composer/externalAttach.ts), the way a drop's are: the host may say where each is and
+  /// which app it came from, and saves what the composer can't attach.
+  attachFiles(files: File[], kind: DroppedKind): void;
   /// Adds a chip the host is still making (a long dictation recording it sends to the chat's
   /// machine): a pending tile a send waits for, which becomes the chip `make` answers, or fails with
   /// `failure` and Retry; the send keeps waiting until Retry makes it or its × takes it out
@@ -254,16 +289,24 @@ export type ComposerWake = {
   attachments?: ComposerAttachment[];
   shell?: boolean;
   shellText?: string;
-  /// Typed text or chips: only read by the host's hidden-chat release, never handed back.
-  holdsDraft?: boolean;
 };
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /// The chat's saved draft was read into the prompt, or acpmux answered that it can't say: the
+  /// prompt holds what it will hold, so the last launch's copy may give way (App.tsx, firstPaint.ts).
+  onDraftSettled?(sessionId: string): void;
+  /// The harnesses the @ menu offers as read-only guests: only where the chat's daemon serves
+  /// them (App's `guestsHere`). Undefined: none.
+  guestHarnesses?: AcpmuxSnapshot["catalog"];
   /// The native tab's folder, which the header's PR chip describes. A fresh chat's folder pick
   /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
   /// header's PR belongs to another folder then.
   headerCwd?: string;
+  /// The queue as acpmux has it, every entry the moment it comes. `snapshot.queue` is the queue as
+  /// drawn (queuedMessages.ts `useShownQueue`), which keeps a short-lived entry out of sight; the
+  /// turn's handover reads this one, so Stop holds across a prompt that ran at once. Unset: `snapshot.queue`.
+  turnQueue?: AcpmuxSnapshot["queue"];
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
@@ -280,10 +323,15 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
+  /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
+  /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
+  onBindSideGesture?(): SendGesture | undefined;
   /// Whether the chat's transcript is at its latest row now (VirtualTranscript's follow, App.tsx
   /// `followingTranscript`): a prompt sent away from it tucks behind the composer (conversation/sendTuck.ts).
   transcriptFollowing?(): boolean;
   onStop(): void;
+  /// Present only for the latest stopped/interrupted turn; the owner rechecks before resuming.
+  onResume?(): Promise<void | boolean>;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
   /// Pulls a queued prompt back into the composer, retaining its text and attachments.
@@ -312,6 +360,11 @@ type Props = {
   /// False while the pane does not yet know which chat it shows (locationRow.ts paneKnowsNewChat):
   /// an existing chat being restored or opened draws no location strip. Unset: known.
   chatKnown?: boolean;
+  /// A part of the bottom stack stands right over the composer (the hat: plan, subagents, commands,
+  /// its pull tab, the goal, a question). The first send's kept strip slot goes for good then: it
+  /// stood as a 46px gap between that part and the card (Lucas, 2026-11-12: "its completely
+  /// detached"). The part's arrival moves the rows anyway, so the slot leaving adds no move.
+  stackAbove?: boolean;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
@@ -336,7 +389,18 @@ type Props = {
   /// Handles a cmux-owned slash command after the user submits it. False keeps the prompt; a
   /// promise keeps the text until it resolves; accepted commands consume their attachments immediately.
   /// `CMUX_PASS_THROUGH` hands the prompt to the normal send path (onSend), attachments and steer included.
-  onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
+  /// `attachments`: `/side`'s staged files, which go to its side chat with its prompt (#40066);
+  /// `gesture`: the one `onBindSideGesture` bound when the composer held it for them.
+  onCmuxCommand?(
+    command: CmuxCommand,
+    args?: string,
+    attachments?: ComposerAttachment[],
+    gesture?: SendGesture,
+  ): CmuxCommandResult;
+  /// Runs a harness's local command typed alone (localCommands.ts: `/mcp`, `/cost`), at once, in the
+  /// GUI, even mid-turn: it is never queued or steered. False (nothing here can show it): it goes on
+  /// the normal send path as typed.
+  onLocalCommand?(command: LocalCommand): boolean;
   /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
@@ -364,7 +428,11 @@ type Props = {
   onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
   /// or a window, attached as an image at any size; undefined when the person cancelled the pick.
-  capture?(mode: "screen" | "window"): Promise<File | undefined>;
+  /// Record Screen… (`video`, with ``canRecord``) attaches its recording itself, by its path, and
+  /// answers a File only for a still taken from the recording toolbar.
+  capture?(mode: CaptureMode): Promise<File | undefined>;
+  /// The + menu offers Record Screen…: a chat on this Mac, which reads the recording where it is kept.
+  canRecord?: boolean;
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
@@ -375,7 +443,7 @@ type Props = {
   ): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are, so a folder or a file
   /// no block takes goes as a link to it, with nothing copied (composer/intakeFiles.ts droppedPaths).
-  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  localPaths?(kind: DroppedKind, files: File[], gestureAt?: number): Promise<KnownPaths | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   /// A new chat's machine was picked where no folder of it is known: the chat starts there.
@@ -392,6 +460,8 @@ type Props = {
   extraFolders?: ExtraFolderControl;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
   onNewWorktree?(cwd: string): void;
+  /// A GitHub repository picked for a new chat on this Mac (ComposerContext `onGitHubHere`).
+  onGitHubHere?(repo: string, candidates: string[]): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
@@ -399,10 +469,10 @@ type Props = {
   /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext), as `offloads` lists them.
   onOffload?(kind: OffloadKind): void;
   offloads?: readonly OffloadKind[];
+  /// Why each offered move would refuse now (see ComposerContext).
+  offloadReasons?: OffloadReasons;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
-  /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
-  folderNote?: string;
   /// A new chat's Run as rows in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
   /// This Mac's name for the location row.
@@ -433,9 +503,11 @@ type Props = {
   /// A new chat waiting on its folder choice: no prompt goes, including a trust-resend callback.
   /// Shell mode still runs. This is separate from a trust read's empty `blocked` object.
   blockSend?: boolean;
-  /// A Cloud start is out: the box takes no input until it ends (ComposerBox `inert`), since this
-  /// tab closes once the chat opens on the machine and an edit made meanwhile would be lost.
-  locked?: boolean;
+  /// A Cloud start is out (App.tsx `cloudStarting`): the box still takes typing, pastes, drops and
+  /// dictation, and nothing sends until the start ends, so a second Return starts no second chat.
+  /// What is typed goes to the host at once (`onUnsentDraft`, no throttle), which seeds the started
+  /// chat's composer with it as a draft (CloudStartChat `openUploaded`).
+  cloudStarting?: boolean;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
@@ -466,12 +538,16 @@ export function Composer(props: Props) {
 /// so its arguments can follow.
 function ComposerFrame({
   snapshot,
+  guestHarnesses,
   headerCwd,
+  turnQueue,
   chips: Chips,
   onSend,
   onBindSendGesture,
+  onBindSideGesture,
   transcriptFollowing,
   onStop,
+  onResume,
   onQueueRemove,
   onQueueCancelEdit,
   onQueueChange,
@@ -481,6 +557,7 @@ function ComposerFrame({
   queueImage,
   draft,
   chatKnown = true,
+  stackAbove = false,
   leading,
   accessory,
   dictating = false,
@@ -488,7 +565,9 @@ function ComposerFrame({
   prompt,
   onEdit,
   onCmuxCommand,
+  onLocalCommand,
   onUnsentDraft,
+  onDraftSettled,
   onTyping,
   onPromptEdit,
   onSuggestionTaken,
@@ -497,6 +576,7 @@ function ComposerFrame({
   importSandboxed,
   searchFiles,
   capture,
+  canRecord,
   plusExtensions,
   onPlusCommand,
   upload,
@@ -510,12 +590,13 @@ function ComposerFrame({
   onBrowseProject,
   extraFolders,
   onNewWorktree,
+  onGitHubHere,
   onBrowseFolder,
   onConnect,
   onOffload,
   offloads,
+  offloadReasons,
   onRefreshMachines,
-  folderNote,
   runMode,
   localName,
   environments,
@@ -532,7 +613,7 @@ function ComposerFrame({
   switching,
   blocked,
   blockSend = false,
-  locked = false,
+  cloudStarting = false,
   authBlock,
   authBlocked = false,
   authChecking = false,
@@ -542,6 +623,8 @@ function ComposerFrame({
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
+  // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
+  const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
   // The chat's peer link for the quiet row, as acpmux reports it; null for a chat on this Mac
   // (peerLink.ts).
   const machineLink = peerLink(snapshot);
@@ -553,54 +636,97 @@ function ComposerFrame({
   // The native action map is replaced on reconnect while the session stays the same. Subscribe
   // so a durable read retries as soon as that map is available again.
   const draftActionsVersion = useDraftActionsVersion();
-  const [findingFiles, setFindingFiles] = useState(false);
+  /// Where the open Search files palette draws (the composer form's parent); null while closed.
+  const [findingFiles, setFindingFiles] = useState<HTMLElement | null>(null);
+  // `/help`'s sheet (HelpSheet.tsx), where the `/` list draws.
+  const [helpOpen, setHelpOpen] = useState(false);
+  useEffect(() => setHelpOpen(false), [sessionId]);
+  const openFileSearch = () => setFindingFiles(form.current?.parentElement ?? null);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
-  useEffect(() => setFindingFiles(false), [searchFiles]);
+  useEffect(() => setFindingFiles(null), [searchFiles]);
   // Search Files… (the app's command palette, cx-ncc.69) opens the same search the + menu does.
   useEffect(() => {
     if (!searchFiles) return;
-    const open = () => setFindingFiles(true);
+    const open = () => openFileSearch();
     window.addEventListener("cmux-acpmux-searchFiles", open);
     return () => window.removeEventListener("cmux-acpmux-searchFiles", open);
   }, [searchFiles]);
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
+  // A chat New Tab just started: the box glides down from New Tab's place instead of jumping
+  // (composer/composerHandover.ts).
+  useLayoutEffect(() => glideComposerFromHeld(form.current), []);
   const importInput = useRef<HTMLInputElement>(null);
   // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
   // arrive in the same render; preferring the host value keeps it visible through initialization.
-  const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
-  const textRef = useRef(text);
-  textRef.current = text;
+  // The prompt's text and caret live outside React state (composer/promptRef.current.ts): a key renders
+  // this frame only when what it draws from the text changes (`facts`, below).
+  const [promptText] = useState(() => new PromptText(draft ?? readPersistedDraft(sessionId) ?? ""));
+  /// The same store for handlers and effects: a ref, so a hook that reads the text does not list it.
+  const promptRef = useRef(promptText);
+  /// Each write from here (not the field's own typing) renders the frame once, so the caret it
+  /// asked for (`pendingCaret`) is applied after the field takes the text.
+  const [, setWrites] = useState(0);
+  const writeText = (value: string, at: number) => {
+    promptRef.current.set(value, at);
+    setWrites((count) => count + 1);
+  };
+  /// Runs a text change's draft writes (the text effects of before) once per change, after the
+  /// handler that made it, as React's flush of the change ran them.
+  const textChanged = useRef<() => void>(() => {});
+  useEffect(() => {
+    let live = true;
+    let queued = false;
+    const stop = promptRef.current.subscribeText(() => {
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        if (live) textChanged.current();
+      });
+    });
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [promptText]);
+  const [doneWhen, setDoneWhen] = useState("");
+  const outcomeFieldId = useId();
+  const doneWhenRef = useRef(doneWhen);
+  const outcomeAskEnabled = experimentArm(outcomeAsk) === "on";
+  useEffect(() => {
+    doneWhenRef.current = "";
+    setDoneWhen("");
+  }, [sessionId]);
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
   const [shell, setShell] = useState(false);
   const [shellText, setShellText] = useState("");
   const shellRef = useRef({ shell, shellText });
-  shellRef.current = { shell, shellText };
   const shellField = useRef<HTMLTextAreaElement>(null);
   const shellCaret = useRef<number | undefined>(undefined);
-  const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
-  const [dismissed, setDismissed] = useState<string | undefined>();
   /// The `/word` the prompt's caret ends (MarkdownField `onSlash`), which opens the menu.
   const [slash, setSlash] = useState<SlashTrigger | undefined>();
   // The @ picker (MentionMenu.tsx): the row moved to, by its key, and the prompt text Esc closed it on.
   const [mentionActive, setMentionActive] = useState<string | undefined>();
-  const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
   // The suggested prompt Esc put away: its chat and PR, so it stays away for this chat only.
   const [suggestionDismissed, setSuggestionDismissed] = useState<string | undefined>();
   // The handle is made once: its notices read the current locale's strings.
   const tRef = useRef(t);
-  tRef.current = t;
   const field = useRef<MarkdownFieldHandle>(null);
   const fieldRef = useCallback(
     (handle: MarkdownFieldHandle | null) => {
       field.current = handle;
-      if (prompt) prompt.current = handle;
+      setRef(prompt, handle);
     },
     [prompt],
   );
+  // Focus leaving the queued prompts goes back to the prompt. One function for the composer's life:
+  // ComposerFrame renders on every key (its text is its state), and the queue is memoised, so a new
+  // function here drew the queue and laid out its rows on each key.
+  const leaveQueue = useCallback(() => field.current?.focus(), []);
   // The editor can stay mounted while a turn streams. Keep the callbacks it calls stable so the
   // memoized Milkdown field does not reconcile for every inbound snapshot; the refs are refreshed
   // below after the current render has computed the live steer/queue behavior.
@@ -611,7 +737,6 @@ function ComposerFrame({
   const promptReturnInput = useRef<NonNullable<MarkdownFieldProps["onReturnInput"]>>(() => {});
   const promptComposition = useRef<NonNullable<MarkdownFieldProps["onCompositionChange"]>>(() => {});
   const promptUnplacedQuotes = useRef(onUnplacedQuotes);
-  promptUnplacedQuotes.current = onUnplacedQuotes;
   const stablePromptCallbacks = useMemo(
     () => ({
       onBeforeInput: (...args: Parameters<NonNullable<MarkdownFieldProps["onBeforeInput"]>>) =>
@@ -644,7 +769,6 @@ function ComposerFrame({
   // A Codex skill a past prompt went with as `/$name` comes back `/name`, read only as it is
   // recalled (slashCommands.ts withoutSkillDollars).
   const commandsNow = useRef(snapshot.commands);
-  commandsNow.current = snapshot.commands;
   /// The Codex skills picked into this draft, by shown name (from the menu, or a prompt that came
   /// back with them): where a command shares the name, send still writes the skill's `/$name`
   /// (slashCommands.ts withSkillDollars).
@@ -654,7 +778,12 @@ function ComposerFrame({
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
   /// What + wrote over the draft, so Escape can put the draft back.
-  const plusDraft = useRef<{ written: string; original: string } | undefined>(undefined);
+  /// `shown`: the frame has rendered the write. A blur in the same event as the write (the + menu
+  /// closing as its row writes "/") reads the text before it, as the render-time text did.
+  const plusDraft = useRef<{ written: string; original: string; shown?: boolean } | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (plusDraft.current) plusDraft.current.shown = true;
+  });
   const composing = useRef(false);
   // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
   const refocusSend = useRef(false);
@@ -662,7 +791,7 @@ function ComposerFrame({
   const refocusField = useRef(false);
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
-  const slotMemory = useRef<SlotMemory | undefined>(undefined);
+  const [slotMemory] = useState<SlotMemory>(() => newSlotMemory(sessionId));
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
@@ -672,15 +801,15 @@ function ComposerFrame({
   const suppressedAttachmentCarry = useRef<{ from?: string } | undefined>(undefined);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
-  const locationSlotSession = useRef<string | undefined>(undefined);
-  const locationSlotWasShown = useRef(false);
+  const [locationSlot, setLocationSlot] = useState<StripSlot>({});
   const sendButton = useRef<HTMLButtonElement>(null);
-  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter } = useComposerSettings();
+  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter, attachmentView } =
+    useComposerSettings();
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
-  const look = useComposerLook();
-  const quietActions = plainFooter && look !== "codex";
+  const look = useComposerLookWithV2();
+  const quietActions = plainFooter && !lookRowInBox(look);
   const usage = compactingUsage(
     snapshot.summary?.usage,
     snapshot.summary?.usageStats,
@@ -688,6 +817,15 @@ function ComposerFrame({
   );
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
+  /// `sending`, as Send's look reads it during render.
+  const [sendingShown, setSendingShown] = useState(false);
+  const markSending = (on: boolean) => {
+    sending.current = on;
+    setSendingShown(on);
+  };
+  const resumeInFlight = useRef<{ sessionId?: string } | undefined>(undefined);
+  const [resumePending, setResumePending] = useState<{ sessionId?: string } | undefined>(undefined);
+  const readOnly = useTranscriptReadOnly();
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
   const submitNow = useRef<(force: boolean, steer?: boolean, gesture?: SendGesture, route?: "side") => boolean>(
     () => false,
@@ -696,7 +834,6 @@ function ComposerFrame({
   const dictationEnded = useRef(false);
   /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
   const openInWindow = useRef(onOpenInWindow);
-  openInWindow.current = onOpenInWindow;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // A paste on the prompt or the shell field, and a file drop anywhere (composer/attachmentIntake.tsx).
   // The composer's card, and the chat column around it that a file drag covers (composer/DropOverlay.tsx).
@@ -713,7 +850,6 @@ function ComposerFrame({
     pending,
     loading,
     unsettled,
-    videoReading,
     cancel,
     retry,
     revive,
@@ -726,6 +862,7 @@ function ComposerFrame({
     dropLanded,
     attach,
     attachLater,
+    refused: attachRefused,
   } = useAttachmentIntake({
     // An attachment the person brings is their edit of the prompt, as a key is: a draft read that
     // answers while it loads keeps the prompt that holds its placeholder, never replaces it (Leo,
@@ -738,7 +875,9 @@ function ComposerFrame({
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
-    locked: () => locked,
+    // A Cloud start is out: the host carries the started chat's text, not its chips, so a file
+    // pasted, dropped or picked now is refused with this note rather than lost with this tab.
+    refusal: () => (cloudStarting ? t("composer.cloudStartingAttach") : undefined),
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
     pasteTarget: (target) =>
       shellField.current?.contains(target)
@@ -764,9 +903,21 @@ function ComposerFrame({
     },
   });
   const attachmentsRef = useRef(attachments);
-  attachmentsRef.current = attachments;
+  // Browser picks that leave (their × or a send) leave the page too: its pins match the chips.
+  useReleasedPicks(attachments);
   const pendingRef = useRef(pending);
-  pendingRef.current = pending;
+  // The latest of each, written as the render commits (every reader is a handler, an effect or the
+  // handle): a write during render keeps the composer out of the React Compiler, and each key then
+  // re-creates every child's props.
+  useInsertionEffect(() => {
+    shellRef.current = { shell, shellText };
+    tRef.current = t;
+    promptUnplacedQuotes.current = onUnplacedQuotes;
+    commandsNow.current = snapshot.commands;
+    openInWindow.current = onOpenInWindow;
+    attachmentsRef.current = attachments;
+    pendingRef.current = pending;
+  });
   /// A new chat's text as the host keeps it (`onUnsentDraft`): the person's words only. The host keeps
   /// no attachment with it, so each attachment's token goes, a placeholder still being read included.
   const unsentText = (value: string) =>
@@ -778,12 +929,11 @@ function ComposerFrame({
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   // It binds the Enter's or click's gesture at once: the screenshot's upload would spend it meanwhile.
   const bindHeldSend = () => onBindSendGesture?.();
-  const holdForAttachments = useSendWhenAttached<SendGesture>(
-    loading + videoReading,
-    sessionId,
-    unsettled + videoReading,
-    bindHeldSend,
-  );
+  // A video's read (its poster, frames and speech, composer/videoAttachments.ts) holds no send: the
+  // chip is its path from the paste on, and what the host has read by the send goes with it (Leo,
+  // 2026-11-10: "it's 99% of the time fine for it to just to be a path and stuff, so idk why it's so
+  // slow").
+  const holdForAttachments = useSendWhenAttached<SendGesture>(loading, sessionId, unsettled, bindHeldSend);
   /// A prompt too large for one acpmux message waits for its images' originals still uploading,
   /// then goes with them as links (promptBudget.ts); the person's x on one lets it go without it.
   const holdForOriginals = useSendWhenOriginals<SendGesture>(
@@ -796,8 +946,6 @@ function ComposerFrame({
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
   // there (composer/pasteAnywhere.ts).
   usePasteAnywhere(() => {
-    // A Cloud start is out (`locked`): the prompt takes nothing until it ends.
-    if (locked) return false;
     const shellInput = shellRef.current.shell ? shellField.current : null;
     if (shellInput) {
       shellInput.focus();
@@ -815,7 +963,8 @@ function ComposerFrame({
   useLayoutEffect(() => {
     if (refocusField.current && !snapshot.isWorking) {
       refocusField.current = false;
-      if (!document.activeElement || document.activeElement === document.body) field.current?.focus();
+      if (!document.activeElement || document.activeElement === document.body)
+        focusRoute(field.current, "system", "the turn ended: the composer");
     }
     if (!refocusSend.current) return;
     const focused = document.activeElement;
@@ -835,21 +984,19 @@ function ComposerFrame({
   /// saved "saved\n\ntyped" and marked the draft read while the editor still held "typed"; the load's
   /// read then kept "typed" and wrote it over the merged draft.
   const applyDraftRead = (session: string | undefined, saved: string | undefined): string => {
-    const currentText = field.current?.value() ?? textRef.current;
+    const currentText = field.current?.value() ?? promptRef.current.text;
     const history = draftHistory(session);
     const edited = editedBeforeHydration.current || history.edited;
     editedBeforeHydration.current = false;
     const next = hydratedDraft({ current: currentText, restored: saved, ...history, edited });
     if (next.shown) {
       // Its own write (below) or none: the text effect does not write it again.
-      restoringSession.current = next.text !== textRef.current;
+      restoringSession.current = next.text !== promptRef.current.text;
       notTyped();
       // The editor at once, not on the next render: a quit about to unmount reads it, and a read
       // that answers before the render must see the merged prompt.
       if (field.current && field.current.value() !== next.text) field.current.reset(next.text);
-      textRef.current = next.text;
-      setText(next.text);
-      setCaret(next.text.length);
+      writeText(next.text, next.text.length);
       pendingCaret.current = next.text.length;
     }
     hydratedText.current = next.text;
@@ -863,17 +1010,35 @@ function ComposerFrame({
     flushPendingDraftWrites();
     return next.text;
   };
+  // A new chat's text goes to the host at most every 300 ms while typing, and at once when the page is
+  // hidden, the prompt loses focus or the prompt is sent (unsentDraftThrottle.ts). Declared ahead of the
+  // handle that flushes it: one read before its declaration keeps the composer uncompiled.
+  const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
   useImperativeHandle(
     handle,
     () => ({
       draft() {
         return {
-          text: field.current?.value() ?? textRef.current,
+          text: field.current?.value() ?? promptRef.current.text,
           attachments: attachmentsRef.current.filter((attachment) => !attachment.shellRun),
         };
       },
+      take() {
+        const taken = {
+          text: field.current?.value() ?? promptRef.current.text,
+          attachments: attachmentsRef.current.filter((attachment) => !attachment.shellRun),
+        };
+        // Taken out by the page, not typed: no edit of the person's.
+        notTyped();
+        attachmentsRef.current = attachmentsRef.current.filter((attachment) => attachment.shellRun);
+        setAttachments((current) => current.filter((attachment) => attachment.shellRun));
+        if (!field.current?.type("")) {
+          writeText("", 0);
+        }
+        return taken;
+      },
       draftText: () =>
-        withoutInlineTokens(field.current?.value() ?? textRef.current, (id) =>
+        withoutInlineTokens(field.current?.value() ?? promptRef.current.text, (id) =>
           attachmentsRef.current.some((attachment) => attachment.id === id),
         ),
       suppressAttachmentCarryFor(sessionId) {
@@ -913,8 +1078,7 @@ function ComposerFrame({
         // A field whose editor is still starting (the chat composer that mounts as a New Tab page
         // leaves) takes it as its value, which becomes the editor's first content.
         if (!field.current?.type(next)) {
-          setText(next);
-          setCaret(next.length);
+          writeText(next, next.length);
         }
         if (restoredAttachments.length)
           setAttachments((current) => {
@@ -925,6 +1089,9 @@ function ComposerFrame({
           });
       },
       attach(attachment) {
+        // A Cloud start is out: no chip comes in from any caller (a highlight, a selection, a
+        // recording, a link pick, the focused tab), and the note says why (`refusal`).
+        if (attachRefused()) return;
         // A pick past the most the composer holds says so, as a dropped file does.
         const held = attachmentsRef.current;
         const next = appendAttachments(held, [attachment]);
@@ -936,6 +1103,9 @@ function ComposerFrame({
         });
       },
       attachLater,
+      attachFiles(files, kind) {
+        if (files.length) void attach(files, true, kind);
+      },
       detach(ids) {
         setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
         // Their places in the text go with them: no empty atom stays in the draft.
@@ -944,24 +1114,21 @@ function ComposerFrame({
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
       prefill(prefix) {
-        const typed = (field.current?.value() ?? textRef.current).trimStart();
+        const typed = (field.current?.value() ?? promptRef.current.text).trimStart();
         if (!typed.startsWith(prefix.trimEnd())) {
           const next = prefix + typed;
           pendingCaret.current = next.length;
-          setText(next);
-          setCaret(next.length);
+          writeText(next, next.length);
         }
         field.current?.focus();
       },
       quoteReply(markdown) {
         notTyped();
         if (!field.current?.quoteReply(markdown)) {
-          const typed = textRef.current;
+          const typed = promptRef.current.text;
           const next = typed ? typed + "\n\n" + markdown : markdown;
-          textRef.current = next;
           pendingCaret.current = next.length;
-          setText(next);
-          setCaret(next.length);
+          writeText(next, next.length);
           field.current?.focus();
         }
       },
@@ -971,13 +1138,11 @@ function ComposerFrame({
           attachments,
           shell: shellRef.current.shell,
           shellText: shellRef.current.shellText,
-          // A release agents.hiddenChats.discard alone makes keeps a page holding a draft (AgentPaneWakeState.swift).
-          holdsDraft: composerHoldsDraft(field.current?.value() ?? textRef.current, attachments),
         };
       },
       async settleDraft() {
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
-        let typed = field.current?.value() ?? textRef.current;
+        let typed = field.current?.value() ?? promptRef.current.text;
         const session = persistedSession.current;
         // Typed while the chat loaded, and acpmux's draft never read: read it now, so the quit
         // keeps both instead of writing the typed text over it (mergedDraft). No answer: as before.
@@ -988,9 +1153,9 @@ function ComposerFrame({
             // A failed read is not an empty draft. Keep the latest text in the remount cache and
             // wait for a successful read before sending anything to acpmux, so reconnect cannot
             // replace a durable draft with the text typed during the outage.
-            cachePersistedDraft(session, field.current?.value() ?? textRef.current);
+            cachePersistedDraft(session, field.current?.value() ?? promptRef.current.text);
             const unsent = unsentDraft.current;
-            if (unsent) unsent.push(unsentText(field.current?.value() ?? textRef.current));
+            if (unsent) unsent.push(unsentText(field.current?.value() ?? promptRef.current.text));
             await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
             return;
           }
@@ -1036,7 +1201,7 @@ function ComposerFrame({
         }
       },
     }),
-    [setAttachments, attachLater],
+    [setAttachments, attachLater, attachRefused, attach],
   );
   useEffect(() => {
     if (!draft) return;
@@ -1044,15 +1209,14 @@ function ComposerFrame({
     // after the person started typing (the handshake slower than their keys) goes before what
     // they typed, so neither is lost (mergedDraft); before, it was dropped, and the typed text
     // then replaced the tab's kept draft on disk.
-    const typed = field.current?.value() ?? textRef.current;
+    const typed = field.current?.value() ?? promptRef.current.text;
     // Merged only before the page read this chat's draft; after it, the prompt is the draft.
     if (draftWasRead(persistedSession.current)) return;
     const next = mergedDraft(typed, draft);
     if (next === typed) return;
     notTyped();
     field.current?.reset(next);
-    setText(next);
-    setCaret(next.length);
+    writeText(next, next.length);
     pendingCaret.current = next.length;
   }, [draft]);
   useEffect(() => {
@@ -1061,14 +1225,16 @@ function ComposerFrame({
   useEffect(() => {
     if (persistedSession.current === sessionId) return;
     // A switch's new session has no draft yet: the prompt typed before the pick moves to it.
-    const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
+    const carried = carryPrompt.current ? (field.current?.value() ?? promptRef.current.text) : "";
     const previous = persistedSession.current;
     // The composer had no chat yet (the page still loading or reconnecting, a new chat whose
     // session just started): what it holds was typed for this chat. It stays, merged with the
     // chat's saved draft. Before, this reset the prompt to the saved draft or to empty, so text
     // typed before the chat loaded was cleared.
-    const typedBefore = previous === undefined && !carryPrompt.current ? (field.current?.value() ?? text) : "";
-    if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    const typedBefore =
+      previous === undefined && !carryPrompt.current ? (field.current?.value() ?? promptRef.current.text) : "";
+    if (previous && hydratedSession.current === previous)
+      writePersistedDraft(previous, field.current?.value() ?? promptRef.current.text);
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
@@ -1095,10 +1261,9 @@ function ComposerFrame({
       noteDraftEdited(sessionId);
       if (sessionId) cachePersistedDraft(sessionId, initial);
     }
-    setText(initial);
-    setCaret(initial.length);
+    writeText(initial, initial.length);
     pendingCaret.current = initial.length;
-  }, [sessionId, text, draft]);
+  }, [sessionId, draft]);
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
@@ -1119,7 +1284,9 @@ function ComposerFrame({
   // chips kept with the chat (composerDraft.ts, keptAttachments.ts), nothing being sent, read or
   // dictated, no shell mode (pages/shared/webSwap.ts).
   const swapState = useRef({ dictating, reading: 0, sessionId, chips: 0 });
-  swapState.current = { dictating, reading: pending.length, sessionId, chips: attachments.length };
+  useInsertionEffect(() => {
+    swapState.current = { dictating, reading: pending.length, sessionId, chips: attachments.length };
+  });
   useEffect(
     () =>
       holdWebSwap(() => {
@@ -1127,11 +1294,13 @@ function ComposerFrame({
         if (sending.current) return "composer.sending";
         if (state.dictating) return "composer.dictation";
         if (state.reading) return "composer.attachment-reading";
-        if (shellRef.current.shell) return "composer.shell";
         // A new chat's prompt has no chat to keep it with yet.
-        if (!state.sessionId)
-          return (field.current?.value() ?? textRef.current).trim() || state.chips ? "composer.new-chat" : null;
-        if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        if (!state.sessionId) {
+          if ((field.current?.value() ?? promptRef.current.text).trim() || state.chips) return "composer.new-chat";
+        } else if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        // Last: a hidden-chat release skips it (the wake state carries shell mode back, webSwap.ts
+        // WAKE_CARRIED_HOLDS), so it must not hide a hold the release keeps the page for.
+        if (shellRef.current.shell) return "composer.shell";
         return null;
       }),
     [],
@@ -1144,6 +1313,9 @@ function ComposerFrame({
     let current = true;
     void readDurableDraftState(sessionId).then((state) => {
       if (!current) return;
+      // Settled once acpmux answered, or the page asked it and it could not say (an acpmux without
+      // drafts, a dropped read): not while no client can ask yet.
+      if (sessionId && (state || readsDurableDrafts())) onDraftSettled?.(sessionId);
       // acpmux did not answer (its action map not installed yet, a connection that failed or
       // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
       // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
@@ -1155,30 +1327,29 @@ function ComposerFrame({
       // caret after the text as it was (pages/shared/webSwap.ts).
       if (takeWebSwapFocus("composer"))
         requestAnimationFrame(() => {
-          field.current?.focus();
+          focusRoute(field.current, "system", "the composer mounted");
           field.current?.setCaret(Number.MAX_SAFE_INTEGER);
         });
     });
     return () => {
       current = false;
     };
-  }, [sessionId, draftActionsVersion]);
-  useEffect(() => {
+  }, [sessionId, draftActionsVersion, onDraftSettled]);
+  /// The text's draft write: on each text change (`textChanged`) and on a new session.
+  const persistText = (session: string | undefined, text: string) => {
     if (restoringSession.current) {
       restoringSession.current = false;
       return;
     }
-    if (hydratedSession.current !== sessionId) {
+    if (hydratedSession.current !== session) {
       // Typed before the chat's draft was read: kept for a remount (the composer swapped out while
       // the chat loads or reconnects), and merged by the read before it goes to acpmux.
-      if (editedBeforeHydration.current) cachePersistedDraft(sessionId, text);
+      if (editedBeforeHydration.current) cachePersistedDraft(session, text);
       return;
     }
-    writePersistedDraft(sessionId, text);
-  }, [sessionId, text]);
-  // A new chat's text goes to the host at most every 300 ms while typing, and at once when the page is
-  // hidden, the prompt loses focus or the prompt is sent (unsentDraftThrottle.ts).
-  const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
+    writePersistedDraft(session, text);
+  };
+  useEffect(() => persistText(sessionId, promptRef.current.text), [sessionId]);
   useEffect(() => {
     if (sessionId || !onUnsentDraft) return;
     const throttle = createUnsentDraftThrottle({
@@ -1200,9 +1371,22 @@ function ComposerFrame({
       if (unsentDraft.current === throttle) unsentDraft.current = undefined;
     };
   }, [sessionId, onUnsentDraft]);
-  useEffect(() => {
+  const pushUnsent = (text: string) => {
     unsentDraft.current?.push(unsentText(text));
-  }, [text, sessionId, onUnsentDraft]);
+    // A Cloud start is out: the host may open its chat and close this tab at any moment, seeding that
+    // chat's composer with what it holds then, so each change goes now (the Send's clear included).
+    if (cloudStarting) unsentDraft.current?.flush();
+  };
+  useEffect(() => {
+    unsentDraft.current?.push(unsentText(promptRef.current.text));
+    if (cloudStarting) unsentDraft.current?.flush();
+  }, [sessionId, onUnsentDraft, cloudStarting]);
+  useInsertionEffect(() => {
+    textChanged.current = () => {
+      persistText(sessionId, promptRef.current.text);
+      pushUnsent(promptRef.current.text);
+    };
+  });
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
@@ -1212,10 +1396,11 @@ function ComposerFrame({
   const plan = snapshot.summary?.modes?.availableModes?.find((mode) => /(^|[-_])plan$/i.test(mode.id));
   const currentModeId = snapshot.summary?.modes?.currentModeId;
   const lastMode = useRef<{ sessionId?: string; mode?: string }>({});
-  if (lastMode.current.sessionId !== snapshot.summary?.sessionId) {
-    lastMode.current = { sessionId: snapshot.summary?.sessionId };
-  }
-  if (currentModeId && !/(^|[-_])plan$/i.test(currentModeId)) lastMode.current.mode = currentModeId;
+  const modeSession = snapshot.summary?.sessionId;
+  useInsertionEffect(() => {
+    if (lastMode.current.sessionId !== modeSession) lastMode.current = { sessionId: modeSession };
+    if (currentModeId && !/(^|[-_])plan$/i.test(currentModeId)) lastMode.current.mode = currentModeId;
+  });
   const planning = plan?.id === currentModeId;
   /// Plan/Build: leaving Plan returns to the mode this session had before it.
   const togglePlan = (planId: string) =>
@@ -1229,38 +1414,49 @@ function ComposerFrame({
         }
       : undefined;
   // A prompt ↑ brought back keeps its arrows for history: a / command or @ mention in it opens no menu.
-  const recalling = prompts.showing(() => field.current?.agentText(text) ?? text);
+  const recallProbe = (value: string) => prompts.showing(() => field.current?.agentText(value) ?? value);
+  const facts = usePromptFacts(promptText, recallProbe);
+  const recalling = facts.recalling;
   // A `/word` at the prompt's start lists every command; one after a space or line break further
   // on lists those the agent reads anywhere (slashCommands.ts slashMatches), and opens only on a
   // match: mid-prompt, `/tmp` with nothing to offer is the person's text, not an empty menu.
-  const typedSlash = slash !== undefined && dismissed !== text && !recalling ? slash : undefined;
+  const typedSlash = slash !== undefined && !facts.slashDismissed && !recalling ? slash : undefined;
   const query = typedSlash?.query;
   const matches = useMemo(() => (typedSlash ? slashMatches(commands ?? [], typedSlash) : []), [commands, typedSlash]);
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
-  // The row the arrows chose: Return picks it whatever was typed (returnPicks). A new word, a cleared
-  // draft or the list closing forgets it, so the same word typed again picks only by its spelling.
-  const [arrowed, setArrowed] = useState(false);
-  useLayoutEffect(() => {
-    setActive(0);
-    setArrowed(false);
-  }, [query, open]);
+  // A new word or the list opening highlights the first row again; Return takes it (returnPicks).
+  useLayoutEffect(() => setActive(0), [query, open]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
   const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
+  // Installed extensions' mention providers (`@pr`), composer/extensionMentions.ts.
+  const mentionPrefixes = useExtensionMentionPrefixes();
   const mentionTyped =
-    !open && !recalling && (searchFiles || otherChats) && mentionDismissed !== text
-      ? mentionQuery(text, markdownOffset(text, caret))
+    !open &&
+    !recalling &&
+    (searchFiles || otherChats || snapshot.catalog.length > 0 || mentionPrefixes.length > 0) &&
+    !facts.mentionDismissed
+      ? facts.mention
       : undefined;
   const mentionWord = mentionTyped?.query;
+  const extensionMentions = useExtensionMentions(mentionWord, mentionPrefixes);
+  // The @ picker finds any chat by name, not only the first page's: the pane reads the rest once
+  // it opens (sessionPages.ts `wantAllSessions`), and follows the list from then on.
+  const mentioning = mentionWord !== undefined;
+  useEffect(() => {
+    if (mentioning) wantAllSessions();
+  }, [mentioning]);
   const mentionSearch = useMentionSearch(searchFiles, mentionWord);
   const mentionFiles = mentionResults(mentionSearch);
   // Recent @ picks belong to this chat's folder on its machine, and only where its files are searched.
   const recentScope = searchFiles
     ? recentMentionScope(snapshot.summary?.cwd, snapshot.summary?.peer ?? snapshot.summary?.host)
     : undefined;
+  const mentionProviderAsked =
+    mentionWord !== undefined && mentionAsk(mentionWord, mentionPrefixes).prefix !== undefined;
   const mentions = useMemo(
     () =>
       mentionWord === undefined
@@ -1271,8 +1467,20 @@ function ComposerFrame({
             recent: loadRecentMentionPaths(recentScope),
             sessions: snapshot.sessions,
             chatId,
+            harnesses: guestHarnesses,
+            extension: extensionMentions,
+            extensionFirst: mentionProviderAsked,
           }),
-    [mentionWord, mentionFiles, snapshot.sessions, chatId, recentScope],
+    [
+      mentionWord,
+      mentionFiles,
+      snapshot.sessions,
+      guestHarnesses,
+      chatId,
+      recentScope,
+      extensionMentions,
+      mentionProviderAsked,
+    ],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
   // chat; it never hints at a file search.
@@ -1280,39 +1488,31 @@ function ComposerFrame({
   // The word's files are still on their way: asked, or about to be once typing settles.
   const mentionPending =
     !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
-  const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
+  const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending, mentionProviderAsked);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
-  // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
-  // The table loads in its own chunk once the composer is idle after its first paint.
+  // `<3`) lists its face; Return or Tab writes the highlighted row, Esc keeps the text (emojiShortcodes.ts).
+  // The table loads in its own chunk at the first idle moment after the person first types in this
+  // composer (`edit`), never while a chat opens: a `:` and two letters come well after that.
   const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
-  // mount-read: the emoji table is a static bundled chunk, cached per page, so a remount reads no data.
-  useEffect(() => {
-    let alive = true;
+  const emojiRequested = useRef(false);
+  const requestEmoji = () => {
+    if (emojiRequested.current) return;
+    emojiRequested.current = true;
     const load = () =>
-      void loadEmojiShortcodes().then(
-        (data) => alive && setEmojiData(data),
-        () => undefined,
-      );
-    const idle = globalThis.requestIdleCallback?.(load, { timeout: 2000 });
-    const timer = idle === undefined ? setTimeout(load, 0) : undefined;
-    return () => {
-      alive = false;
-      if (idle !== undefined) globalThis.cancelIdleCallback?.(idle);
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, []);
-  // The row the arrows chose; until then no row is chosen, so Return still sends ("ok :D" ↩ sends it).
-  // Tab takes the chosen row or the first. A hovered row only lights up (emojiHover).
+      void loadEmojiShortcodes().then(setEmojiData, () => {
+        emojiRequested.current = false;
+      });
+    if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(load, { timeout: 500 });
+    else setTimeout(load, 0);
+  };
+  // The row the arrows or the pointer chose, else the first: a listed emoji is always highlighted, and
+  // Return or Tab writes it (Leo, 2026-11-20: "the thing should know (should highlihgt) that emoji").
+  // Esc, or typing on past the word, leaves the text as typed.
   const [emojiActive, setEmojiActive] = useState<string | undefined>();
-  const [emojiHover, setEmojiHover] = useState<number | undefined>();
-  const [emojiDismissed, setEmojiDismissed] = useState<string | undefined>();
   const [emojiRecents, setEmojiRecents] = useState(loadRecentEmoji);
   const otherMenu = open || Boolean(mentionTyped) || recalling || shell;
-  const emojiTyped = useMemo(
-    () => (!otherMenu && emojiDismissed !== text ? emojiTrigger(text, markdownOffset(text, caret)) : undefined),
-    [otherMenu, emojiDismissed, text, caret],
-  );
+  const emojiTyped = !otherMenu && !facts.emojiDismissed ? facts.emoji : undefined;
   const emojiKey = emojiTyped ? `${emojiTyped.start}:${emojiTyped.token}` : undefined;
   const emojiRows = useMemo(
     () => (emojiTyped && emojiData ? emojiMatches(emojiData, emojiTyped, emojiRecents) : []),
@@ -1320,21 +1520,17 @@ function ComposerFrame({
   );
   const emojiAt = emojiRows.length > 0 ? emojiTyped : undefined;
   const emojiChosen = emojiActive === undefined ? -1 : emojiRows.findIndex((row) => row.key === emojiActive);
-  const emojiSelected = emojiChosen;
-  useEffect(() => {
-    setEmojiActive(undefined);
-    setEmojiHover(undefined);
-  }, [emojiKey]);
+  const emojiSelected = emojiRows.length === 0 ? -1 : Math.max(0, emojiChosen);
+  useEffect(() => setEmojiActive(undefined), [emojiKey]);
   const emojiLook = experimentArm(emojiShortcodeLook);
+  const listShown = open || Boolean(mentionAt) || Boolean(emojiAt);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
     const node = shellField.current;
-    if (!node) return;
-    // One line grows with what is typed, as the prompt does (no scrollbar under 40vh).
-    node.style.height = "0px";
-    node.style.height = `${node.scrollHeight}px`;
-    if (shellCaret.current === undefined) return;
+    // It grows with what is typed by CSS (`field-sizing: content`, composerStates.css), as the prompt does: setting
+    // its height to 0 and reading scrollHeight here forced a layout on every render of the composer.
+    if (!node || shellCaret.current === undefined) return;
     node.focus();
     node.setSelectionRange(shellCaret.current, shellCaret.current);
     shellCaret.current = undefined;
@@ -1345,10 +1541,14 @@ function ComposerFrame({
     pendingCaret.current = undefined;
   });
 
-  const edit = (value: string, at: number) => {
-    setText(value);
-    setCaret(at);
-    setDismissed(undefined);
+  /// `typed`: the field's own change, already in it; anything else is written into it (a render).
+  const edit = (value: string, at: number, typed = false) => {
+    requestEmoji();
+    // Esc closes a list for the text it was pressed on; an edit ends that, even one that comes back to
+    // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
+    // and emoji lists come back as the / list does.
+    promptRef.current.set(value, at, true);
+    if (!typed) setWrites((count) => count + 1);
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
     if (!value.trim()) pickedSkills.current.clear();
@@ -1367,11 +1567,11 @@ function ComposerFrame({
     setRecentCommandNames(rememberRecentCommand(command.name));
     notePicked(command);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
-    if (field.current?.insertCommand(shownName(command))) {
+    if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
       field.current.focus();
       return;
     }
-    const next = applyCommand(text, caret, command);
+    const next = applyCommand(promptRef.current.text, promptRef.current.caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
     field.current?.focus();
@@ -1379,7 +1579,7 @@ function ComposerFrame({
   const pickFromPlus = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
     notePicked(command);
-    const existing = field.current?.value() ?? text;
+    const existing = field.current?.value() ?? promptRef.current.text;
     const next = `/${shownName(command)} ${existing}`;
     pendingCaret.current = next.length;
     edit(next, next.length);
@@ -1388,7 +1588,13 @@ function ComposerFrame({
   /// The draft without what + wrote over it, while the text is still exactly that.
   const unwrapped = () => {
     const plus = plusDraft.current;
+    const text = promptRef.current.text;
     return plus && plus.written === text ? plus.original : text;
+  };
+  /// `text` without the tokens of attachments neither staged nor being read.
+  const withoutDeadTokens = (text: string) => {
+    const dead = inlineTokenSpans(text, (id) => attachmentId(id)).filter((span) => !span.known);
+    return dead.reduceRight((rest, span) => rest.slice(0, span.from) + rest.slice(span.to), text);
   };
   /// An attachment's id, staged or still being read: its token in the text is a place, not words.
   const attachmentId = (id: string) =>
@@ -1398,6 +1604,7 @@ function ComposerFrame({
   /// Writes the picked chat, folder or file over the `@word` being typed.
   const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
+    const { text, caret } = promptRef.current;
     rememberMentionPath(recentScope, item);
     const { markdown, shown } = mentionInsert(item);
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
@@ -1410,6 +1617,7 @@ function ComposerFrame({
   /// Writes the picked emoji, and a space, over the `:word` or emoticon being typed.
   const pickEmoji = (match: EmojiMatch) => {
     if (!emojiAt) return;
+    const { text, caret } = promptRef.current;
     setEmojiRecents(rememberEmoji(match.emoji));
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
     const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
@@ -1421,12 +1629,6 @@ function ComposerFrame({
     edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
     field.current?.focus();
   };
-  /// Sends the draft; false when there was nothing to send or the host refused it.
-  const submit = (event: { preventDefault(): void }): boolean => {
-    event.preventDefault();
-    // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
-    return send(false, steersAlways || returnSteers || steersUnseen);
-  };
   /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
   /// the draft goes as `/side`'s prompt, to a side chat forked from this one (Send's menu).
   const send = (force: boolean, steer = false, kept?: SendGesture, route?: "side"): boolean => {
@@ -1435,6 +1637,9 @@ function ComposerFrame({
     holdForOriginals(false, () => undefined);
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
+    // A Cloud start is out: the prompt stays here (it goes to the started chat as a draft), and no
+    // Return starts a second chat, in Cloud or here, which the host would close with this tab.
+    if (cloudStarting) return false;
     // The folder's trust question is open: the prompt stays where it is.
     if (authBlock || authBlocked || blockSend || (blocked?.reason && !force)) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
@@ -1448,17 +1653,14 @@ function ComposerFrame({
     if (dictation && isActive(dictation.state) && !shell && !dictationEnded.current) {
       dictation.finish(() => {
         // The session is over even if this render has not heard so yet.
-        dictationEnded.current = true;
-        try {
-          submitNow.current(force, steer, kept, route);
-        } finally {
-          dictationEnded.current = false;
-        }
+        holdFlag(dictationEnded, true, () => submitNow.current(force, steer, kept, route));
       });
       return true;
     }
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
-    const draftText = unwrapped();
+    // A token whose attachment is gone (sent, then the clear undone in the same task, before the
+    // field drops its node: inlineAttachments.tsx) is no place: it goes as the field will hold it.
+    const draftText = withoutDeadTokens(unwrapped());
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
@@ -1500,10 +1702,36 @@ function ComposerFrame({
       return true;
     }
     if (owned) {
-      // Side questions and /side's prompt carry text only; staged files stay here for the main
-      // turn. A file still being read counts too: /btw and /side must not cancel it.
-      if ((owned.action === "btw" || owned.action === "side") && (attachments.length > 0 || pending.length > 0))
-        return false;
+      // A side question carries text only; staged files stay here for the main turn. A file still
+      // being read counts too: /btw must not cancel it.
+      if (owned.action === "btw" && (attachments.length > 0 || pending.length > 0)) return false;
+      // `/side`'s prompt takes the staged files to its side chat (#40066): it waits for a file still
+      // being read, and for the originals a too-large prompt goes with, as a send does.
+      const sideFiles = owned.action === "side";
+      if (sideFiles) {
+        const again = (gesture?: SendGesture) => submitNow.current(force, steer, gesture, route);
+        // Bound to no chat: one bound to this chat would not let its prompt go to the side chat.
+        const bindSide = () => onBindSideGesture?.();
+        if (holdForAttachments(again, kept, bindSide)) return false;
+        const waits = awaitsOriginals(
+          prompt,
+          placed.attachments,
+          (id) => originalUploads.has(id),
+          {},
+          undefined,
+          needsOriginal,
+        );
+        if (holdForOriginals(waits, again, kept, bindSide)) return false;
+      }
+      if (owned.action === "help") {
+        // The sheet reads the `/` list's commands; nothing goes to the harness.
+        setAttachError(undefined);
+        plusDraft.current = undefined;
+        edit("", 0);
+        sentAt.current = Date.now();
+        setHelpOpen(true);
+        return true;
+      }
       if (owned.name === "import") {
         if (importSandboxed) {
           setAttachError(t("composer.cmuxImportSandbox"));
@@ -1521,7 +1749,9 @@ function ComposerFrame({
         }
         owned = undefined;
       } else {
-        const accepted = onCmuxCommand(owned, ownedArgs);
+        const accepted = sideFiles
+          ? onCmuxCommand(owned, ownedArgs, placed.attachments, kept)
+          : onCmuxCommand(owned, ownedArgs);
         // A passthrough command goes as a normal prompt, keeping its staged attachments.
         if (accepted === CMUX_PASS_THROUGH) owned = undefined;
         else if (typeof accepted === "string") {
@@ -1543,19 +1773,24 @@ function ComposerFrame({
           // must not leak into the next prompt while the command waits.
           for (const item of pending) cancel(item.id);
           const went = new Set(attachments.map((attachment) => attachment.id));
-          box.current?.sent(went);
-          setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
+          const consume = () => {
+            box.current?.sent(went);
+            setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
+          };
+          // `/side`'s files go with its prompt: a side chat that did not open leaves them here.
+          if (!sideFiles) consume();
           setAttachError(undefined);
           plusDraft.current = undefined;
-          sending.current = true;
+          markSending(true);
           accepted.then(
             () => {
-              sending.current = false;
+              markSending(false);
+              if (sideFiles) consume();
               if (asTaken(field.current?.value() ?? "") === written) edit("", 0);
               sentAt.current = Date.now();
             },
             (reason: unknown) => {
-              sending.current = false;
+              markSending(false);
               // A command may refuse with its own sentence (`/cd` to a path that is no folder).
               setAttachError(reason instanceof CmuxCommandRefused ? reason.message : t("composer.cmuxUnavailable"));
             },
@@ -1578,6 +1813,22 @@ function ComposerFrame({
         sentAt.current = Date.now();
         return true;
       }
+    }
+    // A harness's local command typed alone (`/mcp`, `/cost`: localCommands.ts) sends nothing to the
+    // model: it runs now, in the GUI, never queued or steered behind a running turn. Not with staged
+    // files, which are a prompt's.
+    const local =
+      !command && !side && attachments.length === 0 && pending.length === 0
+        ? localCommand(prompt, snapshot.summary?.harness)
+        : undefined;
+    if (local && (local.action.kind === "commands" || onLocalCommand?.(local))) {
+      setAttachError(undefined);
+      plusDraft.current = undefined;
+      // `/help`: the `/` menu, every command with what it does.
+      if (local.action.kind === "commands") edit("/", 1);
+      else edit("", 0);
+      sentAt.current = Date.now();
+      return true;
     }
     // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
     if (holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
@@ -1605,6 +1856,8 @@ function ComposerFrame({
     // Each paste still in the text as pasted goes as a pasted block, never as typed words
     // (composer/pasteMarks.ts); a slash command's text stays the command.
     const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
+    const sentDoneWhen = outcomeAskEnabled && !isCommand ? doneWhen : undefined;
+    if (sentDoneWhen !== undefined) marked.text = withOutcomeAsk(marked.text, sentDoneWhen);
     const sent = marked.attachments;
     // What the composer draws of the prompt as it goes: sent from the latest row, it becomes the
     // sent message from there (conversation/sendMorph.ts).
@@ -1617,7 +1870,8 @@ function ComposerFrame({
     });
     // Its copy is the prompt as sent: a send taken later clears a composer that may hold the next draft.
     const tuck = tucks ? tuckContent(composerBox.current, marked.text) : undefined;
-    const taken = onSend(marked.text, sent, steer, kept);
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts).
+    const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, kept);
     if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
@@ -1630,6 +1884,7 @@ function ComposerFrame({
       plusDraft.current = undefined;
       if (field.current && rest) field.current.type(rest);
       else edit(rest, rest.length);
+      if (sentDoneWhen !== undefined && doneWhenRef.current === sentDoneWhen) setDoneWhen("");
       // The sent text is no draft any more: a read still on its way never brings it back.
       noteDraftSent(persistedSession.current);
       sentAt.current = Date.now();
@@ -1640,27 +1895,30 @@ function ComposerFrame({
       return true;
     }
     // The prompt stays in the composer until the host takes it; a refusal keeps it there.
-    sending.current = true;
+    markSending(true);
     taken.then(
       () => {
-        sending.current = false;
+        markSending(false);
         // What was typed while the host took the prompt stays.
         const now = field.current?.value() ?? written;
         clear(now === written ? "" : now.startsWith(written) ? now.slice(written.length).trimStart() : now);
       },
       () => {
-        sending.current = false;
+        markSending(false);
         const note = t("composer.stillSending");
         setAttachError((current) => (current === note ? undefined : current));
       },
     );
     return true;
   };
-  submitNow.current = send;
+  useInsertionEffect(() => {
+    submitNow.current = send;
+  });
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
   const mention = (path?: string) => {
     if (composing.current) return;
+    const { text, caret } = promptRef.current;
     const at = markdownOffset(text, caret);
     const before = text.slice(0, at);
     // A path with a space is quoted, or an agent would read the mention only up to it. The prompt
@@ -1683,10 +1941,11 @@ function ComposerFrame({
   // so a pick replaces that command; anything else (a pasted path) is kept whole.
   const openCommands = () => {
     if (composing.current) return;
+    const text = promptRef.current.text;
     const first = /^\/(\S*)/.exec(text)?.[1];
     const named = first !== undefined && (commands ?? []).some((command) => command.name.startsWith(first));
     const next = named ? text : text ? `/ ${text}` : "/";
-    plusDraft.current = { written: next, original: text };
+    plusDraft.current = { written: next, original: text, shown: false };
     pendingCaret.current = 1;
     edit(next, 1);
     field.current?.focus();
@@ -1767,10 +2026,464 @@ function ComposerFrame({
     window.addEventListener("cmux-acpmux-stopTurn", stopFromAction);
     return () => window.removeEventListener("cmux-acpmux-stopTurn", stopFromAction);
   }, [actionSessionId, actionWorking, stopTurn]);
-  // Enter sends unless it picks a command (slashCommands.ts returnPicks): the highlighted row was
-  // chosen with the arrows, or the typed word begins its name and is not that name in full with no
-  // arguments to take. A path or a word that only resembles a command is never rewritten.
-  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed);
+
+  // Stop was sent and the turn has not ended: Stop turns and says so.
+  const stopping = !shell && snapshot.isWorking && snapshot.stopping === true;
+  // A prompt held while the chat's agent starts (harnessSwitch.ts) reads as its turn already
+  // running: Stop is there from the send on and takes the held prompts back to the composer (the
+  // transcript draws no Cancel for them, Leo 2026-11-01), then stops the turn once it runs.
+  const holding =
+    !snapshot.isWorking &&
+    snapshot.switching?.phase === "starting" &&
+    snapshot.rows.some((row) => row.queued !== undefined);
+  // A turn that ended with a queued prompt acpmux runs next keeps Stop until that turn starts, so
+  // the slot never flickers between two turns (composer/turnHandover.ts).
+  const handingOver = useTurnHandover(
+    snapshot.isWorking,
+    turnQueue ?? snapshot.queue,
+    snapshot.summary?.queuePaused === true,
+  );
+  const stop = !shell && (snapshot.isWorking || holding || handingOver) && facts.empty;
+  // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
+  const running = !shell && (snapshot.isWorking || holding || handingOver);
+  const hasDraft = Boolean(!facts.empty || attachments.length || pending.length);
+  // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
+  // its panel, so only the pane counts an Esc that reaches the page.
+  const escapeStop = useEscapeStop({
+    stoppable: running && !stopping,
+    session: sessionId,
+    pageEscape: !onOpenInWindow,
+    onStop: stopTurn,
+  });
+  // While a turn runs, what is sent waits behind it, so the empty prompt says so.
+  const queues = !shell && snapshot.isWorking && remote.canSend && !blockSend && !blocked?.reason;
+  // An agent that steers takes Return into the running turn: it reads the prompt when its current
+  // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
+  // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
+  // that cannot steer queues on both keys.
+  // One of the agent's own slash commands waits for the turn either way (cliOnlyCommands.ts): it
+  // queues, so it shows as waiting behind the turn and runs as its own turn, never as a steer.
+  const steers =
+    queues &&
+    snapshot.summary?.steering === true &&
+    !commandWaitsForTurn(facts.command ?? "", snapshot.summary?.harness, commands);
+  const returnSteers = steers && (!facts.empty || attachments.length > 0);
+  // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
+  // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
+  const steersAlways = steers && !queueing;
+  // Before the pane hears that a turn runs (one another agent's message, a trigger or an automatic
+  // retry started a moment ago), what is sent still goes as a steer to an agent that steers: acpmux
+  // steers it into a turn that runs and starts a turn when none does, so a Return never waits behind
+  // a turn the pane had not shown yet (Leo, 2026-11-05: "hey what the is my thing auto queuing rn?").
+  const steersUnseen =
+    !shell &&
+    !snapshot.isWorking &&
+    snapshot.summary?.steering === true &&
+    !commandWaitsForTurn(facts.command ?? "", snapshot.summary?.harness, commands);
+  // Mid-turn an agent that steers keeps Claude desktop's "Type / for commands" (Leo 2026-11-03:
+  // "well the enter/cmd enter used to be claude code's placeholder... now they have this"); the
+  // Send button's tooltip names ↵ steer and ⌘↵ queue instead. The Quick Composer's ⌘Return opens
+  // the window, so there it says Return steers; an agent that cannot steer says it queues.
+  // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does;
+  // once Stop is sent, it says the turn is stopping until it ends.
+  const placeholderKey = stopping
+    ? COMPOSER_LABELS.stopping
+    : escapeStop.armed
+      ? COMPOSER_LABELS.escapeAgainToStop
+      : !queues
+        ? COMPOSER_LABELS.placeholder
+        : !steers
+          ? COMPOSER_LABELS.placeholderQueued
+          : onOpenInWindow || steersAlways
+            ? COMPOSER_LABELS.placeholderSteerQuick
+            : COMPOSER_LABELS.placeholder;
+  // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
+  // mid-turn and Esc hints still win, since they say what a key does now.
+  const placeholderText =
+    placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
+  // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
+  // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
+  const cwd = snapshot.summary?.cwd;
+  const branch = snapshot.summary?.branch;
+  // The chat folder's own PR, which the App reads with gh for the header's chip: no session summary
+  // reports a PR yet, so this is the live source.
+  const headerPullRequest = useHeaderState().pullRequest;
+  const headerHere = headerCwd === undefined || folder(headerCwd) === folder(cwd);
+  const livePullRequest = useMemo<LivePullRequest | undefined>(
+    () =>
+      headerPullRequest && headerHere
+        ? {
+            number: headerPullRequest.number,
+            title: headerPullRequest.title,
+            state: headerPullRequest.state,
+            checks: headerPullRequest.checks.state,
+          }
+        : undefined,
+    [headerPullRequest, headerHere],
+  );
+  // A new chat before its first send, known as one (locationRow.ts): the location strip and the
+  // suggested prompt are a new chat's. An existing chat opening or loading its rows has neither.
+  const locationVisible = showsLocationRow(snapshot, chatKnown);
+  const suggestion = useMemo<PromptSuggestion | undefined>(
+    () =>
+      locationVisible &&
+      !shell &&
+      !snapshot.isWorking &&
+      snapshot.rows.length === 0 &&
+      remote.canSend &&
+      !blockSend &&
+      !blocked?.reason
+        ? promptSuggestion(
+            snapshot.sessions,
+            { sessionId: snapshot.sessionId, cwd, branch },
+            Date.now(),
+            livePullRequest,
+          )
+        : undefined,
+    [
+      locationVisible,
+      shell,
+      snapshot.isWorking,
+      snapshot.rows.length,
+      remote.canSend,
+      blockSend,
+      blocked,
+      snapshot.sessions,
+      snapshot.sessionId,
+      cwd,
+      branch,
+      livePullRequest,
+    ],
+  );
+  // The agent's own guess at the next prompt after a turn (Claude Code's prompt suggestions, acpmux's
+  // `prompt_suggestion`; Leo 2026-11-03: "suggested prompts that you can right arrow/tab to do stuff
+  // with"). The snapshot carries one only between turns; it is spent once the person types, or
+  // when it arrives over a draft (`agentSuggestionSpent`), and the empty field shows it as ghost text.
+  const agentSuggestion =
+    !suggestion &&
+    !shell &&
+    snapshot.promptSuggestion &&
+    !snapshot.isWorking &&
+    remote.canSend &&
+    !blockSend &&
+    !blocked?.reason
+      ? snapshot.promptSuggestion
+      : undefined;
+  const agentSuggestionKey = agentSuggestion && `${snapshot.sessionId ?? ""}|agent|${agentSuggestion.seq}`;
+  const draftShown = !facts.blank || attachments.length > 0;
+  // Typing (or a draft already there) spends the agent's suggestion: emptying the field again does
+  // not bring it back. Set during render, so the keystroke that hides it never lets Tab take it.
+  const [agentSuggestionSpent, setAgentSuggestionSpent] = useState<string | undefined>();
+  if (agentSuggestionKey && draftShown && agentSuggestionSpent !== agentSuggestionKey)
+    setAgentSuggestionSpent(agentSuggestionKey);
+  const suggestionKey = suggestion ? `${snapshot.sessionId ?? ""}|${cwd}|${suggestion.number}` : agentSuggestionKey;
+  // Exactly empty, as the field draws its placeholder: a typed space hides the suggestion, so Tab
+  // must not take it then.
+  const suggestionOpen =
+    !dictating && suggestionKey !== suggestionDismissed && suggestionKey !== agentSuggestionSpent && !draftShown;
+  const suggested =
+    suggestion && suggestionOpen
+      ? t(
+          suggestion.kind === "failing"
+            ? COMPOSER_LABELS.suggestFailing
+            : suggestion.kind === "draft"
+              ? COMPOSER_LABELS.suggestDraft
+              : COMPOSER_LABELS.suggestOpen,
+          { number: String(suggestion.number), title: suggestion.title },
+        )
+      : agentSuggestion && suggestionOpen
+        ? agentSuggestion.text
+        : undefined;
+  const agentSuggested = suggested !== undefined && !suggestion;
+  const suggestionLook = experimentArm(promptSuggestionLook);
+  // A Cloud start is out (`cloudStarting`): the open prompt says what is typed now waits for the
+  // Cloud chat (cloudStartComposer.experiment.ts). Each look stays inside the field and Send, so
+  // nothing moves when the start ends.
+  const startLook = experimentArm(cloudStartComposerLook);
+  // The look climbs (composerClimbs.css): an attribute only off the shipped arm, so it ships as before.
+  const climbArm = (arm: string) => (arm === "shipped" ? undefined : arm);
+  const shellLook = climbArm(experimentArm(composerShellLook));
+  const controlsLook = climbArm(experimentArm(composerFooterControls));
+  const emptyHeight = climbArm(experimentArm(composerEmptyHeight));
+  const startingPlaceholder =
+    !cloudStarting || startLook === "dimmed"
+      ? undefined
+      : t(startLook === "status" ? "composer.cloudStartingStatus" : "composer.cloudStartingPlaceholder");
+  const startHoldsSend = cloudStarting && !shell;
+  // Focus leaving the composer closes the menu and takes back what + wrote.
+  const blur = (event: React.FocusEvent<HTMLFormElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    unsentDraft.current?.flush();
+    const unrendered = plusDraft.current?.shown === false;
+    const original = unwrapped();
+    plusDraft.current = undefined;
+    if (unrendered) return;
+    if (original !== promptRef.current.text) edit(original, original.length);
+    else if (open) promptRef.current.dismiss("slash");
+    else if (mentionAt) promptRef.current.dismiss("mention");
+    else if (emojiAt) promptRef.current.dismiss("emoji");
+  };
+  // The prompt's context menu, as a text field's (POLISH.md): Undo and Redo, the edit items and
+  // Select All, then Attach Files… and Insert Mention. Cut and Copy need a selection in the field,
+  // and Undo and Redo an edit in its history, read when the menu opens.
+  const [fieldSelected, setFieldSelected] = useState(false);
+  const [fieldHistory, setFieldHistory] = useState({ undo: false, redo: false });
+  const noteSelection = () => {
+    const shellInput = shellField.current;
+    if (shell && shellInput) {
+      setFieldSelected(shellInput.selectionStart !== shellInput.selectionEnd);
+      // A plain text area keeps its own history, which the page cannot read: both stay offered.
+      setFieldHistory({ undo: true, redo: true });
+      return;
+    }
+    const selection = window.getSelection();
+    const element = field.current?.element();
+    setFieldSelected(Boolean(selection && !selection.isCollapsed && element?.contains(selection.anchorNode)));
+    setFieldHistory(field.current?.history() ?? { undo: false, redo: false });
+  };
+  /// Undo, Redo or Select All, in the prompt or the shell field.
+  const runField = (command: "undo" | "redo" | "selectAll") => {
+    const shellInput = shellField.current;
+    if (shell && shellInput) {
+      shellInput.focus();
+      if (command === "selectAll") shellInput.select();
+      else document.execCommand(command);
+      return;
+    }
+    field.current?.focus();
+    field.current?.[command]();
+  };
+  /// Focuses the prompt that shows: the shell line in shell mode (the Markdown field is hidden then).
+  const focusPrompt = () => (shell ? shellField.current : field.current)?.focus();
+  const runEdit = (command: ComposerEditCommand) => {
+    focusPrompt();
+    if (command === "pasteAsPlainText") box.current?.plainPaste();
+    onEdit?.(command);
+  };
+  const fieldMenu: ContextMenuItem[] = [
+    {
+      id: "undo",
+      label: t(COMPOSER_LABELS.undo),
+      disabled: !fieldHistory.undo,
+      onSelect: () => runField("undo"),
+    },
+    {
+      id: "redo",
+      label: t(COMPOSER_LABELS.redo),
+      disabled: !fieldHistory.redo,
+      onSelect: () => runField("redo"),
+    },
+    {
+      id: "cut",
+      label: t(COMPOSER_LABELS.cut),
+      separatorBefore: true,
+      disabled: !onEdit || !fieldSelected,
+      onSelect: () => runEdit("cut"),
+    },
+    {
+      id: "copy",
+      label: t(COMPOSER_LABELS.copy),
+      disabled: !onEdit || !fieldSelected,
+      onSelect: () => runEdit("copy"),
+    },
+    {
+      id: "paste",
+      label: t(COMPOSER_LABELS.paste),
+      disabled: !onEdit,
+      onSelect: () => runEdit("paste"),
+    },
+    {
+      id: "pasteAsPlainText",
+      label: t(COMPOSER_LABELS.pasteAsPlainText),
+      disabled: !onEdit,
+      onSelect: () => runEdit("pasteAsPlainText"),
+    },
+    { id: "selectAll", label: t(COMPOSER_LABELS.selectAll), onSelect: () => runField("selectAll") },
+    {
+      id: "attach",
+      label: t(COMPOSER_LABELS.attachFiles),
+      separatorBefore: true,
+      onSelect: () => chooser.current?.click(),
+    },
+    {
+      id: "mention",
+      label: t(COMPOSER_LABELS.insertMention),
+      disabled: shell,
+      onSelect: () => mention(),
+    },
+    {
+      id: "scrollToBottomOnSend",
+      label: t(COMPOSER_LABELS.scrollToBottomOnSend),
+      checked: scrollToBottomOnSend,
+      separatorBefore: true,
+      onSelect: () => setScrollToBottomOnSend(!scrollToBottomOnSend),
+    },
+    // Where every attachment shows, one place for every kind (`agentPane.attachmentView`, also in
+    // Settings): in the text where it was added, the default, or in one row at the top as common
+    // chat apps do (Leo, 2026-11-09: "In the right-click menu for the composer ... all attachments
+    // in line, or all attachments at the top like normal"). Only the look: the draft is the same.
+    ...attachmentViewMenu(attachmentView, t),
+  ];
+
+  // The location strip: the folder and computer chips over the card (hq#1957 composer location
+  // strip, composerLocation.css), so the card holds one controls row. Only a new chat has the visible
+  // strip, before its first send (locationRow.ts): a started chat cannot change folder or machine.
+  // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
+  // composer is bottom-anchored, so removing the slot in the same render would move every control
+  // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
+  // becomes the top strip.
+  const locationKey = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // A gallery or a reopened pane can render an unselected snapshot before its session arrives.
+  // Do not let that transient visible strip reserve space for a different, already-started chat.
+  // A slot is meaningful only after the visible strip was observed for a known session identity.
+  const stripNow = stripSlot(locationSlot, {
+    visible: locationVisible,
+    session: locationKey,
+    queued: ownQueue(snapshot.queue).length > 0,
+    stackAbove,
+  });
+  // The slot as the last render left it: kept until its session changes (a new object every render).
+  if (stripNow.slot.session !== locationSlot.session) setLocationSlot(stripNow.slot);
+  const keepLocationSlot = stripNow.keep;
+  // The page's route to its acpmux, for the machine chip's name (chatMachine.ts); ComposerContext
+  // keys its lists on the name this gives, not on this object.
+  const route = chatPlace(snapshot);
+  const context = locationVisible ? (
+    <ComposerContext
+      projectChoices={projectChoices}
+      machineFolders={machineFolders}
+      onBrowseProject={onBrowseProject}
+      {...(extraFolders ? { extraFolders } : {})}
+      onNewWorktree={onNewWorktree}
+      {...(onGitHubHere ? { onGitHubHere } : {})}
+      onBrowseFolder={onBrowseFolder}
+      onConnect={onConnect}
+      {...(onOffload ? { onOffload } : {})}
+      {...(offloads ? { offloads } : {})}
+      {...(offloadReasons ? { offloadReasons } : {})}
+      summary={snapshot.summary}
+      sessions={snapshot.sessions}
+      peers={snapshot.peers}
+      {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
+      {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+      {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+      {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+      {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
+      {...(onRefreshMachines ? { onRefreshMachines } : {})}
+      {...(runMode ? { runMode } : {})}
+      environments={environments}
+      {...(onComputer ? { onComputer } : {})}
+      {...(onRepick ? { onRepick } : {})}
+      {...(onCloudMachinePicked ? { onCloudMachinePicked } : {})}
+      onProject={
+        onProject &&
+        ((cwd, peer) => {
+          onProject(cwd, peer);
+          field.current?.focus();
+        })
+      }
+      localName={localName}
+      route={route}
+      onNewChat={onNewChat}
+      closeOnTrustAsk={closeOnTrustAsk}
+      cloudStartOut={cloudStarting}
+    />
+  ) : keepLocationSlot ? (
+    <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
+  ) : null;
+  // Stop, while a turn runs and the prompt is empty, in the one send slot (sendControl, below).
+  // Once sent, Stop turns until the turn ends, so a press (or Esc) is seen to take (Leo 2026-10-21:
+  // "IDK IF IM ACTUALLY STOPPING YOU"); pressed again it sends Stop again.
+  const stopLabel = t(
+    stopping ? COMPOSER_LABELS.stopping : escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop,
+  );
+  // What the send slot drew last, so Send and Stop morph into each other on a real change, never on
+  // the first draw or a chat switch (composer/SendSlotGlyph.tsx). The Quick Composer can show both at
+  // once, so its glyphs draw at once.
+  const morphMemory = onOpenInWindow ? undefined : slotMemory;
+  const stopButton = running ? (
+    <button
+      key="stop"
+      ref={sendButton}
+      type="button"
+      className="acpmux-send acpmux-cancel"
+      data-escape-armed={escapeStop.armed && !stopping ? "" : undefined}
+      data-stopping={stopping ? "" : undefined}
+      aria-label={stopLabel}
+      // tooltip-allow: names the icon-only Stop, once armed says to press Esc again, and once sent says it is stopping.
+      title={stopLabel}
+      onClick={stopTurn}
+    >
+      {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
+      <SendSlotGlyph glyph={stopping ? "stopping" : "stop"} memory={morphMemory} scope={sessionId} />
+    </button>
+  ) : null;
+  // A draft of attachments alone is still a draft: it gets Send, never Stop alone. While dictating
+  // the slot is Send, draft or not, as Claude's and ChatGPT's are: it ends the session and sends.
+  const listening = !shell && dictation !== undefined && isActive(dictation.state);
+  const canResume = canResumeFromComposer(snapshot, {
+    offered: onResume !== undefined,
+    blank: facts.blank,
+    attachments: attachments.length,
+    pending: pending.length,
+    shell,
+    running,
+    readOnly,
+    blocked: Boolean(
+      authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend || switching || sendingShown,
+    ),
+    dictating: dictating || listening,
+  });
+  const resuming = resumePending !== undefined && resumePending.sessionId === sessionId;
+  const runResume = useCallback(
+    (eligible: boolean): boolean => {
+      if (!eligible || !onResume || (resumeInFlight.current && resumeInFlight.current.sessionId === sessionId))
+        return false;
+      const attempt = { sessionId };
+      sentAt.current = Date.now();
+      resumeInFlight.current = attempt;
+      setResumePending(attempt);
+      const stillHere = () => resumeInFlight.current === attempt && swapState.current.sessionId === attempt.sessionId;
+      void resumeOrFail(onResume, () => {
+        if (stillHere()) setAttachError(t("notice.resumeFailed"));
+      }).finally(() => {
+        if (resumeInFlight.current === attempt) {
+          resumeInFlight.current = undefined;
+          setResumePending(undefined);
+        }
+      });
+      return true;
+    },
+    [onResume, sessionId, setAttachError, t],
+  );
+  // Send's menu (composer/SendMenu.tsx): the other ways this draft can go, each only where it does
+  // something Send does not. Queue for later is ⌘Return's queue while Return steers the turn.
+  const sendChoices = shell
+    ? []
+    : sendMenuChoices({
+        // Send refused for now (trust, sign-in, a held send): no other way goes either.
+        draft: hasDraft && !(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend),
+        sendSteers: returnSteers && !steersAlways && !onOpenInWindow,
+        side: Boolean(sendsToSide) && remote.canSend && !onOpenInWindow,
+      });
+  const chooseSend = (choice: SendChoice) => {
+    if (choice === "side") send(false, false, undefined, "side");
+    // Queue for later is ⌘Return; Send is the button's own send.
+    else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers || steersUnseen);
+  };
+  // Declared after every value they read: the React Compiler refuses a closure that reads one declared
+  // below it.
+  /// Sends the draft; false when there was nothing to send or the host refused it.
+  const submit = (event: { preventDefault(): void }): boolean => {
+    event.preventDefault();
+    if (canResume) return runResume(canResume);
+    // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
+    return send(false, steersAlways || returnSteers || steersUnseen);
+  };
+  // Enter sends unless it picks a command (slashCommands.ts returnPicks): while the list shows, it
+  // takes the highlighted row, unless the typed word is that row's name in full with no arguments to
+  // take (Return runs it). Esc closes the list and keeps the word as typed.
+  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "");
   const sendOnReturn = (event: { preventDefault(): void }) => {
     if (!returnSteers) return submit(event);
     event.preventDefault();
@@ -1781,12 +2494,13 @@ function ComposerFrame({
   // a line here (Shift-Return does): it sends, or picks the menu's command, as a Return key would.
   const returnInput = () => {
     if (shell) return;
-    if (mentionAt && mentions[mentionSelected]) return pickMention(mentions[mentionSelected]);
+    if (mentionAt) return mentions[mentionSelected] ? pickMention(mentions[mentionSelected]) : undefined;
     if (emojiAt && emojiRows[emojiSelected]) return pickEmoji(emojiRows[emojiSelected]);
     if (returnSends()) return void sendOnReturn({ preventDefault() {} });
     if (matches.length > 0) pick(matches[selected].command);
   };
   const keyDown = (event: KeyboardEvent) => {
+    const text = promptRef.current.text;
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
@@ -1800,8 +2514,7 @@ function ComposerFrame({
       if (agentSuggested) onSuggestionTaken?.();
       if (field.current) field.current.type(suggested);
       else {
-        setText(suggested);
-        setCaret(suggested.length);
+        writeText(suggested, suggested.length);
       }
       return;
     }
@@ -1842,7 +2555,7 @@ function ComposerFrame({
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        setMentionDismissed(text);
+        promptRef.current.dismiss("mention");
         return;
       }
       const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
@@ -1863,14 +2576,19 @@ function ComposerFrame({
         pickMention(mentions[mentionSelected]);
         return;
       }
+      // The list shows with no row yet ("Searching…", "No files"): Return waits for one, never sends
+      // the `@word` under an open list. Esc closes it, and then Return sends.
+      if (event.key === "Enter" && plain) {
+        event.preventDefault();
+        return;
+      }
     }
-    // The emoji menu owns arrows (and Ctrl-N/P/J/K) and Esc; Return picks only a chosen row (an
-    // emoticon's menu opens with none, so Return sends), Tab the chosen or the first.
+    // The emoji menu owns arrows (and Ctrl-N/P/J/K), Return and Tab (the highlighted row), and Esc.
     if (emojiAt) {
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        setEmojiDismissed(text);
+        promptRef.current.dismiss("emoji");
         return;
       }
       const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
@@ -1882,11 +2600,10 @@ function ComposerFrame({
             : 0;
       if (step) {
         event.preventDefault();
-        const next = emojiSelected < 0 ? (step > 0 ? 0 : emojiRows.length - 1) : emojiSelected + step;
-        setEmojiActive(emojiRows[(next + emojiRows.length) % emojiRows.length]!.key);
+        setEmojiActive(emojiRows[(emojiSelected + step + emojiRows.length) % emojiRows.length]!.key);
         return;
       }
-      const row = emojiRows[emojiSelected] ?? (event.key === "Tab" ? emojiRows[0] : undefined);
+      const row = emojiRows[emojiSelected];
       if ((event.key === "Enter" || event.key === "Tab") && plain && row) {
         event.preventDefault();
         pickEmoji(row);
@@ -1987,7 +2704,7 @@ function ComposerFrame({
         pendingCaret.current = plus.original.length;
         return;
       }
-      setDismissed(text);
+      promptRef.current.dismiss("slash");
       return;
     }
     if (matches.length === 0) return;
@@ -1996,433 +2713,71 @@ function ComposerFrame({
       event.preventDefault();
       const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
-      setArrowed(true);
     } else if ((event.key === "Enter" || event.key === "Tab") && plain) {
       event.preventDefault();
       pick(matches[selected].command);
     }
   };
 
-  promptBeforeInput.current = (data, state) => {
-    typedAt.current = performance.now();
-    // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
-    if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
-    enterShell(data.slice(1));
-    return true;
-  };
-  // Only the person's own edit is typing: a change right after their keystroke, text input or
-  // IME composition. A value applied from outside (a draft coming back on open or a switch, a
-  // failed prompt restored, the field normalizing either) comes with none.
-  promptChange.current = (value, at) => {
-    edit(value, at);
-    if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
-    if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
-    // Kept past this mount: a composer that comes back keeps the person's text over acpmux's.
-    noteDraftEdited(sessionId);
-    // One change per key: what the field does after it (normalizing) is not another.
-    typedAt.current = Number.NEGATIVE_INFINITY;
-    if (value.trim()) onTyping?.(value, sessionId);
-    if (value.trim()) onPromptEdit?.(value);
-  };
-  promptCaret.current = setCaret;
-  promptKeyDown.current = (event) => {
-    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-    const edits = event.metaKey
-      ? CMD_EDIT_KEYS.has(key)
-      : event.ctrlKey
-        ? CTRL_EDIT_KEYS.has(key)
-        : !NOT_AN_EDIT_KEY.has(event.key);
-    if (edits) typedAt.current = performance.now();
-    return keyDown(event);
-  };
-  promptReturnInput.current = returnInput;
-  promptComposition.current = (value) => {
-    typedAt.current = performance.now();
-    composing.current = value;
-  };
-
-  // Stop was sent and the turn has not ended: Stop turns and says so.
-  const stopping = !shell && snapshot.isWorking && snapshot.stopping === true;
-  // A prompt held while the chat's agent starts (harnessSwitch.ts) reads as its turn already
-  // running: Stop is there from the send on and takes the held prompts back to the composer (the
-  // transcript draws no Cancel for them, Leo 2026-11-01), then stops the turn once it runs.
-  const holding =
-    !snapshot.isWorking &&
-    snapshot.switching?.phase === "starting" &&
-    snapshot.rows.some((row) => row.queued !== undefined);
-  const stop = !shell && (snapshot.isWorking || holding) && !text.trim();
-  // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
-  const running = !shell && (snapshot.isWorking || holding);
-  const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
-  // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
-  // its panel, so only the pane counts an Esc that reaches the page.
-  const escapeStop = useEscapeStop({
-    stoppable: running && !stopping,
-    session: sessionId,
-    pageEscape: !onOpenInWindow,
-    onStop: stopTurn,
+  // The field's handlers, written as the render commits (the field calls them from its own events).
+  useInsertionEffect(() => {
+    promptBeforeInput.current = (data, state) => {
+      typedAt.current = performance.now();
+      // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`. Not while a Cloud
+      // start is out: the started chat has no shell yet, and only the prompt's text reaches it, so `!`
+      // stays text.
+      if (!onShell || cloudStarting || state.composing || !state.empty || !data.startsWith("!")) return false;
+      enterShell(data.slice(1));
+      return true;
+    };
+    // Only the person's own edit is typing: a change right after their keystroke, text input or
+    // IME composition. A value applied from outside (a draft coming back on open or a switch, a
+    // failed prompt restored, the field normalizing either) comes with none.
+    promptChange.current = (value, at) => {
+      edit(value, at, true);
+      if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
+      if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
+      // Kept past this mount: a composer that comes back keeps the person's text over acpmux's.
+      noteDraftEdited(sessionId);
+      // One change per key: what the field does after it (normalizing) is not another.
+      typedAt.current = Number.NEGATIVE_INFINITY;
+      if (value.trim()) onTyping?.(value, sessionId);
+      if (value.trim()) onPromptEdit?.(value);
+    };
+    promptCaret.current = promptRef.current.setCaret;
+    promptKeyDown.current = (event) => {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      const edits = event.metaKey
+        ? CMD_EDIT_KEYS.has(key)
+        : event.ctrlKey
+          ? CTRL_EDIT_KEYS.has(key)
+          : !NOT_AN_EDIT_KEY.has(event.key);
+      if (edits) typedAt.current = performance.now();
+      return keyDown(event);
+    };
+    promptReturnInput.current = returnInput;
+    promptComposition.current = (value) => {
+      typedAt.current = performance.now();
+      composing.current = value;
+    };
   });
-  // While a turn runs, what is sent waits behind it, so the empty prompt says so.
-  const queues = !shell && snapshot.isWorking && remote.canSend && !blockSend && !blocked?.reason;
-  // An agent that steers takes Return into the running turn: it reads the prompt when its current
-  // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
-  // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
-  // that cannot steer queues on both keys.
-  // One of the agent's own slash commands waits for the turn either way (cliOnlyCommands.ts): it
-  // queues, so it shows as waiting behind the turn and runs as its own turn, never as a steer.
-  const steers =
-    queues && snapshot.summary?.steering === true && !commandWaitsForTurn(text, snapshot.summary?.harness, commands);
-  const returnSteers = steers && (Boolean(text.trim()) || attachments.length > 0);
-  // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
-  // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
-  const steersAlways = steers && !queueing;
-  // Before the pane hears that a turn runs (one another agent's message, a trigger or an automatic
-  // retry started a moment ago), what is sent still goes as a steer to an agent that steers: acpmux
-  // steers it into a turn that runs and starts a turn when none does, so a Return never waits behind
-  // a turn the pane had not shown yet (Leo, 2026-11-05: "hey what the is my thing auto queuing rn?").
-  const steersUnseen =
-    !shell &&
-    !snapshot.isWorking &&
-    snapshot.summary?.steering === true &&
-    !commandWaitsForTurn(text, snapshot.summary?.harness, commands);
-  // Mid-turn an agent that steers keeps Claude desktop's "Type / for commands" (Leo 2026-11-03:
-  // "well the enter/cmd enter used to be claude code's placeholder... now they have this"); the
-  // Send button's tooltip names ↵ steer and ⌘↵ queue instead. The Quick Composer's ⌘Return opens
-  // the window, so there it says Return steers; an agent that cannot steer says it queues.
-  // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does;
-  // once Stop is sent, it says the turn is stopping until it ends.
-  const placeholderKey = stopping
-    ? COMPOSER_LABELS.stopping
-    : escapeStop.armed
-      ? COMPOSER_LABELS.escapeAgainToStop
-      : !queues
-        ? COMPOSER_LABELS.placeholder
-        : !steers
-          ? COMPOSER_LABELS.placeholderQueued
-          : onOpenInWindow || steersAlways
-            ? COMPOSER_LABELS.placeholderSteerQuick
-            : COMPOSER_LABELS.placeholder;
-  // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
-  // mid-turn and Esc hints still win, since they say what a key does now.
-  const placeholderText =
-    placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
-  // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
-  // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
-  const cwd = snapshot.summary?.cwd;
-  const branch = snapshot.summary?.branch;
-  // The chat folder's own PR, which the App reads with gh for the header's chip: no session summary
-  // reports a PR yet, so this is the live source.
-  const headerPullRequest = useHeaderState().pullRequest;
-  const headerHere = headerCwd === undefined || folder(headerCwd) === folder(cwd);
-  const livePullRequest = useMemo<LivePullRequest | undefined>(
-    () =>
-      headerPullRequest && headerHere
-        ? {
-            number: headerPullRequest.number,
-            title: headerPullRequest.title,
-            state: headerPullRequest.state,
-            checks: headerPullRequest.checks.state,
-          }
-        : undefined,
-    [headerPullRequest, headerHere],
-  );
-  // A new chat before its first send, known as one (locationRow.ts): the location strip and the
-  // suggested prompt are a new chat's. An existing chat opening or loading its rows has neither.
-  const locationVisible = showsLocationRow(snapshot, chatKnown);
-  const suggestion = useMemo<PromptSuggestion | undefined>(
-    () =>
-      locationVisible &&
-      !shell &&
-      !snapshot.isWorking &&
-      snapshot.rows.length === 0 &&
-      remote.canSend &&
-      !blockSend &&
-      !blocked?.reason
-        ? promptSuggestion(
-            snapshot.sessions,
-            { sessionId: snapshot.sessionId, cwd, branch },
-            Date.now(),
-            livePullRequest,
-          )
-        : undefined,
-    [
-      locationVisible,
-      shell,
-      snapshot.isWorking,
-      snapshot.rows.length,
-      remote.canSend,
-      blockSend,
-      blocked,
-      snapshot.sessions,
-      snapshot.sessionId,
-      cwd,
-      branch,
-      livePullRequest,
-    ],
-  );
-  // The agent's own guess at the next prompt after a turn (Claude Code's prompt suggestions, acpmux's
-  // `prompt_suggestion`; Leo 2026-11-03: "suggested prompts that you can right arrow/tab to do stuff
-  // with"). The snapshot carries one only between turns; it is spent once the person types, or
-  // when it arrives over a draft (`agentSuggestionSpent`), and the empty field shows it as ghost text.
-  const agentSuggestion =
-    !suggestion &&
-    !shell &&
-    snapshot.promptSuggestion &&
-    !snapshot.isWorking &&
-    remote.canSend &&
-    !blockSend &&
-    !blocked?.reason
-      ? snapshot.promptSuggestion
-      : undefined;
-  const agentSuggestionKey = agentSuggestion && `${snapshot.sessionId ?? ""}|agent|${agentSuggestion.seq}`;
-  const draftShown = text !== "" || attachments.length > 0;
-  // Typing (or a draft already there) spends the agent's suggestion: emptying the field again does
-  // not bring it back. Set during render, so the keystroke that hides it never lets Tab take it.
-  const [agentSuggestionSpent, setAgentSuggestionSpent] = useState<string | undefined>();
-  if (agentSuggestionKey && draftShown && agentSuggestionSpent !== agentSuggestionKey)
-    setAgentSuggestionSpent(agentSuggestionKey);
-  const suggestionKey = suggestion ? `${snapshot.sessionId ?? ""}|${cwd}|${suggestion.number}` : agentSuggestionKey;
-  // Exactly empty, as the field draws its placeholder: a typed space hides the suggestion, so Tab
-  // must not take it then.
-  const suggestionOpen =
-    !dictating && suggestionKey !== suggestionDismissed && suggestionKey !== agentSuggestionSpent && !draftShown;
-  const suggested =
-    suggestion && suggestionOpen
-      ? t(
-          suggestion.kind === "failing"
-            ? COMPOSER_LABELS.suggestFailing
-            : suggestion.kind === "draft"
-              ? COMPOSER_LABELS.suggestDraft
-              : COMPOSER_LABELS.suggestOpen,
-          { number: String(suggestion.number), title: suggestion.title },
-        )
-      : agentSuggestion && suggestionOpen
-        ? agentSuggestion.text
-        : undefined;
-  const agentSuggested = suggested !== undefined && !suggestion;
-  const suggestionLook = experimentArm(promptSuggestionLook);
-  // Focus leaving the composer closes the menu and takes back what + wrote.
-  const blur = (event: React.FocusEvent<HTMLFormElement>) => {
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-    unsentDraft.current?.flush();
-    const original = unwrapped();
-    plusDraft.current = undefined;
-    if (original !== text) edit(original, original.length);
-    else if (open) setDismissed(text);
-    else if (mentionAt) setMentionDismissed(text);
-    else if (emojiAt) setEmojiDismissed(text);
-  };
-  // The prompt's context menu, as a text field's (POLISH.md): Undo and Redo, the edit items and
-  // Select All, then Attach Files… and Insert Mention. Cut and Copy need a selection in the field,
-  // and Undo and Redo an edit in its history, read when the menu opens.
-  const [fieldSelected, setFieldSelected] = useState(false);
-  const [fieldHistory, setFieldHistory] = useState({ undo: false, redo: false });
-  const noteSelection = () => {
-    const shellInput = shellField.current;
-    if (shell && shellInput) {
-      setFieldSelected(shellInput.selectionStart !== shellInput.selectionEnd);
-      // A plain text area keeps its own history, which the page cannot read: both stay offered.
-      setFieldHistory({ undo: true, redo: true });
-      return;
-    }
-    const selection = window.getSelection();
-    const element = field.current?.element();
-    setFieldSelected(Boolean(selection && !selection.isCollapsed && element?.contains(selection.anchorNode)));
-    setFieldHistory(field.current?.history() ?? { undo: false, redo: false });
-  };
-  /// Undo, Redo or Select All, in the prompt or the shell field.
-  const runField = (command: "undo" | "redo" | "selectAll") => {
-    const shellInput = shellField.current;
-    if (shell && shellInput) {
-      shellInput.focus();
-      if (command === "selectAll") shellInput.select();
-      else document.execCommand(command);
-      return;
-    }
-    field.current?.focus();
-    field.current?.[command]();
-  };
-  /// Focuses the prompt that shows: the shell line in shell mode (the Markdown field is hidden then).
-  const focusPrompt = () => (shell ? shellField.current : field.current)?.focus();
-  const runEdit = (command: ComposerEditCommand) => {
-    focusPrompt();
-    if (command === "pasteAsPlainText") box.current?.plainPaste();
-    onEdit?.(command);
-  };
-  const fieldMenu: ContextMenuItem[] = [
-    {
-      id: "undo",
-      label: t(COMPOSER_LABELS.undo),
-      disabled: !fieldHistory.undo,
-      onSelect: () => runField("undo"),
-    },
-    {
-      id: "redo",
-      label: t(COMPOSER_LABELS.redo),
-      disabled: !fieldHistory.redo,
-      onSelect: () => runField("redo"),
-    },
-    {
-      id: "cut",
-      label: t(COMPOSER_LABELS.cut),
-      separatorBefore: true,
-      disabled: !onEdit || !fieldSelected,
-      onSelect: () => runEdit("cut"),
-    },
-    {
-      id: "copy",
-      label: t(COMPOSER_LABELS.copy),
-      disabled: !onEdit || !fieldSelected,
-      onSelect: () => runEdit("copy"),
-    },
-    {
-      id: "paste",
-      label: t(COMPOSER_LABELS.paste),
-      disabled: !onEdit,
-      onSelect: () => runEdit("paste"),
-    },
-    {
-      id: "pasteAsPlainText",
-      label: t(COMPOSER_LABELS.pasteAsPlainText),
-      disabled: !onEdit,
-      onSelect: () => runEdit("pasteAsPlainText"),
-    },
-    { id: "selectAll", label: t(COMPOSER_LABELS.selectAll), onSelect: () => runField("selectAll") },
-    {
-      id: "attach",
-      label: t(COMPOSER_LABELS.attachFiles),
-      separatorBefore: true,
-      onSelect: () => chooser.current?.click(),
-    },
-    {
-      id: "mention",
-      label: t(COMPOSER_LABELS.insertMention),
-      disabled: shell,
-      onSelect: () => mention(),
-    },
-    {
-      id: "scrollToBottomOnSend",
-      label: t(COMPOSER_LABELS.scrollToBottomOnSend),
-      checked: scrollToBottomOnSend,
-      separatorBefore: true,
-      onSelect: () => setScrollToBottomOnSend(!scrollToBottomOnSend),
-    },
-  ];
-
-  // The location strip: the folder and computer chips over the card (hq#1957 composer location
-  // strip, composerLocation.css), so the card holds one controls row. Only a new chat has the visible
-  // strip, before its first send (locationRow.ts): a started chat cannot change folder or machine.
-  // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
-  // composer is bottom-anchored, so removing the slot in the same render would move every control
-  // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
-  // becomes the top strip.
-  const locationKey = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  // A gallery or a reopened pane can render an unselected snapshot before its session arrives.
-  // Do not let that transient visible strip reserve space for a different, already-started chat.
-  // A slot is meaningful only after the visible strip was observed for a known session identity.
-  const locationWasVisible =
-    locationSlotWasShown.current && locationKey !== undefined && locationSlotSession.current === locationKey;
-  if (locationVisible && locationKey !== undefined) {
-    locationSlotSession.current = locationKey;
-    locationSlotWasShown.current = true;
-  } else if (!locationWasVisible) {
-    locationSlotSession.current = undefined;
-    locationSlotWasShown.current = false;
-  }
-  const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
-  // The page's route to its acpmux, for the machine chip's name (chatMachine.ts); ComposerContext
-  // keys its lists on the name this gives, not on this object.
-  const route = chatPlace(snapshot);
-  const context = locationVisible ? (
-    <ComposerContext
-      projectChoices={projectChoices}
-      machineFolders={machineFolders}
-      onBrowseProject={onBrowseProject}
-      {...(extraFolders ? { extraFolders } : {})}
-      onNewWorktree={onNewWorktree}
-      onBrowseFolder={onBrowseFolder}
-      onConnect={onConnect}
-      {...(onOffload ? { onOffload } : {})}
-      {...(offloads ? { offloads } : {})}
-      summary={snapshot.summary}
-      sessions={snapshot.sessions}
-      peers={snapshot.peers}
-      {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
-      {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
-      {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
-      {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
-      {...(onRefreshMachines ? { onRefreshMachines } : {})}
-      {...(folderNote ? { folderNote } : {})}
-      {...(runMode ? { runMode } : {})}
-      environments={environments}
-      {...(onComputer ? { onComputer } : {})}
-      {...(onRepick ? { onRepick } : {})}
-      {...(onCloudMachinePicked ? { onCloudMachinePicked } : {})}
-      onProject={
-        onProject &&
-        ((cwd, peer) => {
-          onProject(cwd, peer);
-          field.current?.focus();
-        })
-      }
-      localName={localName}
-      route={route}
-      onNewChat={onNewChat}
-      closeOnTrustAsk={closeOnTrustAsk}
-    />
-  ) : keepLocationSlot ? (
-    <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
-  ) : null;
-  // Stop, while a turn runs and the prompt is empty, in the one send slot (sendControl, below).
-  // Once sent, Stop turns until the turn ends, so a press (or Esc) is seen to take (Leo 2026-10-21:
-  // "IDK IF IM ACTUALLY STOPPING YOU"); pressed again it sends Stop again.
-  const stopLabel = t(
-    stopping ? COMPOSER_LABELS.stopping : escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop,
-  );
-  // What the send slot drew last, so Send and Stop morph into each other on a real change, never on
-  // the first draw or a chat switch (composer/SendSlotGlyph.tsx). The Quick Composer can show both at
-  // once, so its glyphs draw at once.
-  slotMemory.current ??= newSlotMemory(sessionId);
-  const morphMemory = onOpenInWindow ? undefined : slotMemory.current;
-  const stopButton = running ? (
-    <button
-      key="stop"
-      ref={sendButton}
-      type="button"
-      className="acpmux-send acpmux-cancel"
-      data-escape-armed={escapeStop.armed && !stopping ? "" : undefined}
-      data-stopping={stopping ? "" : undefined}
-      aria-label={stopLabel}
-      // tooltip-allow: names the icon-only Stop, once armed says to press Esc again, and once sent says it is stopping.
-      title={stopLabel}
-      onClick={stopTurn}
-    >
-      {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
-      <SendSlotGlyph glyph={stopping ? "stopping" : "stop"} memory={morphMemory} scope={sessionId} />
-    </button>
-  ) : null;
-  // A draft of attachments alone is still a draft: it gets Send, never Stop alone. While dictating
-  // the slot is Send, draft or not, as Claude's and ChatGPT's are: it ends the session and sends.
-  const listening = !shell && dictation !== undefined && isActive(dictation.state);
-  // Send's menu (composer/SendMenu.tsx): the other ways this draft can go, each only where it does
-  // something Send does not. Queue for later is ⌘Return's queue while Return steers the turn.
-  const sendChoices = shell
-    ? []
-    : sendMenuChoices({
-        // Send refused for now (trust, sign-in, a held send): no other way goes either.
-        draft: hasDraft && !(authBlock || authBlocked || blockSend || blocked?.reason),
-        sendSteers: returnSteers && !steersAlways && !onOpenInWindow,
-        side: Boolean(sendsToSide) && remote.canSend && !onOpenInWindow,
-        files: attachments.length > 0 || pending.length > 0,
-      });
-  const chooseSend = (choice: SendChoice) => {
-    if (choice === "side") send(false, false, undefined, "side");
-    // Queue for later is ⌘Return; Send is the button's own send.
-    else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers || steersUnseen);
-  };
   const sendOrStop =
     stop && !hasDraft && !listening ? (
       stopButton
+    ) : canResume ? (
+      <button
+        key="resume"
+        ref={sendButton}
+        type="button"
+        className="acpmux-send acpmux-send-ready acpmux-resume"
+        aria-label={t("composer.queueResume")}
+        title={t("composer.queueResume")}
+        aria-busy={resuming || undefined}
+        disabled={resuming}
+        onClick={() => runResume(canResume)}
+      >
+        <SendSlotGlyph glyph="play" memory={morphMemory} scope={sessionId} />
+      </button>
     ) : remote.canSend && (!quietActions || shell || hasDraft || listening) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
@@ -2435,8 +2790,8 @@ function ComposerFrame({
         <button
           ref={sendButton}
           type="submit"
-          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason) && !shell}
-          className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
+          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell}
+          className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && !startHoldsSend && hasDraft) ? " acpmux-send-ready" : ""}`}
           aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
           title={
             shell
@@ -2445,17 +2800,19 @@ function ComposerFrame({
                 ? t(COMPOSER_LABELS.escapeAgainToStop)
                 : authBlock
                   ? authBlock
-                  : blocked?.reason
-                    ? t(blocked.reason)
-                    : t(
-                        !snapshot.isWorking
-                          ? "composer.sendTooltip"
-                          : returnSteers && !steersAlways && !onOpenInWindow
-                            ? COMPOSER_LABELS.steerQueueTooltip
-                            : steersAlways || returnSteers
-                              ? "composer.steerTooltip"
-                              : "composer.queueTooltip",
-                      )
+                  : startHoldsSend
+                    ? t("composer.cloudStartingSend")
+                    : blocked?.reason
+                      ? t(blocked.reason)
+                      : t(
+                          !snapshot.isWorking
+                            ? "composer.sendTooltip"
+                            : returnSteers && !steersAlways && !onOpenInWindow
+                              ? COMPOSER_LABELS.steerQueueTooltip
+                              : steersAlways || returnSteers
+                                ? "composer.steerTooltip"
+                                : "composer.queueTooltip",
+                        )
           }
         >
           <SendSlotGlyph glyph={quietActions && !shell ? "return" : "arrow"} memory={morphMemory} scope={sessionId} />
@@ -2473,6 +2830,45 @@ function ComposerFrame({
     ) : (
       sendOrStop
     );
+  // The + menu's rows, the same array until what they list changes. ComposerFrame is left
+  // uncompiled by the React Compiler, so an inline array was new on each keystroke and drew the menu again.
+  const plusCanCapture = Boolean(capture && allowImages);
+  const plusCanRecord = Boolean(capture && canRecord);
+  const plusCanChooseProject = locationVisible && Boolean(projectChoices || onBrowseProject);
+  const plusPlanId = planChoice && plan ? plan.id : undefined;
+  const plusPlanName = planChoice?.name;
+  const plusSearchesFiles = Boolean(searchFiles);
+  const plusEntries = useMemo(
+    () =>
+      composerPlusRegistry({
+        commands,
+        recentCommands: recentCommands(recentCommandNames, commands),
+        translate: t,
+        extensions: plusExtensions,
+        canCapture: plusCanCapture,
+        canRecord: plusCanRecord,
+        canChooseProject: plusCanChooseProject,
+        ...(plusPlanId !== undefined && plusPlanName !== undefined
+          ? { planMode: { id: plusPlanId, name: plusPlanName, description: t("picker.planHint") } }
+          : {}),
+      }).filter((entry) => {
+        if (entry.id === "files.search") return plusSearchesFiles;
+        if (entry.id === "add.commands") return Boolean(commands?.length);
+        return true;
+      }),
+    [
+      commands,
+      recentCommandNames,
+      t,
+      plusExtensions,
+      plusCanCapture,
+      plusCanRecord,
+      plusCanChooseProject,
+      plusPlanId,
+      plusPlanName,
+      plusSearchesFiles,
+    ],
+  );
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (
@@ -2487,10 +2883,15 @@ function ComposerFrame({
       // but its own events changes its nodes (devkit/perfBudgets.ts `still-surface`).
       data-perf-still="composer"
       data-shell={shell ? "" : undefined}
-      // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
-      data-composer-look={look === "codex" ? "codex" : undefined}
+      // Gallery previews can stage the former Codex layout. Studio's look (Settings, opt-in) is that
+      // in-box layout with its own sheet over it (composerLook.css data-composer-variant).
+      data-composer-look={lookRowInBox(look) ? "codex" : undefined}
+      data-composer-variant={look === "studio" ? "studio" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
+      data-shell-look={shellLook}
+      data-footer-controls={controlsLook}
+      data-empty-height={emptyHeight}
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();
@@ -2516,20 +2917,19 @@ function ComposerFrame({
       )}
       {findingFiles &&
         searchFiles &&
-        form.current?.parentElement &&
         createPortal(
           <FileSearch
             search={searchFiles}
             onClose={() => {
-              setFindingFiles(false);
+              setFindingFiles(null);
               field.current?.focus();
             }}
             onPick={(path) => {
-              setFindingFiles(false);
+              setFindingFiles(null);
               mention(path);
             }}
           />,
-          form.current.parentElement,
+          findingFiles,
         )}
       {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
       <ComposerQueue
@@ -2547,29 +2947,46 @@ function ComposerFrame({
         onSideChat={onQueueSideChat}
         readImage={queueImage}
         commands={commands}
-        onLeave={() => field.current?.focus()}
+        onLeave={leaveQueue}
       />
       {context}
       {dropHost && (
         <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={landingTarget} />
       )}
+      {outcomeAskEnabled && !shell && (
+        <div className="acpmux-outcome-ask" data-outcome-ask="on">
+          <label htmlFor={outcomeFieldId}>{t("composer.outcomeAskLabel")}</label>
+          <textarea
+            id={outcomeFieldId}
+            rows={1}
+            value={doneWhen}
+            aria-label={t("composer.outcomeAskLabel")}
+            placeholder={t("composer.outcomeAskPlaceholder")}
+            onChange={(event) => {
+              doneWhenRef.current = event.target.value;
+              setDoneWhen(event.target.value);
+            }}
+          />
+        </div>
+      )}
       <ComposerBox
         handle={box}
+        prompt={promptText}
         onPersonEdit={() => {
           typedAt.current = performance.now();
         }}
         boxRef={setComposerBox}
-        inert={locked}
         fieldRef={fieldRef}
         field={{
           className: shell
             ? "acpmux-composer-prompt is-hidden"
-            : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}`,
-          value: text,
+            : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}${cloudStarting && startLook === "dimmed" ? " is-cloud-starting" : ""}`,
+          // ComposerBox reads the text itself (`prompt`), so a key renders the box, not this frame.
+          value: "",
           selectionKey: sessionId,
-          placeholder: dictating ? t("dictation.listening") : (suggested ?? placeholderText),
+          placeholder: dictating ? t("dictation.listening") : (startingPlaceholder ?? suggested ?? placeholderText),
           placeholderKey:
-            suggested && !dictating && (!agentSuggested || suggestionLook === "keycap")
+            suggested && !dictating && !startingPlaceholder && (!agentSuggested || suggestionLook === "keycap")
               ? t(COMPOSER_LABELS.suggestionKey)
               : undefined,
           attributes: {
@@ -2594,7 +3011,12 @@ function ComposerFrame({
                   : emojiAt && emojiSelected >= 0
                     ? `acpmux-emoji-${emojiSelected}`
                     : undefined,
-            spellcheck: String(spellChecking),
+            // While a list shows, it is the only completion: macOS's own (autocorrect's suggestion
+            // bubble, which rides on spelling, and inline predictions) drew a second one under the
+            // caret (Leo, 2026-11-20).
+            spellcheck: String(spellChecking && !listShown),
+            autocorrect: listShown ? "off" : undefined,
+            writingsuggestions: listShown ? "false" : undefined,
             // Attached files, or ones still being read, are a draft too: an ask's keys leave it alone
             // (composerTyped.ts).
             "data-draft-attachments": attachments.length + pending.length > 0 ? "" : undefined,
@@ -2615,7 +3037,7 @@ function ComposerFrame({
         pending={pending}
         setAttachments={setAttachments}
         attachmentsRef={attachmentsRef}
-        attachError={attachError}
+        attachError={attachError ?? (heldForHost ? t("composer.sendingWhenReady") : undefined)}
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={(id) => {
           setAttachments((current) => current.filter((item) => item.id !== id));
@@ -2630,6 +3052,8 @@ function ComposerFrame({
         originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
         onPasteFiles={(files) => void attach(files, true, "paste")}
+        pasteKeepsText={cloudStarting}
+        onPasteRefused={() => setAttachError(t("composer.cloudStartingAttach"))}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
@@ -2680,6 +3104,21 @@ function ComposerFrame({
             />
             {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up.
                 Drawn out of the box's glass, so their own glass frosts the transcript (backdropLayer.tsx). */}
+            {helpOpen && !open && (
+              <ComposerListLayer>
+                <HelpSheet
+                  commands={commands}
+                  onInsert={(command) => {
+                    setHelpOpen(false);
+                    pickFromPlus(command);
+                  }}
+                  onClose={() => {
+                    setHelpOpen(false);
+                    focusRoute(field.current, "person", "/help closed: the composer");
+                  }}
+                />
+              </ComposerListLayer>
+            )}
             {open && (
               <ComposerListLayer>
                 <SlashMenu
@@ -2710,9 +3149,9 @@ function ComposerFrame({
                   key={emojiAt.start}
                   look={emojiLook}
                   matches={emojiRows}
-                  active={emojiSelected >= 0 ? emojiSelected : (emojiHover ?? -1)}
+                  active={emojiSelected}
                   back={emojiAt.token.length}
-                  onHover={setEmojiHover}
+                  onHover={(index) => setEmojiActive(emojiRows[index]?.key)}
                   onPick={pickEmoji}
                 />
               </ComposerListLayer>
@@ -2742,26 +3181,14 @@ function ComposerFrame({
               leading
             ) : (
               <ComposerPlusMenu
+                // Studio's look draws it as the reference's attach paperclip, before Send (composerLook.css).
+                glyph={look === "studio" ? "paperclip" : "plus"}
                 planning={planning}
-                entries={composerPlusRegistry({
-                  commands,
-                  recentCommands: recentCommands(recentCommandNames, commands),
-                  translate: t,
-                  extensions: plusExtensions,
-                  canCapture: Boolean(capture && allowImages),
-                  canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
-                  ...(planChoice && plan
-                    ? { planMode: { id: plan.id, name: planChoice.name, description: t("picker.planHint") } }
-                    : {}),
-                }).filter((entry) => {
-                  if (entry.id === "files.search") return Boolean(searchFiles);
-                  if (entry.id === "add.commands") return Boolean(commands?.length);
-                  return true;
-                })}
+                entries={plusEntries}
                 onCommand={(action, modeId) => {
                   if (action === "composer.attachFiles") chooser.current?.click();
-                  else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
-                    void capture?.(action === "composer.attachWindow" ? "window" : "screen")
+                  else if (CAPTURE_MODES[action]) {
+                    void capture?.(CAPTURE_MODES[action])
                       .then(async (shot) => {
                         // One over the image cap goes as a pasted one does: a preview, and its
                         // original saved to the chat for the agent to read; a send waits for that
@@ -2777,7 +3204,7 @@ function ComposerFrame({
                   } else if (action === "composer.chooseProject") openPicker("Location");
                   else if (action === "composer.planMode" && modeId) togglePlan(modeId);
                   else if (action === "composer.mention") mention();
-                  else if (action === "searchFiles") setFindingFiles(true);
+                  else if (action === "searchFiles") openFileSearch();
                   else if (action === "composer.commands") openCommands();
                 }}
                 {...(onPlusCommand ? { onExtension: onPlusCommand } : {})}
@@ -2788,18 +3215,21 @@ function ComposerFrame({
           </>
         }
         chips={
-          <PromptFocus value={focusPrompt}>
+          <PromptFocusProvider focus={focusPrompt}>
             <Chips snapshot={snapshot} />
             <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
-          </PromptFocus>
+          </PromptFocusProvider>
         }
-        // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
-        // reports usage (inert, ContextRing), so the first report moves nothing in the row
-        // (hq#1957: the composer holds still while a turn runs); the context-usage setting
-        // hides it (showContextUsage), from its own right-click too, which also picks what it shows:
-        // the context or the plan usage limits (composerRing; UsageRingMenu).
+        // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
+        // A new chat has no ring: it shows from the first send (chatHasFirstSend, locationRow.ts),
+        // when the location strip goes. After that it keeps its place before the chat reports
+        // usage (inert, ContextRing), so the first report moves nothing in the row (hq#1957: the
+        // composer holds still while a turn runs); the context-usage setting hides it
+        // (showContextUsage), from its own right-click too, which also picks what it shows: the
+        // context or the plan usage limits (composerRing; UsageRingMenu).
         ring={
-          showContextUsage && (
+          showContextUsage &&
+          chatHasFirstSend(snapshot) && (
             <UsageRingMenu>
               <ContextRing
                 // The chat the reading is of: switching chats shows the new one's at once, uneased.
@@ -2832,187 +3262,9 @@ function ComposerFrame({
         accessory={accessory}
         trailing={quietActions ? undefined : sendControl}
         chromeItems={chrome.all}
-        // The look dots in the bottom area, on hover (LookSwitch.tsx); the Quick Composer has none.
-        {...(onOpenInWindow ? {} : { bottom: <LookSwitch onDone={focusPrompt} /> })}
       />
     </form>
   );
 }
 
 const MemoComposer = React.memo(ComposerFrame);
-
-/// One attachment above the prompt. An image draws a thumbnail in its own shape and opens in the chat's image
-/// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
-function SlashMenu({
-  matches,
-  active,
-  empty,
-  fast,
-  onHover,
-  onPick,
-}: {
-  matches: SlashMatch[];
-  active: number;
-  empty: string;
-  /// The chat's fast mode, which the /fast row's sentence follows (undefined: not reported).
-  fast?: "on" | "off";
-  onHover(index: number): void;
-  onPick(command: SlashCommand): void;
-}) {
-  const t = useT();
-  const list = useRef<HTMLDivElement>(null);
-  // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
-  // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
-  const box = useComposerListBox();
-  // The full match list owns keyboard ranking. Only a bounded viewport gets DOM nodes.
-  const virtual = matches.length > 40;
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportPx, setViewportPx] = useState(SLASH_MAX_VIEWPORT_PX);
-  const [rowPx, setRowPx] = useState(SLASH_ROW_PX);
-  const wantedTop = virtual ? slashScrollForActive(active, matches.length, scrollTop, viewportPx, rowPx) : 0;
-  const view = slashViewport(matches.length, wantedTop, viewportPx, rowPx);
-
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  const listEdges = useScrollEdges();
-  const escape = useEscapingList("top", 6, undefined, box);
-  const setList = useCallback(
-    (node: HTMLDivElement | null) => {
-      list.current = node;
-      listEdges(node);
-      escape?.(node);
-    },
-    [escape, listEdges],
-  );
-  // The menu may be squeezed below its CSS 296px cap in a short pane.
-  useLayoutEffect(() => {
-    const node = list.current;
-    if (!node || !virtual) return;
-    const measure = () => {
-      if (node.clientHeight <= 0) return;
-      const css = node.ownerDocument.defaultView?.getComputedStyle(node);
-      const padding = (parseFloat(css?.paddingTop ?? "0") || 0) + (parseFloat(css?.paddingBottom ?? "0") || 0);
-      const height = Math.max(1, node.clientHeight - padding);
-      setViewportPx((old) => (old === height ? old : height));
-      const row = node.querySelector<HTMLElement>(".acpmux-slash-row");
-      const measuredRow = row?.getBoundingClientRect().height ?? 0;
-      if (measuredRow > 0 && Number.isFinite(measuredRow)) {
-        setRowPx((old) => (Math.abs(old - measuredRow) < 0.5 ? old : measuredRow));
-      }
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    const row = node.querySelector<HTMLElement>(".acpmux-slash-row");
-    if (row) observer.observe(row);
-    return () => observer.disconnect();
-  }, [virtual, matches.length]);
-
-  useLayoutEffect(() => {
-    const node = list.current;
-    if (!node) return;
-    if (virtual) {
-      if (Math.abs(node.scrollTop - view.scrollTop) > 0.5) node.scrollTop = view.scrollTop;
-      return;
-    }
-  }, [virtual, view.scrollTop]);
-
-  // A native select or datalist cannot hold the matched-name bolding and descriptions.
-  return (
-    <Listbox
-      listRef={setList}
-      items={matches}
-      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
-      textValue={(match) => shownName(match.command)}
-      label={t(COMPOSER_LABELS.commands)}
-      autoFocus={false}
-      activeIndex={active}
-      onActiveIndexChange={onHover}
-      onOpen={(match) => onPick(match.command)}
-      getItemId={(_, index) => `acpmux-slash-${index}`}
-      className="ui-popup ui-glass acpmux-slash-menu ui-scroll-edge-fade"
-      id="acpmux-slash-menu"
-      rowClassName="acpmux-slash-row"
-      empty={<div className="acpmux-slash-empty">{empty}</div>}
-      window={virtual ? view : undefined}
-      itemAttributes={(_, index) => ({
-        "aria-posinset": String(index + 1),
-        "aria-setsize": String(matches.length),
-      })}
-      onScroll={
-        virtual
-          ? (event) => {
-              const top = event.currentTarget.scrollTop;
-              setScrollTop(top);
-              const next = slashViewport(matches.length, top, viewportPx, rowPx);
-              const selected = slashActiveAfterScroll(active, matches.length, next);
-              if (selected !== active) onHover(selected);
-            }
-          : undefined
-      }
-      renderItem={(match) => {
-        // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
-        const fastRow = isFastCommand(match.command);
-        const fastName = t("picker.tierFast");
-        return (
-          <>
-            {fastRow && (
-              <span className="acpmux-slash-icon">
-                <BoltIcon size={14} />
-              </span>
-            )}
-            <span className="acpmux-slash-name">
-              {fastRow ? (
-                // The typed letters stay bold where the shown name spells the command (English).
-                fastName.toLowerCase() === match.command.name.toLowerCase() ? (
-                  <Highlighted name={fastName} ranges={match.ranges} />
-                ) : (
-                  fastName
-                )
-              ) : (
-                <>
-                  /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
-                </>
-              )}
-            </span>
-            {!fastRow && match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-            {match.command.source && match.command.source !== "agent" && (
-              <span className="acpmux-slash-source">
-                {match.command.source === "skill"
-                  ? t("composer.slashSkill")
-                  : match.command.source === "prompt"
-                    ? t("composer.slashPrompt")
-                    : "cmux"}
-              </span>
-            )}
-            <span className="acpmux-slash-description">
-              {fastRow
-                ? t(
-                    fast === "on"
-                      ? "composer.slashFastOff"
-                      : fast === "off"
-                        ? "composer.slashFastOn"
-                        : "composer.slashFastToggle",
-                  )
-                : match.command.descriptionKey
-                  ? t(match.command.descriptionKey)
-                  : match.command.description}
-            </span>
-          </>
-        );
-      }}
-    />
-  );
-}
-
-function Highlighted({ name, ranges }: { name: string; ranges: [number, number][] }) {
-  const parts: React.ReactNode[] = [];
-  let at = 0;
-  for (const [start, end] of ranges) {
-    if (start > at) parts.push(name.slice(at, start));
-    parts.push(<mark key={start}>{name.slice(start, end)}</mark>);
-    at = end;
-  }
-  if (at < name.length) parts.push(name.slice(at));
-  return <>{parts}</>;
-}

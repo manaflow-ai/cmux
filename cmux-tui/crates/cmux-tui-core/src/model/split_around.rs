@@ -27,13 +27,31 @@ impl Node {
                 let old = std::mem::replace(self, Node::Leaf(new_pane));
                 let (a, b) =
                     if before { (Node::Leaf(new_pane), old) } else { (old, Node::Leaf(new_pane)) };
-                *self =
-                    Node::Split { id: split_id, dir, ratio: 0.5, a: Box::new(a), b: Box::new(b) };
+                *self = Node::Split {
+                    id: split_id,
+                    dir,
+                    ratio: 0.5,
+                    a: Box::new(a),
+                    b: Box::new(b),
+                    divider_hidden: false,
+                };
                 true
             }
             Node::Split { a, b, .. } => {
                 a.split_around(target, edge, split_id, dir, new_pane, before)
                     || b.split_around(target, edge, split_id, dir, new_pane, before)
+            }
+            Node::Leaf(_) | Node::Stack { .. } => false,
+        }
+    }
+
+    /// Whether split `target` is in this tree and `pane` is its last leaf
+    /// (what [`Self::split_around`] needs to wrap it with a pane after it).
+    pub(crate) fn split_ends_at(&self, target: SplitId, pane: PaneId) -> bool {
+        match self {
+            Node::Split { id, .. } if *id == target => self.edge_pane(false) == Some(pane),
+            Node::Split { a, b, .. } => {
+                a.split_ends_at(target, pane) || b.split_ends_at(target, pane)
             }
             Node::Leaf(_) | Node::Stack { .. } => false,
         }
