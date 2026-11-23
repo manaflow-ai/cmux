@@ -93,6 +93,8 @@ type Drawn = {
   id: string;
   top: number;
   height?: number;
+  /// The row is a message the person sent (`isPersonMessage`).
+  person?: boolean;
   replacesHeader?: boolean;
   copy?: HTMLElement;
   clip?: number;
@@ -120,6 +122,29 @@ export type TurnEndFold = {
 };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
+
+/// A message the person sent, drawn as their bubble: the prompt or a steer, never the line another
+/// agent's message or a notice draws (model.ts `isLineRow`).
+const isPersonMessage = (node: HTMLElement) =>
+  node.classList.contains("acpmux-user") && !node.classList.contains("acpmux-row--line");
+
+/// Whether the fold after `capture` would play across a message the person sent: the swap takes
+/// away a row drawn above one of their messages that stays, or takes one of their messages away.
+/// Such a swap applies in the frame it renders, with no motion (`playTurnEnd`): the rows over the
+/// message and the rows under it would move by different amounts, the bubble between them sliding
+/// over the place the folded work drew while its copies faded there (Leo, 2026-11-22: "it tries to
+/// fold and it folds up past my [...] steer ... the way i see that [...] passing over my [...]
+/// message is so dumb"). A fold plays only under the person's newest message drawn then. Read off
+/// the capture alone: no layout, O(rows drawn).
+export function foldCrossesPerson(capture: TurnEndCapture): boolean {
+  let lowest = -Infinity;
+  for (const row of capture.rows) {
+    if (!row.person) continue;
+    if (row.copy) return true;
+    lowest = Math.max(lowest, row.top);
+  }
+  return capture.rows.some((row) => row.copy !== undefined && row.top < lowest);
+}
 const heightOf = (node: HTMLElement) => node.offsetHeight;
 
 /// What the fold's passes cost, counted for tests and benches (turn-end-fold-restyle.browser.test.ts):
@@ -179,6 +204,7 @@ export function captureTurnEnd(
       id,
       top: box.top,
       height: box.height,
+      ...(isPersonMessage(node) && { person: true }),
       ...(header && kept.has(id) && { replacesHeader: true }),
       ...(clip > 0 && { clip, shown: box.bottom - clip }),
       ...(!kept.has(id) && { copy: ghostOf(node) }),
@@ -384,6 +410,8 @@ export function playTurnEnd(
   scroller?: HTMLElement | null,
 ): TurnEndFold | undefined {
   if (capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
+  // Never across a message the person sent: the swap stays as it rendered, in one frame.
+  if (foldCrossesPerson(capture)) return undefined;
   const { ms: settleMs, easing: settleEasing } = settle(thread);
   // The fold's one clock: the settle's length, its curve flattened as a pass finds a longer move
   // (turnEndFoldTiming). Rows the virtualizer mounts above after the swap move the rows under them
