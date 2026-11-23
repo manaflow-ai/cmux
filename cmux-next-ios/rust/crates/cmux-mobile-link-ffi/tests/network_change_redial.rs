@@ -604,6 +604,10 @@ impl App {
 /// and ends on cell.
 const FLIPS: u32 = 3;
 const FLAP_WINDOW: Duration = Duration::from_secs(2);
+/// `SETTLE_PATHS=tight`: the same flips 150 ms apart (0, 150, 300 ms), closer than a redial on
+/// `lte` takes (about 110 ms to its socket, more to connect), so change 2's send lands while
+/// change 1's redial is still connecting: the race.
+const TIGHT_SPACING: Duration = Duration::from_millis(150);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 #[ignore = "timed measurement: run alone with --ignored"]
@@ -624,7 +628,8 @@ async fn settle_matrix() {
 }
 
 async fn settle_cell(settle_ms: u64, name: &str, samples: usize) {
-    let flap = name == "flap";
+    let tight = name == "tight";
+    let flap = name == "flap" || tight;
     let (wifi, cell) = (LinkProfile::named("good-wifi"), LinkProfile::named("lte"));
     let first = if flap { wifi.clone() } else { LinkProfile::named(name) };
     // The tunnel's datagrams: the flapping path keeps them on `lte` throughout (a live tunnel
@@ -718,7 +723,7 @@ async fn settle_cell(settle_ms: u64, name: &str, samples: usize) {
         let changes = if flap { FLIPS } else { 1 };
         for flip in 0..changes {
             if flap {
-                let due = app.started + FLAP_WINDOW * flip / FLIPS;
+                let due = app.started + if tight { TIGHT_SPACING * flip } else { FLAP_WINDOW * flip / FLIPS };
                 tokio::time::sleep_until(due.into()).await;
                 let to = if flip % 2 == 0 { &cell } else { &wifi };
                 path.switch(to);
