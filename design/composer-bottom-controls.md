@@ -27,7 +27,7 @@ or when you scroll. not all the time. never all the time."
 
 ## Evidence
 
-- Gallery: `agent-pane.composer-growth` (1, 3, 8 lines and past the cap scrolled, narrow and wide).
+- Gallery: `agent-pane.composer-bottom-controls` (1, 3, 8 lines and past the cap scrolled, narrow and wide).
 - Test: `webviews/test/composer-bottom-controls.browser.test.ts` measures each control's centre
   against the last line's centre at every height, the pill against the composer's top, and the
   thumb's ink at rest and after a length change.

@@ -68,7 +68,7 @@ const variant = (lines: number, note: string) => ({
 });
 
 export default agentPaneEntry({
-  id: "agent-pane.composer-growth",
+  id: "agent-pane.composer-bottom-controls",
   title: "Composer controls on the last line as the draft grows",
   area: "Agent pane",
   height: 720,
