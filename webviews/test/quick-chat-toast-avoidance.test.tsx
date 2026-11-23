@@ -73,7 +73,7 @@ test("a mounted Quick Chat's asks and composer are what the app's toasts avoid, 
     // A fresh panel, no transcript: the composer still rests at the panel's foot.
     await act(async () => root.render(<QuickSurface composer={<form className="acpmux-composer" />} />));
     await nextTurns();
-    expect(reports.at(-1)).toEqual([{ left: 12, top: 380, right: 468, bottom: 470 }]);
+    expect(reports.at(-1)).toEqual([{ left: 12, top: 380, right: 468, bottom: 470, zoom: 1 }]);
 
     // Still no transcript, a trust ask above the composer: the toasts lift above both.
     await act(async () =>
@@ -85,7 +85,7 @@ test("a mounted Quick Chat's asks and composer are what the app's toasts avoid, 
       ),
     );
     await nextTurns();
-    expect(reports.at(-1)).toEqual([{ left: 8, top: 300, right: 472, bottom: 470 }]);
+    expect(reports.at(-1)).toEqual([{ left: 8, top: 300, right: 472, bottom: 470, zoom: 1 }]);
 
     // The reply's thread above: the stack is still the ask and the composer, never the thread.
     await act(async () =>
@@ -98,7 +98,7 @@ test("a mounted Quick Chat's asks and composer are what the app's toasts avoid, 
       ),
     );
     await nextTurns();
-    expect(reports.at(-1)).toEqual([{ left: 8, top: 300, right: 472, bottom: 470 }]);
+    expect(reports.at(-1)).toEqual([{ left: 8, top: 300, right: 472, bottom: 470, zoom: 1 }]);
 
     // The ask is answered: the toasts follow the composer back down.
     await act(async () =>
@@ -110,7 +110,7 @@ test("a mounted Quick Chat's asks and composer are what the app's toasts avoid, 
       ),
     );
     await nextTurns();
-    expect(reports.at(-1)).toEqual([{ left: 12, top: 380, right: 468, bottom: 470 }]);
+    expect(reports.at(-1)).toEqual([{ left: 12, top: 380, right: 468, bottom: 470, zoom: 1 }]);
 
     // The panel goes: the toasts stop avoiding a stack that left.
     await act(async () => root.unmount());
