@@ -118,6 +118,11 @@ pub(crate) struct Device {
     /// nothing with the reason. None for a row that is not a machine (a person's login).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub screen: Option<Screen>,
+    /// The device hub's id of this machine's screen host, when the hub lists one: what a viewer
+    /// opens (`cmux tab new-mac-screen --device`), so a row that offers View names the screen it
+    /// opens. None when the hub lists none or was not read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hub_device: Option<String>,
 }
 
 /// Where an available computer was found.
@@ -335,6 +340,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             },
             full_access: None,
             screen,
+            hub_device: hub.as_ref().and_then(HubScreen::id).map(str::to_owned),
         });
     }
     for paired in array(&sources.pairing, "devices") {
@@ -378,6 +384,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             full_access: matches!(role.as_str(), "client" | "phone")
                 .then(|| paired["full_access"] == true),
             screen: None,
+            hub_device: None,
         });
     }
     for row in sources.joined.as_array().map(Vec::as_slice).unwrap_or_default() {
@@ -406,6 +413,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             detail: None,
             full_access: None,
             screen: None,
+            hub_device: None,
         });
     }
     if sources.remote["enabled"].as_bool() == Some(true) {
@@ -560,6 +568,7 @@ fn login_row(
         detail,
         full_access: None,
         screen: None,
+        hub_device: None,
     }
 }
 
@@ -604,7 +613,7 @@ fn peer_device(
     reported(&peer["health"])
         .or_else(|| reported(peer))
         .or_else(|| match hub {
-            Some(HubScreen::Listed { platform, shared: true })
+            Some(HubScreen::Listed { platform, shared: true, .. })
                 if platform.eq_ignore_ascii_case("linux") =>
             {
                 Some(DeviceKind::LinuxDesktop)
@@ -621,8 +630,9 @@ fn peer_device(
 enum HubScreen {
     /// No device hub record has its name: no screen host signed in for it.
     Absent,
-    /// Its record: the platform it registered as, and whether it shares its screen.
-    Listed { platform: String, shared: bool },
+    /// Its record: its hub id (empty from an acpmux before it sent one), the platform it
+    /// registered as, and whether it shares its screen.
+    Listed { id: String, platform: String, shared: bool },
 }
 
 impl HubScreen {
@@ -632,33 +642,45 @@ impl HubScreen {
             _ => None,
         }
     }
+
+    fn id(&self) -> Option<&str> {
+        match self {
+            HubScreen::Listed { id, .. } if !id.is_empty() => Some(id),
+            _ => None,
+        }
+    }
 }
 
-/// A `via: "hub"` peer row's [`HubScreen`]; None for any other row or one with no `deviceHub`.
+/// A peer row's [`HubScreen`]: a mesh host's (`via: "hub"`) or, from an acpmux that sends it,
+/// an ssh peer's. None for a row with no `deviceHub` (no share host read the hub's list).
 fn hub_screen(peer: &Value) -> Option<HubScreen> {
-    if peer["via"].as_str() != Some("hub") {
-        return None;
-    }
     let hub = &peer["deviceHub"];
     match hub["listed"].as_bool()? {
         false => Some(HubScreen::Absent),
         true => Some(HubScreen::Listed {
+            id: text(hub, "id").unwrap_or_default(),
             platform: text(hub, "platform").unwrap_or_default(),
             shared: hub["screenShared"].as_bool() == Some(true),
         }),
     }
 }
 
-/// Why a hub-only machine whose kind says nothing has no screen to view, when the device hub
-/// tells: no screen host signed in, or a Linux one with sharing off. None leaves it to its kind
-/// and OS (`screen::offer`).
+/// Why a machine whose kind says nothing, or a Linux desktop, has no screen to view, when the
+/// device hub tells: no screen host signed in, or a Linux one with sharing off. None leaves it
+/// to its kind and OS (`screen::offer`). A Linux desktop's View opens only the screen host the hub
+/// lists (`macScreen.open` refuses any other), so a row the hub lists none for says why instead
+/// of offering a View that opens nothing (a Linux desktop read "view" while no share could open it,
+/// 2026-11-23). A Mac keeps its View: cmux Remote's screen worker there may register under
+/// another name than the peer's.
 fn hub_refusal(hub: Option<&HubScreen>, device: DeviceKind) -> Option<NoScreen> {
-    if device != DeviceKind::Generic {
+    if !matches!(device, DeviceKind::Generic | DeviceKind::LinuxDesktop) {
         return None;
     }
     match hub? {
         HubScreen::Absent => Some(NoScreen::NoScreenHost),
-        HubScreen::Listed { platform, shared: false } if platform.eq_ignore_ascii_case("linux") => {
+        HubScreen::Listed { platform, shared: false, .. }
+            if platform.eq_ignore_ascii_case("linux") =>
+        {
             Some(NoScreen::SharingOff)
         }
         HubScreen::Listed { .. } => None,

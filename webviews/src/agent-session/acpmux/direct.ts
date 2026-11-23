@@ -476,8 +476,9 @@ const SESSION_START_ROW = "session-start";
 const baseModel = (model: string | undefined) => model?.replace(/\[1m\]$/i, "");
 /// A record that opens a turn: older pages split before one, so each holds whole turns. A steer
 /// joins the running turn, so it opens none.
-/// A read of the chat's prompt index (`DirectAcpmuxClient.readPromptIndex`): its rows once it
-/// answered; `read` while it is out; `tries` reads so far, and when a failed one may be read again.
+/// A read of the chat's prompt index (`DirectAcpmuxClient.readPromptIndex`): its heads once every
+/// bounded page answered; `read` while it is out; `tries` reads so far, and when a failed one may
+/// be read again.
 type PromptIndexRead = {
   sessionId: string;
   generation: number;
@@ -4112,6 +4113,7 @@ export class AcpmuxDirectClient {
       const read = records(result?.events);
       const missed = window === undefined ? read : read.filter((event) => event.seq <= window);
       mergeIntoHeld(this.events, missed);
+      if (missed.length) acpmuxPerf.recordsTaken("read", missed.length, missed.at(-1)!.seq);
       this.sawPrompts(missed);
       // Only what this page changed is folded again (`rebuild`'s `changedFrom`): past the cursor.
       this.rebuildKeepingLiveState(replayLiveState ? cursor : undefined, cursor + 1);
@@ -6637,6 +6639,7 @@ export class AcpmuxDirectClient {
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
     if (event.sessionId && this.chatRows.holds(event.sessionId) && !holdReads(event)) return;
+    acpmuxPerf.recordsTaken("applied", 1, event.seq);
     // The chat's records reach the page: the quiet watch starts over from here.
     this.chatEventAt = Date.now();
     this.quietChecks = 0;
@@ -10603,6 +10606,9 @@ export class AcpmuxDirectClient {
           }
         : {}),
       ...(this.chatRead() ? { chatRead: true as const } : {}),
+      ...(this.selectedSessionId && this.attachedGeneration === this.selectionGeneration
+        ? { chatAttached: true as const }
+        : {}),
       ...(this.settled &&
       this.settled.sessionId === this.selectedSessionId &&
       this.settled.generation === this.selectionGeneration &&
@@ -14554,10 +14560,11 @@ export class AcpmuxDirectClient {
   harnessEnable(folder: string, id: string): Promise<unknown> {
     return this.request("_acpmux/harness_enable", { folder, id });
   }
-  /// The chat's every prompt older than its open page, read once per chat from acpmux's prompt
-  /// index (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): seq, promptId and the
-  /// start of the text, in one reply however long the chat. A daemon without the index reads the
-  /// bounded `user_message` page the request also names, which covers what it holds.
+  /// The chat's every prompt older than its open page, read from acpmux's prompt index
+  /// (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): each bounded reply is
+  /// newest-first by page but oldest-first within it, so older pages prepend until `hasMore` ends.
+  /// Today's daemon returns the whole index with `hasMore: false`; a daemon without the index
+  /// reads the bounded `user_message` page the request also names, which covers what it holds.
   private promptIndex?: PromptIndexRead;
   /// `shownEarlierPrompts`' last answer, by what it was read from.
   private earlierShown?: { heads: PromptHeads; before: number; list: PromptHeads; shed: number };
@@ -14640,65 +14647,79 @@ export class AcpmuxDirectClient {
       settled = true;
       finish(value);
     };
-    // This read scans every historical prompt, and its reply parses/maps them all. The first
-    // snapshot only needs the bounded tail; promptCount keeps the rail's final geometry while
-    // its labels arrive. Do not let even a local daemon's immediate reply precede that paint.
+    // The first snapshot only needs the bounded tail; promptCount (the summary's turnCount) keeps
+    // the rail's final geometry while its bounded prompt-index pages arrive. Do not let even a
+    // local daemon's immediate reply precede that paint.
     const cancelPaint = afterPaint(() => {
       entry.cancel = undefined;
       if (this.closed || this.promptIndex !== entry || generation !== this.selectionGeneration) {
         settle(false);
         return;
       }
-      void this.typed(
-        "_acpmux/events",
-        {
-          sessionId,
-          beforeSeq: before,
-          promptIndex: true,
-          kinds: ["user_message"],
-          limit: 5000,
-          maxBytes: PROMPT_INDEX_BYTES,
-        },
-        PROMPT_INDEX_DEADLINE_MS,
-      )
-        .then((result: any) => {
-          if (this.closed || this.promptIndex !== entry) {
+      // Each page's heads, newest page first: older pages arrive after newer ones, and the columns
+      // (promptHeads.ts) are built once, oldest first, when the last page has answered. Kept as
+      // columns: a 100k-row chat's index was 50k rows here and a turn, a tick and a key each in the
+      // rail, about 15 MB of renderer heap a chat (bench/chat-100k-flat.bench.ts).
+      const pages: PromptHead[][] = [];
+      const readPage = (cursor: number): void => {
+        void this.typed(
+          "_acpmux/events",
+          {
+            sessionId,
+            beforeSeq: cursor,
+            promptIndex: true,
+            kinds: ["user_message"],
+            limit: 5000,
+            maxBytes: PROMPT_INDEX_BYTES,
+          },
+          PROMPT_INDEX_DEADLINE_MS,
+        )
+          .then((result: any) => {
+            if (this.closed || this.promptIndex !== entry) {
+              settle(false);
+              return;
+            }
+            const pageEvents = records(result?.events);
+            const page: PromptHead[] = [];
+            for (const event of pageEvents) {
+              if (!startsTurn(event)) continue;
+              const promptId = typeof event.msg?.promptId === "string" ? event.msg.promptId : undefined;
+              page.push({
+                seq: event.seq,
+                at: event.at,
+                text: String(event.msg?.text ?? "").slice(0, 240),
+                ...(promptId ? { promptId } : {}),
+              });
+            }
+            if (page.length > 0) pages.push(page);
+            // A new daemon's page is oldest-first and its next cursor is the first raw event,
+            // which may be a steer omitted by startsTurn: the cursor follows the raw events, not
+            // the prompts, so prompt rows need not be contiguous.
+            const next = pageEvents[0]?.seq;
+            if (result?.hasMore === true && next !== undefined && next < cursor) {
+              readPage(next);
+              return;
+            }
+            entry.read = undefined;
+            entry.heads = PromptHeads.of(pages.length === 1 ? pages[0] : pages.reverse().flat());
+            this.emit();
+            settle(true);
+          })
+          .catch(() => {
+            // Without the index the rail keeps the summary's count (promptCountAwaited) while pages load,
+            // and reads the index again past the back-off (shownEarlierPrompts, loadPromptIndex).
+            if (this.promptIndex !== entry) {
+              settle(false);
+              return;
+            }
+            entry.read = undefined;
+            entry.heads = PromptHeads.EMPTY;
+            entry.failed = true;
+            entry.retryAt = Date.now() + PROMPT_INDEX_RETRY_MS * entry.tries;
             settle(false);
-            return false;
-          }
-          entry.read = undefined;
-          // Kept as columns (promptHeads.ts): a 100k-row chat's index was 50k rows here and a turn, a tick and a
-          // key each in the rail, about 15 MB of renderer heap a chat (bench/chat-100k-flat.bench.ts).
-          const heads: PromptHead[] = [];
-          for (const event of records(result?.events)) {
-            if (!startsTurn(event)) continue;
-            const promptId = typeof event.msg?.promptId === "string" ? event.msg.promptId : undefined;
-            heads.push({
-              seq: event.seq,
-              at: event.at,
-              text: String(event.msg?.text ?? "").slice(0, 240),
-              ...(promptId ? { promptId } : {}),
-            });
-          }
-          entry.heads = PromptHeads.of(heads);
-          this.emit();
-          settle(true);
-          return true;
-        })
-        .catch(() => {
-          // Without the index the rail keeps the summary's count (promptCountAwaited) while pages load,
-          // and reads the index again past the back-off (shownEarlierPrompts, loadPromptIndex).
-          if (this.promptIndex !== entry) {
-            settle(false);
-            return false;
-          }
-          entry.read = undefined;
-          entry.heads = PromptHeads.EMPTY;
-          entry.failed = true;
-          entry.retryAt = Date.now() + PROMPT_INDEX_RETRY_MS * entry.tries;
-          settle(false);
-          return false;
-        });
+          });
+      };
+      readPage(before);
     });
     entry.cancel = () => {
       cancelPaint();
