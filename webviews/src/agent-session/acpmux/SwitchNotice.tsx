@@ -26,9 +26,10 @@ export type SwitchNoticeAction = StartRefusalAction | "install";
 /// agent's sign-in. A teammate's machine also offers Share with Me, then Ask the Owner
 /// (MachineShareAction.tsx).
 /// An agent that is not signed in on the machine (hq#11225) is named ("Cursor isn't signed in on
-/// this machine."), and its sign-in leads: on another machine the machine's own sign-in card
-/// (CloudSignIn.tsx: Sign in to Cursor, Grok's code, Gemini's key) inside this card, on this Mac
-/// Sign in to <agent>, its login in a terminal tab (no ellipsis: it runs at once, as Install does).
+/// this machine."), and its sign-in leads: the machine's own sign-in card (CloudSignIn.tsx: Sign in
+/// to Cursor, Grok's code, Gemini's key) inside this card, on another machine and on this Mac where
+/// its daemon runs the login (logins done right); else, on this Mac, Sign in to <agent>, its login
+/// in a terminal tab (no ellipsis: it runs at once, as Install does).
 /// Retry then starts it signed in, and stays beside the sign-in while the card shows its page,
 /// code or key (styles.css). A machine with no sign-in for it says to sign it in on this machine,
 /// the chat's, as its first line names it.
@@ -55,7 +56,8 @@ export function SwitchNotice({
   /// Whether Install may be offered: the installer runs in a terminal tab of this Mac, so a chat on
   /// another machine never offers it (its sentence still says the agent is not installed there).
   installs?: boolean;
-  /// The refused agent's sign-in on the chat's machine (cloudAgentLogin.ts), for a chat elsewhere.
+  /// The refused agent's sign-in on the chat's machine (cloudAgentLogin.ts): a chat elsewhere's, or
+  /// this Mac's own (`localAgentLogin`), which then leads instead of the terminal login.
   agentSignIn?: CloudSignInActions;
   /// A chat on this Mac whose refused agent has a login command: Sign in runs it (`onAction("signIn")`).
   runsLogin?: boolean;

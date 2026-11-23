@@ -1405,3 +1405,61 @@ test("an attachment a paste places after a microtask is in that paste's one undo
   expect(markdownField().plainText()).toBe("look ");
   expect(markdownField().inlineIds() ?? []).not.toContain("later-placed");
 });
+
+// https://github.com/manaflow-ai/cmux/issues/50984: the same picture pasted again is another
+// attachment, never folded into the first. Each paste is the person's own gesture.
+test("the same image pasted three times is three attachments, and all three go to the agent", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const shot = screenshot(1);
+  for (const count of [1, 2, 3]) {
+    // As the engine gives each paste: a new File of the same bytes and name.
+    await paste({ files: [new File([await shot.arrayBuffer()], shot.name, { type: shot.type })] });
+    await until(() => (markdownField().inlineIds()?.length ?? 0) === count, `pasted copy ${count}`);
+  }
+  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 3, "three inline thumbnails");
+  const chips = composer.current!.wakeState().attachments ?? [];
+  expect(chips.map((chip) => chip.kind)).toEqual(["image", "image", "image"]);
+  expect(new Set(chips.map((chip) => chip.id)).size).toBe(3);
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).filter((block) => block.type === "image")).toHaveLength(3);
+});
+
+test("the same clipboard File pasted three times is three attachments", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const shot = screenshot(1);
+  for (const count of [1, 2, 3]) {
+    await paste({ files: [shot] });
+    await until(() => (markdownField().inlineIds()?.length ?? 0) === count, `pasted copy ${count}`);
+  }
+  await until(() => (composer.current!.wakeState().attachments ?? []).length === 3, "three chips");
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).filter((block) => block.type === "image")).toHaveLength(3);
+});
+
+test("pasting the same image three times, each undo takes out only the last copy", async () => {
+  await openComposer([]);
+  const placed = () => markdownField().inlineIds()?.length ?? 0;
+  const words = () => markdownField().plainText().replaceAll("￼", "").trim();
+  await act(async () => markdownField().insertTyped("look"));
+  for (const count of [1, 2, 3]) {
+    await paste({ files: [screenshot(1)] });
+    await until(() => placed() === count, `pasted copy ${count}`);
+  }
+  for (const left of [2, 1, 0]) {
+    await act(async () => markdownField().undo());
+    await settleTurns();
+    expect(placed()).toBe(left);
+    expect(words()).toBe("look");
+  }
+  for (const back of [1, 2, 3]) {
+    await act(async () => markdownField().redo());
+    await settleTurns();
+    expect(placed()).toBe(back);
+  }
+});
