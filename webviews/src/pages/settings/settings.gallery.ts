@@ -629,6 +629,19 @@ Object.assign(variants, {
     ],
     note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
   }),
+  // Leo, 11-19: "make sure you can recover and stuff. for all customizations". The Reset menu open on
+  // Personalization with a background and an accent set: Reset <card> for each card of the page.
+  "appearance-reset-cards": variant("personalization", {
+    options: {
+      values: {
+        "appearance.background": "daily",
+        "appearance.backgroundOpacity": 0.6,
+        "appearance.accent": "#4F7DF2",
+      },
+    },
+    steps: [wait("[data-appearance-bar]"), click('[data-menu="appearance-reset"]'), wait('[role="menuitem"]')],
+    note: "The Reset menu: Restore How It Was, Reset to Defaults, then Reset App Theme, Reset Window Background and Reset Density and Motion; a card with nothing set is dimmed. Each reset only its card's keys, as one Undo step.",
+  }),
   // The floating bar's Presets menu open: Solid, Frosted, Glass and Clear, the current one checked.
   "appearance-presets": variant("appearance", {
     options: { values: { "appearance.backgroundOpacity": 0.8, "appearance.backgroundBlur": "frosted" } },
@@ -973,6 +986,18 @@ Object.assign(variants, {
     ],
     play: async (ctx) => {
       const card = ctx.find({ selector: '[data-card="worktreeSetup"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
+  "extensions-edited": variant("extensions", {
+    note: "Settings > Extensions: an extension's declared settings (switch, choice, text, number), Compact rows just turned on.",
+    steps: [
+      wait('[data-extension-setting="compact"] [role="switch"]'),
+      click('[data-extension-setting="compact"] [role="switch"]'),
+    ],
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="extensions"]' });
       card.setAttribute("data-gallery-capture", "");
       card.scrollIntoView({ block: "center" });
     },
@@ -1969,6 +1994,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
+    "pages/settings/components/ExtensionsCard.tsx",
     "pages/settings/components/WorktreeSetupCard.tsx",
     "pages/settings/editors/AccentRowEditor.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
