@@ -5,7 +5,15 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
 import { legacyPart } from "./legacyLinks";
-import type { AgentsState, ChannelsState, KeysState, SharesState, TailnetState, LibraryListing } from "./ops";
+import type {
+  AgentsState,
+  ArchivedState,
+  ChannelsState,
+  KeysState,
+  SharesState,
+  TailnetState,
+  LibraryListing,
+} from "./ops";
 import { settingsKeys } from "./queries";
 import { loadCards } from "./components/cardModules";
 import type { SettingsStore } from "./store";
@@ -76,6 +84,18 @@ export function sharesQuery(store: SettingsStore) {
   });
 }
 
+export const ARCHIVED_KEY = [...settingsKeys.all, "archived"] as const;
+
+/** Settings > Sidebar > Archived Workspaces: the archived rows (null: the host has none). */
+export function archivedQuery(store: SettingsStore) {
+  return queryOptions<ArchivedState | null>({
+    queryKey: ARCHIVED_KEY,
+    queryFn: () => store.archived(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** Appearance > Customization Library's key; a change the card makes writes the library it answers here. */
 export const LIBRARY_KEY = [...settingsKeys.all, "customize-library"] as const;
 
@@ -133,6 +153,7 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
+  if (cards.has("archivedWorkspaces")) reads.push({ options: archivedQuery(store), revalidate: true });
   if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
     reads.push({ options: libraryQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });

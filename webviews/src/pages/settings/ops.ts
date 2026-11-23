@@ -1170,6 +1170,29 @@ export type SharesState = {
   titles?: Record<string, string>;
 };
 
+/** Settings > Sidebar > Archived Workspaces (`cmux.settings.archived.list`, cmux#51635): every
+ * archived workspace and archived link, tab or app row, in sidebar order. The sidebar draws none of
+ * them; this card opens, restores or deletes them, like ChatGPT's Settings > Data controls > Archived
+ * chats. */
+export type ArchivedEntryWire = {
+  /** `workspace`, or `item` for a link, tab or app row of the sidebar. */
+  kind: "workspace" | "item";
+  /** The workspace id, or the sidebar item's id. */
+  id: string;
+  title: string;
+  /** The group it sits in; null when loose. */
+  group: string | null;
+  /** The computer it is on; null for an item. */
+  machine: string | null;
+};
+export type ArchivedState = {
+  /** False before a window's sidebar is up: the card says so instead of listing. */
+  available: boolean;
+  rows?: ArchivedEntryWire[];
+};
+export type ArchivedAction = "open" | "restore" | "delete";
+export type ArchivedRun = { action: ArchivedAction; kind: ArchivedEntryWire["kind"]; id: string };
+
 /** Settings > Keys (`cmux.settings.keys.list`): what `cmux keys ls --json` lists (cmux-tui
  * cli/key_broker.rs) and the key requests agents sent with `cmux keys request` that wait for the
  * person. A record never carries a value. Times are RFC 3339 (UTC, `Z`). Older records may lack
@@ -1918,6 +1941,10 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Native: the archived workspaces and links (Settings > Sidebar > Archived Workspaces). */
+  "cmux.settings.archived.list": [Record<string, never>, ArchivedState];
+  /** Native: open, restore (unarchive) or delete (close) one listed row; `error` is a refusal. */
+  "cmux.settings.archived.run": [ArchivedRun, { error?: string }];
   /** Native: one `cmux customize library` verb through the bundled CLI (Appearance >
    * Customization Library). A change runs only on the person's click or key in the page. */
   "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];

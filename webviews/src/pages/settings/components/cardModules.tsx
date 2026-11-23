@@ -90,6 +90,10 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./SharedLinksCard").then(({ SharedLinksCard }) => (_focus, _workspace, reveal) => (
       <SharedLinksCard reveal={reveal} />
     )),
+  archivedWorkspaces: () =>
+    import("./ArchivedWorkspacesCard").then(({ ArchivedWorkspacesCard }) => (_focus, _workspace, reveal) => (
+      <ArchivedWorkspacesCard reveal={reveal} />
+    )),
   customizeLibrary: () =>
     import("./CustomizeLibraryCard").then(({ CustomizeLibraryCard }) => (_focus, _workspace, reveal) => (
       <CustomizeLibraryCard reveal={reveal} />

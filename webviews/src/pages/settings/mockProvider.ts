@@ -79,6 +79,8 @@ import {
   type AgentConfigState,
   type AllotmentSet,
   type AllotmentView,
+  type ArchivedRun,
+  type ArchivedState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -624,6 +626,8 @@ export class MockSettingsProvider {
         return { settled: [] };
       },
       "cmux.settings.shares.list": () => this.shares,
+      "cmux.settings.archived.list": () => this.archived,
+      "cmux.settings.archived.run": (params) => this.runArchived(params as ArchivedRun),
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
       "cmux.settings.keys.list": () => this.keys,
       "cmux.settings.keys.answer": (params) => this.answerKey(params as { request_id?: unknown; value?: unknown }),
@@ -952,6 +956,8 @@ export class MockSettingsProvider {
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
       "cmux.settings.shares.revoke",
+      "cmux.settings.archived.list",
+      "cmux.settings.archived.run",
       "cmux.settings.keys.list",
       "cmux.settings.keys.answer",
       "cmux.settings.keys.decline",
@@ -1182,6 +1188,22 @@ export class MockSettingsProvider {
   shares: SharesState = mockShares(Date.now());
   /** Every share the page revoked, in order (tests). */
   shareRevokes: string[] = [];
+
+  /** Settings > Sidebar > Archived Workspaces: two archived workspaces (one in a group) and a link. */
+  archived: ArchivedState = mockArchived();
+  /** Every archived-row action the page ran, in order (tests). */
+  archivedRuns: ArchivedRun[] = [];
+
+  /** Open leaves the row (it stays archived); Restore and Delete take it out of the list. */
+  private runArchived(run: ArchivedRun): { error?: string } {
+    const rows = this.archived.rows ?? [];
+    if (!rows.some((row) => row.kind === run.kind && row.id === run.id))
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, "archived.not_found");
+    this.archivedRuns.push(run);
+    if (run.action !== "open")
+      this.archived = { ...this.archived, rows: rows.filter((row) => !(row.kind === run.kind && row.id === run.id)) };
+    return {};
+  }
 
   private revokeShare(id: string): { share_id: string; state: string } {
     const share = this.shares.shares?.find((row) => row.share_id === id);
@@ -2800,6 +2822,18 @@ export function mockShares(now: number): SharesState {
         guests: [],
         invitees: [],
       },
+    ],
+  };
+}
+
+/** Archived rows as the app lists them, in sidebar order. */
+export function mockArchived(): ArchivedState {
+  return {
+    available: true,
+    rows: [
+      { kind: "workspace", id: "ws-archived-1", title: "Fix the flaky login test", group: null, machine: "This Mac" },
+      { kind: "workspace", id: "ws-archived-2", title: "Release notes draft", group: "Docs", machine: "This Mac" },
+      { kind: "item", id: "itm-archived-link", title: "Design review", group: null, machine: null },
     ],
   };
 }

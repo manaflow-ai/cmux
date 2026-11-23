@@ -42,6 +42,7 @@ export const CATEGORY_CARDS = [
   "worktreeSetup",
   "contextMenus",
   "sharedLinks",
+  "archivedWorkspaces",
   "customizeLibrary",
   "customizeChecklist",
   "tailnet",

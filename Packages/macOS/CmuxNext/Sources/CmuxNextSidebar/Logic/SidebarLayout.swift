@@ -146,11 +146,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         if o.hidesWorkspaces { return .empty }
         // A row per key: a workspace id two machines list draws once (`listingEachWorkspaceOnce`).
         let once = Self.listingEachWorkspaceOnce(sections)
-        // The Archive section takes the archived rows out of the lists; they draw under its row at the end.
-        let archive = Self.drawsArchiveSection(o) ? Self.splittingArchive(once, keeping: o.activeWorkspaceID) : nil
+        // Archived rows leave the lists: Settings > Sidebar > Archived Workspaces lists them (cmux#51635).
+        let live = Self.hidesArchived(o) ? Self.withoutArchived(once, keeping: o.activeWorkspaceID) : once
         // Projects and Recents takes the loose rows out of the computers' lists; they draw under "Recents" after them.
-        let recents = Self.drawsRecents(o) ? Self.splittingRecents(archive?.live ?? once, options: o) : nil
-        let sections = recents?.sections ?? archive?.live ?? once
+        let recents = Self.drawsRecents(o) ? Self.splittingRecents(live, options: o) : nil
+        let sections = recents?.sections ?? live
         var rows: [SidebarRow] = []
         var y = m.topPadding
         var gapY: CGFloat?
@@ -431,7 +431,6 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
         placeRecents()
-        if let archive { Self.appendArchive(archive, firstRow: rows.isEmpty, options: o, base: base, metrics: m, to: &rows, y: &y) }
         chats.placeEarlier(&y)
         y += m.bottomPadding
         var layout = SidebarLayout(
