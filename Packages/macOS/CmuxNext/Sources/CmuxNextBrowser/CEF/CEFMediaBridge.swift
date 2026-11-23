@@ -137,6 +137,7 @@ final class CEFMediaBridge {
     /// The payload of a `Runtime.bindingCalled` of `binding`, nil for any other message.
     private static func payload(of head: DevToolsMessageHead, binding: String) -> String? {
         guard head.method == "Runtime.bindingCalled", head.contains("\"\(binding)\""), let data = head.json.data(using: .utf8),
+              // main-actor-ok: one binding call already matched by method and name: a page's notification payload, a few fields, per call.
               let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == binding else { return nil }
