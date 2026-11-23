@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextDesign
+import CmuxNextIcons
 @testable import CmuxNextApp
 @testable import CmuxNextHome
 @testable import CmuxNextSidebar
@@ -47,6 +48,18 @@ struct ChiefReplacesHomeTests {
         #expect(row.activity == .waiting, "the top row does not show that the Chief needs the person (\(row.activity))")
         #expect(row.badge == 2, "the top row does not count the subagents that need the person (\(String(describing: row.badge)))")
         #expect(row.unreadDot, "another unread chat no longer shows on the top row")
+    }
+
+    /// Lawrence 2026-11-23 (msg 48175): "get rid of the crown". With no picture, the Chief's top row and the Chief
+    /// Activity item draw the sparkles symbol, never the icon pack's `agent.chief` crown.
+    @Test func theChiefRowsDrawNoCrown() throws {
+        let infos = SidebarBridge.itemInfo(for: SidebarLayoutDocument.defaults, registered: { _ in true }, homeUnread: 0,
+                                           chiefFavicon: nil)
+        let top = try #require(infos[Self.homeItem.id], "the default layout has no top row for the Chief")
+        for (name, row) in [("the top row", top), ("Chief Activity", SidebarBuiltIn.chief.defaultInfo)] {
+            #expect(row.icon != .agentChief, "\(name) draws the crown (\(String(describing: row.icon)))")
+            #expect(row.icon == nil && row.symbol == "sparkles", "\(name) draws \(String(describing: row.icon)) / \(row.symbol), not sparkles")
+        }
     }
 
     /// The Chief's subagents draw as indented rows right under the Chief's top row, before the next item.
