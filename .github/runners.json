@@ -469,10 +469,7 @@
     },
     "first-user-journey-ios.yml#journey": "apple-ios",
     "ios-internal-nightly.yml#archive": "apple-ios",
-    "ios-review-gate.yml#reviewer-path": {
-      "class": "apple-ios",
-      "picker_followup": "holds no secret since the agent reviewer pass was removed; it stays on the ephemeral Blacksmith macOS 26 pool until a picker job routes it to an owned Mac"
-    },
+    "ios-review-gate.yml#reviewer-path": "apple-ios",
     "ios-review-gate.yml#asc-validate": {
       "class": "apple-ios",
       "picker_followup": "writes the App Store Connect key to the runner (release environment), so it stays on the ephemeral Blacksmith macOS 26 pool, as ios-app-store.yml's upload does"
