@@ -870,6 +870,61 @@
           ]
         },
         {
+          "key": "appearance.backgroundPlacement",
+          "name": "placement",
+          "note": "Where each picture lies in its window or pane (Leo, 2026-11-22: \"we also want people to be able to reposition the images easily\"): picture id (the id the background shows, a listed painting, file:, system: or a folder's file:) to a placement text, the mode (fill, fit, center or stretch), then optionally the anchor X Y (0 to 1 from the top-left, like CSS object-position) and a zoom (1 to 4). Unset, or a picture with no entry, is today's centered fill. Adjust Background\u2026 and the Settings page's Background preview write it; cmux-config backdrop_placement is the math the app mirrors.",
+          "title": {
+            "key": "settings.appearance.backgroundPlacement",
+            "text": "Background Placement"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundPlacement.help",
+            "text": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropPlacementSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "position",
+            "fit",
+            "fill",
+            "zoom",
+            "crop"
+          ]
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "name": "recents",
+          "note": "The backgrounds shown before, newest first (Leo, 2026-11-22: \"it was cumbersome back then to switch back\"): each an appearance.background value (a rotating folder, daily, desktop, a picture or a mode), at most 8, each once. The daemon's settings write (cmux-config) puts the replaced value first whenever appearance.background changes, from every surface; Switch to Previous Background, Recent Backgrounds\u2026, cmux wallpaper back|recent and the Settings page's Recent strip read it.",
+          "title": {
+            "key": "settings.appearance.backgroundRecents",
+            "text": "Recent Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundRecents.help",
+            "text": "The backgrounds shown before, newest first, so one click goes back."
+          },
+          "kind": "string_list",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "recent",
+            "previous",
+            "history",
+            "folder"
+          ]
+        },
+        {
           "key": "appearance.displayBackgrounds",
           "name": "displayBackgrounds",
           "title": {
@@ -1956,6 +2011,32 @@
             "separator",
             "outline",
             "line"
+          ]
+        },
+        {
+          "key": "appearance.liquidGlass",
+          "note": "Web pages only: off sends data-glass=\"off\" with the web theme (WebTheme), and every web glass surface draws the solid look of Reduce Transparency (webviews ui/glass/glass.css). Scroll fades stay; native surfaces keep their material. Off by default: CMUX-653, Lawrence decided it at standup 2026-11-19.",
+          "title": {
+            "key": "settings.appearance.liquidGlass",
+            "text": "Liquid Glass"
+          },
+          "help": {
+            "key": "settings.appearance.liquidGlass.help",
+            "text": "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."
+          },
+          "kind": "toggle",
+          "swift_owner": "LiquidGlassSetting",
+          "default": false,
+          "keywords": [
+            "glass",
+            "liquid glass",
+            "blur",
+            "frost",
+            "translucent",
+            "transparency",
+            "solid",
+            "plain",
+            "material"
           ]
         },
         {
