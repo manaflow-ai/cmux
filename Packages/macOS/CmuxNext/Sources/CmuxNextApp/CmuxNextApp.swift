@@ -55,9 +55,9 @@ public struct CmuxNextApp {
             environment.relaunchBehind = UpdateRelaunchFocus.consume(
                 build: UpdateBuildIdentity.main().build,
                 reopenedBehind: ProcessInfo.processInfo.arguments.contains(UpdateRelaunchFocus.reopenArgument))
-        }
+        }; DebugTimings.markLaunch("main.environment")
         // concurrency-allow: one lstat, and once one rename of the folder older builds kept in classic's cmux, before anything reads it
-        StateFolderMove().run(build: environment.launch.build)
+        StateFolderMove().run(build: environment.launch.build); DebugTimings.markLaunch("main.state_folder")
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         // `~/Library/Caches`, a DEV build's own caches folder (BuildStatePaths): Home's blob cache is not keyed by owner.
@@ -73,15 +73,15 @@ public struct CmuxNextApp {
         TerminalLaunchFrames.beside(state).prefetch(on: work, mark: { DebugTimings.markLaunch($0) }, markAt: { DebugTimings.markLaunch($0, at: $1) })
         relaunchWake.begin(on: work)
         // The bundled CLI's Cloud environment read, off the main thread while AppKit starts; the daemon starts after it.
-        let cloudEnvironment = CloudEnvironmentBootstrap.startAtLaunch(work: work)
+        let cloudEnvironment = CloudEnvironmentBootstrap.startAtLaunch(work: work); DebugTimings.markLaunch("main.reads_started")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
-        CrashOnExceptions.register()
+        CrashOnExceptions.register(); DebugTimings.markLaunch("main.crash_handlers")
         // Instantiate the CEF-ready subclass before anything touches NSApp.
-        let app = CmuxApplication.shared
+        let app = CmuxApplication.shared; DebugTimings.markLaunch("main.nsapp_made")
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
         let delegate = AppDelegate(environment: environment,
-                                   launchReads: (work, launchImages, relaunchWake, chromium), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
+                                   launchReads: (work, launchImages, relaunchWake, chromium), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot); DebugTimings.markLaunch("main.delegate_made")
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp"); DebugTimings.markLaunch("main.run")
