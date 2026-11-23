@@ -29,7 +29,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon |
 | `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal opens a terminal instead. |
 | `tabs.nativeNewTabPage` | boolean | `false` |  | Native New Tab Page. Cmd-T opens the faster native New Tab page. Recent chats and widgets are web only. |
-| `tabs.newTabApp` | string |  |  | New Tab App. An extension id that draws New Tab, such as "local/showcase-newtab". Unset: cmux's own. |
+| `tabs.newTabApp` | string |  |  | New Tab App. An extension that draws over the New Tab composer, by its id, such as "local/showcase-newtab". The composer always stays. Not used by the native New Tab page. |
 | `tabs.newTabPosition` | string | `"afterCurrent"` | `afterCurrent`, `end`, `start` | New Tab Position (Cmd-T) |
 | `tabs.newTabButtonPosition` | string | `"end"` | `afterCurrent`, `end`, `start` | New Tab Position (+ Button) |
 | `tabs.plusButton` | string | `"hover"` | `hover`, `always` | + Button Visibility. Applies in Minimal Mode; otherwise the + always shows. |
@@ -161,6 +161,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. A line on where a Claude chat stands when you come back. Each is a small model call. |
 | `agents.chats.coldArchive` | boolean | `false` |  | Compress Old Chats. Unused chats are compressed into one small file each and open as before. |
 | `agents.chats.coldArchiveAfterDays` | real | `30` | 1 to 3650 | Compress Chats Idle For. Days unused before a chat is compressed. Busy chats never are. |
+| `agents.chats.coldSegments` | boolean | `false` |  | Compress Long Chats. Compresses the older parts of long chats. Run cmux chats warm to undo. |
+| `agents.chats.coldSegmentsLevel` | real | `3` | 1 to 19 | Long Chat Compression Level. Higher levels use less disk and take longer to compress. |
 | `agents.chats.archiveInactive` | string | `"never"` | `never`, `1d`, `3d`, `7d`, `30d` | Archive Inactive Chats. Archives chats after a period of no activity. Chats that are running or have background work never are. |
 | `chat.on` | string | `""` |  | Default Chat Target. Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name. |
 | `picker.pinned` | array | `[]` |  | Pinned Folders. Listed under Locations. Use full or ~/ paths. |
@@ -467,6 +469,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.cmd9` | string | `"last"` | `last`, `ninth` | Command-9. Goes to the last item, as in browsers, or to the ninth. |
 | `sidebar.stepping` | string | `"allItems"` | `allItems`, `workspacesOnly` | Next and Previous Item. What Command-Control-] and Command-Control-[ step through. |
 | `sidebar.steppingWraps` | boolean | `true` |  | Wrap Around. Past the last item, the next item is the first again. |
+| `sidebar.sections.hidden` | array | `[]` |  | Hidden Sections. Sidebar sections to hide, by id. The section of the selected workspace always shows. |
+| `sidebar.sections.order` | array | `[]` |  | Section Order. Sidebar sections to show first in their part of the sidebar, in this order, by id. |
 | `sidebar.hoverCards.enabled` | boolean | `true` |  | Show Hover Cards. A card with details opens when the pointer rests on a workspace or a tab. |
 | `sidebar.hoverCards.delay` | real | `1300` | 0 to 5000 | Hover Card Delay. How long the pointer rests before a card opens. |
 | `sidebar.hoverCards.layout` | string | `"compact"` | `timeline`, `compact`, `log`, `classic`, `minimal` | Workspace Card Layout. What a workspace's hover card shows. |
@@ -669,6 +673,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.dockBadge` | boolean | `true` |  | Unread Count on Dock Icon |
 | `notifications.dockBounce` | string | `"once"` | `off`, `once`, `untilActive` | Bounce Dock Icon. When a notification alerts while cmux isn't the active app. |
 | `notifications.showPreviews` | string | `"whenUnlocked"` | `always`, `whenUnlocked`, `never` | Show Message in Banners. Whether a banner shows what the agent said, or only where and what state. |
+| `notifications.toast.style` | string | `"standard"` | `standard`, `solid`, `flat` | Toast Style. How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow. |
 | `feed.mirrorNotifications.agents` | boolean | `true` |  | Copy Agent Notifications to the Feed. Agent and cmux notify notifications go to your feed and can reach your iPhone. |
 | `feed.mirrorNotifications.terminal` | string | `"off"` | `off`, `title`, `full` | Copy Terminal Notifications to the Feed. Terminal notifications can contain secrets. Off sends nothing. |
 | `feed.agentPermissionPrompts` | boolean | `false` |  | Send Agent Permission Requests to the Feed. Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it. |
