@@ -163,10 +163,18 @@ fn effort_value(effort: &str) -> &str {
 /// Claude Code alias: Claude Code sends it to the API as typed and every turn
 /// fails with "There's an issue with the selected model (opus-5-5)". It takes
 /// the prefix, as the live list's `launch_id` does. Bare aliases (`opus`,
-/// `opusplan`), full ids and other providers' names pass unchanged.
+/// `opusplan`), full ids and other providers' names pass unchanged. Any other spelling of a
+/// catalog id (`fable-5.2`, `Fable 5.2`) is that id (`model_catalog.rs`): Claude Code refused
+/// `fable-5.2` with `unrecognized_model`.
 pub fn model_id(value: &str) -> String {
     let value = value.trim();
-    let versioned = ["opus-", "sonnet-", "haiku-"].iter().any(|family| {
+    if let Some(found) = crate::model_catalog::bundled_harness("claude")
+        .and_then(|entry| crate::model_catalog::canonical_model(&entry, value).ok())
+        .filter(|c| c.changed())
+    {
+        return found.model;
+    }
+    let versioned = ["opus-", "sonnet-", "haiku-", "fable-"].iter().any(|family| {
         value
             .strip_prefix(family)
             .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
