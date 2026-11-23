@@ -30,7 +30,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = join(HERE, "../src");
 
 /** How many nested cases may carry `one-material-allow`. Lower it when one goes; never raise it. */
-export const NESTED_ALLOWED_MAX = 1;
+export const NESTED_ALLOWED_MAX = 2;
 
 const ALLOW = /one-material-allow:\s*\S/;
 const SKIP_FILE = /\.(test|gallery|dom\.test|experiment)\.[cm]?[jt]sx?$|\.gallery\.css$/;

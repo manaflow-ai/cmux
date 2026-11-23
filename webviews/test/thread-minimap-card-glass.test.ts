@@ -41,6 +41,10 @@ test("the card paints no material of its own: no fill, no backdrop filter, no pr
   expect(css).not.toMatch(/reduce-transparency[^{]*\.acpmux-minimap__card\s*\{[^}]*background/);
 });
 
+test("Reduce Transparency makes it the solid popup surface", () => {
+  expect(rule(".acpmux-minimap__card")).toMatch(/--glass-opaque:\s*var\(--surface-popup\b/);
+});
+
 test("the card draws no accent: theme text tones only, never orange or a system color", () => {
   const card = rule(".acpmux-minimap__card");
   expect(card).not.toBe("");

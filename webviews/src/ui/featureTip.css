@@ -132,6 +132,6 @@
     background: var(--glass-opaque);
   }
 }
-:root[data-reduce-transparency] .ui-feature-tip-arrow::before {
+:root:is([data-reduce-transparency], [data-glass="off"]) .ui-feature-tip-arrow::before {
   background: var(--glass-opaque);
 }

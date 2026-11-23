@@ -109,7 +109,7 @@
     color: color-mix(in srgb, currentColor 55%, transparent);
   }
 }
-:root[data-reduce-transparency] .find-pill__field::placeholder {
+:root:is([data-reduce-transparency], [data-glass="off"]) .find-pill__field::placeholder {
   color: color-mix(in srgb, currentColor 55%, transparent);
 }
 .find-pill__field::-webkit-search-cancel-button {

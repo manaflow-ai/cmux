@@ -560,7 +560,7 @@
     --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
   }
 }
-:root[data-reduce-transparency] .acpmux-row .cv-user__bubble {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-row .cv-user__bubble {
   --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
 }
 /* The full-height map (ScrollMap.tsx): marks sit where their messages are in the chat. A prompt's

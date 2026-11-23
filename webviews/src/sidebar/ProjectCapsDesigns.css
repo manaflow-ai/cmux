@@ -265,7 +265,7 @@ button.pcd-header {
   /* one-material-allow: the stuck header name's capsule is part of the scrolling rows (they pass beside it), not a floating surface */
   backdrop-filter: var(--pcd-blur);
   -webkit-backdrop-filter: var(--pcd-blur);
-  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--pcd-ink) 8%, transparent);
+  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--pcd-ink) 8%, transparent);
 }
 
 /* Revealed rows: a grid track opening from 0fr to 1fr, so the rows below slide down together. */

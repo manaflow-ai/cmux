@@ -88,6 +88,29 @@ extension CEFRuntime {
         return { try await call.value }
     }
 
+    /// ``startDevTools(_:method:params:timeout:while:)`` for parameters that may be large (a page's document scripts):
+    /// small ones go as there; a large one takes its place in the browser's call order in the caller's turn and is
+    /// encoded off the main actor, as ``devTools(_:method:payload:timeout:)`` does. Calls started one after another in
+    /// one turn reach Chromium in that order, and their answers can be awaited together, in about one round trip.
+    func startDevTools(_ browser: Int32, method: String, payload: [String: any Sendable],
+                       timeout: Duration = CEFRuntime.devToolsTimeout) -> @MainActor @Sendable () async throws -> String {
+        guard CEFDevToolsResult.isLarge(payload) else {
+            return startDevTools(browser, method: method, params: payload, timeout: timeout) { true }
+        }
+        let ticket = devToolsOrder.take(browser)
+        // task-owner: awaited by the returned closure; it always leaves its ticket, so later calls of the browser go.
+        // main-hop-allow: the browser's DevTools call order (the ticket taken above, in the caller's turn); the hop does one send once the large parameters are encoded off main, as devTools(_:method:payload:timeout:) does
+        let call = Task { @MainActor [weak self] () throws -> String in
+            let text = await CEFDevToolsResult.encodedParams(payload)
+            guard let self else { throw BrowserTabError.closed }
+            await self.devToolsOrder.turn(ticket, of: browser)
+            let sent = self.sendDevTools(browser, method: method, encodedParams: text)
+            self.devToolsOrder.leave(ticket, of: browser)
+            return try await self.result(of: sent, method: method, timeout: timeout)
+        }
+        return { try await call.value }
+    }
+
     /// ``result(of:method:timeout:)`` of a call ``startDevTools(_:method:params:timeout:while:)`` sent in an earlier
     /// turn: its answer if it came meanwhile, `closed` when its browser closed or quit began meanwhile.
     private func awaitedResult(of sent: CEFDevToolsSend?, method: String, timeout: Duration) async throws -> String {

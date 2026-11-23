@@ -33,12 +33,12 @@
    veil's 42%). It was the text at 13%, a gray over any theme (Leo 2026-11-02: "why is the update
    thing unthemed"). Reduce Transparency still makes it opaque (glass.css's surface): the same
    selector again, later, so it outranks the plain fill. */
-:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card:not(.wn-updated) {
+:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency], [data-glass="off"]) .wn-card:not(.wn-updated) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) 42%, transparent);
   --glass-backdrop: none;
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card:not(.wn-updated) {
+  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency], [data-glass="off"]) .wn-card:not(.wn-updated) {
     --glass-tint: var(--glass-surface);
   }
 }
@@ -362,7 +362,7 @@
 }
 /* Reduce Transparency: the composer's solid surface, as the composer's. */
 /* glass-opaque-allow: the Reduce Transparency fill only */
-:root[data-reduce-transparency] :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
+:root:is([data-reduce-transparency], [data-glass="off"]) :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
   background: var(--composer-material-solid);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;

@@ -79,14 +79,14 @@
    Transparency: the opaque card. */
 .nt-widget-card--preview {
   background: var(--nt-widget-card);
-  box-shadow: inset 0 0 0 0.5px var(--nt-widget-card-edge);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--nt-widget-card-edge);
 }
 @media (prefers-reduced-transparency: reduce) {
   .nt-widget-card--preview {
     background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   }
 }
-:root[data-reduce-transparency] .nt-widget-card--preview {
+:root:is([data-reduce-transparency], [data-glass="off"]) .nt-widget-card--preview {
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
 }
 .nt-widget-card > .cmux-app-scene-root,
@@ -201,7 +201,9 @@
   height: var(--ds-control-compact);
   border: 0;
   border-radius: 50%; /* radius-allow: Apple's round badge on a widget's corner, as the minus badge */
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  /* The wash over the opaque page surface, not over whatever is behind: over a see-through window's busy picture the
+     clear wash read its glyph at 2.97:1 (control-contrast-11, widget-edit over the busy picture). */
+  background: color-mix(in srgb, var(--agent-text) 14%, var(--ds-color-surface));
   color: var(--agent-text);
 }
 .nt-widget-corner {

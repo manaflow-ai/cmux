@@ -179,7 +179,7 @@ class SecretRouteBoundary(unittest.TestCase):
     def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
         route = workflow_jobs.runs_on(workflow_jobs.jobs(path)["migrations-push-guard"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", route)
+        self.assertTrue(route.endswith("'cmux-linux' }}"), route)
 
 
 @unittest.skipUnless(POLICY_ROOT, "set RUNNER_POOL_POLICY_ROOT to main's checked-out policy")

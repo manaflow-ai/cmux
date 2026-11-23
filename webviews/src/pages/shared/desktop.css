@@ -146,9 +146,9 @@ body {
   /* glass content: a card in the content layer (.ui-glass-content: a permission ask, a turn error, a Settings card): the theme surface at this share with no backdrop-filter, since it scrolls with the content; near-solid, under the glass rule's 90% cap, so a wallpaper behind a see-through page shows only faintly (design/glass-system.md, rule 2) */
   --ds-glass-content-tint: 88%;
   /* glass ink: the secondary ink on glass (design/glass-system.md, rule 5): the theme's text at this share over the glass, so a hint, a placeholder or a detail line keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper at every floating level, without raising the tint; every glass surface's secondary tokens (--cmux-text-secondary, --agent-muted, the composer placeholder) read it while glass draws; status is the share of a status hue (red, amber, green) in a status word on glass, the rest the theme's text, so the word keeps 3:1 under dark glass on a white page (the page's hues are fitted to the opaque page) */
-  --ds-glass-ink-secondary: 64%;
+  --ds-glass-ink-secondary: 68%;
   --ds-glass-ink-status: 65%;
-  /* glass underlay: the theme surface a floating glass lays under its tint in a see-through Chromium page where the page cannot blur itself: the menu's 80% over 40% covers 88%, not 93% (design/glass-system.md, rule 6) */
+  /* glass underlay: the theme surface a floating glass lays under its tint in a see-through Chromium page where the page cannot blur itself: the menu's 80% over 40% covers 88%, not 93%; in dark the menu's 72% over 57% covers the same 88%, since at 40% it covered 83% and the chat's text read through the Model menu (design/glass-system.md, rule 6) */
   --ds-glass-underlay: 40%;
   /* glass material: the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart */
   --ds-material-neutral-light: rgb(252 252 252); /* the neutral veil's gray on the light side */
@@ -215,6 +215,7 @@ body {
     --ds-glass-content-tint: 86%;
     --ds-glass-ink-secondary: 68%;
     --ds-glass-ink-status: 55%;
+    --ds-glass-underlay: 57%;
   }
 }
 :root[data-theme="dark"] {
@@ -226,6 +227,7 @@ body {
   --ds-glass-content-tint: 86%;
   --ds-glass-ink-secondary: 68%;
   --ds-glass-ink-status: 55%;
+  --ds-glass-underlay: 57%;
 }
 @media (prefers-reduced-transparency: reduce) {
   :root {
@@ -235,7 +237,7 @@ body {
     --ds-glass-chip-blur: none;
   }
 }
-:root[data-reduce-transparency] {
+:root:is([data-reduce-transparency], [data-glass="off"]) {
   --ds-glass-chrome-blur: none;
   --ds-glass-popover-blur: none;
   --ds-glass-menu-blur: none;
@@ -908,7 +910,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-queue-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
   --grid-composer-block-inset: calc(10px * var(--cmux-interface-scale, 1)); /* Control inset from the top and bottom of a one-line composer. */
   --grid-composer-box: calc(48px * var(--cmux-interface-scale, 1)); /* One-line composer height. */
-  --grid-composer-radius: calc(12px * var(--cmux-interface-scale, 1)); /* Composer corner radius. */
+  --grid-composer-radius: calc(22px * var(--cmux-interface-scale, 1)); /* Composer corner radius, concentric with its round controls: half a control plus the inset. */
   --grid-composer-quiet-row-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Gap below composer box. */
   --grid-composer-quiet-row-height: calc(28px * var(--cmux-interface-scale, 1)); /* Quiet row height. */
   --grid-composer-quiet-row-text: calc(14px * var(--cmux-interface-scale, 1)); /* First quiet chip text at leading glyph left edge. */
@@ -949,7 +951,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 }
 
 /* The host may also set the app's Reduce Transparency setting on the root element. */
-:root[data-reduce-transparency] {
+:root:is([data-reduce-transparency], [data-glass="off"]) {
   --surface-text-min: 100%;
   --surface-blur: none;
   --tooltip-tint: var(--surface-popup);

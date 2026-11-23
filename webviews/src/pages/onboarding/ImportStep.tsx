@@ -199,8 +199,7 @@ function ImportList({ importer }: { importer: ImportState }) {
     <div className="onb-import-main">
       <div className="onb-import-shelf">
         <div
-          className="onb-import-list onb-scroll ui-glass"
-          data-glass-level="chrome"
+          className="onb-import-list onb-scroll"
           data-phase={importer.phase}
           data-empty={importer.rows.length === 0 && slots === 0 ? "" : undefined}
         >
@@ -219,7 +218,7 @@ function ImportList({ importer }: { importer: ImportState }) {
           ))}
         </div>
       </div>
-      <div className="onb-import-options ui-glass" data-glass-level="chrome">
+      <div className="onb-import-options">
         <KindChoices importer={importer} />
         {/* Keep in Sync stays shown and dimmed without History, so the kinds card never holds an
             empty line. */}
@@ -456,7 +455,7 @@ function ExpressSummary({ importer, status }: { importer: ImportState; status: s
       {fullDisk.length + awaiting.length > 0 && (
         <ul className="onb-express-asks">
           {fullDisk.map((browser) => (
-            <li key={`fda:${browser.name}`} className="onb-express-ask ui-glass" data-glass-level="chrome">
+            <li key={`fda:${browser.name}`} className="onb-express-ask">
               <HostIcon image={browser.icon} className="onb-express-ask-icon" />
               <span className="onb-express-ask-text">
                 {strings.format("onboarding.import.express.fda", browser.name)}
@@ -469,7 +468,7 @@ function ExpressSummary({ importer, status }: { importer: ImportState; status: s
           {awaiting.map(
             (row) =>
               row.kind === "awaiting" && (
-                <li key={`awaiting:${row.browser}`} className="onb-express-ask ui-glass" data-glass-level="chrome">
+                <li key={`awaiting:${row.browser}`} className="onb-express-ask">
                   <HostIcon image={row.icon} className="onb-express-ask-icon" />
                   <span className="onb-express-ask-text">
                     {strings.format("onboarding.import.express.folder", row.browserName)}
