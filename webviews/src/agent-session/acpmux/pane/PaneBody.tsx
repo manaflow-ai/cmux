@@ -26,7 +26,7 @@ import { NewTabPage } from "../NewTabPage";
 import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTabModel";
 import { NewTabScreen, type NewTabScreenActions } from "../newtab/NewTabScreen";
 import { HistoryScreen } from "../newtab/HistoryScreen";
-import { NewTabAppPage } from "../newtab/NewTabAppPage";
+import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
 import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
@@ -787,37 +787,40 @@ export function drawPaneBody({
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen &&
-            showNewTab &&
-            !newTab.history &&
-            !newTabApp &&
-            pageStyle(shownTemplate(newTab)) !== "minimal" && (
-              <StyleSwitch
-                current={pageStyle(shownTemplate(newTab))}
-                onPick={(next) =>
-                  pickNewTabStyle(next, {
-                    callNative,
-                    show: (template) => setNewTab((current) => current && { ...current, template }),
-                  })
-                }
-                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              />
-            )}
-          {showNewTab && folderAskView}
-          {newTabApp && !harnessesOpen ? (
-            <NewTabAppPage
-              key={`${newTabGeneration}:${newTabApp}`}
-              app={newTabApp}
-              {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
-              onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
-              inputToken={newTab?.inputToken}
-              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+          {!harnessesOpen && showNewTab && !newTab.history && pageStyle(shownTemplate(newTab)) !== "minimal" && (
+            <StyleSwitch
+              current={pageStyle(shownTemplate(newTab))}
+              onPick={(next) =>
+                pickNewTabStyle(next, {
+                  callNative,
+                  show: (template) => setNewTab((current) => current && { ...current, template }),
+                })
+              }
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
-          ) : showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
+          )}
+          {showNewTab && folderAskView}
+          {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
                 <NewTabScreen
+                  // `tabs.newTabApp`: the extension draws in a slot over cmux's composer, never in its
+                  // place; whatever it does, the composer, its focus and its input-ready report stay
+                  // the page's own (Leo 2026-11-16, newtab/NewTabAppSlot.tsx).
+                  // `newTab.app`, not `newTabApp`: the room stays after the slot gives up, so the composer never jumps.
+                  {...(newTab.app
+                    ? {
+                        above: newTabApp ? (
+                          <NewTabAppSlot
+                            key={`${newTabGeneration}:${newTabApp}`}
+                            app={newTabApp}
+                            {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+                            onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+                          />
+                        ) : null,
+                      }
+                    : {})}
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);
