@@ -3,7 +3,8 @@
 # with "gate_failed":true, so the v2 home reads those rows red with their
 # numbers kept. A stand-in cargo on PATH plays three filters: one writes a line
 # and fails, one writes a line and passes, one fails having written nothing.
-# The script's exit code stays the one it had (1 when any filter failed).
+# The script's exit code stays the one it had (1 when any filter failed), and
+# the filter that wrote nothing is named in its log.
 # With an argument, the measures file is copied there for the home's test
 # (benches/v2/mod.rs reads it through report_value).
 set -euo pipefail
@@ -39,6 +40,10 @@ grep -qx '{"name":"v2.pr05e.sibling_insert",.*,"unit":"ns"}' "$out" \
   || fail "the passing filter's line changed" "$(cat "$out")"
 python3 -I -c 'import json, sys; [json.loads(line) for line in open(sys.argv[1])]' "$out" \
   || fail "a marked line is not JSON" "$(cat "$out")"
+grep -q '^v2 gates: failed before writing a measure: cargo test .* family_page_gate ' "$TMP/log" \
+  || fail "the filter that wrote nothing is not named" "$(cat "$TMP/log")"
+[[ $(grep -c '^v2 gates: failed before writing a measure:' "$TMP/log") -eq 1 ]] \
+  || fail "a filter that wrote its line is named as writing none" "$(cat "$TMP/log")"
 
 if [[ $# -gt 0 ]]; then cp "$out" "$1"; fi
 echo "run-v2-gates.test.sh: ok"
