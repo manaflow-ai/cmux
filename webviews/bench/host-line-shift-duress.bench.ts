@@ -21,12 +21,19 @@ const Slot: (props: { children?: ReactNode }) => ReactNode =
 const H = Host as any;
 const states: Record<string, ReactNode> = {
   connected: createElement(H.HostRecoveringLine, {}),
-  "reconnecting under 10 s": createElement(H.HostRecoveringLine, { relinkingSince: 0, now: RECONNECT_LINE_AFTER_MS - 1 }),
+  "reconnecting under 10 s": createElement(H.HostRecoveringLine, {
+    relinkingSince: 0,
+    now: RECONNECT_LINE_AFTER_MS - 1,
+  }),
   "reconnecting past 10 s": createElement(H.HostRecoveringLine, { relinkingSince: 0, now: LONG }),
   restoring: createElement(H.HostRecoveringLine, { restoring: { waitedMs: LONG, at: 0 }, now: 0 }),
   "waiting for the service": createElement(H.HostWaitingLine, { since: 0, now: 60_000, onRestart: noop }),
   "failed, self-retrying": createElement(H.HostUnavailableLine, { message: "Can't connect." }),
-  "failed, Retry": createElement(H.HostUnavailableLine, { message: "Update cmux.", selfRetrying: false, onRetry: noop }),
+  "failed, Retry": createElement(H.HostUnavailableLine, {
+    message: "Update cmux.",
+    selfRetrying: false,
+    onRetry: noop,
+  }),
 };
 const markup = Object.fromEntries(
   Object.entries(states).map(([name, line]) => [name, renderToStaticMarkup(createElement(Slot, null, line))]),
@@ -52,7 +59,8 @@ const result = await view.evaluate(async (markup: Record<string, string>) => {
     live.textContent += " " + words[n++ % words.length];
     if (live.textContent!.length > 600) live.textContent = "streaming";
   }, 4);
-  const watched = () => [...document.querySelectorAll("[data-row]")].slice(-20).concat([document.querySelector(".acpmux-composer")!]);
+  const watched = () =>
+    [...document.querySelectorAll("[data-row]")].slice(-20).concat([document.querySelector(".acpmux-composer")!]);
   const read = () => watched().map((node) => node.getBoundingClientRect().top);
   const out: Record<string, number> = {};
   let appended = 0;
