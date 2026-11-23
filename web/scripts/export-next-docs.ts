@@ -3,13 +3,13 @@
 //   web/data/next-docs/cli-reference.generated.json   from plans/cmux-next/action-surfaces.json
 //   web/data/next-docs/palette-reference.generated.json   from the same catalog
 //   web/data/next-docs/settings-reference.generated.json   from schemas/settings/settings-schema.json
-// web/ never reads plans/ or schemas/ at build time; run this after either
-// source changes:
+// web/ never reads plans/ or schemas/ at build time. Only the base autofix
+// runs this and commits the copies, after each merge (RFD 0048):
 //   bun web/scripts/export-next-docs.ts
 // `--settings` writes only the settings reference (the fleet settings export,
 // scripts/cmux-next/regenerate-settings-exports.sh with a .patch OUT, which regenerates
 // the schema but not the action catalog).
-// web/tests/next-docs.test.ts fails until the copies are fresh.
+// A pull request carries no copy; web/tests/next-docs.test.ts builds the data at the head.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

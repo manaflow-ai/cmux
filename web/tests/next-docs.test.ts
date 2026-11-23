@@ -2,9 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import cliGenerated from "../data/next-docs/cli-reference.generated.json";
-import paletteGenerated from "../data/next-docs/palette-reference.generated.json";
-import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
 import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath, repoSourceHref } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
 import { buildLocalGuide, buildNextDocsFullText } from "../app/lib/next-docs-text";
@@ -26,21 +23,16 @@ import {
 
 // The cmux-next docs reference pages are generated from the action catalog and
 // the settings schema (plans/cmux-next/docs-DESIGN.md). web/ never reads those
-// at build time, so these tests read them and require the copies to match.
+// at build time; the pages render copies in web/data/next-docs that only the
+// base autofix writes (RFD 0048), so a pull request's copy may lag its inputs by
+// one autofix run. These tests build the data from the catalog and the schema
+// at the head and judge that, never the copies.
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const surfaces = JSON.parse(readFileSync(join(repo, "plans/cmux-next/action-surfaces.json"), "utf8"));
 const schema = JSON.parse(readFileSync(join(repo, "schemas/settings/settings-schema.json"), "utf8"));
 
 describe("cmux-next docs", () => {
-  test("the CLI and MCP reference is fresh against the action catalog", () => {
-    expect(buildCliReference(surfaces)).toEqual(cliGenerated as never);
-  });
-
-  test("the command palette and shortcuts reference is fresh against the action catalog", () => {
-    expect(buildPaletteReference(surfaces)).toEqual(paletteGenerated as never);
-  });
-
   test("MCP tool names follow the server's rule", () => {
     // cmux-tui/crates/cmux-tui/src/cli/mcp/action_tools.rs `tool_name` and its tests.
     expect(mcpToolName("workspace rename")).toBe("app_workspace_rename");
@@ -82,10 +74,6 @@ describe("cmux-next docs", () => {
     expect(repoSourceHref("cmux-tui/spec/resource-api-v2.md", "file")).toBe("https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/spec/resource-api-v2.md");
   });
 
-  test("the settings reference is fresh against the settings schema", () => {
-    expect(buildSettingsReference(schema)).toEqual(settingsGenerated as never);
-  });
-
   // docs/configuration.md is written by hand, while the settings schema is the
   // app's own source of truth. #23844 widened cmux Classic Mode to Cmd-N, the
   // sidebar's + and new windows and updated the schema's help, but not the page,
@@ -100,7 +88,7 @@ describe("cmux-next docs", () => {
     expect(sections.size).toBe(headings.length);
     const shortcut = /Cmd-(?:Shift-|Opt-|Ctrl-)*[A-Z0-9]/g;
     const missing: string[] = [];
-    for (const section of settingsGenerated.sections) {
+    for (const section of buildSettingsReference(schema).sections) {
       for (const row of section.rows) {
         const written = sections.get(row.key);
         if (!written) continue; // a setting the page does not cover at all

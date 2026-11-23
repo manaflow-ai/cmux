@@ -629,7 +629,11 @@ check_dmg_signing_uses_build_keychain() {
 }
 
 check_create_dmg_uses_run_local_npm_prefix() {
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+  # nightly.yml runs the step as scripts/ci/nightly-steps/install-create-dmg.sh; read it inline.
+  local nightly_text
+  nightly_text="$(mktemp)"
+  python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$nightly_text"
+  for file in "$nightly_text" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
       /^[[:space:]]*(- )?name: Install build deps/ { in_step=1; next }
       in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
@@ -642,7 +646,7 @@ check_create_dmg_uses_run_local_npm_prefix() {
       in_step && /echo "\$wrapper_dir" >> "\$GITHUB_PATH"/ { saw_path=1 }
       END { exit !(saw_node && saw_prefix && saw_mkdir && saw_install && saw_wrapper && saw_exec && saw_path) }
     ' "$file"; then
-      echo "FAIL: $(basename "$file") must run create-dmg from a setup-node-bound wrapper in a run-local npm prefix"
+      echo "FAIL: $([ "$file" = "$nightly_text" ] && echo nightly.yml || basename "$file") must run create-dmg from a setup-node-bound wrapper in a run-local npm prefix"
       exit 1
     fi
   done
@@ -1012,7 +1016,9 @@ check_no_github_hosted_runners() {
   # scalar list items, dispatch defaults, and every *RUNNER* key (env mirrors
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
-  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
+  # A fork pull request's branch of the one Linux label (scripts/ci/one_linux_label.py) is fork-only too:
+  # a fork takes CI_FORK_LINUX_RUNNER or hosted Ubuntu, never an owned host (check_no_hosted_runs_on.py agrees).
+  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)|github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository [&][&] [(]vars[.]CI_FORK_LINUX_RUNNER [|][|] '[A-Za-z0-9._-]+'[)]"
   local trusted_list='fromJSON[(]'"'"'[[]"blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # The nightly's secret-holding Linux jobs (signer, publication, promotion, release notes, dSYMs, deltas,
   # notarization polls, the tag permission probe) take the one-job cmux-gcp-nightly-jit-x64 label on every
@@ -1205,6 +1211,8 @@ jobs:
   c:
     runs-on: >-
       ${{ vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}
+  e:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
   d:
     env:
       CMUX_CI_RUNNER_VARIABLES: |

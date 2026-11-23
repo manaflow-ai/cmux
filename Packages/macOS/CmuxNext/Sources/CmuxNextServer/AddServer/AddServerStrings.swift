@@ -3,7 +3,7 @@ import Foundation
 /// The Add Server card's words (Resources/Localizable.xcstrings, `approver.*`).
 nonisolated enum AddServerStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var title: String { t("approver.title", "Add Server") }
