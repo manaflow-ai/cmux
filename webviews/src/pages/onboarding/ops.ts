@@ -6,27 +6,18 @@
 // next to this file); the host sends values, never sentences.
 
 /** The one tool a window shows; it never changes for a window. */
-/** `agentTools` asks whether cmux may add its MCP server (Computer Use included) to the person's coding agents. */
 /** `makeItYours` is a new person's one setup screen: how they work, the density and a background (cmux#48416). */
-export type OnboardingStep = "agents" | "importData" | "computerUse" | "agentTools" | "makeItYours";
+export type OnboardingStep = "agents" | "importData" | "computerUse" | "makeItYours";
 
 /** What the footer's filled button says (OnboardingModel.primaryTitle). */
-export type PrimaryAction =
-  | "continue"
-  | "done"
-  | "detecting"
-  | "findBrowsers"
-  | "import"
-  | "beginImporting"
-  | "addTools";
+export type PrimaryAction = "continue" | "done" | "detecting" | "findBrowsers" | "import" | "beginImporting";
 
 export interface OnboardingFooter {
   primary: PrimaryAction;
   /** False while browser detection runs (the button stays, disabled). */
   primaryEnabled: boolean;
-  /** Skip, Skip Importing on the Keychain explainer, Not Now on cmux Tools until answered, or
-   * `none` (cmux Tools answered: only Done is left). */
-  skip: "skip" | "skipImporting" | "notNow" | "none";
+  /** Skip, or Skip Importing on the Keychain explainer. */
+  skip: "skip" | "skipImporting";
   /** Back shows over the import explainers (the progress bar is up). */
   showsBack: boolean;
   backEnabled: boolean;
@@ -213,34 +204,6 @@ export interface ComputerUseState {
   comebacks: number;
 }
 
-// MARK: cmux Tools
-
-/** One coding agent and whether its own config gives it cmux's tools (`cmux setup mcp`):
- * `ready` (none yet), `added`, `terminals` (a DEV build leaves its config alone and gives it cmux's
- * tools in its own terminals), `conflict` (another server named cmux is the person's) or `failed`. */
-export interface AgentToolsRow {
-  id: string;
-  /** The product's own name ("Claude Code"): never translated. */
-  name: string;
-  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
-  state: "ready" | "terminals" | "failed";
-}
-
-export interface AgentToolsState {
-  /** The coding agents found on this Mac; the page draws each one's mark from its id. */
-  rows: AgentToolsRow[];
-  /** The first read answered (an empty list then says none was found). */
-  loaded: boolean;
-  /** `agents.cmuxMcp` now: `ask` until the person answers. */
-  choice: "ask" | "on" | "off";
-  /** Turn On writes the answer and reads the agents again. */
-  applying: boolean;
-  /** The answer could not be saved. */
-  failed: boolean;
-  /** The person answered in this window. */
-  answered: boolean;
-}
-
 // MARK: Make cmux Yours
 
 /** GUI-first (recommended: chats, browsers and terminals side by side, Cmd-T the New Tab page) or
@@ -275,8 +238,6 @@ export interface OnboardingState {
   agents: AgentsState | null;
   importer: ImportState | null;
   computerUse: ComputerUseState | null;
-  /** The cmux Tools step's state; null on the other steps (absent from older hosts). */
-  agentTools?: AgentToolsState | null;
   /** Make cmux Yours' state; null on the other steps (absent from older hosts). */
   makeItYours?: MakeItYoursState | null;
 }

@@ -104,25 +104,20 @@ function sharedClock(name: string, every: number, aligned = false) {
 
 /** One timer for timestamp labels, at the nearest actual text change. Removing the last label
  * removes its timer; hidden pages catch up once before choosing a new deadline.
- * A label that mounts or unmounts costs O(1): the timer is armed again only for a label whose
- * deadline comes before the one armed, and a label that leaves never re-arms it (the timer fires,
- * finds nothing due, and arms the next deadline once). Re-arming on every subscribe and unsubscribe
- * took the minimum over every label and a clearTimeout and setTimeout per row: a fling up a long chat
- * mounts and unmounts tens of rows a frame, each with its timestamp, and that churn was 8 s of a 55 s
- * profile (bench/transcript-scroll-up.bench.ts FIXTURE=flat MODE=fling SPLIT=1, `scheduleDeadlines`). */
+ * A label joining or leaving costs O(1): a chat switch unmounts one chat's labels and mounts the
+ * next one's (two per row: an age and a copy time), and rebuilding the timer and its nearest deadline
+ * (a scan of every label) on each of them was quadratic, 10 to 25 ms of a 120-turn chat's switch
+ * (bench/settled-page.bench.ts chat_switch). The timer is rebuilt only for a label due before it
+ * fires; one that leaves leaves the timer as it is, which, firing early, finds no label due and
+ * sets the next deadline from the labels left. */
 const deadlines = new Set<{ notify: () => void; next: () => number; at: number }>();
 let stopDeadlines: (() => void) | undefined;
-/// The deadline the timer is armed for (Infinity: none).
-let armedAt = Number.POSITIVE_INFINITY;
-function nearestDeadline() {
-  let nearest = Number.POSITIVE_INFINITY;
-  for (const label of deadlines) if (label.at < nearest) nearest = label.at;
-  return nearest;
-}
+/// The deadline the timer waits for, as its last scheduling read it (Infinity when none).
+let deadlineDue = Number.POSITIVE_INFINITY;
 function scheduleDeadlines() {
   stopDeadlines?.();
   stopDeadlines = undefined;
-  armedAt = Number.POSITIVE_INFINITY;
+  deadlineDue = Number.POSITIVE_INFINITY;
   if (deadlines.size === 0) return;
   const tick = () => {
     for (const label of deadlines) {
@@ -135,8 +130,10 @@ function scheduleDeadlines() {
     "relative-time",
     tick,
     () => {
-      armedAt = nearestDeadline();
-      return armedAt - Date.now() + 5;
+      let due = Number.POSITIVE_INFINITY;
+      for (const label of deadlines) if (label.at < due) due = label.at;
+      deadlineDue = due;
+      return due - Date.now() + 5;
     },
     { onShow: tick, subscribers: () => deadlines.size },
   );
@@ -145,7 +142,9 @@ function scheduleDeadlines() {
 export function subscribePageDeadline(notify: () => void, next: () => number): () => void {
   const label = { notify, next, at: next() };
   deadlines.add(label);
-  if (stopDeadlines === undefined || label.at < armedAt) scheduleDeadlines();
+  // A timer that already fires at or before this label's change covers it; a hidden page's sets
+  // its deadline from every label when the page shows.
+  if (!stopDeadlines || (label.at < deadlineDue && pageDocument()?.visibilityState !== "hidden")) scheduleDeadlines();
   return () => {
     if (!deadlines.delete(label)) return;
     if (deadlines.size === 0) scheduleDeadlines();
