@@ -99,11 +99,12 @@ test("the send's own key press opens the setup page when setup or a build that c
 // Review of #48024 (WebKit skips setup): with `agent.pageHost` off, the default, the app reaches the
 // page through the old host's script, never a page host event; the state must arrive that way too.
 test("the old host's script sets the state a send reads", () => {
-  expect(typeof window.cmuxAcpmuxComputerUseState).toBe("function");
-  window.cmuxAcpmuxComputerUseState?.("needs_setup");
+  const hook = (globalThis as Window & typeof globalThis).cmuxAcpmuxComputerUseState;
+  expect(typeof hook).toBe("function");
+  hook?.("needs_setup");
   expect(computerUseState()).toBe("needs_setup");
-  window.cmuxAcpmuxComputerUseState?.("ready");
+  hook?.("ready");
   expect(computerUseState()).toBe("ready");
-  window.cmuxAcpmuxComputerUseState?.(null);
+  hook?.(null);
   expect(computerUseState()).toBeUndefined();
 });

@@ -121,4 +121,5 @@ declare global {
     cmuxAcpmuxComputerUseState?: (value: unknown) => void;
   }
 }
-if (typeof window !== "undefined") window.cmuxAcpmuxComputerUseState = setComputerUseState;
+// On globalThis, which is the page's window in WebKit and stands in for it in a test (no window there).
+(globalThis as Window & typeof globalThis).cmuxAcpmuxComputerUseState = setComputerUseState;

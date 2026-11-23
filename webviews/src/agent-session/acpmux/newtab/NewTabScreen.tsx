@@ -1053,7 +1053,8 @@ export function NewTabScreen(props: Props) {
       setText(text.slice(0, atWord.start) + command.insert + text.slice(atCaret));
       // The field keeps focus while the menu is open (a row's press never takes it): only the caret
       // moves, to just after what the row wrote.
-      const after = promptCaret === undefined ? undefined : promptCaret - (atCaret - atWord.start) + command.insert.length;
+      // The caret counts shown characters: the typed `@` and its word as shown (the query, unescaped).
+      const after = promptCaret === undefined ? undefined : promptCaret - (1 + atWord.query.length) + command.insert.length;
       requestAnimationFrame(() => field.current?.setCaret(after ?? field.current.plainText().length));
       return;
     }
