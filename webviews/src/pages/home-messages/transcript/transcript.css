@@ -159,7 +159,7 @@
   align-items: center;
   gap: var(--ds-space-1);
   padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
-  border: 0.5px solid color-mix(in srgb, var(--page-text) 12%, transparent);
+  border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--page-text) 12%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--page-text) 6%, transparent);
   color: var(--page-text);
@@ -588,4 +588,8 @@
   .mt-header {
     background: var(--cmux-surface-solid, Canvas);
   }
+}
+/* Liquid Glass off (appearance.liquidGlass): the same solid header. */
+:where(:root[data-glass="off"]) .mt-header {
+  background: var(--cmux-surface-solid, Canvas);
 }

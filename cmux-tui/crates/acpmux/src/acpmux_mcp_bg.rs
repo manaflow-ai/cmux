@@ -354,8 +354,11 @@ fn outcome(name: &str, r: &Value) -> (String, &'static str) {
         return (line, "ok");
     }
     let plural = if tasks.len() == 1 { "" } else { "s" };
+    // Every task of the caller's, counted before the page's state filter, offset and limit
+    // (`bg_list::Page::apply` takes the page after this line is built), so the line says so:
+    // a reader took "1 running" for the page's own count and read 29 exited tasks as running.
     let line = format!(
-        "{} background task{plural}: {running} running, {ok} ok, {failed} failed{others}",
+        "{} background task{plural} in all, not only the page below: {running} running, {ok} ok, {failed} failed{others}",
         tasks.len()
     );
     let status = if running > 0 {
@@ -413,8 +416,12 @@ mod tests {
         let task =
             |state: &str, code: i64| json!({"state": state, "exitCode": code, "command": "c"});
         let r = json!({"tasks": [task("running", 0), task("exited", 0), task("exited", 1)]});
-        let line = "3 background tasks: 1 running, 1 ok, 1 failed".to_owned();
+        let line = "3 background tasks in all, not only the page below: 1 running, 1 ok, 1 failed"
+            .to_owned();
         assert_eq!(outcome("bg_list", &r), (line, "running"));
+        // The counts are the whole list's, never the page's (`bg_list::Page::apply` pages after
+        // this line is built), and the line says which.
+        assert!(outcome("bg_list", &r).0.contains("in all, not only the page below"));
         let done = json!({"tasks": [task("exited", 0), task("exited", 1)]});
         assert_eq!(outcome("bg_list", &done).1, "failed");
         assert_eq!(

@@ -123,7 +123,7 @@ pub(super) fn lock_has_live_holder(path: &Path) -> bool {
 /// The live holder's pid of the lock at `path`, read from the pid it wrote there, without taking
 /// the lock or creating the file.
 #[cfg(unix)]
-pub(super) fn live_holder_pid(path: &Path) -> Option<u32> {
+pub(crate) fn live_holder_pid(path: &Path) -> Option<u32> {
     let file = std::fs::File::open(path).ok()?;
     let pid = holder_pid(&file)?;
     lock_is_held(&file).then_some(pid)
