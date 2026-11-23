@@ -1581,6 +1581,14 @@ send back as `known`; with `known`, a reply that holds them all does. `known`
 and `limit` together answer `unchanged` when the client's whole tree is
 current.
 
+A `limit` reply also stops at 64 KiB of rows (at least one row), whatever
+`limit` asks, so a phone's first window costs the same at 10, 100 or 1,000
+workspaces; `total` says how many there are. With `list-workspaces-page-v1`,
+`after: N` (with `limit`) skips the first N workspaces of that order, and every
+page that is not the last carries `next`, the `after` of the page that follows.
+A page that does not start at 0 never carries `tree_revision`. `after` without
+`limit` changes nothing.
+
 A remote device's connection (`set-client-info {remote: true}`) never sees an
 incognito workspace (#31210). Its `limit` page and `total` are taken from the
 workspaces it may see, and once a workspace of the daemon was incognito, its
@@ -1593,6 +1601,7 @@ Params:
 | --- | --- | --- | --- |
 | `known` | object | no | `list-workspaces-known-v1`: the identity and revisions of the tree the client holds |
 | `limit` | integer | no | `list-workspaces-limit-v1`: the number of workspaces to return, first in sidebar order |
+| `after` | integer | no | `list-workspaces-page-v1`: with `limit`, the position in sidebar order the page starts at (a page's `next`) |
 
 Result:
 
