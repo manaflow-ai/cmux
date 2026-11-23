@@ -23,6 +23,8 @@ import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
 import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
 import { useT } from "./i18n";
+import { ShortcutKeycaps } from "./ButtonKeycaps";
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { isStartableProject, startedProjectChoices } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
@@ -110,6 +112,9 @@ type Props = NewTabCommandActions & {
   /// The chat view's composer stood in for this page while the host failed before its handshake:
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
+  /// A chat this page started failed after the page had gone (App.tsx `startLeftNewTab`): the page
+  /// came back and says it on its failure line, with Retry, never the chat view's empty-chat hero.
+  startFailure?: { error: string };
   /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
   onFieldEdit?(text: string): void;
   now?: number;
@@ -146,9 +151,11 @@ export function NewTabPage({
   onInputReady,
   onLeaveDraft,
   takeDraft,
+  startFailure,
   onFieldEdit,
 }: Props) {
   const t = useT();
+  const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
   const { plainFooter, spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
@@ -239,7 +246,16 @@ export function NewTabPage({
   );
   /// The last open was refused (the host made no tab): a note under the field until the next edit,
   /// saying which kind did not open, with Retry (the same open again) and the host's words under Details.
-  const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void }>();
+  // Retry on a failure the page came back with asks again with the field as it is then.
+  const retryStart = useRef<() => void>(() => undefined);
+  const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void } | undefined>(() =>
+    startFailure ? { kind: "agent", detail: startFailure.error.trim(), retry: () => retryStart.current() } : undefined,
+  );
+  // A start that failed in the same turn it left keeps this page mounted: the failure arrives as a prop.
+  useLayoutEffect(() => {
+    if (startFailure)
+      setOpenFailed({ kind: "agent", detail: startFailure.error.trim(), retry: () => retryStart.current() });
+  }, [startFailure]);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
   const make = (next: TabKind, value: string, folder?: string) => {
     setOpenFailed(undefined);
@@ -360,7 +376,9 @@ export function NewTabPage({
   const [focused, setFocused] = useState(false);
   const queryRef = useRef(query);
   queryRef.current = query;
-  const open = focused && query.trim() !== "" && query !== dismissed;
+  retryStart.current = () => make("agent", queryRef.current);
+  // The failure line sits where the rows float: they wait for the next edit, which clears the line.
+  const open = focused && query.trim() !== "" && query !== dismissed && !openFailed;
   // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
   const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
   const rows = useMemo(
@@ -785,6 +803,7 @@ export function NewTabPage({
       <div className="acpmux-newtab-actions ui-ghost-row">
         <button type="button" className="acpmux-newtab-all ui-ghost" onClick={onShowAll}>
           <span>{t(NEW_TAB_LABELS.allSessions)}</span>
+          <ShortcutKeycaps shortcut={allChatsKey} />
           <span className="ui-ghost-icon" aria-hidden="true">
             <ChevronRight />
           </span>
