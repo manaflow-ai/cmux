@@ -976,6 +976,19 @@ pub mod method {
     /// Signing in enrolls this machine (`server/machine_enroll.rs`): `{accessToken, hub?, userId?,
     /// buildTag?}` -> `{outcome, relay?}`. Local socket only.
     pub const MUX_MACHINE_ENROLL: &str = "_acpmux/machine_enroll";
+    /// Adds a machine this computer reaches by key-only ssh through the hub join
+    /// (`server/machine_join_ssh.rs`, `cli/ssh_join.rs`): `{host, name?, accessToken, hub?,
+    /// joinId?, confirmed?}` -> `{ok, joinId, host, machine?, platform?, seconds, failure?}`, with
+    /// [`MUX_MACHINE_JOIN_PROGRESS`] while it runs. A host that is not a tailnet node
+    /// this person owns needs `confirmed: true` (else `needs_confirmation`). Local socket and the
+    /// person only.
+    pub const MUX_MACHINE_JOIN_SSH: &str = "_acpmux/machine_join_ssh";
+    /// One step of a [`MUX_MACHINE_JOIN_SSH`]: `{joinId, host, step, state, detail, seconds}`.
+    pub const MUX_MACHINE_JOIN_PROGRESS: &str = "_acpmux/machine_join_progress";
+    /// The machines this computer reaches and has not added (its tailnet, `~/.ssh/config`): `{}`
+    /// -> `{candidates: [{name, address, os, found, online, mine}], tailnet?}`. Local socket and
+    /// the person only.
+    pub const MUX_MACHINE_CANDIDATES: &str = "_acpmux/machine_candidates";
     /// Signing out leaves the hub only when signing in joined this machine for the account signing
     /// out: `{userId?}` -> `{left, kept?, hub?}`. Local socket only.
     pub const MUX_MACHINE_LEAVE_IF_AUTO: &str = "_acpmux/machine_leave_if_auto";

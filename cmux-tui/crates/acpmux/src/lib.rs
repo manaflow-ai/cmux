@@ -308,6 +308,7 @@ mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
+pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
 pub(crate) mod ssh_forward_owners;
 pub mod stats;
