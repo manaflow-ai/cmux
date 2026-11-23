@@ -3968,6 +3968,23 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   white-space: normal;
   overflow-wrap: break-word;
 }
+/* A wrapped label keeps its glyph, chevron and status on its first line, as a thought's does
+   (cmux#51746): centred on the row, they sat on the middle of the whole wrapped block, a line or more
+   under the words they belong to. The row tops its items; each is the first line's height with its
+   content centred in it, and the chevron (its glyph's size in the transcript) takes the rest as
+   margins. One line opened draws as before. test/transcript-chevron-vertical-center.test.ts. */
+.acpmux-row .cv-tool.is-whole-open[aria-expanded="true"] {
+  align-items: flex-start;
+}
+.acpmux-row .cv-tool.is-whole-open[aria-expanded="true"] > :is(.cv-tool__icon, .cv-tool__meta, .cv-tool__trail) {
+  height: var(--cv-tool-row-height);
+}
+.acpmux-row .cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__text {
+  padding-block: calc((var(--cv-tool-row-height) - 20px) / 2);
+}
+.acpmux-row .cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__chevron {
+  margin-block: calc((var(--cv-tool-row-height) - var(--cv-chevron-glyph)) / 2);
+}
 /* The rows' verb column (ToolVerb.tsx), as the Codex app lines its tool rows up (Leo 2026-10-29:
    "having stuff aligned is nice"): each verb ("Ran", "Read", "Edited") is a box as wide as the
    widest verb of its turn's rows, so every subject starts at one x. The widest is never measured:

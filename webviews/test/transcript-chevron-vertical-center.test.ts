@@ -21,12 +21,28 @@ await requireBrowserLane("transcript-chevron-vertical-center.test.ts", async () 
   /** The farthest a glyph's middle may sit from its line's middle, in CSS px. */
   const MAX_OFFSET = 1;
   const LOG = process.env.CMUX_CHEVRON_LOG === "1";
-  const SCENES: { entry: string; variant: string }[] = [
-    // Folded thoughts: one cut with an ellipsis, short and long, alone and between calls.
-    { entry: "agent-pane.thought-shapes", variant: "short" },
-    { entry: "agent-pane.thought-shapes", variant: "long" },
-    { entry: "agent-pane.thought-shapes", variant: "between-calls" },
-    { entry: "agent-pane.thought-shapes", variant: "wrapping-line" },
+  /**
+   * A scene, opened before it is measured: every closed "Worked for" and run line (`expand`), then
+   * with `openThought` the first thought too. `rows` names a row the scene must measure a chevron in,
+   * so a scene whose rows stay folded fails instead of passing on the Worked-for line alone.
+   */
+  const SCENES: { entry: string; variant: string; expand?: boolean; openThought?: boolean; rows?: string }[] = [
+    // Thoughts: folded, cut with an ellipsis, short and long, alone, leading a run and between calls.
+    { entry: "agent-pane.thought-shapes", variant: "short", expand: true, rows: ".cv-thought" },
+    { entry: "agent-pane.thought-shapes", variant: "long", expand: true, rows: ".cv-thought" },
+    { entry: "agent-pane.thought-shapes", variant: "lead-run", expand: true, rows: ".cv-thought" },
+    { entry: "agent-pane.thought-shapes", variant: "between-calls", expand: true, rows: ".cv-thought" },
+    { entry: "agent-pane.thought-shapes", variant: "wrapping-line", expand: true, rows: ".cv-thought" },
+    // A thought opened: its first line wraps, and its glyph, chevron and time stay on that line.
+    {
+      entry: "agent-pane.thought-shapes",
+      variant: "long",
+      expand: true,
+      openThought: true,
+      rows: ".cv-thought.is-open",
+    },
+    // A call opened whose label wraps to the whole pattern (ToolRow.tsx `is-whole-open`).
+    { entry: "agent-pane.transcript", variant: "cut-line-open", rows: ".cv-tool.is-whole-open" },
     // Tool calls, runs, system rows and message lines.
     { entry: "agent-pane.transcript-system-rows", variant: "leo-capture" },
     { entry: "agent-pane.received-messages", variant: "collapsed" },
@@ -69,96 +85,137 @@ await requireBrowserLane("transcript-chevron-vertical-center.test.ts", async () 
   type Glyph = {
     kind: "chevron" | "trail";
     row: string;
+    /** Whether it sits in a row the scene names (`rows`). */
+    named: boolean;
     /** The glyph's middle less its line's middle, in CSS px; null when no words share its row. */
     offset: number | null;
   };
   /** A row's trailing time or status at its end. */
-  const TRAIL = ".cv-thought__time, .cv-tool__trail, .cv-command__meta, .cv-agent-activity__trail";
+  const TRAIL =
+    ".cv-thought__time, .cv-tool__trail, .cv-command__meta, .cv-agent-activity__trail, .cv-subagent-done__trail";
 
-  const measure = (page: Page): Promise<Glyph[]> =>
-    page.evaluate((TRAIL) => {
-      const shown = (element: Element) => {
-        const box = element.getBoundingClientRect();
-        if (box.width === 0 || box.height === 0) return false;
-        for (let node: Element | null = element; node; node = node.parentElement) {
-          const style = getComputedStyle(node);
-          if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
-        }
-        return true;
-      };
-      /** The text line boxes in `scope` outside `skip`, from the top. */
-      const lines = (scope: Element, skip: Element) => {
-        const rects: DOMRect[] = [];
-        const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
-        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          const parent = node.parentElement;
-          if (!parent || !node.textContent?.trim() || skip.contains(parent) || parent.closest(TRAIL)) continue;
-          if (!shown(parent)) continue;
-          const range = document.createRange();
-          range.selectNodeContents(node);
-          for (const rect of range.getClientRects()) if (rect.width > 0 && rect.height > 0) rects.push(rect);
-        }
-        return rects;
-      };
-      /** The middle of the first line of words in the nearest box around `glyph` that has any. */
-      const lineMiddle = (glyph: Element, box: DOMRect) => {
-        for (let scope = glyph.parentElement; scope; scope = scope.parentElement) {
-          // Words on the glyph's own row: a line's top under the glyph's bottom is a later line.
-          const rects = lines(scope, glyph).filter((rect) => rect.top < box.bottom + 4 && rect.bottom > box.top - 4);
-          if (rects.length > 0) {
-            const top = Math.min(...rects.map((rect) => rect.top));
-            const first = rects.filter((rect) => rect.top < top + 6);
-            // The words' own font box: a chip's or a mono span's taller box would skew the middle.
-            const middles = first.map((rect) => (rect.top + rect.bottom) / 2).sort((a, b) => a - b);
-            return {
-              middle: middles[Math.floor(middles.length / 2)],
-              row: `${scope.className || scope.tagName} | ${(scope.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)}`,
-            };
+  const measure = (page: Page, rows: string): Promise<Glyph[]> =>
+    page.evaluate(
+      ([TRAIL, rows]) => {
+        /** Laid out, whatever its opacity: a chevron that shows only on hover has its place at rest. */
+        const laidOut = (element: Element) => {
+          const box = element.getBoundingClientRect();
+          if (box.width === 0 || box.height === 0) return false;
+          for (let node: Element | null = element; node; node = node.parentElement)
+            if (getComputedStyle(node).display === "none") return false;
+          return true;
+        };
+        const named = (element: Element) => rows !== "" && element.closest(rows) !== null;
+        const shown = (element: Element) => {
+          const box = element.getBoundingClientRect();
+          if (box.width === 0 || box.height === 0) return false;
+          for (let node: Element | null = element; node; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
           }
-          if (scope.classList.contains("acpmux-row")) break;
+          return true;
+        };
+        /** The text line boxes in `scope` outside `skip`, from the top. */
+        const lines = (scope: Element, skip: Element) => {
+          const rects: DOMRect[] = [];
+          const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const parent = node.parentElement;
+            if (!parent || !node.textContent?.trim() || skip.contains(parent) || parent.closest(TRAIL)) continue;
+            if (!shown(parent)) continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            for (const rect of range.getClientRects()) if (rect.width > 0 && rect.height > 0) rects.push(rect);
+          }
+          return rects;
+        };
+        /** The middle of the first line of words in the nearest box around `glyph` that has any. */
+        const lineMiddle = (glyph: Element, box: DOMRect) => {
+          for (let scope = glyph.parentElement; scope; scope = scope.parentElement) {
+            // Words on the glyph's own row: a line's top under the glyph's bottom is a later line.
+            const rects = lines(scope, glyph).filter((rect) => rect.top < box.bottom + 4 && rect.bottom > box.top - 4);
+            if (rects.length > 0) {
+              const top = Math.min(...rects.map((rect) => rect.top));
+              const first = rects.filter((rect) => rect.top < top + 6);
+              // The words' own font box: a chip's or a mono span's taller box would skew the middle.
+              const middles = first.map((rect) => (rect.top + rect.bottom) / 2).sort((a, b) => a - b);
+              return {
+                middle: middles[Math.floor(middles.length / 2)],
+                row: `${scope.className || scope.tagName} | ${(scope.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)}`,
+              };
+            }
+            if (scope.classList.contains("acpmux-row")) break;
+          }
+          return null;
+        };
+        const out: Glyph[] = [];
+        for (const chevron of document.querySelectorAll(".acpmux-row .cv-rotor")) {
+          if (!laidOut(chevron)) continue;
+          // The glyph's own box, not its ink: the chevron is drawn centred in it, and the box keeps its
+          // middle when it turns open, where the ink's slight asymmetry would move a rotated middle.
+          const glyph = chevron.matches("svg") ? chevron : chevron.querySelector("svg");
+          if (!glyph) continue;
+          const box = glyph.getBoundingClientRect();
+          const line = lineMiddle(chevron, box);
+          out.push({
+            kind: "chevron",
+            named: named(chevron),
+            row: line?.row ?? chevron.className.toString(),
+            offset: line ? (box.top + box.bottom) / 2 - line.middle : null,
+          });
         }
-        return null;
-      };
-      const out: Glyph[] = [];
-      for (const chevron of document.querySelectorAll(".acpmux-row .cv-rotor")) {
-        if (!shown(chevron)) continue;
-        const ink = chevron.matches("svg") ? chevron.querySelector("path") : chevron.querySelector("svg path");
-        if (!ink) continue;
-        const box = ink.getBoundingClientRect();
-        const line = lineMiddle(chevron, box);
-        out.push({
-          kind: "chevron",
-          row: line?.row ?? chevron.className.toString(),
-          offset: line ? (box.top + box.bottom) / 2 - line.middle : null,
-        });
-      }
-      for (const trail of document.querySelectorAll(`.acpmux-row :is(${TRAIL})`)) {
-        if (!shown(trail) || !trail.textContent?.trim()) continue;
-        const range = document.createRange();
-        range.selectNodeContents(trail);
-        const box = range.getBoundingClientRect();
-        if (box.height === 0) continue;
-        const scope = trail.parentElement;
-        if (!scope) continue;
-        const rects = lines(scope, trail);
-        if (rects.length === 0) continue;
-        const top = Math.min(...rects.map((rect) => rect.top));
-        const middles = rects
-          .filter((rect) => rect.top < top + 6)
-          .map((rect) => (rect.top + rect.bottom) / 2)
-          .sort((a, b) => a - b);
-        out.push({
-          kind: "trail",
-          row: `${scope.className} | ${(scope.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)}`,
-          offset: (box.top + box.bottom) / 2 - middles[Math.floor(middles.length / 2)],
-        });
-      }
-      return out;
-    }, TRAIL);
+        for (const trail of document.querySelectorAll(`.acpmux-row :is(${TRAIL})`)) {
+          if (!laidOut(trail) || !trail.textContent?.trim()) continue;
+          const range = document.createRange();
+          range.selectNodeContents(trail);
+          const box = range.getBoundingClientRect();
+          if (box.height === 0) continue;
+          const scope = trail.parentElement;
+          if (!scope) continue;
+          const rects = lines(scope, trail);
+          if (rects.length === 0) continue;
+          const top = Math.min(...rects.map((rect) => rect.top));
+          const middles = rects
+            .filter((rect) => rect.top < top + 6)
+            .map((rect) => (rect.top + rect.bottom) / 2)
+            .sort((a, b) => a - b);
+          out.push({
+            kind: "trail",
+            named: named(trail),
+            row: `${scope.className} | ${(scope.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)}`,
+            offset: (box.top + box.bottom) / 2 - middles[Math.floor(middles.length / 2)],
+          });
+        }
+        return out;
+      },
+      [TRAIL, rows] as const,
+    );
+
+  /** Lets every running animation (not an endless one) finish, then two frames paint. */
+  const settle = async (page: Page) => {
+    await page.waitForFunction(
+      () =>
+        document
+          .getAnimations()
+          .every((a) => a.playState !== "running" || a.effect?.getComputedTiming().iterations === Infinity),
+      undefined,
+      { timeout: 10_000 },
+    );
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  };
+  /** Clicks open the first closed toggle `selector` matches, until none is left (bounded). */
+  const openAll = async (page: Page, selector: string) => {
+    for (let round = 0; round < 12; round++) {
+      const closed = page.locator(`${selector}[aria-expanded="false"]`);
+      if ((await closed.count()) === 0) return;
+      await closed.first().click();
+      await settle(page);
+    }
+  };
 
   const measured = new Map<string, Glyph[]>();
   const of = async (scene: (typeof SCENES)[number], width: number) => {
-    const key = `${scene.entry}#${scene.variant}@${width}`;
+    const key = `${scene.entry}#${scene.variant}${scene.openThought ? "+open" : ""}@${width}`;
     const known = measured.get(key);
     if (known) return known;
     const page = await browser.newPage({ viewport: { width: width + 40, height: 1100 }, deviceScaleFactor: 2 });
@@ -172,8 +229,16 @@ await requireBrowserLane("transcript-chevron-vertical-center.test.ts", async () 
       });
       await page.evaluate(() => document.fonts.ready);
       await page.mouse.move(0, 0);
-      await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
-      const result = await measure(page);
+      await settle(page);
+      if (scene.expand) await openAll(page, "button.cv-worked.is-toggle, button.cv-tool.is-run.is-toggle");
+      if (scene.openThought) {
+        const thought = page.locator('button.cv-thought.is-toggle[aria-expanded="false"]').first();
+        await thought.click();
+        await settle(page);
+      }
+      await page.mouse.move(0, 0);
+      await settle(page);
+      const result = await measure(page, scene.rows ?? "");
       const out = process.env.FAST_CHECKS_OUT;
       if (out)
         await page.screenshot({
@@ -190,9 +255,11 @@ await requireBrowserLane("transcript-chevron-vertical-center.test.ts", async () 
 
   for (const scene of SCENES)
     for (const width of WIDTHS) {
-      const name = `${scene.entry}#${scene.variant} at ${width}px`;
-      test(`${name}: has chevrons to measure`, async () => {
-        expect((await of(scene, width)).filter(({ kind }) => kind === "chevron").length).toBeGreaterThan(0);
+      const name = `${scene.entry}#${scene.variant}${scene.openThought ? " opened" : ""} at ${width}px`;
+      test(`${name}: has chevrons to measure${scene.rows ? ` in ${scene.rows}` : ""}`, async () => {
+        const chevrons = (await of(scene, width)).filter(({ kind }) => kind === "chevron");
+        expect(chevrons.length).toBeGreaterThan(0);
+        if (scene.rows) expect(chevrons.filter(({ named }) => named).length).toBeGreaterThan(0);
       });
       test(`${name}: every chevron and trailing time sits on its words' line`, async () => {
         const off = (await of(scene, width)).filter(
