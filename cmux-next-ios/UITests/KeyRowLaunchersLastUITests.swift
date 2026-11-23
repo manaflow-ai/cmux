@@ -74,10 +74,25 @@ final class KeyRowLaunchersLastUITests: XCTestCase {
             // The launchers come last, after the zoom keys.
             let claude = app.buttons["terminal.key.launcher-claude"]
             let zoomIn = app.buttons["terminal.key.zoom-in"]
-            scroll(app, row: keyboardKey, until: app.buttons["terminal.key.launcher-ollama"])
-            XCTAssertTrue(claude.exists && zoomIn.exists, "the row's end\n\(app.debugDescription)")
-            if claude.exists, zoomIn.exists {
+            // A key scrolled under the pinned keys leaves the accessibility
+            // tree, so the order is read while Zoom In is still in view: any
+            // launcher in view then is after it.
+            scroll(app, row: keyboardKey, until: zoomIn)
+            XCTAssertTrue(zoomIn.exists, "Zoom In in the row\n\(app.debugDescription)")
+            if zoomIn.exists, claude.exists {
                 XCTAssertGreaterThan(claude.frame.minX, zoomIn.frame.maxX, "Claude comes after zoom")
+            }
+            scroll(app, row: keyboardKey, until: app.buttons["terminal.key.launcher-ollama"])
+            XCTAssertTrue(claude.exists, "the row's end\n\(app.debugDescription)")
+            // At the row's end, nothing but launchers follows Claude in the scroller.
+            if claude.exists {
+                let afterClaude = app.buttons.allElementsBoundByIndex.filter {
+                    $0.identifier.hasPrefix("terminal.key.") && $0.identifier != "terminal.key.keyboard"
+                        && $0.frame.minX > claude.frame.minX && abs($0.frame.midY - claude.frame.midY) < 4
+                }
+                for key in afterClaude {
+                    XCTAssertTrue(key.identifier.hasPrefix("terminal.key.launcher-"), "after Claude: \(key.identifier)")
+                }
             }
             shoot(app, "launchers-\(style)")
 

@@ -207,21 +207,26 @@ struct KeyboardToggleKey: View {
 
     var body: some View {
         let shown = model.keyboardVisible
-        Button {
-            model.toggleKeyboard()
+        // A Menu with a primary action, not a Button with .contextMenu: in the
+        // scroller's trailing safe-area bar the context menu never took the
+        // long-press (simulator, iOS 26.5: a 1.2 s press toggled the keyboard
+        // and no menu showed). The system button's own menu does: a tap runs
+        // the primary action, a touch and hold opens the menu.
+        Menu {
+            Button(shown ? "Hide Keyboard" : "Show Keyboard",
+                   systemImage: shown ? "keyboard.chevron.compact.down" : "keyboard") { model.toggleKeyboard() }
+            Button("Hide Toolbar Too", systemImage: "chevron.down.square") { model.hideToolbar() }
         } label: {
             Image(systemName: shown ? "keyboard.chevron.compact.down" : "keyboard")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(0.78))
                 .contentTransition(.opacity)
                 .animation(.easeInOut(duration: 0.2).unlessReduceMotion, value: shown)
+        } primaryAction: {
+            model.toggleKeyboard()
         }
+        .menuStyle(.button)
         .buttonStyle(KeyCapStyle(width: TerminalDockMetrics.keyRowHeight + 12))
-        .contextMenu {
-            Button(shown ? "Hide Keyboard" : "Show Keyboard",
-                   systemImage: shown ? "keyboard.chevron.compact.down" : "keyboard") { model.toggleKeyboard() }
-            Button("Hide Toolbar Too", systemImage: "chevron.down.square") { model.hideToolbar() }
-        }
         .accessibilityLabel(shown ? "Hide Keyboard" : "Show Keyboard")
         .accessibilityHint("Touch and hold to hide the toolbar too.")
         .accessibilityAction(named: "Hide Toolbar Too") { model.hideToolbar() }

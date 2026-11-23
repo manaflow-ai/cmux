@@ -27,7 +27,8 @@ final class TerminalComposerDockUITests: XCTestCase {
 
         // At rest, keyboard down: the key row is already there (classic), above the composer.
         XCTAssertTrue(composeKey.exists && control.exists && keyboardKey.exists, "key row at rest\n\(app.debugDescription)")
-        XCTAssertLessThan(control.frame.maxY, field.frame.minY, "the key row sits above the composer")
+        // Each key's 44 pt hit area (Apple HIG) reaches the composer's top edge; the caps stay above it.
+        XCTAssertLessThanOrEqual(control.frame.maxY, field.frame.minY, "the key row sits above the composer")
         XCTAssertEqual(keyboardKey.label, "Show Keyboard")
         attach(app, "rest")
 
