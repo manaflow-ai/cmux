@@ -88,6 +88,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "callerProtocol",
     "callerSession",
     "cancelToken",
+    "chunkDeltas",
     "class",
     "cliHost",
     "compression",
@@ -109,6 +110,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "harness",
     "harnessFrom",
     "host",
+    "ifNameTaken",
     "inlineParts",
     "interrupt",
     "localAppToken",
@@ -140,6 +142,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "resend",
     "restricted",
     "route",
+    "sessionChangedDelta",
     "sessionCreatedAt",
     "senderHarness",
     "senderHarnessChecked",
@@ -166,11 +169,11 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
 
 keyed! {
     /// `_acpmux/account/sign_in`.
-    AccountSignInParams: ["account", "family", "name"];
+    AccountSignInParams: ["account", "family", "name", "sessionId"];
     /// `_acpmux/account/sign_in.finish`.
-    AccountSignInFinishParams: ["loginId", "code"];
+    AccountSignInFinishParams: ["loginId", "code", "sessionId"];
     /// `_acpmux/account/sign_in.cancel`.
-    AccountSignInCancelParams: ["loginId"];
+    AccountSignInCancelParams: ["loginId", "sessionId"];
     /// `_acpmux/account/switch` and `_acpmux/account/remove`.
     AccountIdParams: ["account"];
     /// `_acpmux/agent_hold`.
@@ -257,6 +260,12 @@ keyed! {
     ProcessListParams: ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
+    /// `_acpmux/prompts_delete`.
+    PromptsDeleteParams: ["name"];
+    /// `_acpmux/prompts_list`.
+    PromptsListParams: [];
+    /// `_acpmux/prompts_save`.
+    PromptsSaveParams: ["name", "text"];
     /// `_acpmux/queue_approve`.
     QueueApproveParams: ["sessionId", "promptId", "turnId", "revision"];
     /// `_acpmux/queue_decline`.
@@ -289,6 +298,16 @@ keyed! {
     SetToolsParams: ["sessionId", "id", "enabled"];
     /// `_acpmux/side`.
     SideParams: ["sessionId", "chat"];
+    /// `_acpmux/stash_drop`.
+    StashDropParams: ["chat", "id"];
+    /// `_acpmux/stash_get`.
+    StashGetParams: ["chat", "id"];
+    /// `_acpmux/stash_list`.
+    StashListParams: ["chat"];
+    /// `_acpmux/stash_move`.
+    StashMoveParams: ["chat", "to"];
+    /// `_acpmux/stash_push`.
+    StashPushParams: ["chat", "text", "attachments", "replaces"];
     /// `_acpmux/start_mode`.
     StartModeParams: ["harness", "preset", "cwd"];
     /// `_acpmux/status`.
