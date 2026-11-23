@@ -1,0 +1,292 @@
+{
+ "date": "2026-11-23",
+ "machine": {
+  "host": "cmux20",
+  "model": "Mac17,1",
+  "chip": "Apple M6",
+  "cores": 10,
+  "ram_gb": 16,
+  "macos": "27.0",
+  "build": "27A1"
+ },
+ "cmux_ref": "0000000000000000000000000000000000000000",
+ "apps": {
+  "cmux": {
+   "name": "cmux NEXT",
+   "version": "1.0.0-nightly.1",
+   "team": "T1"
+  },
+  "claude": {
+   "name": "Claude",
+   "version": "6.28899.6",
+   "team": "T2"
+  }
+ },
+ "purge": true,
+ "rows": {
+  "fresh-window": {
+   "cmux": {
+    "median": 820,
+    "min": 820,
+    "max": 820,
+    "n": 1
+   },
+   "claude": {
+    "median": 2400,
+    "min": 2400,
+    "max": 2400,
+    "n": 1
+   }
+  },
+  "restart-window": {
+   "cmux": {
+    "median": 610,
+    "min": 610,
+    "max": 610,
+    "n": 1
+   },
+   "claude": {
+    "median": 1900,
+    "min": 1900,
+    "max": 1900,
+    "n": 1
+   }
+  },
+  "warm-window": {
+   "cmux": {
+    "median": 310.0,
+    "min": 300,
+    "max": 320,
+    "n": 2
+   },
+   "claude": {
+    "median": 925.0,
+    "min": 900,
+    "max": 950,
+    "n": 2
+   }
+  },
+  "fresh-cpu": {
+   "cmux": {
+    "median": 2.1,
+    "min": 2.1,
+    "max": 2.1,
+    "n": 1
+   },
+   "claude": {
+    "median": 6.3,
+    "min": 6.3,
+    "max": 6.3,
+    "n": 1
+   }
+  },
+  "soak-memory-peak": {
+   "cmux": {
+    "median": 410,
+    "min": 410,
+    "max": 410,
+    "n": 1
+   },
+   "claude": {
+    "median": 780,
+    "min": 780,
+    "max": 780,
+    "n": 1
+   }
+  },
+  "soak-memory-growth": {
+   "cmux": {
+    "median": 0.4,
+    "min": 0.4,
+    "max": 0.4,
+    "n": 1
+   },
+   "claude": {
+    "median": 1.2,
+    "min": 1.2,
+    "max": 1.2,
+    "n": 1
+   }
+  },
+  "soak-wakeups": {
+   "cmux": {
+    "median": 12,
+    "min": 12,
+    "max": 12,
+    "n": 1
+   },
+   "claude": {
+    "median": 40,
+    "min": 40,
+    "max": 40,
+    "n": 1
+   }
+  },
+  "soak-disk": {
+   "cmux": {
+    "median": 3.0,
+    "min": 3.0,
+    "max": 3.0,
+    "n": 1
+   },
+   "claude": {
+    "median": 8.0,
+    "min": 8.0,
+    "max": 8.0,
+    "n": 1
+   }
+  },
+  "soak-processes": {
+   "cmux": {
+    "median": 6,
+    "min": 6,
+    "max": 6,
+    "n": 1
+   },
+   "claude": {
+    "median": 7,
+    "min": 7,
+    "max": 7,
+    "n": 1
+   }
+  }
+ },
+ "errors": [
+  {
+   "browser": "rex",
+   "round": 0,
+   "row": "fresh-window",
+   "note": "no bundle on this host"
+  }
+ ],
+ "method": "scripts/perf-bench/rivals.py",
+ "samples": [
+  {
+   "browser": "cmux",
+   "round": 1,
+   "row": "fresh-window",
+   "value": 820
+  },
+  {
+   "browser": "cmux",
+   "round": 1,
+   "row": "restart-window",
+   "value": 610
+  },
+  {
+   "browser": "cmux",
+   "round": 1,
+   "row": "warm-window",
+   "value": 300
+  },
+  {
+   "browser": "cmux",
+   "round": 1,
+   "row": "warm-window",
+   "value": 320
+  },
+  {
+   "browser": "cmux",
+   "round": 1,
+   "row": "fresh-cpu",
+   "value": 2.1
+  },
+  {
+   "browser": "cmux",
+   "round": 1,
+   "row": "soak-memory-peak",
+   "value": 410
+  },
+  {
+   "browser": "cmux",
+   "round": 1,
+   "row": "soak-memory-growth",
+   "value": 0.4
+  },
+  {
+   "browser": "cmux",
+   "round": 1,
+   "row": "soak-wakeups",
+   "value": 12
+  },
+  {
+   "browser": "cmux",
+   "round": 1,
+   "row": "soak-disk",
+   "value": 3.0
+  },
+  {
+   "browser": "cmux",
+   "round": 1,
+   "row": "soak-processes",
+   "value": 6
+  },
+  {
+   "browser": "claude",
+   "round": 1,
+   "row": "fresh-window",
+   "value": 2400
+  },
+  {
+   "browser": "claude",
+   "round": 1,
+   "row": "restart-window",
+   "value": 1900
+  },
+  {
+   "browser": "claude",
+   "round": 1,
+   "row": "warm-window",
+   "value": 900
+  },
+  {
+   "browser": "claude",
+   "round": 1,
+   "row": "warm-window",
+   "value": 950
+  },
+  {
+   "browser": "claude",
+   "round": 1,
+   "row": "fresh-cpu",
+   "value": 6.3
+  },
+  {
+   "browser": "claude",
+   "round": 1,
+   "row": "soak-memory-peak",
+   "value": 780
+  },
+  {
+   "browser": "claude",
+   "round": 1,
+   "row": "soak-memory-growth",
+   "value": 1.2
+  },
+  {
+   "browser": "claude",
+   "round": 1,
+   "row": "soak-wakeups",
+   "value": 40
+  },
+  {
+   "browser": "claude",
+   "round": 1,
+   "row": "soak-disk",
+   "value": 8.0
+  },
+  {
+   "browser": "claude",
+   "round": 1,
+   "row": "soak-processes",
+   "value": 7
+  },
+  {
+   "browser": "rex",
+   "round": 0,
+   "row": "fresh-window",
+   "value": null,
+   "note": "no bundle on this host"
+  }
+ ]
+}
