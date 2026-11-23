@@ -170,9 +170,7 @@ tests/test_cmux_next_guardrails.py	assert-on-duration	feat-cmux-next debt while 
 tests/test_cmux_next_guardrails.py	sleep-then-assert	feat-cmux-next debt while the gate was red (added in ceebde59ffd1); determinize, then remove
 tests/test_cmux_next_guardrails_blocking.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in 1fbea2603796); determinize, then remove
 tests/test_cmux_next_guardrails_qos.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in e9ccfe8315e2); determinize, then remove
-tests/test_fresh_home_launch_smoke.py	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 5828ecce9a6d); determinize, then remove
 tests/test_git_fetch_retry.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in 61b3bbdcdb0d); determinize, then remove
-tests/test_git_fetch_retry.py	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 61b3bbdcdb0d); determinize, then remove
 tests/test_guard_hooks_from_base.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in 6f55716f1267); determinize, then remove
 tests/test_nightly_helpers_beside_release_build.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in 316f6c8c38c4); determinize, then remove
 tests/test_r2_upload_requests.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in 3ded5ceec04b); determinize, then remove
@@ -356,7 +354,6 @@ Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/SocketSettingsWriteTests.swif
 tests/test_ci_cmux_next_compile_status.py	assert-on-duration	each elapsed bound (15-20 s) proves the step hands off within its BAD_BOUND instead of the 40-minute long poll it replaced: the hang is the behavior under test, and the bound sits ten times above the expected time
 tests/test_ci_cmux_next_compile_status.py	live-network-host	the URLs are detector fixture strings fed to unbounded_retries(); the test never requests them
 tests/test_ci_no_bare_urlopen.py	assert-on-duration	deadline_http's own deadline tests: that a request ends at its deadline (not before, not long after) is the behavior under test, served by a local socket
-tests/test_ci_no_bare_urlopen.py	sleep-then-assert	deadline_http's own deadline tests: the sleep spends the deadline itself (a shared Deadline already past, or a refused send that must stay unsent past it); no state is awaited
 Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneActAsMePillBuildTests.swift	sleep-then-assert	the 50 ms pause lets each page's follower start and wait on a grant that is off; the assert is that no pill was built, an absence that has no signal to wait on. Remove when the follower reports that it waits
 tests/test_cmux_next_prepush_gate.py	assert-on-duration	the advisory run's deadline is the behavior under test: with a 3 s deadline and a child that sleeps 300 s the run must end, and the bound is the deadline plus 60 s of slack
 tests/test_ios_app_review_gate.py	live-network-host	the URL goes to gate.fetch with PinnedHTTPSConnection and socket.getaddrinfo patched to fakes; the test opens no connection
@@ -386,7 +383,6 @@ cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileScreenSharingTests/ScreenSharingView
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalColdFrameHandoffTests.swift	sleep-then-assert	the assert is that a failed attach keeps the cold frame, an absence of a clear that has no signal to wait on
 tests/test_ci_step_table.py	assert-on-duration	the bound is the behavior under test: four 1 s steps must run at once (about 1 s), and serial would take 4 s; 3.5 s leaves 2.5 s of slack
 tests/test_generated_files_guard.py	assert-on-duration	the bound is the behavior under test: two checks with their own 1 s try and 2 s retry must share one budget, 6 s serial against a 4.5 s bound
-tests/test_guard_logs_survive_closed_pipe.py	sleep-then-assert	debt: the 300 ms pause lets bash install its traps before the probe; the probe's own self-check asserts the process reads as alive
 webviews/test/history-page-pending.test.tsx	sleep-then-assert	setTimeout(0) inside act() is one macrotask turn that lets the pushed history reply render, not a wait for time to pass
 scripts/cmux-next/tests/lib/git-fixture.sh	exit-trap-reraise-order	debt: the fixture composes its own EXIT trap with the caller's saved one; check the re-raise order against the rule
 scripts/cmux-next/tests/test_bundle_size_pr.py	git-temp-repo-maintenance	debt: a throwaway temp repo of a few commits; move it onto tests/git_fixture_env
@@ -424,3 +420,8 @@ webviews/test/chief-views-row-renders.test.tsx	sleep-then-assert	a zero-delay ma
 webviews/test/passwords-visible-only.test.tsx	sleep-then-assert	a zero-delay macrotask inside act() so the scroll handler's queued update commits; no real wait
 webviews/test/stash-visible-only.test.tsx	sleep-then-assert	a zero-delay macrotask inside act() so the scroll handler's queued update commits; no real wait
 webviews/test/markdown-save-scale.test.ts	assert-on-duration	debt (5b3a4b5d): a 2 s bound on a stress-bench match; move the bound to the bench, keep the correctness checks here
+webviews/test/cloud-files-visible-only.test.tsx	sleep-then-assert	a zero-delay macrotask inside act() so the scroll handler's queued update commits; no real wait
+webviews/test/feed-diff-visible-only.test.tsx	sleep-then-assert	a zero-delay macrotask inside act() so the scroll handler's queued update commits; no real wait
+Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/NoBounceSpringsTests.swift	assert-on-duration	a.duration is the CAKeyframeAnimation's configured length, not a measured time; nothing here reads a clock
+Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/HomeComposerSendPrepTests.swift	sleep-then-assert	debt (847a5968a00): the 400 ms wait proves a dropped render never happens (a negative check); a slow runner only lengthens the window; move to a drain signal
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefBrainWatchFilesHostTests.swift	sleep-then-assert	debt (03335b86d87): the 500 ms wait proves an unrelated host is never watched (a negative check); a slow runner only lengthens the window; move to a watch-tick signal

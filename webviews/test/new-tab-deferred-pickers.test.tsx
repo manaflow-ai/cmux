@@ -622,6 +622,25 @@ test("a New Tab click on Sonnet's row, then on its High level, starts the first 
   expect(wire).toEqual(["new claude", "model claude-sonnet-5-5", "reasoning_effort=high", "prompt hello"]);
 });
 
+// David Beyer 2026-11-20: the model menu closes after a switch, on New Tab as in a chat.
+for (const startedChat of [false, true])
+  test(`a click on a model's row lands it and closes the model menu (${startedChat ? "started chat" : "New Tab"})`, async () => {
+    const { clickChip } = await mountNewTab({
+      model: "claude-fable-5-1",
+      opened: [effortOption("reasoning_effort")],
+      ...(startedChat ? { live: true, startedChat: true, rail: true } : {}),
+    });
+    await clickChip();
+    const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-cols");
+    const row = [...menu()!.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find(
+      (candidate) => candidate.querySelector(".acpmux-cols-name")?.textContent === "Sonnet 5.5",
+    );
+    expect(row).not.toBeUndefined();
+    await act(async () => row!.click());
+    expect(menu()).toBeNull();
+    expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
+  });
+
 // In a live chat the same two clicks send the level before acpmux confirms the model: the row's
 // click shows Sonnet as running at once, so the level goes to the session (QuickModelColumns
 // pickLevel, `focusRuns`) and not with the model as one pick, as Return on the level does above.

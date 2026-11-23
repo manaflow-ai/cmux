@@ -10,7 +10,7 @@
 // here sent edits to the chat (Leo 2026-10-20). The quiet row holds the routing note where the
 // chat's composer holds its mode, so both composers stand the same height and switching the pane
 // between the chat and a subagent moves nothing (Leo, 2026-11-19: "and it layout shifts too").
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import { ComposerBox } from "../ComposerBox";
@@ -43,6 +43,7 @@ export function SubagentComposer({
   accessory,
   dictation,
   promptRef,
+  onFocusEdge,
 }: {
   /// The subagent the prompt is for, as the pane names it (the prompt's accessible name and Send's).
   subagent: string;
@@ -63,6 +64,9 @@ export function SubagentComposer({
   dictation?: Dictation;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
   promptRef?: { current: MarkdownFieldHandle | null };
+  /// Focus-visible in the card: the dock's owner lifts the stack's edge from it, as for the chat's
+  /// composer (Composer.tsx `onFocusEdge`).
+  onFocusEdge?: (lit: boolean) => void;
 }) {
   const t = useT();
   // The chat composer's look decides Send's glyph and whether it shows at rest (Composer.tsx
@@ -72,6 +76,17 @@ export function SubagentComposer({
   const quietActions = plainFooter && look !== "codex";
   const chrome = useComposerChrome();
   const [viaPlace] = useState(() => experimentArm(subagentComposerVia));
+  // Focus-visible in the card marks the form (`data-focused`, composerStates.css) and the dock's edge,
+  // as the card reports it (ComposerBox `onFocusVisible`): no wide `:has()`, no render.
+  const form = useRef<HTMLFormElement>(null);
+  const focusEdge = useRef(onFocusEdge);
+  useLayoutEffect(() => {
+    focusEdge.current = onFocusEdge;
+  });
+  const markFocus = (focused: boolean) => {
+    form.current?.toggleAttribute("data-focused", focused);
+    focusEdge.current?.(focused);
+  };
   // The kept draft (subagentDrafts.ts): opening the chat ("Subagent of") or another subagent
   // unmounts this, and coming back, or a page let go, reloaded or quit meanwhile, finds it.
   const [text, setTextState] = useState(() => subagentDraft(draftKey).text);
@@ -202,9 +217,13 @@ export function SubagentComposer({
     );
   return (
     <form
+      ref={form}
       className="acpmux-composer acpmux-subagent-composer"
       data-composer-look={look === "codex" ? "codex" : undefined}
       data-composer-grid=""
+      // ComposerBox always draws the quiet row (ComposerFoot): composerLocation.css reads this, not a
+      // `:has(.acpmux-composer-foot)`.
+      data-foot=""
       data-cmux-component="SubagentComposer"
       onSubmit={(event) => {
         event.preventDefault();
@@ -269,6 +288,7 @@ export function SubagentComposer({
         {...(accessory ? { accessory } : {})}
         trailing={quietActions ? undefined : send}
         chromeItems={[chrome.dictation]}
+        onFocusVisible={markFocus}
       />
       {viaPlace === "caption" && <p className="cv-subagent-composer-via">{viaText}</p>}
     </form>
