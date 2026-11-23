@@ -23324,6 +23324,29 @@
     "vi": "Bản đang chạy, bản cập nhật đã chuẩn bị và việc khởi động lại có cài nó ngay không.",
     "zh-Hans": "正在运行的版本、已准备好的更新，以及现在重新启动是否会安装它。",
     "zh-Hant": "正在執行的版本、已準備好的更新，以及現在重新啟動是否會安裝它。"
+   },
+   "action.agentChat.renameSession": {
+    "ar": "إعادة تسمية جلسة الوكيل…",
+    "bs": "Preimenuj sesiju agenta…",
+    "da": "Omdøb agentsession…",
+    "de": "Agent-Sitzung umbenennen…",
+    "en": "Rename Agent Session…",
+    "es": "Renombrar sesión del agente…",
+    "fr": "Renommer la session de l’agent…",
+    "it": "Rinomina sessione agente…",
+    "ja": "エージェントセッション名を変更…",
+    "km": "ប្ដូរឈ្មោះវគ្គភ្នាក់ងារ…",
+    "ko": "에이전트 세션 이름 변경…",
+    "nb": "Gi nytt navn til agentøkt…",
+    "pl": "Zmień nazwę sesji agenta…",
+    "pt-BR": "Renomear sessão do agente…",
+    "ru": "Переименовать сеанс агента…",
+    "th": "เปลี่ยนชื่อเซสชันเอเจนต์…",
+    "tr": "Ajan oturumunu yeniden adlandır…",
+    "uk": "Перейменувати сеанс агента…",
+    "vi": "Đổi tên phiên tác tử…",
+    "zh-Hans": "重命名代理会话…",
+    "zh-Hant": "重新命名代理工作階段…"
    }
   },
   "AgentChatMenu": {
