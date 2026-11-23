@@ -833,6 +833,8 @@ impl Hub {
             turn_cap_noticed: None,
             delegator: None,
             cold: None,
+            // A fork is a new chat: it takes the setting's default, not its source's Auto.
+            auto_session: None,
         };
         // Onto another harness: the new one's own launch, and nothing its agent would not know
         // (the old agent's modes, options, models, commands and store). The mode and model are

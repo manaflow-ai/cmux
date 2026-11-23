@@ -12,13 +12,15 @@
 //! handback. [`spawn_holder`] is implemented by the laptop side and called by the machine side
 //! with its own transport, so one holder loop serves both.
 //!
-//! Nothing here runs yet: no task starts and no session changes.
+//! What a chat keeps of Auto mode in its own record, and its row's `autoSession`, is [`record`].
 
 pub mod export;
 pub mod import;
 pub mod laptop;
 pub mod machine;
+pub mod record;
 pub mod runtime;
+pub(crate) mod surface;
 
 use std::fmt;
 use std::sync::Arc;
@@ -30,6 +32,8 @@ use cmux_auto_session::cloud::AutoCloudError;
 pub use cmux_auto_session::holder::ImportReason;
 use cmux_auto_session::wire::{Holder, SessionView};
 use futures::future::BoxFuture;
+
+pub use runtime::HolderOptions;
 
 use crate::hub::Hub;
 
@@ -99,10 +103,18 @@ pub trait SessionImporter: Send + Sync {
 }
 
 /// The running holder loop of one daemon: it renews the Auto chats this machine holds or stands
-/// by for, and runs the state machine's effects. Dropping it does not stop the loop.
-#[derive(Clone, Debug)]
+/// by for, and runs the state machine's effects. Dropping it does not stop the loop, which ends
+/// with the hub. What it is told is in [`runtime`]: `assigned`, `wake`, `set_auto`.
+#[derive(Clone)]
 pub struct HolderHandle {
     me: Holder,
+    commands: runtime::Commands,
+}
+
+impl fmt::Debug for HolderHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HolderHandle").field("me", &self.me).finish_non_exhaustive()
+    }
 }
 
 impl HolderHandle {
@@ -114,9 +126,10 @@ impl HolderHandle {
 
 /// Starts the holder loop ([`runtime`], slice B). A laptop's daemon calls it with the owner's
 /// transport ([`laptop`]) and `device:<id>`; a Cloud machine's daemon calls it with its own
-/// transport ([`machine`]) and `vm:<machine>`.
+/// transport ([`machine`]) and `vm:<machine>`. The holder's name says which side the loop is.
 ///
-/// It starts nothing yet: the handle only keeps the holder's name.
+/// Call it inside the daemon's runtime, once per hub: the hub's Auto methods reach the first
+/// loop started for it.
 pub fn spawn_holder<C>(
     hub: Arc<Hub>,
     cloud: Arc<C>,
@@ -126,6 +139,20 @@ pub fn spawn_holder<C>(
 where
     C: AutoCloud + 'static,
 {
-    let _ = (hub, cloud, importer);
-    HolderHandle { me }
+    runtime::spawn(hub, cloud, me, importer, HolderOptions::default())
+}
+
+/// [`spawn_holder`] with its clock, network notices and the setting for new chats chosen by the
+/// caller (a laptop's daemon, a test).
+pub fn spawn_holder_with<C>(
+    hub: Arc<Hub>,
+    cloud: Arc<C>,
+    me: Holder,
+    importer: Arc<dyn SessionImporter>,
+    options: HolderOptions,
+) -> HolderHandle
+where
+    C: AutoCloud + 'static,
+{
+    runtime::spawn(hub, cloud, me, importer, options)
 }

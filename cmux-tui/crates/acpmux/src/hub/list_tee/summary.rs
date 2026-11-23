@@ -53,6 +53,7 @@ const EXTRA_KEYS: &[&str] = &[
     "watching",
     "loopEpisode",
     "coldArchive",
+    "autoSession",
     "waitingPrompt",
     "since",
     "stuckError",
