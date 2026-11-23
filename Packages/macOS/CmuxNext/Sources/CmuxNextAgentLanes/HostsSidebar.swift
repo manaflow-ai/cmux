@@ -93,12 +93,13 @@ public final class HostsSidebar {
     @ObservationIgnored private var connectHolds: [String: QuietHold] = [:]
     @ObservationIgnored private let connectQuiet: Duration
 
-    /// - Parameter connectQuiet: how long a connect lasts before its row says so; tests pass a short one.
+    /// - Parameter connectQuiet: how long a connect lasts before its row says so; nil is
+    ///   ``NoticeTiming/connectionQuiet``, and tests pass a short one.
     public init(host: Host? = nil, visible: @escaping @MainActor () -> Bool = { true },
-                connectQuiet: Duration = NoticeTiming.connectionQuiet) {
+                connectQuiet: Duration? = nil) {
         self.host = host
         self.visible = visible
-        self.connectQuiet = connectQuiet
+        self.connectQuiet = connectQuiet ?? NoticeTiming.connectionQuiet
         if let host {
             start(host, visible: visible)
             watch()
