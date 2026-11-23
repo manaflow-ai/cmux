@@ -29,13 +29,18 @@ pub struct MoveSessionsArgs {
     /// Every open chat here that is between turns.
     #[arg(long, conflicts_with = "sessions")]
     pub all_idle: bool,
-    /// Stop a running turn instead of refusing the move.
+    /// Stop a running turn at once, even mid tool call. Without it a running turn moves with
+    /// the chat: the move waits for its tool call in flight to end, and the turn goes on there.
     #[arg(long, conflicts_with = "after_turn")]
     pub interrupt: bool,
     /// Let a running turn end on its own, then move: nothing is stopped or refused while it
     /// runs, and prompts sent meanwhile move with the chat.
     #[arg(long)]
     pub after_turn: bool,
+    /// With --after-turn: the longest the move waits for a running turn to end, in seconds;
+    /// past it the move gives up (non-zero), naming the chat and the step.
+    #[arg(long, value_name = "SECS", default_value_t = 600)]
+    pub timeout: u64,
     /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
     #[arg(long)]
     pub leave_dirty: bool,
