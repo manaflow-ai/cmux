@@ -498,6 +498,8 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
             state: crate::hub::outbox::State::Delivered,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,
