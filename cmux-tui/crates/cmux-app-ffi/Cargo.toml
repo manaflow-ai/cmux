@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the cmux SDK daemon client, the agent list client and the Chrome cookie sync"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the cmux SDK daemon client, the agent list client and the Chrome cookie sync"
 
 # The workspace of the app's C ABIs, with one Cargo.lock for all four: this
 # crate and the FFI crates it links, which name it in `package.workspace`.
@@ -40,6 +40,8 @@ cmux-cookie-sync = { path = "../cmux-cookie-sync" }
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 # The app health model (cmux-health-core src/ffi.rs: JSON ops, the repair ladder, the snapshot).
 cmux-health-core = { path = "../cmux-health-core" }
+# Each window's last frame for the launch's first frame (cmux-launch-image src/ffi.rs: naming, caps, pruning, when to capture).
+cmux-launch-image = { path = "../cmux-launch-image" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
 # passes its own settings per call, so no AppKit or env reading here.
 cmux-motion = { path = "../cmux-motion", default-features = false }
@@ -49,6 +51,13 @@ cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
 cmux-launch-record = { path = "../cmux-launch-record" }
 # What the stage-0 launch window shows and which input it holds (src/ffi.rs, include/cmux_launch_shell.h).
 cmux-launch-shell = { path = "../cmux-launch-shell" }
+# The files lister's child, owned (src/files_lister.rs): it ends with its lister.
+cmux-process = { path = "../cmux-process" }
+# The files lister client and the system calendar ops' JSON (src/files_lister.rs, src/system_calendar.rs).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Text caps count grapheme clusters, as Swift does (src/system_calendar.rs).
+unicode-segmentation = "1"
 
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites

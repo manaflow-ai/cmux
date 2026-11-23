@@ -580,6 +580,34 @@ impl Store for ForkView {
             Some(_) => Ok(()),
         }
     }
+    /// A fork's view joins two logs: an adoption of it reads it whole (`hub/hosts/checkpoint.rs`).
+    fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
+        let _held = self.shared();
+        match self.reference(id) {
+            Ok(None) => self.inner.adoption_checkpoint(id),
+            _ => None,
+        }
+    }
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            None => self.inner.save_adoption_checkpoint(id, bytes),
+            Some(_) => Ok(()),
+        }
+    }
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_heads_from(id, from, hint, visit);
+        }
+        self.scan_heads(id, &mut |head| head.seq < from || visit(head, None))
+    }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         let _held = self.shared();
         let Some(r) = self.reference(id)? else { return self.inner.tail_after(id, after) };
@@ -591,6 +619,17 @@ impl Store for ForkView {
         })?;
         let (own, own_last) = self.inner.tail_after(id, after.max(r.through_seq))?;
         Ok((count + own, if own > 0 { own_last } else { last }))
+    }
+    /// A fork's own log alone takes its store's read; one that shows its chat's history reads
+    /// the joined view back (`scan_back`).
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        {
+            let _held = self.shared();
+            if self.reference(id)?.is_none() {
+                return self.inner.newest_window(id, before, n);
+            }
+        }
+        newest_window_by_scan(self, id, before, n)
     }
     fn scan_kinds(
         &self,
