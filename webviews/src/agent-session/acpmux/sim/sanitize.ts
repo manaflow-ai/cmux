@@ -64,6 +64,9 @@ const DROP_KINDS = new Set([
   "created",
 ]);
 
+/** The record kinds a fixture leaves out (`--drift` does not count them as missing). */
+export const DROPPED: ReadonlySet<string> = DROP_KINDS;
+
 const WORDS =
   "the a and to of in it is for on that this with as at by from run test file fix read check build line call step part note".split(
     " ",
