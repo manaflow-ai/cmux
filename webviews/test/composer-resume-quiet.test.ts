@@ -19,7 +19,7 @@ const VARIANT = "one";
 
 test("Resume's ▶ is the line glyph, not the solid one", () => {
   const play = renderToStaticMarkup(createElement(GlyphIcon, { glyph: "play" }));
-  const send = renderToStaticMarkup(createElement(GlyphIcon, { glyph: "send" }));
+  const send = renderToStaticMarkup(createElement(GlyphIcon, { glyph: "arrow" }));
   // The line form draws a stroke, as Send's ↑ and the mic do; the solid form has none.
   expect(send).toContain("stroke-width");
   expect(play).toContain("stroke-width");
