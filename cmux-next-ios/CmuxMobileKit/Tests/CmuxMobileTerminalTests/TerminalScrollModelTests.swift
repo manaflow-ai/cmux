@@ -287,4 +287,45 @@ import Testing
         #expect(model.state == .reading(.init(row: 1_500, delta: 0)))
         #expect(!model.awaitsPlacement)
     }
+
+    /// Leo, 2026-11-22: "zoming in and out eith the magnifying glass layout
+    /// shifts unnecessarily when resizing". The anchor is the row at the
+    /// bounds' top, behind the 62 pt toolbar; a new row height keeps the
+    /// first row below the toolbar (and how far into it) instead.
+    @Test func aZoomKeepsTheFirstRowBelowTheToolbar() {
+        var model = TerminalScrollModel()
+        let a = TerminalDocumentLayout(originRow: 0, endRow: 600)
+        model.began()
+        // Row 200 at the bounds' top, 4 pt into it: 66 pt down is row 204, 2 pt in.
+        model.settled(offsetY: 200 * cell + 4, bottomOffsetY: bottom(a), layout: a, rowHeight: cell)
+        func firstVisible(_ rowHeight: CGFloat) -> (row: Int, into: CGFloat) {
+            let y = model.target(layout: a, rowHeight: rowHeight, topInset: 62, bottomOffsetY: .greatestFiniteMagnitude)! + 62
+            let row = a.row(atContentY: y, cellHeight: rowHeight)
+            return (row, y - a.contentY(ofRow: row, cellHeight: rowHeight))
+        }
+        #expect(firstVisible(cell).row == 204)
+        #expect(abs(firstVisible(cell).into - 2) < 0.001)
+        // Zoom in to 20 pt rows: still row 204, the same fraction into it.
+        model.rowHeightChanged(from: cell, to: 20, topInset: 62)
+        #expect(firstVisible(20).row == 204)
+        #expect(abs(firstVisible(20).into - 2.5) < 0.001)
+        // And out to 12 pt rows.
+        model.rowHeightChanged(from: 20, to: 12, topInset: 62)
+        #expect(firstVisible(12).row == 204)
+        #expect(abs(firstVisible(12).into - 1.5) < 0.001)
+    }
+
+    @Test func aZoomLeavesFollowingAlone() {
+        var model = TerminalScrollModel()
+        model.rowHeightChanged(from: 16, to: 20, topInset: 62)
+        #expect(model.isFollowing)
+    }
+
+    /// At the top of the document the first row stays row 0 at the inset.
+    @Test func aZoomAtTheTopStaysAtTheTop() {
+        var model = TerminalScrollModel()
+        model.reveal(row: 0, delta: -62)
+        model.rowHeightChanged(from: 16, to: 20, topInset: 62)
+        #expect(model.state == .reading(.init(row: 0, delta: -62)))
+    }
 }

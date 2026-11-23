@@ -273,10 +273,11 @@ jobs:
   kit-tests:
     needs: [runner]
     name: CmuxMobileKit tests (macOS swift test, iOS simulator)
-    # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
+    # Runs on every pull request this workflow's paths match (cmux-next-ios/**, the packages CmuxMobileKit links), with
+    # no full-ci label: as a Tier B skip, iOS PRs merged untested and were fixed forward over days (Leo, 2026-11-22:
+    # "if 80% of code doesn't have a way of having a proper pr in the hour, then our fucking codebase is not good enough").
     # Also skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    if: ${{ !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:
@@ -302,6 +303,8 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: cmux-next-ios-kit
@@ -321,9 +324,15 @@ jobs:
             exit 1
           fi
 
-      # The instant-list bench runs on its own below (no other suite on the cores).
+      # The instant-list bench runs on its own below (no other suite on the cores). So do the suites
+      # that bound wall-clock time or the process footprint: among 2580 parallel tests in one process
+      # they measured their neighbours (reattach 1839 ms < 1000, 5194 ms < 5000, footprint 79 MB < 40 MB
+      # on base runs 45081481908 and 45081946888), each run a different one.
       - name: swift test (macOS)
-        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests
+
+      - name: swift test (macOS, measured suites alone)
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests
 
 
       # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so
@@ -359,7 +368,7 @@ jobs:
           # without coverage. arm64 only: the xcframework has no x86_64 simulator slice.
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
-            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet \
+            -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO -quiet \
             -skip-testing:CmuxMobileInstantPerfTests \
             -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" && status=0 || status=$?
           # -quiet drops Swift Testing's output: report from the result bundle (counts,
@@ -441,7 +450,7 @@ jobs:
             exit 1
           fi
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$UDID,arch=arm64" \
-            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet \
+            -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO -quiet \
             -only-testing:CmuxMobileInstantPerfTests \
             -resultBundlePath "$RUNNER_TEMP/instant-perf-ios.xcresult" && status=0 || status=$?
           out="$RUNNER_TEMP/instant-perf/ios-simulator.jsonl"

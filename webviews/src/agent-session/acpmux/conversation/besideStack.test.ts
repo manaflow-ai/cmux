@@ -46,3 +46,22 @@ test("a tray wider than the card keeps the rows under its foot hidden: the card'
   // No piece reaches into the tray's foot.
   expect(pieces).not.toContain("0px 460px 16px 96px");
 });
+
+// The dock band arms (dockBand.experiment.ts; Leo, 2026-11-22: "FIGURE OUT HOW WE CAN HAVE MORE STUFF
+// THERE"): the card, 556 px down a 600 px scroller, over its quiet row's 44 px band.
+const composerCard = { ...card, card: true };
+test("the shipped band adds nothing under the card", () => {
+  expect(besideMask([composerCard], 700)).toEqual(besideMask([card], 700));
+});
+test("frost keeps the card's own footprint in sight, for its glass to frost", () => {
+  const mask = besideMask([composerCard], 700, { arm: "frost", height: 600 })!;
+  expect(mask.sizes.split(", ")).toContain("668px 96px");
+  expect(mask.positions.split(", ")).toContain("16px 460px");
+});
+test("frost-ramp fades the rows out over 16 px under the card; frost-through over the whole band", () => {
+  const ramp = besideMask([composerCard], 700, { arm: "frost-ramp", height: 600 })!;
+  expect(ramp.sizes.split(", ").at(-1)).toBe("700px 16px");
+  expect(ramp.positions.split(", ").at(-1)).toBe("0px 556px");
+  const through = besideMask([composerCard], 700, { arm: "frost-through", height: 600 })!;
+  expect(through.sizes.split(", ").at(-1)).toBe("700px 44px");
+});

@@ -20,7 +20,11 @@ mkdir -p /srv/team/mailbox/inbox/lawrence && chmod 1733 /srv/team/mailbox/inbox/
 runuser -u austin -- sh -c 'echo m > /srv/team/mailbox/inbox/lawrence/m1.md' && echo "sticky 1733 drop: ok"
 runuser -u aziz -- ls /srv/team/mailbox/inbox/lawrence >/dev/null 2>&1 && echo "aziz list inbox: ALLOWED (bad)" || echo "aziz list inbox: denied (expected)"
 # inotify on the mount
-( inotifywait -q -t 10 -e close_write,moved_to /srv/team/mailbox/inbox/lawrence > /tmp/ino.out ) & sleep 1
+: > /tmp/ino.err
+( inotifywait -t 10 -e close_write,moved_to /srv/team/mailbox/inbox/lawrence > /tmp/ino.out 2> /tmp/ino.err ) &
+# The watch is up: inotifywait says "Watches established." on stderr (up to 5 s).
+for _ in $(seq 1 50); do grep -q 'Watches established' /tmp/ino.err && break; sleep 0.1; done
+grep -q 'Watches established' /tmp/ino.err || echo "inotify: watch not established after 5 s: $(cat /tmp/ino.err)"
 runuser -u austin -- sh -c 'echo n > /srv/team/mailbox/inbox/lawrence/.tmp && mv /srv/team/mailbox/inbox/lawrence/.tmp /srv/team/mailbox/inbox/lawrence/m2.md'; wait; echo "inotify: $(cat /tmp/ino.out)"
 # flock and rename
 flock -n /srv/team/lockfile -c 'flock -n /srv/team/lockfile true && echo "flock: NOT exclusive" || echo "flock: exclusive ok"'
