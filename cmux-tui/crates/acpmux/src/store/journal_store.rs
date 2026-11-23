@@ -878,12 +878,23 @@ impl Store for JournalStore {
             lsn
         };
         let Some(lsn) = lsn else { return Ok(()) };
-        match self.inner.journal.wait_durable(lsn, Duration::from_secs(30)) {
-            Ok(()) => Ok(()),
-            Err(cmux_journal::WaitError::Timeout) => {
-                anyhow::bail!("the event journal did not sync within 30 s")
+        // In slices of [`FULL_WAIT`]: while the disk is full, a record the writer did not write
+        // within one may never be, and the caller gets the store's `disk.full` refusal at once
+        // instead of waiting out the 30 s (the gate's lines are answered the same way).
+        let limit = Duration::from_secs(30);
+        let started = Instant::now();
+        loop {
+            let left = limit.saturating_sub(started.elapsed());
+            match self.inner.journal.wait_durable(lsn, left.min(FULL_WAIT)) {
+                Ok(()) => return Ok(()),
+                Err(cmux_journal::WaitError::Timeout) => {
+                    self.inner.space.refuse()?;
+                    if started.elapsed() >= limit {
+                        anyhow::bail!("the event journal did not sync within 30 s");
+                    }
+                }
+                Err(error) => return Err(anyhow::anyhow!("the event journal: {error}")),
             }
-            Err(error) => Err(anyhow::anyhow!("the event journal: {error}")),
         }
     }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
@@ -1025,6 +1036,7 @@ impl Store for JournalStore {
     fn durability(&self) -> Option<Durability> {
         let inner = Arc::downgrade(&self.inner);
         let asker = Arc::downgrade(&self.inner);
+        let full = Arc::downgrade(&self.inner);
         Some(Durability {
             acked: Arc::clone(&self.inner.acked),
             durable: self.inner.durable.clone(),
@@ -1039,7 +1051,8 @@ impl Store for JournalStore {
                 let Some(inner) = inner.upgrade() else { return false };
                 let stats = inner.journal.stats();
                 // A full disk: no restart (it would find the disk as full); the reply waits
-                // for the writer's retry, which the freed reserve lets write ([`space`]).
+                // for the writer's retry, which the freed reserve lets write ([`space`]), at
+                // most [`FULL_WAIT`] (`full` below answers it then).
                 if stats.out_of_space || inner.space.is_full() {
                     return false;
                 }
@@ -1059,6 +1072,10 @@ impl Store for JournalStore {
                         false
                     }
                 }
+            }),
+            full: Arc::new(move || {
+                let inner = full.upgrade()?;
+                inner.space.refuse().err().map(|refusal| refusal.to_string())
             }),
         })
     }

@@ -751,6 +751,7 @@ async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_rea
         written,
         ask: Arc::new(|_| {}),
         stalled: Arc::new(|_: Duration| false),
+        full: Arc::new(|| None),
     };
     let scope = cmux_scope::Scope::new("durable-gate-test");
     let (transport, mut reader) = mpsc::channel(8);
@@ -784,4 +785,82 @@ async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_rea
     backlog((1, 5)).await;
     assert_eq!(reader.recv().await.as_deref(), Some("three"));
     backlog((0, 0)).await;
+}
+
+/// On a full disk the journal may never reach what a line waits for: a reply waits at most
+/// `FULL_WAIT` and is answered with the store's refusal under its id, typed `disk.full`; a
+/// notification that may show the same change is not sent; the lines after them do not wait
+/// again; and the queue's counts drop what was not sent, so `daemon status` reads it empty.
+#[tokio::test]
+async fn on_a_full_disk_a_held_reply_is_answered_disk_full_and_a_notification_dropped() {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    let (_durable_tx, durable) = tokio::sync::watch::channel(0);
+    let (_written_tx, written) = tokio::sync::watch::channel(0);
+    let disk_full = Arc::new(AtomicBool::new(true));
+    let full = Arc::clone(&disk_full);
+    let durability = crate::store::Durability {
+        acked: Arc::new(AtomicU64::new(1)),
+        durable,
+        kept: Arc::new(AtomicU64::new(0)),
+        written,
+        ask: Arc::new(|_| {}),
+        stalled: Arc::new(|_: Duration| false),
+        full: Arc::new(move || {
+            full.load(Ordering::SeqCst).then(|| {
+                "no space left on device: /x is full; acpmux stores nothing until it has 16 MiB free"
+                    .to_owned()
+            })
+        }),
+    };
+    let scope = cmux_scope::Scope::new("durable-gate-full-test");
+    let (transport, mut reader) = mpsc::channel(8);
+    let (out, gate) = super::super::outbound::start(&scope, Some(durability), transport);
+    let gate = gate.unwrap_or_else(|| panic!("a journal store has a gate"));
+    gate.raise();
+    let update = Message::notification("session/update", json!({"sessionId": "s"})).to_line();
+    let reply = Message::ok(json!(7), json!({"stopReason": "end_turn"})).to_line();
+    let failed = Message::err(json!(8), crate::rpc::RpcError::internal("boom")).to_line();
+    let second = Message::ok(json!(9), json!({"sessions": []})).to_line();
+    let started = Instant::now();
+    for line in [&update, &reply, &failed, &second] {
+        assert!(out.push(line.clone()));
+    }
+    let next = |reader: &mut mpsc::Receiver<String>| {
+        let line = reader.try_recv().ok();
+        line.map(|line| serde_json::from_str::<Value>(&line).unwrap_or_else(|e| panic!("{e}")))
+    };
+    let first = tokio::time::timeout(Duration::from_secs(5), reader.recv())
+        .await
+        .unwrap_or_else(|_| panic!("no answer within 5 s on a full disk"))
+        .unwrap_or_else(|| panic!("the transport closed"));
+    assert!(started.elapsed() < Duration::from_secs(1), "answered in {:?}", started.elapsed());
+    let first: Value = serde_json::from_str(&first).unwrap_or_else(|e| panic!("{e}"));
+    // The notification before it is not sent; the reply is the refusal under its own id.
+    assert_eq!(first["id"], json!(7), "{first}");
+    assert_eq!(first["error"]["data"]["errorKind"], json!("disk.full"), "{first}");
+    assert!(first.get("result").is_none(), "{first}");
+    tokio::task::yield_now().await;
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut rest = Vec::new();
+    while rest.len() < 2 && Instant::now() < deadline {
+        match next(&mut reader) {
+            Some(line) => rest.push(line),
+            None => tokio::time::sleep(Duration::from_millis(5)).await,
+        }
+    }
+    // An error stays as it was; the later reply does not wait another FULL_WAIT.
+    assert_eq!(rest.len(), 2, "{rest:?}");
+    assert_eq!(rest[0]["error"]["message"], json!("boom"), "{rest:?}");
+    assert_eq!(rest[1]["id"], json!(9), "{rest:?}");
+    assert_eq!(rest[1]["error"]["data"]["errorKind"], json!("disk.full"), "{rest:?}");
+    assert!(started.elapsed() < Duration::from_secs(1), "all answered in {:?}", started.elapsed());
+    out.settle();
+    let gauge = out.gauge();
+    assert_eq!((gauge.lines, gauge.bytes), (0, 0), "the queue's counts drop the skipped line");
+    // With room again a line waits for the journal as before.
+    disk_full.store(false, Ordering::SeqCst);
+    gate.raise();
+    assert!(out.push(reply.clone()));
+    tokio::time::sleep(crate::store::FULL_WAIT * 2).await;
+    assert!(next(&mut reader).is_none(), "a reply went out before its change was durable");
 }

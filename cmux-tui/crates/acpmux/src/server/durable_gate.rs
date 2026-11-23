@@ -24,6 +24,17 @@
 //! change a client saw. When the journal's writer ended (the durable watch closed), the gate
 //! drops what it holds and ends, which closes the connection; the store asks the daemon to stop.
 //!
+//! While the store is in its full-disk state (`store/journal_store/space.rs`), a line waits at
+//! most [`crate::store::FULL_WAIT`] (400 ms) for the journal: the writer's first retries write the
+//! records appended before the disk filled into the room its freed reserve leaves, and the line
+//! goes out as on any disk. Past it, and for every later line that has not reached the journal
+//! while the disk stays full, a reply (a response to a request) is answered with the store's
+//! refusal instead, typed `disk.full` with its request id, and any other line (a notification
+//! that may show a change not yet on disk) is not sent. Neither shows a change before it is on
+//! disk, and no client waits on a reply that only space could release: the duress bench's disk
+//! leg had 3 of about 85 `session/prompt` calls a run unanswered at its 30 s limit, the ones whose
+//! records were appended as the disk filled. The first line that reaches the journal ends that.
+//!
 //! Without the journal ([`crate::store::Store::durability`] is None) there is no gate: the
 //! connection's plain pump moves its lines (`outbound.rs`).
 
@@ -85,9 +96,9 @@ pub(super) fn install(
     durability: Durability,
     pump: super::outbound::Pump,
 ) -> (Arc<Gate>, impl std::future::Future<Output = ()> + Send + 'static) {
-    let Durability { acked, durable, kept, written, ask, stalled } = durability;
+    let Durability { acked, durable, kept, written, ask, stalled, full } = durability;
     let gate = Arc::new(Gate { raised: pump.raised(), acked, kept });
-    let run = run(pump, Journal { durable, written, ask }, stalled);
+    let run = run(pump, Journal { durable, written, ask, full }, stalled);
     (gate, run)
 }
 
@@ -115,6 +126,17 @@ struct Journal {
     written: watch::Receiver<u64>,
     /// Asks the journal to sync through an LSN now.
     ask: Arc<dyn Fn(u64) + Send + Sync>,
+    /// The store's `disk.full` refusal while it is full ([`Durability::full`]).
+    full: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+}
+
+/// How a line's wait for the journal ended.
+enum Waited {
+    Reached,
+    /// The pump stopped or the journal's writer ended: the gate ends.
+    Ended,
+    /// The disk is full and the journal did not reach the line: the store's refusal.
+    Full(String),
 }
 
 impl Journal {
@@ -152,6 +174,9 @@ async fn run(
     stalled: Arc<dyn Fn(Duration) -> bool + Send + Sync>,
 ) {
     let mut batch = Vec::new();
+    // A line waited out [`crate::store::FULL_WAIT`] while the disk is full and no line reached
+    // the journal since: the next lines that have not reached it do not wait again.
+    let mut full = false;
     'pump: loop {
         tokio::select! {
             biased;
@@ -164,11 +189,29 @@ async fn run(
         }
         journal.ask(&batch);
         for line in batch.drain(..) {
-            if !journal.reached(line.needs)
-                && !wait(&pump, &mut journal, line.needs, &stalled).await
-            {
-                break 'pump;
-            }
+            let line = if journal.reached(line.needs) {
+                full = false;
+                line
+            } else {
+                match wait(&pump, &mut journal, line.needs, &stalled, full).await {
+                    Waited::Reached => {
+                        full = false;
+                        line
+                    }
+                    Waited::Ended => break 'pump,
+                    Waited::Full(refusal) => {
+                        full = true;
+                        match refused(&line, &refusal) {
+                            Some(Some(answer)) => pump.replace(line, answer),
+                            Some(None) => line,
+                            None => {
+                                pump.skip(line);
+                                continue;
+                            }
+                        }
+                    }
+                }
+            };
             if !pump.forward(line).await {
                 break 'pump;
             }
@@ -177,28 +220,47 @@ async fn run(
 }
 
 /// Until the journal reaches `needs`, asking the store each [`stall_limit`] whether the journal
-/// is failing; false when the pump stopped or the journal's writer ended.
+/// is failing, and each [`crate::store::FULL_WAIT`] whether the disk is full (at once when
+/// `full`: a line before this one waited it out already).
 async fn wait(
     pump: &super::outbound::Pump,
     journal: &mut Journal,
     needs: Needs,
     stalled: &Arc<dyn Fn(Duration) -> bool + Send + Sync>,
-) -> bool {
+    full: bool,
+) -> Waited {
+    if full && let Some(refusal) = (journal.full)() {
+        return Waited::Full(refusal);
+    }
+    let disk = Arc::clone(&journal.full);
     let reached = journal.reach(needs);
     tokio::pin!(reached);
     let started = tokio::time::Instant::now();
     let stall = tokio::time::sleep(stall_limit());
     tokio::pin!(stall);
+    let look = tokio::time::sleep(crate::store::FULL_WAIT);
+    tokio::pin!(look);
     let mut asked = false;
     loop {
         tokio::select! {
             biased;
-            () = pump.stopped() => return false,
+            () = pump.stopped() => return Waited::Ended,
             reached = &mut reached => {
                 if !reached {
                     tracing::error!("the event journal's writer ended: this connection closes");
+                    return Waited::Ended;
                 }
-                return reached;
+                return Waited::Reached;
+            }
+            () = &mut look => {
+                if let Some(refusal) = disk() {
+                    tracing::warn!(
+                        waited = ?started.elapsed(),
+                        "a reply waits for the event journal on a full disk: it is answered disk.full"
+                    );
+                    return Waited::Full(refusal);
+                }
+                look.as_mut().reset(tokio::time::Instant::now() + crate::store::FULL_WAIT);
             }
             () = &mut stall, if !asked => {
                 // Asked again each interval: a disk that is slow first may fail later.
@@ -207,6 +269,25 @@ async fn wait(
             }
         }
     }
+}
+
+/// What goes out instead of `line`, which the journal has not reached on a full disk: for a
+/// reply, the store's refusal under its request id, typed `disk.full` (`Some(Some(text))`), or
+/// the line itself when it is an error already (`Some(None)`: it acknowledges nothing); for any
+/// other line, None (not sent).
+fn refused(line: &super::outbound::Line, refusal: &str) -> Option<Option<String>> {
+    let message: serde_json::Value = serde_json::from_str(line.text.trim_end()).ok()?;
+    let id = message.get("id").filter(|_| message.get("method").is_none())?;
+    if message.get("error").is_some() {
+        return Some(None);
+    }
+    let mut error = crate::rpc::RpcError::internal(refusal.to_owned());
+    crate::recovery::annotate(&mut error, None);
+    let mut text = crate::rpc::Message::err(id.clone(), error).to_line();
+    if !line.text.ends_with('\n') {
+        text.pop();
+    }
+    Some(Some(text))
 }
 
 /// Tests: the stall limit in milliseconds when not 0.
