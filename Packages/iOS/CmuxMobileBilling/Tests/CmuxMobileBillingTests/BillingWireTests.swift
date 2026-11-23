@@ -67,8 +67,10 @@ import Testing
             current: .free,
             products: [BillingProductReference(productID: "com.cmux.app.go.monthly", planID: .go)]
         ).catalogPlanIDs == [.go] + next)
-        // A classic subscriber still sees the plan they are on beside NEXT's.
-        #expect(account(current: .pro).catalogPlanIDs.contains(.pro))
+        // A classic subscriber still sees the plan they are on, ahead of NEXT's
+        // rather than between NEXT Pro and Max under the same name.
+        #expect(account(current: .pro).catalogPlanIDs == [.pro] + next)
+        #expect(account(current: .max).catalogPlanIDs == [.max] + next)
         #expect(!account(current: .free).catalogPlanIDs.contains(.pro))
         #expect(!account(current: .free).catalogPlanIDs.contains(.max))
     }
