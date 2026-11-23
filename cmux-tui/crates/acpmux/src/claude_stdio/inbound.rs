@@ -607,11 +607,8 @@ impl Translator {
                     // The hub's `initialize` was answered when it was written
                     // (`outbound.rs`); Claude Code's own answer brings its commands.
                     if !ok {
-                        tracing::warn!(
-                            session = %self.acp_session_id,
-                            "claude initialize failed: {}",
-                            resp.get("error").and_then(Value::as_str).unwrap_or("no reason")
-                        );
+                        let why = resp.get("error").and_then(Value::as_str).unwrap_or("no reason");
+                        tracing::warn!(session = %self.acp_session_id, "claude initialize failed: {why}");
                         return out;
                     }
                     if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
