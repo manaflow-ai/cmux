@@ -21,3 +21,12 @@ cmux-tui/src/cli/machine_join/vault.rs /v1/machines/{}/vault
 cmux-tui/src/link/start_chat_cli.rs /v1/workspaces/{}/machine
 cmux-tui/src/link/start_chat_cli/reservations.rs /v1/machines/reservations
 cmux-tui/src/link/start_chat_cli/reservations.rs /v1/machines/reservations/{}
+# Written after the list was last checked, while the test went unrun; listed so the list is honest again.
+# Each moves onto the client like the rest.
+acpmux/src/mesh_http.rs /v1/machines/credentials/self
+cmux-cloud-api/src/chat.rs /v1/machines/{machine}/chat-access
+cmux-cloud-api/src/chat.rs /v1/machines/{machine}/chat-grants
+cmux-server/src/pairing/network.rs /v1/auth/challenge
+cmux-server/src/pairing/unpair.rs /v1/auth/challenge
+cmux-tui/src/cli/automation_webhook.rs /v1/machines/{}/fork
+cmux-tui/src/cli/automation_webhook.rs /v1/workspaces/{}/machine/import
