@@ -141,6 +141,13 @@
     },
     {
       "agent": "settable",
+      "why": "Cmd-Q's warning against an accidental quit; a quit keeps every session either way.",
+      "keys": [
+        "app.warnBeforeQuitShortcut"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "The language cmux's own text is in; ends no work.",
       "keys": [
         "app.language"
@@ -271,7 +278,9 @@
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
         "appearance.backgroundLocation",
-        "appearance.backgroundMemory"
+        "appearance.backgroundMemory",
+        "appearance.backgroundPlacement",
+        "appearance.backgroundRecents"
       ]
     },
     {
@@ -300,6 +309,7 @@
         "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.liquidGlass",
         "appearance.previousGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
@@ -460,6 +470,7 @@
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.mark",
+        "notifications.toast.style",
         "notifications.attention.moveToTop",
         "notifications.attention.moveToTopOnAgentFinish"
       ]
@@ -492,6 +503,8 @@
         "experiments.composerV2",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.menuStyleV2",
+        "experiments.menuRowStates",
         "experiments.toastsV2"
       ]
     },
@@ -548,6 +561,13 @@
       "keys": [
         "agentPane.composerLook",
         "agentPane.emptyChatComposerPosition"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "What Return does with a message sent mid-turn (steer or queue): a chat preference a profile or the person's agent may set, like the composer's other choices.",
+      "keys": [
+        "agentPane.followUpMode"
       ]
     },
     {
@@ -1045,6 +1065,13 @@
       ]
     },
     {
+      "agent": "destructive",
+      "why": "Deleting old chats removes their history from this machine for good: only the person sets it.",
+      "keys": [
+        "agents.chats.deleteHistoryAfterDays"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
       "keys": [
@@ -1452,7 +1479,9 @@
       "agent": "userOnly",
       "why": "Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.",
       "keys": [
-        "agents.cmuxMcp"
+        "agents.cmuxMcp",
+        "agents.cmuxMcpClaude",
+        "agents.cmuxMcpCodex"
       ]
     },
     {
@@ -1596,6 +1625,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Which computers cmux dials over ssh and checks from the sidebar: the person declares a host, so an agent cannot point cmux at an address of its choosing.",
+      "keys": [
+        "machines.hosts"
+      ]
+    },
+    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
@@ -1629,6 +1665,13 @@
       "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.",
       "keys": [
         "macScreen.systemShortcuts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "It decides whether an agent may start viewing the person's own screens without their click; an agent never loosens it.",
+      "keys": [
+        "macScreen.onlyPersonStartsViewing"
       ]
     },
     {
