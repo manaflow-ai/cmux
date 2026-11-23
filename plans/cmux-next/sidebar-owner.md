@@ -22,6 +22,7 @@
   2026-11-21, entry below: the pinned state draws the filled pin) and the one Pin/Unpin row at the top of a workspace
   menu (More has none). Regression: `SidebarEmptyWorkspaceHintTests.pinnedsDropZoneDrawsNoText`,
   `PinningSurfacesTests.aWorkspaceRowsMenuPinsOnceAtItsTop`.
+- 2026-11-22 (sidebar-group-looks): Sidebar-Look: Leo, 2026-11-22: "if we're willing to push in directions, we might as well push harder into what we believe", of the Folders look. `sidebar.groupHeader.background` gains three opt-in values, no default change (Folders stays the default): Chips (`chip`: Chromium's tab group, a slim colored chip hugging the name, a colored rail beside the members, no indent), Tree (`tree`: the folder glyph and indent with a thin guide line under the glyph, the group's color held to 3:1) and Cards (`card`: one rounded tinted card around the whole group, the members on the loose rows' x inside it, a folded group its header's card). Each respects light and dark, a group with no color, folding, hover and drops; the tab strip's chips keep the automatic look. Regression: `SidebarGroupLooksTests`. Capture tour: `sidebar-group-looks`.
 - 2026-11-21 (a-tooltip-cuts): Sidebar-Look: Lawrence: "drastically simplify all parts of the UI" (a1315's tooltip
   cuts, picked by Chief: a tooltip is a name and a shortcut on one line; none on a control that shows its text; none on
   rows, which have hover cards). A workspace row carries no tooltip: its muted bell, usage warning triangle, badges,
