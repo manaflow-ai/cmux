@@ -35,9 +35,8 @@ public struct MobileKeyboardTransition: Sendable {
         beginFrame = notification.userInfo?[UIResponder.keyboardFrameBeginUserInfoKey] as? CGRect
             ?? endFrame
         self.endFrame = endFrame
-        duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval ?? 0
-        let curveRaw = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int
-            ?? Int(UIView.AnimationCurve.easeInOut.rawValue)
+        duration = MobileKeyboardRide.duration(notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey])
+        let curveRaw = MobileKeyboardRide.curve(notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey])
         curve = curveRaw
         animationOptions = UIView.AnimationOptions(rawValue: UInt(curveRaw) << 16)
     }
@@ -49,14 +48,11 @@ public struct MobileKeyboardTransition: Sendable {
         Self.rideKeyboard(duration: duration, curve: curve, animations: animations)
     }
 
-    /// The keyboard's curve (7): on iOS 26 and 27 UIKit animates the keyboard
-    /// with a critically damped spring, stiffness 555 and damping 47.1
-    /// (response 2 pi / sqrt(555) = 0.2667 s), not with a timing function
-    /// over the notified 0.383 s (`ConversationViewController.animateAlongsideKeyboard`).
-    public static let keyboardSpringResponse: TimeInterval = 0.2667
+    /// The keyboard's spring response (``MobileKeyboardRide/keyboardSpringResponse``).
+    public static let keyboardSpringResponse = MobileKeyboardRide.keyboardSpringResponse
 
     /// The UIKit curve value the keyboard posts for its own animation.
-    public static let keyboardCurve = 7
+    public static let keyboardCurve = MobileKeyboardRide.keyboardCurve
 
     /// Runs `animations` on the keyboard's own motion, starting now, in the
     /// current transaction.
@@ -80,25 +76,22 @@ public struct MobileKeyboardTransition: Sendable {
         animations: @escaping () -> Void,
         completion: ((Bool) -> Void)? = nil
     ) {
-        guard duration > 0 else {
+        let ride = MobileKeyboardRide(duration: duration, curve: curve)
+        let options = UIView.AnimationOptions(rawValue: ride.optionsRawValue)
+        switch ride.motion {
+        case .immediate:
             animations()
             completion?(true)
-            return
-        }
-        let options: UIView.AnimationOptions = [
-            .beginFromCurrentState, .allowUserInteraction, .overrideInheritedDuration, .overrideInheritedCurve,
-        ]
-        if curve == keyboardCurve {
+        case let .spring(response):
             // motion: allow the system keyboard's own spring (Reduce Motion does not stop the keyboard).
             UIView.animate(
-                springDuration: keyboardSpringResponse, bounce: 0, initialSpringVelocity: 0, delay: 0,
+                springDuration: response, bounce: 0, initialSpringVelocity: 0, delay: 0,
                 options: options, animations: animations, completion: completion
             )
-        } else {
+        case let .timed(duration, _):
             // motion: allow the notification's own duration and curve (Reduce Motion does not stop the keyboard).
             UIView.animate(
-                withDuration: duration, delay: 0,
-                options: options.union(UIView.AnimationOptions(rawValue: UInt(curve) << 16)),
+                withDuration: duration, delay: 0, options: options,
                 animations: animations, completion: completion
             )
         }
