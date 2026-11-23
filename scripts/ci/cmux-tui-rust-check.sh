@@ -449,36 +449,16 @@ load_base_red() {
 # CMUX_RUST_CHECK_FAIL_FAST=1. CMUX_RUST_CHECK_RERUN_MAX=0 turns the rerun off.
 # Doc tests (nextest does not run them) are their own step, only without a filter.
 # A filter that matches no test is red (--no-tests=fail; cargo test was green).
-nextest_version=0.9.148
+# scripts/ci/install-nextest.sh holds the pin and the checksummed install (one place to bump it);
+# every other caller -- the fast-checks Rust setup, acpmux-lib-under-load.sh, affected_tests_measure.sh
+# -- shares it, so no two of them can run a different cargo-nextest.
+nextest_installer="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/install-nextest.sh"
+nextest_version="$(bash "$nextest_installer" --print-version)"
 ensure_nextest() {
-  local have dir asset sha archive sum
+  local have dir
   have="$(cargo nextest --version 2>/dev/null | head -n 1 || true)"
   if [[ "$have" != "cargo-nextest $nextest_version "* ]]; then
-    case "$(uname -s)-$(uname -m)" in
-      Darwin-*) asset=universal-apple-darwin sha=6c23b7fb4ca82c571fc8dfedbab45bfa773d45918f933170c85d21cd7f4b852b ;;
-      Linux-x86_64) asset=x86_64-unknown-linux-gnu sha=223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc ;;
-      # The arm64 Linux VMs on the fleet Macs (Lima, cmux-ci workers) take Linux steps too.
-      Linux-aarch64) asset=aarch64-unknown-linux-gnu sha=81469eb963ef883fd590e60189e77d6aba3d91b418591d3391f50fe3e9480d2b ;;
-      *) echo "error: no pinned cargo-nextest for $(uname -sm)" >&2; return 3 ;;
-    esac
-    dir="$root/.build/tools/cargo-nextest-$nextest_version"
-    if [[ ! -x "$dir/cargo-nextest" ]]; then
-      mkdir -p "$dir"
-      archive="$dir/cargo-nextest.tar.gz"
-      curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 120 --output "$archive" \
-        "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$nextest_version/cargo-nextest-$nextest_version-$asset.tar.gz" \
-        || { echo "error: cargo-nextest $nextest_version download failed" >&2; return 3; }
-      if command -v sha256sum >/dev/null; then sum="$(sha256sum "$archive")"; else sum="$(shasum -a 256 "$archive")"; fi
-      if [[ "${sum%% *}" != "$sha" ]]; then
-        rm -f "$archive"
-        echo "error: cargo-nextest archive sha256 ${sum%% *} is not the pinned $sha" >&2
-        return 3
-      fi
-      # extract beside it and rename, so a broken extract never looks installed
-      rm -rf "$dir/x" && mkdir -p "$dir/x" && tar -xzf "$archive" -C "$dir/x" cargo-nextest && mv "$dir/x/cargo-nextest" "$dir/cargo-nextest" \
-        || { rm -rf "$dir/x" "$archive"; echo "error: cargo-nextest archive did not extract" >&2; return 3; }
-      rm -rf "$dir/x" "$archive"
-    fi
+    dir="$(CMUX_NEXTEST_TOOLS_ROOT="$root/.build/tools" bash "$nextest_installer")" || return 3
     export PATH="$dir:$PATH"
     have="$(cargo nextest --version 2>/dev/null | head -n 1 || true)"
   fi
