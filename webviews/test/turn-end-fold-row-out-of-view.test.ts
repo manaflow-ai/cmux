@@ -249,8 +249,8 @@ test("a view with no height yet has not been laid out: every row still folds", (
 test("a row whose remembered top is stale after a scroll is judged by where it is drawn, not where it was", () => {
   // The turn ends with every row in the view, so nothing is gated out at capture time.
   const sheet = page({ top: 0, height: 300 });
-  const header = sheet.draw("working-u", "working", 10, 34);
-  const work = sheet.draw("work", "activity", 44, 60);
+  sheet.draw("working-u", "working", 10, 34);
+  sheet.draw("work", "activity", 44, 60);
   sheet.draw("answer", "assistant", 104, 50);
   sheet.draw(LIVE_THINKING, "thinking", 154, 22);
   const capture = captureTurnEnd(sheet.thread, sheet.scroller, ENDED, "chat");

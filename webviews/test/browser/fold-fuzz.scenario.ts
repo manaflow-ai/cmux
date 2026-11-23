@@ -406,7 +406,12 @@ export function strayScenario(seed: number): FuzzScenario & { sweepFrom: number 
   let at = steps.at(-1)!.at;
   const reader = (action: ReaderAction, after: number) => {
     at += after;
-    const label = "scroll" in action ? `reader scroll ${action.scroll}` : `reader scrollBy ${action.scrollBy}`;
+    const label =
+      "scroll" in action
+        ? `reader scroll ${action.scroll}`
+        : "open" in action
+          ? `reader open ${action.open}`
+          : `reader scrollBy ${action.scrollBy}`;
     steps.push({ type: "reader", at, label, reader: action });
   };
   const sweepFrom = steps.length;
