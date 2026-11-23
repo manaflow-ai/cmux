@@ -5,6 +5,7 @@
 //! `reconnecting` with its last-known sessions, never dropped.
 
 use crate::rpc::RpcError;
+use acpmux_list_types::resume::ResumeErrorClass;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -453,6 +454,25 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> 
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// What one connect attempt's end means to the link's resume (`acpmux_list_types::resume`),
+/// from typed facts, never its error text: `clean` when it ended with no error (a restart's
+/// Close 1012, a move to another path, a stop), `refused` when the remote refused the ssh login
+/// or the token (`login_refused`, HTTP 401/403), `timed_out` when the connect or the handshake
+/// ran past its [`LinkTimings`] deadline. Any other failure is the network's or the socket's.
+/// The class goes to the log only: the link's bound is its park schedule
+/// ([`Link::park_at_start`], [`Link::retry_delay`]).
+pub fn link_end_class(clean: bool, refused: bool, timed_out: bool) -> ResumeErrorClass {
+    if refused {
+        ResumeErrorClass::Auth
+    } else if clean {
+        ResumeErrorClass::CleanClose
+    } else if timed_out {
+        ResumeErrorClass::DeadlineExceeded
+    } else {
+        ResumeErrorClass::Transient
     }
 }
 
