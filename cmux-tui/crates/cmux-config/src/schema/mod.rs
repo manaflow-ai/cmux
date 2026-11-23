@@ -197,6 +197,10 @@ pub enum DomainKind {
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
+    /// `sidebar.sections.hidden` / `order`: distinct section ids of 1 to 128
+    /// characters, at most 256 (cmux-layout-reducer `sidebar_section_customization`;
+    /// Swift `SidebarSectionIDsSetting.accepts`).
+    SidebarSectionIds,
     /// `sidebar.workspaceRow.lines`: a row layout the sidebar row reducer
     /// draws as written (`cmux_layout_reducer::sidebar_row_layout`, `sidebar_rows`).
     SidebarRowLines,
@@ -487,6 +491,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
             Validation::Domain(DomainKind::SidebarRowLinesByAgent)
         }
         "domain:transcript_tokens" => Validation::Domain(DomainKind::TranscriptTokens),
+        "domain:sidebar_section_ids" => Validation::Domain(DomainKind::SidebarSectionIds),
         "domain:hosts" => Validation::Domain(DomainKind::Hosts),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };

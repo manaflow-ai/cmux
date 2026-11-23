@@ -377,6 +377,8 @@ class Lint:
         limits = {"name": 30, "subtitle": 30, "promotionalText": 170, "keywords": 100, "description": 4000}
         placeholder = re.compile(r"\b(TODO|TBD|FIXME|lorem ipsum|coming soon)\b|<[A-Z][A-Z0-9_]{2,}>", re.I)
         other_platforms = re.compile(r"\b(Android|Google Play|Windows Phone)\b")
+        decoration = re.compile(r"(?i:\b(best|#1|number one|top[- ]rated|free)\b)|[\U0001F300-\U0001FAFF\u2600-\u27BF]")
+        others_apps = re.compile(r"(?i:\b(ChatGPT|Claude|Codex|Copilot|Cursor|Gemini|Termius|Blink|iTerm|Warp|Apple|iPhone)\b)")
         has_support = has_privacy = False
         for rel, body in meta.items():
             if not isinstance(body, dict):
@@ -390,6 +392,12 @@ class Lint:
                 if placeholder.search(value):
                     self.add("metadata.placeholder", "2.1", "blocker",
                              f"{key} contains placeholder text: {placeholder.search(value).group(0)!r}", rel)
+                if key in ("name", "subtitle") and decoration.search(value):
+                    self.add("metadata.decoration", "2.3.7", "blocker",
+                             f"{key} carries a ranking, price or emoji claim: {decoration.search(value).group(0)!r}", rel)
+                if key == "keywords" and others_apps.search(value):
+                    self.add("metadata.competitor-terms", "2.3.7", "blocker",
+                             f"keywords name another app or trademark: {others_apps.search(value).group(0)!r}", rel)
                 if other_platforms.search(value):
                     self.add("metadata.other-platform", "2.3.10", "blocker",
                              f"{key} names another platform: {other_platforms.search(value).group(0)!r}", rel)
@@ -542,6 +550,8 @@ class Lint:
                          "an error shown as String(describing:) reads as a Swift dump; use UserFacingError.message(_:)",
                          f"{self.rel(path)}:{lineno}")
 
+        self.check_ai_and_copy(texts, joined)
+
         # URLs the app opens.
         url_literal = re.compile(r"\"(https://[^\"\\\s]+)\"")
         for path, text in texts.items():
@@ -552,6 +562,56 @@ class Lint:
                 lineno = text.count("\n", 0, match.start()) + 1
                 urls.append((url, "source", f"{self.rel(path)}:{lineno}"))
         return urls
+
+    def check_ai_and_copy(self, texts: dict[Path, str], joined: str) -> None:
+        """Classes mapped from the public rejection lists (hq docs/handbook/app-review-rejections.md,
+        "Public rejection lists mapped"): third-party AI consent, reporting AI or user content,
+        unfinished copy, IPv4-only name lookups and permission pre-prompts."""
+        # 5.1.2(i) (2025-11): personal data goes to a third-party AI only after the app names the
+        # provider and the person agrees. Chief's replies come from third-party models (cmux
+        # Cloud, or the Mac's), and Chief calls go to OpenAI.
+        ai = re.search(r"\bChiefSession\b|\bChiefCloudBackend\b|api\.openai\.com|api\.anthropic\.com", joined)
+        if ai:
+            if not re.search(r"aiSharingConsent", joined):
+                self.add("ai.consent", "5.1.2(i)", "blocker",
+                         "the app sends messages to third-party AI models with no consent asked first "
+                         "(ChiefAIConsent: name the providers, Agree before the first send, a way to withdraw)", APP_DIR)
+            elif not re.search(r"defaultValue: \"[^\"\n]*Anthropic[^\"\n]*OpenAI", joined):
+                self.add("ai.consent", "5.1.2(i)", "blocker",
+                         "the AI sharing question does not name the providers (Anthropic, OpenAI)", APP_DIR)
+            elif not re.search(r"\.sendGate\s*=\s*\{[^}]*ChiefAIConsent\.isGranted", joined):
+                # The Send button is one of several send paths (Return, the effect picker, voice,
+                # polls, Send Now); the conversation's sendGate sees them all.
+                self.add("ai.consent", "5.1.2(i)", "blocker",
+                         "the AI sharing question is not asked on every send path "
+                         "(set ConversationViewController.sendGate to check ChiefAIConsent.isGranted)", APP_DIR)
+            # 1.2 / 4.7.1: chatbots and user-generated content need a way to report content.
+            if not re.search(r"ChiefReport\.open\(", joined):
+                self.add("ugc.report", "1.2", "blocker",
+                         "no way to report an AI reply or a message (ChiefReport in Chief's menu and info page)", APP_DIR)
+        # 2.1 / 2.3.1: user-facing copy that says a feature is unfinished.
+        unfinished = re.compile(r"(?:Text\(|Label\(|Button\(|defaultValue: )\"[^\"\n]*"
+                                r"(?i:still in progress|coming soon|not yet implemented|under construction|work in progress)")
+        # 2.5.5: App Review runs on an IPv6-only network; IPv4-only lookups fail there.
+        ipv4_only = re.compile(r"\b(gethostbyname|inet_addr)\(|\"https?://\d{1,3}(?:\.\d{1,3}){3}[:/\"]")
+        # 5.1.1(iv): a pre-permission screen whose button says Allow reads as forcing consent.
+        pre_prompt = re.compile(r"Button\(\"Allow(?: [A-Z][a-z]+)?\"")
+        for path, text in texts.items():
+            for lineno, line in enumerate(text.splitlines(), 1):
+                if line.lstrip().startswith("//"):
+                    continue
+                if unfinished.search(line):
+                    self.add("copy.unfinished", "2.1", "blocker",
+                             "user-facing copy says the feature is unfinished; ship it finished or leave it out",
+                             f"{self.rel(path)}:{lineno}")
+                if ipv4_only.search(line):
+                    self.add("net.ipv4-only", "2.5.5", "warning",
+                             "an IPv4-only lookup or address; App Review's network is IPv6-only (NAT64)",
+                             f"{self.rel(path)}:{lineno}")
+                if pre_prompt.search(line):
+                    self.add("privacy.pre-prompt", "5.1.1(iv)", "warning",
+                             "a button titled Allow before a permission prompt; let the system prompt ask",
+                             f"{self.rel(path)}:{lineno}")
 
     @staticmethod
     def ignorable_url(url: str) -> bool:

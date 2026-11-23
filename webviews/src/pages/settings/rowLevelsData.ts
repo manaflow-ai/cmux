@@ -13,6 +13,7 @@ export const ROW_LEVELS: {
     "workspaces.freeing.agents": "more",
     "workspaces.freeing.runningCommands": "more",
     "workspaces.autoArchive.idleDays": "more",
+    "updates.daemon": "more",
     // The other Updates rows live in cmux-next.json only (page_hidden in updates.json; Leo 2026-11-22).
     "updates.liveWebReload": "more",
     "updates.showFeatureTips": "more",
