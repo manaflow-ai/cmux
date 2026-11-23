@@ -3190,9 +3190,9 @@
         }
       },
       "required": [
+        "dt",
         "ref",
         "seq",
-        "dt",
         "text"
       ],
       "type": "object"
