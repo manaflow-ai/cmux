@@ -87,8 +87,8 @@ import {
 import { sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withDraftFolder,
   shownCloudStartPick,
+  withDraftFolder,
   withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
@@ -458,7 +458,13 @@ import { PresentationContext } from "./conversation/presentationContextModel";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
 import { useStatusVerbConfig } from "./statusVerbs";
 import { mergeInboxNotices } from "./conversation/inboxNotice";
-import { cloudAgentLogin, localApiKeyLogin, SIGN_IN_ON_MACHINE } from "./cloudAgentLogin";
+import {
+  cloudAgentLogin,
+  type CloudSignIn,
+  localAgentLogin,
+  localApiKeyLogin,
+  SIGN_IN_ON_MACHINE,
+} from "./cloudAgentLogin";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { avatarRows } from "./header/avatarRow";
@@ -579,17 +585,17 @@ import { holdWebSwap } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
+  newTabRunModeRows,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
   type RunMode,
-  newTabRunModeRows,
 } from "./sandboxRun";
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
-import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
+import { copyShowsRunningTurn, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { watchLaunchSettle } from "./launchSettle";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -3448,6 +3454,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
       currentClient: () => directClient.current ?? undefined,
     };
+    // A local sign-in that went through reads the agent's health again, so its notice goes with it.
+    const rechecked = (signIn: CloudSignIn | undefined): CloudSignIn | undefined =>
+      signIn && {
+        ...signIn,
+        finish: (loginId, code) => signIn.finish(loginId, code).then((done) => (done && recheckHealth(), done)),
+        apiKey: (key) => signIn.apiKey(key).then((saved) => (saved && recheckHealth(), saved)),
+        gateway: () => signIn.gateway().then((used) => (used && recheckHealth(), used)),
+      };
     // A start refused because its agent is not signed in on the machine (hq#11225): that agent's own
     // sign-in there, which the failed start's card leads with (SwitchNotice.tsx).
     const refused =
@@ -3466,8 +3480,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             machineLogin: directClient.current?.supportsMachineLogin === true,
           })
         : undefined,
+      // Logins done right: the same card for an agent on this Mac (localAgentLogin), the refused
+      // start's and the signed-out notice's (the composer's agent; its chat's when it is the chat's).
+      localRefusedSignIn: refused
+        ? rechecked(
+            localAgentLogin({
+              ...login,
+              harness: refused,
+              machineLogin: directClient.current?.supportsMachineLogin === true,
+            }),
+          )
+        : undefined,
+      healthSignIn:
+        healthLocal && healthHarness
+          ? rechecked(
+              localAgentLogin({
+                ...login,
+                harness: healthHarness,
+                sessionId: healthHarness === snapshot.summary?.harness ? snapshot.sessionId : undefined,
+                machineLogin: directClient.current?.supportsMachineLogin === true,
+              }),
+            )
+          : undefined,
     };
   }, [
+    healthLocal,
+    healthHarness,
+    recheckHealth,
     connected,
     cloudMachineID,
     chatElsewhere,
@@ -6162,6 +6201,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// When this pane's connection to acpmux was lost (its client's `onLost`), until a handshake
   /// connects again: the quiet "Reconnecting…" line counts from it (HostRecoveringLine).
   const [relinkingSince, setRelinkingSince] = useState<number | undefined>();
+  /// When the pane's trouble began (paneSnapshot.ts `troubleSince`): bounds the bare "Reconnecting…".
+  const [hostTroubleSince, setHostTroubleSince] = useState<number | undefined>();
   /// The host says acpmux is restoring its chats after a start (its `acpmux-host-status` event, or
   /// a refused handshake's `details.restoring`): the line says "Restoring sessions… m:ss" instead.
   const [hostRestoring, setHostRestoring] = useState<HostRestoring | undefined>();
@@ -6221,9 +6262,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       newTab: newTab !== undefined,
       // The copy from the last launch stays until the chat itself is drawn (firstPaint.ts).
       keepsLastFrame: showsChatSnapshot(),
+      // A copy showing a running turn waits for acpmux's attach (or the turn's own state): a kept
+      // tail keeps rows, not the turn, and taking over with it took the copy's live line off for a
+      // frame and put it back once the attach answered (settled-page restart.stream, 2 shifts).
       chatRead:
         clientSnapshot.chatRead === true &&
         clientSnapshot.sessionId !== undefined &&
+        (clientSnapshot.chatAttached === true || clientSnapshot.isWorking || !copyShowsRunningTurn()) &&
         adoptionDrawn &&
         (draftSettled === clientSnapshot.sessionId || draftWaitOver === clientSnapshot.sessionId),
       openRefused: clientSnapshot.connection === "failed",
@@ -7069,6 +7114,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setWaitingSince,
       setRestartUnavailable,
       setRelinkingSince,
+      setHostTroubleSince,
       setHostRestoring,
       runPendingAdoption,
       freshRef,
@@ -9226,7 +9272,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         onRetry={() => retryHost.current?.()}
         // The pane asks again by itself unless asking cannot change the answer: a chat too large to
         // open, or another build's acpmux holding the socket (only Restart clears it).
-        selfRetrying={hostSelfRetrying(hostFailure, acpmuxRestartOffered)}
+        selfRetrying={hostSelfRetrying(
+          hostFailure,
+          acpmuxRestartOffered,
+          hostTroubleSince === undefined ? 0 : Date.now() - hostTroubleSince,
+        )}
         restarting={restartingAcpmux}
         onRestart={
           acpmuxRestartOffered

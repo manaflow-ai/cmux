@@ -1285,7 +1285,7 @@ impl Peer {
                             watch_reply!(key, reply, tx);
                         }
                         Message::Notification { method: m, params } => {
-                            let p = params.unwrap_or(Value::Null);
+                            let mut p = params.unwrap_or(Value::Null);
                             if m == crate::server::controls::NOTICE {
                                 if let Err(error) = self.controls_notice(link, p).await {
                                     tracing::warn!(peer = %self.name, error = %error.message, "controls stream ended; keeping link up");
@@ -1355,7 +1355,8 @@ impl Peer {
                                 *self.list_cursor.lock_or_recover() = None;
                             }
                             let notice = if m == method::MUX_SESSION_CHANGED {
-                                let session = p.get("session").cloned().unwrap_or(Value::Null);
+                                // Taken, not copied: nothing below reads it from `p`.
+                                let session = p.get_mut("session").map(Value::take).unwrap_or(Value::Null);
                                 // Remote session_changed notifications carry the
                                 // peer name at the top level; older summaries
                                 // also carry it inside `session`.
