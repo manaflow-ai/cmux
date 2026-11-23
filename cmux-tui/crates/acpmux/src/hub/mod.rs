@@ -607,16 +607,39 @@ pub struct EventRow {
     pub fanout: crate::gauges::FanoutClock,
 }
 
-/// One record's row, shared by the watchers sending it at the same time and held only while one
-/// does. The event ring keeps its last 8,192 events (`Events::new`), so a row each event kept
-/// stayed until 8,192 later records pushed it out: a full row carries up to 512 time spans,
-/// the tools and the MCP servers as `Value`s, and huge-blue's daemon grew about 1.1 GB an hour
-/// to 17 GB (cmuxterm-hq#14649); a lane VM's held 1.6 million spans in 6.4 GB after 6 hours.
+/// One record's row, shared by the watchers sending it and held only while it is recent. The
+/// event ring keeps its last 8,192 events (`Events::new`), so a row each event kept stayed until
+/// 8,192 later records pushed it out: a full row carries up to 512 time spans, the tools and the
+/// MCP servers as `Value`s, and huge-blue's daemon grew about 1.1 GB an hour to 17 GB
+/// (cmuxterm-hq#14649); a lane VM's held 1.6 million spans in 6.4 GB after 6 hours.
+///
+/// Held only while one watcher sent it, a row was built again by nearly every watcher: each
+/// connection's fan-out task takes an event on its own wake, after the one before had dropped
+/// it. The last [`RECENT_ROWS`] rows built stay held ([`pin_recent_row`]), so every connection
+/// that takes the event while it is recent shares one build, and memory stays bounded by them.
+/// Leo, 2026-11-22: "the interactive/visible parts of cmux are not prioritized enough".
 #[derive(Debug, Default)]
 pub struct SharedRow(std::sync::Mutex<std::sync::Weak<Value>>);
 
+/// Rows built last that stay held for the connections still to send them (`SharedRow`). A fan-out
+/// to every connection takes milliseconds (`gauges.fanout` p95 33-79 ms on a loaded Mac, about 108
+/// events a second), so 128 covers seconds of events at a bound of 128 rows.
+pub(crate) const RECENT_ROWS: usize = 128;
+
+static RECENT: StdMutex<std::collections::VecDeque<Arc<Value>>> =
+    StdMutex::new(std::collections::VecDeque::new());
+
+/// Holds `row` among the [`RECENT_ROWS`] built last; the oldest goes.
+fn pin_recent_row(row: Arc<Value>) {
+    let mut recent = RECENT.lock().unwrap_or_else(|e| e.into_inner());
+    if recent.len() >= RECENT_ROWS {
+        recent.pop_front();
+    }
+    recent.push_back(row);
+}
+
 impl SharedRow {
-    /// The row a watcher is still sending, else `build`'s, which the next one shares.
+    /// The row built for this event while it is recent, else `build`'s, which the next one shares.
     pub(crate) fn get_or_build(&self, build: impl FnOnce() -> Option<Value>) -> Option<Arc<Value>> {
         let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(row) = held.upgrade() {
@@ -624,6 +647,8 @@ impl SharedRow {
         }
         let row = Arc::new(build()?);
         *held = Arc::downgrade(&row);
+        drop(held);
+        pin_recent_row(row.clone());
         Some(row)
     }
 }
@@ -1338,6 +1363,9 @@ pub struct Hub {
     /// copies, merges and encodes the record's params. HOT PATH AUDIT area F, row A4: once per record,
     /// not once per connection.
     pub(crate) session_update_encodes: std::sync::atomic::AtomicU64,
+    /// `_acpmux/session_changed` rows built for watching connections since start
+    /// (`server::deliver`): once per record and kind of row, not once per watching connection.
+    pub(crate) session_row_builds: std::sync::atomic::AtomicU64,
     /// `_acpmux/wait` row evaluations since start (`server/wait.rs`): each builds the summaries of
     /// the chats it waits on. A streamed token must cost none (HOT PATH AUDIT area F, row A1).
     pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
@@ -1713,6 +1741,7 @@ impl Hub {
             subsession_runs: Default::default(),
             open_waits: Default::default(),
             session_update_encodes: Default::default(),
+            session_row_builds: Default::default(),
             wait_evaluations: Default::default(),
             subagent_retries: Default::default(),
             subagent_resumes: Default::default(),

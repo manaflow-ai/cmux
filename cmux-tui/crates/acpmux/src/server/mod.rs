@@ -2447,10 +2447,17 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 ev.peer_batch && !attached && conn.peer_row_batches.load(Ordering::SeqCst);
             if rec.dir == "peer" && !view::a_link(conn) && !batched {
                 let sid = remote.summary.session_id().unwrap_or(&ev.session_id);
-                // The packed row, parsed for this line only (`RemoteRef::summary`).
+                // The packed row, parsed once per record and kind of row and shared by every
+                // watching connection (`HubEvent::row`), as a local row is.
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
-                let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
-                    .unwrap_or(Value::Null);
+                let session = ev.row.cells[usize::from(tools)].get_or_build(|| {
+                    hub.session_row_builds.fetch_add(1, Ordering::Relaxed);
+                    Some(
+                        serde_json::from_str(&remote.summary.changed_text(tools))
+                            .unwrap_or(Value::Null),
+                    )
+                });
+                let session = session.as_deref().cloned().unwrap_or(Value::Null);
                 conn.send(&Message::notification(
                     method::MUX_SESSION_CHANGED,
                     json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
@@ -2479,6 +2486,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         let [list_row, full_row] = &ev.row.cells;
         let row = if full { full_row } else { list_row };
         let summary = row.get_or_build(|| {
+            hub.session_row_builds.fetch_add(1, Ordering::Relaxed);
             let s = hub.resolve(&ev.session_id).ok()?;
             Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
         });
@@ -2713,6 +2721,9 @@ mod message_notice_tests;
 #[cfg(test)]
 #[path = "fanout_encode_tests.rs"]
 mod fanout_encode_tests;
+#[cfg(test)]
+#[path = "row_share_tests.rs"]
+mod row_share_tests;
 
 // What one change costs the watchers at 100, 1,000 and 3,000 sessions (manual).
 #[cfg(test)]
