@@ -1,6 +1,7 @@
 //! What the target can refuse without the chat's bytes, `session move` reports before it freezes
 //! or copies anything, and `--dry-run` reports instead of "would move": two real daemons, the
 //! stand-in ssh of `session_move.rs`.
+use super::session_move::prompt;
 use super::*;
 
 /// Runs `acpmux --json session move ID --machine target --cwd DEST` (plus `extra`) against

@@ -84,7 +84,7 @@ impl Rpc {
     }
 }
 
-fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
+pub(super) fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}],
         "_meta": {"acpmux": {"promptId": prompt_id}}})
 }
