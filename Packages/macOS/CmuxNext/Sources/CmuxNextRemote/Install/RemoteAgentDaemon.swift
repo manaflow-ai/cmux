@@ -195,7 +195,7 @@ public actor RemoteApprovalPreparations {
     /// shows the normal restart notice.
     public func prepare(machine: String, daemonSaidSafe: Bool, held: Bool, joinBudget: Duration? = nil, idle: @escaping @Sendable () async -> Bool,
                         restart: @escaping @Sendable () async -> Bool) async -> Bool {
-        let keyed = Self.timed("approvals.key") { [self] in await mayRestart(machine) ? await restart() : false }
+        let keyed = Self.timed("approvals.key") { [self] in guard await mayRestart(machine) else { return false }; return await restart() }
         let idleNow = Self.timed("approvals.status", idle)
         if daemonSaidSafe { return await run(machine: machine, keepBusy: false, joinBudget: joinBudget, keyed) }
         if held { return true }
@@ -207,37 +207,16 @@ public actor RemoteApprovalPreparations {
 
     /// `task`'s value, or nil when it has not finished within `budget` (the task is left running).
     public static func value<T: Sendable>(of task: Task<T, Never>, within budget: Duration) async -> T? {
-        let race = Race<T>()
-        return await withCheckedContinuation { continuation in
-            race.begin(continuation)
-            Task { race.finish(await task.value) } // task-owner: ends with `task`
-            let timer = Task {
-                // wakeup-allow: one-shot budget, cancelled when the task answers; concurrency-allow: never on the main thread
-                do { try await Task.sleep(for: budget) } catch { return }
-                race.finish(nil)
-            }
-            race.onFinish { timer.cancel() }
+        let wait = RemoteApprovalBudgetWait<T>()
+        Task { wait.finish(await task.value) } // task-owner: hands the shared task's end to this one waiter; ends with `task`
+        let timer = Task {
+            // wakeup-allow: one-shot budget, cancelled once the wait ends; concurrency-allow: never on the main thread
+            do { try await Task.sleep(for: budget) } catch { return }
+            wait.finish(nil)
         }
-    }
-
-    private final class Race<T: Sendable>: Sendable {
-        private struct State { var continuation: CheckedContinuation<T?, Never>?; var done = false; var cleanup: (@Sendable () -> Void)? }
-        private let state = Mutex(State())
-        func begin(_ continuation: CheckedContinuation<T?, Never>) { state.withLock { $0.continuation = continuation } }
-        func onFinish(_ cleanup: @escaping @Sendable () -> Void) {
-            let now = state.withLock { s -> Bool in if s.done { return true }; s.cleanup = cleanup; return false }
-            if now { cleanup() }
-        }
-        func finish(_ value: T?) {
-            let (continuation, cleanup) = state.withLock { s -> (CheckedContinuation<T?, Never>?, (@Sendable () -> Void)?) in
-                guard !s.done else { return (nil, nil) }
-                s.done = true
-                defer { s.continuation = nil; s.cleanup = nil }
-                return (s.continuation, s.cleanup)
-            }
-            continuation?.resume(returning: value)
-            cleanup?()
-        }
+        let value = await withCheckedContinuation { wait.store($0) }
+        timer.cancel()
+        return value
     }
 
     /// `work`'s answer, or nil when it gave none within `budget` (a read that is cancelled then: it changes nothing).
@@ -292,4 +271,42 @@ public struct RemoteAutoUpdateLedger: Sendable {
     }
     public mutating func done(_ key: String) { entries[key] = .some(nil) }
     public mutating func retry(_ key: String, after delay: Duration) { entries[key] = .some(ContinuousClock.now.advanced(by: delay)) }
+}
+
+/// One caller's budgeted wait on a task others share (``RemoteApprovalPreparations/value(of:within:)``): the first end
+/// (the task's value, or nil when the budget ran out) counts; the task itself goes on.
+nonisolated final class RemoteApprovalBudgetWait<Value: Sendable>: Sendable {
+    private enum State {
+        case idle
+        case waiting(CheckedContinuation<Value?, Never>)
+        case ended(Value?)
+    }
+
+    private let state = Mutex(State.idle)
+
+    /// The continuation of the wait; an end that came first resumes it at once.
+    func store(_ continuation: CheckedContinuation<Value?, Never>) {
+        let ended: Value?? = state.withLock { state in
+            if case .ended(let value) = state { return .some(value) }
+            state = .waiting(continuation)
+            return .none
+        }
+        if let ended { continuation.resume(returning: ended) }
+    }
+
+    /// Ends the wait with `value`; only the first end counts.
+    func finish(_ value: Value?) {
+        let waiting: CheckedContinuation<Value?, Never>? = state.withLock { state in
+            switch state {
+            case .ended: return nil
+            case .waiting(let continuation):
+                state = .ended(value)
+                return continuation
+            case .idle:
+                state = .ended(value)
+                return nil
+            }
+        }
+        waiting?.resume(returning: value)
+    }
 }
