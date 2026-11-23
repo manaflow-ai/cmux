@@ -278,6 +278,13 @@ fn instructions(tools: &Value) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" "))
 }
 
+/// The instructions [`served`] gives with the env [`crate::tool_env`] reads: its tool allowlist
+/// decides them (the artifact tools add none), so they are known without the server.
+pub(crate) fn env_instructions() -> Option<String> {
+    let allow = crate::tool_env::var(crate::agent_tools::MCP_TOOLS_ENV);
+    instructions(&allowed(tools_with_artifacts(false), allow.as_deref()))
+}
+
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
     // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
