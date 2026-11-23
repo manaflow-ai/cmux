@@ -34,6 +34,7 @@ import { setPaneNotices } from "./paneNoticeStore";
 import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-info/native/host";
 import { addCloudPreviewPort, seedCloudPreviewPorts } from "./cloudPreviewPorts";
 import { noteChatTheme, SNAPSHOT_WRITE_EVENT } from "./chatSnapshot/live";
+import { adoptEarlyPageClient, takeEarlyHostEvents } from "./earlyHandshake";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -54,7 +55,8 @@ let client: PageClient | null = null;
 /// The page host client when the page runs on the shared page host, else null (the old host).
 export function pageHostClient(): PageClient | null {
   // Only a found client is kept: it owns the page's receive hook, so there is one per page.
-  client ??= createPageClient();
+  // The client the early handshake made (earlyHandshake.ts) is the page's one; else a new one.
+  client ??= adoptEarlyPageClient() ?? createPageClient();
   return client;
 }
 
@@ -78,8 +80,14 @@ export async function callPageHost<T>(
   method: string,
   params: Record<string, unknown> = {},
 ): Promise<T> {
+  return settlePageCall<T>(page.call<T>(agentPageOp(method), params));
+}
+
+/// A page host call's reply as `callPageHost` gives it: rejected with a `NativeError` (below). The
+/// early handshake's raw call (earlyHandshake.ts) settles through it too.
+export async function settlePageCall<T>(reply: Promise<T>): Promise<T> {
   try {
-    return await page.call<T>(agentPageOp(method), params);
+    return await reply;
   } catch (error) {
     if (!isPageError(error)) throw new NativeError(undefined, String(error));
     if (error.code === "cmux.protocol.unknown_op" || error.code === "cmux.protocol.invalid_params")
@@ -255,15 +263,18 @@ const subscribed = new WeakMap<PageClient, Promise<void>>();
 export async function startHostEvents(page: PageClient): Promise<void> {
   let ready = subscribed.get(page);
   if (!ready) {
-    ready = page
-      .subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event))
-      .then(
-        () => undefined,
-        (error) => {
-          subscribed.delete(page);
-          throw error;
-        },
-      );
+    // The subscription the early handshake asked before the bridge existed, with the events it
+    // held applied now in order (earlyHandshake.ts); else a new one.
+    ready = (
+      takeEarlyHostEvents<HostEvent>(page, applyHostEvent) ??
+      page.subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event))
+    ).then(
+      () => undefined,
+      (error) => {
+        subscribed.delete(page);
+        throw error;
+      },
+    );
     subscribed.set(page, ready);
   }
   await ready;

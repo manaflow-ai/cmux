@@ -14,7 +14,7 @@ import {
 } from "../direct";
 import { readHostTail } from "../tailCache";
 import { failedRowOf, failedRowTrustRetry } from "../failedRowTrustRetry";
-import { postNative } from "../native";
+import { postNative, takeEarlyReady } from "../native";
 import { resendToastAvoidance } from "../toastAvoidance";
 import { NativeError } from "../nativeError";
 import { errorMessage, isStartCancelled, knownRefusalText, startCancelled } from "../transportErrors";
@@ -368,6 +368,57 @@ export type PaneSnapshotArgs = {
   automationPick: React.RefObject<((cwd: string) => void) | undefined>;
   automationCompose: React.RefObject<AutomationCompose | undefined>;
   focusComposer: () => void;
+};
+
+/// The host's answer to the pane's `ready` (AgentPaneHandshake).
+type HandshakeAnswer = {
+  protocolVersion: number;
+  transport?: string;
+  /// Only the browser dev slot (devHost.ts) sends these; the app never does.
+  endpoint?: string;
+  token?: string;
+  sessionId?: string;
+  newSession?: boolean;
+  newTab?: unknown;
+  cwd?: string;
+  draft?: string;
+  prompt?: string;
+  promptAttachments?: ComposerAttachment[];
+  promptTicket?: { promptId?: unknown; ticket?: unknown };
+  harness?: string;
+  /// A Cloud start's picked effort (AgentPaneHandshake `effort`): the seeded chat starts on it.
+  effort?: unknown;
+  peer?: string;
+  adopt?: unknown;
+  surface?: unknown;
+  linkScheme?: unknown;
+  sessionMustExist?: boolean;
+  revealTurn?: unknown;
+  wake?: unknown;
+  chooseFolder?: boolean;
+  folderNeeded?: { reason?: unknown };
+  pastTurns?: unknown;
+  machineName?: unknown;
+  localMachineName?: unknown;
+  cloudMachineID?: unknown;
+  cloudAccount?: unknown;
+  cloudTeamMachine?: unknown;
+  /// The prompt row ids whose turn has a Cloud machine checkpoint to rewind to (TurnActions
+  /// `rewind`, answered by `chat.rewindTurn`); absent where the host serves no rewind.
+  cloudTurnRewind?: unknown;
+  /// The app opens a Cloud chat's hand-off turns (`cloud.handoffTurn`, cloudHandoffTurn.ts).
+  cloudHandoffs?: unknown;
+  cloudRepositoryAvailable?: unknown;
+  githubRepository?: unknown;
+  harnesses?: unknown;
+  /// New Cloud Chat opened this tab (AgentPaneHandshake `pickCloud`): it picks Cloud once offered.
+  pickCloud?: unknown;
+  /// Another chat's `/side --on cloud` or `/cd --on cloud` opened this tab (commandPlace.ts).
+  cloudStartHandoff?: unknown;
+  model?: unknown;
+  sandboxState?: unknown;
+  /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
+  tab?: unknown;
 };
 
 /** The body of AcpmuxPane's snapshot effect (RFD 0046 step 2), run by that effect in App.tsx; returns its cleanup. */
@@ -895,60 +946,15 @@ export function paneSnapshotEffect({
     reconnectingRef.current = true;
     cloudTypingPrewarm.reset();
     try {
+      // The first handshake was asked before the App booted (earlyHandshake.ts): this awaits it.
+      // A retry or reconnect asks again.
+      const early = reconnect ? undefined : takeEarlyReady<HandshakeAnswer>();
       acpmuxPerf.markAgent("handshakeStart");
-      acpmuxPerf.markLaunch("handshakeStart");
+      acpmuxPerf.markLaunch("handshakeStart", early?.startedAt);
       acpWire.lifecycle("handshake", { reconnect });
-      setWaitingSince(Date.now());
+      setWaitingSince(early?.startedAt ?? Date.now());
       setRestartUnavailable(false);
-      const answered = await callNative<{
-        protocolVersion: number;
-        transport?: string;
-        /// Only the browser dev slot (devHost.ts) sends these; the app never does.
-        endpoint?: string;
-        token?: string;
-        sessionId?: string;
-        newSession?: boolean;
-        newTab?: unknown;
-        cwd?: string;
-        draft?: string;
-        prompt?: string;
-        promptAttachments?: ComposerAttachment[];
-        promptTicket?: { promptId?: unknown; ticket?: unknown };
-        harness?: string;
-        /// A Cloud start's picked effort (AgentPaneHandshake `effort`): the seeded chat starts on it.
-        effort?: unknown;
-        peer?: string;
-        adopt?: unknown;
-        surface?: unknown;
-        linkScheme?: unknown;
-        sessionMustExist?: boolean;
-        revealTurn?: unknown;
-        wake?: unknown;
-        chooseFolder?: boolean;
-        folderNeeded?: { reason?: unknown };
-        pastTurns?: unknown;
-        machineName?: unknown;
-        localMachineName?: unknown;
-        cloudMachineID?: unknown;
-        cloudAccount?: unknown;
-        cloudTeamMachine?: unknown;
-        /// The prompt row ids whose turn has a Cloud machine checkpoint to rewind to (TurnActions
-        /// `rewind`, answered by `chat.rewindTurn`); absent where the host serves no rewind.
-        cloudTurnRewind?: unknown;
-        /// The app opens a Cloud chat's hand-off turns (`cloud.handoffTurn`, cloudHandoffTurn.ts).
-        cloudHandoffs?: unknown;
-        cloudRepositoryAvailable?: unknown;
-        githubRepository?: unknown;
-        harnesses?: unknown;
-        /// New Cloud Chat opened this tab (AgentPaneHandshake `pickCloud`): it picks Cloud once offered.
-        pickCloud?: unknown;
-        /// Another chat's `/side --on cloud` or `/cd --on cloud` opened this tab (commandPlace.ts).
-        cloudStartHandoff?: unknown;
-        model?: unknown;
-        sandboxState?: unknown;
-        /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
-        tab?: unknown;
-      }>("ready", reconnect ? { reconnect } : {})
+      const answered = await (early?.reply ?? callNative<HandshakeAnswer>("ready", reconnect ? { reconnect } : {}))
         // The host cleared its toast box for this handshake: it hears the mounted composer's again.
         .finally(resendToastAvoidance);
       if (cancelled) return;
