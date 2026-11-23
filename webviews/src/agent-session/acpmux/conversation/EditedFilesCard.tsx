@@ -384,23 +384,24 @@ function FileEntry({
   t: Translate;
 }) {
   const fold = useInlineDiff(rowId, file);
+  const { open, toggle, headerRef } = fold;
   return (
     <div className="acpmux-edited-entry">
       <button
         type="button"
         className="acpmux-edited-file"
-        ref={fold.headerRef}
-        aria-expanded={fold.open}
+        ref={headerRef}
+        aria-expanded={open}
         // tooltip-allow: a long file path is cut to the row; its whole path is the tooltip
         title={title}
-        onClick={fold.toggle}
+        onClick={toggle}
       >
         {label}
         <ChevronDown
           width={12}
           height={12}
           className="acpmux-edited-file-chevron"
-          style={fold.open ? { transform: "rotate(180deg)" } : undefined}
+          style={open ? { transform: "rotate(180deg)" } : undefined}
         />
       </button>
       {status}
