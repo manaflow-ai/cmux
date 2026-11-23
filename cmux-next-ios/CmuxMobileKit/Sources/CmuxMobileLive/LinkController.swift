@@ -6,6 +6,9 @@ import CmuxMobileTransport
 import Foundation
 import Observation
 import OSLog
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "link")
 
@@ -31,6 +34,8 @@ public final class LinkController {
     @ObservationIgnored private var machine: LinkMachine
     /// Bumped by every dial, close and wait the machine starts.
     public var dialGeneration: Int { machine.generation }
+    /// The Mac holds the current link while the app is suspended.
+    public var isParked: Bool { machine.isParked }
     @ObservationIgnored private let dialer: any MacLinkDialer
     /// Resolves a Mac id to a dial endpoint (nil until the phone is registered).
     @ObservationIgnored public var endpoint: @MainActor (String) -> LinkEndpoint? = { _ in nil }
@@ -46,6 +51,8 @@ public final class LinkController {
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
     @ObservationIgnored private var heartbeatTask: Task<Void, Never>?
+    /// A heartbeat is armed: it probes the link on its beats.
+    var isBeating: Bool { heartbeatTask.map { !$0.isCancelled } ?? false }
     @ObservationIgnored private var probeTask: Task<Void, Never>?
     /// Foreground silence is detected within 5 s: 2.5 s of quiet until a
     /// probe, 2 s for any inbound frame, and 0.5 s grace for the FFI
@@ -64,6 +71,21 @@ public final class LinkController {
     nonisolated static let presenceProbeTimeout: Duration = .milliseconds(1500)
     /// Beyond a probe's own timeout, how long the bound around it waits.
     nonisolated static let probeGrace: Duration = .milliseconds(500)
+    /// How long the Mac holds a parked link while the app is suspended
+    /// (PROTOCOL.md "Parked link"; the Mac's own cap).
+    nonisolated static let parkHold: Duration = .seconds(600)
+    /// How long the park's answer is waited for in the moments iOS gives an
+    /// app after it leaves the screen.
+    nonisolated static let parkTimeout: Duration = .seconds(1)
+    /// A park older than this on return is not trusted: the Mac may have
+    /// closed it already, and a redial at once beats a probe that times out.
+    nonisolated static let parkResumeWithin: Duration = parkHold - .seconds(30)
+    /// A resumed parked link that does not answer within this is redialed.
+    nonisolated static let parkedResumeProbeTimeout: Duration = .milliseconds(1500)
+    @ObservationIgnored private var parkTask: Task<Void, Never>?
+    /// When the Mac accepted the current park, on the clock that keeps
+    /// running while the device sleeps.
+    @ObservationIgnored private var parkedAt: ContinuousClock.Instant?
     @ObservationIgnored private var quickProbe = false
     /// The link kept beside a redial after its probe failed
     /// (``LinkMachine/standby``), its state watch and its probe loop.
@@ -221,6 +243,14 @@ public final class LinkController {
     public func send(_ event: LinkMachine.Event) {
         let wasBackgrounded = machine.isBackgrounded
         let wasConnected = machine.phase.isConnected
+        // Away longer than the Mac holds a park: redial at once rather than
+        // probe a link the Mac has closed.
+        let isResume: Bool = { if case .resumed = event { true } else { event == .resume } }()
+        if isResume, machine.isParked,
+           parkedAt.map({ ContinuousClock.now - $0 > Self.parkResumeWithin }) ?? true {
+            log.info("park lapsed while away")
+            _ = machine.handle(.parkLapsed)
+        }
         let effects = machine.handle(event)
         switch event {
         case .linkDropped(_, let reason), .probeFailed(_, let reason):
@@ -228,7 +258,7 @@ public final class LinkController {
         default:
             break
         }
-        quickProbe = (event == .foreground || event == .resume || { if case .resumed = event { true } else { false } }()) && effects.contains { if case .probe = $0 { true } else { false } }
+        quickProbe = (event == .foreground || isResume) && effects.contains { if case .probe = $0 { true } else { false } }
         if phase != machine.phase {
             log.info("link \(String(describing: self.machine.phase), privacy: .public)")
             phase = machine.phase
@@ -246,8 +276,12 @@ public final class LinkController {
         // Before the effects: a background probe still out is cancelled first, so a probe an
         // effect starts now (a short resume's quick probe) is the one that runs.
         if wasBackgrounded != machine.isBackgrounded, phase.isConnected {
-            probeTask?.cancel()
-            probeTask = nil
+            // A resumed park's probe is the one that ends the park: keep it.
+            let resuming = effects.contains { if case .resumeParked = $0 { true } else { false } }
+            if !resuming {
+                probeTask?.cancel()
+                probeTask = nil
+            }
             startHeartbeat(generation: machine.generation)
         }
         for effect in effects { run(effect) }
@@ -263,6 +297,9 @@ public final class LinkController {
             heartbeatTask?.cancel()
             probeTask?.cancel()
             probeTask = nil
+            parkTask?.cancel()
+            parkTask = nil
+            parkedAt = nil
             retryTask?.cancel()
             prepared = nil
             if let link {
@@ -345,12 +382,99 @@ public final class LinkController {
             probe(generation: generation, timeout: timeout)
         case .quickProbe(let generation):
             probe(generation: generation, timeout: Self.presenceProbeTimeout)
+        case .park(let generation):
+            park(generation: generation)
+        case .resumeParked(let generation):
+            parkedAt = nil
+            ConnectTimeline.shared.mark("park_resume")
+            guard let link = link as? any ParkableMacLink, link.resumeParked() else {
+                send(.probeFailed(generation: generation, reason: "the parked link lapsed"))
+                return
+            }
+            probeTask?.cancel()
+            probeTask = nil
+            probe(generation: generation, timeout: Self.parkedResumeProbeTimeout)
+            // Resumed in the background for a hold (a call, a notification
+            // action): the link stays watched until the hold parks it again.
+            if machine.isBackgrounded { startHeartbeat(generation: generation) }
         case .keepStandby:
             keepStandby()
         case .promoteStandby(let generation):
             promoteStandby(generation: generation)
         case .closeStandby:
             closeStandby()
+        }
+    }
+
+    /// Keeps the link out of the park until the hold is released: a parked
+    /// link resumes now, and with no hold left a link in the background
+    /// parks again (PROTOCOL.md "Parked link").
+    public func holdAwake() -> LinkAwakeHold {
+        send(.holdAwake)
+        return LinkAwakeHold(self)
+    }
+
+    /// Keeps the process running for a short piece of work after the app
+    /// leaves the screen; returns the release. UIKit's background task in
+    /// the app's process, nothing in tests (no `UIApplication` there).
+    static var beginBackgroundTask: (@MainActor (String) -> @MainActor () -> Void)?
+
+    /// The app's process: parks keep it up with UIKit background tasks.
+    static func useApplicationBackgroundTasks() {
+        #if canImport(UIKit)
+        beginBackgroundTask = { name in
+            let ending = BackgroundTaskEnding()
+            // iOS runs out of time with the park's FFI call still out: end
+            // the task there and then, or iOS ends the app.
+            let task = UIApplication.shared.beginBackgroundTask(withName: name) { ending.end() }
+            guard task != .invalid else { return {} }
+            ending.arm { UIApplication.shared.endBackgroundTask(task) }
+            return { ending.end() }
+        }
+        #endif
+    }
+
+    /// The app left the screen with a live link: ask the Mac to hold it while
+    /// iOS suspends the app (PROTOCOL.md "Parked link"). Nothing probes the
+    /// link from here until the Mac answers: a ping the Mac reads after it
+    /// parked ends the park, and the Mac then keepalives a suspended phone.
+    /// So the heartbeat stops, new probes wait (`probe` and `startHeartbeat`
+    /// skip while `parkTask` is set), and a probe already sent finishes
+    /// first: its FFI ping ignores cancellation, so cancelling its task does
+    /// not take the ping back. That wait is bounded by the probe's own race
+    /// (its timeout plus `probeGrace`). A link that cannot be parked (WebRTC,
+    /// an older Mac) closes on silence and is redialed on return, as before.
+    private func park(generation: Int) {
+        guard let link = link as? any ParkableMacLink, phase.isConnected, generation == machine.generation else { return }
+        parkTask?.cancel()
+        heartbeatTask?.cancel()
+        let inFlight = probeTask
+        parkTask = Task { [weak self] in
+            // The answer needs a round trip; keep the process up for it.
+            let release = Self.beginBackgroundTask?("link-park")
+            defer { release?() }
+            await inFlight?.value
+            guard !Task.isCancelled else { return }
+            let parked = await link.park(hold: Self.parkHold, timeout: Self.parkTimeout)
+            guard let self, !Task.isCancelled, generation == self.machine.generation else { return }
+            self.parkTask = nil
+            log.info("park \(parked ? "accepted" : "refused", privacy: .public)")
+            guard parked, self.machine.isBackgrounded else {
+                // Refused (an older Mac), or back in front before the answer
+                // came: a park the Mac took ends at once, and the probe and
+                // heartbeat the park held off run again.
+                if parked { _ = link.resumeParked() }
+                if !self.machine.isBackgrounded {
+                    let timeout = parked ? Self.parkedResumeProbeTimeout : Self.foregroundProbeTimeout
+                    self.probe(generation: generation, timeout: timeout)
+                }
+                self.startHeartbeat(generation: generation)
+                return
+            }
+            self.parkedAt = ContinuousClock.now
+            self.probeTask?.cancel()
+            self.probeTask = nil
+            self.send(.parked(generation: generation))
         }
     }
 
@@ -442,7 +566,8 @@ public final class LinkController {
     }
 
     private func probe(generation: Int, timeout: Duration) {
-        guard let link, phase.isConnected, generation == machine.generation, probeTask == nil else { return }
+        // No probe while the park is being asked for (see `park`).
+        guard let link, phase.isConnected, generation == machine.generation, probeTask == nil, parkTask == nil else { return }
         let clock = clock
         probeStarts += 1
         lastProbeTimeout = timeout
@@ -539,6 +664,9 @@ public final class LinkController {
     /// the controller disappears or a newer link generation takes over.
     private func startHeartbeat(generation: Int) {
         heartbeatTask?.cancel()
+        // A ping would end the Mac's park while the app is suspended, or
+        // while the park is being asked for (`park` restarts it if refused).
+        guard !machine.isParked, parkTask == nil else { return }
         let clock = clock
         let beat = beat
         // Align Keepalives keeps the 2.5 s foreground beat and moves the
@@ -646,6 +774,23 @@ public final class LinkController {
     }
 }
 
+/// One ``LinkController/holdAwake()``: released once, by `release()` or when
+/// the hold is dropped, whichever is first.
+@MainActor
+public final class LinkAwakeHold {
+    private weak var controller: LinkController?
+
+    init(_ controller: LinkController) { self.controller = controller }
+
+    public func release() {
+        guard let controller else { return }
+        self.controller = nil
+        controller.send(.releaseAwake)
+    }
+
+    isolated deinit { release() }
+}
+
 /// One winner for ``LinkController/race(timeout:clock:_:)``.
 final class RaceOnce: @unchecked Sendable {
     private let lock = NSLock()
@@ -655,5 +800,32 @@ final class RaceOnce: @unchecked Sendable {
             defer { done = true }
             return !done
         }
+    }
+}
+
+/// One background task's end, run once: by its release when the work is
+/// done, or by iOS's expiration handler when the time runs out, whichever is
+/// first. The expiration ends the task on the spot and waits on nothing (the
+/// park's FFI call may still be out): iOS ends an app whose expired task is
+/// still open.
+@MainActor
+final class BackgroundTaskEnding {
+    private var ended = false
+    private var endTask: (() -> Void)?
+
+    /// `endTask` ends the task; it runs at once if the end came first.
+    func arm(_ endTask: @escaping () -> Void) {
+        if ended {
+            endTask()
+        } else {
+            self.endTask = endTask
+        }
+    }
+
+    func end() {
+        guard !ended else { return }
+        ended = true
+        endTask?()
+        endTask = nil
     }
 }
