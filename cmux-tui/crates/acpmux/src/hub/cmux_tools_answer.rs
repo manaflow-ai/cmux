@@ -1,11 +1,12 @@
 //! A chat cmux-next starts on another machine (a peer link, a Cloud VM, a headless daemon)
 //! follows the answer of the Mac that started it to "should agents you start in cmux get cmux's
-//! tools?" (`agents.cmuxMcp`; decided 2026-11-14), not that machine's own: the person answered on
-//! the Mac they use. A machine's own answer applies to the chats started there.
+//! tools?" (`agents.cmuxMcp`, on by default), not that machine's own: the person set it on the
+//! Mac they use. A machine's own answer applies to the chats started there.
 //!
 //! The daemon that forwards a `session/new` to a peer (`_meta.acpmux.peer`) sends its own answer
-//! as `_meta.acpmux.cmuxTools` (`on` or `off`; unanswered is `off`). The peer takes it only from a
-//! peer daemon's connection (its peer token or carrier; never a Web client or a paired device) and
+//! as `_meta.acpmux.cmuxTools` (`on` or `off`; a peer start with neither runs `off`). The peer
+//! takes it only from a peer daemon's connection (its peer token or carrier; never a Web client
+//! or a paired device) and
 //! records it in the session's own env as [`TOOLS_ANSWER_ENV`]. Every spawn applies that env, so
 //! the session's tool list (`AgentTools::scoped`) and any `cmux mcp serve` the chat starts (the
 //! `cmux` server, or a person's own entry: `cli/mcp.rs` `refusal`) use it. A fork or a sub-session
@@ -101,8 +102,9 @@ mod tests {
     #[test]
     fn a_forwarded_new_carries_this_daemons_answer_over_the_callers() {
         assert_eq!(here(Some(r#"{"agents": {"cmuxMcp": "on"}}"#)), "on");
-        assert_eq!(here(Some(r#"{"agents": {"cmuxMcp": "ask"}}"#)), "off");
-        assert_eq!(here(None), "off");
+        assert_eq!(here(Some(r#"{"agents": {"cmuxMcp": "ask"}}"#)), "on");
+        assert_eq!(here(Some(r#"{"agents": {"cmuxMcp": "off"}}"#)), "off");
+        assert_eq!(here(None), "on");
         let mut p = json!({"_meta": {"acpmux": {"cmuxTools": "on", "harness": "codex"}}});
         stamp(&mut p, "off");
         assert_eq!(p["_meta"]["acpmux"]["cmuxTools"], "off");
