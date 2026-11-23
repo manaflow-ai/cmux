@@ -562,6 +562,40 @@ async fn a_stop_during_a_cache_write_that_does_not_finish_ends_within_its_bound(
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A handover with many peers: the shutdown stops every peer at once, and each one's last-known
+/// sessions are saved once more. Those saves ran one after another on the notice loop, so with
+/// forty peers on Leo's NIGHTLY Mac every handover waited out the agents' whole budget ("agents
+/// did not stop within 1s") with its socket dark. They run at once now: eight peers whose save
+/// takes 150 ms each cost the shutdown about one save, not eight, and every one is written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_handover_saves_every_peers_cache_at_once() {
+    const PEERS: u64 = 8;
+    let dir = std::env::temp_dir().join(format!("acpmux-shutdown-peers-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    for n in 0..PEERS {
+        let peer = crate::peer::Peer::new(
+            &format!("builder-{n}"),
+            "ws://127.0.0.1:9",
+            None,
+            None,
+            hub.peer_notices.clone(),
+        );
+        hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+        peer.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    let writes = hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst);
+    hub.cache_test_write_delay_ms.store(150, std::sync::atomic::Ordering::SeqCst);
+    let started = tokio::time::Instant::now();
+    hub.shutdown_all().await;
+    let took = started.elapsed();
+    eprintln!("a_handover_saves_every_peers_cache_at_once: {PEERS} peer saves took {took:?}");
+    hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+    let wrote = hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst) - writes;
+    assert!(wrote >= PEERS, "{wrote} of {PEERS} peers' last saves ran");
+    assert!(took < Duration::from_millis(700), "the shutdown took {took:?} for {PEERS} saves");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Twenty-two hub tasks once ignored cancellation and serialized Restart to Update behind their
 /// remote work. The owner aborts all of them at one absolute one-second deadline, so a peer count
 /// cannot turn the handoff into one wait per task.

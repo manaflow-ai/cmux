@@ -132,6 +132,9 @@ struct CmuxMobileApp: App {
             // App Shortcut's own perform() at launch, as the system would on a tap (a headless
             // simulator's Spotlight opens the app without running an app's intents).
             .task { await NewAgentChatIntent.runFromLaunchArguments() }
+            // `-cmux-mobile-kbd-pin-trace` for every root, not only RootView's (TerminalDemoRoot's
+            // terminal for the keyboard motion bench); it starts once.
+            .task { KeyboardPinTrace.startIfRequested() }
             #endif
         }
     }

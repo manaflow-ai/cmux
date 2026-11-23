@@ -19,11 +19,13 @@
 //!   and ANSI held to the theme contrast floors. With `--name` it is
 //!   installed; else the file is printed. PNG and binary PPM decode here;
 //!   convert other formats (JPEG, HEIC) first.
-//! - `new --canvas COLOR --accent COLOR [--name N] [--format F] [--output
-//!   FILE] [--replace]`: a whole scheme from two colors (background,
-//!   foreground, ANSI 0...15, selection, cursor and accent all derive from
-//!   them, dark or light from the canvas, text held to WCAG 4.5:1). With
-//!   `--name` it is installed; else the file is printed.
+//! - `new --canvas C --accent A [--name N] [--appearance dark|light]
+//!   [--format F] [--output FILE] [--replace]`: a whole scheme from two
+//!   colors (`#rrggbb`, `rrggbb` or a CSS name): every key of the file
+//!   (background, foreground, cursor, selection, ANSI 0...15, the chrome
+//!   accent) derives from them, text held to WCAG AA on the canvas.
+//!   Appearance defaults from the canvas's luminance. With `--name` it is
+//!   installed; else the file is printed.
 //! - `formats`: the formats and their names.
 //!
 //! A file that does not parse exits 1 with `FILE:LINE: what is wrong`.
@@ -32,7 +34,7 @@ use std::path::{Path, PathBuf};
 
 use cmux_theme_tokens::{
     Appearance, Env, InstallError, Pixels, Rgb, Scheme, SchemeFormat, decode_ppm, find_theme_file,
-    install_scheme, palette_from_image, parse_color, scheme_from_colors,
+    install_scheme, palette_from_image, parse_color, theme_from_two_colors,
 };
 use serde_json::{Value, json};
 
@@ -47,15 +49,15 @@ cmux theme: 16-color schemes in and out of cmux.
   cmux theme convert FILE --to F [--from F] [--output FILE]
   cmux theme from-image PATH (PNG or PPM) [--name N] [--appearance dark|light] [--format F] [--output FILE] [--replace]
       a scheme from an image's colors; accent and ANSI keep text readable. --name installs it
-  cmux theme new --canvas COLOR --accent COLOR [--name N] [--format F] [--output FILE] [--replace]
-      a whole scheme from a background and an accent color, text readable on it. --name installs it
+  cmux theme new --canvas C --accent A [--name N] [--appearance dark|light] [--format F] [--output FILE] [--replace]
+      a whole theme from two colors (#rrggbb): every color derives from them, text keeps WCAG AA. --name installs it
   cmux theme formats
 Formats: ghostty, base16, iterm2, windows-terminal, vscode.";
 
 /// Most bytes of an image `from-image` reads (a 4K PNG wallpaper fits).
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Request {
     Import {
         file: PathBuf,
@@ -83,10 +85,10 @@ enum Request {
         replace: bool,
     },
     New {
-        /// `0xRRGGBB`.
-        canvas: u32,
-        accent: u32,
+        canvas: Rgb,
+        accent: Rgb,
         name: Option<String>,
+        appearance: Option<Appearance>,
         format: SchemeFormat,
         output: Option<PathBuf>,
         replace: bool,
@@ -158,12 +160,9 @@ fn format_flag(value: Option<&String>, flag: &str) -> Result<SchemeFormat, Strin
     })
 }
 
-fn color_flag(value: Option<&String>, flag: &str) -> Result<u32, String> {
-    let value =
-        value.ok_or_else(|| format!("{flag} needs a color such as '#1e1e2e'\n\n{USAGE}"))?;
-    parse_color(value)
-        .map(Rgb::to_hex)
-        .ok_or_else(|| format!("{flag} {value:?} is not a color: #rrggbb, #rgb or a color name"))
+fn color_flag(value: Option<&String>, flag: &str) -> Result<Rgb, String> {
+    let value = value.ok_or_else(|| format!("{flag} needs a color\n\n{USAGE}"))?;
+    parse_color(value).ok_or_else(|| format!("{flag}: {value:?} is not a color (try #rrggbb)"))
 }
 
 fn parse(args: &[String]) -> Result<Request, String> {
@@ -187,9 +186,9 @@ fn parse(args: &[String]) -> Result<Request, String> {
                     _ => return Err(format!("--appearance is dark or light\n\n{USAGE}")),
                 });
             }
+            "--canvas" => canvas = Some(color_flag(words.next(), "--canvas")?),
+            "--accent" => accent = Some(color_flag(words.next(), "--accent")?),
             "--replace" => replace = true,
-            "--canvas" | "--background" => canvas = Some(color_flag(words.next(), word)?),
-            "--accent" => accent = Some(color_flag(words.next(), word)?),
             "-h" | "--help" => return Err(usage()),
             flag if flag.starts_with('-') && flag.len() > 1 => {
                 return Err(format!("unknown option {flag}\n\n{USAGE}"));
@@ -201,9 +200,6 @@ fn parse(args: &[String]) -> Result<Request, String> {
         [one] => Ok(one.clone()),
         _ => Err(usage()),
     };
-    if (canvas.is_some() || accent.is_some()) && verb != "new" {
-        return Err(format!("--canvas and --accent are for `cmux theme new`\n\n{USAGE}"));
-    }
     let request = match verb.as_str() {
         "import" if to.is_none() && output.is_none() && appearance.is_none() => {
             Request::Import { file: one(&positional)?.into(), name, from, replace }
@@ -229,11 +225,11 @@ fn parse(args: &[String]) -> Result<Request, String> {
             output,
             replace,
         },
-        "new" if from.is_none() && appearance.is_none() && positional.is_empty() => Request::New {
-            canvas: canvas
-                .ok_or_else(|| format!("new needs --canvas COLOR (the background)\n\n{USAGE}"))?,
+        "new" if from.is_none() && positional.is_empty() => Request::New {
+            canvas: canvas.ok_or_else(|| format!("new needs --canvas COLOR\n\n{USAGE}"))?,
             accent: accent.ok_or_else(|| format!("new needs --accent COLOR\n\n{USAGE}"))?,
             name,
+            appearance,
             format: to.unwrap_or(SchemeFormat::Ghostty),
             output,
             replace,
@@ -384,19 +380,17 @@ fn run(global: &GlobalArgs, request: Request) -> i32 {
                 Err((code, message)) => fail(global, &code, message),
             }
         }
-        Request::New { canvas, accent, name, format, output, replace } => {
-            let derived = scheme_from_colors(Rgb::hex(canvas), Rgb::hex(accent));
-            let hex = |c: Option<Rgb>| c.map(|c| format!("#{:06x}", c.to_hex()));
+        Request::New { canvas, accent, name, appearance, format, output, replace } => {
+            let theme = theme_from_two_colors(canvas, accent, appearance);
             let extra = json!({
-                "appearance": if derived.appearance == Appearance::Dark { "dark" } else { "light" },
-                "background": hex(Some(derived.scheme.background)),
-                "foreground": hex(Some(derived.scheme.foreground)),
-                "accent": hex(derived.scheme.accent),
-                "contrast": (derived.scheme.foreground.contrast(derived.scheme.background) * 100.0).round() / 100.0,
+                "appearance": if theme.appearance == Appearance::Dark { "dark" } else { "light" },
+                "canvas": format!("#{:06x}", theme.scheme.background.to_hex()),
+                "accent": format!("#{:06x}", theme.accent.to_hex()),
+                "glassTint": format!("#{:08x}", theme.glass_tint.to_rgba_u32()),
             });
             match name {
-                Some(name) => install(global, &name, &derived.scheme, replace, extra),
-                None => emit(global, &derived.scheme.export(format), output.as_deref(), extra),
+                Some(name) => install(global, &name, &theme.scheme, replace, extra),
+                None => emit(global, &theme.scheme.export(format), output.as_deref(), extra),
             }
         }
         Request::FromImage { path, name, appearance, format, output, replace } => {
