@@ -67,6 +67,10 @@ pub struct AttachParams {
     /// Default 2000.
     pub limit: Option<u64>,
     pub max_bytes: Option<u64>,
+    /// The `timeBreakdownVersion` of the breakdown copy this client holds (from an earlier
+    /// attach): while the chat's copy is the same, the reply's `session` leaves `timeBreakdown`
+    /// out (`server/requests/time_breakdown_gate.rs`). Absent, or another version: sent whole.
+    pub time_breakdown_version: Option<String>,
 }
 
 /// A session as `_acpmux/attach` returns it: its summary plus what an
@@ -113,6 +117,10 @@ pub struct AttachResult {
     /// The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they
     /// saw while attending; null before they saw any. An older acpmux leaves it out.
     pub read_through: Option<u64>,
+    /// The version of the session's `timeBreakdown` copy (a hash of it); null when it has none.
+    /// Sent back as the attach's `timeBreakdownVersion`, the next reply leaves an unchanged copy
+    /// out of `session`. An older acpmux leaves it out.
+    pub time_breakdown_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]

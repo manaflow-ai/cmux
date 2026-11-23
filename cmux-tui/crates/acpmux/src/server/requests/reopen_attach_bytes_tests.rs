@@ -121,13 +121,26 @@ async fn reopen_reply_bytes(turns: u64) -> usize {
         assert!(Instant::now() < deadline, "the time breakdown never seeded");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    // The first reopen gets the breakdown and its version (`time_breakdown_gate.rs`); the next
+    // one sends that version back, as the phone does from then on.
     let reopen = json!({"sessionId": ID, "limit": 400, "eventStream": true, "afterSeq": last});
-    let (bytes, reply) = client.call(method::MUX_ATTACH, reopen).await;
+    let (first_bytes, first) = client.call(method::MUX_ATTACH, reopen.clone()).await;
+    assert!(first.get("error").is_none(), "{first}");
+    let breakdown = &first["result"]["session"]["timeBreakdown"];
+    let spans = breakdown["spans"].as_array().map_or(0, Vec::len);
+    let breakdown_bytes = serde_json::to_string(breakdown).unwrap().len();
+    let version = first["result"]["timeBreakdownVersion"].clone();
+    assert!(version.is_string(), "the reply names its breakdown copy: {}", first["result"]);
+    let mut again = reopen;
+    again["timeBreakdownVersion"] = version;
+    let (bytes, reply) = client.call(method::MUX_ATTACH, again).await;
     assert!(reply.get("error").is_none(), "{reply}");
     assert_eq!(reply["result"]["events"], json!([]), "nothing is newer than afterSeq");
-    let spans = reply["result"]["session"]["timeBreakdown"]["spans"].as_array().map_or(0, Vec::len);
+    assert!(reply["result"]["session"].get("timeBreakdown").is_none(), "the held copy is left out");
     eprintln!(
-        "reopen afterSeq={last} on {turns} turns: {bytes} bytes, timeBreakdown spans {spans}"
+        "reopen afterSeq={last} on {turns} turns: {first_bytes} bytes without a held version, \
+         {bytes} with it; timeBreakdown {breakdown_bytes} bytes for {spans} spans ({} per span)",
+        breakdown_bytes.checked_div(spans).unwrap_or(0)
     );
     bytes
 }
