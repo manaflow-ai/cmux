@@ -59,8 +59,9 @@ pub struct Ended {
     pub reason: &'static str,
 }
 
-/// What the tree keeps for expiry.
-#[derive(Debug, Default)]
+/// What the tree keeps for expiry. It rides in the adoption checkpoint with the tree
+/// (`hub/hosts/checkpoint.rs`), so a resumed log read keeps its orphans and event times.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct Expiry {
     /// When the update being read happened (epoch ms; 0 when unknown).
     clock: u64,
@@ -70,11 +71,44 @@ pub(super) struct Expiry {
     by_agent: HashMap<String, String>,
     agent_of: HashMap<String, String>,
     /// The end Claude's notification gave a running subagent, by its id, kept until it leaves.
+    #[serde(with = "heard_end_serde")]
     heard_end: HashMap<String, &'static str>,
     /// Subagents a harness exit ended in a log read, with no end record of theirs after it.
     orphans: HashSet<String>,
     /// When the aged-out check last ran.
     last_sweep: u64,
+}
+
+/// `Expiry::heard_end` in a checkpoint: each end state by name, read back as the same static
+/// state `end_state` gives.
+mod heard_end_serde {
+    use std::collections::HashMap;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        map: &HashMap<String, &'static str>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        map.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<HashMap<String, &'static str>, D::Error> {
+        let named = HashMap::<String, String>::deserialize(d)?;
+        Ok(named
+            .into_iter()
+            .map(|(id, state)| {
+                let state = match state.as_str() {
+                    "failed" => "failed",
+                    "cancelled" => "cancelled",
+                    _ => "completed",
+                };
+                (id, state)
+            })
+            .collect())
+    }
 }
 
 /// The state a Claude task status ends a subagent in.
