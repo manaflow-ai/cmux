@@ -30,6 +30,12 @@ pub fn strip_write_grants(file: &std::fs::File) -> io::Result<bool> {
     imp::strip_write_grants(file)
 }
 
+/// True when the open file or folder `file` has any allow entry (read
+/// included): another account may open it, whatever its mode says.
+pub fn fd_any_grants(file: &std::fs::File) -> io::Result<bool> {
+    imp::fd_any_grants(file)
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use std::ffi::{CString, c_char, c_int, c_void};
@@ -91,6 +97,11 @@ mod imp {
     /// (an entry cmux cannot read, or a walk that fails before the end)
     /// is an error, never "no grant" and never an entry to delete.
     fn first_grant(acl: &Owned) -> io::Result<Option<AclEntry>> {
+        first_allow(acl, WRITE_CLASS)
+    }
+
+    /// The first allow entry of `acl` that grants any permission in `class`.
+    fn first_allow(acl: &Owned, class: u64) -> io::Result<Option<AclEntry>> {
         let mut entry: AclEntry = std::ptr::null_mut();
         let mut which = ACL_FIRST_ENTRY;
         loop {
@@ -111,7 +122,7 @@ mod imp {
             {
                 return Err(io::Error::last_os_error());
             }
-            if tag == ACL_EXTENDED_ALLOW && mask & WRITE_CLASS != 0 {
+            if tag == ACL_EXTENDED_ALLOW && mask & class != 0 {
                 return Ok(Some(entry));
             }
         }
@@ -132,6 +143,14 @@ mod imp {
         // SAFETY: the descriptor is open for the life of `file`.
         match owned(unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) })? {
             Some(acl) => Ok(first_grant(&acl)?.is_some()),
+            None => Ok(false),
+        }
+    }
+
+    pub fn fd_any_grants(file: &std::fs::File) -> io::Result<bool> {
+        // SAFETY: the descriptor is open for the life of `file`.
+        match owned(unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) })? {
+            Some(acl) => Ok(first_allow(&acl, u64::MAX)?.is_some()),
             None => Ok(false),
         }
     }
@@ -172,6 +191,10 @@ mod imp {
     }
 
     pub fn strip_write_grants(_file: &std::fs::File) -> io::Result<bool> {
+        Ok(false)
+    }
+
+    pub fn fd_any_grants(_file: &std::fs::File) -> io::Result<bool> {
         Ok(false)
     }
 }

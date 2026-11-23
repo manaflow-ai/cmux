@@ -1,0 +1,12 @@
+{
+  "family": "thread",
+  "ops": {
+    "thread.update": {
+      "source": "cloud",
+      "owner": "cloud:ConversationDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "8633de71a5de2d83"
+    }
+  }
+}

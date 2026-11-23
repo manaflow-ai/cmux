@@ -304,8 +304,10 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
             let mut reply = page_reply_at(&session, depth, before, page, next_mark, at_start);
             if result_bytes(&reply) <= REPLY_BYTES || turn_count <= 1 {
                 if reread > 0 {
-                    let read = reply["read"].as_u64().unwrap_or(0).saturating_add(reread);
-                    reply["read"] = json!(read);
+                    let read = reply.get("read").and_then(Value::as_u64).unwrap_or(0);
+                    if let Some(fields) = reply.as_object_mut() {
+                        fields.insert("read".into(), json!(read.saturating_add(reread)));
+                    }
                 }
                 break fit_reply(reply);
             }
@@ -460,14 +462,15 @@ fn page_reply_at(
             "compacted",
         ));
     }
-    let mut reply = json!({"events": events, "before": page.start, "mark": mark, "turns": page.turns.len(), "read": page.read});
-    if let Some(next) = hop.and_then(|hop| hop.next.as_ref()) {
+    let turns = page.turns.len();
+    match hop.and_then(|hop| hop.next.as_ref()) {
         // A new transcript's cursor is its end: it jumps forward in bytes, which the reply says.
-        reply["before"] = json!(next.before);
-        reply["mark"] = json!(next.mark);
-        reply["olderTranscript"] = json!({"agentSessionId": next.id, "depth": next.depth});
+        Some(next) => json!({"events": events, "before": next.before, "mark": next.mark,
+            "turns": turns, "read": page.read,
+            "olderTranscript": {"agentSessionId": next.id, "depth": next.depth}}),
+        None => json!({"events": events, "before": page.start, "mark": mark, "turns": turns,
+            "read": page.read}),
     }
-    reply
 }
 
 /// The serialized result size, before the request id and JSON-RPC envelope. The one MiB margin in

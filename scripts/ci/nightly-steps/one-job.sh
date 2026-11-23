@@ -8,7 +8,9 @@
 #                        nearest deltas (appcast-with-nearest-deltas.sh prebuild) and the git fetch of the span
 #                        the release notes cover, beside the verify steps, the launch smoke and the size budget
 #   one-job.sh deltas-join    after them: waits for both; a failed or late one only leaves its work to the
-#                        steps that did it before (the keyed appcast step, the release notes step)
+#                        steps that did it before (the keyed appcast step, the release notes step). With
+#                        NIGHTLY_NEXT_DELTAS_AFTER_FEED=true the feed needs no delta: it waits for the notes only and
+#                        stops an unfinished prebuild, whose work the post-feed delta step then does itself
 #   one-job.sh final-dmg the final DMG where verify-final-dmg.sh, the launch smoke and the size budget read it
 #   one-job.sh final-feed after the keyed appcast step: this build's appcast and deltas beside it
 #   one-job.sh source    publish-nightly's "Select the build to publish", for this job's own build only
@@ -54,6 +56,11 @@ case "${1:-}" in
     state="$RUNNER_TEMP/nightly-helper-builds"
     for name in nearest-deltas notes-span; do
       [ -f "$state/$name.pid" ] || continue
+      if [ "$name" = nearest-deltas ] && [ "${NIGHTLY_NEXT_DELTAS_AFTER_FEED:-}" = true ] && [ ! -f "$state/$name.status" ]; then
+        python3 "$PUBLISH_TOOLING/ci/background_build.py" stop --state "$state" "$name"
+        echo "::notice title=nightly-next $name::the prebuild did not finish beside the checks; the deltas after the feed build it"
+        continue
+      fi
       if ! python3 "$PUBLISH_TOOLING/ci/background_build.py" join --state "$state" "$name" --timeout "${DELTAS_JOIN_SECONDS:-900}"; then
         python3 "$PUBLISH_TOOLING/ci/background_build.py" stop --state "$state" "$name"
         echo "::warning title=nightly-next $name::the background $name did not finish; the step that did it before does it"
@@ -90,9 +97,14 @@ case "${1:-}" in
   wipe)
     tmp="${RUNNER_TEMP:-}"
     if [ -n "$tmp" ] && [ -d "$tmp" ] && [ "$tmp" != / ] && [ "$tmp" != "$HOME" ]; then
+      # A stopped delta prebuild can leave a DMG mounted under it; rm -rf into a read-only volume fails the job.
+      real="$(cd "$tmp" && pwd -P)"  # mount prints resolved paths
+      mount | sed -n "s#^/dev/[^ ]* on \($real/.*\) (.*#\1#p" | while IFS= read -r mounted; do
+        hdiutil detach "$mounted" -quiet </dev/null || hdiutil detach "$mounted" -force -quiet </dev/null || true
+      done
       find "$tmp" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
     fi
-    rm -rf signed signed-app-handoff final-dmg nightly-out tested cef-runtime language-packs
+    rm -rf signed signed-app-handoff final-dmg nightly-out nightly-deltas tested cef-runtime language-packs
     rm -f "${CHANNEL_DMG_PREFIX:-cmux-nightly-next-macos}"-*.delta
     python3 "$(dirname "$0")/../nightly_build_state.py" release || true
     ;;

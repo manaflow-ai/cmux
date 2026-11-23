@@ -7,6 +7,7 @@ import CmuxNextDictation
 import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 import os
 public import WebKit
@@ -84,6 +85,8 @@ public final class AgentPaneView: NSView {
     /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
     /// person, so its prompts would reach the agent as an unverified sender's.
     var personUnprovenNotice: AgentPaneNotice?
+    /// Holds the notice back until the state has lasted ``NoticeTiming/connectionQuiet`` (a connection blip says nothing).
+    let personUnprovenHold = QuietHold(owner: "AgentPaneView.personUnproven", delay: NoticeTiming.connectionQuiet)
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -180,7 +183,10 @@ public final class AgentPaneView: NSView {
     let ground = AgentPaneGround()
     /// The page lies outside the window until it draws the chat a tab adopted it for
     /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
-    var holdsPageAway = false
+    /// Held away, the page keeps drawing there until it shows (``PageWebView/drawsWhileAway``).
+    var holdsPageAway = false {
+        didSet { page?.drawsWhileAway = holdsPageAway }
+    }
     /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
     var chromiumMove: ChromiumMove?
     /// The wait of a moved page held outside the window (`AgentPaneView+MoveCover`); nil when none is held.
@@ -517,6 +523,7 @@ public final class AgentPaneView: NSView {
         // as the mic's click does (`dictation.handoff`). macOS Dictation writes where the keyboard
         // is, so the pane's page takes it first, in whichever engine shows it (the page keeps its
         // prompt focused).
+        model.hostTouch.mark("dictation") // its text goes to this page: the host says so before the page does
         if model.composer.dictationSource == .macos { focusChat() }
         // A session of cmux's own that still runs ends first, as the mic's click ends it, whatever
         // the source is now.
