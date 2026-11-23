@@ -255,6 +255,37 @@ class RunReportsTiming(unittest.TestCase):
             self.assertEqual(proc.returncode, 130, output)
             self.assertIn("1 still running:", output)
 
+    def test_steps_get_default_sighup_when_started_with_it_ignored(self) -> None:
+        """nohup leaves SIGHUP ignored; a step that tests its hangup handling
+        (verify-cmux-tui-hosted.sh) needs it back at its default."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/ci-guards.yml").write_text("""jobs:
+  workflow-guard-tests:
+    strategy:
+      matrix:
+        group: [ci]
+    steps:
+      - name: Reads its dispositions
+        run: grep -E '^Sig(Ign)' /proc/self/status > dispositions
+""")
+            for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t",
+                                                        "commit", "-qm", "fixture"]):
+                subprocess.run(["git", *args], cwd=root, check=True)
+            def ignore() -> None:
+                for signum in (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT):
+                    signal.signal(signum, signal.SIG_IGN)
+            done = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/run_ci_guards.py"), "--root", str(root), "--jobs", "1"],
+                cwd=root, capture_output=True, text=True, timeout=60, preexec_fn=ignore,
+                env={**os.environ, "CMUX_GUARDS_BASE_SHA": "none"},
+            )
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            ignored = int((root / "dispositions").read_text().split()[1], 16)
+            for signum in (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT):
+                self.assertFalse(ignored & (1 << (signum - 1)), f"{signum.name} still ignored: {ignored:#x}")
+
     def test_sigterm_names_the_steps_still_running(self) -> None:
         for signum in (signal.SIGTERM, signal.SIGINT):
             with self.subTest(signal=signum.name), tempfile.TemporaryDirectory() as temp:
