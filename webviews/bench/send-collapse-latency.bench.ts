@@ -1,7 +1,7 @@
 // l10n-allow-file: benchmark output and fixture prompts, not shipped UI.
 // How long a tall draft's composer takes to collapse once Enter sends it (Leo, 2026-11-22, ask-fac73c9b41: "IT'S
-// LIKE SOME BULLSHIT I THINK WHEN IT'S SUPER / MULTI / LINE / AND THEN / THE FUCSKING COLLAPSING OF THE FUCKING
-// COMPOSER / IT TAKES TOO FUCKING LONG OR WHATEVER!?").
+// LIKE SOME B******T I THINK WHEN IT'S SUPER / MULTI / LINE / AND THEN / THE F******G COLLAPSING OF THE F*****G
+// COMPOSER / IT TAKES TOO F*****G LONG OR WHATEVER!?").
 //
 // The real pane (`?mock`: the real direct client against the in-page mock daemon), built as it ships (React's
 // production build), on Chromium. A light chat of `--lengths` turns (cmuxAcpmuxDebug.loadSeed), then a draft of
