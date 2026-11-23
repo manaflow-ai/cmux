@@ -1,0 +1,23 @@
+{
+  "id": "blueprint",
+  "name": "Blueprint",
+  "description": "A drafting sheet: minor and major grid, rulers on two edges and faint construction circles, breathing slowly. The pointer draws a crosshair with dimension lines to the nearest grid intersection.",
+  "shader": "wallpaper.wgsl",
+  "fps": 30,
+  "scale": 0.5,
+  "interactive": true,
+  "params": [
+    { "name": "cell", "title": "Grid cell", "default": 10, "min": 4, "max": 40 },
+    { "name": "per", "title": "Cells per major", "default": 5, "min": 2, "max": 10 },
+    { "name": "speed", "title": "Breathing speed", "default": 1.0, "min": 0, "max": 3 },
+    { "name": "circles", "title": "Construction circles", "default": 0.45, "min": 0, "max": 1 },
+    { "name": "grain", "title": "Grain", "default": 0.8, "min": 0, "max": 2 },
+    { "name": "weight", "title": "Line weight", "default": 1.0, "min": 0.3, "max": 2 }
+  ],
+  "still": { "time": 23.0, "pointer": [0.59, 0.49] },
+  "variants": [
+    { "name": "Drafting", "accent": "#3D7BFF", "params": { "cell": 10, "per": 5, "speed": 1.0, "circles": 0.45, "grain": 0.8, "weight": 1.0 } },
+    { "name": "Fine survey", "accent": "#E8663D", "params": { "cell": 6, "per": 10, "speed": 0.6, "circles": 0.25, "grain": 0.6, "weight": 0.8 } },
+    { "name": "Workshop", "accent": "#2FB38A", "params": { "cell": 16, "per": 4, "speed": 1.6, "circles": 0.8, "grain": 1.4, "weight": 1.3 } }
+  ]
+}

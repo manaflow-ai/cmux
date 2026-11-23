@@ -583,7 +583,8 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
             run: true,
           }).catch(() => undefined),
       }),
-    ...chatSignIns,
+    cloudSignIn: chatSignIns.cloudSignIn,
+    apiKeySignIn: chatSignIns.apiKeySignIn,
     review: hunkReview,
     route: {
       harness: snapshot.summary?.harness,
