@@ -7,7 +7,8 @@ import { experimentArm } from "../../../experiments/experiment";
 
 const original = globalThis.cmuxExperiments;
 afterEach(() => {
-  globalThis.cmuxExperiments = original;
+  if (original === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = original;
 });
 const report = {
   policy: "approve-all",
