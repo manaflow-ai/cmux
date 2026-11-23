@@ -1088,18 +1088,21 @@ impl<'a> Socket<'a> {
     /// With data unacknowledged, the socket resends from the oldest
     /// unacknowledged byte at its next poll, as an RTO would (slow start on
     /// the new route included), but the RTO goes back to what the RTT
-    /// estimate gives instead of doubling. With nothing in flight it does
-    /// nothing.
+    /// estimate gives instead of doubling. With nothing in flight it resends
+    /// nothing. Either way it lifts a black-hole fallback's segment size cap.
     pub fn path_changed(&mut self) {
+        // A new route may carry full segments again (black-hole fallback).
+        self.black_hole_rtos = 0;
+        if self.path_mss_cap.take().is_some() {
+            let mss = self.sack_segment();
+            self.congestion_controller.inner_mut().set_mss(mss);
+        }
         let in_flight =
             matches!(self.timer, Timer::Retransmit { .. } | Timer::TailLossProbe { .. });
         if !in_flight || matches!(self.state, State::Closed | State::Listen | State::TimeWait) {
             return;
         }
         self.path_change_retransmit = true;
-        // A new route may carry full segments again (black-hole fallback).
-        self.black_hole_rtos = 0;
-        self.path_mss_cap = None;
         self.timer = Timer::Retransmit { expires_at: Instant::from_micros(0) };
     }
 
@@ -10618,10 +10621,17 @@ mod test {
         });
         s.send_slice(&[0x5a; 2000]).unwrap();
         assert_eq!(segment_sizes(&mut s, 650), [base, 2000 - base]);
-        // A new path may carry full segments again.
+        send!(s, time 700, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 5000),
+            window_len: 4096,
+            ..SEND_TEMPL
+        });
+        // A new path, even with nothing in flight, may carry full segments.
         s.path_changed();
         assert_eq!(s.black_hole_mss(), None);
-        assert_eq!(segment_sizes(&mut s, 660), [full, 2000 - full]);
+        s.send_slice(&[0x5a; 2000]).unwrap();
+        assert_eq!(segment_sizes(&mut s, 710), [full, 2000 - full]);
     }
 
     #[test]
