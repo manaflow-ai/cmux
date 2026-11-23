@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 661,
+  "count": 673,
   "sections": [
     {
       "id": "general",
@@ -106,6 +106,14 @@
             "never",
             "always"
           ]
+        },
+        {
+          "key": "agentPane.links.openCitationsInEditor",
+          "title": "Open File Citations in Text Editor",
+          "help": "Open local chat links that name a line in your chosen text editor.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.links.outsideRoots",
@@ -1385,6 +1393,18 @@
           "group": "cmux Remote"
         },
         {
+          "key": "remote.screenSharingProfile",
+          "title": "Screen Sharing Profile",
+          "help": "Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network.",
+          "kind": "choice",
+          "default": "balanced",
+          "group": "cmux Remote",
+          "values": [
+            "balanced",
+            "ultra"
+          ]
+        },
+        {
           "key": "remote.ultra",
           "title": "Ultra Connection Mode",
           "help": "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data.",
@@ -1591,6 +1611,18 @@
           "values": [
             "hover",
             "always"
+          ]
+        },
+        {
+          "key": "tabs.shellIconTheme",
+          "title": "Shell Tab Icons",
+          "help": "Machines shows each shell tab with the icon of the machine it runs on.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Tabs",
+          "values": [
+            "default",
+            "machine"
           ]
         },
         {
@@ -2165,6 +2197,33 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.display.rail.control",
+          "title": "Prompt Rail Button",
+          "help": "Shows what the rail lists above it while you point at it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.rail.show",
+          "title": "Prompt Rail Shows",
+          "help": "Right-click the rail to change it.",
+          "kind": "choice",
+          "default": "prompts",
+          "group": "Agent Chat",
+          "values": [
+            "prompts",
+            "mine",
+            "received",
+            "replies",
+            "everything",
+            "errors",
+            "edits",
+            "tools",
+            "subagents"
+          ]
+        },
+        {
           "key": "agentPane.display.rail.side",
           "title": "Prompt Rail Side",
           "help": "Right-click the rail to move it.",
@@ -2357,14 +2416,9 @@
           "key": "agentPane.display.width",
           "title": "Chat Text Width",
           "help": "The widest the chat's column gets. On a wider pane the chat stays centered.",
-          "kind": "number",
+          "kind": "choice_or_number",
           "default": 800,
-          "group": "Agent Chat",
-          "range": {
-            "min": 480,
-            "max": 4000,
-            "unit": "points"
-          }
+          "group": "Agent Chat"
         },
         {
           "key": "app.uiScale",
@@ -2660,6 +2714,22 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundPlacement",
+          "title": "Background Placement",
+          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
         },
         {
           "key": "appearance.backgroundRotation",
@@ -3122,6 +3192,18 @@
             "max": 2,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.selection",
+          "title": "Selection",
+          "help": "Accent tints the selected row and tab with the accent. Neutral keeps them gray.",
+          "kind": "choice",
+          "default": "accent",
+          "group": "App Theme",
+          "values": [
+            "accent",
+            "neutral"
+          ]
         },
         {
           "key": "appearance.sidebarSurface",
@@ -4464,6 +4546,14 @@
           "key": "sidebar.settleFinished",
           "title": "Settle Finished Chats",
           "help": "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showAutomaticSessions",
+          "title": "Show Automatic Sessions",
+          "help": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -7151,6 +7241,14 @@
           "group": "Experiments"
         },
         {
+          "key": "experiments.chatWidgets",
+          "title": "Extension Chat Widgets",
+          "help": "Installed extensions can show a card under a finished tool call in agent chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
           "key": "experiments.composerV2",
           "title": "Composer Refresh",
           "help": "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
@@ -7162,6 +7260,14 @@
           "key": "experiments.glassToolbarGroups",
           "title": "Glass Toolbar Groups",
           "help": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.toastsV2",
+          "title": "Toasts v2",
+          "help": "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"
@@ -7194,6 +7300,14 @@
           "key": "labs.machineJoin",
           "title": "Screen Sharing for Joined Machines",
           "help": "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.pauseAgentMachines",
+          "title": "Pause Agent Machines",
+          "help": "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

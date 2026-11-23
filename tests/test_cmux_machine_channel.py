@@ -2,16 +2,16 @@
 """The Cloud machine channel payload is the same whether it comes from the published manifest or
 from this run's own Linux build.
 
-point-machine-channel-early (cmux-tui-artifacts.yml) points the channel as soon as build-linux is
+point-machine-channel-early (cmux-tui-artifacts.yml) points the channel as soon as build is
 done, before publish writes cmux-tui/<sha>/manifest.json, so scripts/ci/cmux-machine-channel.py
 takes each sha256 from the run's binaries (--binaries-dir) instead. Both ways it downloads every
 binary from its URL and refuses one whose bytes differ, and both give the same payload key, so
 the later point-machine-channel finds the channel current (web-ota-pointer.py newer) and keeps it.
 
-The early job uploads build-linux's thin-LTO copy (the Cloud machine channel's own) to
-cmux-tui/<sha>/machine/ and names it with --machine-path; publish uploads the shipped fat build to
+The early job uploads build's Linux binaries (the shipped fat bytes, built once: MUSL_BUILT_ONCE) to
+cmux-tui/<sha>/machine/ and names it with --machine-path; publish uploads the same build to
 cmux-tui/<sha>/. They never share an object, so whichever runs first, the shipped Linux binaries are
-publish's own (fat, #41963) and the channel's thin bytes stay under machine/. Each side is still
+publish's own (fat, #41963) and the channel's copy stays under machine/. Each side is still
 write-once against its own other runs and attempts (scripts/ci/cmux-machine-linux-bytes.sh): early
 attempts with other bytes skip on the claim, and publish adopts another publisher's served bytes.
 Those cases run the real publish steps against the fake R2 of test_cmux_tui_republish_same_commit.py.
@@ -46,6 +46,7 @@ SPEC.loader.exec_module(channel)
 POINTER_SPEC = importlib.util.spec_from_file_location("web_ota_pointer", ROOT / "scripts/cmux-next/web-ota-pointer.py")
 pointer = importlib.util.module_from_spec(POINTER_SPEC)
 POINTER_SPEC.loader.exec_module(pointer)
+release = channel.helper_release  # scripts/ci/screen_sharing_helper_release.py, as the payload imports it
 
 COMMIT = "a" * 40
 
@@ -54,7 +55,7 @@ class Payload(unittest.TestCase):
     def setUp(self):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp)
-        self.built = self.tmp / "built"   # this run's build-linux artifacts
+        self.built = self.tmp / "built"   # this run's build artifacts
         self.served = self.tmp / "served"  # what files.cmux.com/cmux-tui/<sha>/ serves
         self.built.mkdir()
         self.served.mkdir()
@@ -634,6 +635,47 @@ class MacLivePayload(unittest.TestCase):
         self.live.write_text(json.dumps({"live_from": [MAC_COMMIT]}))
         with self.assertRaises(SystemExit):
             self.run_payload("--machine-path")
+
+    def helper_record(self, **change):
+        data = b"the signed helper's zip"
+        (self.served / release.ZIP).write_bytes(data)
+        value = {"schema": 1, "key": "c" * 16, "commit": "f" * 40, "zip": release.ZIP,
+                 "sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "bundle_id": release.BUNDLE_ID,
+                 "team": release.TEAM, "designated_requirement": release.requirement(release.BUNDLE_ID, release.TEAM)}
+        value.update(change)
+        path = self.tmp / "helper.json"
+        path.write_text(json.dumps(value))
+        return path, value
+
+    def test_without_a_helper_record_the_payload_has_no_helper_key(self):
+        # The old CI's shape, which every CLI reads: no top-level helper key, `targets` unchanged.
+        value = self.run_payload()
+        self.assertNotIn(channel.MAC_LIVE_HELPER_KEY, value)
+        self.assertEqual(list(value["targets"]), ["aarch64-apple-darwin"])
+
+    def test_the_helper_goes_under_a_new_top_level_key_never_in_targets(self):
+        path, record = self.helper_record()
+        value = self.run_payload("--screen-sharing-helper", str(path))
+        helper = value[channel.MAC_LIVE_HELPER_KEY]
+        self.assertEqual(helper, {
+            "url": f"{channel.FILES}/{MAC_COMMIT}/{release.ZIP}", "sha256": record["sha256"],
+            "size": record["size"], "bundle_id": "com.cmuxterm.app.nightly.screen-sharing", "team": "7WLXT3NR37",
+            # ss-host-helper's ask (a): the Developer ID intermediate and leaf clauses, byte for byte.
+            "designated_requirement": 'identifier "com.cmuxterm.app.nightly.screen-sharing" and anchor apple '
+                                      "generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and "
+                                      "certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and "
+                                      'certificate leaf[subject.OU] = "7WLXT3NR37"'})
+        # `targets` holds only the bin/ names an installed CLI knows (live.rs FILES): nothing new there.
+        self.assertEqual(set(value["targets"]["aarch64-apple-darwin"]) - set(channel.MAC_LIVE_NAMES), set())
+
+    def test_a_helper_record_that_is_not_the_nightlys_identity_or_bytes_is_refused(self):
+        short = 'identifier "com.cmuxterm.app.nightly.screen-sharing" and anchor apple generic and ' \
+                'certificate leaf[subject.OU] = "7WLXT3NR37"'
+        for change in ({"designated_requirement": short}, {"team": "ABCDEFGHIJ"},
+                       {"bundle_id": "com.cmuxterm.cua"}, {"sha256": "0" * 64}, {"size": 3}):
+            path, _ = self.helper_record(**change)
+            with self.subTest(change=change), self.assertRaises(SystemExit):
+                self.run_payload("--screen-sharing-helper", str(path))
 
 
 class MacLivePoint(LinuxReleasePoint):

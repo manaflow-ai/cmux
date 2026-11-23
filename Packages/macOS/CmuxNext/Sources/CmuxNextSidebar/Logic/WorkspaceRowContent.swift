@@ -63,7 +63,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var status: SidebarWorkspaceStatus?
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
-    /// The workspace runs on a Cloud machine: a small cloud mark right after its name, the row's only sign of it.
+    /// The workspace runs on a Cloud machine: a small muted cloud in the trailing status cluster, the row's only sign of it (never the leading slot, Leo 2026-11-22).
     public var runsInCloud = false
     /// The computer as a one-list row names it, with its status when it cannot connect
     /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`; set by `SidebarLayoutOptions.rowContent`

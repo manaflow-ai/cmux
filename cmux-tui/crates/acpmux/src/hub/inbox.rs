@@ -79,7 +79,12 @@
 //!   FYIs alone steer in no sooner than [`FLUSH_MS`] after the oldest came: a message that is no
 //!   FYI brings them sooner, in its notice, and a Stop's [`Inbox::due_now`] still lets them in
 //!   at once. A coordinator, busy most of the day, took 204 of its 305 notices in 24 h as
-//!   steers, most of them tool FYIs (2026-11-08);
+//!   steers, most of them tool FYIs (2026-11-08). Results steer in no sooner than
+//!   [`STEER_COALESCE_MS`] after the oldest of them came, so a burst is one steer; a block, a
+//!   question or a message from the chat's parent or delegator ([`steers_at_once`]) brings
+//!   every new message at once. Each steer re-ran the harness's prompt hooks (1-3 KB each), and
+//!   3 results in 3 minutes went into one turn as 3 steers (2026-11-21). A turn that ends first
+//!   leaves them to the idle chat's rules below;
 //! - into the next such turn that starts, as a steer at its start, on the same terms;
 //! - an idle chat: as ONE turn of its own, at once for messages the person's own turn held back
 //!   ([`Inbox::held_by_person`]; FYIs alone are not held so, they wait for the flush as they
@@ -149,6 +154,13 @@ pub const REFUSED_RETRY_MS: u64 = 30_000;
 /// interval at fifteen minutes bounds a quiet coordinator to at most four
 /// notice turns per hour while urgent classes still wake immediately.
 pub const FLUSH_MS: u64 = 15 * 60 * 1000;
+/// How long results wait to steer into a running turn after the oldest new one came, so a burst
+/// goes in as ONE steer at a tool step instead of one each: every steer is a new user message,
+/// which re-runs the harness's prompt hooks (1-3 KB of injected context each, measured
+/// 2026-11-21: 3 results in 3 minutes interrupted one turn singly). A block, a
+/// question, a message from the chat's parent or delegator ([`steers_at_once`]) and a Stop's
+/// `due_now` bring the batch at once.
+pub const STEER_COALESCE_MS: u64 = 2 * 60 * 1000;
 /// A notice line shows this much of the newest message's first line, in characters.
 const PREVIEW_CHARS: usize = 120;
 /// A notice holds its messages whole when their text is this many bytes or less ([`render`]).
@@ -161,7 +173,7 @@ const NEWEST_BYTES: usize = 8 * 1024;
 /// threads past it draw their preview and read the rest, as before.
 const NEWEST_TOTAL_BYTES: usize = 32 * 1024;
 /// Messages a chat keeps in memory; the oldest read ones go first (the log keeps them all).
-const KEEP: usize = 500;
+pub(super) const KEEP: usize = 500;
 /// The client a notice goes under.
 const CLIENT: &str = "acpmux";
 
@@ -188,6 +200,9 @@ pub(super) struct Item {
     /// A report of work this chat gave (a lane's report, a task's result): it wakes the chat
     /// as its parent's action does.
     pub(super) report: bool,
+    /// It waited for this machine to come back (`prompt_provenance::waited`): it wakes the chat
+    /// rather than sit to a flush a parked machine never reaches.
+    pub(super) waited: bool,
     pub(super) at: u64,
     pub(super) text: String,
     /// Machine-readable report context; kept out of the visible words.
@@ -195,6 +210,9 @@ pub(super) struct Item {
     /// A tool's notice it is (`prompt_provenance::notice`): its `{sender, host?, severity, title,
     /// links?}`, so a notice of it and its thread still draw it as one.
     pub(super) tool_notice: Option<Value>,
+    /// A fire notice that wakes the chat and never waits as an FYI: only with the surge preview
+    /// on (`surge_inbox_on`); with it off a notice is its class alone, as before the surge inbox.
+    pub(super) fire: bool,
     /// A notice told the agent of it (or carries it now).
     pub(super) noticed: bool,
     /// The agent read it (`inbox_thread` with `markRead`).
@@ -224,10 +242,12 @@ impl Item {
             sender: crate::prompt_provenance::sender_record(None, None, None),
             class: PromptClass::Result,
             report: false,
+            waited: false,
             at: now_ms(),
             text: text.to_owned(),
             details: None,
             tool_notice: None,
+            fire: false,
             noticed: true,
             read: false,
             answer: None,
@@ -917,8 +937,8 @@ fn body(text: &str) -> &str {
 
 /// Whether `item` may wake the idle chat of `meta`.
 fn wakes(meta: &SessionMeta, item: &Item) -> bool {
-    fire_notice(item.tool_notice.as_ref())
-        || wakes_as(meta, item.class, item.report, item.from_session.as_deref())
+    item.fire
+        || wakes_as(meta, item.class, item.report || item.waited, item.from_session.as_deref())
 }
 
 fn fire_notice(notice: Option<&Value>) -> bool {
@@ -926,15 +946,29 @@ fn fire_notice(notice: Option<&Value>) -> bool {
 }
 
 fn ordinary_fyi(item: &Item) -> bool {
-    item.class == PromptClass::Fyi && !fire_notice(item.tool_notice.as_ref())
+    item.class == PromptClass::Fyi && !item.fire
 }
 
-/// [`wakes`] for a message of `class` from session `from` (a report or not) not in the inbox yet.
+/// [`wakes`] for a message of `class` from session `from` not in the inbox yet; `report` is a
+/// report of work this chat gave, or a message that waited for this machine
+/// (`prompt_provenance::waited`).
 fn wakes_as(meta: &SessionMeta, class: PromptClass, report: bool, from: Option<&str>) -> bool {
     match class {
         PromptClass::Block | PromptClass::Question => true,
         PromptClass::Fyi => false,
         PromptClass::Result => meta.turn_count == 0 || report || controls(meta, from),
+    }
+}
+
+/// Whether `item` steers into a running turn at once, bringing every new message with it: a
+/// blocker (a block or a question), or a message from the chat's parent or delegator, which
+/// directs the work the turn does, or a fire notice. Any other result waits [`STEER_COALESCE_MS`]
+/// for others to join it; an ordinary FYI waits for its flush.
+fn steers_at_once(meta: &SessionMeta, item: &Item) -> bool {
+    match item.class {
+        PromptClass::Block | PromptClass::Question => true,
+        PromptClass::Fyi => item.fire,
+        PromptClass::Result => controls(meta, item.from_session.as_deref()),
     }
 }
 
@@ -1262,8 +1296,15 @@ impl Hub {
         let sender_session = sender_session(provenance);
         // Read before the inbox's lock, as `inbox_review` reads them.
         let meta_now = session.meta();
-        let wakes_now = fire_notice(provenance.and_then(|p| p.get("notice")))
-            || wakes_as(&meta_now, class, is_report(provenance), sender_session.as_deref());
+        let waited = crate::prompt_provenance::waited(provenance);
+        let surge_on = self.surge_inbox_on();
+        let wakes_now = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
+            || wakes_as(
+                &meta_now,
+                class,
+                is_report(provenance) || waited,
+                sender_session.as_deref(),
+            );
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).
@@ -1357,9 +1398,11 @@ impl Hub {
                             sender: sender_identity.clone(),
                             class,
                             report: is_report(provenance),
+                            waited,
                             at: now_ms(),
                             text: text.clone(),
                             details: provenance.and_then(|p| p.get("details")).cloned(),
+                            fire: surge_on && fire_notice(tool_notice.as_ref()),
                             tool_notice,
                             noticed: false,
                             read: false,
@@ -1405,6 +1448,9 @@ impl Hub {
             }
             if is_report(provenance) {
                 msg.set("report", json!(true));
+            }
+            if waited {
+                msg.set(crate::prompt_provenance::WAITED, json!(true));
             }
             let msg = crate::prompt_provenance::marked(msg, provenance);
             self.append(session, "mux", "inbox", msg);
@@ -1480,10 +1526,12 @@ impl Hub {
                     sender: sender_identity.clone(),
                     class: PromptClass::Result,
                     report: true,
+                    waited: false,
                     at,
                     text: text.to_owned(),
                     details: provenance.get("details").cloned(),
                     tool_notice: None,
+                    fire: false,
                     noticed: true,
                     read: true,
                     answer: None,
@@ -1583,6 +1631,15 @@ impl Hub {
                 // Nothing new but FYIs: they go with the next notice, or once the oldest is
                 // `FLUSH_MS` old (module docs).
                 let fyi_only = new.iter().all(|i| ordinary_fyi(i));
+                // Read before a Stop's `due_now` below takes the inbox mutably.
+                let urgent = new.iter().any(|i| steers_at_once(&meta, i));
+                let coalesced = new
+                    .iter()
+                    .filter(|i| !ordinary_fyi(i))
+                    .map(|i| i.at)
+                    .min()
+                    .unwrap_or(oldest)
+                    .saturating_add(STEER_COALESCE_MS);
                 if new.is_empty()
                     || inbox.in_flight.is_some()
                     || meta.status == SessionStatus::Closed
@@ -1621,10 +1678,14 @@ impl Hub {
                                 // loop of refusals within a turn. An FYI-only batch steers in at
                                 // its flush, unless a message that is no FYI brings it sooner; a
                                 // Stop's `due_now` still lets it in at once.
-                                let flush = if fyi_only && !inbox.due_now {
+                                // Results alone wait [`STEER_COALESCE_MS`] after the oldest that
+                                // is no FYI, so a burst is one steer (module docs).
+                                let flush = if inbox.due_now || urgent {
+                                    0
+                                } else if fyi_only {
                                     oldest.saturating_add(FLUSH_MS)
                                 } else {
-                                    0
+                                    coalesced
                                 };
                                 let at = retry.max(flush);
                                 if at > now { Next::WakeAt(at) } else { Next::Steer }
@@ -2097,6 +2158,7 @@ impl Hub {
     /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
     /// the log says. Run again, it adds only what it does not hold.
     pub(super) fn restore_inbox(&self, session: &Session) {
+        let surge_on = self.surge_inbox_on();
         let mut counts = surge::Counts::default();
         let mut recent_held = std::collections::VecDeque::new();
         let mut items: Vec<Item> = Vec::new();
@@ -2147,9 +2209,13 @@ impl Hub {
                         sender,
                         class,
                         report: e.msg.get("report") == Some(&Value::Bool(true)),
+                        waited: e.msg.get(crate::prompt_provenance::WAITED)
+                            == Some(&Value::Bool(true)),
                         at: e.at,
                         text: field("text").to_owned(),
                         details: provenance.as_ref().and_then(|p| p.get("details").cloned()),
+                        fire: surge_on
+                            && fire_notice(provenance.as_ref().and_then(|p| p.get("notice"))),
                         tool_notice: tool_notice_of(provenance.as_ref()),
                         noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),

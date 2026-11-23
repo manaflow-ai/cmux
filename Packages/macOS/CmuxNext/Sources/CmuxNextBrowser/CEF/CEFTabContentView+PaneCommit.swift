@@ -12,9 +12,10 @@ import CmuxNextDesign
 /// - Without one (fork API 33, the engine that ships today), a page whose pane gets larger takes the size now, ahead of
 ///   the commit, the way the change's terminals draw ahead: it holds that size at the top-left corner of this view, which
 ///   clips it to the pane's old size (``holdPageAtRest(_:)``), so the old layout keeps showing the page's old frame while
-///   Chromium lays out. The page is ready once it laid out there (``CEFCommitPageWait``), at most 2 display frames later,
-///   so the commit waits at most that long for it and never shows the pane's ground. The commit then gives this view the
-///   size the page already has, and the hold ends.
+///   Chromium lays out. The page is ready once it laid out there (``CEFCommitPageWait``), at most
+///   ``CEFCommitPageWait/readyFrames`` display frames later; it asks the commit to wait that long for it
+///   (``commitWaitTicks``), so the commit never shows the pane's ground. The commit then gives this view the size the
+///   page already has, and the hold ends.
 ///
 /// A pane that gets smaller keeps its own picture through its motion and takes its size at the end
 /// (`PaneCommitMotionPicture`), so nothing is drawn ahead for it. Neither path makes the main thread wait for a page.
@@ -44,6 +45,12 @@ extension CEFTabContentView: PaneCommitSurface {
         layoutContent()
         commitWait = CEFCommitPageWait(tab: tab, view: self, pixels: CGSize(width: size.width * scale, height: size.height * scale),
                                        using: tab.host.commitLayoutWait, ready: ready) { [weak self] in self?.endCommitAhead() }
+    }
+
+    /// A page that took its next size ahead and has not laid out there asks its commit to wait for it longer than the
+    /// commit's own bound (``CEFCommitPageWait/commitTicks``); any other asks for no more.
+    var commitWaitTicks: Int? {
+        commitWait?.owesReport == true ? CEFCommitPageWait.commitTicks : nil
     }
 
     /// The page lets the size it took ahead go and lays out at this view's size: the commit showed (this view took its

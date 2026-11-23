@@ -194,7 +194,7 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertNotIn("needs", job, "it runs beside the shards, not before them")
         self.assertEqual(workflow["jobs"]["health"]["needs"], "plan", "the shards wait only for their plan")
         runs_on = "\n".join(workflow_jobs.runs_on_cells(job) or ["<unresolved matrix>"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertTrue(runs_on.endswith("'cmux-linux' }}"), runs_on)
         self.assertNotIn("blacksmith", runs_on)
         # It checks out what the shards check out, and restores the base by the judge step's own command.
         self.assertEqual(job["steps"][0]["with"], step("Checkout")["with"])
@@ -657,6 +657,33 @@ class GalleryHealthTime(unittest.TestCase):
                      "scripts/gallery-matrix/upload-set.ts", "webviews/package.json"):
             self.assertTrue(in_sparse(path, patterns), path)
         self.assertFalse(in_sparse("cmux-tui/Cargo.toml", patterns))
+
+    def test_the_checkout_has_every_file_webviews_imports_from_outside_it(self) -> None:
+        # Base red, 2026-11-22: Customize looks imported examples/gallery/gallery.json and globbed
+        # examples/looks/*/cmux-setup.json, the checkout had no examples/, and every shard's gallery:build
+        # failed with "Could not resolve". A relative import or glob that leaves webviews/ must be checked out.
+        patterns = sparse_patterns()
+        # A static import or re-export (not `import type`/`export type`, which the bundler erases), a dynamic
+        # import, or an import.meta.glob.
+        static = re.compile(r"""^\s*(?:import|export)(\s+type\b)?[^;"']*?\bfrom\s+["'](\.\.?/[^"']+)["']""",
+                            re.MULTILINE)
+        dynamic = re.compile(r"""(?:\bimport\s*\(\s*|import\.meta\.glob(?:<[^>]*>)?\(\s*)["'](\.\.?/[^"']+)["']""")
+        missing: set[str] = set()
+        for source in tracked("webviews/src"):
+            if not source.endswith((".ts", ".tsx")) or source.endswith((".test.ts", ".test.tsx")):
+                continue
+            text = (ROOT / source).read_text(encoding="utf-8")
+            targets = [target for erased, target in static.findall(text) if not erased] + dynamic.findall(text)
+            for target in targets:
+                resolved = os.path.normpath(os.path.join(os.path.dirname(source), target))
+                if resolved.startswith("webviews/") or resolved.startswith(".."):
+                    continue
+                if "*" in resolved:
+                    files = [p for p in tracked(resolved.split("*")[0]) if unplaced_tool.glob_regex(resolved).match(p)]
+                else:
+                    files = [resolved]
+                missing.update(f"{source} -> {path}" for path in files if not in_sparse(path, patterns))
+        self.assertEqual(sorted(missing), [], "add these to the Checkout step's sparse-checkout")
         self.assertFalse(in_sparse("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift", patterns))
 
     def test_a_shard_past_its_case_budget_fails_naming_the_shard_count(self) -> None:
