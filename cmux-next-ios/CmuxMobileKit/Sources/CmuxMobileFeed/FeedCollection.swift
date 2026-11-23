@@ -1157,10 +1157,10 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     func rowPeek(_ id: String) -> UIViewController? {
-        guard let item = items[id] else { return nil }
+        guard let item = items[id], let list = collectionView else { return nil }
         let chat = context.chat(item)
         let content = FeedPeek.content(opensTerminal: item.opensTerminal, hasLink: item.link != nil, loadedTurns: chat?.turns.count ?? 0)
-        let container = collectionView?.window?.bounds.size ?? collectionView?.bounds.size ?? CGSize(width: 390, height: 844)
+        let container = list.window?.bounds.size ?? list.bounds.size
         return FeedPeekView.controller(item: item, chat: content == .chat ? chat : nil, container: container)
     }
 

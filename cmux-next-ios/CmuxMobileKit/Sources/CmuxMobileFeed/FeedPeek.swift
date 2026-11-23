@@ -30,13 +30,15 @@ enum FeedPeek {
     /// `fitting`: the content's own height when it is shorter (an event's few lines get a card
     /// their size, never a tall blank one); nil fills the height (a chat).
     static func size(container: CGSize, fitting: CGFloat? = nil) -> CGSize {
-        let width = max(240, container.width - 2 * margin)
+        // Capped at a readable column: an unfolded phone's window is about twice a phone's width.
+        let width = max(240, min(maxWidth, container.width - 2 * margin))
         let tallest = max(minHeight, min((container.height * 2 / 3).rounded(), container.height - menuReserve))
         guard let fitting else { return CGSize(width: width, height: tallest) }
         return CGSize(width: width, height: min(tallest, max(minHeight, fitting.rounded(.up))))
     }
 
     static let margin: CGFloat = 16
+    static let maxWidth: CGFloat = 560
     static let minHeight: CGFloat = 120
     /// The row menu's five actions and its title, the gap above them and the safe areas.
     static let menuReserve: CGFloat = 340

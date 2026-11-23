@@ -32,6 +32,11 @@ import Testing
         #expect(small == CGSize(width: 343, height: 327))
     }
 
+    /// An unfolded phone's wide window gets a readable column, not an edge-to-edge card.
+    @Test func aWideWindowCapsThePreviewWidth() {
+        #expect(FeedPeek.size(container: CGSize(width: 800, height: 820)).width == FeedPeek.maxWidth)
+    }
+
     @Test func anEventPreviewIsAsTallAsItsText() {
         let container = CGSize(width: 402, height: 874)
         #expect(FeedPeek.size(container: container, fitting: 201.4).height == 202)
