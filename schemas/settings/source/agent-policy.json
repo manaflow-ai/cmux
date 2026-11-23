@@ -64,6 +64,7 @@
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
         "sidebar.settleFinished",
+        "sidebar.showAutomaticSessions",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -148,7 +149,8 @@
     {
       "agent": "settable",
       "keys": [
-        "tabs.overflow"
+        "tabs.overflow",
+        "tabs.shellIconTheme"
       ]
     },
     {

@@ -778,7 +778,8 @@ impl Hub {
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
-            task_list: m.task_list.as_ref().map(crate::task_list::TaskList::summary),
+            // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
+            task_list: super::task_list::current_task_list(&m),
             rolling_summary: m.rolling_summary.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.

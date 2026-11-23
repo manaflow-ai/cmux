@@ -24,5 +24,13 @@
   "appearance.statusIndicator.style": "dot",
 
 
-  "appearance.density": "comfortable"
+  "appearance.density": "comfortable",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): the Claude app's soft pills: 10 pt tab and row corners, a 288 pt sidebar with roomy rows set in from its edge, Claude's own sidebar look, Session Info pushing the chat aside, the top right buttons only on hover.
+  "density": { "basedOn": "comfortable", "tokens": {"tabCornerRadius": 10, "tabCloseCornerRadius": 6, "verticalTabCornerRadius": 10, "sidebarCornerRadius": 10, "itemCornerRadius": 8, "panelCornerRadius": 14, "sidebarWidth": 288, "sidebarRowHeight": 32, "sidebarRowGap": 2, "sidebarRowInset": 8, "tabGap": 4, "browserRowHeight": 30 } },
+  "sidebar.look": "claude",
+  "appearance.cornerFlush": "off",
+  "window.titlebarButtons": "hover",
+  "tabs.plusButton": "hover",
+  "agentPane.display.sessionInfo.placement": "push"
 }

@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextSidebar
+import CmuxNextTabs
 
 // Machine icons (`session-icon-v1`, cx-qno.11.4): the home daemon's session
 // registry keeps each machine's icon on its session record. The app only
@@ -49,5 +50,12 @@ extension MachineRegistry {
             drawn.kind = .machine(machine)
             return drawn
         }
+    }
+
+    /// Machine `machineID`'s icon as its shell tabs draw it (`tabs.shellIconTheme` machine, TabItem+ShellIconTheme):
+    /// its header's icon, else a Cloud machine's cloud, else its device's symbol.
+    func shellTabIcon(machine machineID: String) -> TabIcon? {
+        TabItem.shellMachineIcon(registry: TabUserIcon.shared.icon(icon(machine: machineID), asset: IconAssetImages.shared.tabIcon(owner: local)),
+                                 isCloud: session(machineID) != nil, deviceSymbol: anyDaemon(machine: machineID)?.store.identity?.machineSymbol)
     }
 }

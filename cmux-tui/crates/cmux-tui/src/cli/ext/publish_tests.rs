@@ -41,6 +41,31 @@ fn add_icon(dir: &Path) {
     std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
 }
 
+/// Records `ops` as the folder's scene (what `ext shot --record` writes) and ships `preview/`.
+fn record_scene(dir: &Path, name: &str, ops: Value) {
+    let file = super::shot::record_into(None, name, &ops);
+    std::fs::create_dir_all(dir.join("preview")).unwrap();
+    std::fs::write(dir.join("preview/scenes.json"), file.to_string()).unwrap();
+    let path = dir.join("cmux-app.json");
+    let mut manifest = read_json(&path);
+    if let Some(files) = manifest["files"].as_array_mut() {
+        if !files.contains(&json!("preview/")) {
+            files.push(json!("preview/"));
+        }
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+}
+
+/// A section scene with no design warning.
+fn clean_scene() -> Value {
+    json!([
+        {"op": "create", "id": "n1", "type": "VStack", "props": {"spacing": 8}},
+        {"op": "create", "id": "n2", "type": "Text", "props": {"text": "Hello", "font": "headline"}},
+        {"op": "children", "id": "n1", "children": ["n2"]},
+        {"op": "root", "id": "n1"},
+    ])
+}
+
 fn publish_check(dir: &Path, repo: Option<&str>, write_badge: bool) -> publish::Report {
     publish::check(&PublishOptions {
         dir: dir.to_path_buf(),
@@ -231,10 +256,16 @@ fn publish_says_what_is_left_and_then_that_it_is_ready() {
     let dir = root.path().join("hello");
     scaffold::scaffold_for(&dir, "hello", "section", Some(&acme())).unwrap();
     let report = publish_check(&dir, None, false);
-    assert_eq!(failing(&report), vec!["picture"], "{}", report.text());
+    assert_eq!(failing(&report), vec!["picture", "design"], "{}", report.text());
+    assert!(
+        report.text().contains("no recorded scenes: run cmux ext shot --record"),
+        "{}",
+        report.text()
+    );
     assert!(!report.ready());
 
     add_icon(&dir);
+    record_scene(&dir, "cmux.section/1", clean_scene());
     let report = publish_check(&dir, None, false);
     assert!(report.ready(), "{}", report.text());
     let text = report.text();
@@ -278,14 +309,14 @@ fn publish_names_the_id_and_repository_and_writes_the_badge() {
     scaffold::scaffold(&dir, "hello", "section").unwrap();
     add_icon(&dir);
     let report = publish_check(&dir, Some("Acme/hello-ext"), false);
-    assert_eq!(failing(&report), vec!["repository", "id", "badge"], "{}", report.text());
+    assert_eq!(failing(&report), vec!["repository", "id", "badge", "design"], "{}", report.text());
     let text = report.text();
     assert!(text.contains("\"id\": \"acme/hello\""), "{text}");
     assert!(text.contains("\"repository\": \"https://github.com/Acme/hello-ext\""), "{text}");
 
     let report = publish_check(&dir, Some("Acme/hello-ext"), true);
     assert!(report.wrote_badge);
-    assert_eq!(failing(&report), vec!["repository", "id"], "{}", report.text());
+    assert_eq!(failing(&report), vec!["repository", "id", "design"], "{}", report.text());
     let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
     assert!(readme.lines().any(|line| line == BADGE), "{readme}");
     assert!(readme.contains("cmux apps install github.com/Acme/hello-ext"), "{readme}");
@@ -359,4 +390,134 @@ fn pack_writes_the_release_assets_and_the_same_archive_twice() {
 
     std::fs::write(dir.join("cmux-app.json"), "{").unwrap();
     assert!(pack::pack(&options).is_err(), "an invalid manifest is not packed");
+}
+
+/// Registry review refuses a listing whose recorded scenes have any design warning, with the
+/// warnings and their fixes in the refusal; a scene that does not ship, or none at all, is
+/// refused too; a command, which draws nothing, passes.
+#[test]
+fn publish_refuses_a_listing_whose_recorded_scenes_warn() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold_for(&dir, "hello", "section", Some(&acme())).unwrap();
+    add_icon(&dir);
+    let warned = json!([
+        {"op": "create", "id": "n1", "type": "VStack", "props": {"spacing": 5}},
+        {"op": "create", "id": "n2", "type": "Text", "props": {"text": "Hi", "font": 14, "color": "#ff0000"}},
+        {"op": "children", "id": "n1", "children": ["n2"]},
+        {"op": "root", "id": "n1"},
+    ]);
+    record_scene(&dir, "cmux.section/1", warned);
+    let report = publish_check(&dir, None, false);
+    assert_eq!(failing(&report), vec!["design"], "{}", report.text());
+    let text = report.text();
+    assert!(text.contains("registry review refuses a listing with any"), "{text}");
+    assert!(text.contains("spacing: spacing 5 is not on the spacing scale"), "{text}");
+    assert!(text.contains("fix: use 6"), "{text}");
+    assert!(text.contains("color: color #ff0000 is a raw color"), "{text}");
+    let json = report.to_json();
+    assert_eq!(json["ready"], false);
+    assert_eq!(json["design"]["ok"], false);
+    let checks: Vec<&str> = json["design"]["scenes"][0]["design"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| finding["check"].as_str().unwrap())
+        .collect();
+    assert!(
+        checks.contains(&"spacing") && checks.contains(&"type-size") && checks.contains(&"color"),
+        "{checks:?}"
+    );
+
+    // The same check is `ext design --listing DIR`'s.
+    let manifest = read_json(&dir.join("cmux-app.json"));
+    assert_eq!(super::design::listing(&dir, &manifest), report.design.clone().unwrap());
+
+    // Fixed and recorded again: ready.
+    record_scene(&dir, "cmux.section/1", clean_scene());
+    let report = publish_check(&dir, None, false);
+    assert!(report.ready(), "{}", report.text());
+    assert!(
+        report.text().contains("1 recorded scene (preview/scenes.json), no design warning"),
+        "{}",
+        report.text()
+    );
+
+    // Recorded but not shipped: review reads the package, so it is refused.
+    let path = dir.join("cmux-app.json");
+    let mut manifest = read_json(&path);
+    manifest["files"].as_array_mut().unwrap().retain(|entry| entry != "preview/");
+    std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    let report = publish_check(&dir, None, false);
+    assert_eq!(failing(&report), vec!["design"], "{}", report.text());
+    assert!(
+        report.text().contains("add \"preview/\" to the manifest's files"),
+        "{}",
+        report.text()
+    );
+
+    // A command draws no view: nothing to record, nothing refused.
+    let command = root.path().join("cmd");
+    scaffold::scaffold_for(&command, "cmd", "command", Some(&acme())).unwrap();
+    let manifest = read_json(&command.join("cmux-app.json"));
+    assert!(super::design::listing(&command, &manifest).ok());
+}
+
+/// A widget's recorded scene is checked as a widget (line limits too), by its name.
+#[test]
+fn a_recorded_widget_scene_is_checked_as_a_widget() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("tile");
+    scaffold::scaffold_for(&dir, "tile", "widget", Some(&acme())).unwrap();
+    let no_limit = json!([
+        {"op": "create", "id": "n1", "type": "VStack", "props": {"spacing": 4, "padding": 16}},
+        {"op": "create", "id": "n2", "type": "Text", "props": {"text": "72", "font": 34, "weight": "semibold"}},
+        {"op": "children", "id": "n1", "children": ["n2"]},
+        {"op": "root", "id": "n1"},
+    ]);
+    record_scene(&dir, "cmux.widget/1 small", no_limit);
+    let manifest = read_json(&dir.join("cmux-app.json"));
+    let review = super::design::listing(&dir, &manifest);
+    assert!(!review.ok());
+    assert_eq!(review.scenes[0].0, "preview/scenes.json:cmux.widget/1 small");
+    let checks: Vec<&str> = review.scenes[0].1.iter().map(|f| f.check).collect();
+    assert_eq!(checks, vec!["line-limit"], "{:?}", review.scenes[0].1);
+}
+
+/// The cold-model test (DESIGN.md section 12): widgets a small model wrote from
+/// skills/cmux-customization/references/extension-design.md alone, recorded by
+/// `cmux-app-host/tools/cold-model.ts`, pass registry review's design check with no warning.
+#[test]
+fn cold_model_widgets_pass_the_design_check() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cli/ext/cold_model");
+    let mut dirs: Vec<_> = std::fs::read_dir(&root)
+        .expect("the cold-model runs")
+        .map(|entry| entry.expect("an entry").path())
+        .filter(|path| path.is_dir())
+        .collect();
+    dirs.sort();
+    assert!(dirs.len() >= 5, "five cold-model widgets, found {}", dirs.len());
+    for dir in dirs {
+        let manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("cmux-app.json")).expect("a manifest"),
+        )
+        .expect("the manifest reads");
+        let review = super::design::listing(&dir, &manifest);
+        assert!(
+            review.ok() && review.warnings() == 0,
+            "{}: {}\n{}",
+            dir.display(),
+            review.summary(),
+            review.details().join("\n")
+        );
+        // Both sizes the manifest offers were drawn and checked as a widget.
+        let mut names: Vec<_> = review.scenes.iter().map(|(name, _)| name.as_str()).collect();
+        names.sort();
+        assert_eq!(
+            names,
+            ["preview/scenes.json:cmux.widget/1 medium", "preview/scenes.json:cmux.widget/1 small"],
+            "{}",
+            dir.display()
+        );
+    }
 }

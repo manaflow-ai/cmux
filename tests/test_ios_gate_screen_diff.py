@@ -100,10 +100,12 @@ class ScreenDiffTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def run_diff(self, body: str = "", event: str = "pull_request", baseline: bool = True) -> tuple[int, str]:
+    def run_diff(self, body: str = "", event: str = "pull_request", baseline: bool = True,
+                 families: tuple[str, ...] = ("iphone",)) -> tuple[int, str]:
         out = self.root / "section.md"
-        args = ["--head-root", str(self.root / "in"), "--family", "iphone", "--event", event,
-                "--pr-body", body, "--out", str(out)]
+        args = ["--head-root", str(self.root / "in"), "--event", event, "--pr-body", body, "--out", str(out)]
+        for family in families:
+            args += ["--family", family]
         if baseline:
             args += ["--baseline-root", str(self.base)]
         code = self.mod.main(args)
@@ -173,8 +175,19 @@ class ScreenDiffTests(unittest.TestCase):
         code, text = self.run_diff(baseline=False)
         self.assertEqual(code, 0)
         self.assertIn("- iphone: no baseline,", text)
-        self.assertIn("No screen differs from feat-cmux-next.", text)
+        self.assertIn("Nothing was compared (no baseline for any family).", text)
+        self.assertNotIn("No screen differs from feat-cmux-next.", text)
         self.assertNotIn(MENTION, text)
+
+    def test_a_family_with_no_baseline_qualifies_the_clean_line(self) -> None:
+        write_family(self.base, "iphone", {"gate-iphone-home-01": screen()})
+        write_family(self.head, "iphone", {"gate-iphone-home-01": screen()})
+        write_family(self.head, "ipad", {"gate-ipad-home-01": screen()})
+        code, text = self.run_diff(families=("iphone", "ipad"))
+        self.assertEqual(code, 0)
+        self.assertIn("- ipad: no baseline,", text)
+        self.assertIn("No compared screen differs from feat-cmux-next (not compared: ipad).", text)
+        self.assertNotIn("No screen differs from feat-cmux-next.", text)
 
     def test_a_name_with_dots_matches_across_runs(self) -> None:
         # xcresulttool puts `_0_<UUID>` before the last dot of `...DEAD-setup.teams.personal`.

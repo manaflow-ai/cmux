@@ -1176,6 +1176,11 @@ class InternalSubmissionTests(unittest.TestCase):
         self.assertEqual(gate_job["with"]["lane"], "internal-submission")
         self.assertEqual(gate_job["with"]["ipa_artifact_name"], "cmux-internal-submission-ipa-${{ github.run_id }}")
         self.assertIn("inputs.submittable", gate_job["if"])
+        # Run 45038240860: a called workflow gets no secret its caller does not pass, so asc validate had no key.
+        asc_keys = {"ASC_API_KEY_ID", "ASC_API_ISSUER_ID", "ASC_API_KEY_P8_BASE64"}
+        self.assertEqual(gate_job["secrets"], {k: f"${{{{ secrets.{k} }}}}" for k in asc_keys})
+        declared = self.triggers(self.workflow("ios-review-gate.yml"))["workflow_call"]["secrets"]
+        self.assertEqual(set(declared), asc_keys)
         receipt_if = jobs["submission-receipt"]["if"]
         for need in ("needs.review-gate.result == 'success'", "needs.review-gate.outputs.blocking == '0'",
                      "needs.review-gate.outputs.sha == inputs.sha"):
