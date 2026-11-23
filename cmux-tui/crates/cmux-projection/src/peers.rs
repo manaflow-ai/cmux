@@ -551,7 +551,8 @@ impl Chain {
     /// projected folder's fault asks before the Mac ([`crate::store_fetch`]).
     pub fn blob(&self, oid: &str, failures: &[AtomicUsize]) -> Option<Vec<u8>> {
         let rejected = AtomicUsize::new(0);
-        self.one(oid, failures, &rejected).map(|(_, bytes)| bytes)
+        let order = self.order(&self.nearest_peers());
+        self.one(oid, &order, failures, &rejected).map(|(_, bytes)| bytes)
     }
 }
 
