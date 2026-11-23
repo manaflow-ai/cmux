@@ -17,7 +17,9 @@ function fake() {
   };
   const advance = (ms: number) => {
     now += ms;
-    for (const [id, job] of [...jobs]) {
+    // A snapshot: a job run here may schedule another, which waits for the next advance.
+    const due = [...jobs];
+    for (const [id, job] of due) {
       if (job.at <= now) {
         jobs.delete(id);
         job.run();
