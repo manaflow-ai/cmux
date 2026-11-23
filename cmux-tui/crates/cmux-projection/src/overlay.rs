@@ -368,6 +368,8 @@ pub struct Overlay {
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+    /// Told of every read the agent asked for that failed because the Mac is away.
+    away: Option<Arc<crate::away::Away>>,
     cache_index: Mutex<CacheIndex>,
     cache_max: u64,
     cache_evicted: AtomicU64,
@@ -673,6 +675,7 @@ impl Overlay {
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
+            away: None,
             cache_index,
             cache_max: DEFAULT_CACHE_MAX_BYTES,
             cache_evicted: AtomicU64::new(0),
@@ -693,6 +696,24 @@ impl Overlay {
         // A cache an earlier daemon (or a bigger cap) left goes down to the cap now.
         overlay.evict_to_fit(&mut overlay.cache_lock(), 0);
         Ok(overlay)
+    }
+
+    /// Tells `away` of each read of a file that failed because the Mac is away (a file read ahead
+    /// beside it is no read of the agent's, and is not told).
+    #[must_use]
+    pub fn with_away(mut self, away: Arc<crate::away::Away>) -> Self {
+        self.away = Some(away);
+        self
+    }
+
+    /// `errno` of a fetch of file `index` that failed; an away one is told to [`Self::with_away`]'s.
+    fn fetch_failed(&self, index: u32, error: FetchError) -> i32 {
+        if error == FetchError::Away
+            && let Some(away) = &self.away
+        {
+            away.failed(&self.manifest.path_of(index));
+        }
+        error.errno()
     }
 
     /// This overlay with its cache capped at `bytes` (what is over goes now).
@@ -1383,9 +1404,12 @@ impl Overlay {
         let mut mine = Err(EIO);
         for (other, answer) in batch.iter().zip(answers) {
             let expected = self.manifest.entry(*other).map_or(0, |entry| entry.size);
-            let answer = answer.map_err(FetchError::errno).and_then(|bytes| {
-                if bytes.len() as u64 == expected { Ok(bytes) } else { Err(EIO) }
-            });
+            let answer = match answer {
+                Ok(bytes) if bytes.len() as u64 == expected => Ok(bytes),
+                Ok(_) => Err(EIO),
+                Err(error) if *other == index => Err(self.fetch_failed(index, error)),
+                Err(error) => Err(error.errno()),
+            };
             if let Ok(bytes) = &answer {
                 self.count(bytes.len() as u64);
                 self.store((*other, WHOLE), bytes);
@@ -1457,7 +1481,7 @@ impl Overlay {
         let bytes = self
             .fetch
             .read(index, start, u32::try_from(len).map_err(|_| EIO)?)
-            .map_err(FetchError::errno)?;
+            .map_err(|error| self.fetch_failed(index, error))?;
         if bytes.len() as u64 != len {
             return Err(EIO);
         }
