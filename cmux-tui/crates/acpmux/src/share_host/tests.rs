@@ -1156,13 +1156,29 @@ fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
         )
         .unwrap();
     };
-    assert!(!rd_signed_in_for(&dir, &mark), "no record: a person's sign-in, or none");
+    let home = std::path::Path::new("/acpmux-home");
+    assert!(!rd_signed_in_for(&dir, &mark, home), "no record: a person's sign-in, or none");
     write("m-b", 2);
-    assert!(rd_signed_in_for(&dir, &mark));
+    assert!(rd_signed_in_for(&dir, &mark, home));
     write("m-b", 1);
-    assert!(!rd_signed_in_for(&dir, &mark));
+    assert!(!rd_signed_in_for(&dir, &mark, home));
     write("m-a", 2);
-    assert!(!rd_signed_in_for(&dir, &mark));
+    assert!(!rd_signed_in_for(&dir, &mark, home));
+    // A cmux-rd from before joins were named in its record wrote only the acpmux home: that
+    // home's join, never another's (hq docs/findings/2026-11-23-screen-host-restart-loop.md).
+    let write_unnamed = |acpmux_home: &str| {
+        cmux_hub_host::identity::write_private(
+            &dir.join("joined.json"),
+            json!({"acpmux_home": acpmux_home}).to_string().as_bytes(),
+        )
+        .unwrap();
+    };
+    write_unnamed("/acpmux-home");
+    assert!(rd_signed_in_for(&dir, &mark, home), "an unnamed record of this home");
+    write_unnamed("/another-home");
+    assert!(!rd_signed_in_for(&dir, &mark, home), "an unnamed record of another home");
+    write("", 0);
+    assert!(rd_signed_in_for(&dir, &mark, home), "an empty machine id names no join");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
