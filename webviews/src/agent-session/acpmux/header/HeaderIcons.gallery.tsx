@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import type { HeaderIconsStyle } from "./headerRelevance";
 import { PanelToggle } from "./PanelToggle";
 
