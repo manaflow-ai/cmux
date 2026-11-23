@@ -678,11 +678,9 @@ impl Brain {
         // which sets `default` on it again before its prompt (turn.rs).
         let view_identity = view_identity(&input.frozen);
         let kept = self.kept.take();
-        let view_prefix = kept
-            .as_ref()
-            .map_or(view_identity.as_slice(), |k| {
-                common_view_prefix(&k.view_identity, &view_identity)
-            });
+        let view_prefix = kept.as_ref().map_or(view_identity.as_slice(), |k| {
+            common_view_prefix(&k.view_identity, &view_identity)
+        });
         let sig = keep.then(|| {
             keep_sig(
                 &engine,
@@ -700,9 +698,7 @@ impl Brain {
             .filter(|s| kept.as_ref().is_none_or(|k| &k.kept.session != s));
         let reuse = match (&kept, sig) {
             (Some(k), Some(sig))
-                if k.sig == sig
-                    && first_new >= k.seen_end
-                    && k.tokens < KEEP_MAX_TOKENS =>
+                if k.sig == sig && first_new >= k.seen_end && k.tokens < KEEP_MAX_TOKENS =>
             {
                 crate::prompt::delta_from(&input.delta, k.seen_end).map(|text| {
                     let mut blocks = vec![serde_json::json!({"type": "text", "text": text})];
@@ -2723,7 +2719,9 @@ fn common_view_prefix<'a>(previous: &[ViewPart], current: &'a [ViewPart]) -> &'a
 
 #[cfg(test)]
 mod keep_sig_tests {
-    use super::common_view_prefix;
+    use super::{common_view_prefix, keep_sig};
+    use crate::engine::TurnEngine;
+    use crate::prompt::CacheTtl;
     use optchat_core::NodeId;
 
     fn part(n: u64) -> (NodeId, bool) {
@@ -2742,6 +2740,38 @@ mod keep_sig_tests {
         let previous = vec![part(1), part(2)];
         let current = vec![part(1), part(9), part(3)];
         assert_eq!(common_view_prefix(&previous, &current), vec![part(1)]);
+    }
+
+    #[test]
+    fn a_changed_view_prefix_changes_the_keep_signature() {
+        let engine = TurnEngine {
+            harness: "claude-sr".into(),
+            model: Some("model".into()),
+            effort: Some("medium".into()),
+            speed: None,
+        };
+        let preset = Some("preset".into());
+        let previous = vec![part(1), part(2)];
+        let appended = vec![part(1), part(2), part(3)];
+        let changed = vec![part(1), part(9), part(3)];
+        let same = |view: &[super::ViewPart]| {
+            keep_sig(
+                &engine,
+                &preset,
+                Some("system"),
+                view,
+                CacheTtl::OneHour,
+                "approve-all",
+            )
+        };
+        assert_eq!(
+            same(&previous),
+            same(common_view_prefix(&previous, &appended))
+        );
+        assert_ne!(
+            same(&previous),
+            same(common_view_prefix(&previous, &changed))
+        );
     }
 }
 
