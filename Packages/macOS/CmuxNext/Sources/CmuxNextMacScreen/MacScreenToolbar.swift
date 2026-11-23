@@ -4,9 +4,10 @@ import CmuxNextDevices
 import CmuxScreenKit
 import Observation
 
-/// The Mac's name, measured latency and session controls. Wide panes use one
-/// row, medium panes separate status and controls, and narrow panes put
-/// secondary commands in More. Observation updates the existing views.
+/// The Mac's name, who started the view when an agent did, measured latency and
+/// session controls. Wide panes use one row, medium panes separate status and
+/// controls, and narrow panes put secondary commands in More. Observation
+/// updates the existing views.
 @MainActor
 final class MacScreenToolbarView: MacScreenThemedView {
     private let model: MacScreenPaneModel
@@ -14,6 +15,8 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private let dot = MacScreenFill(\.tertiary, shape: .circle)
     private let icon = MacScreenGlyph("desktopcomputer", font: MacScreenType.body)
     private let name = MacScreenText("", font: MacScreenType.emphasized)
+    /// "Started by …" beside the name while an agent's start shows (the name's tooltip says it at any width).
+    private let starter = MacScreenText("", font: MacScreenType.caption, ink: \.secondary)
     private let stats = MacScreenText("", font: MacScreenType.stats, ink: \.secondary)
     private let access: MacScreenMenuButton
     private let fullScreen: MacScreenButton
@@ -38,6 +41,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     /// beside the whole name, so the name and the rate never truncate for the codec. Nil: the stats slot shows one text.
     private var statsLines: (full: String, short: String, room: CGFloat)?
     private var hintSlot = false
+    private var starterSlot = false
     private var controlsShown = false
     private var accessIsViewOnly: Bool?
     private var reportedHeight: CGFloat?
@@ -108,7 +112,8 @@ final class MacScreenToolbarView: MacScreenThemedView {
         super.init(frame: .zero)
         wantsLayer = true
         stats.setAccessibilityIdentifier("macScreen.stats")
-        for view in [dot, icon, name, stats, access, segments, hint, displayButton, quality, sendKeys, record, refresh, fullScreen, more, connect, disconnect, disconnectGlyph, line] as [NSView] {
+        starter.setAccessibilityIdentifier("macScreen.startedBy")
+        for view in [dot, icon, name, starter, stats, access, segments, hint, displayButton, quality, sendKeys, record, refresh, fullScreen, more, connect, disconnect, disconnectGlyph, line] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
@@ -203,6 +208,10 @@ final class MacScreenToolbarView: MacScreenThemedView {
         dot.fill = statusColor
         let title = Self.title(model)
         if name.stringValue != title { name.stringValue = title }
+        let startedBy = model.startedBy?.label
+        starterSlot = startedBy != nil
+        if starter.stringValue != startedBy ?? "" { starter.stringValue = startedBy ?? "" }
+        setThemedTip(startedBy, on: name)
         let session = model.session
         let live = model.isLive
         statsSlot = session != nil && live
@@ -283,7 +292,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     /// or interface scale change shows at once (the views are made once).
     private func applyType() {
         let fonts: [(MacScreenText, NSFont)] = [(name, MacScreenType.emphasized), (stats, MacScreenType.stats),
-                                                (hintText, MacScreenType.caption)]
+                                                (hintText, MacScreenType.caption), (starter, MacScreenType.caption)]
         var changed = false
         for (label, font) in fonts where label.font != font {
             label.font = font
@@ -730,11 +739,16 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let statsWidth = min(Self.textWidth(stats), max(0, headerRight - x - nameFloor - gap))
         stats.isHidden = !statsSlot || bare
         name.isHidden = bare
-        let remaining = max(0, headerRight - x - (statsSlot ? statsWidth + gap : 0))
+        var remaining = max(0, headerRight - x - (statsSlot ? statsWidth + gap : 0))
+        // Who started the view comes before the release hint; each shows only where the whole name still fits.
+        let starterWidth = Self.textWidth(starter)
+        starter.isHidden = !starterSlot || bare || remaining < Self.textWidth(name) + gap + starterWidth
+        if !starter.isHidden { remaining -= starterWidth + gap }
         let hintWidth = hint.fittingSize.width
         hint.isHidden = !hintSlot || bare || remaining < Self.textWidth(name) + gap + hintWidth
         let nameWidth = max(0, remaining - (hint.isHidden ? 0 : hintWidth + gap))
         if !bare { place(name, width: nameWidth, y: 0) }
+        if !starter.isHidden { place(starter, width: starterWidth, y: 0) }
         if statsSlot && !bare { place(stats, width: statsWidth, y: 0) }
         if !hint.isHidden { place(hint, width: hintWidth, y: 0) }
         // The release hint remains available on the access control at every width.

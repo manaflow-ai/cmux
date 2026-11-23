@@ -475,8 +475,9 @@ class TailnetHostIpTests(unittest.TestCase):
             a=types.SimpleNamespace(host="mac-a", host_ip=host_ip, clock_count=5),
             py="python3", me="screen-share-vs.py",
             host=types.SimpleNamespace(popen=lambda cmd: srv),
-            viewer=types.SimpleNamespace(run=fail))
-        with self.assertRaises(RuntimeError) as cm:
+            viewer=types.SimpleNamespace(run=fail), CLOCK_TRIES=2)
+        me.clock_once = lambda: vs.Orchestrator.clock_once(me)
+        with self.assertRaises(RuntimeError) as cm, contextlib.redirect_stderr(io.StringIO()):
             vs.Orchestrator.clock(me)
         return str(cm.exception)
 
@@ -654,6 +655,32 @@ class AppViewerHelpers(unittest.TestCase):
         self.assertEqual(got, [{"id": 1, "method": "debug.mac_screen", "params": {"action": "state"}}])
         self.assertIn("error", vs.app_call(["/nonexistent.sock"], "x"))
 
+    def test_launch_refuses_a_release_app_at_once(self):
+        # A NIGHTLY answers system.ping but not debug.mac_screen: launch says so, no 120 s wait.
+        calls = []
+
+        def fake_call(paths, method, params=None, timeout=60):
+            calls.append(method)
+            if method == "debug.mac_screen":
+                return {"error": {"code": "method_not_found", "message": "debug.mac_screen"}}
+            return {"pong": True}
+
+        orig, vs.app_call = vs.app_call, fake_call
+        orig_id, vs.app_bundle_id = vs.app_bundle_id, lambda app: "com.cmuxterm.app.nightly"
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                a = vs.build_parser().parse_args(["app", "launch", "--app", os.path.join(d, "cmux NIGHTLY.app")])
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    vs.cmd_app(a)
+        finally:
+            vs.app_call, vs.app_bundle_id = orig, orig_id
+        got = json.loads(out.getvalue().strip().splitlines()[-1])
+        self.assertIn("is a Release build", got["error"])
+        self.assertIn("mac_screen.state", got["error"])
+        self.assertTrue(got["reused"])
+        self.assertEqual(calls, ["system.ping", "debug.mac_screen"])
+
     def test_locate_output(self):
         self.assertEqual(vs.parse_locate("origin 812,402 cell 32 at 868,418\n"), ("812,402", 32, "868,418"))
         self.assertIsNone(vs.parse_locate("no marker\n"))
@@ -717,10 +744,15 @@ class AppViewerRun(unittest.TestCase):
             if method == "debug.device_hub" and params["action"] == "connect":
                 opened.append(params)
                 return {"ok": True}
+            if method == "mac_screen.state":
+                # Every build's read: the pane timings come from here, not debug.mac_screen.
+                self.assertEqual(params, {"tab": "t1"})
+                return {"tabs": [{k: row[k] for k in ("tab", "phase") + vs.APP_TIMING_FIELDS if k in row}]}
             if method == "debug.mac_screen":
+                dev = {k: v for k, v in row.items() if k not in vs.APP_TIMING_FIELDS}
                 if "tab" in params:
-                    return {"tabs": [row]}
-                return {"tabs": [row] if opened else []}
+                    return {"tabs": [dev]}
+                return {"tabs": [dev] if opened else []}
             return {}
         return answer
 
@@ -807,6 +839,34 @@ class PresentedSourceLabel(unittest.TestCase):
         self.assertIn("null", b["app_timings"])
         with self.assertRaises(ValueError):
             vs.presented_source("bogus")
+
+
+class ClockRetryTest(unittest.TestCase):
+    def runner(self, outcomes):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        calls = []
+
+        def once():
+            calls.append(1)
+            r = outcomes[len(calls) - 1]
+            if isinstance(r, Exception):
+                raise r
+            return r
+        o.clock_once = once
+        return o, calls
+
+    def test_a_slow_start_is_retried(self):
+        o, calls = self.runner([RuntimeError("clock-serve on cmux20 did not start: None"), {"offset_ns": 5}])
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(o.clock(), {"offset_ns": 5})
+        self.assertEqual(len(calls), 2)
+
+    def test_every_try_failing_names_each_error(self):
+        o, calls = self.runner([RuntimeError("a"), TimeoutError("b"), ValueError("c")])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(RuntimeError) as e:
+            o.clock()
+        self.assertEqual(len(calls), vs.Orchestrator.CLOCK_TRIES)
+        self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
 
 
 if __name__ == "__main__":

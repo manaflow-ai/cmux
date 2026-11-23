@@ -7,14 +7,15 @@
 //!
 //! JSON lines with the app, like `serve`:
 //! stdout first: {"key":"<this side's session key>"} (the app signs it: the offer)
-//! stdin first: {"session":"..","peer_key":"<host session key, checked by the app>",
+//! stdin setup: {"session":"..","peer_key":"<host session key, checked by the app>",
 //!   "stun":[..],"candidates":[..],"socket":"<path in a 0700 directory>"}
 //! stdout then: {"candidate":".."}, {"listening":true}, {"connected":true},
 //!   {"path":{..}}, {"ended":".."}
 //! An `ended` that starts `host: ` carries the host's own cmux.rd/1 `ended` reason (for example
 //! `host: failed: <capture error>`), read off the link whether or not the pane was attached, so
 //! the app can say why the host stopped rather than only that the link closed.
-//! stdin later: {"candidate":".."} or {"stop":true}
+//! stdin later: {"candidate":".."} or {"stop":true}. A trickled candidate that arrives while
+//! the app prepares the answer's socket directory is kept until the answer supplies the key.
 //!
 //! One pane connects to the socket; a second connection is refused.
 
@@ -55,6 +56,41 @@ struct Later {
     stop: bool,
 }
 
+/// The app forwards trickled routes while its answer hand-off prepares a private socket.
+/// Only an answer can start the link. Keep a bounded set of parsed routes in the meantime.
+fn read_answer(mut input: impl BufRead) -> Res<Answer> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct EarlyCandidate {
+        candidate: String,
+    }
+
+    const MAX_EARLY_CANDIDATES: usize = 32;
+    let mut early = Vec::new();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if input.read_line(&mut line)? == 0 {
+            return Err("the app closed the session's input before its answer".into());
+        }
+        match serde_json::from_str::<Answer>(&line) {
+            Ok(mut answer) => {
+                answer.candidates.extend(early.iter().map(Candidate::to_wire));
+                return Ok(answer);
+            }
+            Err(error) => {
+                let route: EarlyCandidate =
+                    serde_json::from_str(&line).map_err(|_| format!("answer line: {error}"))?;
+                if let Some(candidate) = Candidate::from_wire(&route.candidate) {
+                    if early.len() < MAX_EARLY_CANDIDATES && !early.contains(&candidate) {
+                        early.push(candidate);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
 fn say(line: AppLine) {
     let mut out = io::stdout().lock();
@@ -80,9 +116,7 @@ pub fn run() -> Res<()> {
         key: Some(keys.public.iter().map(|b| format!("{b:02x}")).collect::<String>()),
         ..AppLine::default()
     });
-    let mut line = String::new();
-    io::stdin().lock().read_line(&mut line)?;
-    let answer: Answer = serde_json::from_str(&line).map_err(|e| format!("answer line: {e}"))?;
+    let answer = read_answer(io::stdin().lock())?;
     let peer = unhex32(&answer.peer_key).ok_or("peer_key must be 64 hex characters")?;
     let (stun, stun_later) = crate::carrier::stun_servers(&answer.stun, answer.relay_only);
     // The socket's directory is the app's private one; the socket itself is the user's only.

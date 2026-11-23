@@ -33,6 +33,29 @@ constexpr char kNotificationsAutoblockKey[] = "Notifications";
 constexpr uint32_t kHostPermissions =
     kPermissionGeolocation | kPermissionCamera | kPermissionMicrophone | kPermissionCameraPanTiltZoom;
 
+// cef_media_access_permission_types_t bits (CefPermissionHandler::OnRequestMediaAccessPermission):
+// getDisplayMedia() asks for the desktop kinds. Chromium's own screen picker is a dialog cmux
+// never shows, so the page's promise stayed pending for good (cmux nightly 4510943012901).
+constexpr uint32_t kMediaDesktopAudioCapture = 1u << 2;
+constexpr uint32_t kMediaDesktopVideoCapture = 1u << 3;
+constexpr uint32_t kMediaDesktopCapture = kMediaDesktopAudioCapture | kMediaDesktopVideoCapture;
+
+// Not a CEF bit: the shim's PERMISSION_PROMPT event carries it for a screen-share question, so the
+// host's prompt bar tells it from the kinds above (CEFPermissionPrompts.displayCapture).
+constexpr uint32_t kPermissionDisplayCapture = 1u << 30;
+
+// True for a media request that shares the screen (getDisplayMedia). The shim asks the host for
+// these and ends each one, granted or cancelled; it never leaves one waiting on Chromium's picker.
+inline bool IsDisplayCaptureRequest(uint32_t requested) {
+  return (requested & kMediaDesktopCapture) != 0;
+}
+
+// What a granted display-capture request may use: the desktop kinds it asked for, nothing else
+// (a request that also names the camera or microphone gets those from the permission prompt).
+inline uint32_t DisplayCaptureGrant(uint32_t requested) {
+  return requested & kMediaDesktopCapture;
+}
+
 enum class PermissionPromptRoute {
   // Chromium keeps the request (its default for the kind).
   kChromium,
