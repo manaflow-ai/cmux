@@ -108,8 +108,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
     /// tab still shows it. `environment`: New Cloud Machine's Cloud environment (`env_…`), from the
     /// composer's Environment chip; its setup dialog starts on that environment. `handoff`: New Cloud
-    /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens.
-    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil)
+    /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens. `app`: the editor id
+    /// a folder action (``AgentPaneModel/folderActions``) opens in, from the page's Open In ▸.
+    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil)
+    /// `editors.list`: the code editors installed on this Mac, the default first (the page's Open In ▸ submenus).
+    case editorsList
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
@@ -272,7 +275,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sessionInfoPinch(AgentPaneSessionInfoPinch)
     /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
     /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
-    case toastAvoidance(CGRect?)
+    case toastAvoidance(AgentPaneSessionInfoOverlay?)
     /// `pane.toast {message, tone, group}`: feedback the page shows as the app's native toast, so it
     /// takes the picked toast style (Lawrence 2026-11-13); `group` is its kind (Don't Show Again hides it).
     case toast(message: String, isError: Bool, group: String?)

@@ -1533,6 +1533,7 @@ jobs:
             [script-tests]
             bash scripts/cmux-next/tests/pin-cmux-tui-run-fetch.test.sh
             bash scripts/cmux-next/tests/nightly-tree-at-install.test.sh
+            python3 tests/test_nightly_fallback_covers.py
             bash scripts/cmux-next/tests/fake-clock.test.sh
             bash scripts/cmux-next/tests/preview.test.sh
             python3 tests/test_intent_familiar_warning.py
@@ -1636,6 +1637,7 @@ jobs:
             bash scripts/cmux-next/tests/check-concentric-containers.test.sh
             bash scripts/cmux-next/tests/check-pressed-state.test.sh
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
+            bash scripts/cmux-next/tests/web-overlay-abi-preflight.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
             bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-react-pages.test.sh
@@ -2059,7 +2061,7 @@ jobs:
         id: ghostty-resources-bundle
         continue-on-error: true
         run: |
-          git submodule update --init --depth 1 --filter=blob:none ghostty-next
+          bash scripts/ci/init-submodule.sh ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
           # Ghostty's themes survive the Resources phase in either order (Xcode, the fleet builder).
           bash scripts/cmux-next/tests/bundle-resources-layout.test.sh
@@ -7116,7 +7118,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           fetch-depth: 200
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-347

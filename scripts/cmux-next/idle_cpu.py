@@ -212,7 +212,7 @@ def page_activity(call, seconds: float = 10.0) -> list[dict]:
         except (KeyError, TypeError, ValueError):
             entry["idle_probe"] = {"error": reply}
     before = {entry["browser"]: metrics(entry["browser"]) for entry in out}
-    time.sleep(seconds)  # the probed window: the pages run with no call into them
+    time.sleep(seconds)  # sleep-ok: the measured window: the pages run with no call into them
     for entry in out:
         first, last = before[entry["browser"]], metrics(entry["browser"])
         if first and last:
@@ -542,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
                 return []
         result["chats_made"] = made
         log(f"idle-cpu: idle {args.minutes:g} min from now, no call into the app")
-        time.sleep(args.minutes * 60)  # the idle period itself
+        time.sleep(args.minutes * 60)  # sleep-ok: the idle period itself (--minutes, no call into the app)
         if process.poll() is not None:
             verdict.update(status=1, why=f"the app exited during the idle period (status {process.returncode})")
             return [verdict["why"]]

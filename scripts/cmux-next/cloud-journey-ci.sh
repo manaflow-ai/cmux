@@ -59,7 +59,7 @@ run() { # label, extra args...
     { printf '### %s%s (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
     echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label failed once; running it again (first run's steps in the job summary)"
     rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
-    sleep "${JOURNEY_RETRY_DELAY_S:-15}"
+    sleep "${JOURNEY_RETRY_DELAY_S:-15}"  # sleep-ok: backoff before the one retry
     if bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; fi
   fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"

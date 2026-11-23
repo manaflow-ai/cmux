@@ -12,7 +12,7 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 
@@ -2789,12 +2789,14 @@ describe("preclaim MET table fields", () => {
     const frame = { t: "ephemeral", stream: `cloud:${team}`, event: "cloud.spare.ready", data: { machine: spare, team, at: 4_000 } };
     class FakeWire {
       private on: Record<string, Array<(e: unknown) => void>> = {};
-      constructor() { setTimeout(() => this.emit("open", {}), 0); }
+      constructor() { framed = false; setTimeout(() => this.emit("open", {}), 0); }
       addEventListener(type: string, fn: (e: unknown) => void) { (this.on[type] ??= []).push(fn); }
-      send() { setTimeout(() => this.emit("message", { data: JSON.stringify(frame) }), 0); }
+      send() { setTimeout(() => { framed = true; this.emit("message", { data: JSON.stringify(frame) }); }, 0); }
       close() {}
       private emit(type: string, e: unknown) { for (const fn of this.on[type] ?? []) fn(e); }
     }
+    // The spare's record shows it running only once its frame went out, so the frame (with its `at`) times it.
+    let framed = false;
     const realWebSocket = (globalThis as any).WebSocket;
     (globalThis as any).WebSocket = FakeWire;
     try {
@@ -2811,7 +2813,7 @@ describe("preclaim MET table fields", () => {
           : route.endsWith("/client-session") ? { status: 501, body: { ok: false, error: { code: "cloud.provider.unsupported" } } }
           : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
           : { status: 200, body: { ok: true } },
-        read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4, vm_hours_used_by_you: 1.5 } } : { status: "running", host: "host-1", created_at: 1_000, running_since: 9_000 },
+        read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4, vm_hours_used_by_you: 1.5 } } : { status: framed ? "running" : "starting", host: "host-1", created_at: 1_000, running_since: 9_000 },
         op: async (_op: string, params: { size: unknown }) => {
           requestedSizes.push(params.size);
           return { machine: { id: spare, status: "running" }, claim: { behind: true }, stages_ms: [{ step: "claim", ms: 40 }, { step: "bound", ms: 60 }] };
@@ -3227,5 +3229,33 @@ describe("the --surge proof (cmux-platform#1594)", () => {
   });
   test("the proof asks for the smallest burst: 2 machines, 300 s", () => {
     expect(SURGE_PROOF_REQUEST).toEqual({ count: 2, ttl_seconds: 300 });
+  });
+});
+
+describe("waitForSpareReady", () => {
+  const api = {} as any;
+  const never = (_a: unknown, _m: string, _b: number, signal?: AbortSignal) => new Promise<any>((_, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+  test("an already-ready spare with no frame (production: no subscribe snapshot) is ready from its record", async () => {
+    let reads = 0;
+    const got = await waitForSpareReady(api, "vm_spare", 10_000, { frame: never as any, read: async () => (++reads < 2 ? { status: "starting" } : { status: "running", host: "h1", running_since: 5 }), pollMs: 1, sleep: async () => {} });
+    expect(got.by).toBe("record");
+    expect(got.frame).toBeNull();
+    expect(got.row.running_since).toBe(5);
+  });
+  test("the frame wins when it comes first, and the record poll stops", async () => {
+    let reads = 0;
+    const frame = { event: "cloud.spare.ready", data: { machine: "vm_spare", at: 7 } };
+    const got = await waitForSpareReady(api, "vm_spare", 10_000, { frame: (async () => frame) as any, read: async () => { reads++; return { status: "starting" }; }, pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 5)) });
+    expect(got.by).toBe("frame");
+    expect(got.frame).toBe(frame as any);
+    const after = reads;
+    await new Promise((r) => setTimeout(r, 30));
+    expect(reads - after).toBeLessThanOrEqual(1);
+  });
+  test("a failed spare says so instead of waiting the budget", async () => {
+    await expect(waitForSpareReady(api, "vm_spare", 10_000, { frame: never as any, read: async () => ({ status: "failed", error: "boom" }), pollMs: 1, sleep: async () => {} })).rejects.toThrow(/failed before ready/);
+  });
+  test("neither within the budget names both routes", async () => {
+    await expect(waitForSpareReady(api, "vm_spare", 20, { frame: never as any, read: async () => ({ status: "starting" }), pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 2)) })).rejects.toThrow(/not ready within 20 ms/);
   });
 });

@@ -27,8 +27,17 @@ pub fn safe_tag(tag: &str) -> Option<String> {
 }
 
 /// The acting tools whose result carries the window's state after acting.
-pub const OBSERVES: &[&str] =
-    &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "batch"];
+pub const OBSERVES: &[&str] = &[
+    "click",
+    "move_pointer",
+    "type_text",
+    "press_key",
+    "scroll",
+    "drag",
+    "set_value",
+    "perform_action",
+    "batch",
+];
 
 /// The acting tools whose pre-action guards `force` skips ([`crate::observe::guards`]).
 pub const GUARDED: &[&str] = &["click", "type_text", "scroll", "set_value", "perform_action"];
@@ -193,6 +202,22 @@ pub static TOOLS: &[Tool] = &[
                     "count": {"type": "integer", "minimum": 1, "maximum": 3},
                     "modifiers": {"type": "array", "items": {"type": "string"}, "description": "shift, ctrl, alt/option, cmd/meta"},
                     "menu_item": {"type": "string", "description": "For a click that opens a menu (right click, control-click, a pop-up or menu button): the title of the item to choose (exact, any case, or a unique prefix), or a path for an item in a submenu (\"Sort By > Name\"); the menu opens, the item is pressed and the menu closes in one call."},
+                    "delivery": delivery()
+                }),
+                &[],
+            )
+        },
+    },
+    Tool {
+        name: "move_pointer",
+        access: Access::Act,
+        description: "Move the pointer onto an element (element_id) or a point (x, y in screenshot pixels) of a window and press nothing: a hover, to show a tooltip, a hover card, a row's hover controls or a menu that opens on hover. Targets exactly as click does (with no window_id, x and y are pixels of your latest display screenshot). The result shows the window after the move. background (default): the move is sent to the app only; nothing takes focus, no window is raised and the person's pointer stays where it is, so hover effects the app draws from its own mouse-moved events show (web pages, most custom views), while some native tooltips and hover highlights that follow the real pointer may not. foreground: raises the window, brings its app to the front and moves the person's real pointer there, where it stays; only when background shows nothing and the person allowed it.",
+        schema: || {
+            obj(
+                json!({
+                    "window_id": window_id(),
+                    "element_id": {"type": "string"},
+                    "x": {"type": "number"}, "y": {"type": "number"},
                     "delivery": delivery()
                 }),
                 &[],

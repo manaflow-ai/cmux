@@ -395,10 +395,19 @@ probe() {
   [[ "${LR_GUEST:-0}" == 1 ]] || wait_load "$side" "$label" # guest=1: the caller gates load (and idle) itself
   load="$(load_1m)"
   if [[ "$profile" == 1 ]]; then
+    local log_from
+    log_from=$(($(wc -c <"$out/xctrace.log" 2>/dev/null || echo 0) + 1))
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
       >>"$out/xctrace.log" 2>&1 &
     recorder=$!
-    sleep 5 # the recorder's own start (a measurement script, not runtime code)
+    # Until this recorder says it is recording ("Starting recording"), 30 s; or it exited (no profile, said below).
+    for _ in $(seq 1 300); do
+      tail -c "+$log_from" "$out/xctrace.log" 2>/dev/null | grep -q 'Starting recording' && break
+      kill -0 "$recorder" 2>/dev/null || break
+      sleep 0.1
+    done
+    tail -c "+$log_from" "$out/xctrace.log" 2>/dev/null | grep -q 'Starting recording' \
+      || echo "LR-PROFILE $side $label xctrace did not report recording within 30 s"
   fi
   if [[ "$side" == late && "$label" == run* ]]; then
     sleep "$(awk -v ms="${LR_LATE:-0}" 'BEGIN { printf "%.3f", ms / 1000 }')" # late=MS, just before the open request
@@ -478,7 +487,7 @@ quiesce() {
     [[ "$left" == 0 || "$waited" -ge 60000 ]] && break
     sleep 0.1
   done
-  sleep 2
+  sleep 2  # sleep-ok: the bench's fixed cool-down between launches, the same on both sides (reported as settle_s=2)
   echo "LR-SETTLE $side $label waited_ms=$waited left=$left settle_s=2"
 }
 

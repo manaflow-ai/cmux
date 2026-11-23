@@ -8,6 +8,7 @@
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import { userMessage } from "../shared/userMessage";
+import { ACCOUNT_ACTIONS } from "../shared/signIn/accountSignIn";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
@@ -100,6 +101,7 @@ import {
   type AgentConfigRun,
   type AllotmentSet,
   type AllotmentView,
+  type AccountsRunReply,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -734,6 +736,15 @@ export class SettingsStore {
     await this.refreshAccounts();
     if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
     return reply.value.error ?? null;
+  }
+
+  /** One in-place sign-in gesture (shared/signIn ACCOUNT_ACTIONS) with the host's whole answer, so
+   * the card reads the login it started. Nothing of the answer is kept here: the one-time code stays
+   * in the card. The list refreshes after a gesture that changes it (a finish, use or remove). */
+  async runAccountSignIn(run: AccountsRun): Promise<Reply<AccountsRunReply>> {
+    const reply = await this.request("cmux.settings.accounts.run", run);
+    if (run.action !== ACCOUNT_ACTIONS.start) await this.refreshAccounts();
+    return reply;
   }
 
   /** The host's calls for Agents > Chiefs (`cmux.chief.profile.*`, `cmux.chief.backend.*`): the

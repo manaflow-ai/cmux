@@ -267,6 +267,38 @@ export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined
   return agentLogin(options);
 }
 
+/// The in-place sign-in for an agent on this Mac (logins done right; Leo, 2026-11-22: "we likewise
+/// want gh auth or device stuff to be much more convienient ui/ux wise ... this is simply logins,
+/// done righr."): the signed-out notice's Log In and a start refused for its sign-in run the agent's
+/// own login here (`_acpmux/agent_login/*`, which this Mac's socket and app may ask) in the card, its
+/// page beside the chat and its code in the card, instead of a terminal tab. Undefined for a chat
+/// elsewhere (``cloudAgentLogin``'s) and wherever ``agentLogin`` is: a daemon without `agent_login`
+/// (or, with no chat, without `agent_login_machine`) keeps the terminal login. Only the built-in
+/// `claude` and `codex` harnesses, as ``localApiKeyLogin``: a route (`claude-cr`, `claude-sr`) signs
+/// in its own way (its health's login), which the built-in agent's login would never reach.
+export function localAgentLogin(options: LoginOptions): CloudSignIn | undefined {
+  const harness = options.harness?.split("/").pop();
+  if (options.machineID || options.elsewhere || (harness !== "claude" && harness !== "codex")) return undefined;
+  return agentLogin(options);
+}
+
+/// What a start refused for its sign-in offers (App.tsx's SwitchNotice props): a start on another
+/// machine takes that machine's card (``cloudAgentLogin``) and never a login on this Mac; one here
+/// takes this Mac's in-place card (``localAgentLogin``) when there is one, and keeps the terminal
+/// login (`runsLogin`) as its fallback either way (SwitchNotice's ``signInRoute`` picks the card).
+export function refusedStartSignIn(options: {
+  startsElsewhere: boolean;
+  elsewhereCard: CloudSignIn | undefined;
+  localCard: CloudSignIn | undefined;
+  loginCommand: string | undefined;
+}): { agentSignIn?: CloudSignIn; runsLogin: boolean } {
+  const card = options.startsElsewhere ? options.elsewhereCard : options.localCard;
+  return {
+    ...(card && { agentSignIn: card }),
+    runsLogin: !options.startsElsewhere && options.loginCommand !== undefined,
+  };
+}
+
 /// The agent's own login on the chat's machine, or undefined for a chat not connected, not one of
 /// ``LOGIN_AGENTS``, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
