@@ -120,9 +120,9 @@ Iroh defaults to `--iroh-path auto`, which probes direct IP paths and retains re
 `cmux ssh HOST` (also `cmux-tui remote ssh HOST`) first tries your hub carrier when HOST is the bare name of one of your machines that this machine's acpmux hub lists (what `acpmux machine ls` prints) and no other option is given. acpmux serves one local socket per listed machine (`_acpmux/machine_routes`); each connection to it is one carrier circuit to that machine's own cmux-tui session daemon, so the TUI attaches with no sshd, no keys and nothing installed there. A name the hub does not list, or a machine with no acpmux, goes to SSH as below with nothing printed. A listed machine that refuses (`carrier.off`, `consent_required`, `consent_declined`, `service.off`, ...) prints the refusal's one-line reason and then uses SSH. `--carrier` stops at the refusal instead; `--ssh` skips the carrier.
 
 ```sh
-cmux ssh gcp-agent-lane-2            # carrier first, then SSH
-cmux ssh gcp-agent-lane-2 --carrier  # carrier only
-cmux ssh gcp-agent-lane-2 --ssh      # SSH only
+cmux ssh buildbox            # carrier first, then SSH
+cmux ssh buildbox --carrier  # carrier only
+cmux ssh buildbox --ssh      # SSH only
 ```
 
 Otherwise `cmux-tui remote ssh` uses SSH directly, matching the command the user chose. The npm form is `npx cmux remote ssh user@linux-server --session dev`.
