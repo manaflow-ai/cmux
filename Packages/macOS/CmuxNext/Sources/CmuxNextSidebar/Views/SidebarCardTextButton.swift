@@ -117,7 +117,7 @@ final class SidebarCardTextButton: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         var view = superview
         while let current = view {
-            if let menu = current.menu(for: event) { return menu }
+            if let menu = current.menu(for: event) { return NSMenu.withoutSystemItems(menu) }
             view = current.superview
         }
         return nil

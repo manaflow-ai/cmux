@@ -142,6 +142,9 @@ pub enum Command {
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
     Race(crate::cli::race::RaceCmd),
+    /// Fork a Cloud machine N ways, one copy-on-write machine per harness, and keep one.
+    #[command(subcommand)]
+    ForkRun(crate::cli::fork_run::ForkRunCmd),
     /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
     /// Mac that lends this machine its login (`cli/gh_shim.rs`).
     #[command(hide = true, disable_help_flag = true)]
