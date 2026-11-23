@@ -15,6 +15,8 @@ import { BackdropLink, formatBytes } from "./BackdropLink";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
 import { WallpaperSwitch } from "./WallpaperSwitch";
+import { RecentBackgrounds } from "./RecentBackgrounds";
+import { RECENTS_KEY, recentTiles, recentWrites } from "../recentBackgrounds";
 import {
   DARK_KEY,
   DYNAMIC_KEY,
@@ -225,6 +227,15 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     }
     endPreview();
   };
+  const chooseRecent = async (id: string) => {
+    cancelDwell();
+    // In order, stopping at a refusal: the background first, then sun mode off with it.
+    for (const [key, value] of recentWrites(id, switchValues.dynamic)) {
+      const result = await (value === null ? store.reset(key) : store.set(key, value));
+      if (!result.ok) break;
+    }
+    endPreview();
+  };
   // `attribution` null: the name alone (an Apple wallpaper). `video`: a moving wallpaper, marked
   // over its first frame. `pending`: a macOS wallpaper macOS has not downloaded, dimmed with a
   // cloud; a click opens the Wallpaper pane, which downloads it.
@@ -317,6 +328,19 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       <span id={`${describe}-pending`} hidden>
         {t("settingsWindow.backdropPicker.downloadInSystemSettings")}
       </span>
+      {/* The backgrounds shown before, one click each (the app's, so All Workspaces only). */}
+      {!own && (
+        <RecentBackgrounds
+          tiles={recentTiles(rows.get(RECENTS_KEY)?.value, appCurrent, backdrops, {
+            shuffle: t("settingsWindow.backdropPicker.shufflePaintings"),
+            none: t("settingsWindow.backdropPicker.none"),
+            appearance: t("settingsWindow.wallpaperSwitch.appearance"),
+            schedule: t("settingsWindow.wallpaperSwitch.schedule"),
+          })}
+          disabled={!state.readable}
+          onChoose={chooseRecent}
+        />
+      )}
       {/* The happy path first: one background for every window, or one that turns on its own. */}
       <div className="backdrop-grid">
         {/* The person's own desktop picture and screen saver first: the quickest way to a background. */}
