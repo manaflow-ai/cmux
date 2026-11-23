@@ -809,6 +809,10 @@ export type AcpmuxRow = {
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
   /// the step it is on ends), then `landed`.
   steer?: "waiting" | "landed";
+  /// A waiting steer whose turn ended (`turn_end`) while the reply above it still streamed: the turn's
+  /// result carries it to the next turn or lands it a few ms later, so no stretch footer comes over it
+  /// in between (conversation/turns.ts `supersededFooters`).
+  steerTurnEnded?: true;
   /// A prompt sent now that ended the turn it went into (acpmux cancels it, or the agent ends it
   /// with `end_turn`) and runs next: accepted, drawn inside that turn (turnStart.ts
   /// ``continuesTurn``), with no mark of its own.

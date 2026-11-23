@@ -2801,7 +2801,10 @@ function supersededFooters(
     if (unread) {
       // While the turn runs its footer comes with it, right above where it is drawn (or where the
       // held rows after the body start).
-      if (live && sentByPerson(row) && !row.failed) close(index, at < 0 ? bodyEnd() : at, steerKey(row));
+      // Not once its turn ended before reading it (`steerTurnEnded`): the turn's result carries it
+      // to the next turn or lands it a few ms later, and the footer would come and go in between.
+      if (live && sentByPerson(row) && !row.failed && !row.steerTurnEnded)
+        close(index, at < 0 ? bodyEnd() : at, steerKey(row));
       continue;
     }
     if (at < 0) from = index + 1;
@@ -2914,7 +2917,9 @@ function shapeLiveTurn(
   // (Leo, 2026-11-19, on the Needs your input cards: "plus it's not instant yet"). Same id as the
   // ended turn's card (`card` in shapedTurn), so the row stays when the turn ends.
   const wrapUp = liveWrapUp(kept);
-  const drawn = wrapUp ? withoutLiveWrapUp(kept, wrapUp) : kept;
+  // Every wrap-up that returned goes with the card, as the ended turn's do (`withoutWrapUp`): an
+  // earlier one kept as a row came back under the steer it went at when a later wrap-up drew the card.
+  const drawn = wrapUp ? withoutWrapUp(kept) : kept;
   const shaped = shapeLiveRows(user, drawn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs, foldsPrompt);
   if (!wrapUp) return shaped;
   const card: AcpmuxRow = {
@@ -2934,9 +2939,11 @@ function shapeLiveTurn(
 }
 
 /// The wrap-up call the turn's newest call is, once it returned, read as its card, with the time it
-/// returned. The wrap-up is the turn's last step, so only the newest call is read: a record into a long
-/// running turn reads none of its earlier calls again. A call after it takes the card back to the
-/// turn's end, where the ended turn reads every call (`lastWrapUp`).
+/// returned. While the newest call is no wrap-up, the newest wrap-up that returned earlier in the turn
+/// keeps its card: taking the card back when the next call starts brought the call back as a row under
+/// the steer it went at, above rows already drawn (test/fixtures/chat-sim/churn-wrap-up-steer), and
+/// the ended turn draws that same card (`lastWrapUp`). The fallback reads each call's title and input once (`isWrapUp` and
+/// `execWrapUp` look for the words before they parse), so a long turn costs a string search per call.
 function liveWrapUp(rows: readonly AcpmuxRow[]): LiveWrapUp | undefined {
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
@@ -2946,32 +2953,39 @@ function liveWrapUp(rows: readonly AcpmuxRow[]): LiveWrapUp | undefined {
     let index = items.length - 1;
     while (index >= 0 && !items[index]!.tool) index -= 1;
     if (index < 0) continue;
-    const tool = items[index]!.tool;
-    if (tool?.status !== "completed") return undefined;
-    const exec = isWrapUp(tool) ? undefined : execWrapUp(tool);
-    if (!exec && !isWrapUp(tool)) return undefined;
-    const ask = wrapUpAsk(tool);
-    if (!ask) return undefined;
-    // A script that did more than the wrap-up keeps its row, as `withoutWrapUp` keeps it.
-    const drop = exec?.only === false ? undefined : { row: at, item: index };
-    return { ask, at: row.at, version: callVersion(tool.id, row.version), drop };
+    return wrapUpAt(rows, at, index) ?? earlierWrapUp(rows, at, index);
   }
   return undefined;
 }
 
-type LiveWrapUp = { ask: NextStepAsk; at: number; version: number; drop?: { row: number; item: number } };
-
-/// The live turn's rows without the one call its card draws: that call's row loses the item, and
-/// goes when it held nothing else. No other call is read again, so a record into a long turn parses
-/// one call however long the turn; an earlier wrap-up in the same turn keeps its row until the turn
-/// ends (`withoutWrapUp`).
-function withoutLiveWrapUp(rows: AcpmuxRow[], wrapUp: LiveWrapUp): AcpmuxRow[] {
-  if (!wrapUp.drop) return rows;
-  const { row: at, item } = wrapUp.drop;
+/// The completed wrap-up call at item `index` of row `at`, read as its live card.
+function wrapUpAt(rows: readonly AcpmuxRow[], at: number, index: number): LiveWrapUp | undefined {
   const row = rows[at]!;
-  const items = row.items!.filter((_, index) => index !== item);
-  return [...rows.slice(0, at), ...(items.length ? [{ ...row, items }] : []), ...rows.slice(at + 1)];
+  const tool = row.items![index]!.tool;
+  if (tool?.status !== "completed") return undefined;
+  const exec = isWrapUp(tool) ? undefined : execWrapUp(tool);
+  if (!exec && !isWrapUp(tool)) return undefined;
+  const ask = wrapUpAsk(tool);
+  if (!ask) return undefined;
+  return { ask, at: row.at, version: callVersion(tool.id, row.version) };
 }
+
+/// The newest completed wrap-up before item `index` of row `from`.
+function earlierWrapUp(rows: readonly AcpmuxRow[], from: number, index: number): LiveWrapUp | undefined {
+  for (let at = from; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (row.kind !== "activity") continue;
+    const items = row.items ?? [];
+    for (let item = (at === from ? index : items.length) - 1; item >= 0; item -= 1) {
+      if (!items[item]!.tool) continue;
+      const card = wrapUpAt(rows, at, item);
+      if (card) return card;
+    }
+  }
+  return undefined;
+}
+
+type LiveWrapUp = { ask: NextStepAsk; at: number; version: number };
 
 /// A version for the live card of call `id` in a row at `rowVersion`: FNV-1a of the id (32 bits)
 /// plus the row's version, so another call or an update to this one changes it.

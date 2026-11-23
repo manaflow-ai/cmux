@@ -3283,6 +3283,12 @@ function seedRoots(
   return fold.setRoot(text(summary?.agentSessionId)) || named;
 }
 
+/// The prompts a turn's result says acpmux carries to the next turn (`turn_result.carriedTo.promptIds`).
+function carriedPromptIds(carried: unknown): ReadonlySet<string> | undefined {
+  const ids = (carried as { promptIds?: unknown } | undefined)?.promptIds;
+  return Array.isArray(ids) ? new Set(ids.filter((id): id is string => typeof id === "string")) : undefined;
+}
+
 export class AcpmuxDirectClient {
   // A busy daemon may legitimately emit no frame for many seconds, so quiet alone never ends a
   // socket. Once a request has waited this long, and the daemon proved itself no sooner, the pane
@@ -11662,7 +11668,18 @@ export class AcpmuxDirectClient {
         this.turnTokens = undefined;
         this.turnTokenSplit = undefined;
         this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
-        this.landSteer();
+        // The steers still waiting land at the turn's result, not at its `turn_end` a few ms before: one
+        // the turn ended without reading is carried to the next turn (`carriedTo`, below), and landed
+        // in between it drew its stretch's footer over it for those ms, gone again when it was carried
+        // (Leo, 2026-11-22: "sub-second in and out bullshit").
+        if (event.kind === "turn_result") this.landSteer(undefined, carriedPromptIds(msg.carriedTo));
+        else if (this.streamingAssistant !== undefined && this.rows.get(this.streamingAssistant)?.streaming)
+          // Its reply stops streaming here, which would bring that footer in for those ms.
+          for (const waiting of this.waitingSteers) {
+            const row = this.rows.get(waiting.rowId);
+            if (row?.steer === "waiting" && !row.steerTurnEnded)
+              this.rows.set(row.id, { ...row, version: row.version + 1, steerTurnEnded: true });
+          }
         // Only the daemon's turn-end event completes Stop, never a client-side deadline.
         this.stopAnswered(event);
         if (this.stoppingAfterSeq !== undefined && event.seq > this.stoppingAfterSeq) this.stoppingEnded();
@@ -11744,6 +11761,14 @@ export class AcpmuxDirectClient {
               : [...this.bgDoneTurns].find(([, turn]) => turn.turnId === resultTurn)?.[0];
         const bgDoneTurn = bgDoneId === undefined ? undefined : this.bgDoneTurns.get(bgDoneId);
         if (event.kind === "turn_result" && bgDoneId && bgDoneTurn) this.endBgDoneTurn(event, bgDoneId, "result");
+        // A steer the turn ended without reading opens the next turn (acpmux carries it: the result's
+        // `carriedTo`, then the next `turn_started`'s `carried`). It moves under this summary (and a
+        // background turn's end) now, with the turn's end, never a few ms later when the next turn
+        // starts: drawn as a steer of the ended turn in between, the summary came above it and the
+        // turn's rows folded around it, then all of it moved again (a footer, a folded run and the
+        // message itself drawn for 5 to 400 ms; Leo, 2026-11-22: "the content within neeeds to be
+        // fucking settling fucking night instantly without extraneous movement").
+        if (event.kind === "turn_result") this.carryPrompts(msg.carriedTo, undefined, true);
       } else if (event.kind === "queue_declined") {
         // The owner declined a guest's prompt: one quiet line where it was declined, never gone silently.
         this.declinedRow(event);
@@ -12331,7 +12356,7 @@ export class AcpmuxDirectClient {
   /// of it. Each row moves to where this turn starts and opens it, so the earlier turn's reply (one
   /// to a background notice, say) no longer draws under the person's message as if it answered it
   /// (Leo, 2026-11-12, on a "No change." under his "hm? what happened here").
-  private carryPrompts(carried: unknown, turnId: string | undefined): void {
+  private carryPrompts(carried: unknown, turnId: string | undefined, afterCurrent = false): void {
     const ids = (carried as { promptIds?: unknown } | undefined)?.promptIds;
     if (!Array.isArray(ids)) return;
     for (const id of ids) {
@@ -12342,24 +12367,34 @@ export class AcpmuxDirectClient {
       this.steerRows.delete(id);
       this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
       this.lateSteers = this.lateSteers.filter((late) => late !== rowId);
-      const { steer: _steer, steerPromptId: _steerPromptId, ...rest } = row;
+      const { steer: _steer, steerPromptId: _steerPromptId, steerTurnEnded: _ended, ...rest } = row;
       this.rows.set(rowId, {
         ...rest,
         version: row.version + 1,
         ...(turnId !== undefined ? { turnId } : {}),
       });
       this.rows.adoptEventOrder(rowId);
+      // At the turn's result: under the summary that result made (same event, so its order alone ties).
+      if (afterCurrent) this.rows.placeAfterCurrent(rowId);
     }
   }
 
-  /// The waiting steers (or the one `promptId` names) were read: their rows say so.
-  private landSteer(promptId?: string): void {
-    const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
+  /// The waiting steers (or the one `promptId` names) were read: their rows say so. Those `unread`
+  /// names were not (the turn ended first and acpmux carries them to the next turn).
+  private landSteer(promptId?: string, unread?: ReadonlySet<string>): void {
+    const read = this.waitingSteers.filter(
+      (waiting) =>
+        (promptId === undefined || waiting.promptId === promptId) &&
+        !(waiting.promptId !== undefined && unread?.has(waiting.promptId)),
+    );
     if (!read.length) return;
     this.waitingSteers = this.waitingSteers.filter((waiting) => !read.includes(waiting));
     for (const waiting of read) {
       const row = this.rows.get(waiting.rowId);
-      if (row?.steer === "waiting") this.rows.set(row.id, { ...row, version: row.version + 1, steer: "landed" });
+      if (row?.steer === "waiting") {
+        const { steerTurnEnded: _ended, ...rest } = row;
+        this.rows.set(row.id, { ...rest, version: row.version + 1, steer: "landed" });
+      }
     }
   }
 

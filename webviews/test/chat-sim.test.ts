@@ -70,6 +70,71 @@ test("chat simulator: a sanitized replay of a recorded lane chat keeps rule a", 
   expect(broken(replayed(), "a-")).toEqual([]);
 });
 
+// Leo, 2026-11-22: "i am still seeing flickers and flashes of bullshit. sub-second in and out
+// bullshit." and "the content within neeeds to be fucking settling fucking night instantly without
+// extraneous movement". No row is drawn for under a second (FLASH_MS), and no row comes in mid-turn
+// over what the reader follows, in every scenario and in four sanitized excerpts of coordinator
+// chats, each of which did one of them before:
+// - churn-carried-steer: a steer the turn ended without reading drew its stretch's footer over it
+//   and folded the turn around it for 8 ms, then moved again when the next turn took it.
+// - churn-carried-steer-short: the same steer moved under the turn's summary only once the next turn
+//   started, a few ms after the summary came.
+// - churn-carried-notice: an inbox notice the turn ended on drew under the turn for 989 ms, then
+//   folded with it.
+// - churn-wrap-up-steer: the live wrap-up card went back into its run at the next call, which came
+//   in under the steer, above rows already drawn.
+// "Working for" coming in when a carried prompt's turn starts (`+working`) is another lane's (the
+// turn's head line), so it is not counted here.
+const CHURN_EXCERPTS = [
+  "churn-carried-steer",
+  "churn-carried-steer-short",
+  "churn-carried-notice",
+  "churn-wrap-up-steer",
+];
+const churned = (result: SimResult) => ({
+  flashes: result.flashes.map((flash) => `${flash.label} ${flash.kind} ${flash.id} ${flash.shownMs} ms`),
+  midTurnShifts: result.shifts
+    .filter((shift) => shift.phase === "mid-turn" && !shift.cause.startsWith("+working "))
+    .map((shift) => `${shift.label} ${shift.cause}`),
+});
+describe("chat simulator: no sub-second rows and no mid-turn shifts", () => {
+  for (const [name, make] of Object.entries(SCENARIOS))
+    test(name, () => {
+      expect(churned(runSimulation(make(), { rowsInTraceUpTo: 0 }))).toEqual({ flashes: [], midTurnShifts: [] });
+    });
+  for (const name of CHURN_EXCERPTS)
+    test(`${name} (sanitized excerpt)`, () => {
+      const records = parseRecords(readFileSync(join(FIXTURES, `${name}.ndjson`), "utf8"));
+      const result = runSimulation(replayScenario(name, records), { rowsInTraceUpTo: 0 });
+      expect(result.steps).toBeGreaterThan(50);
+      expect(churned(result)).toEqual({ flashes: [], midTurnShifts: [] });
+    });
+});
+
+test("chat simulator: the sanitizer keeps a call's title that is its tool's name", () => {
+  const [clean] = sanitizeRecords([
+    {
+      sessionId: "s",
+      seq: 1,
+      at: 1,
+      dir: "in",
+      kind: "tool_call",
+      msg: {
+        params: {
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "toolu_1",
+            title: "mcp__acpmux__wrap_up",
+            _meta: { claude: { tool: "mcp__acpmux__wrap_up" } },
+          },
+        },
+      },
+    },
+  ] as unknown as Parameters<typeof sanitizeRecords>[0]);
+  const update = (clean!.msg as { params: { update: { title: string } } }).params.update;
+  expect(update.title).toBe("mcp__acpmux__wrap_up");
+});
+
 test("chat simulator: the sanitizer keeps the shape and drops every word", () => {
   const raw = [
     { sessionId: "real-id", seq: 7, at: 1_000, dir: "out", kind: "claude.stdin", msg: { text: "secret" } },
