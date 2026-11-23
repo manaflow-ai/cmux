@@ -64,6 +64,7 @@ public final class KeyboardPinTrace: NSObject {
         handle = try? FileHandle(forWritingTo: url)
         super.init()
         write(String(format: "epoch=%.6f", start))
+        if TerminalArrivalFields.isRequested { arrival = TerminalArrivalFields() }
         probe.isUserInteractionEnabled = false
         probe.alpha = 0.02
         probe.isAccessibilityElement = true
@@ -151,6 +152,9 @@ public final class KeyboardPinTrace: NSObject {
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
+
+    /// `-cmux-mobile-arrival-trace`: the terminal page per frame (TerminalArrivalFields).
+    private var arrival: TerminalArrivalFields?
 
     /// `-cmux-mobile-kbd-inject`: the bench's second input from inside the app.
     private var injector: KeyboardInputInjector?
@@ -263,6 +267,7 @@ public final class KeyboardPinTrace: NSObject {
         } else {
             parts.append("field=-")
         }
+        if let arrival { parts.append(arrival.fields(in: window)) }
         let line = parts.joined(separator: " ")
         let summary = [
             "fj=\(fieldSteps.jumps)",

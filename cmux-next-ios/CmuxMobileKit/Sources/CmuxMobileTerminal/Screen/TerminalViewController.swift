@@ -457,6 +457,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        #if DEBUG
+        TerminalArrivalProbe.register(self)
+        #endif
         view.backgroundColor = terminalBackground
         // Chrome, glass and the keyboard follow the terminal theme (its Mac's look).
         overrideUserInterfaceStyle = terminalInterfaceStyle
@@ -827,6 +830,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             self.measured("present") { self.surfacePresented() }
             #if DEBUG
             self.rttLog.presented()
+            TerminalArrivalProbe.presented(self)
             #endif
         }
         surface.onFocusChange = { [weak self] focused in
@@ -4839,5 +4843,20 @@ final class FlingAnimator {
         scrollView.contentOffset.y = y
         if abs(velocity) < 8 { stop() }
     }
+}
+#endif
+
+#if os(iOS) && DEBUG
+extension TerminalViewController {
+    /// The page's views the arrival trace follows (TerminalArrivalProbe).
+    func arrivalParts() -> [(name: String, view: UIView?)] {
+        let field = composerHost.flatMap { host in
+            MobileKeyboardProbe().find(in: host.view) { $0.accessibilityIdentifier == "terminal.composer.field" }
+        }
+        return [("sv", surface), ("ss", bottomStack), ("kr", keyBarHost?.view), ("cp", composerHost?.view), ("fd", field)]
+    }
+
+    /// The terminal's scroll offset as drawn.
+    var arrivalScrollOffset: CGFloat { (scrollView.layer.presentation() ?? scrollView.layer).bounds.minY }
 }
 #endif
