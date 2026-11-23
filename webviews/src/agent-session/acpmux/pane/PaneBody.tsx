@@ -1410,14 +1410,18 @@ export function drawPaneBody({
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
-                {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
-                  <WatchBanner
-                    family={snapshot.summary.watching}
-                    bridged={snapshot.summary.bridged === true}
-                    onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
-                    onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
-                  />
-                )}
+                {underHeader.watching &&
+                  snapshot.summary?.watching &&
+                  // A chat its terminal drives is a live view of the same session, not View Only.
+                  !snapshot.summary.terminal &&
+                  !snapshot.liveTakeOver && (
+                    <WatchBanner
+                      family={snapshot.summary.watching}
+                      bridged={snapshot.summary.bridged === true}
+                      onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
+                      onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
+                    />
+                  )}
                 {underHeader.watching && snapshot.liveTakeOver && (
                   <LiveChatChoice
                     {...snapshot.liveTakeOver}
