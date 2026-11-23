@@ -308,6 +308,8 @@ mod settings_watch;
 mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
+// Idle chats leave this machine on their own while it stays over budget (`autoEvacuate`).
+pub(crate) mod auto_evacuate;
 mod start_retry;
 mod start_watch;
 pub(crate) mod task_list;

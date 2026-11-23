@@ -390,6 +390,7 @@ async fn the_feeder_runs_while_a_phone_has_tabs_open_and_stops_when_the_last_lea
                 video: None,
                 session_exposure: None,
                 path: None,
+                route: None,
             };
             tokio::spawn(serve(Arc::clone(&config), peer, Arc::new(LinkAuth::default()), incoming));
         }
