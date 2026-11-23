@@ -146,7 +146,16 @@ pub enum CircuitService {
     /// "control for my other machines signed in to this account" on that machine
     /// ([`SessionGate`], `cmux_tui_service.rs`); refused by default.
     CmuxTuiSession,
+    /// Calls this machine's acpmux daemon runs for another of the person's machines, one JSON
+    /// line each way per call (`machine_call_service.rs`): Computer Use here for an agent whose
+    /// loop runs on that machine. Hello `{"service":"machine-call"}`. Reached only while the
+    /// person granted "control for my other machines signed in to this account" on this machine
+    /// ([`MachineCallGate`]); refused by default.
+    MachineCall,
 }
+
+/// The service name a hello gives [`CircuitService::MachineCall`].
+pub const MACHINE_CALL_SERVICE: &str = "machine-call";
 
 /// The `target` a hello gives [`CircuitService::CmuxTuiSession`].
 pub const SESSION_TARGET: &str = "session";
@@ -195,6 +204,16 @@ pub trait SessionGate: Send + Sync + 'static {
     async fn admit(&self, from: &str) -> Result<std::path::PathBuf, ServiceRefusal>;
 }
 
+/// Whether this machine runs calls for another of the person's machines
+/// ([`CircuitService::MachineCall`]), and the stream its handler answers on.
+#[async_trait]
+pub trait MachineCallGate: Send + Sync + 'static {
+    /// This machine's end of the circuit, its handler already reading the other end, for a
+    /// circuit from the machine whose hub `daemonId` is `from` (as the Noise handshake proved
+    /// it), or why it may not.
+    async fn open(&self, from: &str) -> Result<HubStream, ServiceRefusal>;
+}
+
 /// The hello record of `service`; None for the acpmux listener, whose circuits send none.
 fn service_hello(service: CircuitService) -> Option<Bytes> {
     let body = match service {
@@ -205,6 +224,7 @@ fn service_hello(service: CircuitService) -> Option<Bytes> {
         CircuitService::CmuxTuiSession => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "target": SESSION_TARGET})
         }
+        CircuitService::MachineCall => serde_json::json!({"service": MACHINE_CALL_SERVICE}),
     };
     let mut record = SERVICE_HELLO.to_vec();
     record.extend_from_slice(body.to_string().as_bytes());
@@ -233,6 +253,9 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         }
         (Some(CMUX_TUI_SERVICE), None, Some(SESSION_TARGET)) if hello.get("port").is_none() => {
             Ok(CircuitService::CmuxTuiSession)
+        }
+        (Some(MACHINE_CALL_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::MachineCall)
         }
         _ => Err(unknown()),
     })
@@ -410,6 +433,8 @@ pub struct HubCarrier {
     cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
     /// Whether a circuit may reach this machine's own cmux-tui session daemon; none refuses it.
     session: RwLock<Option<Arc<dyn SessionGate>>>,
+    /// Who may have this machine run calls for them; None refuses every such circuit.
+    machine_call: RwLock<Option<Arc<dyn MachineCallGate>>>,
     /// Why this machine's own registration cannot heal by retrying alone, while it cannot
     /// (`credential-unavailable`: no Register ticket comes). [`Self::serve_reason`].
     serve_reason: RwLock<Option<OfflineReason>>,
@@ -446,6 +471,7 @@ impl HubCarrier {
             key_check: None,
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            machine_call: RwLock::new(None),
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
@@ -474,6 +500,7 @@ impl HubCarrier {
             key_check: Some(check),
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            machine_call: RwLock::new(None),
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
@@ -559,6 +586,15 @@ impl HubCarrier {
 
     fn session_gate(&self) -> Option<Arc<dyn SessionGate>> {
         self.session.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Let this machine run calls for the person's other machines as `gate` decides.
+    pub fn set_machine_call_gate(&self, gate: Arc<dyn MachineCallGate>) {
+        *self.machine_call.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
+    }
+
+    fn machine_call_gate(&self) -> Option<Arc<dyn MachineCallGate>> {
+        self.machine_call.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// One live path to `daemon`: a relay circuit with the Noise handshake done, its key pinned
@@ -1153,6 +1189,21 @@ impl Incoming {
 
     /// The session socket a circuit from `from` (its proven key) may reach, as the session gate
     /// admits.
+    /// This machine's end of a machine-call circuit from `from`, or why it may not have one.
+    async fn machine_call(&self, from: Option<String>) -> Result<HubStream, ServiceRefusal> {
+        match (self.carrier.machine_call_gate(), from) {
+            (Some(gate), Some(from)) => gate.open(&from).await,
+            (None, _) => Err(ServiceRefusal::new(
+                "service.off",
+                "this machine runs no calls for its other machines",
+            )),
+            (Some(_), None) => Err(ServiceRefusal::new(
+                "service.unknown_machine",
+                "the circuit's machine key is not one this machine admitted",
+            )),
+        }
+    }
+
     async fn admit_session(
         &self,
         from: Option<String>,
@@ -1228,6 +1279,27 @@ impl RelayIncoming for Incoming {
             mux::serve(Box::new(link), self, from, stats).await;
             return;
         }
+        if named_service(&first) == Some(Ok(CircuitService::MachineCall)) {
+            // A machine-call circuit is answered in this process; the acpmux listener's
+            // connection closes unused.
+            drop(listener);
+            let local = match self.machine_call(from).await {
+                Ok(local) => local,
+                Err(refusal) => {
+                    tracing::info!("hub carrier: a machine-call circuit was refused: {refusal}");
+                    let _ = link.send(service_answer(&Err(refusal))).await;
+                    let _ = link.close().await;
+                    return;
+                }
+            };
+            if link.send(service_answer(&Ok(()))).await.is_err() {
+                let _ = link.close().await;
+                return;
+            }
+            self.carrier.stats.accepted.fetch_add(1, Ordering::Relaxed);
+            pump(Box::new(link), local, &self.carrier.stats).await;
+            return;
+        }
         if named_service(&first) == Some(Ok(CircuitService::CmuxTuiSession)) {
             // A session circuit reaches the cmux-tui session socket; the acpmux listener's
             // connection closes unused.
@@ -1270,7 +1342,7 @@ impl RelayIncoming for Incoming {
                     Ok(CircuitService::Acpmux) => Ok(local),
                     Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
                     // Served above; never reaches a TCP target.
-                    Ok(CircuitService::CmuxTuiSession) => {
+                    Ok(CircuitService::CmuxTuiSession | CircuitService::MachineCall) => {
                         Err(ServiceRefusal::new("service.unknown", "no such service"))
                     }
                     Err(refusal) => Err(refusal),
@@ -1667,6 +1739,8 @@ pub async fn start_configured(
     carrier.set_cmux_tui_gate(Arc::new(crate::cmux_tui_service::ConfiguredGate::new(hub)));
     // Off unless the person on this machine allowed its other signed-in machines in.
     carrier.set_session_gate(Arc::new(crate::session_service::ConfiguredSessionGate::new(hub)));
+    // Off under the same grant: this machine runs Computer Use calls for those machines.
+    carrier.set_machine_call_gate(Arc::new(crate::machine_call_service::ConfiguredGate::new(hub)));
     hub.hub_carrier.set(carrier.clone());
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(

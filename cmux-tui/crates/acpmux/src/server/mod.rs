@@ -2573,7 +2573,7 @@ mod cancel_prompt_tests;
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
 mod client_request;
-mod computer_use_relay;
+pub(crate) mod computer_use_relay;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
