@@ -43,11 +43,19 @@ if (cd "$repo" && "$repo/scripts/cmux-next/build-acpmux.sh" --check-build-allowe
 fi
 if [[ -x "$repo/scripts/cmux-next/pin-cmux-tui.sh" ]]; then
   if (cd "$repo" && CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}" "$repo/scripts/cmux-next/pin-cmux-tui.sh" fetch-acpmux) >&2; then
-    if path="$(cached)"; then
+    # The fetch worked, so a miss now is build-acpmux.sh declining what it brought (an architecture the
+    # tree did not publish): show its reason instead of blaming the fetch (a RAM bench on a developer Mac at 7802ece0,
+    # 2026-11-22, a universal Release reload of a feat-cmux-next tree whose acpmux is arm64 only).
+    why="$(mktemp "${TMPDIR:-/tmp}/resolve-acpmux.XXXXXX")"
+    if path="$(cd "$repo" && "$repo/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>"$why")"; then
+      rm -f "$why"
       echo "acpmux: the published acpmux of this checkout's cmux-tui tree $path" >&2
       printf '%s\n' "$path"
       exit 0
     fi
+    cat "$why" >&2; rm -f "$why"
+    echo "error: this checkout's cmux-tui tree acpmux was fetched, but build-acpmux.sh cannot use it for this build (above); set CMUX_NEXT_ACPMUX_BIN to bundle another" >&2
+    exit 1
   fi
 fi
 echo "error: no cached acpmux for this checkout, this machine never runs Cargo, and no published acpmux of its cmux-tui tree could be fetched; build through nx-remote or the fleet, or set CMUX_NEXT_ACPMUX_BIN" >&2

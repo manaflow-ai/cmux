@@ -7,7 +7,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { nextStepAsk } from "./nextStepAsk";
+import { nextStepAsk, pinnedAsk } from "./nextStepAsk";
 import { PendingAsks } from "./PendingAsks";
 import {
   answeredAsks,
@@ -211,4 +211,14 @@ test("a send that fails brings the card back with its buttons", async () => {
   await act(async () => named(container, "Red").click());
   expect(container.querySelectorAll(".acpmux-next-step__answer")).toHaveLength(2);
   expect(answeredAsks().has(askKey(failing))).toBe(false);
+});
+
+test("the pinned copy's ask is one object per ask, without its recap, so the card's memo holds", () => {
+  const ask = nextStepAsk(
+    "Done: the fix is in.\n\n[taste] Should I allow GitHub-hosted runners until the pool is back?",
+  )!;
+  const withRecap = { ...ask, recap: "Done: the fix is in." };
+  expect(pinnedAsk(withRecap)).toBe(pinnedAsk(withRecap));
+  expect("recap" in pinnedAsk(withRecap)).toBe(false);
+  expect(pinnedAsk(withRecap).question).toBe(ask.question);
 });

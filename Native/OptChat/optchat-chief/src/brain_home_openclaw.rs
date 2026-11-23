@@ -24,7 +24,6 @@
 
 use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
@@ -178,124 +177,42 @@ pub fn write(home: &Path, setup: &BrainSetup) -> io::Result<()> {
     write_if_changed(&dir.join("openclaw.json"), &bytes)
 }
 
-/// The host env keys the Gateway keeps: the program's own search path and locale, the user,
-/// temp, the cmux sockets its `cmux` MCP server talks to, and the container engine's socket.
-const GATEWAY_ENV: [&str; 13] = [
-    "PATH",
-    "HOME",
-    "USER",
-    "LOGNAME",
-    "LANG",
-    "TMPDIR",
-    "DOCKER_HOST",
-    "CMUX_TUI_SOCKET",
-    "CMUX_MUX_SOCKET",
-    "CMUX_SOCKET_PATH",
-    "CMUX_APP_DAEMON_SOCKET",
-    "CMUX_BUNDLED_CLI_PATH",
-    "CMUX_NEXT_CONFIG_FILE",
-];
-
-/// Whether `pid` is still a Gateway this host's code started: a process group leader whose
-/// command is `openclaw ... gateway run`. A pid the system gave to another program since is
-/// never signalled.
-fn is_our_gateway(pid: i32) -> bool {
-    let Ok(out) = std::process::Command::new("/bin/ps")
-        .args(["-o", "pgid=,command=", "-p", &pid.to_string()])
-        .stdin(std::process::Stdio::null())
-        .output()
-    else {
-        return false;
-    };
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut words = text.split_whitespace();
-    let leader = words.next().and_then(|g| g.parse::<i32>().ok()) == Some(pid);
-    let command: Vec<&str> = words.collect();
-    leader
-        && command.iter().any(|w| w.contains("openclaw"))
-        && command.windows(2).any(|w| w == ["gateway", "run"])
-}
-
-/// The Chief's OpenClaw Gateway: a child of the host, ended (its process group) when the host
-/// lets go of it. A Gateway an earlier host left (its pid file) is ended first.
-pub struct Gateway {
-    child: std::process::Child,
-    pid_file: PathBuf,
-}
+/// The Chief's OpenClaw Gateway (a [`crate::brain_gateway::Gateway`]).
+pub type Gateway = crate::brain_gateway::Gateway;
 
 fn pid_path(home: &Path) -> PathBuf {
     state_dir(home).join("gateway.pid")
 }
 
-impl Gateway {
-    /// Starts `openclaw gateway run` for the Chief's OpenClaw home.
-    pub fn start(openclaw: &Path, home: &Path, log: &dyn Fn(String)) -> io::Result<Gateway> {
-        if let Some(old) = std::fs::read_to_string(pid_path(home))
-            .ok()
-            .and_then(|p| p.trim().parse::<i32>().ok())
-            .filter(|pid| *pid > 1)
-            .filter(|pid| is_our_gateway(*pid))
-        {
-            // Only our own Gateway's group: the pid file is in the Chief's own OpenClaw home.
-            // SAFETY: kill(2) with a negative pid signals that process group; no memory access.
-            let ended = unsafe { libc::kill(-old, libc::SIGTERM) } == 0;
-            if ended {
-                log(format!(
-                    "openclaw: ended the Gateway an earlier host left (pid {old})"
-                ));
-            }
-        }
-        let port = std::fs::read_to_string(port_path(home)).unwrap_or_default();
-        let logfile = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(state_dir(home).join("gateway.log"))?;
-        // The Gateway runs the model and the tools: only what it needs from the host's env,
-        // never a provider key of the person's.
-        let keep: Vec<(String, std::ffi::OsString)> = GATEWAY_ENV
-            .iter()
-            .filter_map(|k| std::env::var_os(k).map(|v| ((*k).to_owned(), v)))
-            .collect();
-        let child = std::process::Command::new(openclaw)
-            .args([
+/// Starts `openclaw gateway run` for the Chief's OpenClaw home.
+pub fn start_gateway(openclaw: &Path, home: &Path, log: &dyn Fn(String)) -> io::Result<Gateway> {
+    let port = std::fs::read_to_string(port_path(home)).unwrap_or_default();
+    crate::brain_gateway::Gateway::start(
+        crate::brain_gateway::Spec {
+            name: "openclaw",
+            program: openclaw,
+            args: &[
                 "gateway",
                 "run",
                 "--bind",
                 "loopback",
                 "--port",
                 port.trim(),
-            ])
-            .env_clear()
-            .envs(keep)
-            .env("OPENCLAW_HOME", home)
-            .env("OPENCLAW_SKIP_CHANNELS", "1")
-            .env("OPENCLAW_SKIP_CRON", "1")
-            .env("OPENCLAW_NO_AUTO_UPDATE", "1")
-            .env("DO_NOT_TRACK", "1")
-            .stdin(std::process::Stdio::null())
-            .stdout(logfile.try_clone()?)
-            .stderr(logfile)
-            .process_group(0)
-            .spawn()?;
-        write_if_changed(&pid_path(home), child.id().to_string().as_bytes())?;
-        let pid_file = pid_path(home);
-        log(format!(
-            "openclaw: Gateway pid {} on 127.0.0.1:{}",
-            child.id(),
-            port.trim()
-        ));
-        Ok(Gateway { child, pid_file })
-    }
-}
-
-impl Drop for Gateway {
-    fn drop(&mut self) {
-        let pid = self.child.id() as i32;
-        // SAFETY: kill(2) on the process group this host started; no memory access.
-        unsafe {
-            libc::kill(-pid, libc::SIGTERM);
-        }
-        let _ = self.child.wait();
-        let _ = std::fs::remove_file(&self.pid_file);
-    }
+            ],
+            marker: "openclaw",
+            env: [
+                ("OPENCLAW_HOME", home.as_os_str().to_owned()),
+                ("OPENCLAW_SKIP_CHANNELS", "1".into()),
+                ("OPENCLAW_SKIP_CRON", "1".into()),
+                ("OPENCLAW_NO_AUTO_UPDATE", "1".into()),
+                ("DO_NOT_TRACK", "1".into()),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect(),
+            pid_file: pid_path(home),
+            log_file: state_dir(home).join("gateway.log"),
+        },
+        log,
+    )
 }
