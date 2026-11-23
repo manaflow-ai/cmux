@@ -3,6 +3,7 @@
 //! bundled daemon and its app always agree.
 
 mod accepts;
+pub(crate) mod aliases;
 mod app_id;
 mod backdrop;
 mod build_defaults;
@@ -18,7 +19,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-pub use accepts::{Accepted, accepts, effective_value, is_hex_color, is_search_template};
+pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color, is_search_template};
+pub use aliases::{choice_alias, choice_aliases};
 pub use backdrop::normalize_backdrop;
 pub use backdrop::{
     RECENTS_CAP, is_location as is_backdrop_location, is_memory as is_backdrop_memory,
@@ -28,7 +30,10 @@ pub use backdrop::{
 };
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
-pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
+pub use retired::{
+    Replaced, Retired, replaced_by_row, replaced_keys, retired_entries, retired_keys,
+    retired_reason,
+};
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
@@ -179,6 +184,9 @@ pub enum DomainKind {
     /// tokens, each in its range (`crate::transcript_look`; Swift
     /// `TranscriptTokensSetting.accepts` checks the shape only).
     TranscriptTokens,
+    /// `machines.hosts`: a list of hosts, each a label and the ssh endpoints
+    /// tried in order (`crate::hosts`; Swift `HostsSetting.accepts`).
+    Hosts,
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
@@ -451,6 +459,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
         "domain:app_id" => Validation::Domain(DomainKind::AppId),
         "domain:transcript_tokens" => Validation::Domain(DomainKind::TranscriptTokens),
+        "domain:hosts" => Validation::Domain(DomainKind::Hosts),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

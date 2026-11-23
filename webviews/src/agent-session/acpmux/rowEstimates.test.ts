@@ -29,7 +29,7 @@ import { turnView } from "./conversation/turns";
 import { SENT_IMAGE_HEIGHT } from "./conversation/userBubbleModel";
 import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
-import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
+import { gridLength, TRANSCRIPT_FOOTER_CONTROL, TRANSCRIPT_LINE_ROW } from "./transcriptGrid";
 import { setComposerSettings } from "./composerSettings";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
@@ -350,7 +350,7 @@ test("another agent's message is one 22px tool line in the one-line rows' frame,
     incoming: { kind: "message", message: { name: "cmux16/glass-lens", text, raw: text } },
   });
   const [short, long] = heightsOf([row("m1", "Draft is up."), row("m2", "Line of the report.\n".repeat(40))]);
-  expect(short).toBe(22);
+  expect(short).toBe(TRANSCRIPT_LINE_ROW);
   expect(long).toBe(short);
 });
 
@@ -367,14 +367,14 @@ test("a message this agent sent another one is one 22px tool line in the one-lin
     },
   };
   const [height] = heightsOf([{ id: "s", version: 1, at: 0, kind: "activity", items: [send] }]);
-  expect(height).toBe(22);
+  expect(height).toBe(TRANSCRIPT_LINE_ROW);
 });
 
 test("a task notice is a tool row's line in the one-line rows' frame", () => {
   const [height] = heightsOf([
     { id: "n", version: 1, at: 0, kind: "user", text: "Task done", incoming: { kind: "notice", text: "Task done" } },
   ]);
-  expect(height).toBe(22);
+  expect(height).toBe(TRANSCRIPT_LINE_ROW);
 });
 
 // A waiting steer's Send now leads the existing action row, so it adds no height to a text prompt.
@@ -483,7 +483,7 @@ test("a status row between two replies is estimated under the reply's kept room"
   const [alone] = heightsOf([before]);
   const [overPrompt] = heightsOf([before, { id: "p", version: 1, at: 1, kind: "user", text: "Next" }]);
   if (hasReplyActions(before as AcpmuxRow, run as AcpmuxRow)) {
-    expect(step).toBe(2 + 22 + 30);
+    expect(step).toBe(2 + TRANSCRIPT_LINE_ROW + 30);
     // The same reply over a prompt: its own action row, then the message gap.
     expect(reply).toBe(overPrompt! - 8);
   } else {
@@ -491,7 +491,7 @@ test("a status row between two replies is estimated under the reply's kept room"
     // 5.5) the stack's block gap above and below the run centres it, so neither row adds room: the
     // run is its one 22 line (design/chat-transcript.md "One-line row pitch") and the reply is as tall
     // as it is over a prompt.
-    expect(step).toBe(22);
+    expect(step).toBe(TRANSCRIPT_LINE_ROW);
     expect(reply).toBe(overPrompt!);
   }
   expect(alone).toBeGreaterThan(0);
@@ -554,7 +554,7 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   ];
   // A run adds no margin of its own (grid.md 5.5): its lines are flush 22px lines, one apart top to top
   // (design/chat-transcript.md "One-line row pitch", #29965).
-  const lines = (n: number) => n * 22;
+  const lines = (n: number) => n * TRANSCRIPT_LINE_ROW;
   // Plain work still folds to its one summary line.
   expect(heightsOf(run([shell("a", "git status"), read]))[0]).toBe(lines(1));
   // A send between two commands: a line each.

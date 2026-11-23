@@ -12,6 +12,8 @@
 //!   diagnostics and comment-preserving edits.
 //! - [`jsonc`]: a comment-preserving JSONC parser and in-place editor.
 //! - [`managed`], [`effective`]: MDM and team policy layers and the merge.
+//! - [`migrations`]: settings written for another cmux, rewritten through
+//!   the retired-keys table (renamed and removed keys).
 //! - [`youtube`]: the `youtube:` background id and reading a pasted YouTube
 //!   address into it.
 //! - [`store`]: the pure reducer `apply(&State, Op)`; [`owner`]: the single
@@ -27,12 +29,14 @@ pub mod effective;
 pub mod font_faces;
 pub mod fsio;
 pub mod guard;
+pub mod hosts;
 pub mod jsonc;
 pub mod keybindings;
 pub mod keypath;
 pub mod language;
 pub mod location;
 pub mod managed;
+pub mod migrations;
 pub mod owner;
 pub mod refusal;
 pub mod render;
