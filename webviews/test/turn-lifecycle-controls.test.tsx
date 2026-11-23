@@ -103,7 +103,7 @@ async function render(snapshot: AcpmuxSnapshot, probe: Probe) {
         onStop={() => void (probe.stops += 1)}
         onProject={() => {}}
         onNewChat={() => {}}
-        onQueueRemove={() => {}}
+        onQueueRemove={async () => true}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
         handle={(value) => void (probe.handle = value)}
