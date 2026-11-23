@@ -23,7 +23,7 @@ fn home_key(session: &str, pending: &PendingPermission) -> String {
 }
 
 /// The card's line: who asked (the subagent and its task) and what the call
-/// will do, in a few words ("a1 (deploy the docs) asks to run `make
+/// will do, in a few words ("a1 (Deploy the docs) asks to run `make
 /// deploy`"). The full request still follows it on the card.
 fn ask_line(id: &str, pending: &PendingPermission) -> String {
     let tool = crate::approval::tool_name(&pending.request);

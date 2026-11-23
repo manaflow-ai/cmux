@@ -1750,7 +1750,7 @@ fn a_home_card_says_who_asked_and_what_it_will_do() {
     assert_eq!(cards.len(), 1);
     let item = &cards[0].items[0];
     assert_eq!(
-        item.prompt, "a1 (deploy the docs) asks to run `make deploy`",
+        item.prompt, "a1 (Deploy the docs) asks to run `make deploy`",
         "who asked, and what it will do"
     );
     let labels: Vec<_> = item.options.iter().map(|o| o.label.as_str()).collect();
