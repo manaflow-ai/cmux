@@ -4436,13 +4436,15 @@ jobs:
     needs: [tree-preflight, publish-tree-tested]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The keeper walks feat-cmux-next back to the channel's commit.
+          fetch-depth: 400
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
       - name: Repair a reused self-hosted checkout
@@ -4463,6 +4465,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
         run: scripts/ci/cmux-tui-point-channel.sh feat-cmux-next "$KEY"
+
+      # The in-between, owned: any run on feat-cmux-next points the channel at the newest published,
+      # daemon-tested tree it skipped, whichever run published or tested it. Before, only that tree's
+      # own run could point at it, so a tested tree whose run never pointed (62687afe550b at 3cd71dcc6bb2,
+      # 2026-11-23) held the channel 170+ commits behind until a later tree passed. Leo, 2026-11-23:
+      # "but why is it a job. we own/should own the in-between. like ci v2. we own the end to end."
+      - name: Point the channel at any tested tree it skipped (channel keeper)
+        if: ${{ !cancelled() }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/cmux_tui_channel_keeper.py drive --point-only --limit 300
 
   # The Windows join line (cmux-tui/scripts/machine-join.ps1) installs acpmux
   # from cmux-tui/channels/windows-feat-cmux-next.json: the tree key, commit and

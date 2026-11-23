@@ -1297,6 +1297,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_tui_daemon_tests_gate.py
 
+      - name: Validate the feat-cmux-next channel keeper
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_channel_keeper.py
+
       - name: Validate the tui publish dispatch budget
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_tui_publish_dispatch_budget.py

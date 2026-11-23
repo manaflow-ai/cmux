@@ -198,6 +198,20 @@ def print_report(report: Report) -> None:
     print(f"state: {report.state}: {report.holding}")
 
 
+def summary(report: Report) -> None:
+    """The measurement, also in the GitHub step summary when there is one."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    lines = [f"### feat-cmux-next channel: {report.state}", "",
+             f"- channel: `{report.channel_commit[:12]}` (tree `{report.channel_key[:12]}`)",
+             f"- head `{report.head[:12]}` is {report.commits_behind_head} commits past it; "
+             f"the channel's commit is {report.channel_age_minutes} min old",
+             f"- {report.holding}", ""]
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+
+
 def can_write() -> list[str]:
     return [name for name in ("R2_ENDPOINT", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "GH_TOKEN")
             if not os.environ.get(name)]
@@ -223,11 +237,15 @@ def write_marker_and_point(tree: Tree, run_id: str, run_url: str, dry_run: bool)
 def drive(args: argparse.Namespace) -> int:
     report = measure(args.limit, fetch_branch=not args.no_fetch)
     print_report(report)
+    summary(report)
     if report.state in ("current", "unreadable", "unpublished"):
         return EXIT_CURRENT if report.state == "current" else EXIT_BEHIND
+    if args.point_only and report.newest_tested is None:
+        print("point only: no published, daemon-tested tree past the channel; nothing to point at.")
+        return EXIT_CURRENT
     missing = can_write()
     # The newest published tree; an older tested one is pointed at only when nothing newer is published.
-    tree = report.newest_published or report.newest_tested
+    tree = report.newest_tested if args.point_only else (report.newest_published or report.newest_tested)
     if tree is None:
         return EXIT_BEHIND
     run_id, run_url = f"keeper-{int(time.time())}", ""
@@ -267,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--runner", default=os.environ.get("CMUX_KEEPER_RUNNER", DEFAULT_RUNNER),
                            help="the command that runs the daemon tests at {commit} on our own machines")
             p.add_argument("--dry-run", action="store_true")
+            p.add_argument("--point-only", action="store_true",
+                           help="only point the channel at a published, daemon-tested tree it skipped; run no tests")
     args = parser.parse_args(argv)
     if args.command == "status":
         report = measure(args.limit, fetch_branch=not args.no_fetch)
