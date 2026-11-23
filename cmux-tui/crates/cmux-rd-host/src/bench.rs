@@ -183,6 +183,9 @@ impl ViewerIo {
                 use cmux_rd_link::net::NetEvent;
                 use cmux_rd_link::{EndpointEvent, Event};
                 for event in link.net.events() {
+                    if let Some(line) = event.phase_line() {
+                        println!("{line}");
+                    }
                     match event {
                         NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                             out.push(Arrived::Datagram(d))
@@ -219,6 +222,10 @@ struct Viewer {
     io: ViewerIo,
     reassembler: Reassembler,
     decoder: Decoder,
+    /// Refuses frames under a High-profile SPS, which OpenH264 decodes to wrong pictures with
+    /// no error (cmux#50591): they count as decode errors, and the first one is printed.
+    h264_gate: cmux_encode::h264_profile::ProfileGate,
+    h264_gate_said: bool,
     sender: InputSender,
     arrivals: Vec<Arrival>,
     marker: Option<u16>,
@@ -452,6 +459,13 @@ impl Viewer {
                     }
                     let t1;
                     // A block, so the decoder's borrowed picture ends before saw_marker.
+                    if let Err(why) = self.h264_gate.check(&frame.body.access_unit) {
+                        self.decode_errors += 1;
+                        if !std::mem::replace(&mut self.h264_gate_said, true) {
+                            eprintln!("bench: {why}");
+                        }
+                        continue;
+                    }
                     let read = {
                         let decoded = self.decoder.decode(&frame.body.access_unit);
                         t1 = now_ns();
@@ -859,6 +873,15 @@ fn cpu_s() -> f64 {
         + ru.ru_stime.tv_usec as f64 / 1e6
 }
 
+/// Whether the bench decodes H.264 with OpenH264 for `--decoder` (default: VideoToolbox on
+/// macOS, OpenH264 elsewhere; `vp9` or `av1` is not H.264).
+fn bench_decodes_with_openh264(decoder: Option<&str>) -> bool {
+    match decoder {
+        None => !cfg!(target_os = "macos"),
+        Some(name) => name == "openh264",
+    }
+}
+
 pub fn run(opts: &Opts) -> Res<()> {
     // The first decoder session in a process is the slow one: create a throwaway one now,
     // in parallel with connecting, so the first IDR does not pay for it.
@@ -920,6 +943,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         io,
         reassembler: Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000),
         decoder: Decoder::new()?,
+        h264_gate: Default::default(),
+        h264_gate_said: false,
         sender: InputSender::new(),
         arrivals: Vec::new(),
         marker: None,
@@ -1012,10 +1037,17 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4). `--caps A,B` offers more, such as
-        // `video.scaled` (the resolution ladder).
+        // Upstream media needs both caps (rd change C4). This reassembler rebuilds frames in
+        // interleaved FEC blocks. `--caps A,B` offers more, such as `video.scaled` (the
+        // resolution ladder).
         caps: {
-            let mut offered = vec![caps::CLOCK.into(), caps::LEDGER.into()];
+            let mut offered =
+                vec![caps::CLOCK.into(), caps::LEDGER.into(), caps::FEC_BLOCKS.into()];
+            // Decoding with OpenH264 (Linux's only H.264 decoder, `--decoder openh264` on macOS):
+            // ask an H.264 host for Constrained Baseline, the profile it shows correctly.
+            if bench_decodes_with_openh264(opts.get("decoder")) {
+                offered.push(caps::H264_BASELINE.into());
+            }
             if upstream.is_some() {
                 offered.extend([caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]);
             }
@@ -1204,6 +1236,13 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         }
     }
     eprintln!("passive: first frame");
+    // `--type TEXT`: send TEXT as one text event (the viewer's text route) once the
+    // picture is up, to check a host types it as its characters (CMUX-572).
+    if let Some(text) = opts.get("type") {
+        v.sender.push(InputEvent::Text(text.to_owned()));
+        v.send_input()?;
+        eprintln!("passive: typed {} characters as text", text.chars().count());
+    }
     let first_frame_ms = (now_ns().saturating_sub(start)) as f64 / 1e6;
     let unix_ms = || {
         std::time::SystemTime::now()
@@ -1385,6 +1424,9 @@ fn link_io() -> Res<ViewerIo> {
     let first_send_us = now_ns() / 1000;
     // This side's candidates go out through the test's stand-in hub.
     for event in net.events() {
+        if let Some(line) = event.phase_line() {
+            println!("{line}");
+        }
         if let NetEvent::Candidate(c) = event {
             println!("{}", json!({"candidate": c.to_wire()}));
         }
@@ -1412,5 +1454,17 @@ mod link_line_tests {
             link_line(100, 150, 10_150, Some(reason)),
             json!({"link": {"answer_us": 100, "first_send_us": 150, "failed_us": 10_150, "failed": reason}})
         );
+    }
+}
+
+#[cfg(test)]
+mod h264_baseline_cap_tests {
+    /// The bench asks for Constrained Baseline exactly when it decodes with OpenH264.
+    #[test]
+    fn offers_the_cap_when_openh264_decodes() {
+        assert_eq!(super::bench_decodes_with_openh264(None), !cfg!(target_os = "macos"));
+        assert!(super::bench_decodes_with_openh264(Some("openh264")));
+        assert!(!super::bench_decodes_with_openh264(Some("videotoolbox")));
+        assert!(!super::bench_decodes_with_openh264(Some("vp9")));
     }
 }
