@@ -26,7 +26,8 @@ function motionAllowed(): boolean {
 }
 
 export function GlyphIcon({ glyph }: { glyph: SlotGlyph }) {
-  if (glyph === "play") return <Icon name="media.play" size={14} selected />;
+  // Resume's ▶ is the mic's kind of glyph, a line icon, never a solid one (cmux#51039).
+  if (glyph === "play") return <Icon name="media.play" size={16} />;
   if (glyph === "stopping") return <Spinner loading size={14} />;
   if (glyph === "stop") return <StopIcon />;
   if (glyph === "return") return <ReturnIcon />;

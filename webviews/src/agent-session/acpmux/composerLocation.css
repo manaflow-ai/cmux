@@ -503,11 +503,25 @@
   height: var(--acpmux-composer-trail-glyph);
   stroke-width: var(--acpmux-composer-trail-stroke);
 }
-/* Continue's ▶ (SendSlotGlyph media.play, 14 px) draws at 14/16 of the trailing glyph, so it grows and shrinks with
-   the density as Send's ↑ does (Lucas 2026-11-14: it stayed 14 px at Spacious). */
+/* Resume's ▶ is a plain line glyph beside the mic, never a filled disc (cmux#51039; the person,
+   2026-11-22: "i dont like how jarring this button is here for resuming the session? we should make
+   it sure it matches the other icons here"): the mic's size, stroke, colour, box and quiet hover pill,
+   in every look and at every density. test/composer-resume-quiet.test.ts measures it. */
+:is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume {
+  border-radius: 50%;
+  background: transparent;
+  color: var(--agent-muted);
+}
 :is(.acpmux-composer, .nt-composer) .acpmux-send.acpmux-resume svg {
-  width: calc(var(--acpmux-composer-trail-glyph) * 14 / 16);
-  height: calc(var(--acpmux-composer-trail-glyph) * 14 / 16);
+  width: var(--acpmux-composer-trail-glyph);
+  height: var(--acpmux-composer-trail-glyph);
+  stroke-width: var(--acpmux-composer-trail-stroke);
+}
+/* Its hover is the mic's pill (the quiet controls' rule below). A press keeps it. */
+:is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume:not(:disabled):active {
+  background: var(--acpmux-row-hover);
+  color: var(--agent-text);
+  transition-duration: 0s;
 }
 /* Interrupt (or Steer) and Plan: the chips' inset and radius. */
 .acpmux-composer-bar .acpmux-steer,
@@ -570,6 +584,7 @@
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-steer:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-send.acpmux-resume:not(:disabled):hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-fast:hover {
     background: var(--acpmux-row-hover);
     color: var(--agent-text);
