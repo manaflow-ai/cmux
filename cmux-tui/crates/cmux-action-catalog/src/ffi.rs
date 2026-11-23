@@ -12,6 +12,7 @@ use std::sync::{Mutex, OnceLock};
 pub const ABI_VERSION: u32 = 1;
 pub const OK: i32 = 0;
 pub const ERR_NULL: i32 = -1;
+pub const ERR_INVALID: i32 = -2;
 pub const ERR_PANIC: i32 = -4;
 
 fn cache() -> &'static Mutex<HashMap<usize, &'static str>> {
@@ -68,4 +69,65 @@ pub unsafe extern "C" fn cmux_action_catalog_json(
         }
         Err(_) => ERR_PANIC,
     }
+}
+
+/// Answers one cmux-next link request (`crate::deep_link::call`): `request` is a JSON object
+/// (`{"op": "read", "url": …, "scheme": …}`), the reply its JSON value (null when the URL names
+/// no link). The reply is allocated here; free it with `cmux_deep_link_free`.
+///
+/// Returns `ERR_INVALID` when the request is not JSON or names an unknown op or field.
+///
+/// # Safety
+///
+/// `request` points to `request_len` readable bytes (or is null with length 0); `reply` and
+/// `reply_len` are writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_deep_link_call(
+    request: *const u8,
+    request_len: usize,
+    reply: *mut *mut u8,
+    reply_len: *mut usize,
+) -> i32 {
+    if reply.is_null() || reply_len.is_null() || (request.is_null() && request_len != 0) {
+        return ERR_NULL;
+    }
+    let bytes: &[u8] = if request_len == 0 {
+        &[]
+    } else {
+        // SAFETY: the caller guarantees `request_len` readable bytes at `request`.
+        unsafe { std::slice::from_raw_parts(request, request_len) }
+    };
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        crate::deep_link::call(&value).map(|answer| answer.to_string())
+    }));
+    match result {
+        Ok(Ok(text)) => {
+            let boxed = text.into_bytes().into_boxed_slice();
+            let len = boxed.len();
+            let ptr = Box::into_raw(boxed).cast::<u8>();
+            // SAFETY: both out pointers were checked non-null and are writable by the caller.
+            unsafe {
+                *reply = ptr;
+                *reply_len = len;
+            }
+            OK
+        }
+        Ok(Err(_)) => ERR_INVALID,
+        Err(_) => ERR_PANIC,
+    }
+}
+
+/// Frees a reply `cmux_deep_link_call` returned. Null is a no-op.
+///
+/// # Safety
+///
+/// `reply` and `reply_len` are exactly what one successful `cmux_deep_link_call` wrote, freed once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_deep_link_free(reply: *mut u8, reply_len: usize) {
+    if reply.is_null() {
+        return;
+    }
+    // SAFETY: the caller passes back the boxed slice `cmux_deep_link_call` leaked, once.
+    drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(reply, reply_len)) });
 }
