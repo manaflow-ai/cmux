@@ -2873,15 +2873,6 @@
 				<string>jeong-seon-inwang</string>
 				<string>jeong-seon-geumgang</string>
 				<string>kim-hong-do-samgong</string>
-				<string>kuniyoshi-takiyasha</string>
-				<string>kuniyoshi-horyukaku</string>
-				<string>hiroshige-gotenyama</string>
-				<string>hiroshige-asukayama</string>
-				<string>hokusai-yoshino</string>
-				<string>sesshu-winter-landscape</string>
-				<string>ma-yuan-spring-path</string>
-				<string>kim-hong-do-chuseongbu</string>
-				<string>sin-yun-bok-moonlit-lovers</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Backdrop Art</string>
@@ -2936,7 +2927,6 @@
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
-				<string>kuniyoshi-takiyasha</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -3066,14 +3056,6 @@
 				<string>jeong-seon-inwang</string>
 				<string>jeong-seon-geumgang</string>
 				<string>kim-hong-do-samgong</string>
-				<string>kuniyoshi-horyukaku</string>
-				<string>hiroshige-gotenyama</string>
-				<string>hiroshige-asukayama</string>
-				<string>hokusai-yoshino</string>
-				<string>sesshu-winter-landscape</string>
-				<string>ma-yuan-spring-path</string>
-				<string>kim-hong-do-chuseongbu</string>
-				<string>sin-yun-bok-moonlit-lovers</string>
 				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
@@ -3141,7 +3123,6 @@
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
-				<string>kuniyoshi-takiyasha</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -3271,14 +3252,6 @@
 				<string>jeong-seon-inwang</string>
 				<string>jeong-seon-geumgang</string>
 				<string>kim-hong-do-samgong</string>
-				<string>kuniyoshi-horyukaku</string>
-				<string>hiroshige-gotenyama</string>
-				<string>hiroshige-asukayama</string>
-				<string>hokusai-yoshino</string>
-				<string>sesshu-winter-landscape</string>
-				<string>ma-yuan-spring-path</string>
-				<string>kim-hong-do-chuseongbu</string>
-				<string>sin-yun-bok-moonlit-lovers</string>
 				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
@@ -3328,7 +3301,6 @@
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
-				<string>kuniyoshi-takiyasha</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -3458,14 +3430,6 @@
 				<string>jeong-seon-inwang</string>
 				<string>jeong-seon-geumgang</string>
 				<string>kim-hong-do-samgong</string>
-				<string>kuniyoshi-horyukaku</string>
-				<string>hiroshige-gotenyama</string>
-				<string>hiroshige-asukayama</string>
-				<string>hokusai-yoshino</string>
-				<string>sesshu-winter-landscape</string>
-				<string>ma-yuan-spring-path</string>
-				<string>kim-hong-do-chuseongbu</string>
-				<string>sin-yun-bok-moonlit-lovers</string>
 				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
@@ -4011,25 +3975,6 @@
 			<string>Title Area Contrast</string>
 			<key>pfm_type</key>
 			<string>real</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>flush</string>
-			<key>pfm_description</key>
-			<string>How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.</string>
-			<key>pfm_name</key>
-			<string>appearance.cornerFlush</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>off</string>
-				<string>flush</string>
-				<string>flush-tight</string>
-				<string>flush-goo</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Selected Tab Shape</string>
-			<key>pfm_type</key>
-			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
