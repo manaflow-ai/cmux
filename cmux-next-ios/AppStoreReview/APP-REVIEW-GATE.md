@@ -37,8 +37,10 @@ The upload job then `needs: [app-source, review-gate]` with `if: always() && ...
 `needs.review-gate.outputs.sha == needs.app-source.outputs.sha`. The gate's
 `blocking` output is the number of blocking findings.
 
-A called or dispatched run (a submission) fails on any blocker. A direct
-feat-cmux-next push or pull request run reports the same ranked list and
+A called or dispatched run (a submission) fails on any blocker. A pull
+request into feat-cmux-next skips the gate unless it is labeled `full-ci`
+(Tier A in `scripts/ci/affected-jobs.json`); the push after the merge runs
+it. A direct feat-cmux-next push or `full-ci` pull request run reports the same ranked list and
 `blocking` output, and fails only on a blocker that is not in
 `known-blockers.json`: the blockers the app already had when this started
 (run 43002601165), each with the fix that owns it. So a change that breaks
@@ -63,6 +65,7 @@ the scripted walk below covers its path.
 | Reviewer path | `cmux-next-ios/UITests/AppReviewGateUITests.swift` (`CmuxMobileAppUITests`, scheme `CmuxMobileApp`, Debug with the mock account, built after `xcodegen generate`), on iPhone, iPad (dark mode, the iPhone app in compatibility mode) and iPhone Duo | sign-in with Sign in with Apple first and every provider signing in, onboarding's way on without a Mac, Home and its tabs, Chief opening and a sent message getting a reply (mock Chief), Delete Account asking first (never confirmed), Scan with the camera denied, the largest text size, and size-class changes |
 | Dead-control walk | same file, `walkControls` | a tap that changes nothing (2.1(a), 2026-11-07) on sign-in, onboarding, Home, Settings (top and bottom) and Account; an already-selected option is skipped; sign out, Delete Account and Remove This iPhone are not tapped |
 | Guideline lint | `cmux-next-ios/scripts/app_review_gate.py lint` | the AppStore configuration (bundle `com.cmux.app`), metadata and every URL, account deletion, Sign in with Apple (source, shipping configuration, every entitlements file it can sign with, binary), outside purchase links, the subscription rules (below), purpose strings from `project.yml`, the App Store Connect processing rules (`scripts/cmux-next/check-app-store-rules.py`), privacy manifest, VPN and private APIs, entitlements, extensions, on the source and on the exact IPA |
+| Public-list classes | `app_review_gate.py` `check_ai_and_copy`, `check_metadata` | classes mapped from the public rejection lists (hq `docs/handbook/app-review-rejections.md`): `ai.consent` (5.1.2(i), Chief asks and names Anthropic and OpenAI before the first send), `ugc.report` (1.2, Report a Response), `copy.unfinished` (2.1, "still in progress" in UI copy), `metadata.decoration` and `metadata.competitor-terms` (2.3.7), and the warnings `net.ipv4-only` (2.5.5) and `privacy.pre-prompt` (5.1.1(iv)); the reviewer path asserts the consent question on the first send |
 | Rejection history | `rejection-history.json` | every past rejection keeps a detector |
 | Common rejections | `common-rejections.json` | the rejections public repos catalogue (below), each mapped to a detector that exists or marked follow-up, not applicable or not deterministic, with the reason |
 | App Store Connect | `asc validate --strict` on the AppStore configuration's version, `asc metadata validate` | review state Apple will refuse |
@@ -135,7 +138,7 @@ Each launch closes Safari first: after a link hands off to it, Safari stays in
 front of the relaunched app on iPad. `scrollTo` scrolls to the end of the
 content, not a fixed number of swipes, since rows per swipe depend on the screen.
 
-It runs on every feat-cmux-next push and pull request that touches the app
+It runs on every feat-cmux-next push, and on a `full-ci` pull request, that touches the app
 (one macOS job per device, side by side, about 30 minutes; the report fails if any
 device's job left no result). When App Review rejects us anyway, add the rejection and
 its new detector to `rejection-history.json` in the fix's PR.

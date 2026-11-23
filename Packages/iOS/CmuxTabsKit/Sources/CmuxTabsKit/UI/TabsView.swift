@@ -118,6 +118,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// it opened, as UIKit's do.
     @State private var menuGroups: [[TabsKitMenuItem]] = []
     @Environment(\.tabsKitTheme) private var theme
+    @Environment(\.tabsKitOverviewColumns) private var overviewColumns
 
     private var fullRect: CGRect { CGRect(origin: .zero, size: size) }
     private var tabs: [TabsKitTab] { source.tabs }
@@ -140,7 +141,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     private var overviewLayout: OverviewLayout {
         OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count,
-                       pinned: pinnedCount)
+                       pinned: pinnedCount, columns: overviewColumns)
     }
 
     private var toolbarLayout: ToolbarLayout {
@@ -149,9 +150,97 @@ struct TabsScreen<Source: TabsDataSource>: View {
                            noBack: activeTab?.features.contains(.history) != true)
     }
 
+    // body, trackedScreen and screen split one modifier chain Swift could
+    // not type-check in reasonable time (App Review gate run 45169372292).
     var body: some View {
+        trackedScreen
+        .onAppear {
+            zoomDriver.onSettle = { phase in
+                if phase == .page {
+                    zoomTabId = nil
+                    queuedOpen = nil
+                    chrome.expand(tap: true, theme)
+                }
+                if phase == .overview, let id = queuedOpen {
+                    queuedOpen = nil
+                    if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
+                }
+            }
+        }
+        #if DEBUG
+        // Screenshot harness: use the same action and menu as a toolbar tap.
+        // The single delay is bounded and cancelled when this screen disappears.
+        .task {
+            guard ProcessInfo.processInfo.arguments.contains("-tabs-kit-demo-page-menu") else { return }
+            do { try await Task.sleep(for: .milliseconds(1_500)) } catch { return }
+            guard !Task.isCancelled, activeTab?.features.contains(.pageMenu) == true else { return }
+            openMenu()
+        }
+        #endif
+        .onChange(of: isShowingOverview?.wrappedValue, initial: true) { _, wanted in
+            guard let wanted, wanted != zoomState.headingToOverview else { return }
+            if wanted { openOverview() } else { closeOverview(selecting: activeID) }
+        }
+        .onChange(of: zoomState.phase) { _, phase in
+            if phase == .page || phase == .overview { newTabZoomID = nil }
+            if phase != .overview { activeChangedOnGrid = false }
+        }
+        .onAppear { cardSwipes.isListed = { id in source.tabs.contains { $0.id == id } } }
+        .onChange(of: zoomState.headingToOverview) { _, heading in
+            if let binding = isShowingOverview, binding.wrappedValue != heading { binding.wrappedValue = heading }
+        }
+        .onChange(of: tabs.isEmpty, initial: true) { _, empty in
+            // Closing the last tab opens a fresh one, as Safari does.
+            guard empty, let option = source.newTabOptions.first else { return }
+            if !overviewVisible {
+                Task { _ = await source.createTab(option) }
+            } else if zoomState.phase == .overview {
+                // Safari never leaves an empty grid: a fresh tab grows in
+                // at once (0.95 -> 1 in about 200 ms).
+                newTab(option, zoom: .lastTabClosed)
+            }
+        }
+    }
+
+    /// The layers with the size, phase and selection trackers.
+    private var trackedScreen: some View {
+        screen
+        .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
+        .onChange(of: GridShape(width: size.width, columns: overviewColumns)) { old, _ in keepGridPlace(from: old) }
+        .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
+        // Leaving the foreground cancels the touches without ending their
+        // gestures: a swipe up left part-way would keep the bar untouchable.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { releaseCancelledSwipeUp() }
+        }
+        .onChange(of: zoomState.phase == .overview ? safeTop : -1) { _, top in
+            if top >= 0 { gridTop = top }
+        }
+        .onChange(of: zoomState.phase == .overview ? safeBottom : -1) { _, bottom in
+            if bottom >= 0 { gridBottom = bottom }
+        }
+        .onChange(of: zoomState.phase == .overview) { _, onGrid in
+            if onGrid {
+                if let id = activeID, source.showStaticCard(for: id) { staticCardID = id }
+            } else if let id = staticCardID {
+                staticCardID = nil
+                source.resumeLiveContent(id)
+            }
+        }
+        // A tab that becomes active on the settled grid (the active one was
+        // closed) is offered as a static card too, so it rides the reflow
+        // with the other cards instead of appearing as the live page.
+        .onChange(of: activeID) { old, new in
+            if zoomState.phase == .overview { activeChangedOnGrid = true }
+            guard zoomState.phase == .overview, let new, new != staticCardID else { return }
+            if let old, old == staticCardID { source.resumeLiveContent(old) }
+            staticCardID = source.showStaticCard(for: new) ? new : nil
+        }
+    }
+
+    private var screen: some View {
         let layout = toolbarLayout
-        ZStack(alignment: .topLeading) {
+        return ZStack(alignment: .topLeading) {
             overview
                 // Close All Tabs asks first, as Safari does: every tab closes with no way back.
                 .confirmationDialog(confirmingCloseAll?.confirmTitle ?? "", isPresented: Binding(
@@ -181,14 +270,40 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .transition(.opacity.animation(theme.motion.resolve(.easeInOut(duration: 0.1).delay(0.03))))
             }
 
-            if let tab = activeTab, zoomState.phase == .page, !chrome.swiping, !chrome.editing {
-                // Above the toolbar, riding the keyboard while it is up.
+            if let tab = activeTab, !chrome.swiping, !chrome.editing {
+                // Above the toolbar, riding the keyboard while it is up. Part
+                // of the zoom: it stays laid out in every phase and is drawn
+                // through the page's own rect, fading over the first half
+                // (`AccessoryZoom`), so the tabs button no longer removes it
+                // in one frame and shifts the page before the zoom starts.
+                // The path reads the grid's scroll: only while the zoom moves,
+                // so a settled grid's scroll frame does not re-run this screen.
+                let moving = zoomState.phase == .animating || zoomState.phase == .interactive
+                let z = AccessoryZoom.presentation(zoomState, path: moving ? zoomPath() : ZoomRectPath(full: fullRect, card: fullRect))
+                #if DEBUG
+                let _ = AccessoryProbe.note(z, moving: moving,
+                                            bottom: size.height - (keyboard > 0 ? keyboard : size.height - layout.capsule.minY + 8))
+                #endif
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    source.accessory(for: tab, context: contentContext)
+                    // Held still while the zoom moves and on the grid: the
+                    // zoom re-runs this screen every frame, and a fresh
+                    // context re-ran the composer's body on each of them.
+                    DormantGate(dormant: zoomState.phase != .page) {
+                        source.accessory(for: tab, context: contentContext)
+                    }
+                    .equatable()
+                    // Another tab (a card tapped on the grid) is another row,
+                    // never the held one.
+                    .id(tab.id)
                 }
                 .padding(.bottom, keyboard > 0 ? keyboard : size.height - layout.capsule.minY + 8)
                 .frame(width: size.width, height: size.height)
+                .scaleEffect(z.scale, anchor: .topLeading)
+                .offset(x: z.origin.x, y: z.origin.y)
+                .opacity(z.opacity)
+                .allowsHitTesting(z.interactive)
+                .accessibilityHidden(!z.accessible)
             }
 
             // Out of the hierarchy on the settled grid (invisible there, and
@@ -253,82 +368,6 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .coordinateSpace(.named(TabsScreenSpace.name))
         .gesture(ZoomPinchGesture { handlePinch($0) })
-        .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
-        .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
-        // Leaving the foreground cancels the touches without ending their
-        // gestures: a swipe up left part-way would keep the bar untouchable.
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active { releaseCancelledSwipeUp() }
-        }
-        .onChange(of: zoomState.phase == .overview ? safeTop : -1) { _, top in
-            if top >= 0 { gridTop = top }
-        }
-        .onChange(of: zoomState.phase == .overview ? safeBottom : -1) { _, bottom in
-            if bottom >= 0 { gridBottom = bottom }
-        }
-        .onChange(of: zoomState.phase == .overview) { _, onGrid in
-            if onGrid {
-                if let id = activeID, source.showStaticCard(for: id) { staticCardID = id }
-            } else if let id = staticCardID {
-                staticCardID = nil
-                source.resumeLiveContent(id)
-            }
-        }
-        // A tab that becomes active on the settled grid (the active one was
-        // closed) is offered as a static card too, so it rides the reflow
-        // with the other cards instead of appearing as the live page.
-        .onChange(of: activeID) { old, new in
-            if zoomState.phase == .overview { activeChangedOnGrid = true }
-            guard zoomState.phase == .overview, let new, new != staticCardID else { return }
-            if let old, old == staticCardID { source.resumeLiveContent(old) }
-            staticCardID = source.showStaticCard(for: new) ? new : nil
-        }
-        .onAppear {
-            zoomDriver.onSettle = { phase in
-                if phase == .page {
-                    zoomTabId = nil
-                    queuedOpen = nil
-                    chrome.expand(tap: true, theme)
-                }
-                if phase == .overview, let id = queuedOpen {
-                    queuedOpen = nil
-                    if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
-                }
-            }
-        }
-        #if DEBUG
-        // Screenshot harness: use the same action and menu as a toolbar tap.
-        // The single delay is bounded and cancelled when this screen disappears.
-        .task {
-            guard ProcessInfo.processInfo.arguments.contains("-tabs-kit-demo-page-menu") else { return }
-            do { try await Task.sleep(for: .milliseconds(1_500)) } catch { return }
-            guard !Task.isCancelled, activeTab?.features.contains(.pageMenu) == true else { return }
-            openMenu()
-        }
-        #endif
-        .onChange(of: isShowingOverview?.wrappedValue, initial: true) { _, wanted in
-            guard let wanted, wanted != zoomState.headingToOverview else { return }
-            if wanted { openOverview() } else { closeOverview(selecting: activeID) }
-        }
-        .onChange(of: zoomState.phase) { _, phase in
-            if phase == .page || phase == .overview { newTabZoomID = nil }
-            if phase != .overview { activeChangedOnGrid = false }
-        }
-        .onAppear { cardSwipes.isListed = { id in source.tabs.contains { $0.id == id } } }
-        .onChange(of: zoomState.headingToOverview) { _, heading in
-            if let binding = isShowingOverview, binding.wrappedValue != heading { binding.wrappedValue = heading }
-        }
-        .onChange(of: tabs.isEmpty, initial: true) { _, empty in
-            // Closing the last tab opens a fresh one, as Safari does.
-            guard empty, let option = source.newTabOptions.first else { return }
-            if !overviewVisible {
-                Task { _ = await source.createTab(option) }
-            } else if zoomState.phase == .overview {
-                // Safari never leaves an empty grid: a fresh tab grows in
-                // at once (0.95 -> 1 in about 200 ms).
-                newTab(option, zoom: .lastTabClosed)
-            }
-        }
     }
 
     /// The tab grid, kept mounted (hidden) so opening it does not pay for
@@ -408,7 +447,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
         ZStack(alignment: .topLeading) {
             theme.colors.pageBackground
             if let tab = activeTab {
-                source.content(for: tab, context: contentContext)
+                // Held still while the zoom moves (`DormantGate`): it gets
+                // the zoom's first context (not interactive) once, instead
+                // of re-running its body on every frame of the zoom.
+                DormantGate(dormant: phase == .animating || phase == .interactive) {
+                    source.content(for: tab, context: contentContext)
+                }
+                .equatable()
                     .offset(y: -contentOffset)
                     .id(tab.id)
                 // Until the content is ready, and while a new tab grows from
@@ -468,7 +513,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The active tab's card in the grid's content coordinates.
     private var activeCardContentRect: CGRect {
         let index = activeIndex ?? 0
-        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount).card(index)
+        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount, columns: overviewColumns).card(index)
     }
 
     /// The tab beside the page during a toolbar swipe (its card content at
@@ -533,7 +578,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     private func zoomEndpoint() -> CGRect {
         if let id = newTabZoomID, id == zoomTabId {
             guard newTabZoom.fromLoneSlot else { return newTabZoom.rect(in: fullRect) }
-            let lone = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: 1)
+            let lone = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: 1, columns: overviewColumns)
             return lone.zoomEndpoint(0, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
         }
         let index: Int
@@ -542,7 +587,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         } else {
             index = zoomTabId.flatMap { id in tabs.firstIndex { $0.id == id } } ?? (activeIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount, columns: overviewColumns)
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
@@ -598,9 +643,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// Prepares the grid when it is about to appear from the page.
     private func prepareOverview(revealing index: Int, count: Int) {
         source.overviewWillAppear()
+        // The accessory row stays mounted through the zoom (it used to be
+        // removed here, which also ended its text field's editing): the
+        // keyboard goes down with the page, never stays up over the grid.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen.
-        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: count, pinned: pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: count, pinned: pinnedCount, columns: overviewColumns)
         let offset = grid.offset(revealing: index, from: overviewScroll)
         if abs(offset - overviewScroll) > 0.5 {
             var t = Transaction()
@@ -609,6 +658,26 @@ struct TabsScreen<Source: TabsDataSource>: View {
             // Until the scroll view reports it, the fallback endpoint uses it too.
             gridScroll.offset = offset
         }
+    }
+
+    /// A foldable folding or unfolding under the settled grid changes its
+    /// width and column count: the card that led the screen leads it again,
+    /// instead of the old scroll offset landing on other tabs in the reflowed
+    /// grid. Every shape change keeps the place, so a host that changes the
+    /// width and the column count in two updates still lands on the same card.
+    /// (Off the grid, `prepareOverview` reveals the active card on the way in.)
+    private func keepGridPlace(from old: GridShape) {
+        guard zoomState.phase == .overview else { return }
+        let resized = overviewLayout
+        var before = resized
+        before.size.width = old.width
+        before.columns = old.columns
+        let offset = before.offset(keepingPlace: overviewScroll, in: resized)
+        guard abs(offset - overviewScroll) > 0.5 else { return }
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { overviewPosition = ScrollPosition(y: offset) }
+        gridScroll.offset = offset
     }
 
     /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
@@ -913,5 +982,10 @@ struct BarCutout: View {
         }
         .compositingGroup()
     }
+}
+/// The grid's width and column count, which change together when a foldable folds or unfolds.
+private struct GridShape: Equatable {
+    var width: CGFloat
+    var columns: Int
 }
 #endif

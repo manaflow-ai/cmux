@@ -116,6 +116,10 @@ public final class SettingsApplier {
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
         if design.liquidGlass != snapshot.liquidGlass { design.liquidGlass = snapshot.liquidGlass }
         if design.fontSmoothing != snapshot.fontSmoothing { design.fontSmoothing = snapshot.fontSmoothing }
+        // `experiments.*`: every switch that is on, by name (CmuxConfigSnapshot+Experiments.swift), for
+        // every page's theme and the native menus.
+        let experiments = snapshot.experimentSwitches.filter(\.value)
+        if design.experiments != experiments { design.experiments = experiments }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }
         for key in MetricKey.allCases {
@@ -127,6 +131,9 @@ public final class SettingsApplier {
         }
 
         design.setPaneChrome(snapshot.paneChrome)
+        // `experiments.menuStyleV2` for the right-click NSMenu (CmuxNextActions reads no DesignSettings).
+        let menuStyleV2 = design.experiment("menuStyleV2")
+        if registry.contextMenuStyleV2 != menuStyleV2 { registry.contextMenuStyleV2 = menuStyleV2 }
 
         var applied: Set<ActionID> = []
         for (rawID, binding) in snapshot.shortcuts.sorted(by: { $0.key < $1.key }) {
