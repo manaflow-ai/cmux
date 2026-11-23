@@ -52,6 +52,23 @@ pub struct SessionRow {
     pub agent_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_build: Option<String>,
+    /// The session's given handle, its call name (`acpmux rename ... --handle`): only one a person
+    /// or agent gave, never the one derived from its id (`session_handle::default_handle`), which
+    /// every reader derives itself. Without it another machine's `ls`, `resolve` and `send` know
+    /// the chat only by its older name (Leo, 2026-11-23: "the renaming paradigm still hasn't hit
+    /// yet"). A hub that does not know the key drops it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
+}
+
+/// The given handle of session `id` as a heartbeat lists it: none for an invalid one, or one that
+/// is its derived handle, which costs the heartbeat bytes and says nothing a reader cannot derive.
+pub fn heartbeat_handle(handle: Option<&str>, id: &str) -> Option<String> {
+    handle
+        .filter(|h| {
+            crate::session_handle::valid(h) && *h != crate::session_handle::default_handle(id)
+        })
+        .map(str::to_owned)
 }
 
 /// The longest `cwd` (UTF-16 units, as the hub counts) a heartbeat lists (`MeshSessionAnnouncement`).
@@ -123,6 +140,9 @@ pub struct BookSession {
     pub agent_session_id: Option<String>,
     #[serde(default)]
     pub host_build: Option<String>,
+    /// The session's given handle, as its heartbeat listed it (`SessionRow::handle`).
+    #[serde(default)]
+    pub handle: Option<String>,
 }
 
 /// A heartbeat: it replaces this daemon's sessions in the address book.
