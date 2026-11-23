@@ -23,6 +23,9 @@ name: cmux-next head compile
 # never a verified base.
 #
 # A dispatch with `head` replays a range (say a known break) without touching the issue.
+#
+# Off until `vars.CI_HEAD_COMPILE` is `on`: the glaeda gateway runners admit only the thin cmux-ci client jobs on
+# their list (glaeda-cmux-runner-hook GATEWAY_JOBS), and refuse this job at "Set up runner" until it is on it.
 on:
   push:
     branches: [feat-cmux-next]
@@ -48,7 +51,7 @@ concurrency:
 jobs:
   compile:
     name: cmux-next head compile
-    if: ${{ github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || inputs.head != '') && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
+    if: ${{ github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || inputs.head != '') && vars.CI_COMPILE_CHECK_GATEWAY != '' && vars.CI_HEAD_COMPILE == 'on' }}
     runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
     permissions:
       contents: read
