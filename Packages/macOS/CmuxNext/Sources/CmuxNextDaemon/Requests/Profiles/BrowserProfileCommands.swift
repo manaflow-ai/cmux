@@ -12,39 +12,3 @@ public struct BrowserProfileResult: Decodable, Sendable, Equatable {
         case browserProfile = "browser_profile"
     }
 }
-
-/// `update-browser-profile`: absent keeps, `.clear` sends null.
-public struct UpdateBrowserProfileRequest: DaemonRequest {
-    public typealias Response = BrowserProfileResult
-    public static let command = "update-browser-profile"
-    public static let requiredCapability: String? = DaemonCapability.browserProfiles.rawValue
-    public var id: String
-    public var name: String?
-    public var color: FieldUpdate<String>
-    public var icon: FieldUpdate<String>
-    /// The profile's own proxy (#24432), as `cmux browser profile proxy set|clear` sends it; the daemon validates it.
-    public var proxy: FieldUpdate<BrowserProfileSnapshot.Proxy>
-
-    public init(id: String, name: String? = nil, color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged,
-                proxy: FieldUpdate<BrowserProfileSnapshot.Proxy> = .unchanged) {
-        self.id = id
-        self.name = name
-        self.color = color
-        self.icon = icon
-        self.proxy = proxy
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case name, color, icon, proxy
-        case id = "browser_profile"
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encodeIfPresent(name, forKey: .name)
-        try c.encode(color, forKey: .color)
-        try c.encode(icon, forKey: .icon)
-        try c.encode(proxy, forKey: .proxy)
-    }
-}

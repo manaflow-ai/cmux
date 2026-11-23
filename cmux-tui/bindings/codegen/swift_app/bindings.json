@@ -67,6 +67,172 @@
             "browser_profile_id"
           ],
           "response": "BookmarkList"
+        },
+        "create-bookmark": {
+          "name": "CreateBookmarkRequest",
+          "doc": [
+            "`create-bookmark`: an existing `bookmark` id returns the stored node."
+          ],
+          "order": [
+            "bookmark",
+            "browser_profile_id",
+            "parent",
+            "index",
+            "kind",
+            "title",
+            "url",
+            "favicon_key",
+            "source_key",
+            "created_ms",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            },
+            "created_ms": {
+              "type": "Int64"
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "doc": [
+                "The exactly-once key; reuse it on every retry of this write."
+              ],
+              "wire": [
+                "origin",
+                "mutation_id"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "BookmarkResult"
+        },
+        "update-bookmark": {
+          "name": "UpdateBookmarkRequest",
+          "doc": [
+            "`update-bookmark`: absent keeps; `.clear` sends null. `icon`",
+            "(`bookmark-icon-v1`) is for folders only: the daemon refuses it, null",
+            "included, on a URL bookmark, and an asset icon must already be stored there."
+          ],
+          "order": [
+            "bookmark",
+            "title",
+            "url",
+            "favicon_key",
+            "last_used_ms",
+            "icon",
+            "mutation"
+          ],
+          "fields": {
+            "favicon_key": {
+              "update": true
+            },
+            "last_used_ms": {
+              "update": true,
+              "type": "Int64"
+            },
+            "icon": {
+              "update": true
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "BookmarkResult"
+        },
+        "move-bookmark": {
+          "name": "MoveBookmarkRequest",
+          "doc": [
+            "`move-bookmark`: `index` is the final position among the new siblings."
+          ],
+          "order": [
+            "bookmark",
+            "parent",
+            "index",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "BookmarkResult"
+        },
+        "delete-bookmark": {
+          "name": "DeleteBookmarkRequest",
+          "doc": [
+            "`delete-bookmark`: removes the node and its subtree."
+          ],
+          "order": [
+            "bookmark",
+            "mutation"
+          ],
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "BookmarkDeletion"
+        },
+        "import-bookmarks": {
+          "name": "ImportBookmarksRequest",
+          "doc": [
+            "`import-bookmarks`: one transaction. With `sourceKey` and `replace`, the",
+            "folder carrying `sourceKey` keeps its id and position and takes",
+            "`nodes[0]`'s title and children."
+          ],
+          "order": [
+            "browser_profile_id",
+            "parent",
+            "index",
+            "source_key",
+            "replace",
+            "nodes",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            },
+            "nodes": {
+              "type": "[BookmarkImportNode]"
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity?",
+              "wire": [
+                "origin",
+                "mutation_id"
+              ],
+              "encode": "MutationFields(identity: mutation)"
+            }
+          },
+          "response": "BookmarkImportResult"
         }
       }
     },
@@ -314,6 +480,143 @@
             }
           },
           "response": "ProfileResult"
+        },
+        "update-browser-profile": {
+          "name": "UpdateBrowserProfileRequest",
+          "doc": [
+            "`update-browser-profile`: absent keeps, `.clear` sends null."
+          ],
+          "order": [
+            "browser_profile",
+            "name",
+            "color",
+            "icon",
+            "proxy"
+          ],
+          "fields": {
+            "browser_profile": {
+              "name": "id"
+            },
+            "color": {
+              "update": true
+            },
+            "icon": {
+              "update": true
+            },
+            "proxy": {
+              "update": true,
+              "type": "BrowserProfileSnapshot.Proxy",
+              "doc": [
+                "The profile's own proxy (#24432), as `cmux browser profile proxy set|clear` sends it; the daemon validates it."
+              ]
+            }
+          },
+          "response": "BrowserProfileResult"
+        },
+        "set-personal-workspace": {
+          "name": "SetPersonalWorkspaceRequest",
+          "doc": [
+            "Sets a qualified workspace's personal order (insertion index), group,",
+            "browser profile or theme; JSON null clears."
+          ],
+          "order": [
+            "session_id",
+            "workspace_key",
+            "index",
+            "group",
+            "browser_profile_id",
+            "theme",
+            "remote_localhost"
+          ],
+          "fields": {
+            "workspace_key": {
+              "type": "WorkspaceKey"
+            },
+            "index": {
+              "type": "Int"
+            },
+            "group": {
+              "update": true,
+              "type": "WorkspaceGroupID"
+            },
+            "browser_profile_id": {
+              "update": true,
+              "type": "BrowserProfileKey"
+            },
+            "theme": {
+              "update": true
+            },
+            "remote_localhost": {
+              "update": true,
+              "doc": [
+                "Needs `personal-remote-localhost-v1` unless unchanged."
+              ]
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "update-personal-group": {
+          "name": "UpdatePersonalGroupRequest",
+          "order": [
+            "group",
+            "name",
+            "color",
+            "collapsed",
+            "profile"
+          ],
+          "fields": {
+            "group": {
+              "type": "WorkspaceGroupID"
+            },
+            "color": {
+              "update": true
+            },
+            "profile": {
+              "type": "ProfileID",
+              "doc": [
+                "Moves the group, and pins its members, to another room."
+              ]
+            }
+          },
+          "response": "PersonalGroupResult"
+        },
+        "update-profile": {
+          "name": "UpdateProfileRequest",
+          "doc": [
+            "Renames a profile or sets/clears its appearance or terminal defaults."
+          ],
+          "order": [
+            "profile",
+            "name",
+            "color",
+            "icon",
+            "theme",
+            "browser_profile_id",
+            "defaults"
+          ],
+          "fields": {
+            "profile": {
+              "type": "ProfileID"
+            },
+            "color": {
+              "update": true
+            },
+            "icon": {
+              "update": true
+            },
+            "theme": {
+              "update": true
+            },
+            "browser_profile_id": {
+              "update": true,
+              "type": "BrowserProfileKey"
+            },
+            "defaults": {
+              "update": true,
+              "type": "ProfileDefaults"
+            }
+          },
+          "response": "ProfileResult"
         }
       }
     },
@@ -329,6 +632,39 @@
           "fields": {
             "scope": {
               "type": "ProjectionScope"
+            }
+          },
+          "response": "FrontendProjection"
+        },
+        "put-frontend-projection": {
+          "name": "PutFrontendProjectionRequest",
+          "doc": [
+            "CAS write of an opaque (<= 1 MiB) per-window/profile document."
+          ],
+          "order": [
+            "frontend",
+            "scope",
+            "subject_key",
+            "schema_version",
+            "projection",
+            "expected_projection_revision",
+            "mutation"
+          ],
+          "fields": {
+            "scope": {
+              "type": "ProjectionScope"
+            }
+          },
+          "groups": {
+            "mutation": {
+              "type": "MutationIdentity",
+              "wire": [
+                "origin",
+                "mutation_id",
+                "expected_generation",
+                "expected_revision"
+              ],
+              "encode": "MutationFields(identity: mutation)"
             }
           },
           "response": "FrontendProjection"

@@ -17,6 +17,19 @@ Wire rules (the same JSON the hand-written types sent):
 - an optional field is a Swift Optional, nil by default, and encoded only when set, so an unset field
   leaves the daemon's default in force;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
+
+Shapes a request binding can ask for, each sending the same JSON the hand-written type did:
+- `"update": true` on an optional, nullable field makes it a `FieldUpdate<T>` (unchanged, clear or set),
+  `.unchanged` by default and encoded through the `FieldUpdate` container extension;
+- `"default"` gives an init default; on a wire-optional field the value is sent only when it differs
+  from the default (a Bool defaulting to false is sent only when true);
+- `"required": true` makes a wire-optional field a non-Optional property that is always sent;
+- `"groups"` gathers several wire fields under one Swift property: either a type that encodes itself
+  flat (`"wire"` plus an optional `"encode"` expression, like `MutationFields(identity:)`), or
+  `"members"` mapping each wire field to an expression over the property;
+- `"capability"` replaces the schema's capability (null drops it).
+A family's `"results"` binds a schema result type to a generated Decodable struct, and a request whose
+result refs it decodes into that struct.
 """
 
 from __future__ import annotations
@@ -68,9 +81,10 @@ _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "results"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
     "name", "doc", "order", "fields", "groups", "response", "response_order", "response_fields", "protocol",
+    "capability",
 })
 _RESULT_KEYS = frozenset({"name", "doc", "order", "fields", "conformances"})
-_FIELD_KEYS = frozenset({"name", "type", "doc", "update", "default"})
+_FIELD_KEYS = frozenset({"name", "type", "doc", "update", "default", "required"})
 _GROUP_KEYS = frozenset({"type", "doc", "default", "wire", "encode", "members"})
 _DECODABLE = ("Decodable", "Sendable", "Equatable")
 FIELD_UPDATE = "FieldUpdate"
@@ -214,8 +228,9 @@ class _Field:
             # KeyedEncodingContainer.encode(_: FieldUpdate, forKey:) (Mutation.swift): unset leaves it out.
             return [f"try container.encode({self.name}, {key})"]
         if self.default is not None and not self.always_encoded:
+            condition = {"false": self.name, "true": f"!{self.name}"}.get(self.default, f"{self.name} != {self.default}")
             return [
-                f"if {self.name} != {self.default} {{",
+                f"if {condition} {{",
                 f"    try container.encode({self.name}, {key})",
                 "}",
             ]
@@ -370,13 +385,19 @@ class _Renderer:
                 continue
             spec = schema_fields[wire]
             override = _check_keys(f"{where}.{wire}", overrides.get(wire, {}), _FIELD_KEYS)
-            if decoded and ("update" in override or "default" in override):
-                raise BindingError(f"{where}.{wire}: update and default apply to request fields only")
+            if decoded and ({"update", "default", "required"} & set(override)):
+                raise BindingError(f"{where}.{wire}: update, default and required apply to request fields only")
             swift_type = override.get("type") or self.swift_type(
                 spec["type"], where=f"{where}.{wire}", wire=wire, nested=nested
             )
-            required = spec["presence"] == "required"
+            # `required`: the app always sends a field the wire lets it leave out (a non-Optional property).
+            sent_always = bool(override.get("required"))
+            if sent_always and spec["presence"] == "required":
+                raise BindingError(f"{where}.{wire}: required is for a field the schema makes optional")
+            required = spec["presence"] == "required" or sent_always
             update = bool(override.get("update"))
+            if update and sent_always:
+                raise BindingError(f"{where}.{wire}: a FieldUpdate field cannot be required")
             if update and (required or not spec["nullable"]):
                 raise BindingError(
                     f"{where}.{wire}: a FieldUpdate field must be optional and nullable on the wire"
@@ -386,11 +407,13 @@ class _Renderer:
             if default is not None and (not isinstance(default, str) or not default):
                 raise BindingError(f"{where}.{wire}: default must be a Swift expression")
             # A JSONValue carries null itself, so a required nullable JSON field is not an Optional.
-            optional = (not required and default is None) or (required and spec["nullable"] and swift_type != JSON_VALUE)
+            optional = (not required and default is None) or (
+                spec["presence"] == "required" and spec["nullable"] and swift_type != JSON_VALUE
+            )
             doc = list(override.get("doc") or ([spec["description"]] if spec.get("description") else []))
             doc += _constraint_lines(spec.get("constraints", ()))
             if spec.get("capability"):
-                if required:
+                if spec["presence"] == "required":
                     raise BindingError(
                         f"{where}.{wire}: a required field gated by {spec['capability']} has no Swift shape"
                     )
@@ -514,8 +537,11 @@ class _Renderer:
         if response not in (GENERATE, HAND_WRITTEN):
             out.append(f"    public typealias Response = {response}")
         out.append(f"    public static let command = {json.dumps(command)}")
-        if schema.get("capability"):
-            out.append(f"    public static let requiredCapability: String? = {json.dumps(schema['capability'])}")
+        capability = binding.get("capability", schema.get("capability"))
+        if capability is not None and (not isinstance(capability, str) or not capability):
+            raise BindingError(f"{command}: capability must be a capability name or null")
+        if capability:
+            out.append(f"    public static let requiredCapability: String? = {json.dumps(capability)}")
         for enum in nested:
             out += ["", *enum.lines("    ")]
         if fields:
@@ -587,8 +613,7 @@ class _Renderer:
             f"results.{schema_name}", target["fields"], spec.get("fields", {}), spec.get("order", ()), nested,
             decoded=True,
         )
-        doc = list(spec.get("doc") or ([target["description"]] if target.get("description") else []))
-        return [*_doc(doc, ""), *self.decodable(spec["name"], fields, nested, conformances, "")]
+        return [*_doc(spec.get("doc", ()), ""), *self.decodable(spec["name"], fields, nested, conformances, "")]
 
     @staticmethod
     def decodable(name: str, fields: Sequence[_Field | _Group], nested: Sequence[_Enum],
