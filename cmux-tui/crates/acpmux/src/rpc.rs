@@ -905,6 +905,11 @@ pub mod method {
     pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
     pub const MUX_FORUM_RULES: &str = "_acpmux/forum/rules";
     pub const MUX_FORUM_ACK: &str = "_acpmux/forum/ack";
+    /// The team's hosted forum (`hub/forum_hosted.rs`): a calling session opens a thread,
+    /// replies on one, or searches them.
+    pub const MUX_FORUM_POST: &str = "_acpmux/forum/post";
+    pub const MUX_FORUM_REPLY: &str = "_acpmux/forum/reply";
+    pub const MUX_FORUM_SEARCH: &str = "_acpmux/forum/search";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.

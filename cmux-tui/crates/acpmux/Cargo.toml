@@ -89,6 +89,8 @@ cmux-netwatch.workspace = true
 cmux-config.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-build-space.workspace = true
+# The team's hosted forum (`hub/forum_hosted.rs`): cmux-forum's post, reply and search.
+cmux-forum-hosted = { path = "../cmux-forum-hosted", features = ["http"] }
 cmux-cloud-client.workspace = true
 # Each deployment's device hub origin, for the share host's machine sign-in (`share_host/`).
 cmux-cloud-environment.workspace = true

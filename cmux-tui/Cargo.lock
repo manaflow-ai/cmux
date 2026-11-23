@@ -38,6 +38,7 @@ dependencies = [
  "cmux-embed",
  "cmux-fault",
  "cmux-file-lock",
+ "cmux-forum-hosted",
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",
@@ -1937,6 +1938,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-forum-hosted"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
@@ -2897,6 +2909,7 @@ dependencies = [
  "cmux-file-lock",
  "cmux-flow-trace",
  "cmux-focus-core",
+ "cmux-forum-hosted",
  "cmux-git",
  "cmux-history",
  "cmux-holder",
@@ -2953,6 +2966,7 @@ dependencies = [
  "socket2",
  "subsecond",
  "tar",
+ "time",
  "tokio",
  "tokio-tungstenite",
  "toml",

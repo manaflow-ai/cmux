@@ -17,7 +17,7 @@ public nonisolated struct FirstPartyPages {
         "cmux.apps", "cmux.artifacts", "cmux.bookmarks", "cmux.changelog",
         "cmux.chief-inspector", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud",
         "cmux.cloud-progress", "cmux.coderouter", "cmux.debug-settings", "cmux.feed",
-        "cmux.files", "cmux.github", "cmux.glass-parity", "cmux.group-editor", "cmux.history",
+        "cmux.files", "cmux.forum", "cmux.github", "cmux.glass-parity", "cmux.group-editor", "cmux.history",
         "cmux.home-channels", "cmux.icon-picker",
         "cmux.keybindings", "cmux.machines", "cmux.mobile-pairing", "cmux.onboarding",
         "cmux.passwords", "cmux.server-cards", "cmux.settings", "cmux.setup-card",

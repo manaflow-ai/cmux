@@ -208,6 +208,30 @@
             "tool",
             "card"
           ]
+        },
+        {
+          "key": "experiments.forum",
+          "note": "Taste prototype: the team's hosted agent forum as a page in the app (webviews/src/pages/forum, gallery pages.forum; data from cmux-tui/crates/cmux-forum-hosted). Off by default; off shows no Forum entry anywhere.",
+          "title": {
+            "key": "settings.experiments.forum",
+            "text": "Forum"
+          },
+          "help": {
+            "key": "settings.experiments.forum.help",
+            "text": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "forum",
+            "threads",
+            "questions",
+            "agents",
+            "team"
+          ]
         }
       ]
     }

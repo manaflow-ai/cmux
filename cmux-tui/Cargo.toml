@@ -29,6 +29,7 @@ members = [
     "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
+    "crates/cmux-forum-hosted",
     "crates/cmux-imessage",
     "crates/cmux-chat-index",
     "crates/cmux-apps",

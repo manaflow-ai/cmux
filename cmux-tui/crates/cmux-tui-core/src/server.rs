@@ -222,6 +222,8 @@ mod detached_terminals;
 mod feed_client_ops;
 mod feed_local;
 mod feed_places;
+#[cfg(unix)]
+pub(crate) mod forum_routed;
 mod frontend_browser_history;
 mod history_search;
 mod home;
