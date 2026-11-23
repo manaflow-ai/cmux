@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6e4b7c560ce8e333a092109ba0fe831e673d861f2c3e7d9e734ac898dec0b88e.
+// cmux-tui mux protocol 12, IR 91c50a55de2ecea259929a75acbaf02356bc21a508db474ba5432325c2752ec4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1355,6 +1355,40 @@ pub struct ConversationRunsRequest {
 pub struct ConversationRunsResult {
     pub has_more: bool,
     pub runs: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationScheduledListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationScheduledListResult {
+    pub scheduled: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationScheduledOpRequest {
+    pub op: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationScheduledOpResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub change: Option<T::JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<T::JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub replayed: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub rev: Option<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub scheduled: Optional<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -4929,6 +4963,14 @@ impl CmuxClient {
             self.require_capability_field("conversation-runs", "conversation-run-answers-v1")?;
         }
         self.execute(&CONVERSATION_RUNS_METADATA, &request)
+    }
+
+    pub fn conversation_scheduled_list(&mut self, request: ConversationScheduledListRequest) -> Result<ConversationScheduledListResult> {
+        self.execute(&CONVERSATION_SCHEDULED_LIST_METADATA, &request)
+    }
+
+    pub fn conversation_scheduled_op(&mut self, request: ConversationScheduledOpRequest) -> Result<ConversationScheduledOpResult> {
+        self.execute(&CONVERSATION_SCHEDULED_OP_METADATA, &request)
     }
 
     pub fn conversation_search(&mut self, request: ConversationSearchRequest) -> Result<ConversationSearchResult> {
