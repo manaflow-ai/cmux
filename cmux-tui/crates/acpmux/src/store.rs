@@ -577,6 +577,12 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// The key its creator sent with its `session/new` (`_meta.acpmux.createKey`,
+    /// `hub/create_key.rs`): a create sent again with that key, after a daemon restart closed
+    /// the connection before the reply, answers with this session instead of making another.
+    /// Kept on disk, so the next daemon finds it too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_key: Option<String>,
     /// The journal seq the agent's own session ends at, when the journal went past it without
     /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
     /// to a fresh machine from an older disk). The agent resumes its own older session, so its
