@@ -827,6 +827,8 @@ fn github_store_never_counts_as_read() {
     let mut cli = Cli::default();
     cli.env.insert("HOME".into(), root.display().to_string());
     cli.env.insert("XDG_CONFIG_HOME".into(), String::new());
+    // Unset as well, whatever this test process has (a fleet worker sets its own).
+    cli.env.insert("GH_CONFIG_DIR".into(), String::new());
     assert_eq!(cli.store(Agent::Github), root.join(".config/gh"));
     cli.env.insert("GH_CONFIG_DIR".into(), root.join("own").display().to_string());
     assert_eq!(cli.store(Agent::Github), root.join("own"));
@@ -996,6 +998,8 @@ async fn github_sign_in_end_to_end_against_a_stub_gh() {
     let mut cli = Cli { program: program.display().to_string(), ..Cli::default() };
     cli.env.insert("HOME".into(), root.display().to_string());
     cli.env.insert("XDG_CONFIG_HOME".into(), String::new());
+    // Unset, whatever this test process has (a fleet worker sets its own).
+    cli.env.insert("GH_CONFIG_DIR".into(), String::new());
     cli.env.insert("GH_TOKEN".into(), "daemon-token-must-not-reach-gh".into());
     let started = start_in(&m, &cli, Agent::Github, None).await.expect("started");
     assert_eq!(started.url, "https://github.com/login/device");
