@@ -131,3 +131,38 @@ fn a_rewritten_log_is_packed_from_the_start() {
     Pack::open(&store, "s").unwrap().cat(&mut back).unwrap();
     assert!(back == bytes);
 }
+
+#[test]
+fn a_turn_comes_back_as_text_that_names_what_it_cut() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::new(dir.path().join("store"));
+    let long = "x".repeat(5000);
+    let lines = [
+        r#"{"seq":1,"at":10,"dir":"mux","kind":"turn_started","msg":{"promptLine":"fix the build"}}"#.to_string(),
+        r#"{"seq":2,"at":11,"dir":"mux","kind":"user_message","msg":{"text":"fix the build"}}"#.to_string(),
+        r#"{"seq":3,"at":12,"dir":"in","kind":"tool_call","msg":{"params":{"update":{"_meta":{"claude":{"tool":"Bash"}},"rawInput":{"command":"make"},"status":"in_progress","toolCallId":"t1"}}}}"#.to_string(),
+        format!(r#"{{"seq":4,"at":13,"dir":"in","kind":"tool_call_update","msg":{{"params":{{"update":{{"content":[{{"content":{{"text":"{long}","type":"text"}},"type":"content"}}],"status":"completed","toolCallId":"t1"}}}}}}}}"#),
+        r#"{"seq":5,"at":14,"dir":"in","kind":"agent_message_chunk","msg":{"params":{"update":{"content":{"text":"It builds."}}}}}"#.to_string(),
+        r#"{"seq":6,"at":15,"dir":"mux","kind":"turn_started","msg":{"promptLine":"now ship it"}}"#.to_string(),
+    ];
+    let log = dir.path().join("log.ndjson");
+    std::fs::write(&log, lines.join("\n") + "\n").unwrap();
+    pack(&store, "s", &[log], &Params::default(), false).unwrap();
+    let p = Pack::open(&store, "s").unwrap();
+
+    let outline = cmux_session_pack::digest::outline(&p).unwrap();
+    let rows: Vec<&str> = outline.lines().collect();
+    assert_eq!(rows, ["s@0-4\t10\t5\tfix the build", "s@5-5\t15\t1\tnow ship it"]);
+
+    let range = RangeId::parse("s@0-4").unwrap();
+    let text = cmux_session_pack::digest::digest(&p, &range, Default::default()).unwrap();
+    assert!(text.contains("user (seq 2): fix the build"), "{text}");
+    assert!(text.contains(r#"tool Bash (seq 3): {"command":"make"}"#), "{text}");
+    assert!(text.contains("result (completed, 5000 bytes): xxx"), "{text}");
+    assert!(text.contains("[4400 more bytes: session-pack seq s 4]"), "{text}");
+    assert!(text.contains("assistant: It builds."), "{text}");
+    assert!(text.len() < 1500, "{}", text.len());
+    // The whole result is one read away, by the name the text gave.
+    let (line, whole) = p.by_seq(4).unwrap().unwrap();
+    assert_eq!((line, whole.as_slice()), (3, lines[3].as_bytes()));
+}

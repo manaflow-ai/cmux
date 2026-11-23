@@ -88,7 +88,7 @@ pub fn digest(pack: &Pack, range: &RangeId, limits: Limits) -> Result<String> {
                     let _ = writeln!(out, "  [{more} more bytes: session-pack seq {name} {seq}]");
                 }
             }
-            "tool_call_update" => {
+            "tool_call" | "tool_call_update" => {
                 let Some(u) = update else { continue };
                 if let Some(input) = u.get("rawInput") {
                     flush(&mut out, &mut say, &mut thought);
@@ -169,12 +169,11 @@ pub fn outline(pack: &Pack) -> Result<String> {
     let m = &pack.manifest;
     let starts: Vec<u64> = m.marks().collect();
     let mut out = String::new();
-    // The turn-start records sit in every segment, so read each segment's once.
-    let all = pack.read_lines(starts.first().copied().unwrap_or(0)..m.lines)?;
-    let base = starts.first().copied().unwrap_or(0);
+    // Long strings are left out, so no blob chunk is read: the prompt's first line is short.
+    let all = pack.skim_lines(&starts)?;
     for (i, first) in starts.iter().enumerate() {
         let last = starts.get(i + 1).copied().unwrap_or(m.lines) - 1;
-        let v: Value = serde_json::from_slice(&all[(first - base) as usize]).unwrap_or(Value::Null);
+        let v: Value = serde_json::from_slice(&all[i]).unwrap_or(Value::Null);
         let prompt = v
             .pointer("/msg/promptLine")
             .or_else(|| v.pointer("/msg/prompt"))

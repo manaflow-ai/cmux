@@ -161,6 +161,33 @@ impl Pack {
         Ok(out)
     }
 
+    /// The lines numbered in `lines` (ascending), each with its long strings left empty, so
+    /// only the events chunks are read.
+    pub fn skim_lines(&self, lines: &[u64]) -> Result<Vec<Vec<u8>>> {
+        let segs = &self.manifest.segments;
+        let mut groups: Vec<(&Segment, Vec<u64>)> = Vec::new();
+        for l in lines {
+            let i = segs.partition_point(|s| s.line + s.lines <= *l);
+            let s = segs.get(i).ok_or_else(|| format!("no line {l}"))?;
+            match groups.last_mut() {
+                Some((g, ls)) if g.line == s.line => ls.push(*l),
+                _ => groups.push((s, vec![*l])),
+            }
+        }
+        let parts = par_map(&groups, |(s, ls)| {
+            let e = self.events(s)?;
+            let mut skip = |_: u64, _: &mut Vec<u8>| Ok(());
+            ls.iter()
+                .map(|l| {
+                    let mut line = Vec::new();
+                    e.line((l - s.line) as usize, &mut skip, &mut line)?;
+                    Ok(line)
+                })
+                .collect::<Result<Vec<_>>>()
+        })?;
+        Ok(parts.into_iter().flatten().collect())
+    }
+
     /// The acpmux record with this `seq`: its line number and the line.
     pub fn by_seq(&self, seq: u64) -> Result<Option<(u64, Vec<u8>)>> {
         let mut blob = |n: u64, o: &mut Vec<u8>| self.push_blob(n, o);
