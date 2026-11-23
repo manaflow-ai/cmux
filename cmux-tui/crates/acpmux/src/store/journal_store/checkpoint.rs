@@ -134,6 +134,8 @@ impl Inner {
             Ok(()) => order.failures = 0,
             // Slow, not failing: neither a failure in a row nor a success.
             Err(error) if error.is::<SlowJournal>() => {}
+            // A full disk: not a failure in a row; the store waits for room ([`super::space`]).
+            Err(error) if self.space.is_full() || super::space::is_out_of_space(error) => {}
             Err(error) if !order.frozen => {
                 order.failures = order.failures.saturating_add(1);
                 if order.failures >= CHECKPOINT_FAILURES_TO_STOP {
