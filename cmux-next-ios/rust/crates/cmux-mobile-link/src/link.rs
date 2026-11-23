@@ -37,8 +37,12 @@ pub const DATA_CHUNK: usize = 16 * 1024;
 /// flood sooner) and keeps the memory of a fast producer bounded.
 const CHANNEL_QUEUE_BYTES: usize = 256 * 1024;
 /// The writer flushes after this many bytes, so the transport sees frames
-/// in priority order rather than one large batch.
-const FLUSH_BYTES: usize = 64 * 1024;
+/// in priority order rather than one large batch. One data chunk: small
+/// frames still go out together, and a transport that holds writes while
+/// its unsent bytes are at a low-water mark (cmux-wg's streams) holds at
+/// most one chunk the scheduler has already committed, so a frame queued
+/// meanwhile still goes next by priority.
+const FLUSH_BYTES: usize = DATA_CHUNK;
 /// How long an attached lane may stay silent before it is given up.
 const LANE_CONFIRM: Duration = Duration::from_secs(10);
 /// How long opening an input-lane channel waits for a negotiated lane that
@@ -113,6 +117,123 @@ pub enum LaneState {
     Ready,
 }
 
+/// How long a link may go without receiving anything after a keepalive
+/// ping before it closes. Longer than a 30 s blackout (an elevator, a
+/// tunnel, a cell dead zone) with room for the ping's phase: the network
+/// comes back on the same link and channels, no redial. The app does not
+/// wait for this to learn of a dead path: its own probes (every 2.5 s
+/// while it watches) fail in seconds and it dials a new link beside this
+/// one (make before break); this only bounds how long a link nobody
+/// answers holds its resources on either end. It was 20 s.
+pub const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// How long a ping may go with nothing at all received after it before
+/// the link is suspect ([`Link::suspect_state`]). Detection, not teardown:
+/// a suspect link stays open (the network may come back, an elevator), it
+/// is probed every [`SUSPECT_PROBE`], and any inbound frame clears it; only
+/// [`KEEPALIVE_TIMEOUT`] closes it. Above a cellular round trip with a
+/// radio waking from idle (a few hundred ms) and a pong queued behind a
+/// burst; any inbound frame counts as the answer, so a busy link is never
+/// suspect for a slow pong.
+pub const SUSPECT_AFTER: Duration = Duration::from_secs(3);
+
+/// A probe waits this many smoothed round trips for its pong ([`Link::probe_timeout`]):
+/// room for one pong delayed by jitter and a loss repaired below.
+pub const PROBE_RTT_FACTOR: u32 = 3;
+/// The longest probe timeout an RTT can ask for.
+pub const PROBE_TIMEOUT_CAP: Duration = Duration::from_secs(5);
+
+fn probe_timeout(floor: Duration, srtt: Option<Duration>) -> Duration {
+    let scaled = srtt.map_or(Duration::ZERO, |srtt| (srtt * PROBE_RTT_FACTOR).min(PROBE_TIMEOUT_CAP));
+    floor.max(scaled)
+}
+/// While a link is suspect it pings this often, so the first ping after
+/// the network comes back is answered within about this long, and so the
+/// tunnel has a datagram to resume on. Only while suspect: an idle healthy
+/// link sends no more than before.
+pub const SUSPECT_PROBE: Duration = Duration::from_secs(1);
+/// Data this side sent with nothing at all received for this long gets a
+/// ping, so a link that dies under traffic is suspect in about this plus
+/// [`SUSPECT_AFTER`] instead of waiting for the next keepalive. Only while
+/// data is outstanding: a one-way stream with a live peer costs one ping
+/// round trip per this long, an idle link none.
+pub const OUTSTANDING_PROBE: Duration = Duration::from_secs(2);
+
+/// The lane both sides list when their pings and pongs can travel as
+/// datagrams beside the link's stream ([`LivenessDatagrams`]). A peer that
+/// does not list it gets today's in-stream pings.
+pub const LIVENESS_LANE: &str = "liveness";
+/// A datagram ping nothing answered is sent again this often (the same
+/// nonce, a new attempt number), up to [`DATAGRAM_PING_ATTEMPTS`] times in
+/// all, so one lost datagram on a lossy link (lossy-3, lossy-10) never
+/// costs a [`SUSPECT_AFTER`] false alarm: the stream's TCP would have
+/// retransmitted it. Not while the link is suspect: its probes every
+/// [`SUSPECT_PROBE`] are the retries then.
+const DATAGRAM_PING_RESEND: Duration = Duration::from_millis(500);
+
+/// While the phone app is in the foreground with a terminal or chat on
+/// screen ([`Link::set_foreground_probe`]) and the link's pings travel as
+/// liveness datagrams, it sends one this often, beside the keepalive, so a
+/// dead path (an elevator) is suspect within seconds instead of a
+/// keepalive later. Off (backgrounded, nothing on screen, no datagram
+/// lane) the link sends only its keepalive, as before.
+pub const FOREGROUND_PROBE: Duration = Duration::from_secs(3);
+/// Foreground probes in a row with nothing at all received after them
+/// before the link is suspect.
+pub const FOREGROUND_PROBE_MISSES: u32 = 2;
+/// A foreground probe nothing answered is sent once more after this many
+/// smoothed round trips (at least [`DATAGRAM_PING_RESEND`], at most
+/// [`FOREGROUND_RESEND_CAP`]), so one lost datagram on a lossy path is not
+/// a miss.
+const FOREGROUND_RESEND_RTTS: u32 = 2;
+const FOREGROUND_RESEND_CAP: Duration = Duration::from_millis(1500);
+const DATAGRAM_PING_ATTEMPTS: u8 = 5;
+/// A liveness datagram: kind, the ping's nonce (8 bytes, big-endian), the
+/// attempt number. A pong echoes the ping's nonce and attempt.
+const DATAGRAM_PING: u8 = 1;
+const DATAGRAM_PONG: u8 = 2;
+const DATAGRAM_LEN: usize = 10;
+
+/// Pings and pongs as unreliable datagrams beside the link's stream (on
+/// WireGuard: overlay UDP on `dial::wireguard::LIVENESS_PORT`). A ping in
+/// the stream waits behind every byte already in the transport's send
+/// buffer (2000 rows a second fill it), so its pong, and the link's
+/// liveness, trails the rows by seconds on a lossy path; a datagram goes
+/// out in the tunnel's interactive class ahead of them. The link keeps
+/// answering in-stream pings either way.
+pub struct LivenessDatagrams {
+    /// Datagrams to the peer. Best effort: a full queue drops one.
+    pub outgoing: mpsc::Sender<Vec<u8>>,
+    /// Datagrams from the peer; ends with the transport.
+    pub incoming: mpsc::Receiver<Vec<u8>>,
+    /// The peer has its end bound (it listed [`LIVENESS_LANE`] after
+    /// binding): this side's pings go as datagrams at once. Otherwise they
+    /// stay in the stream until the first datagram from the peer arrives.
+    pub peer_listening: bool,
+}
+
+fn liveness_datagram(kind: u8, nonce: u64, attempt: u8) -> Vec<u8> {
+    let mut datagram = Vec::with_capacity(DATAGRAM_LEN);
+    datagram.push(kind);
+    datagram.extend_from_slice(&nonce.to_be_bytes());
+    datagram.push(attempt);
+    datagram
+}
+
+/// Whether `datagram` answers a liveness ping (a pong): the transport
+/// sends it expecting nothing back.
+pub(crate) fn is_liveness_answer(datagram: &[u8]) -> bool {
+    datagram.first() == Some(&DATAGRAM_PONG)
+}
+
+fn parse_liveness_datagram(datagram: &[u8]) -> Option<(u8, u64, u8)> {
+    if datagram.len() != DATAGRAM_LEN || !matches!(datagram[0], DATAGRAM_PING | DATAGRAM_PONG) {
+        return None;
+    }
+    let nonce = u64::from_be_bytes(datagram[1..9].try_into().ok()?);
+    Some((datagram[0], nonce, datagram[9]))
+}
+
 #[derive(Debug, Clone)]
 pub struct LinkConfig {
     /// Interval between keepalive pings; `None` disables them.
@@ -124,14 +245,23 @@ pub struct LinkConfig {
     /// same instants as the phone's other keepalives, instead of
     /// `keepalive` after the last pong.
     pub aligned: bool,
+    /// How long a ping may go unanswered (nothing at all received after
+    /// it) before the link is suspect; `None` turns the suspect signal and
+    /// its probes off. See [`SUSPECT_AFTER`].
+    pub suspect_after: Option<Duration>,
+    /// Whether the link starts with its foreground probe on
+    /// ([`Link::set_foreground_probe`]). Off by default.
+    pub foreground_probe: bool,
 }
 
 impl Default for LinkConfig {
     fn default() -> Self {
         Self {
             keepalive: Some(Duration::from_secs(15)),
-            keepalive_timeout: Duration::from_secs(20),
+            keepalive_timeout: KEEPALIVE_TIMEOUT,
             aligned: false,
+            suspect_after: Some(SUSPECT_AFTER),
+            foreground_probe: false,
         }
     }
 }
@@ -509,11 +639,34 @@ struct Inner {
     /// When the reader last received a frame other than a ping or a pong:
     /// the link carries traffic, not only keepalives.
     last_traffic: Mutex<Instant>,
+    /// What this side sent that nothing has answered yet: the first frame
+    /// (other than a ping or a pong) and the first ping written after the
+    /// last inbound frame. Entries older than [`Inner::last_received`] are
+    /// stale (answered).
+    unanswered: Mutex<Unanswered>,
+    /// Wakes the liveness watchdog when `unanswered` gains an entry.
+    unanswered_changed: Notify,
+    /// The link is suspect ([`Link::suspect_state`]).
+    suspect: watch::Sender<bool>,
+    /// Mirrors `suspect` for the reader's hot path.
+    suspect_flag: AtomicBool,
     channels: Mutex<HashMap<u32, Route>>,
     next_channel: AtomicU32,
     next_nonce: AtomicU64,
-    pings: Mutex<HashMap<u64, oneshot::Sender<Instant>>>,
+    /// Waiters by nonce: each gets when the pong arrived and which attempt
+    /// it answers (0 for a stream ping).
+    pings: Mutex<HashMap<u64, oneshot::Sender<(Instant, u8)>>>,
+    /// Where liveness datagrams go ([`Link::attach_liveness_datagrams`]);
+    /// dropped when the link closes.
+    datagrams: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
+    /// This side's pings go as datagrams: the peer is listening.
+    datagram_pings: AtomicBool,
+    /// The phone app is in the foreground with a surface on screen
+    /// ([`Link::set_foreground_probe`]).
+    foreground: watch::Sender<bool>,
     rtt: watch::Sender<Option<Duration>>,
+    /// The smoothed round trip of answered pings ([`Link::probe_timeout`]).
+    srtt: Mutex<Option<Duration>>,
     /// Ping counts and round trips for the link's path report ([`Link::take_ping_stats`]).
     ping_stats: Mutex<PingStats>,
     closed: watch::Sender<Option<String>>,
@@ -554,8 +707,85 @@ impl Inner {
         self.push(MAIN, Class::Control, frame)
     }
 
+    /// Send one liveness datagram; `false` when there is no datagram lane
+    /// or its queue is full.
+    fn send_datagram(&self, kind: u8, nonce: u64, attempt: u8) -> bool {
+        let sender = self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        sender.is_some_and(|sender| sender.try_send(liveness_datagram(kind, nonce, attempt)).is_ok())
+    }
+
+    fn datagram_pings(&self) -> bool {
+        self.datagram_pings.load(Ordering::Relaxed)
+    }
+
+    /// A pong to `nonce` arrived (in the stream or as a datagram).
+    fn ponged(&self, nonce: u64, attempt: u8) {
+        let waiter = self.pings.lock().unwrap_or_else(PoisonError::into_inner).remove(&nonce);
+        // A pong to a ping of ours counts as answered even when its caller stopped
+        // waiting (a probe that saw other traffic first): it was not lost.
+        if waiter.is_some() || nonce < self.next_nonce.load(Ordering::Relaxed) {
+            // A datagram ping's resends share its nonce: count one pong.
+            if waiter.is_some() || attempt == 0 {
+                self.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).answered += 1;
+            }
+        }
+        if let Some(waiter) = waiter {
+            let _ = waiter.send((Instant::now(), attempt));
+        }
+    }
+
     fn received(&self) {
         *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        // Anything from the peer clears a suspect link at once.
+        if self.suspect_flag.load(Ordering::Relaxed) && self.suspect_flag.swap(false, Ordering::Relaxed) {
+            self.suspect.send_replace(false);
+            tracing::debug!("link alive again");
+        }
+    }
+
+    /// The writer sent frames other than pings and pongs (data, open,
+    /// close): note the first since the last inbound frame.
+    fn sent_traffic(&self) {
+        self.note_unanswered(|unanswered| &mut unanswered.traffic);
+    }
+
+    /// A ping went out: note the first since the last inbound frame.
+    fn sent_ping(&self) {
+        self.note_unanswered(|unanswered| &mut unanswered.ping);
+    }
+
+    fn note_unanswered(&self, field: impl FnOnce(&mut Unanswered) -> &mut Option<Instant>) {
+        let last = self.last_received();
+        let mut unanswered = self.unanswered.lock().unwrap_or_else(PoisonError::into_inner);
+        let slot = field(&mut unanswered);
+        if slot.is_none_or(|at| at <= last) {
+            *slot = Some(Instant::now());
+            drop(unanswered);
+            self.unanswered_changed.notify_one();
+        }
+    }
+
+    /// When the first unanswered frame and the first unanswered ping went
+    /// out, if they are still unanswered.
+    fn unanswered(&self) -> Unanswered {
+        let last = self.last_received();
+        let unanswered = *self.unanswered.lock().unwrap_or_else(PoisonError::into_inner);
+        Unanswered {
+            traffic: unanswered.traffic.filter(|at| *at > last),
+            ping: unanswered.ping.filter(|at| *at > last),
+        }
+    }
+
+    /// Mark the link suspect: nothing has answered a ping for
+    /// `suspect_after`. Undone by the next inbound frame (`received`).
+    fn raise_suspect(&self, since: Instant) {
+        self.suspect_flag.store(true, Ordering::Relaxed);
+        // A frame that arrived after the check clears it straight away.
+        if self.last_received() > since && self.suspect_flag.swap(false, Ordering::Relaxed) {
+            return;
+        }
+        self.suspect.send_replace(true);
+        tracing::debug!(quiet_ms = self.last_received().elapsed().as_millis() as u64, "link suspect");
     }
 
     fn received_traffic(&self) {
@@ -585,6 +815,7 @@ impl Inner {
             inbox.push_now(ChannelEvent::Closed(CloseInfo::new("link_closed", reason)));
         }
         self.pings.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).take();
         self.incoming_tx.lock().unwrap_or_else(PoisonError::into_inner).take();
         for outbox in &self.outboxes {
             outbox.shut();
@@ -640,11 +871,19 @@ impl Link {
             lane_attached: AtomicBool::new(false),
             last_rx: Mutex::new(Instant::now()),
             last_traffic: Mutex::new(Instant::now()),
+            unanswered: Mutex::new(Unanswered::default()),
+            unanswered_changed: Notify::new(),
+            suspect: watch::channel(false).0,
+            suspect_flag: AtomicBool::new(false),
             channels: Mutex::new(HashMap::new()),
             next_channel: AtomicU32::new(role.first_channel()),
             next_nonce: AtomicU64::new(1),
             pings: Mutex::new(HashMap::new()),
+            datagrams: Mutex::new(None),
+            datagram_pings: AtomicBool::new(false),
+            foreground: watch::channel(config.foreground_probe).0,
             rtt: watch::channel(None).0,
+            srtt: Mutex::new(None),
             ping_stats: Mutex::new(PingStats::default()),
             closed: watch::channel(None).0,
             incoming: tokio::sync::Mutex::new(incoming_rx),
@@ -663,6 +902,12 @@ impl Link {
             incoming_tx,
         ));
         let mut tasks = vec![writer, reader];
+        if let Some(after) = config.suspect_after {
+            let link = Self { inner: Arc::clone(&inner) };
+            tasks.push(tokio::spawn(watch_liveness(link, after)));
+            let link = Self { inner: Arc::clone(&inner) };
+            tasks.push(tokio::spawn(foreground_probe(link)));
+        }
         if let Some(interval) = config.keepalive
             && config.aligned
         {
@@ -710,6 +955,47 @@ impl Link {
     /// Attaches the media lane the dial negotiated.
     pub fn attach_media(&self, lane: crate::media::MediaLane) {
         *self.inner.media.lock().unwrap_or_else(PoisonError::into_inner) = Some(lane);
+    }
+
+    /// Carry this link's pings and pongs as datagrams too
+    /// ([`LivenessDatagrams`]). Pings switch to datagrams at once when the
+    /// peer is listening, else on the first datagram it sends; in-stream
+    /// pings are still answered. A second attach is ignored.
+    pub fn attach_liveness_datagrams(&self, lane: LivenessDatagrams) {
+        let LivenessDatagrams { outgoing, incoming, peer_listening } = lane;
+        {
+            let mut datagrams = self.inner.datagrams.lock().unwrap_or_else(PoisonError::into_inner);
+            if self.is_closed() || datagrams.is_some() {
+                return;
+            }
+            *datagrams = Some(outgoing);
+        }
+        if peer_listening {
+            self.inner.datagram_pings.store(true, Ordering::Relaxed);
+        }
+        let reader = tokio::spawn(read_datagrams(Arc::clone(&self.inner), incoming));
+        self.inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).push(reader);
+        tracing::debug!(role = ?self.inner.role, peer_listening, "liveness datagrams attached");
+    }
+
+    /// The phone app is in the foreground with a terminal or chat on
+    /// screen (`true`), or not. While it is and the pings travel as
+    /// datagrams, the link probes every [`FOREGROUND_PROBE`] and is suspect
+    /// after [`FOREGROUND_PROBE_MISSES`] unanswered probes. The keepalive
+    /// keeps its own interval either way. Needs the suspect signal
+    /// (`LinkConfig::suspect_after`); without it this does nothing.
+    pub fn set_foreground_probe(&self, on: bool) {
+        self.inner.foreground.send_if_modified(|state| std::mem::replace(state, on) != on);
+    }
+
+    /// Whether the foreground probe is on ([`Link::set_foreground_probe`]).
+    pub fn foreground_probe(&self) -> bool {
+        *self.inner.foreground.borrow()
+    }
+
+    /// Whether this link's pings travel as datagrams now.
+    pub fn pings_as_datagrams(&self) -> bool {
+        self.inner.datagram_pings()
     }
 
     /// The media lane (browser video as RTP), if this link has one.
@@ -876,15 +1162,81 @@ impl Link {
         }
         let _pending = Pending(&self.inner, nonce);
         let started = Instant::now();
-        self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
+        // As a datagram when the peer listens (out ahead of the stream's
+        // queued bytes), else, or when its queue is full, in the stream.
+        let datagram = self.inner.datagram_pings() && {
+            if self.inner.closed_reason().is_some() {
+                return Err(self.inner.closed_error());
+            }
+            self.inner.send_datagram(DATAGRAM_PING, nonce, 0)
+        };
+        if !datagram {
+            self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
+        }
+        self.inner.sent_ping();
         self.inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
-        let answered = rx
-            .await
-            .map_err(|_| LinkError::Closed(self.inner.closed_reason().unwrap_or_else(|| "closed".into())))?;
-        let rtt = answered.saturating_duration_since(started);
+        let mut sent_at = [None; DATAGRAM_PING_ATTEMPTS as usize];
+        sent_at[0] = Some(started);
+        // Tries so far, the first send (stream or datagram) as try 0.
+        let mut tries = 1u8;
+        // The ping is in the stream: sent there first, or after its
+        // datagram tries ran out.
+        let mut in_stream = !datagram;
+        let has_lane = self.inner.datagrams.lock().unwrap_or_else(PoisonError::into_inner).is_some();
+        tokio::pin!(rx);
+        let (answered, answers) = loop {
+            tokio::select! {
+                answered = &mut rx => break answered.map_err(|_| {
+                    LinkError::Closed(self.inner.closed_reason().unwrap_or_else(|| "closed".into()))
+                })?,
+                () = tokio::time::sleep(DATAGRAM_PING_RESEND),
+                    if has_lane && (tries < DATAGRAM_PING_ATTEMPTS || !in_stream) =>
+                {
+                    if tries < DATAGRAM_PING_ATTEMPTS {
+                        // A stream ping sent before the peer was heard on
+                        // datagrams gets its tries once it is: behind a
+                        // stream of rows its pong could take many seconds,
+                        // and the keepalive pings no more until it comes.
+                        if self.inner.datagram_pings() {
+                            let attempt = tries;
+                            tries += 1;
+                            // While suspect the watchdog's probes are the resends.
+                            if !self.inner.suspect_flag.load(Ordering::Relaxed)
+                                && self.inner.send_datagram(DATAGRAM_PING, nonce, attempt)
+                            {
+                                sent_at[usize::from(attempt)] = Some(Instant::now());
+                            }
+                        }
+                    } else {
+                        // Every try lost (or the network dark): the same nonce
+                        // in the stream, which delivers it once the path is
+                        // back, so a ping nobody stopped waiting for (the
+                        // keepalive's) is always answered on a live link.
+                        in_stream = true;
+                        self.inner
+                            .send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
+                    }
+                }
+            }
+        };
+        let sent = sent_at.get(usize::from(answers)).copied().flatten().unwrap_or(started);
+        let rtt = answered.saturating_duration_since(sent);
         self.inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sample(rtt);
         self.inner.rtt.send_replace(Some(rtt));
+        let mut srtt = self.inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
+        // RFC 6298's gain: one slow pong moves it an eighth of the way.
+        *srtt = Some(srtt.map_or(rtt, |srtt| (srtt * 7 + rtt) / 8));
         Ok(rtt)
+    }
+
+    /// How long a probe of this link may wait for its pong: `floor`, or
+    /// [`PROBE_RTT_FACTOR`] smoothed round trips when that is longer, at
+    /// most [`PROBE_TIMEOUT_CAP`]. A fixed 1 s timeout never fits a 1 s round
+    /// trip (lossy-10: every standby probe timed out and the standby was
+    /// never kept).
+    pub fn probe_timeout(&self, floor: Duration) -> Duration {
+        let srtt = *self.inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
+        probe_timeout(floor, srtt)
     }
 
     /// Whether the link is alive, within `timeout`: `Ok(Some(rtt))` on the
@@ -895,7 +1247,8 @@ impl Link {
     ///
     /// Any frame proves only the peer-to-us direction: a link whose uplink
     /// alone broke still reads alive here until the peer's own keepalive
-    /// closes it (15 s ping, 20 s timeout), the bound the link already had.
+    /// closes it (15 s ping, [`KEEPALIVE_TIMEOUT`]), the bound the link
+    /// already had.
     pub async fn probe(&self, timeout: Duration) -> Result<Option<Duration>, LinkError> {
         /// How often arrivals are checked while the pong is outstanding.
         const TRAFFIC_CHECK: Duration = Duration::from_millis(50);
@@ -938,6 +1291,21 @@ impl Link {
     /// The latest measured round-trip time.
     pub fn rtt(&self) -> watch::Receiver<Option<Duration>> {
         self.inner.rtt.subscribe()
+    }
+
+    /// `true` while the link is suspect: a ping went [`SUSPECT_AFTER`] with
+    /// nothing at all received after it (a dead or silent peer, a dead
+    /// network, a blackout). Detection, not teardown: the link stays open
+    /// and pings every [`SUSPECT_PROBE`], the first inbound frame makes it
+    /// `false` again, and it closes only after [`KEEPALIVE_TIMEOUT`]. The
+    /// phone's app probes the link at once on it (its quick probe) and
+    /// dials beside it while it stays dead.
+    pub fn suspect_state(&self) -> watch::Receiver<bool> {
+        self.inner.suspect.subscribe()
+    }
+
+    pub fn is_suspect(&self) -> bool {
+        self.inner.suspect_flag.load(Ordering::Relaxed)
     }
 
     /// `Some(reason)` once closed.
@@ -993,12 +1361,19 @@ where
                 return;
             }
         };
+        let mut frame = frame;
         let mut pending = frame.payload.len();
+        // Frames whose sender asked when they reach the transport (send_marked).
+        let mut marks: Vec<crate::frame::FlushMark> = Vec::new();
+        marks.extend(frame.flushed.take());
+        let mut traffic = !matches!(frame.kind, FrameType::Ping | FrameType::Pong);
         let mut result = sink.feed(frame).await;
         while result.is_ok() && pending < FLUSH_BYTES {
             match outbox.pop() {
-                Some(Next::Frame(frame)) => {
+                Some(Next::Frame(mut frame)) => {
                     pending += frame.payload.len();
+                    marks.extend(frame.flushed.take());
+                    traffic |= !matches!(frame.kind, FrameType::Ping | FrameType::Pong);
                     result = sink.feed(frame).await;
                 }
                 Some(Next::Shutdown) => {
@@ -1012,6 +1387,171 @@ where
         if let Err(error) = result.and(sink.flush().await) {
             inner.shut(&format!("write failed: {error}"));
             return;
+        }
+        if !marks.is_empty() {
+            let now = crate::frame::epoch_us();
+            for mark in marks.drain(..) {
+                mark.set(now);
+            }
+        }
+        if traffic {
+            inner.sent_traffic();
+        }
+    }
+}
+
+/// What this side sent since the last inbound frame (see
+/// [`Inner::unanswered`]).
+#[derive(Debug, Clone, Copy, Default)]
+struct Unanswered {
+    traffic: Option<Instant>,
+    ping: Option<Instant>,
+}
+
+/// Detection, apart from teardown (the keepalive's [`KEEPALIVE_TIMEOUT`]):
+/// data with nothing received for [`OUTSTANDING_PROBE`] gets a ping; a ping
+/// with nothing received for `after` makes the link suspect; a suspect link
+/// pings every [`SUSPECT_PROBE`] until anything arrives. Every ping counts
+/// (the keepalive's, the app's probes, these), so an idle link is suspect
+/// `after` past whichever ping comes first, and an idle healthy link sends
+/// nothing more than its keepalive. Sleeps until the next deadline or until
+/// something new goes unanswered.
+async fn watch_liveness(link: Link, after: Duration) {
+    let inner = &link.inner;
+    let mut closed = inner.closed.subscribe();
+    let probe = |link: &Link| {
+        let pinger = link.clone();
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(after, pinger.ping()).await;
+        });
+    };
+    let mut last_probe: Option<Instant> = None;
+    loop {
+        let now = Instant::now();
+        let unanswered = inner.unanswered();
+        let next = if inner.suspect_flag.load(Ordering::Relaxed) {
+            let due = last_probe.map_or(now, |at| at + SUSPECT_PROBE);
+            if now >= due {
+                probe(&link);
+                last_probe = Some(now);
+                Some(now + SUSPECT_PROBE)
+            } else {
+                Some(due)
+            }
+        } else if let Some(ping) = unanswered.ping {
+            if now >= ping + after {
+                inner.raise_suspect(ping);
+                if inner.suspect_flag.load(Ordering::Relaxed) {
+                    probe(&link);
+                    last_probe = Some(now);
+                }
+                continue;
+            }
+            Some(ping + after)
+        } else if let Some(traffic) = unanswered.traffic {
+            if now >= traffic + OUTSTANDING_PROBE {
+                // Its ping wakes this loop (`unanswered_changed`) once out.
+                probe(&link);
+                Some(now + after)
+            } else {
+                Some(traffic + OUTSTANDING_PROBE)
+            }
+        } else {
+            None
+        };
+        tokio::select! {
+            _ = closed.wait_for(Option::is_some) => return,
+            () = inner.unanswered_changed.notified() => {}
+            () = tokio::time::sleep_until(next.unwrap_or(now)), if next.is_some() => {}
+        }
+    }
+}
+
+/// The foreground probe ([`Link::set_foreground_probe`]): while it is on
+/// and the pings travel as datagrams, a datagram ping every
+/// [`FOREGROUND_PROBE`], sent once more when nothing came back in a couple
+/// of round trips. A probe with nothing at all received after it by the
+/// next one is a miss; [`FOREGROUND_PROBE_MISSES`] in a row make the link
+/// suspect, and the watchdog's [`SUSPECT_PROBE`] probes take over until
+/// anything arrives. The probes take no waiter and do not count as the
+/// watchdog's unanswered pings, so `SUSPECT_AFTER` does not shorten the
+/// misses rule.
+async fn foreground_probe(link: Link) {
+    let inner = &link.inner;
+    let mut closed = inner.closed.subscribe();
+    let mut on = inner.foreground.subscribe();
+    loop {
+        while !*on.borrow_and_update() {
+            tokio::select! {
+                _ = closed.wait_for(Option::is_some) => return,
+                changed = on.changed() => if changed.is_err() { return },
+            }
+        }
+        // The last probe (when, its nonce) and whether it was resent.
+        let mut last: Option<(Instant, u64)> = None;
+        let mut resent = false;
+        let mut misses = 0u32;
+        let mut first_miss: Option<Instant> = None;
+        let mut tick = Instant::now();
+        loop {
+            let resend_at = last.filter(|_| !resent).map(|(at, _)| {
+                let srtt = *inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
+                let wait = srtt.map_or(DATAGRAM_PING_RESEND, |srtt| srtt * FOREGROUND_RESEND_RTTS);
+                at + wait.clamp(DATAGRAM_PING_RESEND, FOREGROUND_RESEND_CAP)
+            });
+            tokio::select! {
+                _ = closed.wait_for(Option::is_some) => return,
+                changed = on.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    if !*on.borrow_and_update() {
+                        break;
+                    }
+                    continue;
+                }
+                () = tokio::time::sleep_until(resend_at.unwrap_or(tick)), if resend_at.is_some() => {
+                    resent = true;
+                    if let Some((at, nonce)) = last
+                        && inner.last_received() < at
+                        && !inner.suspect_flag.load(Ordering::Relaxed)
+                    {
+                        inner.send_datagram(DATAGRAM_PING, nonce, 1);
+                    }
+                    continue;
+                }
+                () = tokio::time::sleep_until(tick) => {}
+            }
+            let now = Instant::now();
+            tick = (tick + FOREGROUND_PROBE).max(now);
+            if !inner.datagram_pings() || inner.suspect_flag.load(Ordering::Relaxed) {
+                // No lane (pings in the stream: the keepalive's), or suspect
+                // (the watchdog probes): start counting afresh.
+                (last, misses, first_miss) = (None, 0, None);
+                continue;
+            }
+            if let Some((at, _)) = last {
+                if inner.last_received() < at {
+                    misses += 1;
+                    first_miss.get_or_insert(at);
+                } else {
+                    (misses, first_miss) = (0, None);
+                }
+            }
+            if misses >= FOREGROUND_PROBE_MISSES
+                && let Some(since) = first_miss
+            {
+                inner.raise_suspect(since);
+                // The watchdog sleeps on an idle link: wake it to probe.
+                inner.unanswered_changed.notify_one();
+                (last, misses, first_miss) = (None, 0, None);
+                continue;
+            }
+            let nonce = inner.next_nonce.fetch_add(1, Ordering::Relaxed);
+            if inner.send_datagram(DATAGRAM_PING, nonce, 0) {
+                inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
+            }
+            (last, resent) = (Some((now, nonce)), false);
         }
     }
 }
@@ -1057,6 +1597,28 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
     }
 }
 
+/// Liveness datagrams from the peer: answer its pings, hand pongs to their
+/// waiters. Any of them proves the peer alive, as a frame does, and the
+/// first one says the peer listens, so this side's pings switch over.
+async fn read_datagrams(inner: Arc<Inner>, mut incoming: mpsc::Receiver<Vec<u8>>) {
+    while let Some(datagram) = incoming.recv().await {
+        let Some((kind, nonce, attempt)) = parse_liveness_datagram(&datagram) else { continue };
+        if inner.closed_reason().is_some() {
+            return;
+        }
+        inner.received();
+        if !inner.datagram_pings.swap(true, Ordering::Relaxed) {
+            tracing::debug!(role = ?inner.role, "peer heard on liveness datagrams: pings go as datagrams");
+        }
+        match kind {
+            DATAGRAM_PING => {
+                inner.send_datagram(DATAGRAM_PONG, nonce, attempt);
+            }
+            _ => inner.ponged(nonce, attempt),
+        }
+    }
+}
+
 async fn read_loop<R>(
     inner: Arc<Inner>,
     stream: usize,
@@ -1091,16 +1653,7 @@ async fn read_loop<R>(
             }
             FrameType::Pong => {
                 if let Ok(bytes) = <[u8; 8]>::try_from(&frame.payload[..]) {
-                    let nonce = u64::from_be_bytes(bytes);
-                    let waiter = inner.pings.lock().unwrap_or_else(PoisonError::into_inner).remove(&nonce);
-                    // A pong to a ping of ours counts as answered even when its caller stopped
-                    // waiting (a probe that saw other traffic first): it was not lost.
-                    if nonce < inner.next_nonce.load(Ordering::Relaxed) {
-                        inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).answered += 1;
-                    }
-                    if let Some(waiter) = waiter {
-                        let _ = waiter.send(Instant::now());
-                    }
+                    inner.ponged(u64::from_be_bytes(bytes), 0);
                 }
             }
             FrameType::Open => {
@@ -1252,17 +1805,31 @@ impl ChannelSender {
     /// Send bytes; writes are split into [`DATA_CHUNK`] frames, and a
     /// channel with [`CHANNEL_QUEUE_BYTES`] already queued waits for room.
     pub async fn send(&self, data: Bytes) -> Result<(), LinkError> {
+        self.send_marked(data, None).await
+    }
+
+    /// [`send`](Self::send), and `mark` is set when the last byte of `data`
+    /// was handed to the transport (the writer's flush after its frame).
+    pub async fn send_marked(
+        &self,
+        data: Bytes,
+        mark: Option<crate::frame::FlushMark>,
+    ) -> Result<(), LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
         }
         let mut rest = data;
+        let mut mark = mark;
         while !rest.is_empty() {
             let chunk = rest.split_to(rest.len().min(DATA_CHUNK));
             if self.inner.closed_reason().is_some() {
                 return Err(self.inner.closed_error());
             }
             let size = chunk.len();
-            let frame = Frame::new(self.id, FrameType::Data, chunk);
+            let mut frame = Frame::new(self.id, FrameType::Data, chunk);
+            if rest.is_empty() {
+                frame.flushed = mark.take();
+            }
             match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
                 Pushed::Queued => {
                     if let Some(meter) = &self.meter {
@@ -1389,12 +1956,53 @@ impl Channel {
 mod tests {
     use super::*;
 
+    #[test]
+    fn probe_timeout_scales_with_the_round_trip() {
+        let floor = Duration::from_secs(1);
+        assert_eq!(probe_timeout(floor, None), floor, "no pong yet: the floor");
+        assert_eq!(probe_timeout(floor, Some(Duration::from_millis(80))), floor, "lte: the floor");
+        assert_eq!(
+            probe_timeout(floor, Some(Duration::from_secs(1))),
+            Duration::from_secs(3),
+            "lossy-10's 1 s round trip"
+        );
+        assert_eq!(probe_timeout(floor, Some(Duration::from_secs(4))), PROBE_TIMEOUT_CAP);
+    }
+
     fn pair() -> (Link, Link) {
         let (a, b) = tokio::io::duplex(64 * 1024);
         (
             Link::new(a, Role::Phone, LinkConfig::default(), None),
             Link::new(b, Role::Mac, LinkConfig::default(), None),
         )
+    }
+
+    #[tokio::test]
+    async fn a_marked_send_is_stamped_when_its_last_byte_is_flushed() {
+        let (phone, mac) = pair();
+        let server = tokio::spawn(async move {
+            let incoming = mac.accept().await.expect("incoming");
+            let (sender, _receiver) = incoming.channel.split();
+            let mark = crate::frame::FlushMark::new();
+            assert_eq!(mark.flushed_us(), None);
+            let before = crate::frame::epoch_us();
+            // Two chunks: the mark rides the last.
+            sender.send_marked(Bytes::from(vec![1u8; DATA_CHUNK + 5]), Some(mark.clone())).await.unwrap();
+            (mac, sender, mark, before)
+        });
+        let mut channel = phone.open("marked", serde_json::json!({})).await.unwrap();
+        let mut got = 0;
+        while got < DATA_CHUNK + 5 {
+            match channel.recv().await.unwrap() {
+                ChannelEvent::Data(bytes) => got += bytes.len(),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        let (_mac, _sender, mark, before) = server.await.unwrap();
+        let flushed = mark.flushed_us().expect("stamped once the phone has the bytes");
+        assert!(flushed >= before);
+        mark.set(flushed + 1_000_000);
+        assert_eq!(mark.flushed_us(), Some(flushed), "the first flush wins");
     }
 
     #[tokio::test]
@@ -1828,6 +2436,8 @@ mod tests {
             keepalive: Some(Duration::from_millis(50)),
             keepalive_timeout: Duration::from_millis(600),
             aligned: false,
+            suspect_after: None,
+            foreground_probe: false,
         };
         let phone = Link::new(a, Role::Phone, config, None);
         // A peer that streams data frames and never answers pings.
@@ -1930,8 +2540,8 @@ mod tests {
         }
     }
 
-    /// Aligned, a peer that stops answering still closes the link 20 s
-    /// after the first unanswered ping.
+    /// Aligned, a peer that stops answering still closes the link
+    /// [`KEEPALIVE_TIMEOUT`] after the first unanswered ping.
     #[tokio::test(start_paused = true)]
     async fn an_aligned_keepalive_still_closes_a_silent_link() {
         let (a, b) = tokio::io::duplex(1024 * 1024);
@@ -1939,11 +2549,12 @@ mod tests {
         // A peer that reads nothing and sends nothing.
         let _peer = b;
         let opened = Instant::now();
-        let reason = tokio::time::timeout(Duration::from_secs(60), phone.closed()).await.expect("closes");
+        let reason = tokio::time::timeout(Duration::from_secs(120), phone.closed()).await.expect("closes");
         assert_eq!(reason, "keepalive timed out");
         let after = opened.elapsed();
-        assert!(after <= Duration::from_secs(30) + Duration::from_millis(1), "closed after {after:?}");
-        assert!(after >= Duration::from_secs(20), "closed after {after:?}");
+        let first_ping = crate::keepalive::BEAT;
+        assert!(after <= first_ping + KEEPALIVE_TIMEOUT + Duration::from_millis(1), "closed after {after:?}");
+        assert!(after >= KEEPALIVE_TIMEOUT, "closed after {after:?}");
     }
 
     /// The app's probes (its 15 s heartbeat, a foreground, a presence change)
@@ -1992,5 +2603,414 @@ mod tests {
         // channel so it is ignored. The link stays up.
         assert!(phone.ping().await.is_ok());
         assert!(!mac.is_closed());
+    }
+
+    /// A phone and a Mac link joined by a network that can go dark: while
+    /// `dark` is true nothing crosses either way (bytes wait, as TCP's do
+    /// inside the tunnel), and they flow again once it is false.
+    fn gated_pair(phone: LinkConfig, mac: LinkConfig) -> (Link, Link, watch::Sender<bool>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (a, a_net) = tokio::io::duplex(1024 * 1024);
+        let (b, b_net) = tokio::io::duplex(1024 * 1024);
+        let dark = watch::channel(false).0;
+        let pump = |mut from: tokio::io::ReadHalf<tokio::io::DuplexStream>,
+                    mut to: tokio::io::WriteHalf<tokio::io::DuplexStream>,
+                    mut dark: watch::Receiver<bool>| async move {
+            let mut buffer = vec![0u8; 16 * 1024];
+            loop {
+                if dark.wait_for(|dark| !dark).await.is_err() {
+                    return;
+                }
+                let n = match from.read(&mut buffer).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => n,
+                };
+                if dark.wait_for(|dark| !dark).await.is_err() || to.write_all(&buffer[..n]).await.is_err() {
+                    return;
+                }
+            }
+        };
+        let (a_read, a_write) = tokio::io::split(a_net);
+        let (b_read, b_write) = tokio::io::split(b_net);
+        tokio::spawn(pump(a_read, b_write, dark.subscribe()));
+        tokio::spawn(pump(b_read, a_write, dark.subscribe()));
+        (Link::new(a, Role::Phone, phone, None), Link::new(b, Role::Mac, mac, None), dark)
+    }
+
+    /// Resolves when `link` turns suspect; how long after `since`.
+    async fn suspect_after(link: &Link, since: Instant) -> Duration {
+        let mut suspect = link.suspect_state();
+        let _ = suspect.wait_for(|suspect| *suspect).await;
+        since.elapsed()
+    }
+
+    /// Idle, the network goes dark: each end is suspect one ping plus
+    /// `SUSPECT_AFTER` in (at most the 15 s keepalive plus 3 s, the bound
+    /// with no app probe), long before the 45 s teardown. A 30 s blackout
+    /// keeps the link: suspect clears on the first frame after it.
+    #[tokio::test(start_paused = true)]
+    async fn an_idle_dark_link_is_suspect_and_survives_30s() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        // Settle past the first keepalive round.
+        tokio::time::sleep(Duration::from_secs(16)).await;
+        assert!(!phone.is_suspect() && !mac.is_suspect());
+        let began = Instant::now();
+        dark.send_replace(true);
+        let bound = Duration::from_secs(15) + SUSPECT_AFTER + Duration::from_millis(10);
+        let (phone_at, mac_at) = tokio::time::timeout(bound, async {
+            tokio::join!(suspect_after(&phone, began), suspect_after(&mac, began))
+        })
+        .await
+        .expect("both ends suspect within one keepalive plus SUSPECT_AFTER");
+        assert!(phone_at >= SUSPECT_AFTER && mac_at >= SUSPECT_AFTER, "{phone_at:?} {mac_at:?}");
+        tokio::time::sleep_until(began + Duration::from_secs(30)).await;
+        assert!(!phone.is_closed() && !mac.is_closed(), "closed inside a 30 s blackout");
+        assert!(phone.is_suspect() && mac.is_suspect());
+        let back = Instant::now();
+        dark.send_replace(false);
+        // The next suspect probe (every SUSPECT_PROBE) is answered.
+        let mut state = phone.suspect_state();
+        tokio::time::timeout(SUSPECT_PROBE + Duration::from_millis(100), state.wait_for(|suspect| !suspect))
+            .await
+            .expect("alive again within one suspect probe")
+            .unwrap();
+        assert!(back.elapsed() <= SUSPECT_PROBE + Duration::from_millis(100));
+        assert!(phone.ping().await.is_ok());
+        assert!(!mac.is_suspect());
+        assert!(!phone.is_closed() && !mac.is_closed());
+    }
+
+    /// Past `KEEPALIVE_TIMEOUT` of darkness the link still closes: suspect
+    /// first, teardown later.
+    #[tokio::test(start_paused = true)]
+    async fn a_dark_link_closes_only_at_the_keepalive_timeout() {
+        let (phone, _mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        tokio::time::sleep(Duration::from_secs(16)).await;
+        let began = Instant::now();
+        dark.send_replace(true);
+        let suspect = suspect_after(&phone, began).await;
+        let reason = phone.closed().await;
+        let closed = began.elapsed();
+        assert_eq!(reason, "keepalive timed out");
+        assert!(suspect < Duration::from_secs(19), "{suspect:?}");
+        assert!(closed >= KEEPALIVE_TIMEOUT, "{closed:?}");
+        assert!(
+            closed <= Duration::from_secs(15) + KEEPALIVE_TIMEOUT + Duration::from_millis(10),
+            "{closed:?}"
+        );
+    }
+
+    /// Busy (a frame each way every 100 ms), the network goes dark: the
+    /// sender's unanswered data gets a ping after `OUTSTANDING_PROBE`, and
+    /// the link is suspect `SUSPECT_AFTER` later, about 5 s, whatever the
+    /// keepalive's phase.
+    #[tokio::test(start_paused = true)]
+    async fn a_busy_dark_link_is_suspect_in_about_5s() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let echo = tokio::spawn(async move {
+            let mut incoming = mac.accept().await.expect("echo");
+            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                if incoming.channel.send(bytes).await.is_err() {
+                    break;
+                }
+            }
+            mac
+        });
+        let channel = phone.open("echo", serde_json::json!({})).await.unwrap();
+        let (sender, mut receiver) = channel.split();
+        tokio::spawn(async move { while receiver.recv().await.is_some() {} });
+        tokio::spawn(async move {
+            while sender.send(Bytes::from_static(b"frame")).await.is_ok() {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+        // Mid keepalive interval: the keepalive is no help here.
+        tokio::time::sleep(Duration::from_secs(7)).await;
+        assert!(!phone.is_suspect());
+        let began = Instant::now();
+        dark.send_replace(true);
+        let at = suspect_after(&phone, began).await;
+        let bound = OUTSTANDING_PROBE + SUSPECT_AFTER + Duration::from_millis(200);
+        assert!(at <= bound && at >= SUSPECT_AFTER, "suspect after {at:?}");
+        dark.send_replace(false);
+        let mut state = phone.suspect_state();
+        tokio::time::timeout(Duration::from_secs(2), state.wait_for(|suspect| !suspect))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!phone.is_closed());
+        echo.abort();
+    }
+
+    /// A one-way stream with a live peer (terminal output to a phone that
+    /// sends nothing) is never suspect: the Mac's unanswered data gets a
+    /// ping every `OUTSTANDING_PROBE`, and the pong answers it.
+    #[tokio::test(start_paused = true)]
+    async fn a_one_way_stream_to_a_live_peer_is_never_suspect() {
+        let (phone, mac, _dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let flagged = Arc::new(AtomicBool::new(false));
+        let watcher = {
+            let mut suspect = mac.suspect_state();
+            let flagged = Arc::clone(&flagged);
+            tokio::spawn(async move {
+                if suspect.wait_for(|suspect| *suspect).await.is_ok() {
+                    flagged.store(true, Ordering::SeqCst);
+                }
+            })
+        };
+        let server = tokio::spawn(async move {
+            let incoming = mac.accept().await.expect("feed");
+            for _ in 0..600 {
+                if incoming.channel.send(Bytes::from_static(&[7u8; 256])).await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            mac
+        });
+        let mut feed = phone.open("feed", serde_json::json!({})).await.unwrap();
+        tokio::spawn(async move { while feed.recv().await.is_some() {} });
+        let mac = server.await.unwrap();
+        assert!(!flagged.load(Ordering::SeqCst), "a live one-way stream was suspect");
+        assert!(!mac.is_suspect() && !phone.is_suspect());
+        watcher.abort();
+    }
+
+    /// With the suspect signal off (`suspect_after: None`), nothing extra is
+    /// sent and the link is never suspect: the old behavior.
+    #[tokio::test(start_paused = true)]
+    async fn the_suspect_signal_can_be_turned_off() {
+        let off = LinkConfig { suspect_after: None, ..LinkConfig::default() };
+        let (phone, _mac, dark) = gated_pair(off.clone(), off);
+        tokio::time::sleep(Duration::from_secs(16)).await;
+        dark.send_replace(true);
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        assert!(!phone.is_suspect());
+        assert!(!phone.is_closed());
+    }
+
+    /// Two linked datagram lanes; `drop_first` of the phone's datagrams are lost.
+    fn datagram_pair(
+        phone_listening: bool,
+        mac_listening: bool,
+        drop_first: usize,
+    ) -> (LivenessDatagrams, LivenessDatagrams) {
+        fn wire(drop_first: usize) -> (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) {
+            let (outgoing, mut sent) = mpsc::channel::<Vec<u8>>(64);
+            let (delivered, incoming) = mpsc::channel(64);
+            tokio::spawn(async move {
+                let mut seen = 0;
+                while let Some(datagram) = sent.recv().await {
+                    seen += 1;
+                    if seen > drop_first {
+                        let _ = delivered.try_send(datagram);
+                    }
+                }
+            });
+            (outgoing, incoming)
+        }
+        let (phone_out, mac_in) = wire(drop_first);
+        let (mac_out, phone_in) = wire(0);
+        (
+            LivenessDatagrams { outgoing: phone_out, incoming: phone_in, peer_listening: mac_listening },
+            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: phone_listening },
+        )
+    }
+
+    /// The Mac's stream stalls after one byte (its writes never finish):
+    /// an in-stream pong would never come back.
+    fn stalled_pair() -> (Link, Link) {
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let b = Throttled { inner: b, chunk: 1, pause: Duration::from_secs(3600), sleep: None };
+        let config = LinkConfig { keepalive: None, suspect_after: None, ..LinkConfig::default() };
+        (Link::new(a, Role::Phone, config.clone(), None), Link::new(b, Role::Mac, config, None))
+    }
+
+    /// Pings as datagrams do not wait for the stream: a Mac whose stream is
+    /// stuck still answers, and its own pings switch to datagrams once it
+    /// hears the phone's.
+    #[tokio::test]
+    async fn datagram_pings_skip_a_stalled_stream() {
+        let (phone, mac) = stalled_pair();
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        // The Mac listed the lane; the phone binds after its answer.
+        let mac_lane = LivenessDatagrams { peer_listening: false, ..mac_lane };
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        assert!(phone.pings_as_datagrams());
+        assert!(!mac.pings_as_datagrams());
+        let rtt =
+            tokio::time::timeout(Duration::from_secs(2), phone.ping()).await.expect("datagram pong").unwrap();
+        assert!(rtt < Duration::from_millis(500), "{rtt:?}");
+        assert!(mac.pings_as_datagrams(), "the Mac heard the phone's datagram");
+        tokio::time::timeout(Duration::from_secs(2), mac.ping()).await.expect("datagram pong").unwrap();
+        let stats = phone.take_ping_stats();
+        assert_eq!((stats.sent, stats.answered, stats.waiting), (1, 1, 0));
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// A lost datagram ping is sent again; the round trip is the resend's,
+    /// not the time since the first.
+    #[tokio::test]
+    async fn a_lost_datagram_ping_is_resent() {
+        let (phone, mac) = stalled_pair();
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 2);
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        let started = Instant::now();
+        let rtt = tokio::time::timeout(Duration::from_secs(3), phone.ping()).await.expect("resent").unwrap();
+        let waited = started.elapsed();
+        assert!(waited >= DATAGRAM_PING_RESEND * 2, "answered after {waited:?}");
+        assert!(rtt < Duration::from_millis(300), "rtt {rtt:?} counts the lost tries");
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// A datagram ping whose every try is lost goes into the stream too, so
+    /// it is still answered (the unaligned keepalive waits for its pong).
+    #[tokio::test]
+    async fn a_datagram_ping_falls_back_to_the_stream() {
+        let (phone, mac) = pair();
+        let (phone_lane, mac_lane) = datagram_pair(true, true, usize::MAX);
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        let started = Instant::now();
+        tokio::time::timeout(Duration::from_secs(5), phone.ping()).await.expect("stream pong").unwrap();
+        let waited = started.elapsed();
+        let tries = DATAGRAM_PING_RESEND * u32::from(DATAGRAM_PING_ATTEMPTS);
+        assert!(waited >= tries, "answered after {waited:?}, before the stream fallback");
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// A stream ping sent before the peer was heard on datagrams (stuck
+    /// behind a stalled stream here) is answered by datagram once it is.
+    #[tokio::test]
+    async fn a_stream_ping_gets_datagram_tries_once_the_peer_is_heard() {
+        let (phone, mac) = stalled_pair();
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        let mac_lane = LivenessDatagrams { peer_listening: false, ..mac_lane };
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        let waiting = tokio::spawn({
+            let mac = mac.clone();
+            async move { mac.ping().await }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // The phone's first ping makes the Mac switch.
+        tokio::time::timeout(Duration::from_secs(2), phone.ping()).await.expect("phone pong").unwrap();
+        let rtt =
+            tokio::time::timeout(Duration::from_secs(2), waiting).await.expect("answered").unwrap().unwrap();
+        assert!(rtt < Duration::from_millis(300), "rtt {rtt:?} is the datagram try's");
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// Until the peer is known to listen, pings stay in the stream: a phone
+    /// whose Mac has no datagram lane pings as before.
+    #[tokio::test]
+    async fn pings_stay_in_the_stream_until_the_peer_listens() {
+        let (phone, mac) = pair();
+        let (phone_lane, _mac_lane) = datagram_pair(true, false, 0);
+        phone.attach_liveness_datagrams(phone_lane);
+        assert!(!phone.pings_as_datagrams());
+        tokio::time::timeout(Duration::from_secs(2), phone.ping()).await.expect("stream pong").unwrap();
+        assert!(!phone.pings_as_datagrams());
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// Liveness datagrams across `dark` (dropped while it is true, as a dead
+    /// path drops them), counting what the phone sends.
+    fn gated_datagrams(
+        dark: &watch::Sender<bool>,
+        phone_sent: Arc<AtomicU64>,
+    ) -> (LivenessDatagrams, LivenessDatagrams) {
+        fn wire(
+            dark: watch::Receiver<bool>,
+            sent: Option<Arc<AtomicU64>>,
+        ) -> (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) {
+            let (outgoing, mut from) = mpsc::channel::<Vec<u8>>(64);
+            let (delivered, incoming) = mpsc::channel(64);
+            tokio::spawn(async move {
+                while let Some(datagram) = from.recv().await {
+                    if let Some(sent) = &sent {
+                        sent.fetch_add(1, Ordering::Relaxed);
+                    }
+                    if !*dark.borrow() {
+                        let _ = delivered.try_send(datagram);
+                    }
+                }
+            });
+            (outgoing, incoming)
+        }
+        let (phone_out, mac_in) = wire(dark.subscribe(), Some(phone_sent));
+        let (mac_out, phone_in) = wire(dark.subscribe(), None);
+        (
+            LivenessDatagrams { outgoing: phone_out, incoming: phone_in, peer_listening: true },
+            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: true },
+        )
+    }
+
+    /// In the foreground the phone probes every `FOREGROUND_PROBE` over the
+    /// datagram lane and is suspect after `FOREGROUND_PROBE_MISSES` of them
+    /// go unanswered: within 3 x 3 s of the network going dark, not the
+    /// 15 s keepalive plus `SUSPECT_AFTER`. Backgrounded it is the keepalive
+    /// alone again.
+    #[tokio::test(start_paused = true)]
+    async fn a_foreground_probe_finds_a_dark_link_in_two_misses() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let sent = Arc::new(AtomicU64::new(0));
+        let (phone_lane, mac_lane) = gated_datagrams(&dark, Arc::clone(&sent));
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        assert!(!phone.foreground_probe());
+        phone.set_foreground_probe(true);
+        // Settle into the probe's beat, between two probes.
+        tokio::time::sleep(Duration::from_millis(16_500)).await;
+        assert!(!phone.is_suspect() && !mac.is_suspect(), "a false suspect on a live link");
+        let began = Instant::now();
+        dark.send_replace(true);
+        let bound = FOREGROUND_PROBE * (FOREGROUND_PROBE_MISSES + 1) + Duration::from_millis(10);
+        let at = tokio::time::timeout(bound, suspect_after(&phone, began))
+            .await
+            .expect("suspect within three foreground probes");
+        assert!(at >= FOREGROUND_PROBE * FOREGROUND_PROBE_MISSES - FOREGROUND_PROBE, "suspect after {at:?}");
+        dark.send_replace(false);
+        let mut state = phone.suspect_state();
+        tokio::time::timeout(SUSPECT_PROBE + Duration::from_millis(100), state.wait_for(|suspect| !suspect))
+            .await
+            .expect("alive again within one suspect probe")
+            .unwrap();
+        // Backgrounded: a quiet minute costs the keepalive's pings alone.
+        phone.set_foreground_probe(false);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let from = sent.load(Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let background = sent.load(Ordering::Relaxed) - from;
+        // Its keepalive pings and its pongs to the Mac's: 4 each.
+        assert!(background <= 10, "{background} datagrams in a backgrounded minute");
+        phone.set_foreground_probe(true);
+        let from = sent.load(Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let foreground = sent.load(Ordering::Relaxed) - from;
+        // 20 probes besides.
+        assert!((26..=32).contains(&foreground), "{foreground} datagrams in a foreground minute");
+        assert!(!phone.is_closed() && !mac.is_closed());
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// With no datagram lane (WebRTC, loopback) the foreground probe stays
+    /// off: the link pings only on its keepalive.
+    #[tokio::test(start_paused = true)]
+    async fn no_datagram_lane_no_foreground_probe() {
+        let (phone, mac, _dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        phone.set_foreground_probe(true);
+        tokio::time::sleep(Duration::from_secs(31)).await;
+        assert_eq!(phone.take_ping_stats().sent, 2, "only the keepalive's pings");
+        phone.close("done");
+        mac.close("done");
     }
 }

@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 use super::answer::{
     Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply, token_subject,
 };
-use super::client::{Marks, PARK_REDIAL, classify, park_until, pinned_daemon, resume_outcome};
+use super::client::{
+    Marks, PARK_REDIAL, PEER_JOIN_REDIAL, classify, join_stalled, park_until, peer_join_wait,
+    pinned_daemon, resume_outcome,
+};
 use super::contract::{
     Failure, Phase, PhaseTimes, PhasesOf, StdinLine, Step, Vmk, answer_line, connected_line,
     detail_code, failure_line, parse_deadline, phases_line, route_line, served_line, serving_line,
@@ -418,6 +421,69 @@ fn a_parked_link_is_redialed_long_before_the_deadline() {
     assert_eq!(park_until(deadline, now), now + PARK_REDIAL);
     let nearly = now + Duration::from_secs(3);
     assert_eq!(park_until(nearly, now), nearly);
+}
+
+/// A circuit the daemon never joins is given up after [`PEER_JOIN_REDIAL`] on the first
+/// attempt, not the 15 s control timeout; each attempt that stalled at the join doubles the next
+/// one's wait, up to that timeout, so a daemon that is only slow to join still connects.
+#[test]
+fn a_join_the_daemon_never_answers_is_redialed_in_seconds_and_backs_off() {
+    assert_eq!(peer_join_wait(0), PEER_JOIN_REDIAL);
+    assert!(PEER_JOIN_REDIAL <= Duration::from_secs(5), "{PEER_JOIN_REDIAL:?}");
+    assert_eq!(peer_join_wait(1), PEER_JOIN_REDIAL * 2);
+    assert_eq!(peer_join_wait(2), Duration::from_secs(15));
+    assert_eq!(peer_join_wait(40), Duration::from_secs(15));
+    assert!(join_stalled(&Failure::retry(
+        Step::Relay,
+        "link transport failed: relay circuit join timed out"
+    )));
+    assert!(!join_stalled(&Failure::retry(Step::Parked, "relay allocation timed out")));
+}
+
+/// A daemon that never answers a first connect's handshake is given up after
+/// [`HANDSHAKE_REDIAL`], not the 15 s handshake timeout; each attempt that stalled there doubles
+/// the next one's wait, up to that timeout, so a daemon that is only slow to answer still connects.
+#[test]
+fn a_handshake_the_daemon_never_answers_is_redialed_in_seconds_and_backs_off() {
+    use super::client::{HANDSHAKE_REDIAL, handshake_stalled, handshake_wait};
+    assert_eq!(handshake_wait(0), HANDSHAKE_REDIAL);
+    assert!(HANDSHAKE_REDIAL <= Duration::from_secs(5), "{HANDSHAKE_REDIAL:?}");
+    assert_eq!(handshake_wait(1), HANDSHAKE_REDIAL * 2);
+    assert_eq!(handshake_wait(2), Duration::from_secs(15));
+    assert_eq!(handshake_wait(40), Duration::from_secs(15));
+    assert!(!handshake_stalled(&Failure::retry(Step::Handshake, "the handshake timed out")));
+}
+
+/// The watch starts at the first lane's allocation (or the connection's start, when the link was
+/// allocated before it, while the dial asked for the daemon key), never during the park, and its
+/// failure is a retryable handshake failure the dial counts as a stall.
+#[tokio::test(start_paused = true)]
+async fn a_handshake_watch_runs_from_the_first_allocated_lane() {
+    use super::client::{HANDSHAKE_REDIAL, Progress, handshake_stalled, handshake_watch};
+    use tokio::time::{Instant, sleep, timeout};
+    let step = std::sync::Arc::new(Progress::default());
+    let began = Instant::now();
+    let watch = tokio::spawn({
+        let step = step.clone();
+        async move { (handshake_watch(&step, began, HANDSHAKE_REDIAL).await, Instant::now()) }
+    });
+    // Parked for 30 s: nothing fires while the relay has not allocated a lane.
+    sleep(Duration::from_secs(30)).await;
+    assert!(!watch.is_finished());
+    step.allocated_lane();
+    let allocated = Instant::now();
+    step.allocated_lane();
+    let (failure, fired) = watch.await.unwrap();
+    assert_eq!(fired - allocated, HANDSHAKE_REDIAL);
+    assert_eq!(failure.step, Step::Handshake);
+    assert!(failure.retryable && handshake_stalled(&failure), "{failure:?}");
+    assert_eq!(detail_code(&failure.detail).as_deref(), Some("timeout"));
+    // Allocated before the connection began: the wait runs from its start.
+    let since = Instant::now() + Duration::from_secs(6);
+    sleep(Duration::from_secs(6)).await;
+    let late = timeout(HANDSHAKE_REDIAL * 2, handshake_watch(&step, since, HANDSHAKE_REDIAL));
+    late.await.expect("the watch fires");
+    assert_eq!(Instant::now() - since, HANDSHAKE_REDIAL);
 }
 
 #[test]

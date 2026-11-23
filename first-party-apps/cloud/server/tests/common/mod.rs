@@ -2,11 +2,11 @@
 //! come from the vectors fake (`wire_common`, `backend/catalog/cloud-vectors.json`)
 //! plus the link-test names below. It never touches a network.
 //!
-//! The link tests name their machines `vm-alpha01` and `vm-beta02`, which no
+//! The link tests name their machines `vm_alpha01` and `vm_beta02`, which no
 //! vector holds. Three names in [`FakeControlPlane::with`] serve them:
 //! `vm-get` (every `cloud.machine.get` answers a running machine of that id),
-//! `vm-list` (`cloud.machine.list {}` answers `vm-alpha01` running and
-//! `vm-beta02` paused) and `vm-resume` (every `cloud.machine.start` answers
+//! `vm-list` (`cloud.machine.list {}` answers `vm_alpha01` running and
+//! `vm_beta02` paused) and `vm-resume` (every `cloud.machine.start` answers
 //! the machine running). `vm-start-not-paused` answers every start with
 //! `cloud.machine.not_paused` (state running): something else, such as
 //! inbound traffic, woke the machine first.
@@ -222,7 +222,7 @@ impl FakeControlPlane {
     /// The link-test answer for a call no vector holds. `connect_info`
     /// answers every link-test machine (bound, no capabilities) unless a
     /// `connect-info-*` name sets its capabilities; `vm-get-unbound` makes it
-    /// `cloud.machine.not_bound`; `vm-beta02` of `vm-list` is paused until a
+    /// `cloud.machine.not_bound`; `vm_beta02` of `vm-list` is paused until a
     /// start.
     fn link_answer(&mut self, call: &WireCall) -> Option<WireReply> {
         let machine = call.params.get("machine").and_then(Value::as_str);
@@ -254,11 +254,15 @@ impl FakeControlPlane {
                 if let Some(kind) = self.vm_kind {
                     info["vm_kind"] = json!(kind);
                 }
-                if self.list_two && id == "vm-beta02" && !self.started.iter().any(|s| s == id) {
+                if self.list_two && id == "vm_beta02" && !self.started.iter().any(|s| s == id) {
                     info["state"] = json!("paused");
                 }
                 info
             }
+            ("cloud.machine.get", Some(id)) if self.list_two && id == "vm_beta02" => link_machine(
+                id,
+                if self.started.iter().any(|s| s == id) { "running" } else { "paused" },
+            ),
             ("cloud.machine.get", Some(id)) if self.get_any => link_machine(id, "running"),
             ("cloud.machine.start", Some(id)) if self.start_not_paused => {
                 self.started.push(id.to_owned());
@@ -276,12 +280,17 @@ impl FakeControlPlane {
                 json!({ "machine": running })
             }
             ("cloud.machine.list", None) if self.list_two && call.params == json!({}) => {
-                json!({ "machines": [link_machine("vm-alpha01", "running"),
-                    link_machine("vm-beta02", "paused")], "next_cursor": null, "revision": "1" })
+                json!({ "machines": [link_machine("vm_alpha01", "running"),
+                    link_machine("vm_beta02", "paused")], "next_cursor": null, "revision": "1" })
             }
             _ => return None,
         };
-        Some(WireReply::Result(WireResult { value, revision: Some("1".into()), replayed: false }))
+        let revision = if call.op == "cloud.machine.start" { "2" } else { "1" };
+        Some(WireReply::Result(WireResult {
+            value,
+            revision: Some(revision.into()),
+            replayed: false,
+        }))
     }
 }
 
