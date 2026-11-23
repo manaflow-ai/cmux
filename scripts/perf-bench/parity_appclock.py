@@ -120,7 +120,7 @@ def now_ns():
 
 
 def pause(seconds):
-    time.sleep(seconds)  # bench: pacing of synthetic input, never a wait for app state
+    time.sleep(seconds)  # sleep-ok: bench pacing of synthetic input, never a wait for app state
 
 
 def sleep_until(deadline_ns):

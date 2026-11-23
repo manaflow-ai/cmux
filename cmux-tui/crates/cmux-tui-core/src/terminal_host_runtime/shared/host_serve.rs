@@ -267,6 +267,20 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     // as a renderer disconnect.
     let (sender, receiver) = mpsc_channel();
     let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
+    // The daemon's own mirror (the owner token's smart admin connection with
+    // clipboard reads: a surface's, never a one-shot) holds the PTY reader
+    // back when it falls 8 MiB behind, instead of being cut off and resynced
+    // from a snapshot with the bytes in between lost. Every other client
+    // keeps the cutoff, so a stuck viewer cannot hold the terminal or pin
+    // more memory.
+    let tap = if smart_renderer
+        && hello.role == ClientRole::Admin
+        && granted_rights.contains(CapabilityRights::CLIPBOARD_READ)
+    {
+        tap.with_backpressure()
+    } else {
+        tap
+    };
     let command_sender = tap.clone();
     let (snapshot, colors, snapshot_sequence, replay_gap, _active_client_stream) = {
         // Wait for a parser boundary without blocking resize or cell-metric

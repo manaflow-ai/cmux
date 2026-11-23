@@ -55,6 +55,17 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var historyRows = 0
     /// The lane refuses `replay_history_rows` (a Mac app older than its daemon).
     var laneRefusesHistoryRows = false
+    /// `identify` advertises attach-replay-history-window-v1: an attach with
+    /// `replay_history_start` gets that window of `historyRows` and the
+    /// screen, as cmux-tui's `HistoryWindow::plan` sends it (at most 10,000
+    /// rows; a gap shorter than the window is sent as rows down to the screen).
+    var windowReplay = false
+    /// The lane refuses `replay_history_start` (a Mac app older than its
+    /// daemon, whose daemon still advertises the window).
+    var laneRefusesHistoryStart = false
+    /// History rows each attach's replay held (tail or window), in order.
+    private var heldRows: [Int] = []
+    var replayedHistoryRows: [Int] { lock.withLock { heldRows } }
     /// A daemon that knows the hybrid stream (`agent-cli-hybrid-v1`): an attach of a
     /// connection that declared it gets these events after its reply instead of `afterAttach`
     /// (empty: the daemon is older than the hybrid stream and ignores the capability).
@@ -103,9 +114,12 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             if lock.withLock({ advertisesHybrid }) { capabilities += ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"] }
             if sharedSizing { capabilities += ["shared-sizing-v1", "host-size-policy-v1"] }
             if tailReplay { capabilities.append("attach-replay-history-rows-v1") }
+            if lock.withLock({ windowReplay }) { capabilities.append("attach-replay-history-window-v1") }
             if sendKeys { capabilities.append("send-key-v1") }
             if pasteSubmit { capabilities.append("send-expect-agent-v1") }
             return [reply(["capabilities": capabilities])]
+        case "attach-surface" where object["replay_history_start"] != nil && lock.withLock({ laneRefusesHistoryStart }):
+            return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_start from a phone"])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
             return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_rows from a phone"])]
         case "get-host-size-policy":
@@ -166,11 +180,29 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             }
             var state: [String: Any] = ["event": "vt-state", "surface": live, "cols": 80, "rows": 24,
                                         "data": Data(replay.utf8).base64EncodedString()]
-            if let allowance = object["replay_history_rows"] as? Int, lock.withLock({ tailReplay }) {
-                let history = lock.withLock { historyRows }
+            let history = lock.withLock { historyRows }
+            if let allowance = object["replay_history_rows"] as? Int, let asked = object["replay_history_start"] as? Int,
+               lock.withLock({ tailReplay && windowReplay }) {
+                let rows = min(max(allowance, 1), 10_000)
+                let start = min(asked, history)
+                let skipped = max(0, history - (start + rows))
+                if skipped < rows {
+                    state["history_rows_omitted"] = start
+                    state["data"] = Data("[rows \(start)..<\(history)]\(replay)".utf8).base64EncodedString()
+                    lock.withLock { heldRows.append(history - start) }
+                } else {
+                    state["history_rows_omitted"] = start
+                    state["history_rows_skipped"] = skipped
+                    state["data"] = Data("[rows \(start)..<\(start + rows)]\(replay)".utf8).base64EncodedString()
+                    lock.withLock { heldRows.append(rows) }
+                }
+            } else if let allowance = object["replay_history_rows"] as? Int, lock.withLock({ tailReplay }) {
                 let kept = min(history, allowance)
                 state["history_rows_omitted"] = history - kept
                 state["data"] = Data("[\(kept) rows]\(replay)".utf8).base64EncodedString()
+                lock.withLock { heldRows.append(kept) }
+            } else {
+                lock.withLock { heldRows.append(history) }
             }
             let lines: [Data] = [
                 Self.line(state),

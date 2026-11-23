@@ -62,6 +62,12 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
+// The hat names the longest-running command (trayFoldHead.experiment.ts `two`; its default is now `kinds`).
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "subagent-tray-fold-head": "two" };
+afterAll(() => {
+  if (globalThis.cmuxExperiments)
+    delete (globalThis.cmuxExperiments as Record<string, string>)["subagent-tray-fold-head"];
+});
 
 const now = Date.now();
 const plan: AcpmuxPlanEntry[] = [

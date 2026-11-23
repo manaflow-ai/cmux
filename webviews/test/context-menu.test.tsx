@@ -428,8 +428,7 @@ test("a disabled row is dimmed and a long label has no tooltip", async () => {
   const rows = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
   // The selector ui.css dims must match the disabled row.
   const css = readFileSync(join(import.meta.dir, "../src/ui/ui.css"), "utf8");
-  const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  const dimmed = /([^{}]+)\{\s*opacity:\s*var\(--ds-disabled-opacity,\s*0\.6\);\s*\}/.exec(bare)![1]!.trim();
+  const dimmed = /([^{}]+)\{\s*opacity:\s*var\(--ds-disabled-opacity[^;]*;\s*\}/.exec(css)![1]!.trim();
   expect(rows[1]!.matches(dimmed)).toBe(true);
   // A long label shows its own text, cut off, with no tooltip (test/tooltip-rules.ts).
   expect(rows[0]!.querySelector<HTMLElement>(".ui-menu-label")?.textContent).toBe(long);

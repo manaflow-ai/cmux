@@ -12,7 +12,7 @@
 import type { DiffViewerAppearance, DiffViewerTheme } from "../../appearance";
 import type { GhosttyTheme } from "./ghostty";
 import { appThemeVariables, type AppAccent, type AppTheme } from "../../theme/appTheme";
-import { cardMaterial, OPAQUE_OVERLAY_LIFT, scrim, tooltipSurface } from "./overlays";
+import { cardMaterial, menuClear, OPAQUE_OVERLAY_LIFT, scrim, tooltipSurface } from "./overlays";
 import type { TitleAreaToneName } from "../env";
 import {
   BLACK,
@@ -109,6 +109,8 @@ export function webThemePayload(
       "--cmux-tooltip-ink": css(tooltip.ink),
       "--cmux-card-tint": css(card.tint),
       "--cmux-card-rim": lines ? css(card.rim) : "transparent",
+      // A menu's veil as the share a web menu's own glass lets through (WebTheme.menuClear, overlays.ts menuClear).
+      "--cmux-menu-clear": menuClear(tokens).toFixed(3),
       "--cmux-scrim": css(scrim(tokens)),
       "--cmux-text": css(tokens.textPrimary),
       "--cmux-text-secondary": css(tokens.textSecondary),
@@ -129,6 +131,7 @@ export function webThemePayload(
       // no sidebar color.
       "--cmux-sidebar-surface": shade > 0 ? css(withAlpha(BLACK, shade)) : "transparent",
       "--cmux-hover": css(tokens.hoverFill),
+      // A pressed row's fill, as WebTheme.swift sends it (Palette.pressedFill).
       "--cmux-pressed": css(tokens.pressedFill),
       "--cmux-selection": css(tokens.selectionFill),
       // The gallery has no Ghostty cursor color: the text color. Selected text is the app's one
@@ -155,6 +158,9 @@ export function webThemePayload(
     statusIndicators: options.reducedMotion ? "static" : "animated",
     workingLook: "spinner",
     motion: options.reducedMotion ? "reduced" : "full",
+    // The gallery keeps glass by default, though the app sends "off" until Settings > Appearance >
+    // Liquid Glass is on: its states show each glass surface, and the off look has its own states
+    // (agent-pane.composer-look/composer-material-liquid-glass-off).
     glass: options.glass ?? "plain",
   };
 }

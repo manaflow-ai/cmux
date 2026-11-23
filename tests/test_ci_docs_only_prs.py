@@ -93,7 +93,6 @@ SCOPED: dict[str, str] = {
     "coderouter-ci.yml": "coderouter/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
-    "fleet-rd-host-macos.yml": "cmux-tui/crates/cmux-rd-host/**",
     "fleet-test-compile.yml": "Packages/Shared/**",
     "gallery-advisory.yml": "webviews/** and scripts/gallery-matrix/**",
     "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
