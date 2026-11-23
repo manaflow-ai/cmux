@@ -37,9 +37,13 @@ pub(crate) const READ_WAIT: Duration = Duration::from_millis(750);
 pub(crate) struct UsageCache {
     trackers: Arc<StdMutex<HashMap<String, Tracker>>>,
     stats: Arc<StdMutex<HashMap<String, UsageStats>>>,
-    /// Held for a pass, with when the last one started: a read that comes
-    /// meanwhile waits for it instead of reading the stats it is about to replace.
-    pass: tokio::sync::Mutex<u64>,
+    /// Held for a pass, whole or a turn's own, by the task that runs it, never by a read: a
+    /// read that stops waiting leaves it held until the pass ends.
+    pass: tokio::sync::Mutex<()>,
+    /// Whether a whole pass runs or is due, and when the last began ([`WholePasses`]).
+    whole: StdMutex<WholePasses>,
+    /// How many whole passes ended: a read waits until the pass it needs has.
+    ended: Ended,
     /// A turn ended since the last pass began: the next read reads, however soon.
     dirty: AtomicBool,
     /// How many whole passes ran, and how many chats the last one read: a gate's timed pass is
@@ -48,6 +52,69 @@ pub(crate) struct UsageCache {
     passes: std::sync::atomic::AtomicU64,
     #[cfg(test)]
     sources_read: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    probe: Arc<PassProbe>,
+}
+
+/// The whole passes reads share. One task runs them one after another, to their ends, whoever
+/// still waits; a read that comes while one runs waits for it, or for the one after it when a
+/// turn ended since (`again`). So at most one pass runs and one is due, however many reads
+/// come and give up (huge-blue, 2026-11-19: each read that gave up at [`READ_WAIT`] let the
+/// next one begin a pass of its own, and they queued in the blocking pool by the hundred, the
+/// daemon at 25 GB and 110% CPU, every session read past 30 s).
+#[derive(Default)]
+struct WholePasses {
+    running: bool,
+    again: bool,
+    last_start: u64,
+}
+
+/// The count of whole passes ended, which reads wait on.
+struct Ended(tokio::sync::watch::Sender<u64>);
+
+impl Default for Ended {
+    fn default() -> Self {
+        Self(tokio::sync::watch::Sender::new(0))
+    }
+}
+
+/// A driver that panics or is aborted ends the passes as one that ends does: the next read
+/// starts one, and every read waiting goes on with the last pass's stats. Made before the spawn
+/// and moved into the task, so a task aborted before its first poll (spawned on a closing
+/// scope) resets them too. Disarmed on a driver's own end, which resets them itself.
+struct Unwind(Arc<Hub>, bool);
+
+impl Drop for Unwind {
+    fn drop(&mut self) {
+        if self.1 {
+            let cache = &self.0.usage_stats;
+            let mut whole = cache.whole.lock().unwrap_or_else(|e| e.into_inner());
+            (whole.running, whole.again) = (false, false);
+            // A read waits for at most the pass after the one that ran: two past what it saw.
+            cache.ended.0.send_modify(|n| *n += 2);
+        }
+    }
+}
+
+/// A test's view into the blocking passes: how many are begun and not ended (queued on the
+/// trackers' lock or reading), the most at once, and a delay each pass sleeps first.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct PassProbe {
+    pub(crate) in_flight: std::sync::atomic::AtomicUsize,
+    pub(crate) peak: std::sync::atomic::AtomicUsize,
+    pub(crate) delay_ms: std::sync::atomic::AtomicU64,
+}
+
+/// Counts a test's blocking pass ended when dropped.
+#[cfg(test)]
+struct PassEnd(Arc<PassProbe>);
+
+#[cfg(test)]
+impl Drop for PassEnd {
+    fn drop(&mut self) {
+        self.0.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// Drops the trackers and stats of chats not in `sources` (a whole pass's chats): closed a day
@@ -74,16 +141,57 @@ pub(super) fn prune_unlisted<T, S>(
 
 impl Hub {
     /// Reads every chat's usage, after the pass that runs if one does, unless one started in
-    /// the last few seconds and no turn ended since.
-    pub(crate) async fn refresh_usage_stats(&self) {
-        let mut last = self.usage_stats.pass.lock().await;
-        let now = crate::store::now_ms();
-        let dirty = self.usage_stats.dirty.swap(false, Ordering::SeqCst);
-        if !dirty && now.saturating_sub(*last) < REFRESH_EVERY_MS {
-            return;
+    /// the last few seconds and no turn ended since. The pass is shared ([`WholePasses`]): a
+    /// read that stops waiting ends no pass and starts none of its own.
+    pub(crate) async fn refresh_usage_stats(self: &Arc<Self>) {
+        let cache = &self.usage_stats;
+        let mut ended = cache.ended.0.subscribe();
+        let (target, start) = {
+            let mut whole = cache.whole.lock().unwrap_or_else(|e| e.into_inner());
+            let now = crate::store::now_ms();
+            let dirty = cache.dirty.swap(false, Ordering::SeqCst);
+            let done = *ended.borrow_and_update();
+            if whole.running {
+                // The running pass began before this read; a turn ended since needs the next.
+                whole.again |= dirty;
+                (done + if whole.again { 2 } else { 1 }, false)
+            } else {
+                if !dirty && now.saturating_sub(whole.last_start) < REFRESH_EVERY_MS {
+                    return;
+                }
+                whole.running = true;
+                whole.last_start = now;
+                (done + 1, true)
+            }
+        };
+        // Spawned with the state's lock let go: a task aborted at its spawn drops its guard
+        // here, which takes that lock.
+        if start {
+            let unwind = Unwind(self.clone(), true);
+            self.scope.spawn_named("usage-passes", Self::run_whole_passes(unwind));
         }
-        *last = now;
-        self.read_usage(self.usage_candidates(now), true).await;
+        let _ = ended.wait_for(|n| *n >= target).await;
+    }
+
+    /// Runs whole passes until none is due. Ends when a pass ends with no read asking for
+    /// another since it began (`again`), so it runs at most one pass past the last read.
+    async fn run_whole_passes(mut unwind: Unwind) {
+        let hub = unwind.0.clone();
+        let cache = &hub.usage_stats;
+        loop {
+            {
+                let _pass = cache.pass.lock().await;
+                hub.read_usage(hub.usage_candidates(crate::store::now_ms()), true).await;
+            }
+            let mut whole = cache.whole.lock().unwrap_or_else(|e| e.into_inner());
+            cache.ended.0.send_modify(|n| *n += 1);
+            if !std::mem::take(&mut whole.again) {
+                whole.running = false;
+                unwind.1 = false;
+                return;
+            }
+            whole.last_start = crate::store::now_ms();
+        }
     }
 
     /// The chats a whole pass may read: the live ones, and those the kept list order
@@ -158,7 +266,7 @@ impl Hub {
     pub(crate) fn refresh_usage_stats_of(self: &Arc<Self>, session: &Arc<Session>) {
         self.usage_stats.dirty.store(true, Ordering::SeqCst);
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.scope.spawn_named("usage-turn-read", async move {
             let _pass = hub.usage_stats.pass.lock().await;
             hub.read_usage(vec![session], false).await;
         });
@@ -183,8 +291,17 @@ impl Hub {
         let models = Models::from_catalog(&self.catalog.current());
         let cache = &self.usage_stats;
         let (trackers, stats) = (cache.trackers.clone(), cache.stats.clone());
+        #[cfg(test)]
+        let probe = cache.probe.clone();
         // A read that stops waiting lets the pass go on; the trackers' lock keeps passes apart.
         let pass = tokio::task::spawn_blocking(move || {
+            #[cfg(test)]
+            let _ended = {
+                let now = probe.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                probe.peak.fetch_max(now, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(probe.delay_ms.load(Ordering::SeqCst)));
+                PassEnd(probe)
+            };
             let mut trackers = trackers.lock().unwrap_or_else(|e| e.into_inner());
             let mut fresh = Vec::with_capacity(sources.len());
             for (id, source) in &sources {
@@ -263,6 +380,11 @@ impl Hub {
 
 #[cfg(test)]
 impl Hub {
+    /// The usage passes' probe ([`PassProbe`]).
+    pub(crate) fn usage_probe_for_test(&self) -> Arc<PassProbe> {
+        self.usage_stats.probe.clone()
+    }
+
     /// The next read runs a pass however soon, as after a turn's end.
     pub(crate) fn usage_pass_due_for_test(&self) {
         self.usage_stats.dirty.store(true, Ordering::SeqCst);
