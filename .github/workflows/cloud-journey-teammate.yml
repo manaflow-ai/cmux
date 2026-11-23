@@ -20,8 +20,8 @@ name: Cloud journey (a new teammate, staging)
 # cloud."
 
 on:
-  # A push that changes this walk runs it once at the branch tip, on the stub (a real-model run is red until K1 is
-  # fixed on staging, and a push must not turn the branch red for it); a manual run picks.
+  # A push that changes this walk runs it once at the branch tip, on the stub with no idle pause (a real-model run is
+  # red until K1 is fixed on staging, and the idle pause is red until staging pauses idle machines); a manual run picks.
   push:
     branches: [feat-cmux-next]
     paths:
@@ -61,7 +61,8 @@ jobs:
       - name: A new teammate's Cloud walk (staging)
         env:
           JOURNEY_MODEL: ${{ inputs.model || 'stub' }}
-          IDLE_PAUSE: ${{ inputs.idle_pause || '120' }}
+          # A push leaves the idle pause out: on staging a machine does not pause on its own yet (runs 2 and 3, 2026-11-23).
+          IDLE_PAUSE: ${{ inputs.idle_pause || '0' }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-journey-teammate"
