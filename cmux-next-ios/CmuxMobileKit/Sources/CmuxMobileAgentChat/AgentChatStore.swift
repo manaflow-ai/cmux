@@ -307,6 +307,18 @@ public final class AgentChatStore {
     /// ``fullAccessOffNotice`` for a message to a chat whose mode does not ask (the Mac's
     /// fleet lanes run in Bypass permissions): what to change to send it.
     public static let fullAccessOffPromptNotice = "Not sent: this chat runs in a mode that doesn't ask before changes, and Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac, or switch the chat to a mode that asks."
+    /// A notice that waits for the Mac to be back ("Not sent: mini was unreachable for more than
+    /// 10 seconds. Send again when it's back.", from a held message that came back to the
+    /// composer): stale once the link is back, or the person edits or sends the draft, and
+    /// cleared then (Leo, 2026-11-23: "things just work").
+    nonisolated static func isLinkNotSentNotice(_ notice: String?) -> Bool {
+        guard let notice else { return false }
+        return notice.hasPrefix("Not sent: ") && notice.hasSuffix("Send again when it's back.")
+    }
+    /// The person edited the composer's draft: a "send again when it's back" notice about it goes.
+    public func draftEdited() {
+        if Self.isLinkNotSentNotice(clientError) { clientError = nil }
+    }
     /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).
@@ -1181,6 +1193,9 @@ public final class AgentChatStore {
             // A dropped link can lose the request before the daemon accepts it, with
             // no error or retry record to clear the in-flight tap on reattach.
             if status == .disconnected { retryRequested = false }
+            // The link is back (an attach reports the session's status): a notice telling the
+            // person to wait for it is stale.
+            if status != .disconnected, Self.isLinkNotSentNotice(clientError) { clientError = nil }
         case .clientError(let message):
             approvingOptionID = nil
             sendingElevation = false

@@ -116,6 +116,43 @@ import Testing
         #expect(mac.prompts.isEmpty)
     }
 
+    /// Leo, 2026-11-23: "things just work". The not-sent notice asks the person to wait for the
+    /// Mac, so it goes once the Mac is back (the draft stays in the composer), and when the
+    /// person edits the draft; it never stays up saying "send again when it's back" after it is.
+    @Test func theNotSentNoticeGoesOnceTheMacIsBackOrTheDraftIsEdited() async throws {
+        let mac = Mac()
+        let (hub, link, source, store) = try await openChat(mac)
+        defer { withExtendedLifetime(hub) {} }
+        source.heldPromptWindow = .milliseconds(50)
+        await hub.bind(nil)
+        store.send(prompt: "run the tests")
+        try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
+        await settle { store.clientError != nil }
+        #expect(store.clientError?.hasPrefix("Not sent: mini was unreachable for more than") == true)
+        #expect(store.returnedDraft?.text == "run the tests")
+
+        // The link comes back: the notice goes, the draft stays for the person to send.
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        await settle { store.clientError == nil }
+        #expect(store.clientError == nil)
+        #expect(store.returnedDraft?.text == "run the tests")
+        #expect(mac.prompts.isEmpty, "a stale message is never sent behind the person's back")
+
+        // Another outage: this time the person edits the draft before the Mac is back.
+        await hub.bind(nil)
+        store.send(prompt: "run the tests again")
+        try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
+        await settle { store.clientError != nil }
+        #expect(store.clientError != nil)
+        store.draftEdited()
+        #expect(store.clientError == nil)
+
+        // Other notices are not about the link, and an edit leaves them.
+        store.clientError = "Couldn't read photo.heic."
+        store.draftEdited()
+        #expect(store.clientError == "Couldn't read photo.heic.")
+    }
+
     /// Leo's lanes run in Bypass permissions, and his phone's Full-access setting was off: a
     /// message to one is refused, truly. The draft comes back with what to change; a reconnect
     /// alone shows nothing, and a connection that says Full access is on clears the notice.

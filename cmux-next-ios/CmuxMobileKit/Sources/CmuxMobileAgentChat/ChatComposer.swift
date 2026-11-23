@@ -33,6 +33,9 @@ struct ChatComposer: View {
     /// shown over the composer (the draft stays). Empty: none offered.
     var cmuxCommands: [CmuxSlashCommand] = []
     var runCmuxCommand: (@MainActor (CmuxSlashCommand, String) async -> String?)?
+    /// The text a returned draft just put in the field (`returnedDraft`), so that change is not
+    /// taken for the person's edit.
+    @State private var returnedText: String?
     @State private var showPhotos = false
     private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
@@ -144,7 +147,14 @@ struct ChatComposer: View {
             store.returnedDraft = nil
             // Typed meanwhile: the returned text goes before it, never lost.
             text = trimmed.isEmpty ? draft.text : draft.text + "\n\n" + text
+            returnedText = text
             attachments = draft.attachments + attachments.filter { own in !draft.attachments.contains { $0.id == own.id } }
+        }
+        // The person edits the draft: a "send again when it's back" notice about it goes. The
+        // returned draft landing in the field is not an edit.
+        .onChange(of: text) { _, new in
+            if new != returnedText { store.draftEdited() }
+            returnedText = nil
         }
         // The flip is placed even when the target stays (focused or drafting as the history
         // came), so a later collapse by the person is not taken for the chat opening.
