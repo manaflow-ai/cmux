@@ -1,4 +1,8 @@
 name: Nightly signing
+# The source run's id in the title joins this run to the build it signs exactly
+# (cmuxterm-hq build-fleet/nightly_phases.py measures the sign run's creation
+# delay per push); the API run object carries no link to its workflow_run source.
+run-name: Nightly signing ${{ github.event.workflow_run.id || inputs.source_run_id }}
 
 # Signing for the nightly track, split out of nightly.yml (cmuxterm-hq#2053).
 #

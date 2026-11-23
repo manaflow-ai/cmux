@@ -55,7 +55,9 @@ API_CALL_LOG_ENV = "scripts/ci/api_call_log/env.sh"
 API_CALL_LOG_URL = re.compile(r"^https://raw\.githubusercontent\.com/manaflow-ai/cmux/[0-9a-f]{40}/scripts/ci/api_call_log/\$x$")
 JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
 STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}
-WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"}
+WORKFLOW_KEYS = {"name", "run-name", "on", True, "permissions", "env", "concurrency", "jobs"}
+# The title names only the source run's id (a number), never its ref, commit or title.
+RUN_NAME = "Nightly signing ${{ github.event.workflow_run.id || inputs.source_run_id }}"
 # Expression contexts a shadow job may read. Nothing that names the source
 # run's ref, commit or pull requests: the tool reads those from the API.
 # github.run_attempt is this shadow run's own attempt counter (it picks the JIT label on attempt 1
@@ -136,6 +138,7 @@ def check_workflow() -> None:
     check(document.get("permissions") == {}, "nightly-sign.yml must grant no workflow-level permissions")
     check(not re.search(r"\bsecrets\b", text), "nightly-sign.yml must not name secrets in any form")
     check(set(document) <= WORKFLOW_KEYS, f"nightly-sign.yml has unexpected top-level keys {sorted(map(str, document))}")
+    check(document.get("run-name", RUN_NAME) == RUN_NAME, f"nightly-sign.yml run-name must be {RUN_NAME!r}")
     check_workflow_env(document.get("env") or {})
     check("NIGHTLY_SIGN" in text, "nightly-sign.yml must be gated on vars.NIGHTLY_SIGN")
     check(document.get("env", {}).get("SOURCE_WORKFLOW_PATHS") == ".github/workflows/nightly.yml",
