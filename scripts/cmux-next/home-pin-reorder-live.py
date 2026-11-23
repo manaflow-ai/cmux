@@ -15,7 +15,10 @@ DIR/<mode>-frames (`--record`: the first drag, one JPEG per display frame) and D
 (the grid before and after each drop). `--expect` only reads the grid and checks it (the order
 after a relaunch). Exit 0 when every check passes.
 """
-import argparse, json, os, socket, sys, time
+import argparse, hashlib, json, os, socket, sys, tempfile, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
@@ -94,6 +97,27 @@ def pin_chief():
     return rpc("action.run", {"action": "home.togglePin", "args": {"conversation": chiefs[0]["id"], "pinned": True}})
 
 
+SCRATCH = tempfile.mkdtemp(prefix="home-pin-reorder-")  # this run's own folder for the scratch snapshots
+
+
+def window_pixels():
+    """A hash of the window as drawn now (a scratch snapshot), for waits on a redraw that has no done signal."""
+    path = os.path.join(SCRATCH, "settle.png")
+    reply = rpc("debug.window_snapshot", {"path": path}) or {}
+    if reply.get("error") or not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        digest = hashlib.sha1(f.read()).hexdigest()
+    os.unlink(path)
+    return digest
+
+
+def settled_grid():
+    """The grid's order and tile centers once they stop changing (the owner's write and reread, the list's redraw)."""
+    return wait_stable(lambda: (grid(), tiles()), "the pinned grid", timeout=10, interval=0.1, reads=4,
+                       raise_on_timeout=False)
+
+
 def shot(name):
     return rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{opts.mode}-{name}.png")})
 
@@ -110,6 +134,7 @@ def drag(src, dst, record=None):
     """Presses tile `src` of the drawn grid, drags it over tile `dst` and lets go."""
     shown = tiles()
     a, b = shown[src], shown[dst]
+    was = grid()
     path = []
     for (p, q, seconds) in [(a, b, 0.6), (b, b, 0.25)]:
         n = max(1, int(seconds * opts.hz))
@@ -119,7 +144,7 @@ def drag(src, dst, record=None):
             path.append((p[0] + (q[0] - p[0]) * e, p[1] + (q[1] - p[1]) * e))
     if record:
         print("record", rpc("debug.window_record", {"dir": record, "seconds": 3}), flush=True)
-        time.sleep(0.3)  # the recording's first frames show the grid at rest
+        time.sleep(0.3)  # sleep-ok: the recording's first frames show the grid at rest before the press
     rpc("debug.mouse", {"x": a[0], "y": a[1], "action": "down"})
     t0 = time.monotonic()
     for k, (x, y) in enumerate(path):
@@ -128,14 +153,21 @@ def drag(src, dst, record=None):
         if delay > 0:
             time.sleep(delay)  # pointer pacing at --hz (the drag's own speed), not a settle wait
     rpc("debug.mouse", {"x": b[0], "y": b[1], "action": "up"})
-    time.sleep(0.6)  # the owner's write and reread, then the list redraws
+    # The owner's write and reread, then the list redraws: the grid order changes, then stops moving.
+    if was is not None:
+        wait_until(lambda: grid() != was, "the grid order to change after the drop", timeout=10, interval=0.05,
+                   raise_on_timeout=False)
+    settled_grid()
 
 
 if not wait(lambda: os.path.exists(opts.socket) and (rpc("debug.windows") or {}).get("windows"), 180):
     sys.exit(f"the app did not come up on {opts.socket}")
 print("home.show", rpc("action.run", {"action": "home.show", "focus": True}), flush=True)
 rpc("debug.appearance", {"mode": opts.mode})
-time.sleep(2)  # Home's first frame after the switch
+# Home's first frame after the switch: the window's pixels stop changing.
+if wait_stable(window_pixels, "Home's window after the appearance switch", timeout=15, interval=0.1,
+               raise_on_timeout=False) is None:
+    print("Home's window never gave a stable snapshot after the appearance switch", flush=True)
 report = {"mode": opts.mode, "reduce_motion": opts.reduce_motion}
 
 if opts.expect:
@@ -151,7 +183,7 @@ else:
     print("fixture", json.dumps(rpc("debug.home.sidebar_fixture", {"count": 5, "pinned": 3, "width": 340}))[:300], flush=True)
     print("pin chief", json.dumps(pin_chief())[:300], flush=True)
     wait(lambda: len(tiles()) >= 4, 20)
-    time.sleep(1)  # the owner's pin write and reread
+    settled_grid()  # the owner's pin write and reread
     before = grid()
     report["before"] = before
     shot("before")
