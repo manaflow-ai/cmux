@@ -117,13 +117,13 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
     let result = match request.verb {
         Verb::Get => Ok(settings::report(&ctx, request.agent)),
         Verb::EnvSet | Verb::EnvUnset => {
-            let value = match (request.verb, request.value.clone(), request.value_stdin) {
-                (Verb::EnvSet, _, true) => match read_stdin_line() {
+            let value = match (request.verb == Verb::EnvSet, request.value_stdin) {
+                (true, true) => match read_stdin_line() {
                     Ok(line) => Some(line),
                     Err(error) => return Some(fail(global.output, error)),
                 },
-                (Verb::EnvSet, value, false) => value,
-                _ => None,
+                (true, false) => request.value.clone(),
+                (false, _) => None,
             };
             settings::apply_env(
                 &ctx,
