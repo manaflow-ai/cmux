@@ -142,6 +142,27 @@ extension AgentPaneNewTab {
         })
     }
 
+    /// The page with Integrate a harness off when it was dismissed for good.
+    public func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.harnessHintDismissed = dismissed ? true : nil
+        return page
+    }
+
+    /// The page with the project of the chat the person last picked and started, if any.
+    public func startingIn(_ startedProject: String?) -> AgentPaneNewTab {
+        var page = self
+        page.startedProject = startedProject
+        return page
+    }
+
+    /// The page with All chats left out (recent chats only) when Show All Chats on New Tab is off.
+    public func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.allChats = shown ? nil : false
+        return page
+    }
+
     /// The page with the open tabs and other workspaces of `lists` in its bar; nil keeps the page's own. A page
     /// whose view is made after its tab opened gets the lists of then. The folders stay
     /// the page's own, as at a refresh (``AgentPaneView/refreshNewTabPlaces(tabs:workspaces:)``).

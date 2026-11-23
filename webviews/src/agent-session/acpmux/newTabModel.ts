@@ -229,24 +229,49 @@ export function recentSessions(
   // Snapshots already carry normalized entries from the direct client. Keep their identity so a
   // New Tab render does not allocate and normalize every recent chat again. Gallery and older
   // callers may still provide raw summaries, so retain the normalization fallback for those.
-  const all = sessions
-    .map((session) => normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
+  // The page shows `count` chats of every chat the daemon lists (closed ones too: 10K at Leo's
+  // scale), and every New Tab page (a tab's, the prewarmed spare) reads this again on each change
+  // of any chat. So it keeps the best `count` in one pass instead of sorting them all: a pass is
+  // the list's length with a cheap key, a sort was that times log n calls to `sessionMark` (Leo
+  // 2026-11-18, "typing in the composer still slow 😞 there must be a lot of open stuff?";
+  // bench/session-scale-typing.bench.ts).
+  const all: Ranked[] = [];
+  for (const session of sessions) {
+    const entry = normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>);
     // A chat nothing was sent in yet (a New Tab's chip pick starts one) is no recent chat.
-    .filter((entry) => listed(entry) && !entry.unsent);
-  const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
-  // Chats reported in the same millisecond tie on their durable ids, so a snapshot's arrival order
-  // cannot make the rows trade places.
-  const ordered = all.sort(
-    (a, b) =>
-      urgency(a) - urgency(b) ||
-      (activityTime(b) ?? 0) - (activityTime(a) ?? 0) ||
-      a.sessionId.localeCompare(b.sessionId),
-  );
-  if (!fold) return ordered.slice(0, count);
+    if (!listed(entry) || entry.unsent) continue;
+    all.push({ entry, urgency: sessionMark(entry, false) === "input" ? 0 : 1, at: activityTime(entry) ?? 0 });
+  }
+  if (!fold) return best(all, count, () => true);
   // A child folds only under a parent this list shows; under one past the cut it lists on its own.
-  const shown = ordered.filter((entry) => !entry.spawnedBy).slice(0, count);
+  const shown = best(all, count, (entry) => !entry.spawnedBy);
   const parents = new Set(shown.map((entry) => entry.sessionId));
-  return ordered.filter((entry) => !folded(entry, parents)).slice(0, count);
+  return best(all, count, (entry) => !folded(entry, parents));
+}
+
+type Ranked = { entry: AcpmuxSessionEntry; urgency: number; at: number };
+
+/// Chats asking for input first, then the newest. Chats reported in the same millisecond tie on
+/// their durable ids, so a snapshot's arrival order cannot make the rows trade places.
+const before = (a: Ranked, b: Ranked) =>
+  a.urgency - b.urgency || b.at - a.at || a.entry.sessionId.localeCompare(b.entry.sessionId);
+
+/// The first `count` of `all` that `keep` keeps, in `before` order: what sorting `all` and taking
+/// the first `count` kept ones gives, in a pass that holds only `count` at a time.
+function best(all: readonly Ranked[], count: number, keep: (entry: AcpmuxSessionEntry) => boolean) {
+  const top: Ranked[] = [];
+  if (count <= 0) return [];
+  for (const ranked of all) {
+    if (top.length === count && before(ranked, top[count - 1]!) >= 0) continue;
+    if (!keep(ranked.entry)) continue;
+    let at = top.length === count ? count - 1 : top.length;
+    top[at] = ranked;
+    while (at > 0 && before(top[at]!, top[at - 1]!) < 0) {
+      [top[at - 1], top[at]] = [top[at]!, top[at - 1]!];
+      at -= 1;
+    }
+  }
+  return top.map((ranked) => ranked.entry);
 }
 
 /// "now", "5m", "3h", "2d": the card's age, as compact as the sidebar's.

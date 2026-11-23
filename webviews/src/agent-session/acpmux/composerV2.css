@@ -53,6 +53,7 @@
   /* The frame's width is the padding the mask cuts the inside from: one ring hairline. */
   padding: var(--cmux-hairline-ring);
   border-radius: inherit;
+  /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
   background: linear-gradient(
     to bottom,
     var(--acpmux-v2-light) 0,
@@ -99,6 +100,7 @@
 .acpmux-composer-box[data-composer-v2] .acpmux-composer-foot .acpmux-picker-button[aria-expanded="true"],
 .acpmux-composer-box[data-composer-v2] .acpmux-composer-foot .acpmux-access.acpmux-unrestricted .acpmux-picker-button,
 .acpmux-composer-box[data-composer-v2] .acpmux-composer-foot :where(button).acpmux-plan[aria-pressed="true"] {
+  /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
   background: light-dark(
     color-mix(in srgb, var(--cmux-tone-light, #fff) 80%, transparent),
     color-mix(in srgb, var(--agent-text) 12%, transparent)
@@ -155,7 +157,7 @@
    changes only the fill (design/pressed-state.md). */
 .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send {
   border-radius: 50%;
-  background: var(--acpmux-pill-fill, color-mix(in srgb, var(--agent-text) 6%, transparent));
+  background: var(--acpmux-pill-fill, var(--ds-surface-hover));
   color: var(--acpmux-send-off-fg, color-mix(in srgb, var(--agent-text) 45%, transparent));
 }
 .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send.acpmux-cancel {
@@ -171,18 +173,22 @@
 }
 @media (hover: hover) and (pointer: fine) {
   .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:not(:disabled):hover {
+    /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
     background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
   }
   .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:is(.acpmux-send-ready, .acpmux-resume):not(.acpmux-cancel, :disabled):hover,
   .acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, :disabled):hover {
+    /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
     background: color-mix(in srgb, var(--acpmux-v2-accent) 88%, var(--agent-text));
   }
 }
 .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:not(:disabled):active {
+  /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
   background: var(--acpmux-pill-press, color-mix(in srgb, var(--agent-text) 22%, transparent));
 }
 .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:is(.acpmux-send-ready, .acpmux-resume):not(.acpmux-cancel, :disabled):active,
 .acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, :disabled):active {
+  /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
   background: color-mix(in srgb, var(--acpmux-v2-accent) 76%, var(--agent-text));
 }
 
@@ -192,6 +198,7 @@
 .acpmux-composer-box[data-composer-v2] .acpmux-md .acpmux-mention-chip {
   padding-inline: var(--grid-half-step);
   border-radius: 4px;
+  /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
   background: color-mix(in srgb, var(--acpmux-v2-accent) 14%, transparent);
   color: color-mix(in srgb, var(--acpmux-v2-accent) 78%, var(--agent-text));
   -webkit-box-decoration-break: clone;

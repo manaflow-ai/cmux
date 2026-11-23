@@ -47,20 +47,20 @@ extension CloudStrings {
 
     /// The support reference after a Cloud server message.
     nonisolated static func trace(_ id: String) -> String {
-        String(format: String(localized: "cloud.error.trace", defaultValue: "(trace %@)", table: "Cloud", bundle: .module), id)
+        String(format: String(localized: "cloud.error.trace", defaultValue: "(trace %@)", table: "Cloud", bundle: .module.inAppLanguage), id)
     }
 
     nonisolated static var apiTimedOut: String {
-        String(localized: "cloud.error.timedOutPlain", defaultValue: "cmux Cloud didn't answer in time. Try again.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.error.timedOutPlain", defaultValue: "cmux Cloud didn't answer in time. Try again.", table: "Cloud", bundle: .module.inAppLanguage)
     }
 
     nonisolated static var apiUnreachable: String {
         String(localized: "cloud.error.unreachablePlain", defaultValue: "Couldn't reach cmux Cloud. Check your network, then try again.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .module.inAppLanguage)
     }
 
     nonisolated static var apiUnreadable: String {
         String(localized: "cloud.error.unreadable", defaultValue: "cmux Cloud sent an answer this version of cmux can't read. Update cmux, then try again.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .module.inAppLanguage)
     }
 }

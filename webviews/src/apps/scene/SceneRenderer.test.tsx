@@ -775,6 +775,44 @@ test("layout: HStack aligns top or bottom, ZStack centers, a shape's frame wins 
   expect(css).toMatch(/\.cmux-app-scene-zstack \{\s*display: grid;\s*place-items: center;/);
 });
 
+test("a drop in a Reorderable sends the list its item key and final index", () => {
+  const { container, calls } = render([
+    { op: "create", id: "pins", type: "Reorderable", props: { onMove: true } },
+    ...["n1", "n2", "n3"].map((id) => ({
+      op: "create" as const,
+      id,
+      type: "Row",
+      props: { title: id, reorderKey: "chat-" + id },
+    })),
+    { op: "children", id: "pins", children: ["n1", "n2", "n3"] },
+    { op: "root", id: "pins" },
+  ]);
+  const rows = Array.from(container.querySelectorAll<HTMLElement>(".cmux-app-scene-move-row"));
+  rows.forEach((row, i) => {
+    row.getBoundingClientRect = () => ({ top: 20 * i, height: 20 }) as DOMRect;
+  });
+  function dragEvent(row: HTMLElement, name: string, y: number) {
+    const event = new MouseEvent(name, { bubbles: true, cancelable: true, clientY: y });
+    Object.defineProperty(event, "dataTransfer", { value: { setData() {} } });
+    act(() => {
+      row.dispatchEvent(event);
+    });
+  }
+  dragEvent(rows[0]!, "dragstart", 5);
+  dragEvent(rows[2]!, "dragover", 55);
+  expect(rows[2]?.dataset.dropEdge).toBe("after");
+  dragEvent(rows[2]!, "drop", 55);
+  dragEvent(rows[2]!, "dragstart", 55);
+  dragEvent(rows[0]!, "drop", 5);
+  dragEvent(rows[0]!, "drop", 5); // A drop that began outside this list.
+  dragEvent(rows[1]!, "dragstart", 25);
+  dragEvent(rows[1]!, "drop", 35);
+  expect(calls).toEqual([
+    ["pins", "move", { id: "chat-n1", index: 2 }],
+    ["pins", "move", { id: "chat-n3", index: 0 }],
+  ]);
+});
+
 test("fontDesign draws the system font's rounded, serif or monospaced design at the type scale's size", () => {
   const { container } = render([
     { op: "create", id: "root", type: "VStack" },

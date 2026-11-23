@@ -51,6 +51,26 @@ pub(crate) fn version_text(
     }
 }
 
+/// The `CMUXCommit` of the app bundle around `exe`, when the CLI runs from
+/// inside one (`X.app/Contents/Resources/bin/cmux`). A nightly can bundle a
+/// client built from another commit of the same tree (RFD 0021), so the
+/// compiled commit alone does not say which app this is; this does.
+pub(crate) fn app_commit(exe: &Path) -> Option<String> {
+    let bundle = crate::app_identity::containing_app_bundle(exe)?;
+    let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
+    let commit = info.as_dictionary()?.get("CMUXCommit")?.as_string()?.trim();
+    (!commit.is_empty()).then(|| commit.to_owned())
+}
+
+/// `cmux --version`'s whole output: the first line as before (scripts parse
+/// it), then the enclosing app's commit on its own line when there is one.
+pub(crate) fn version_lines(first: &str, app_commit: Option<&str>) -> String {
+    match app_commit {
+        Some(commit) => format!("cmux {first}\napp {commit}"),
+        None => format!("cmux {first}"),
+    }
+}
+
 /// Facts `--version --json` reports that this module cannot read itself.
 pub(crate) struct BuildFacts<'a> {
     pub(crate) build_identity: Option<&'a str>,
@@ -62,6 +82,7 @@ pub(crate) struct BuildFacts<'a> {
 
 pub(crate) fn version_json(facts: &BuildFacts<'_>, executable: Option<&Path>) -> serde_json::Value {
     let channel = executable.map_or(InstallChannel::Other, InstallChannel::detect);
+    let app_commit = executable.and_then(app_commit);
     serde_json::json!({
         "app": "cmux-tui",
         "version": DISTRIBUTION_VERSION,
@@ -70,6 +91,7 @@ pub(crate) fn version_json(facts: &BuildFacts<'_>, executable: Option<&Path>) ->
         "build_time": facts.build_time,
         "build_commit": facts.build_commit,
         "ghostty_commit": facts.ghostty_commit,
+        "app_commit": app_commit,
         "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
         "remote_protocol": facts.remote_protocol,
         "os": std::env::consts::OS,
