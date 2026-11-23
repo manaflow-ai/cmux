@@ -528,13 +528,13 @@ class LinuxReleasePoint(unittest.TestCase):
         path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
         return path
 
-    def point(self, payload, run_id="1"):
+    def point(self, payload, *extra, run_id="1"):
         scratch = pathlib.Path(tempfile.mkdtemp(dir=self.tmp))
         env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_R2": str(self.r2),
                "FAKE_UPLOAD_LOG": str(self.tmp / "uploads.log"), "SIGNING_KEY": self.pem,
                "R2_ENDPOINT": "https://r2.invalid", "GITHUB_RUN_ID": run_id}
-        return subprocess.run(["bash", "scripts/ci/cmux-machine-channel-point.sh", str(payload), str(scratch)],
-                              cwd=self.repo, env=env, text=True, capture_output=True)
+        return subprocess.run(["bash", "scripts/ci/cmux-machine-channel-point.sh", str(payload), str(scratch),
+                               *extra], cwd=self.repo, env=env, text=True, capture_output=True)
 
     def served(self, key):
         path = self.r2 / key
@@ -761,6 +761,26 @@ class MacLivePoint(LinuxReleasePoint):
         self.assert_ok(self.point(self.payload(), run_id="2"))
         self.assertEqual(self.verified(self.RELEASE, None, "cmux-mac-live-update", False)["commit"], RELEASE_COMMIT)
         self.assertEqual(self.verified(self.POINTER)["commit"], newer)
+
+    def test_a_pr_head_writes_its_own_file_and_leaves_the_channel(self):
+        # `cmux app try PR` reads cmux-tui/<head>/mac-live.json; a PR head never moves nightly-live.
+        self.assert_ok(self.point(self.payload()))
+        channel_before = self.served(self.POINTER)
+        head = "e" * 40
+        self.assert_ok(self.point(self.payload(commit=head, committed_at=COMMITTED_AT + 60), "--commit-only",
+                                  run_id="2"))
+        self.assertEqual(self.verified(f"cmux-tui/{head}/mac-live.json", None, "cmux-mac-live-update",
+                                       False)["commit"], head)
+        self.assertEqual(self.served(self.POINTER), channel_before)
+        # With no channel at all, none is created.
+        (self.r2 / self.POINTER).unlink()
+        self.assert_ok(self.point(self.payload(commit="f" * 40), "--commit-only", run_id="3"))
+        self.assertIsNone(self.served(self.POINTER))
+
+    def test_commit_only_is_refused_without_a_per_commit_file(self):
+        result = self.point(super().payload(purpose="cmux-cloud-machine-update"), "--commit-only")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(self.served("cmux-tui/channels/cloud-machine.json"))
 
     def test_a_cloud_machine_file_never_stands_in_for_the_pointer(self):
         self.assert_ok(self.point(super().payload(purpose="cmux-cloud-machine-update",
