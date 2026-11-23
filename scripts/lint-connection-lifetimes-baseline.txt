@@ -443,7 +443,6 @@ R4 | webviews/src/diff-viewer/RevertControls.tsx | 704827af6fb7 | setTimeout(() 
 R4 | webviews/src/gallery/frame/main.ts | 377f31ca9c2e | window.setTimeout(finish, 2000);
 R4 | webviews/src/gallery/shell/Shell.tsx | 4771eb183b0b | window.setTimeout(() => setCopied(false), 1600);
 R4 | webviews/src/pages/changelog/surface.tsx | a78f11634fcb | setTimeout(() => {
-R4 | webviews/src/pages/home-messages/viewer/MediaViewer.tsx | d6c049bbd058 | setTimeout(() => URL.revokeObjectURL(url), 10_000);
 R5 | cmux-tui/crates/acpmux-hot/src/host.rs | 58538eae1412 | loop {
 R5 | cmux-tui/crates/acpmux/src/chats/mod.rs | 58538eae1412 | loop {
 R5 | cmux-tui/crates/acpmux/src/cli/process.rs | 58538eae1412 | loop {
