@@ -237,3 +237,23 @@ for (const style of ["vim", "emacs"]) {
     expect(ops(page.provider, "cmux.settings.set")).toContainEqual({ key: "app.keyStyle", value: "standard" });
   });
 }
+
+test("search finds the Devices page by the words of its switches; a click opens it", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  const hits = () =>
+    [...page!.container.querySelectorAll("[data-search-results] [data-page-hit]")].map((hit) =>
+      hit.getAttribute("data-page-hit"),
+    );
+  for (const query of ["devices", "control", "screen sharing", "mac screen", "remote control", "Devices"]) {
+    await changeValue(search(page), query);
+    expect(hits()).toContain("devices");
+    expect(page.container.querySelector(".empty[data-open]")).toBeNull();
+  }
+  await changeValue(search(page), "zzzz-no-match");
+  expect(hits()).toEqual([]);
+  await changeValue(search(page), "screen sharing");
+  await click(page.container.querySelector('[data-page-hit="devices"]')!);
+  expect(page.history.location.pathname).toBe("/settings/devices");
+  expect(search(page).value).toBe("");
+  expect(page.container.querySelector('[data-section="devices"]')).not.toBeNull();
+});
