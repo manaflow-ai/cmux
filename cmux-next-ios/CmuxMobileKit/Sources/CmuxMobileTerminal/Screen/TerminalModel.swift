@@ -787,6 +787,13 @@ public final class TerminalModel {
         ingest(.connection(state))
     }
 
+    /// Demo drivers (`ws-terminal-outage`): the session dropped `bytes` of held input
+    /// (``TerminalSessionEvent/inputNotSent(bytes:)``), as a live session does when the
+    /// Mac stays away past its hold, or when keys in flight when the link fell cannot go again.
+    public func demoInputDropped(bytes: Int) {
+        ingest(.inputNotSent(bytes: bytes))
+    }
+
     /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
     public func demoArm(_ modifier: TerminalStickyModifiers.Modifier) {
         guard let surface = controller?.surface else { return }
