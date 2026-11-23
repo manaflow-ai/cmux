@@ -149,10 +149,10 @@ export function PopupResizeGrips({
       fromTop: where.side === "top",
       least: { width: leastWidth, height: leastHeight },
       bound: {
-        left: 8,
-        right: (view?.innerWidth ?? box.right) - 8,
-        top: 8,
-        bottom: (view?.innerHeight ?? box.bottom) - 8,
+        left: 5,
+        right: (view?.innerWidth ?? box.right) - 5,
+        top: 5,
+        bottom: (view?.innerHeight ?? box.bottom) - 5,
       },
       onStart: () => {
         dragging.current = true;

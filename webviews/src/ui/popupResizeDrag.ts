@@ -115,10 +115,19 @@ export function startPopupResize(
   const startHeight = content.getBoundingClientRect().height;
   const startX = event.clientX;
   const startY = event.clientY;
-  const mostWidth = Math.max(0, Math.floor(fromEnd ? start.right - bound.left : bound.right - start.left));
-  const leastWidth = Math.min(mostWidth, drag.least.width);
-  const mostHeight = Math.max(0, Math.floor(fromTop ? start.bottom - (bound.top ?? 5) : bound.bottom - start.top));
-  const leastHeight = Math.min(mostHeight, drag.least.height);
+  // Never less room than the popup already has (a popup against the window's edge keeps its size), and
+  // never a floor above where it started: a popup smaller than the floor (a one-row menu) does not jump
+  // up to it on a press.
+  const mostWidth = Math.max(
+    Math.floor(start.width),
+    Math.floor(fromEnd ? start.right - bound.left : bound.right - start.left),
+  );
+  const leastWidth = Math.min(mostWidth, drag.least.width, Math.floor(start.width));
+  const mostHeight = Math.max(
+    Math.floor(startHeight),
+    Math.floor(fromTop ? start.bottom - (bound.top ?? 5) : bound.bottom - start.top),
+  );
+  const leastHeight = Math.min(mostHeight, drag.least.height, Math.floor(startHeight));
   let width = start.width;
   let height = startHeight;
   let dragging = true;
@@ -143,13 +152,15 @@ export function startPopupResize(
   let frame = 0;
   let pointerX = startX;
   let pointerY = startY;
+  // A press with no move (a click, a double-click's first half) changes nothing.
+  let moved = false;
   const apply = () => {
     frame = 0;
     if (horizontal) {
       const delta = (pointerX - startX) * (fromEnd ? -1 : 1);
       width = Math.round(Math.min(mostWidth, Math.max(leastWidth, start.width + delta)));
       popup.style.width = `${width}px`;
-      popup.style.minWidth = `min(${drag.least.width}px, ${mostWidth}px)`;
+      popup.style.minWidth = `${leastWidth}px`;
       popup.style.maxWidth = `${mostWidth}px`;
     }
     if (vertical) {
@@ -164,12 +175,14 @@ export function startPopupResize(
   const move = (next: PointerEvent) => {
     pointerX = next.clientX;
     pointerY = next.clientY;
+    moved ||= pointerX !== startX || pointerY !== startY;
+    if (!moved) return;
     if (!frame) frame = view?.requestAnimationFrame(apply) ?? 0;
     if (!frame) apply();
   };
   const end = () => {
     if (frame) view?.cancelAnimationFrame(frame);
-    apply();
+    if (moved) apply();
     grip.removeEventListener("pointermove", move);
     grip.removeEventListener("pointerup", end);
     grip.removeEventListener("pointercancel", end);

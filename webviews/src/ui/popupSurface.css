@@ -657,7 +657,8 @@
 /* A resizable popup's grips (PopupResize.tsx, cmux#51745), as the model menu's
    (quickModelColumns.css .acpmux-cols-resize): on the side edge away from the one lined up with its
    button, the top or bottom edge away from it, and the corner between them, each centred on the edge.
-   A dropdown above its chip grows up, right and up-right; one below it grows down and away. */
+   A dropdown above its chip grows up, right and up-right; one below it grows down and away. A popup
+   that clips sets --ui-popup-resize-out to 0 so its grips sit wholly inside. */
 .ui-popup[data-resizable] { position: relative; }
 .ui-popup-resize {
   position: absolute;
@@ -670,25 +671,25 @@
   width: 8px;
   cursor: ew-resize;
 }
-.ui-popup-resize[data-axis="x"][data-edge="end"] { right: -4px; }
-.ui-popup-resize[data-axis="x"][data-edge="start"] { left: -4px; }
+.ui-popup-resize[data-axis="x"][data-edge="end"] { right: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="x"][data-edge="start"] { left: var(--ui-popup-resize-out, -4px); }
 .ui-popup-resize[data-axis="y"] {
   left: var(--ds-space-3);
   right: var(--ds-space-3);
   height: var(--ds-space-2);
   cursor: ns-resize;
 }
-.ui-popup-resize[data-axis="y"][data-side="top"] { top: -4px; }
-.ui-popup-resize[data-axis="y"][data-side="bottom"] { bottom: -4px; }
+.ui-popup-resize[data-axis="y"][data-side="top"] { top: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="y"][data-side="bottom"] { bottom: var(--ui-popup-resize-out, -4px); }
 .ui-popup-resize[data-axis="both"] {
   width: var(--ds-space-3);
   height: var(--ds-space-3);
   cursor: nwse-resize;
 }
-.ui-popup-resize[data-axis="both"][data-edge="end"] { right: -4px; }
-.ui-popup-resize[data-axis="both"][data-edge="start"] { left: -4px; }
-.ui-popup-resize[data-axis="both"][data-side="bottom"] { bottom: -4px; }
-.ui-popup-resize[data-axis="both"][data-side="top"] { top: -4px; }
+.ui-popup-resize[data-axis="both"][data-edge="end"] { right: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="both"][data-edge="start"] { left: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="both"][data-side="bottom"] { bottom: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="both"][data-side="top"] { top: var(--ui-popup-resize-out, -4px); }
 .ui-popup-resize[data-axis="both"][data-edge="start"][data-side="bottom"],
 .ui-popup-resize[data-axis="both"][data-edge="end"][data-side="top"] { cursor: nesw-resize; }
 /* The edges' bar shows on hover and through a drag; it draws on the edge, taking no presses. */
@@ -719,4 +720,4 @@
 .ui-popup-resize:hover::after,
 .ui-popup-resize[data-dragging]::after { opacity: 1; }
 /* A menu made taller than its rows keeps them at its top; its scroller takes the room. */
-.ui-popup.ui-popup-scroll-shell[data-resized-height] > .ui-popup-scroll { flex: 1 1 auto; }
+.ui-popup.ui-popup-scroll-shell[data-resized-height] > .ui-popup-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }

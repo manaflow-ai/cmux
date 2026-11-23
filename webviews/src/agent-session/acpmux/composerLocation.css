@@ -2018,26 +2018,37 @@
 }
 
 /* A location menu sized by a drag (ui/PopupResize.tsx, cmux#51745): its list takes the height the
-   person gave it, not its own cap, and scrolls inside it; the search field and the actions keep theirs
-   (as .acpmux-folder-popover's list already does). */
-.acpmux-menu.acpmux-location-menu[data-resized-height]:not(.acpmux-folder-popover) {
+   person gave it, not its own cap, and scrolls inside it; the search field and the actions keep theirs.
+   A popover only: a location menu that is a menu (Branch, Cloud environment) scrolls its rows in the
+   menu's own scroller (popupSurface.css). */
+.acpmux-menu.acpmux-location-menu[data-resized-height]:not(.ui-menu, .acpmux-folder-popover) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.acpmux-location-menu[data-resized-height]:not(.acpmux-folder-popover) > :not(.ui-popup-resize) { flex-shrink: 0; }
-.acpmux-location-menu[data-resized-height]:not(.acpmux-folder-popover) .ui-combobox-scroll {
-  display: flex;
+.acpmux-location-menu[data-resized-height]:not(.ui-menu, .acpmux-folder-popover) > * { flex-shrink: 0; }
+/* The list, a plain one (no pinned rows) or the scroll area of one with pinned rows. */
+.acpmux-menu.acpmux-location-menu[data-resized-height]:not(.ui-menu) .acpmux-location-folders.acpmux-location-folders {
   flex: 1 1 0%;
-  flex-direction: column;
   min-height: 0;
   max-height: none;
+}
+.acpmux-menu.acpmux-location-menu[data-resized-height]:not(.ui-menu) .acpmux-location-folders:not(.ui-combobox-scroll) { overflow: auto; }
+.acpmux-location-menu[data-resized-height]:not(.ui-menu, .acpmux-folder-popover) .ui-combobox-scroll {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
-.acpmux-location-menu[data-resized-height]:not(.acpmux-folder-popover) .ui-combobox-scroll > .ui-combobox-viewport {
+.acpmux-location-menu[data-resized-height]:not(.ui-menu, .acpmux-folder-popover) .ui-combobox-scroll > .ui-combobox-viewport {
   flex: 1;
   height: 0;
   min-height: 0;
   max-height: 100%;
   overflow: auto;
 }
+/* A resizable Cloud environment menu scrolls its rows in the menu's scroller, not the popup, so the
+   grips on the popup's edges stay put while the rows scroll. */
+.acpmux-menu.acpmux-location-menu.acpmux-cloud-env-menu[data-resizable] { overflow: visible; }
+/* A popup that clips (overflow hidden) keeps its grips wholly inside its edges. */
+.acpmux-folder-popover,
+.acpmux-location-menu[data-resized-height]:not(.ui-menu) { --ui-popup-resize-out: 0px; }

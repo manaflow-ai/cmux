@@ -312,7 +312,7 @@ test("the Environment dropdown has resize grips on its edges away from the chip 
   const { setPopupSize } = await import("../../ui/PopupResize");
   setPopupSize("composer.environment", { width: 300, height: 220 });
   try {
-    const { container } = await render("local");
+    const { container } = await render("persistent");
     await open(container);
     const popup = document.querySelector<HTMLElement>(".acpmux-env-popover")!;
     expect(popup).not.toBeNull();

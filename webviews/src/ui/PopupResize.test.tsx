@@ -3,7 +3,7 @@
 // edge and the top-right corner and grows up and right; one below its chip (the bottom row) grows down
 // and away from the edge it lines up with. The size is kept per dropdown and a double-click goes back.
 import { afterEach, expect, test } from "bun:test";
-import { act, useRef } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Popover } from "./Popover";
@@ -89,16 +89,18 @@ const settle = () =>
   });
 
 function Dropdown({ id, side, align }: { id: string; side: "top" | "bottom"; align: "start" | "end" }) {
-  const anchor = useRef<HTMLButtonElement>(null);
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   ids.add(id);
   return (
     <>
-      <button ref={anchor} type="button">
+      <button ref={setAnchor} type="button">
         chip
       </button>
-      <Popover open onOpenChange={() => {}} anchor={anchor} label="Folders" side={side} align={align} resize={{ id }}>
-        <div>rows</div>
-      </Popover>
+      {anchor && (
+        <Popover open onOpenChange={() => {}} anchor={anchor} label="Folders" side={side} align={align} resize={{ id }}>
+          <div>rows</div>
+        </Popover>
+      )}
     </>
   );
 }
@@ -241,4 +243,21 @@ test("a menu takes the same grips, and one without resize has none", async () =>
   })();
   expect(plain).not.toBeNull();
   expect(plain!.querySelector(".ui-popup-resize")).toBeNull();
+});
+
+test("a press with no move keeps the size, and a popup smaller than the floor never jumps up to it", async () => {
+  const doc = await render(<Dropdown id="test.small" side="top" align="start" />);
+  const node = popup(doc);
+  // A one-row menu: 36 px tall, 150 px wide, under both floors.
+  node.getBoundingClientRect = () =>
+    ({ left: 100, right: 250, top: 464, bottom: 500, width: 150, height: 36 }) as DOMRect;
+  node.parentElement!.getBoundingClientRect = () => ({ left: 100, top: 464 }) as DOMRect;
+  await drag(grip(doc, "both"), 0, 0);
+  expect(popupSize("test.small")).toEqual({});
+  expect(node.style.height).toBe("");
+  // A drag toward the chip stops at the size it started at, not the larger floor.
+  await drag(grip(doc, "both"), -50, 50);
+  expect(popupSize("test.small")).toEqual({});
+  await drag(grip(doc, "y"), 0, -30);
+  expect(popupSize("test.small")).toEqual({ height: 66 });
 });

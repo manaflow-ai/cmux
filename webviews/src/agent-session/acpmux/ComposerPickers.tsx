@@ -2050,6 +2050,7 @@ export function Picker({
   tooltip,
   shortcut,
   onOpen,
+  resizeId,
 }: {
   label: string;
   className: string;
@@ -2062,6 +2063,8 @@ export function Picker({
   /// The keycaps of the shortcut that opens it, shown after the tooltip (shortcuts.ts).
   shortcut?: string | undefined;
   onOpen?: () => void;
+  /// Resizable from its edges away from the button, its size kept under this name (ui/PopupResize.tsx).
+  resizeId?: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -2100,6 +2103,7 @@ export function Picker({
           // shared policy here also preserves prompt focus when a native capture is cancelled.
           finalFocus={undefined}
           className={cx("acpmux-menu acpmux-picker-menu", className)}
+          {...(resizeId ? { resize: { id: resizeId } } : {})}
         >
           {heading && (
             <div className="acpmux-menu-heading" aria-hidden="true">

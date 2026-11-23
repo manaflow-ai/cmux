@@ -113,6 +113,7 @@ const MemoPlusMenu = memo(function PlusMenu({
       button={glyph === "paperclip" ? <PaperclipIcon /> : <PlusIcon />}
       align={glyph === "paperclip" ? "end" : "start"}
       sections={sections}
+      resizeId="composer.add"
       {...(onOpen ? { onOpen } : {})}
     />
   );
