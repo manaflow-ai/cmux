@@ -984,20 +984,25 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// acpmux runs at most once), or the Mac refused it (the draft comes back with the reason).
     private func promptFailed(_ prompt: HeldPrompt, _ error: any Error, written: Bool) {
         if !(error is AcpmuxConnection.RPCError) {
-            var again = prompt
-            if written {
-                // It may have run: sent again it is a resend (acpmux checks its log), aged
-                // from the drop, not from a send a long turn ago.
-                again.resend = true
-                again.waitingSince = now()
-            }
-            hold(again)
+            hold(Self.heldAgain(prompt, written: written, at: now()))
             return
         }
         let fullAccess = Self.isFullAccessRefusal(error)
         if fullAccess { hub?.fullAccessRefused() }
         emit(.promptNotSent(text: prompt.text, attachments: prompt.attachments, promptID: prompt.promptID,
                             reason: fullAccess ? AgentChatStore.fullAccessOffPromptNotice : Self.message(error)))
+    }
+
+    /// A prompt the link lost, as it waits for the next one. Written, it may have run: sent again
+    /// it is a resend (acpmux checks its log). Its wait is aged from this drop, not from its send:
+    /// a send with photos spends its first seconds uploading them, and that time counted against
+    /// the window brought it back as "unreachable" after a blip of a second (Leo, 2026-11-23).
+    /// One already waiting keeps its first drop.
+    static func heldAgain(_ prompt: HeldPrompt, written: Bool, at now: ContinuousClock.Instant) -> HeldPrompt {
+        var again = prompt
+        if written { again.resend = true }
+        if written || again.waitingSince == nil { again.waitingSince = now }
+        return again
     }
 
     /// Keeps a prompt for the next link, in the order it was sent; it comes back to the

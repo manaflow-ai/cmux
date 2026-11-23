@@ -119,7 +119,7 @@ public actor AcpmuxConnection {
             sends[id] = Task {
                 do {
                     try Task.checkCancellation()
-                    try await channel.send(data)
+                    try await handOver(data)
                     sends[id] = nil
                 } catch { fail(id, error) }
             }
@@ -175,7 +175,7 @@ public actor AcpmuxConnection {
     /// answer before the next: a `session/prompt` is answered only when its turn ends.
     /// The write is bounded by `timeout` (a link that stopped taking data) and released when the
     /// caller is cancelled, as ``request(_:_:timeout:)``'s is.
-    public func submit(_ method: String, _ params: JSONValue, timeout: Duration = .seconds(30)) async throws -> Int {
+    public func submit(_ method: String, _ params: JSONValue, timeout: Duration? = nil) async throws -> Int {
         try Task.checkCancellation()
         if let ended { throw ended }
         start()
@@ -189,9 +189,9 @@ public actor AcpmuxConnection {
         let channel = channel
         do {
             try await LinkDeadline.run(
-                timeout: timeout,
+                timeout: timeout ?? Self.writeTimeout(bytes: data.count),
                 timeoutError: LinkError(code: "timeout", message: "write of \(method) timed out"),
-                operation: { try await channel.send(data) },
+                operation: { try await self.handOver(data, to: channel) },
                 onCancel: { await self.release(id) }
             )
         } catch {
@@ -199,6 +199,46 @@ public actor AcpmuxConnection {
             throw error
         }
         return id
+    }
+
+    // MARK: Bytes on their way out
+
+    /// The slowest uplink a write is expected to get through (a weak LTE cell): what a write's
+    /// deadline and the channel's drain allow per second. A prompt with photos is megabytes of
+    /// base64 (Leo, 2026-11-23: "maybe it just cant pass the attachments in time").
+    static let slowUplinkBytesPerSecond = 64 << 10
+    /// What the link queues for a channel beyond a send that returned (cmux-mobile-link
+    /// `CHANNEL_QUEUE_BYTES`): those bytes still go out after it.
+    static let linkQueueBytes = 256 << 10
+
+    /// A write's deadline: 30 s for a message, plus its bytes at ``slowUplinkBytesPerSecond``. A
+    /// fixed 30 s cut a prompt with photos off on a slow uplink while the link was fine.
+    static func writeTimeout(bytes: Int) -> Duration {
+        .seconds(30) + .seconds(Double(bytes) / Double(slowUplinkBytesPerSecond))
+    }
+
+    /// Sends not yet handed to the link, and when the bytes of those that were are out (the
+    /// link's queue drained at ``slowUplinkBytesPerSecond``).
+    private var handingOver = 0
+    private var drainedAt: ContinuousClock.Instant?
+
+    /// `channel.send(data)`, counted in ``isWriting``.
+    private func handOver(_ data: Data, to channel: (any LinkChannel)? = nil) async throws {
+        handingOver += 1
+        defer {
+            handingOver -= 1
+            let queued = Double(min(data.count, Self.linkQueueBytes)) / Double(Self.slowUplinkBytesPerSecond)
+            let drained = ContinuousClock.now + .seconds(queued)
+            if drainedAt.map({ drained > $0 }) ?? true { drainedAt = drained }
+        }
+        try await (channel ?? self.channel).send(data)
+    }
+
+    /// Bytes are still going out on this channel (a send the link has not taken, or one whose
+    /// queued bytes are still draining): anything asked after them waits behind them. A read
+    /// slow then is busy, not stalled (``AcpmuxHub/recover(from:why:method:)``).
+    var isWriting: Bool {
+        handingOver > 0 || drainedAt.map { ContinuousClock.now < $0 } == true
     }
 
     /// A submitted request whose write failed, timed out or was cancelled: nothing waits for it.

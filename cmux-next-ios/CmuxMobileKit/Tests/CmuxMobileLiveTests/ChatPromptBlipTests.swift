@@ -142,4 +142,24 @@ import Testing
         await settle { store.clientError == nil }
         #expect(store.clientError == nil)
     }
+
+    /// A message with photos spends its first seconds uploading them. The link it then loses is
+    /// waited for from that drop, not from the send: the upload no longer eats the window and
+    /// brings the message back as "unreachable" after a blip of a second (Leo, 2026-11-23).
+    @Test func aLostMessageIsAgedFromTheDropNotFromItsUpload() {
+        let sent = ContinuousClock.now
+        let prompt = AcpmuxSessionSource.HeldPrompt(text: "photos", attachments: [], promptID: "p", steer: false,
+                                                    resend: false, blocks: [], at: sent)
+        let drop = sent + .seconds(8)
+        let held = AcpmuxSessionSource.heldAgain(prompt, written: false, at: drop)
+        #expect(held.waitStart == drop)
+        #expect(held.at == sent, "it keeps its place among the held prompts")
+        #expect(!held.resend)
+        let stillWaiting = AcpmuxSessionSource.heldAgain(held, written: false, at: drop + .seconds(3))
+        #expect(stillWaiting.waitStart == drop, "a prompt already waiting keeps its first drop")
+        let lostAfterWrite = AcpmuxSessionSource.heldAgain(held, written: true, at: drop + .seconds(3))
+        #expect(lostAfterWrite.waitStart == drop + .seconds(3))
+        #expect(lostAfterWrite.resend)
+    }
 }
+

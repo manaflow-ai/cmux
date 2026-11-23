@@ -105,9 +105,20 @@ extension AcpmuxHub {
         // cheap read first: answered, it is alive (busy, not stalled); unanswered, it is dead and
         // its write is lost with it, so it is recovered. A closed channel has nothing left to lose.
         // "stalled" and "timeout" are both a channel that is still open and has not answered.
-        if why == "stalled" || why == "timeout", await stale.hasWritesInFlight, await Self.answers(stale, within: stallAfter) {
-            log.info("acpmux read \(method, privacy: .public) slow behind a write on a live channel: not recovering")
-            return
+        // A channel still sending (a prompt with photos going out over a slow uplink) cannot answer
+        // the probe either: the probe waits behind those bytes. Replacing it cut the prompt off,
+        // the resend went the same way, and the chat said the Mac was unreachable while the link
+        // was fine (Leo, 2026-11-23). Its write keeps its own deadline, and a dead link is the
+        // link heartbeat's to find (it closes the channel, which fails the write).
+        if why == "stalled" || why == "timeout", await stale.hasWritesInFlight {
+            if await stale.isWriting {
+                log.info("acpmux read \(method, privacy: .public) waits behind bytes still going out: not recovering")
+                return
+            }
+            if await Self.answers(stale, within: stallAfter) {
+                log.info("acpmux read \(method, privacy: .public) slow behind a write on a live channel: not recovering")
+                return
+            }
         }
         // Asked again: another read may have started a recovery while this one waited above.
         if let recovering {

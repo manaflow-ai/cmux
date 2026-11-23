@@ -372,4 +372,12 @@ import Testing
         #expect(mac.delivered == 1, "the prompt reached the Mac on the channel it was sent on")
         #expect(outcome.answered == 1)
     }
+
+    /// A write's deadline grows with its bytes: a prompt with photos on a slow uplink is not cut
+    /// off at a fixed 30 s.
+    @Test func aWritesDeadlineGrowsWithItsBytes() {
+        #expect(AcpmuxConnection.writeTimeout(bytes: 200) < .seconds(31))
+        let photos = AcpmuxConnection.writeTimeout(bytes: 12 << 20) // four photos as base64
+        #expect(photos > .seconds(200))
+    }
 }
