@@ -190,6 +190,13 @@ public protocol TerminalSession: AnyObject {
     /// `notSent` is called once, on the main actor, if the text is dropped,
     /// refused or answered with an error: the screen then gives it back.
     func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool
+    /// The composer's Send of a one-line draft to a full-screen program:
+    /// `text` typed and Return, in one request to where the terminal runs
+    /// (a Mac daemon's `send {text, submit:true}` with `send-typed-submit-v1`),
+    /// never the text and a separate Return a link blip can split. Returns
+    /// false when this session cannot: the screen then types through its
+    /// mirror. `notSent` as for ``sendPasteAndSubmit(_:notSent:)``.
+    func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -278,6 +285,9 @@ extension TerminalSession {
 
     /// Sessions with no Mac daemon paste through the screen's mirror.
     public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool { false }
+
+    /// Sessions with no Mac daemon type through the screen's mirror.
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool { false }
 
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary

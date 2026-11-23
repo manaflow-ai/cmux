@@ -83,6 +83,17 @@ public final class TerminalProjectingSession: TerminalSession {
 
     public func send(_ bytes: Data) { inner.send(bytes) }
     public func sendReply(_ bytes: Data) { inner.sendReply(bytes) }
+    /// The composer's Send goes to the Mac's daemon as one request, as without the projection.
+    /// Left to the protocol's default (false), every projected page (the default, Fit to Phone
+    /// off) sent its draft through the mirror as a paste and a separate Return 60 ms later: a
+    /// blip between them delivered the text and not the Return (Leo, 2026-11-21: "the text goes
+    /// through. But then the send doesn't go through").
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool {
+        inner.sendPasteAndSubmit(text, notSent: notSent)
+    }
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool {
+        inner.sendTypedAndSubmit(text, notSent: notSent)
+    }
     public func stop() { inner.stop() }
     public func setOutputPaused(_ paused: Bool) { inner.setOutputPaused(paused) }
     public func noteInteraction() { inner.noteInteraction() }

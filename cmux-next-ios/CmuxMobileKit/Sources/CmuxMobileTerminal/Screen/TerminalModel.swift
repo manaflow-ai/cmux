@@ -603,20 +603,37 @@ public final class TerminalModel {
             return
         }
         holdComposerText()
-        // A draft that goes as a paste goes to the Mac's terminal as one paste
-        // plus Return (`sendPasteAndSubmit`), when the session can; a one-line
-        // draft typed into a full-screen app, a bare Return, or a session with
-        // no Mac daemon goes through the mirror as before.
+        // The draft and its Return go to the Mac's terminal as one request when
+        // the session can: a paste plus Return (`sendPasteAndSubmit`), or a
+        // one-line draft for a full-screen app typed plus Return
+        // (`sendTypedAndSubmit`), so a blip never delivers the text without
+        // its Return. A bare Return, or a session with no Mac daemon, goes
+        // through the mirror as before.
         let submit = ComposerSubmit(text: composerText, pressReturn: true, fullScreenApp: isTUI)
         let text = composerText
         composerSending = true
-        let viaDaemon = submit.steps.first == .paste(text)
-            && session.sendPasteAndSubmit(text, notSent: { [weak self] in self?.composerSendNotSent(text) })
+        let viaDaemon = sendThroughSession(submit) { [weak self] in self?.composerSendNotSent(text) }
         composerSending = false
         if !viaDaemon {
             controller?.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
         }
         finishComposerSend()
+    }
+
+    /// `submit`'s text and its Return as one request where the terminal runs
+    /// (a Mac daemon's `send` with `submit`), when the session can: a paste
+    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:)``) or typed text
+    /// (``TerminalSession/sendTypedAndSubmit(_:notSent:)``). Never the text
+    /// and a separate Return that a link blip can split (Leo, 2026-11-21: "the
+    /// text goes through. But then the send doesn't go through"). False: the
+    /// caller sends through the mirror.
+    private func sendThroughSession(_ submit: ComposerSubmit, notSent: @escaping @MainActor () -> Void) -> Bool {
+        guard submit.steps.count == 2, submit.steps.last == .enter else { return false }
+        switch submit.steps.first {
+        case .paste(let text): return session.sendPasteAndSubmit(text, notSent: notSent)
+        case .type(let text): return session.sendTypedAndSubmit(text, notSent: notSent)
+        default: return false
+        }
     }
 
     /// Inside `send`, handing the draft to the session.
@@ -671,8 +688,15 @@ public final class TerminalModel {
     /// Returns false when nothing was typed.
     @discardableResult
     public func sendVoicePrompt(_ text: String) -> Bool {
-        guard connectionState.composerNotSentNotice == nil, let controller else { return false }
-        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        guard connectionState.composerNotSentNotice == nil else { return false }
+        let submit = ComposerSubmit(text: text, pressReturn: true, fullScreenApp: isTUI)
+        if sendThroughSession(submit, notSent: { [weak self] in
+            self?.composerNotice = TerminalConnectionState.composerSendNotSentNotice
+        }) {
+            return true
+        }
+        guard let controller else { return false }
+        controller.surface.perform(submit)
         return true
     }
 
@@ -728,7 +752,10 @@ public final class TerminalModel {
             guard let self else { return }
             self.isUploading = false
             let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
-            self.controller?.surface.perform(submit)
+            let draft = self.composerText
+            if !self.sendThroughSession(submit, notSent: { [weak self] in self?.composerSendNotSent(draft) }) {
+                self.controller?.surface.perform(submit)
+            }
             self.composerText = ""
             self.attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
         }

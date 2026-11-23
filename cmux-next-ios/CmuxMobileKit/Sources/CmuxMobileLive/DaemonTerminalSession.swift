@@ -109,6 +109,10 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `paste` (``sendPasteAndSubmit(_:notSent:)``). An older daemon ignores `submit`
     /// and would paste the draft with no Return: it gets the mirror's paste.
     private var pasteSubmit = false
+    /// The daemon lists `send-typed-submit-v1`: `send {text, submit:true}`
+    /// with no `paste` writes Return a paste-burst window after the typed
+    /// text, in the same request (``sendTypedAndSubmit(_:notSent:)``).
+    private var typedSubmit = false
     /// The `agent-cli-frame` stream and the newest frame this mirror drew
     /// (`agent-cli-hybrid-v1`): a reattach names them, so the Mac sends what changed
     /// since that frame instead of the whole screen.
@@ -198,6 +202,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// called once when the paste is dropped, refused or answered with an
     /// error, and forgotten once the daemon answers it.
     private var pasteNotSent: [Int: @MainActor () -> Void] = [:]
+    /// Composer sends (by their id in `input`, `paste`) that go as typed
+    /// text, not a paste: `send {text, submit:true}` (``sendTypedAndSubmit(_:notSent:)``).
+    private var typedSends: Set<Int> = []
     private var nextPaste = 0
     /// Keys queued while detached expired: everything typed until the next
     /// attach is refused, so no fragment of a command (its last 2 s) can
@@ -402,16 +409,37 @@ public final class DaemonTerminalSession: TerminalSession {
     /// before the first attach said which daemon this is.
     public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool {
         guard pasteSubmit, !text.isEmpty else { return false }
+        enqueueComposerSend(text, typed: false, notSent: notSent)
+        return true
+    }
+
+    /// The composer's Send of a one-line draft to a full-screen program, as
+    /// one `send {surface, text, submit:true}`: typed (vim takes a bracketed
+    /// paste as text even in normal mode), with Return in the same keyed
+    /// request, so a link blip can never deliver the text without its Return
+    /// (Leo, 2026-11-21: "the text goes through. But then the send doesn't go
+    /// through"). Held through a blip and sent once, like any batch. False
+    /// against a daemon that does not list `send-typed-submit-v1` (one that
+    /// would write Return right behind the text, inside an agent's paste-burst
+    /// window), or before the first attach said which daemon this is.
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool {
+        guard typedSubmit, pasteSubmit, !text.isEmpty else { return false }
+        enqueueComposerSend(text, typed: true, notSent: notSent)
+        return true
+    }
+
+    private func enqueueComposerSend(_ text: String, typed: Bool, notSent: @escaping @MainActor () -> Void) {
         let id = nextPaste
         nextPaste += 1
         pasteNotSent[id] = notSent
+        if typed { typedSends.insert(id) }
         enqueueTyped(Data(text.utf8), paste: id)
-        return true
     }
 
     /// Tells the screen a composer paste was not sent (once).
     private func pasteWasNotSent(_ id: Int?) {
         guard let id, let notSent = pasteNotSent.removeValue(forKey: id) else { return }
+        typedSends.remove(id)
         notSent()
     }
 
@@ -594,6 +622,7 @@ public final class DaemonTerminalSession: TerminalSession {
         outbox.removeAll()
         input.removeAll()
         pasteNotSent.removeAll()
+        typedSends.removeAll()
         tailProbe?.cancel()
         tailProbe = nil
         autoReattach?.cancel()
@@ -1018,6 +1047,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 && (identify.map { Self.lists(Self.replayHistoryWindowCapability, $0) } ?? false)
             if !windowReplay { historyWindowStart = nil }
             pasteSubmit = identify.map { Self.lists(Self.pasteSubmitCapability, $0) } ?? false
+            typedSubmit = identify.map { Self.lists(Self.typedSubmitCapability, $0) } ?? false
             // `attach-surface` with this view's size (if any) and history
             // allowance. A lane that refuses the allowance (a Mac app older
             // than its daemon) gets the same attach without it.
@@ -1686,6 +1716,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let typedBytes = taken.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let key = resendKey ?? (sendKeys ? UUID().uuidString : nil)
         let resent = resendKey != nil
+        let typedSend = paste.map { typedSends.contains($0) } ?? false
         let surface = surface
         let onLane = target !== client
         let deadline = inputRequestDeadline
@@ -1695,7 +1726,7 @@ public final class DaemonTerminalSession: TerminalSession {
             do {
                 let submit: @Sendable () async throws -> String = {
                     var params: [String: Any] = paste != nil
-                        ? ["surface": surface, "text": String(decoding: batch, as: UTF8.self), "paste": true, "submit": true]
+                        ? ["surface": surface, "text": String(decoding: batch, as: UTF8.self), "paste": !typedSend, "submit": true]
                         : ["surface": surface, "bytes": batch.base64EncodedString()]
                     if let key { params["key"] = key }
                     return try await target.submit("send", params: params, deadline: deadline)
@@ -1735,6 +1766,7 @@ public final class DaemonTerminalSession: TerminalSession {
                     pasteWasNotSent(paste)
                 } else if let paste {
                     pasteNotSent[paste] = nil
+                    typedSends.remove(paste)
                 }
             } catch {
                 if !written { inputWriting = false }
@@ -2098,6 +2130,8 @@ public final class DaemonTerminalSession: TerminalSession {
     static let sendKeyCapability = "send-key-v1"
     /// `send` takes `submit` (with `paste`): Return in the same request as the paste.
     static let pasteSubmitCapability = "send-expect-agent-v1"
+    /// `send` with `submit` and typed text waits past a paste-burst window before Return.
+    static let typedSubmitCapability = "send-typed-submit-v1"
     /// What the attach channel lists in `set-client-info`.
     static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability]
 
