@@ -82,6 +82,41 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-22 22:08Z, on a coordinator turn whose only work was a SendMessage to a subagent, drawn as
+  // empty space and the action row: "IF THIS IS THE CASE, THEN DON'T FUCKING DISPLAY THIS BULLSHIT LIKE THIS".
+  "send-only-turn": () => {
+    const b = sim(
+      "send-only-turn",
+      "A turn whose only work is Claude Code's SendMessage to a subagent; the next starts.",
+    );
+    b.prompt("Tell the menu lane to keep the Chrome import card.");
+    b.sendMessage("a39e817af38ddf5e7", "Leo says: keep the Chrome import card; fix only the indent.");
+    b.turnEnd();
+    b.wait(15_000).prompt("And the profile icon?");
+    b.think("Asking the same lane.");
+    b.sendMessage("a39e817af38ddf5e7", "Also drop the profile icon from the menu header.");
+    b.sendMessage("a5b2c0d9e8f7a6b5c", "Heads-up: the menu lane owns the header now.");
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-22 22:08Z: "2 background commands completed" and its rows, then an empty band, then the
+  // action row ("WHY DID IT FUCKING DISPLAY NOTHING THEN COPY BUTTONS THEN YOU SENT SHIT").
+  "background-done-turn": () => {
+    const b = sim(
+      "background-done-turn",
+      "A turn leaves two shells in the background and ends; both end while the agent is idle; the next prompt comes.",
+    );
+    b.prompt("Start the setup on both lanes.");
+    b.background("export ACPMUX_CALLER_SUBAGENT=general-purpose; wt new lane-a", { ms: 8_000 });
+    b.background("wt new finishes", { ms: 9_000 });
+    b.sendMessage("a39e817af38ddf5e7", "Both setups are running; report when they finish.");
+    b.turnEnd();
+    b.backgroundEnds();
+    b.wait(5_000).prompt("Status?");
+    b.say("Both setups finished.");
+    return b.turnEnd().build();
+  },
+
   "incoming-message-turn": () => {
     const b = sim("incoming-message-turn", "A finished turn with a reply, then another agent's message starts a turn.");
     b.prompt("Fix the flaky test.");
