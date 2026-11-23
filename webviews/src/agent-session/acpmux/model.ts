@@ -1835,7 +1835,10 @@ const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: 
   prev !== undefined &&
   (prev.kind === "user"
     ? isLiveLine(row) && isStatusRow(prev) && !isOwnTurnLine(above, prev)
-    : prev.kind === "worked" && prev.foldOpen !== true && row.kind === "user" && isStatusRow(row) &&
+    : prev.kind === "worked" &&
+      prev.foldOpen !== true &&
+      row.kind === "user" &&
+      isStatusRow(row) &&
       !isOwnTurnLine(prev, row));
 /// Whether `line` is the "Working for" / "Worked for" line of the turn `user` opened. O(1).
 const isOwnTurnLine = (line: AcpmuxRow | undefined, user: AcpmuxRow): boolean =>
