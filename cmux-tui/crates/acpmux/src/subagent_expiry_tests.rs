@@ -213,7 +213,7 @@ fn a_harness_exit_leaves_orphans_until_their_end_is_logged() {
     assert!(tree.take_orphans().is_empty(), "taken once");
 }
 
-/// A daemon rebuilds a chat's subagents from its log (`work_below.rs` `subagents_in_log`): the
+/// A daemon rebuilds a chat's subagents from its log (`hub/hosts/journal.rs` `subagents_from_log`): the
 /// live tree takes the log's orphans, agent ids and event times, except for the subagents it
 /// already knows, whose state is its own.
 #[test]
