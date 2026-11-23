@@ -81,6 +81,65 @@ records) draws 74 rows and 9 `a-head-gap` violations sanitized, and 77 rows and 
 Some of the pane's text parsing (an incoming message's sender, a background task's summary) reads words the
 sanitizer replaces. Compare the two with `--replay DIR` and `--replay DIR --sanitize OUT` when it matters.
 
+## Capture a reported breakage
+
+Leo, 2026-11-22: "you guys need to be able to rapidly pull up and develop against these scenarios, just like
+the offline simulator."
+
+```sh
+bun scripts/chat-sim.ts --capture <chat> --window "2:05PM NOV 22 TO 2:11PM" --name leo-2205-burst
+bun scripts/chat-sim.ts --capture <chat> --report "why did it collapse"     # the minutes before that prompt
+bun scripts/chat-sim.ts --capture cosmic-gray/<name> --window "22:05Z-22:11Z" --out /tmp
+```
+
+`<chat>` is a session folder, an id or name under `~/.acpmux/sessions`, or anything `acpmux session export`
+resolves (a `HOST/NAME` on a peer). The window is read on his clock (America/Los_Angeles; `--tz` changes it)
+unless it says `Z` or is ISO: `2:05PM`, `2:05 pm nov 22`, `14:05`, `22:05Z`, `A to B`, `A-B`, `A..B`. One time
+is the `--minutes` (6) before it. `--report TEXT` takes the window ending at his last prompt holding TEXT.
+The records kept reach back to the start of the turn running when the window opened (`--no-lead` keeps only
+the window), so the reducer has that turn's rows when the window's first record lands.
+
+It writes `<out>/<name>.ndjson`, sanitized as `--sanitize` does (default out: `test/fixtures/chat-sim`), and
+`<name>.json` beside it (the window, the build the chat ran, the counts). Then it plays the fixture the ways
+the live pane read it, each in its own process: whole; its last 400 records, as a pane opening the chat
+reads one page; and from halfway, as a reconnect. It prints each read's violations by rule, the first
+`--show` (5) with the time on his clock they happened. A capture takes well under a second, then
+`--replay FIXTURE --trace FILE` is the loop to develop against.
+
+## Keep it current
+
+```sh
+bun scripts/chat-sim.ts --drift ~/.acpmux/sessions --days 7
+```
+
+The simulator only checks what it plays. `--drift` lists the record kinds the pane reads (a kind named as a
+string in `src/agent-session`) that recent chats on the machine sent and that no committed fixture or
+scenario plays, with how many chats sent each and the newest. It then names the `--minutes` (10) span of
+one chat holding the most of them, as a `--capture` command to run. `--all-kinds` lists the kinds the pane
+does not read too. It exits 1 while any kind is missing. Run it after a protocol change and capture what it
+names.
+
+## Sweep every chat on a machine
+
+```sh
+bun scripts/chat-sim.ts --sweep ~/.acpmux/sessions --jobs 4
+```
+
+This replays every chat in the folder, each in its own process and `--jobs` at a time. It prints one line per
+violation class: the rule and its detail, with the row ids, turn numbers and times taken out and the gaps kept.
+Each line also gives how many rows broke it, in how many chats, and one chat and step to replay. Classes found
+in many chats come first. A lane VM's 278 chats (7.4 GB of records) take about 20 minutes at 4 jobs.
+
+The first sweep (2026-11-22) found these classes:
+
+- Another agent's message opening a turn sat 16 px under the last reply of the turn before (37 chats). Fixed:
+  transcriptGrid.ts `MARK_TOPS_TURN`.
+- Three classes of simulator false positives, now read as the pane means them:
+  - A steer, a message that comes in while the turn runs, was counted as a new turn.
+  - "Working for" drawn over the message that opened its turn had no rule of its own.
+  - Codex messages folded under "Worked for" while the final answer streamed. That fold is by design, and its
+    verdict is now `final-answer`.
+
 ## Write a scenario
 
 ```ts

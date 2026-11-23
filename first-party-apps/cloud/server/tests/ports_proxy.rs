@@ -116,7 +116,7 @@ fn only_the_machine_itself_is_a_proxy_host() {
 fn browser_open_returns_a_route_and_refuses_other_hosts() {
     let mut rig = rig(FIXTURES);
     let route =
-        rig.server.handle(&open(json!({"machine": "vm-alpha01", "port": 3000}), "b-1")).unwrap();
+        rig.server.handle(&open(json!({"machine": "vm_alpha01", "port": 3000}), "b-1")).unwrap();
     assert_eq!(route["proxy"]["kind"], "http");
     assert_eq!(route["proxy"]["host"], "127.0.0.1");
     assert!(route["proxy"]["username"].as_str().is_some_and(|value| !value.is_empty()));
@@ -125,21 +125,21 @@ fn browser_open_returns_a_route_and_refuses_other_hosts() {
     assert_eq!(route["url"], "http://localhost:3000/");
     let again = rig
         .server
-        .handle(&open(json!({"machine": "vm-alpha01", "port": 5173, "path": "/app?x=1"}), "b-2"))
+        .handle(&open(json!({"machine": "vm_alpha01", "port": 5173, "path": "/app?x=1"}), "b-2"))
         .unwrap();
     assert_eq!(again["proxy"], route["proxy"], "one route per machine");
     assert_eq!(again["incarnation"], route["incarnation"], "one server process incarnation");
     assert_eq!(again["url"], "http://localhost:5173/app?x=1");
     let v6 = rig
         .server
-        .handle(&open(json!({"machine": "vm-alpha01", "port": 80, "host": "::1"}), "b-3"))
+        .handle(&open(json!({"machine": "vm_alpha01", "port": 80, "host": "::1"}), "b-3"))
         .unwrap();
     assert_eq!(v6["url"], "http://[::1]:80/");
     for host in ["example.com", "10.200.0.2", "127.0.0.1.nip.io", "evil.com?.localhost"] {
         let err = rig
             .server
             .handle(&open(
-                json!({"machine": "vm-alpha01", "port": 3000, "host": host}),
+                json!({"machine": "vm_alpha01", "port": 3000, "host": host}),
                 &format!("b-{host}"),
             ))
             .unwrap_err();
@@ -151,7 +151,7 @@ fn browser_open_returns_a_route_and_refuses_other_hosts() {
 fn the_proxy_refuses_hosts_that_are_not_the_machine_on_the_wire() {
     let mut rig = rig(FIXTURES);
     let route =
-        rig.server.handle(&open(json!({"machine": "vm-alpha01", "port": 3000}), "b-1")).unwrap();
+        rig.server.handle(&open(json!({"machine": "vm_alpha01", "port": 3000}), "b-1")).unwrap();
     let proxy = SocketAddr::from((
         Ipv4Addr::LOCALHOST,
         u16::try_from(route["proxy"]["port"].as_u64().unwrap()).unwrap(),

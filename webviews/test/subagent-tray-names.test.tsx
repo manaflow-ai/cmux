@@ -41,9 +41,6 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
-  // This file pins the named header (the `one` arm); the default `kinds` arm, each kind's mark and
-  // count, has its own file (subagent-tray-head-kinds.test.ts; trayFoldHead.experiment.ts).
-  cmuxExperiments: { "subagent-tray-fold-head": "one" },
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
@@ -66,6 +63,17 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
+// These cases read the folded header's names (trayFoldHead.experiment.ts `one`; its default is now
+// `kinds`) and the run's clock (trayHeadClock.experiment.ts `run`; its default is now `none`).
+globalThis.cmuxExperiments = {
+  ...globalThis.cmuxExperiments,
+  "subagent-tray-fold-head": "one",
+  "subagent-tray-head-clock": "run",
+};
+afterAll(() => {
+  const pins = globalThis.cmuxExperiments as Record<string, string> | undefined;
+  if (pins) for (const id of ["subagent-tray-fold-head", "subagent-tray-head-clock"]) delete pins[id];
+});
 
 const now = Date.now();
 const agent = (id: string, task: string, startedAgo: number): Subagent => ({

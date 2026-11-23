@@ -11,7 +11,7 @@
 //   transcript. Between turns a command shows only when acpmux's process registry says it runs; one
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
-import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
@@ -44,9 +44,6 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
-  // This file pins the named header (the `one` arm); the default `kinds` arm, each kind's mark and
-  // count, has its own file (subagent-tray-head-kinds.test.ts; trayFoldHead.experiment.ts).
-  cmuxExperiments: { "subagent-tray-fold-head": "one" },
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
@@ -73,6 +70,19 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const { backgroundCommands, commandLabel } = await import("../src/agent-session/acpmux/session-info/processes");
 const { runningBackgroundTasks } = await import("../src/agent-session/acpmux/summary/sessionSummary");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
+
+/// The header's stack of the lines' marks draws under the folded headers that are not `kinds`; `kinds`
+/// (the default since #48542) draws each kind's own mark instead. A test of the stack pins the
+/// `counts` arm, read when the tray mounts; every test ends with the arm unpinned.
+const experiments = globalThis as { cmuxExperiments?: Record<string, string> };
+function pinFoldHead(arm: "counts" | "one" | "two" | "kinds") {
+  experiments.cmuxExperiments = { ...experiments.cmuxExperiments, "subagent-tray-fold-head": arm };
+}
+afterEach(() => {
+  if (!experiments.cmuxExperiments) return;
+  delete experiments.cmuxExperiments["subagent-tray-fold-head"];
+  if (Object.keys(experiments.cmuxExperiments).length === 0) delete experiments.cmuxExperiments;
+});
 type BackgroundCommand = import("../src/agent-session/acpmux/session-info/processes").BackgroundCommand;
 type StartedSession = import("../src/agent-session/acpmux/started/startedSessions").StartedSession;
 type Row = import("../src/agent-session/acpmux/model").AcpmuxRow;
@@ -450,7 +460,33 @@ describe("the tray", () => {
     }
   });
 
+  test("the default header (`kinds`, #48542) draws each kind's mark and count, never the stack", async () => {
+    const now = Date.now();
+    const few = trayItems(
+      [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
+      [command("bg1", { command: "bun run dev", startedAt: now - 3000 })],
+      NONE,
+      true,
+    );
+    const shown = await render(
+      createElement(SubagentTray, { items: few, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      const kinds = head.querySelector(".acpmux-running-tray__kinds");
+      // One part per kind, the subagents then the server, in one line of counts; the stack of the lines'
+      // marks is the other arms' header, not this one's.
+      expect(kinds?.textContent).toBe("2 subagents running · 1 server");
+      expect(head.querySelectorAll(".acpmux-running-tray__kind").length).toBe(2);
+      expect(head.querySelector("[data-tray-stack]")).toBeNull();
+    } finally {
+      await shown.done();
+    }
+  });
+
   test("several get a header and start folded to it, however few (cmux#28875)", async () => {
+    pinFoldHead("counts");
     const now = Date.now();
     const few = trayItems(
       [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
@@ -479,9 +515,10 @@ describe("the tray", () => {
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 server");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
-      // The header's time is its own, not a fourth line's.
+      // Each line keeps its own time; a several-item header draws none, only its reserved track
+      // (trayHeadClock.experiment.ts; Leo, 2026-11-22: "what the fuck are you timing man").
       expect(shown.root.querySelectorAll(".acpmux-agent-line__time").length).toBe(3);
-      expect(head.querySelector(".acpmux-running-tray__time")?.textContent).toMatch(/^[56]s$/);
+      expect(head.querySelector(".acpmux-running-tray__time")?.textContent ?? "").toBe("");
       await act(async () => head.click());
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
     } finally {
@@ -537,7 +574,7 @@ describe("the tray", () => {
       await act(async () => head().click());
       // Open, the header counts (folded, it names what runs: subagent-tray-names.test.tsx).
       expect(head().querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "Running in background · 1 subagent · 1 server · 1 command",
+        "1 subagent · 1 server · 1 command",
       );
       expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
       await show(tray("chat-2"));
@@ -635,8 +672,11 @@ describe("the tray", () => {
     const agents = Array.from({ length: 300 }, (_, index) => agent(`Agent ${index}`, { startedAt: now - index }));
     const items = trayItems(agents, [], NONE, true);
     let nameReads = 0;
-    // Header totals and elapsed time need the running state; the folded header names only the newest
-    // two. More reads than that prove the component constructed hidden AgentLine elements.
+    // Header totals and elapsed time need the running state; the folded header names only the faces
+    // that fit its row (HatFaces.tsx faceLayout: at most FACE_CAP wide at FACE_MIN_STEP apart, #49824).
+    // More reads than that prove the component constructed hidden AgentLine elements.
+    const { faceLayout, FACE_CAP } = await import("../src/agent-session/acpmux/subagents/HatFaces");
+    const faceCap = faceLayout(300, 0, FACE_CAP).shown;
     for (const item of items) {
       if (item.kind !== "agent") continue;
       const name = item.agent.name;
@@ -655,7 +695,7 @@ describe("the tray", () => {
       expect(head.getAttribute("aria-expanded")).toBe("false");
       expect(root.querySelectorAll(".acpmux-agent-line")).toHaveLength(0);
       const headReads = nameReads;
-      expect(headReads).toBeLessThanOrEqual(10);
+      expect(headReads).toBeLessThanOrEqual(faceCap + 10);
       // A header rerender while collapsed must also skip all row construction.
       await show(createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }));
       expect(nameReads).toBe(headReads);
@@ -790,7 +830,7 @@ describe("the tray", () => {
     expect(trayItems([], local, NONE, false).map((item) => item.id)).toEqual(["s/1"]);
   });
 
-  test("between turns the header says it runs in the background; a line opens it, a process stops", async () => {
+  test("between turns the header counts what runs; a line opens it, a process stops", async () => {
     const now = Date.now();
     const registry = command("s/1", {
       command: "cargo watch",
@@ -820,9 +860,7 @@ describe("the tray", () => {
     );
     try {
       // A session the agent started reads as a session (trayHeadKinds.ts).
-      expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "Running in background · 1 subagent · 1 session · 1 command",
-      );
+      expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent · 1 session · 1 command");
       const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
       expect(lines.map((line) => line.querySelector(".acpmux-summary-agent__name")?.textContent)).toEqual([
         "Watcher",
@@ -1151,10 +1189,12 @@ describe("the tray tells the truth", () => {
       // A chat that waits on the person is counted as waiting, never as running; a chat it started is
       // a session. What ended counts after what runs, its failures apart in the danger colour.
       if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
+      // The header is each kind's mark and count (trayFoldHead.experiment.ts `kinds`, #48542): what
+      // failed is its own kind, last, in the failed tone.
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "2 subagents running · 1 session · 1 waiting · 1 server · 2 done",
+        "2 subagents running · 1 session · 1 waiting · 1 server · 2 done · 2 failed",
       );
-      expect(head.querySelector(".acpmux-running-tray__failed")?.textContent).toBe("· 2 failed");
+      expect(head.querySelector('[data-kind="failed"]')?.getAttribute("data-tone")).toBe("failed");
       const lines = liveLines(root);
       expect(lines.length).toBe(5);
       // The chat waiting on the person leads (trayAttention.ts), so the list's height cap never
@@ -1201,7 +1241,7 @@ describe("the tray tells the truth", () => {
     );
     try {
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "Running in background · 2 subagents · 1 session · 1 command",
+        "2 subagents · 1 session · 1 command",
       );
       expect(root.querySelector(".acpmux-running-tray__finished")).toBeNull();
     } finally {
@@ -1328,7 +1368,7 @@ describe("the tray tells the truth", () => {
       ["A=$(touch marker); bun test", "touch marker · bun test"],
       ['A="$(git rev-parse HEAD)"; bun test', "git rev-parse HEAD · bun test"],
       ["A=`git rev-parse HEAD`; bun test", "git rev-parse HEAD · bun test"],
-      // A printf only formats its substitution's answer: quiet, as echo and sleep are (commandWorkLabel.ts).
+      // printf, like echo and sleep, is a command's grammar, not its work (commandWorkLabel.ts QUIET, #48542).
       ['A=$(printf "%s" "$(git rev-parse HEAD)"); bun test', "git rev-parse HEAD · bun test"],
       ['printf "%s" "$(git rev-parse HEAD)"', "git rev-parse HEAD"],
       ["sleep $((60 * 5))", "sleep $((60 * 5))"],
@@ -1829,6 +1869,7 @@ describe("subagents show their harness logos", () => {
     configureSenderIconLook({});
   });
   test("same-family and inherited harnesses keep their logos alongside another family", async () => {
+    pinFoldHead("counts");
     const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
     const items = trayItems(
       [
@@ -1886,6 +1927,7 @@ test("a plan-only tray's header draws the Plan mode mark over its rows' status c
 });
 
 test("many live and finished commands share one terminal header mark without hiding agents", async () => {
+  pinFoldHead("counts");
   const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
   const commands = Array.from({ length: 7 }, (_, index) => command(`wait-${index}`, { command: "sleep 300" }));
   const agents = [agent("Reviewer", { harness: "claude" })];

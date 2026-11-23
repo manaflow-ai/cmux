@@ -501,6 +501,68 @@ fn oauth_sign_in_then_the_server_connects_and_wakes_the_chief() {
 }
 
 #[test]
+fn device_code_sign_in_shows_the_code_then_connects_and_wakes_the_chief() {
+    let (child, port) = http_server(&["--token", "dev-tok-1", "--device", "fake-device-client"]);
+    let _k = Kill(child);
+    let tmp = tempfile::tempdir().unwrap();
+    let url = format!("http://127.0.0.1:{port}/mcp");
+    // A registry entry like the builtin `github` one, pointing at the fake.
+    let registry = tmp.path().join("registry.json");
+    std::fs::write(
+        &registry,
+        json!({"servers": [{"name": "devfake", "title": "Dev fake", "publisher": "127.0.0.1",
+            "url": url, "auth": "device", "scopes": ["repo", "read:org"],
+            "client_id": "fake-device-client"}]})
+        .to_string(),
+    )
+    .unwrap();
+    let notes: Arc<Mutex<Vec<String>>> = Arc::default();
+    let n = notes.clone();
+    let registry_path = registry.display().to_string();
+    let hub = McpHub::with_env(
+        tmp.path().join("optchat/mcp"),
+        tmp.path().join("cmux/mcp"),
+        None,
+        Arc::new(move |t: String| n.lock().unwrap().push(t)),
+        Arc::new(move |k: &str| {
+            if k == optchat_chief::mcp_hub::oauth::EXTRA_REGISTRY_ENV {
+                Some(registry_path.clone())
+            } else {
+                std::env::var(k).ok()
+            }
+        }),
+    );
+    hub.start();
+    let out = call(
+        &hub,
+        json!({"action": "add", "name": "devfake", "target": url}),
+    );
+    assert!(out.contains("outcome: waiting"), "{out}");
+    assert!(out.contains("WDJB-MJHT"), "the user code: {out}");
+    assert!(
+        out.contains(&format!("http://127.0.0.1:{port}/device")),
+        "the verification URL: {out}"
+    );
+    assert!(out.contains("only they enter it and approve"), "{out}");
+    assert!(
+        !out.contains("dev-code-1"),
+        "the device code stays in the hub: {out}"
+    );
+    // The fake answers authorization_pending once, then the token.
+    let n = note(&notes, "[mcp devfake] signed in");
+    assert!(n.contains("echo"), "{n}");
+    assert_eq!(
+        call(
+            &hub,
+            json!({"action": "call", "server": "devfake", "tool": "echo", "args": {"text": "via device"}})
+        ),
+        "via device"
+    );
+    let saved = std::fs::read_to_string(tmp.path().join("cmux/mcp/servers/devfake.json")).unwrap();
+    assert!(!saved.contains("dev-tok-1"));
+}
+
+#[test]
 fn the_mcp_tool_is_one_fixed_tool_for_the_chief_and_its_subagents() {
     for subagent in [false, true] {
         let list = optchat_chief::mcp::tools_for(subagent);
@@ -656,6 +718,28 @@ fn a_rejected_token_is_refreshed_once_before_asking_for_a_sign_in() {
     assert!(
         secrets.contains("tok-123") && secrets.contains("ref-2"),
         "{secrets}"
+    );
+}
+
+/// A tool whose name is no identifier (`resolve-library-id`) is declared and
+/// hinted in a form code can call: a quoted method, bracket access.
+#[test]
+fn a_tool_with_a_dash_is_declared_and_hinted_as_code_can_call_it() {
+    use optchat_chief::mcp_hub::codemode::{declarations, member};
+    let tools = vec![
+        json!({"name": "resolve-library-id", "inputSchema": {"type": "object"}}),
+        json!({"name": "get_docs", "inputSchema": {"type": "object"}}),
+    ];
+    let d = declarations("docs", &tools, &[], None);
+    assert!(d.contains("const docs: {"), "{d}");
+    assert!(d.contains("\"resolve-library-id\"(args?"), "{d}");
+    assert!(!d.contains("function \"resolve"), "{d}");
+    assert_eq!(member("resolve-library-id"), "[\"resolve-library-id\"]");
+    assert_eq!(member("get_docs"), ".get_docs");
+    let plain = declarations("fake", &tools[1..], &[], None);
+    assert!(
+        plain.contains("declare namespace mcp.fake {") && plain.contains("function get_docs("),
+        "{plain}"
     );
 }
 
