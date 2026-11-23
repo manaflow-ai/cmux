@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-23",
+  "row": "app_lines",
+  "allow": 156,
+  "why": "Palette step B for hand-built menu rows (cmux#51026 rows the palette lists but no handler ran): each bind needs AppActionContext, AppServices, PaneController, BrowserEntry or UpdaterService, which live in CmuxNextApp, beside the existing Handlers/*.swift binds of the same areas. The views' own logic stayed in their packages (WebDevToolsCommand, BrowserNavigationEntry.rowTitle, RemoteDesktopPane.selectQuality); only the registry binds and suggestion lists are App lines.",
+  "author": "lane/goals-palette-gaps-11 (claude opus)",
+  "owner": "lane/goals-palette-gaps-11",
+  "receipt": "Review (subagent opus, correctness first): SHIP at 8a6efdf8da95e70ec28af1c6b7aadd479ad6db8c",
+  "expiry": "2026-12-07"
+}
