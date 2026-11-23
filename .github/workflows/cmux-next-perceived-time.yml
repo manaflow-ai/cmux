@@ -1,0 +1,109 @@
+name: cmux-next perceived time
+
+# Perceived time to visible, to settled and to interactive for the key web UI states (an agent chat's cold open, a
+# switch to an unread chat), measured for every pull request that can change them and failed on a regression. Leo,
+# 2026-11-23: "just perceived time to visible/settled and percieved interactive time".
+#
+# webviews/bench/perceived-time.ts names which bench row is which number and judges them: on this one runner it runs
+# each state's bench in the base (the merge commit's first parent) and in the merge commit, interleaved base, head,
+# head, base, and fails when a number's head median is over the base's by more than 15 % and the state's floor with
+# most head rounds slower; a suspected regression measures that state once more before it fails. The table goes on the
+# run page (job summary), and perceived-time.json with every round is the run's artifact: the record per pull request.
+# A description line `perceived-time: <reason>` accepts a regression (rerun the failed job after adding it).
+#
+# The perf cron (cmux-next-perf-budgets.yml) still measures the same rows on the branch tip; this is the pull request
+# side. Each tree runs its own copy of the benches, so a pull request that edits a bench measures its head with it.
+on:
+  # Started only by pr-router.yml (one router per push, RFD 0023) when the change touches an input it measures
+  # (scripts/ci/pr_router.json `affects`). Its check reports as `cmux-next perceived time / ...`.
+  workflow_call:
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-perceived-time-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  measure:
+    name: visible, settled, interactive (base vs head)
+    if: ${{ github.event.action != 'edited' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout the merge commit and its base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          submodules: false
+
+      - name: Base tree
+        id: base
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD^1)"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+          git worktree add -f -f --detach "$RUNNER_TEMP/base" "$base"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-perceived-time-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Install webviews dependencies (head and base)
+        run: |
+          set -euo pipefail
+          (cd webviews && bun install --frozen-lockfile)
+          (cd "$RUNNER_TEMP/base/webviews" && bun install --frozen-lockfile)
+
+      - name: Cache Playwright apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
+      - name: Install system Chrome
+        run: bash scripts/ci/ensure-system-chrome.sh
+
+      - name: The description, for a perceived-time line
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        # Read at run time, not from the event, so a rerun after adding the line sees it.
+        run: |
+          gh api "repos/$REPO/pulls/$PR" --jq '.body // ""' > "$RUNNER_TEMP/pr-body.md" || true
+
+      - name: Measure and judge
+        working-directory: webviews
+        run: |
+          bun bench/perceived-time.ts --base "$RUNNER_TEMP/base" --head "$GITHUB_WORKSPACE" \
+            --out "$RUNNER_TEMP/perceived-time" --body "$RUNNER_TEMP/pr-body.md"
+
+      - name: Upload the record
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perceived-time-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/perceived-time
+          if-no-files-found: warn
+          retention-days: 30

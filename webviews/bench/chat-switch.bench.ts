@@ -764,11 +764,14 @@ try {
       p50: of((r) => r.latest),
       p95: of((r) => r.latest),
       target: TARGET_MS.response,
+      // Each round's value: bench/perceived-time.ts pools a base's and a head's rounds to judge a pull request.
+      samples: rounds.map((r) => r.latest),
     });
     perfRow({
       name: `chat_switch.${key}.settled`,
       p50: of((r) => r.settled),
       p95: of((r) => r.settled),
+      samples: rounds.map((r) => r.settled),
     });
     perfRow({
       name: `chat_switch.${key}.long_ms`,

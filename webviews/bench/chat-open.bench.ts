@@ -67,9 +67,12 @@ const CALIBRATION_PATH = "/__calibration.html";
 /// The stage rows marked with nextFrame (in the page script below), whose measure changed in version 3.
 const NEXT_FRAME_STAGES: ReadonlySet<string> = new Set(["first_row", "latest", "attach_to_latest"]);
 /// COMPOSER=1: the stage rows that carry each round's value (`samples`), for the web-startup probe's p50 and p95.
+/// latest and settled are bench/perceived-time.ts's visible and settled, pooled per round to judge a pull request.
 const SAMPLED_STAGES: ReadonlySet<string> = new Set([
   "dom_content_loaded",
   "first_row",
+  "latest",
+  "settled",
   "composer_ready",
   "composer_interactive",
 ]);

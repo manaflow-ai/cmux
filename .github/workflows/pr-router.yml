@@ -106,6 +106,15 @@ jobs:
     permissions:
       contents: read
 
+  perceived-time:
+    name: cmux-next perceived time
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-perceived-time.yml') }}
+    uses: ./.github/workflows/cmux-next-perceived-time.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
   pipeline:
     name: pr pipeline
     needs: route

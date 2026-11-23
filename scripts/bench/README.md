@@ -128,6 +128,27 @@ tool-update format. This deliberately stresses growing frontend payloads; it doe
 model native provider transport. Cross-document epoch receipts require wall-clock
 agreement within 2 ms or invalidate the run.
 
+## Perceived time per pull request
+
+Leo, 2026-11-23: "just perceived time to visible/settled and percieved interactive time". Each key web UI state has
+three numbers, named in `webviews/bench/perceived-time.ts` (`STATES`):
+
+| State | visible | settled | interactive |
+|---|---|---|---|
+| Open an agent chat cold (300 turns) | `chat_open.compact.latest` | `chat_open.compact.settled` | `chat_open.compact.composer_interactive` |
+| Switch to an unread chat (300 turns) | `chat_switch.unread.latest` | `chat_switch.unread.settled` | not measured yet |
+
+visible: the newest content is painted; settled: nothing moved for 400 ms after that; interactive: the first key
+is accepted and echoed. `cmux-next-perceived-time.yml` (started by the pr router when a pull request touches the
+pane's inputs) runs both benches in the base and the merge commit on one Linux runner, interleaved base, head, head,
+base, and fails on a confirmed regression (over 15 % and the state's floor, most head rounds slower, measured twice).
+The table is on the run page and `perceived-time.json` (every round) is the run's artifact. A description line
+`perceived-time: <reason>` accepts a regression. By hand, with two checkouts:
+
+```sh
+cmux-ci test --setup playwright --timeout 2400 -- bash -lc 'git worktree add -f /tmp/base origin/feat-cmux-next && (cd /tmp/base/webviews && bun install --frozen-lockfile) && cd webviews && bun install --frozen-lockfile && bun bench/perceived-time.ts --base /tmp/base --head .. --out "$FAST_CHECKS_OUT"'
+```
+
 ## Native typing under load
 
 `typing-native` (`benches/typing_native.py`) is the native Mac counterpart: it runs
