@@ -1503,6 +1503,7 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-cloud-machine",
  "cmux-cloud-wire",
+ "cmux-lifeline",
  "futures",
  "getrandom 0.3.4",
  "openapiv3",
@@ -1516,6 +1517,7 @@ dependencies = [
  "serde_json",
  "syn 3.0.6",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -1554,6 +1556,7 @@ dependencies = [
 name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
+ "cmux-lifeline",
  "serde",
  "serde_json",
 ]
@@ -2072,6 +2075,14 @@ dependencies = [
  "serde_json",
  "unicode-normalization",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-lifeline"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2706,6 +2717,7 @@ dependencies = [
  "cmux-host-budget",
  "cmux-json",
  "cmux-layout-reducer",
+ "cmux-lifeline",
  "cmux-link",
  "cmux-panic-log",
  "cmux-process",
@@ -3084,6 +3096,7 @@ dependencies = [
  "base64",
  "clap",
  "cmux-cloud-config",
+ "cmux-lifeline",
  "cmux-vm-client",
  "futures",
  "nix 0.31.3",
