@@ -3,7 +3,7 @@ import CmuxScreenKit
 import UIKit
 
 /// Applies an `OrientationLock`. iOS asks the app delegate which
-/// orientations are allowed, so the app returns `shared.allowed` from
+/// orientations it allows, so the app returns `shared.allowed` from
 /// `application(_:supportedInterfaceOrientationsFor:)`:
 ///
 /// ```swift
