@@ -76,6 +76,8 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
           const { LIVE_THINKING } = await import(turnsUrl);
           document.body.style.margin = "0";
           const thread = document.createElement("main");
+          // These pin the fold's slide mechanics, the `fade` look's (the shipped look, `wipe`, slides nothing).
+          thread.setAttribute("data-turn-end-fold", "fade");
           thread.style.cssText = "position: relative; height: 2000px; margin: 0; padding: 0; border: 0";
           document.body.append(thread);
           const draw = (id: string, kind: string, top: number, height: number, extra = "") => {

@@ -86,6 +86,7 @@
     "CmuxNextApp/Notifications/Panel/NotificationsPanelView.swift": "native-overlay",
     "CmuxNextApps/NativeRender/AppSceneNodeNSView+Decorations.swift": "scene-renderer",
     "CmuxNextApps/NativeRender/AppScenePanelNSView.swift": "scene-renderer",
+    "CmuxNextApps/Overlay/AppOverlayPresenter.swift": "scene-renderer",
     "CmuxNextApps/Widgets/AppWidgetGallery.swift": "scene-renderer",
     "CmuxNextBookmarks/UI/BookmarkEditBubble.swift": "native-overlay",
     "CmuxNextBridge/TabDrag/TabDragGhostPanel.swift": "native-overlay",
