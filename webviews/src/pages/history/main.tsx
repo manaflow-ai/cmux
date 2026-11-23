@@ -5,7 +5,7 @@ import "../shared/desktop";
 import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import { subscribePageStreams } from "../shared/pageStreams";
 import table from "./generated/strings.json";
 import { HistoryPage } from "./HistoryPage";
@@ -34,13 +34,15 @@ export function mountHistoryPage(root: HTMLElement, client: PageClient | null = 
       },
     });
   }
-  const strings = createStrings(table);
-  document.documentElement.lang = strings.language;
-  document.title = strings.t("page.title");
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <HistoryPage store={store} strings={strings} />
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
+        <HistoryPage store={store} strings={strings} />
+      </UiProvider>
+    ),
+    (strings) => strings.t("page.title"),
   );
   return store;
 }

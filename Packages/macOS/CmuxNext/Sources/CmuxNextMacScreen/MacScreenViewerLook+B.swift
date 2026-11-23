@@ -193,10 +193,11 @@ extension MacScreenChromeActions {
 }
 
 extension MacScreenChromeHost {
-    /// Lays look B's strip out in `pane` (made and added, after the picture, the first time a look asks for it), and hides
-    /// the toolbar under it. Returns whether the pane shows its state card: never under the strip, which carries the state.
+    /// Lays look B's strip out in `pane` (made and added, after the picture, the first time a look asks for it); the
+    /// toolbar takes the look's own visibility (``MacScreenToolbarView/hiddenByLook``: hidden under the strip, a pill off a
+    /// live picture, a faded auto-hide). Returns whether the pane shows its state card: never under the strip.
     func layoutStatusStrip(_ style: MacScreenViewerStyle, in pane: MacScreenPaneView) -> Bool {
-        toolbar.isHidden = style.statusStrip
+        toolbar.syncHidden()
         guard style.statusStrip else {
             statusStrip?.bar.isHidden = true
             statusStrip?.body.isHidden = true

@@ -31,6 +31,24 @@ use crate::client::Client;
 use crate::rpc::method;
 use cmux_json::JsonSet as _;
 
+/// `acpmux process [SUBCOMMAND]`: with none, the census (`acpmux ps`, `process_census`).
+#[derive(clap::Args, Debug, PartialEq, Eq)]
+pub struct ProcessArgs {
+    #[command(subcommand)]
+    pub cmd: Option<ProcessCmd>,
+}
+
+/// `acpmux ps` / `acpmux process`: the census with no subcommand, else the subcommand.
+pub async fn run_args(args: ProcessArgs, json_out: bool) -> Result<()> {
+    match args.cmd {
+        Some(cmd) => run(cmd, json_out).await,
+        #[cfg(unix)]
+        None => crate::cli::process_census::ps(json_out).await,
+        #[cfg(not(unix))]
+        None => Err(anyhow!("acpmux ps: the process census is not supported on this platform")),
+    }
+}
+
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum ProcessCmd {
     /// Background processes agents started, with their state.
