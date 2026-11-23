@@ -34,7 +34,7 @@ enum AppBrowserPage {
         // saved password filled again, so an automated click cannot release
         // one to page script (plans/cmux-next/browser.md, "Browser import:
         // passwords and security").
-        let stale = markAgentDriven(tabID, services: services)
+        let stale = markAgentDriven(tabID, services: services, reading: BrowserPageIntent.current == .reads)
         // The engine the record names, with url/title written back to the record.
         let entry = services.cache.existingBrowser(tabID) ?? services.cache.browser(for: tab)
         // Chromium makes a page asynchronously: an action right after

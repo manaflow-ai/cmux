@@ -78,17 +78,12 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     }
 
     private func renderEnded() {
-        guard !closed else { return }
-        onEvent?(.ended)
+        guard !closed else { return }; onEvent?(tab.browserEndedForQuit ? .engineStopped : .ended) // quit: no crash
     }
 
-    func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
-        try await tab.devTools(method: method, params: params)
-    }
-
-    func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String {
-        try await tab.devTools(method: method, params: params, timeout: timeout)
-    }
+    func devTools(_ method: String, params: [String: any Sendable]) async throws -> String { try await tab.devTools(method: method, params: params) }
+    func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String { try await tab.devTools(method: method, params: params, timeout: timeout) }
+    func startDevTools(_ method: String, params: [String: any Sendable]) -> @MainActor () async throws -> String { tab.startDevTools(method: method, params: params) }
 
     #if DEBUG || CMUX_BENCH_HOOKS
     func debugPress(at point: NSPoint) -> Bool {
@@ -160,6 +155,11 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
                 request.target.isEditable, link: request.target.linkURL) { request.complete(nil) }))
         case .notice(let text):
             logger.info("page \(self.pageID, privacy: .public) notice: \(text, privacy: .public)")
+        case .devTools(let command):
+            // A cmux page is no browser tab the palette's actions name: its DevTools divider moves its own tools.
+            if let placement = command.placement { (tab as? any BrowserDevToolsHosting)?.performDevTools(placement) }
+        case .goToHistoryEntry(let offset):
+            (tab as? any BrowserBackForwardListing)?.goToEntry(offset: offset)
         default:
             break
         }

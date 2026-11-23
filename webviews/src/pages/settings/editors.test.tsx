@@ -11,8 +11,11 @@ afterAll(() => restore());
 const { changeValue, click, fire, ops, renderPage, resetRow, rowElement, run, settle } = await import("./testing");
 const { isDuration } = await import("./editors/DurationEditor");
 const { ROW_LEVELS } = await import("./rowLevelsData");
-const { PERSONALIZATION_KEYS } = await import("./personalizationParts");
 const { DENSITY_CARD_ROWS } = await import("./density");
+const { BACKDROP_ROWS } = await import("./components/HostCards");
+const { CHIEF_PET_ROWS } = await import("./components/ChiefPetCard");
+/** The Chief Pet card's own two rows, checked below by its grid. */
+const PET_CHOICES: ReadonlySet<string> = new Set(["home.chiefPetEnabled", "home.chiefPetMascot"]);
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -70,6 +73,9 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "sound_rules":
       // Per-level sound maps are set from the sidebar menus, the palette and the CLI; never a row.
       return "a sound_rules row on the page";
+    case "json":
+      // The sidebar row layouts are page_hidden until the row-layout editor gives them a control.
+      return "a json row on the page";
   }
 }
 
@@ -82,14 +88,20 @@ describe("editors", () => {
       const failures: string[] = [];
       page = await renderPage({ path: `/settings/${category.id}` });
       for (const row of category.groups.flatMap((group) => group.rows)) {
+        // A card on the page draws these rows itself: the density card (Text Size, the custom
+        // densities), the background picker (its Material, Opacity and Switch Automatically's keys)
+        // and the Chief's Look card (the pet, Bubble Style and its colors).
+        const cards: readonly string[] = [...category.lead, ...category.trail];
+        const ownCard =
+          (cards.includes("density") && DENSITY_CARD_ROWS.has(row.key) && !DENSITY_ROWS.has(row.key)) ||
+          (cards.includes("backdrops") && BACKDROP_ROWS.has(row.key) && row.key !== "appearance.background") ||
+          (cards.includes("chiefPet") && CHIEF_PET_ROWS.has(row.key) && !PET_CHOICES.has(row.key));
+        if (ownCard) continue;
         // A hidden row is not on its page (search, the palette, the CLI and cmux.json have it;
-        // rowLevelsData.ts), and Personalization is the one page that draws what it holds.
-        const hub =
-          category.id !== "personalization" &&
-          (PERSONALIZATION_KEYS.includes(row.key) || DENSITY_CARD_ROWS.has(row.key));
+        // rowLevelsData.ts).
         // The Machines card draws machine colors as a color well per machine (checked below).
         const hidden = ROW_LEVELS.levels[row.key] === "hidden" && row.key !== "appearance.machineColors";
-        if (hidden || hub) {
+        if (hidden) {
           if (page.container.querySelector(`[data-row-key="${row.key}"]`))
             failures.push(`${row.key}: drawn on ${category.id}`);
           continue;
@@ -154,8 +166,8 @@ describe("editors", () => {
     });
 
   test("the window material is a material choice, never a radius slider", async () => {
-    // Personalization is the one page that draws the background rows.
-    page = await renderPage({ path: "/settings/personalization?part=background" });
+    // Appearance draws the background rows in its picker.
+    page = await renderPage({ path: "/settings/appearance?focus=appearance.background" });
     const material = rowElement(page.container, "appearance.backgroundBlur");
     expect(material.querySelector('input[type="range"]')).toBeNull();
     const values = [...material.querySelectorAll("option")].map((option) => option.getAttribute("value"));
@@ -167,8 +179,8 @@ describe("editors", () => {
   });
 
   test("opacity is a percent slider: preview while dragging, one settings.set on release", async () => {
-    // Personalization is the one page that draws the background rows.
-    page = await renderPage({ path: "/settings/personalization?part=background" });
+    // Appearance draws the background rows in its picker.
+    page = await renderPage({ path: "/settings/appearance?focus=appearance.background" });
     const row = rowElement(page.container, "appearance.backgroundOpacity");
     expect(row.querySelector(".unit")?.textContent).toBe("%");
     const slider = row.querySelector<HTMLInputElement>('input[type="range"]')!;
@@ -193,7 +205,7 @@ describe("editors", () => {
           op !== "cmux.settings.host.lists" &&
           op !== "cmux.settings.section.actions" &&
           op !== "cmux.settings.backdrop.image.screen_saver" &&
-          // Personalization's theme studio reads its colors when the page opens.
+          // Appearance's theme studio reads its colors when the page opens.
           op !== "cmux.settings.theme.colors" &&
           // The try-on bar reads whether something is tried on when the page opens.
           op !== "cmux.settings.customize.run" &&
@@ -210,8 +222,8 @@ describe("editors", () => {
   });
 
   test("an unset slider sits at the value the host derives (the theme's opacity), live", async () => {
-    // Personalization is the one page that draws the background rows.
-    page = await renderPage({ path: "/settings/personalization?part=background" });
+    // Appearance draws the background rows in its picker.
+    page = await renderPage({ path: "/settings/appearance?focus=appearance.background" });
     const row = rowElement(page.container, "appearance.backgroundOpacity");
     const slider = () => row.querySelector<HTMLInputElement>('input[type="range"]')!.value;
     await run(() =>

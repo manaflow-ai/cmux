@@ -14,10 +14,14 @@
 //!    shows the click or the typing.
 //! 5. Screenshots go through [`crate::frame`]; accessibility frames come back
 //!    in the pixels of the agent's latest screenshot of that window.
-//! 6. An acting call returns the window as it is after acting: a fixed wait
-//!    ([`Settle::floor`]), then screenshots until the pixels differ from what
-//!    the agent last saw, up to [`Settle::ceiling`], plus its tree. One round
-//!    trip per step; `observe: false` skips it.
+//! 6. An acting call returns the window as it is at once after acting, plus its
+//!    tree, with no wait for the screen (`settle: "openai"`, the default).
+//!    `settle: "adaptive"` waits at most [`Settle::floor`] (cut short by the
+//!    app's accessibility signal), then one screenshot. Only when the app has
+//!    no watched signals, or signalled a change the pixels do not show yet, do
+//!    more screenshots follow until the pixels differ from what the agent last
+//!    saw, up to [`Settle::ceiling`]. One round trip per step; `observe: false`
+//!    skips it.
 //! 7. One audit line per call.
 
 use std::collections::HashMap;
@@ -176,6 +180,7 @@ fn refusal_caption(code: &str) -> Option<&'static str> {
         "foreground_not_allowed" => "Foreground input is off",
         "person_in_control" => "You're in control",
         "approval_denied" | "approval_unavailable" => "Not approved",
+        crate::locked::CODE => "Mac is locked",
         stop::STOPPED_CODE => stop::STOPPED_CAPTION,
         _ => return None,
     })
@@ -250,7 +255,9 @@ impl PersonActivity for NoTakeover {
 pub const TAKEOVER_WAIT: Duration = Duration::from_secs(15);
 
 /// How an acting call waits before it reports the window's new state: a
-/// fixed `floor` first (most apps redraw within it), then a screenshot every
+/// `floor` first (most apps redraw within it; the app's accessibility signal
+/// ends it early, and a watched app that signals nothing and shows nothing
+/// new after it gets no more screenshots), then a screenshot every
 /// `step` until the pixels differ from what the agent last saw, never past
 /// `ceiling`. A fixed delay with change detection, not "until quiet": an app
 /// that keeps animating never holds the reply past the ceiling.
@@ -340,7 +347,7 @@ impl EngineParts {
 pub struct Engine {
     desktop: Arc<dyn Desktop>,
     config: Arc<RwLock<PolicyConfig>>,
-    sessions: Sessions,
+    sessions: Arc<Sessions>,
     /// Every cursor event goes through [`crate::cursor::Lifecycle`], which
     /// knows which sessions' Computer Use is active.
     cursor: Arc<crate::cursor::Lifecycle>,
@@ -362,6 +369,8 @@ pub struct Engine {
     sleep: Arc<dyn Fn(Duration) + Send + Sync>,
     clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     stops: Arc<Stops>,
+    /// The display recordings ([`crate::record`], the `record` tool).
+    recorder: Arc<crate::record::Recorder>,
 }
 
 /// What a capture checks before it reads a window.
@@ -421,7 +430,8 @@ impl Engine {
         let preview =
             Arc::new(crate::preview::PreviewHub::new(parts.preview, previews_on(&parts.config)));
         Self {
-            sessions: Sessions::open(parts.state_dir.as_deref()),
+            sessions: Arc::new(Sessions::open(parts.state_dir.as_deref())),
+            recorder: crate::record::Recorder::open(parts.state_dir.as_deref()),
             desktop: parts.desktop,
             config,
             cursor: Arc::new(crate::cursor::Lifecycle::new(parts.cursor, preview.clone())),
@@ -531,6 +541,17 @@ impl Engine {
         if self.stops.is_stopped(&ctx.session) {
             return self.refuse_stopped(ctx, tool, name);
         }
+        // A window named by its title or app instead of its id: the id, so
+        // the agent needs no list_windows turn first (engine_window_name.rs).
+        let named;
+        let args = match self.window_by_name(args) {
+            Ok(Some(resolved)) => {
+                named = resolved;
+                &named
+            }
+            Ok(None) => args,
+            Err(refused) => return refused,
+        };
         // An acting call is recorded on disk before it acts and again with its
         // result, so a retry (same call_id), even after a worker restart,
         // never acts twice.
@@ -781,8 +802,24 @@ impl Engine {
         args: &Value,
     ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
         let config = self.config();
+        // Before anything is read or posted: a locked screen admits only what
+        // cannot reach its password field ([`crate::locked`]). A batch's
+        // steps come back here one by one.
+        let kind = crate::locked::kind_of(tool.name, args);
+        if !crate::locked::admits(kind, config.while_locked) && self.desktop.screen_locked() {
+            let (message, detail) = crate::locked::refusal(tool.name, kind, config.while_locked);
+            let mut out = ToolOutput::error(crate::locked::CODE, message);
+            set_key(&mut out.body, "whileLocked", detail);
+            return Err(out);
+        }
         match tool.name {
             "status" => Ok((self.status(&config), None)),
+            "list_displays" => {
+                self.authorize(&config, ctx, Access::Discover, None, false)?;
+                let body = crate::displays::list(self.desktop.as_ref())
+                    .map_err(|e| ToolOutput::desktop(&e))?;
+                Ok((ToolOutput::ok(body), None))
+            }
             "list_machines" => Ok((
                 ToolOutput::ok(
                     json!({"machines": [], "note": "Only this machine is reachable from here."}),
@@ -854,6 +891,7 @@ impl Engine {
                 Ok((ToolOutput::ok(json!({"requested": which})), None))
             }
             "screenshot" => self.screenshot(&config, ctx, args),
+            "record" => self.record(&config, ctx, args),
             "get_ui_tree" => {
                 let window = self.window(need(args, "window_id")?)?;
                 let app = self.app_of(&window);
@@ -895,6 +933,7 @@ impl Engine {
                 Ok((ToolOutput::ok(Value::Object(body)), Some(app)))
             }
             "click" => self.click(&config, ctx, args),
+            "move_pointer" => self.move_pointer(&config, ctx, args),
             "type_text" => {
                 let window = self.window(need(args, "window_id")?)?;
                 let text = args
@@ -1070,6 +1109,8 @@ impl Engine {
             }
             "wait" => self.wait(&config, ctx, args),
             "batch" => self.batch(ctx, args),
+            "list_alerts" => self.list_alerts(&config, ctx),
+            "dismiss_alert" => self.dismiss_alert(&config, ctx, args),
             other => Err(ToolOutput::error("unknown_tool", format!("unknown tool {other:?}"))),
         }
     }
@@ -1089,6 +1130,15 @@ impl Engine {
             "cursor": config.show_cursor,
             "cloud_vm": config.cloud_vm,
             "menus": config.menus.as_str(),
+            "screen_locked": self.desktop.screen_locked(),
+            "while_locked": config.while_locked,
+            "alerts": config.alerts,
+            // Which binary answers, so `cmux computer-use doctor` can say
+            // whether the staged, verified helper is the one running.
+            "worker": {
+                "executable": std::env::current_exe().ok(),
+                "pid": std::process::id(),
+            },
         }))
     }
 
@@ -1359,46 +1409,7 @@ impl Engine {
             .unwrap_or_default();
         let modifiers = KeyCombo::parse_modifiers(&modifiers)
             .map_err(|e| ToolOutput::error("invalid_arguments", e))?;
-        let (window, target) = match args_str(args, "window_id") {
-            Some(id) => {
-                let window = self.window(id)?;
-                if args_str(args, "element_id").is_none()
-                    && (args_f64(args, "x").is_none() || args_f64(args, "y").is_none())
-                {
-                    return Err(ToolOutput::error(
-                        "invalid_arguments",
-                        "click needs element_id or x and y",
-                    ));
-                }
-                // Mapped after the policy check (a denied app is refused as such).
-                (window, None)
-            }
-            None => {
-                let (x, y) = (need_f64(args, "x")?, need_f64(args, "y")?);
-                let key = lock(&self.last_display).get(&ctx.session).cloned().ok_or_else(|| {
-                    ToolOutput::error(
-                        "invalid_arguments",
-                        "click with no window_id uses your latest display screenshot; take one first, or pass window_id",
-                    )
-                })?;
-                let geometry = lock(&self.seen)
-                    .get(&(ctx.session.clone(), key))
-                    .map(|(g, _)| *g)
-                    .ok_or_else(|| {
-                    ToolOutput::error("invalid_arguments", "take a display screenshot first")
-                })?;
-                let point = geometry.to_global(x, y);
-                let window = self
-                    .windows()?
-                    .into_iter()
-                    .find(|w| w.on_screen && !w.minimized && contains(&w.frame, point))
-                    .ok_or_else(|| {
-                        ToolOutput::error("target_not_found", "no window at that point")
-                    })?;
-                let target = PointerTarget::Point { window_id: window.id.clone(), point };
-                (window, Some(target))
-            }
-        };
+        let (window, target) = self.pointer_window(ctx, args, "click")?;
         if args_str(args, "menu_item").is_some() && !self.desktop.picks_menu_items() {
             return Err(ToolOutput::error(
                 "unsupported",
@@ -1597,9 +1608,12 @@ impl Engine {
 
     /// Waits as `mode` says after an acting call and adds the window's
     /// screenshot and tree to `out` as `state`:
-    /// - adaptive: [`Settle`]: a floor, then a screenshot every step until it
-    ///   differs from what the agent last saw, up to the ceiling (elapsed
-    ///   time, captures included); an unchanged window returns no image.
+    /// - adaptive: [`Settle`]: a floor (ended early by the app's signal and
+    ///   its burst), then a screenshot every step until it differs from what
+    ///   the agent last saw, up to the ceiling (elapsed time, captures
+    ///   included); an unchanged window returns no image. A watched app that
+    ///   sent no signal and whose window is unchanged at the first capture
+    ///   returns then: its frames are not waited for.
     /// - anthropic: [`ANTHROPIC_SCREENSHOT_DELAY`] (none after typing), then
     ///   the screenshot, always with its image.
     /// - openai: the screenshot at once, always with its image.
@@ -1630,10 +1644,16 @@ impl Engine {
         let mut signals_then = watch.map(|w| w.signals().total());
         let shot = match mode {
             SettleMode::Adaptive => {
-                (self.sleep)(s.floor);
+                // The floor ends at the app's own signal (and its burst),
+                // not at a fixed time: a watch that can block wakes on it.
+                // The watch counts from before the action (it starts at 0
+                // then): a signal the app sent while the action ran counts.
+                let signals_before = watch.map(|_| 0u32);
+                self.wait_change(watch, signals_then.unwrap_or(0), s.floor);
                 // The newest capture that changed: a later one compares with
                 // it, so an unchanged one after it means the window held.
                 let mut changed_shot: Option<ToolOutput> = None;
+                let mut first = true;
                 loop {
                     // Checkpoint: the person's Stop ends the settle wait.
                     if let Err(stopped) = self.stops.check(&ctx.session) {
@@ -1661,7 +1681,19 @@ impl Engine {
                             } else {
                                 Some(shot)
                             };
-                            if (changed_shot.is_some() && quiet) || elapsed >= s.ceiling {
+                            // An app that listens and sent no signal since
+                            // before the action, with its window unchanged
+                            // after the floor: nothing is coming. Its frames
+                            // are not waited for (Leo: "why do we ever even
+                            // wait for screen frames?"); only an app without
+                            // signals, or one whose signals say it changed,
+                            // is watched frame by frame up to the ceiling.
+                            let silent = first
+                                && watch.is_some()
+                                && signals_now == signals_before
+                                && changed_shot.is_none();
+                            first = false;
+                            if silent || (changed_shot.is_some() && quiet) || elapsed >= s.ceiling {
                                 // One of the two is always set.
                                 match changed_shot.take().or(shot) {
                                     Some(last) => break Ok((last, elapsed)),
@@ -2189,6 +2221,18 @@ mod observe_glue;
 #[path = "engine_batch.rs"]
 mod batch_glue;
 
+#[path = "engine_alerts.rs"]
+mod alerts_glue;
+
+#[path = "engine_record.rs"]
+mod record_glue;
+
+#[path = "engine_window_name.rs"]
+mod window_name;
+
+#[path = "engine_pointer.rs"]
+mod pointer_glue;
+
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;
@@ -2208,3 +2252,15 @@ mod observe_tests;
 #[cfg(test)]
 #[path = "engine_batch_tests.rs"]
 mod batch_tests;
+
+#[cfg(test)]
+#[path = "engine_alerts_tests.rs"]
+mod alerts_tests;
+
+#[cfg(test)]
+#[path = "engine_record_tests.rs"]
+mod record_tests;
+
+#[cfg(test)]
+#[path = "engine_pointer_tests.rs"]
+mod pointer_tests;

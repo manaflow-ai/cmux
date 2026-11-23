@@ -53,6 +53,7 @@ async fn open(grant: Option<CarrierGrant>, reply: &'static str) -> (Value, Vec<S
         grant.as_ref(),
         incoming.stream,
         MuxUploadBudget::new(),
+        false,
     );
     // An admitted stream's pump runs until the stream ends: the open's answer and the
     // fake's lines are all this reads, then the pump is dropped.
