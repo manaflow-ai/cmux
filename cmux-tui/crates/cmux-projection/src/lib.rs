@@ -19,6 +19,7 @@ pub mod overlay;
 pub mod peers;
 #[cfg(unix)]
 pub mod reap;
+pub mod sparse;
 #[cfg(unix)]
 pub mod state;
 #[cfg(target_os = "linux")]

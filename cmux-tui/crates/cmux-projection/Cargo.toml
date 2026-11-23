@@ -26,6 +26,8 @@ sha2.workspace = true
 zstd.workspace = true
 # O_NOFOLLOW for the way back (layer.rs), on the Mac too.
 libc.workspace = true
+# git-mount --sparse: the non-cone patterns are gitignore patterns (sparse.rs), as ripgrep reads them.
+ignore.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # abi-7-31 (a superset of 7.12): big writes (128 KiB a request, not 4 KiB), the notifier that drops

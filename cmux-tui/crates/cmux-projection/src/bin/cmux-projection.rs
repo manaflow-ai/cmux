@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
-//!                           [--name NAME] [--ready-file FILE]
+//!                           [--name NAME] [--ready-file FILE] [--sparse FILE]
 //! cmux-projection git-unmount --at PATH
 //! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
 //! ```
@@ -14,7 +14,10 @@
 //! cargo finds its last build fresh. `--fresh` starts a new checkout: the upper folder and the
 //! worktree's index are made anew. git sees PATH as a worktree of MIRROR named NAME (default
 //! `projected-<hash of PATH>`). Once the mount is up it prints one JSON line of timings on stderr
-//! and writes it to `--ready-file`.
+//! and writes it to `--ready-file`. `--sparse FILE` checks out only what FILE's non-cone sparse
+//! patterns keep (one a line, as `git sparse-checkout set --no-cone --stdin` reads them): the rest
+//! is not projected, its index entries are skip-worktree, and the worktree records the patterns
+//! as git does, so `git status` stays clean and `git sparse-checkout list` prints them.
 //!
 //! The blobs MIRROR lacks are first asked of the fleet's seeds, the controller SSD and R2 that the
 //! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
@@ -48,9 +51,10 @@ mod linux {
     use cmux_projection::mount;
     use cmux_projection::overlay::Overlay;
     use cmux_projection::peers::{self, Chain, SeedLimits};
+    use cmux_projection::sparse::Sparse;
 
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
-                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE]\n       \
+                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] [--sparse FILE]\n       \
                          cmux-projection git-unmount --at PATH\n       \
                          cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] \
                          [--conns N]";
@@ -63,6 +67,7 @@ mod linux {
         keep: Option<PathBuf>,
         name: Option<String>,
         ready_file: Option<PathBuf>,
+        sparse: Option<PathBuf>,
         listen: Option<String>,
         rate: Option<u64>,
         conns: Option<usize>,
@@ -88,6 +93,7 @@ mod linux {
                 "--keep" => parsed.keep = Some(value.into()),
                 "--name" => parsed.name = Some(value.clone()),
                 "--ready-file" => parsed.ready_file = Some(value.into()),
+                "--sparse" => parsed.sparse = Some(value.into()),
                 "--listen" => parsed.listen = Some(value.clone()),
                 "--rate" => parsed.rate = Some(value.parse()?),
                 "--conns" => parsed.conns = Some(value.parse()?),
@@ -159,6 +165,7 @@ mod linux {
             args.git_dir.clone().ok_or_else(|| anyhow::anyhow!("--git-dir is required"))?;
         let git_dir = git_dir.canonicalize()?;
         let rev = args.commit.clone().ok_or_else(|| anyhow::anyhow!("--commit is required"))?;
+        let sparse = args.sparse.as_deref().map(Sparse::load).transpose()?;
         std::fs::create_dir_all(at)?;
         let at = at.canonicalize()?;
         let at_text = at.to_string_lossy().into_owned();
@@ -216,6 +223,7 @@ mod linux {
             gitfile: Some(Worktree::gitfile(&admin)),
             real_root: &real_root,
             links: &links,
+            sparse: sparse.as_ref(),
         };
         let projection = Projection::build(&commit, &items, &mut book, &layout)?;
         for real in &projection.real_dirs {
@@ -230,9 +238,15 @@ mod linux {
         }
         // SAFETY: getuid and getgid cannot fail.
         let owner = unsafe { (libc::getuid(), libc::getgid()) };
-        if args.fresh || !admin.join("index").exists() {
+        // Other sparse patterns than last time make the index anew too: its skip-worktree bits
+        // follow the patterns.
+        if args.fresh
+            || !admin.join("index").exists()
+            || !Worktree::sparse_matches(&admin, sparse.as_ref())
+        {
             let index = git::index_bytes(&projection.index, owner.0, owner.1)?;
-            Worktree::write(&git_dir, &name, &at, &commit, &index, &projection.real_dirs)?;
+            Worktree::write(&git_dir, &name, &at, &commit, &index, &projection.real_dirs)?
+                .set_sparse(&git_dir, sparse.as_ref())?;
         }
         book.save(&book_file)?;
         let index_ms = ms(phase);

@@ -2242,6 +2242,7 @@ dependencies = [
  "cmux-process",
  "flate2",
  "fuser",
+ "ignore",
  "libc",
  "reqwest",
  "rustls",

@@ -48,6 +48,7 @@ fn project(git_dir: &Path, commit: &str, book: &mut Book, now_ns: i64) -> Projec
         gitfile: Some("gitdir: /x\n".into()),
         real_root: Path::new("/real"),
         links: &links,
+        sparse: None,
     };
     Projection::build(commit, &items, book, &layout).unwrap()
 }
@@ -139,6 +140,7 @@ fn a_mounted_commit_is_a_clean_worktree_and_writes_land_in_the_upper_folder() {
         gitfile: Some(Worktree::gitfile(&admin)),
         real_root: &real_root,
         links: &links,
+        sparse: None,
     };
     let projection = Projection::build(&commit, &items, &mut Book::default(), &layout).unwrap();
     for real in &projection.real_dirs {

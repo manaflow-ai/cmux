@@ -26,6 +26,7 @@ use std::sync::{Mutex, PoisonError};
 use sha1::{Digest as _, Sha1};
 
 use crate::manifest::{Item, Kind, Manifest};
+use crate::sparse::Sparse;
 use crate::{Fetch, FetchError};
 
 /// What one manifest entry's bytes are.
@@ -203,6 +204,8 @@ pub struct IndexEntry {
     pub mtime_ns: i64,
     /// The manifest entry, whose inode number the mount serves (entry + 1).
     pub entry: u32,
+    /// Left out by the sparse patterns: not projected, marked skip-worktree in the index.
+    pub skip_worktree: bool,
 }
 
 /// A commit ready to mount: its manifest, where each entry's bytes come from, and its index.
@@ -227,6 +230,9 @@ pub struct Layout<'a> {
     pub real_root: &'a Path,
     /// Link texts of the commit's symlinks, by blob id.
     pub links: &'a HashMap<String, String>,
+    /// The sparse patterns (`--sparse`): the paths they leave out are not projected and are
+    /// skip-worktree in the index. None projects every path.
+    pub sparse: Option<&'a Sparse>,
 }
 
 /// The build output folder each marker file asks for, beside it.
@@ -235,12 +241,17 @@ const REAL_DIRS: [(&str, &str); 3] =
 
 impl Projection {
     /// The projection of `commit`'s `items`, with mtimes from `book` (updated to this commit).
+    /// The paths [`Layout::sparse`] leaves out are in the index only, marked skip-worktree.
     pub fn build(
         commit: &str,
-        items: &[TreeItem],
+        all_items: &[TreeItem],
         book: &mut Book,
         layout: &Layout<'_>,
     ) -> anyhow::Result<Self> {
+        let (items, left_out): (Vec<&TreeItem>, Vec<&TreeItem>) = match layout.sparse {
+            Some(sparse) => all_items.iter().partition(|item| sparse.includes(&item.path)),
+            None => (all_items.iter().collect(), Vec::new()),
+        };
         let paths: BTreeSet<&str> = items.iter().map(|item| item.path.as_str()).collect();
         let mut folders = BTreeSet::new();
         for path in &paths {
@@ -253,7 +264,7 @@ impl Projection {
             }
         }
         let mut wanted = BTreeSet::new();
-        for item in items {
+        for item in &items {
             let (dir, name) = match item.path.rsplit_once('/') {
                 Some((dir, name)) => (dir, name),
                 None => ("", item.path.as_str()),
@@ -272,7 +283,7 @@ impl Projection {
         let mut list = Vec::with_capacity(items.len() + wanted.len() + 1);
         let mut sources = HashMap::with_capacity(items.len() + 1);
         let mut mtimes = HashMap::with_capacity(items.len());
-        for item in items {
+        for item in &items {
             let mtime_ns = if item.mode == GITLINK {
                 layout.commit_ns
             } else {
@@ -332,8 +343,8 @@ impl Projection {
         }
         let manifest = Manifest::build(layout.commit_ns, list)?;
         let mut by_entry = vec![Source::None; manifest.len()];
-        let mut index = Vec::with_capacity(items.len());
-        for item in items {
+        let mut index = Vec::with_capacity(all_items.len());
+        for item in &items {
             let entry = manifest
                 .resolve(&item.path)
                 .ok_or_else(|| anyhow::anyhow!("{} is not in the manifest", item.path))?;
@@ -350,6 +361,18 @@ impl Projection {
                 size: item.size,
                 mtime_ns: mtimes.get(item.path.as_str()).copied().unwrap_or(layout.commit_ns),
                 entry,
+                skip_worktree: false,
+            });
+        }
+        for item in left_out {
+            index.push(IndexEntry {
+                path: item.path.clone(),
+                mode: item.mode,
+                oid: item.oid.clone(),
+                size: item.size,
+                mtime_ns: 0,
+                entry: 0,
+                skip_worktree: true,
             });
         }
         if let (Some(source), Some(entry)) = (sources.remove(".git"), manifest.resolve(".git")) {
@@ -368,21 +391,23 @@ impl Projection {
     }
 }
 
-/// The index (version 2) of `entries`, with the stat data the mount serves for each: mtime and
-/// ctime from the manifest, inode number entry + 1, owner `uid`/`gid`. git then finds every file
-/// unchanged by stat alone.
+/// The index of `entries`, with the stat data the mount serves for each: mtime and ctime from the
+/// manifest, inode number entry + 1, owner `uid`/`gid`. git then finds every file unchanged by
+/// stat alone. A skip-worktree entry (left out by the sparse patterns) carries no stat data and
+/// git's extended flag `CE_SKIP_WORKTREE`, which needs index version 3; with none it is version 2.
 pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result<Vec<u8>> {
+    let extended = entries.iter().any(|entry| entry.skip_worktree);
     let mut out = Vec::with_capacity(entries.len() * 100 + 32);
     out.extend_from_slice(b"DIRC");
-    out.extend_from_slice(&2u32.to_be_bytes());
+    out.extend_from_slice(&(if extended { 3u32 } else { 2u32 }).to_be_bytes());
     out.extend_from_slice(&u32::try_from(entries.len())?.to_be_bytes());
     for entry in entries {
-        let (seconds, nanos) = if entry.mode == GITLINK {
+        let (seconds, nanos) = if entry.mode == GITLINK || entry.skip_worktree {
             (0, 0)
         } else {
             (entry.mtime_ns.div_euclid(1_000_000_000), entry.mtime_ns.rem_euclid(1_000_000_000))
         };
-        let (ino, uid, gid, size) = if entry.mode == GITLINK {
+        let (ino, uid, gid, size) = if entry.mode == GITLINK || entry.skip_worktree {
             (0, 0, 0, 0)
         } else {
             (u64::from(entry.entry) + 1, uid, gid, entry.size)
@@ -407,8 +432,14 @@ pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result
         }
         out.extend_from_slice(&hex(&entry.oid)?);
         let name = entry.path.as_bytes();
-        let flags = u16::try_from(name.len().min(0xfff))?;
+        let mut flags = u16::try_from(name.len().min(0xfff))?;
+        if entry.skip_worktree {
+            flags |= CE_EXTENDED;
+        }
         out.extend_from_slice(&flags.to_be_bytes());
+        if entry.skip_worktree {
+            out.extend_from_slice(&CE_SKIP_WORKTREE.to_be_bytes());
+        }
         out.extend_from_slice(name);
         let len = out.len() - start;
         let padded = (len + 8) & !7;
@@ -418,6 +449,11 @@ pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result
     out.extend_from_slice(&digest);
     Ok(out)
 }
+
+/// The entry flag saying a second, extended flags word follows (index version 3).
+const CE_EXTENDED: u16 = 0x4000;
+/// The extended flag of a path the sparse patterns leave out.
+const CE_SKIP_WORKTREE: u16 = 0x4000;
 
 fn hex(oid: &str) -> anyhow::Result<[u8; 20]> {
     anyhow::ensure!(oid.len() == 40, "not a sha-1 object id: {oid}");
@@ -481,6 +517,57 @@ impl Worktree {
             }
         }
         Ok(Self { admin })
+    }
+
+    /// Whether the worktree at `admin` already has `sparse` as its patterns (no `--sparse` and no
+    /// `info/sparse-checkout` count as the same), so an index written for other patterns is
+    /// written again.
+    #[must_use]
+    pub fn sparse_matches(admin: &Path, sparse: Option<&Sparse>) -> bool {
+        let held = std::fs::read_to_string(admin.join("info").join("sparse-checkout")).ok();
+        held.as_deref() == sparse.map(Sparse::text)
+    }
+
+    /// Records `sparse` as this worktree's sparse patterns the way `git sparse-checkout set
+    /// --no-cone` does: the patterns in `info/sparse-checkout`, `core.sparseCheckout=true` and
+    /// `core.sparseCheckoutCone=false` in the worktree's own config. None turns sparse off again.
+    pub fn set_sparse(&self, git_dir: &Path, sparse: Option<&Sparse>) -> anyhow::Result<()> {
+        let file = self.admin.join("info").join("sparse-checkout");
+        let config = self.admin.join("config.worktree");
+        let Some(sparse) = sparse else {
+            if file.exists() {
+                std::fs::remove_file(&file)?;
+            }
+            for key in ["core.sparseCheckout", "core.sparseCheckoutCone"] {
+                let mut unset = Command::new("git");
+                unset.arg("config").arg("--file").arg(&config).args(["--unset", key]);
+                // Exit 5 (no such key) is the state wanted.
+                let _ = output(unset);
+            }
+            return Ok(());
+        };
+        let mut command = git(git_dir);
+        command.args(["config", "--bool", "extensions.worktreeConfig"]);
+        anyhow::ensure!(
+            output(command).is_ok_and(|out| out.starts_with(b"true")),
+            "--sparse needs the worktree's own config: run `git --git-dir {} config \
+             extensions.worktreeConfig true` first",
+            git_dir.display()
+        );
+        std::fs::create_dir_all(self.admin.join("info"))?;
+        write_if_changed(&file, sparse.text().as_bytes())?;
+        for (key, value) in [("core.sparseCheckout", "true"), ("core.sparseCheckoutCone", "false")]
+        {
+            let mut read = Command::new("git");
+            read.arg("config").arg("--file").arg(&config).args(["--get", key]);
+            if output(read).is_ok_and(|out| out.strip_suffix(b"\n") == Some(value.as_bytes())) {
+                continue;
+            }
+            let mut set = Command::new("git");
+            set.arg("config").arg("--file").arg(&config).args([key, value]);
+            output(set)?;
+        }
+        Ok(())
     }
 
     /// The `.git` file's text for this worktree.
